@@ -71,6 +71,8 @@ private:
 };
 
 struct Link : FsLink, std::enable_shared_from_this<Link> {
+	explicit Link(std::shared_ptr<FsNode> target);
+
 	explicit Link(std::shared_ptr<FsNode> owner,
 			std::string name, std::shared_ptr<FsNode> target);
 	
@@ -79,9 +81,9 @@ struct Link : FsLink, std::enable_shared_from_this<Link> {
 	std::shared_ptr<FsNode> getTarget() override;
 
 private:
-	std::shared_ptr<FsNode> owner;
-	std::string name;
-	std::shared_ptr<FsNode> target;
+	std::shared_ptr<FsNode> _owner;
+	std::string _name;
+	std::shared_ptr<FsNode> _target;
 };
 
 struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
@@ -112,6 +114,8 @@ private:
 
 struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	friend struct DirectoryFile;
+
+	static std::shared_ptr<Link> createRootDirectory();
 
 	DirectoryNode();
 

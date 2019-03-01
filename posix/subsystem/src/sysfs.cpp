@@ -114,19 +114,27 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 // Link implementation.
 // ----------------------------------------------------------------------------
 
+Link::Link(std::shared_ptr<FsNode> target)
+: _target{std::move(target)} { }
+
 Link::Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
-: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
+: _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
+	assert(_owner);
+	assert(!_name.empty());
+}
 
 std::shared_ptr<FsNode> Link::getOwner() {
-	return owner;
+	return _owner;
 }
 
 std::string Link::getName() {
-	return name;
+	// The root link does not have a name.
+	assert(_owner);
+	return _name;
 }
 
 std::shared_ptr<FsNode> Link::getTarget() {
-	return target;
+	return _target;
 }
 
 // ----------------------------------------------------------------------------
@@ -196,7 +204,7 @@ COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), (
 	auto ref = object->directoryNode();
 	while(true) {
 		auto link = ref->treeLink();
-		if(!link)
+		if(!link->getOwner())
 			break;
 		path = path.empty() ? link->getName() : link->getName() + "/" + path;
 		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
@@ -206,7 +214,7 @@ COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), (
 	ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
 	while(true) {
 		auto link = ref->treeLink();
-		if(!link)
+		if(!link->getOwner())
 			break;
 		path = "../" + path;
 		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
@@ -218,6 +226,17 @@ COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), (
 // ----------------------------------------------------------------------------
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
+
+std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
+	auto node = std::make_shared<DirectoryNode>();
+	auto the_node = node.get();
+	auto link = std::make_shared<Link>(std::move(node));
+	the_node->_treeLink = link.get();
+	return link;
+}
+
+DirectoryNode::DirectoryNode()
+: _treeLink{nullptr} { }
 
 std::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
 	assert(_entries.find(attr->name()) == _entries.end());
@@ -244,9 +263,6 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	the_node->_treeLink = link.get();
 	return link;
 }
-
-DirectoryNode::DirectoryNode()
-: _treeLink{nullptr} { }
 
 VfsType DirectoryNode::getType() {
 	return VfsType::directory;
@@ -321,19 +337,10 @@ void Object::addObject() {
 	}
 }
 
-// ----------------------------------------------------------------------------
-// Free functions.
-// ----------------------------------------------------------------------------
-
-std::shared_ptr<FsLink> createRoot() {
-	auto node = std::make_shared<DirectoryNode>();
-	return std::make_shared<Link>(nullptr, std::string{}, std::move(node));
-}
-
 } // namespace sysfs
 
 std::shared_ptr<FsLink> getSysfs() {
-	static std::shared_ptr<FsLink> sysfs = sysfs::createRoot();
+	static std::shared_ptr<FsLink> sysfs = sysfs::DirectoryNode::createRootDirectory();
 	return sysfs;
 }
 

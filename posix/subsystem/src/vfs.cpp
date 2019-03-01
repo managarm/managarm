@@ -144,7 +144,8 @@ struct Path {
 
 			auto component = string.substr(start - string.begin(), it - start);
 			if(component == "..") {
-				// we resolve double-dots unless they are at the beginning of the path.
+				// We resolve double-dots unless they are at the beginning of the path.
+				// TODO: We probably should not do this! Might break symlinks!
 				if(components.empty() || components.back() == "..") {
 					components.push_back("..");
 				}else{
@@ -203,7 +204,7 @@ void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string) {
 COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), ([=] {
 	auto sn = StructName::get("path-resolve");
 	if(debugResolve) {
-		std::cout << "posix " << sn << ": Path resolution for '/";
+		std::cout << "posix " << sn << ": Path resolution for '";
 		for(auto it = _components.begin(); it != _components.end(); ++it) {
 			if(it != _components.begin())
 				std::cout << "/";
@@ -220,45 +221,58 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 			std::cout << "posix " << sn << ":     Resolving '" << name << "'" << std::endl;
 
 		// Resolve the link into the directory.
-		auto child = COFIBER_AWAIT _currentPath.second->getTarget()->getLink(std::move(name));
-		if(!child) {
-			// TODO: Return an error code.
-			_currentPath = ViewPath{_currentPath.first, nullptr};
-			COFIBER_RETURN();
-		}
+		if(name == "..") {
+			// TODO: Correctly traverse mount boundaries upwards.
+			assert(_currentPath.second != _currentPath.first->getAnchor()
+					&& "Resolution of .. across mount boundaries is not implemented");
 
-		// Next, we might need to traverse mount boundaries.
-		ViewPath next;
-		if(auto mount = _currentPath.first->getMount(child); mount) {
-			if(debugResolve)
-				std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
-			next = ViewPath{std::move(mount), mount->getOrigin()};
+			if(auto owner = _currentPath.second->getOwner(); owner) {
+				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
+			}else{
+				// We are at the root -- do not modify _currentPath at all.
+			}
 		}else{
-			next = ViewPath{_currentPath.first, std::move(child)};
-		}
+			auto child = COFIBER_AWAIT _currentPath.second->getTarget()->getLink(std::move(name));
 
-		// Finally, we might need to follow symlinks.
-		if(next.second->getTarget()->getType() == VfsType::symlink
-				&& !(_components.empty() && (flags & resolveDontFollow))) {
-			auto result = COFIBER_AWAIT next.second->getTarget()->readSymlink(next.second.get());
-			auto link = Path::decompose(std::get<std::string>(result));
-
-			if(debugResolve) {
-				std::cout << "posix " << sn << ":     Link target is a symlink to '"
-						<< (link.isRelative() ? "" : "/");
-				for(auto it = link.begin(); it != link.end(); ++it) {
-					if(it != link.begin())
-						std::cout << "/";
-					std::cout << *it;
-				}
-				std::cout << "'" << std::endl;
+			if(!child) {
+				// TODO: Return an error code.
+				_currentPath = ViewPath{_currentPath.first, nullptr};
+				COFIBER_RETURN();
 			}
 
-			if(!link.isRelative())
-				_currentPath = _rootPath;
-			_components.insert(_components.begin(), link.begin(), link.end());
-		}else{
-			_currentPath = std::move(next);
+			// Next, we might need to traverse mount boundaries.
+			ViewPath next;
+			if(auto mount = _currentPath.first->getMount(child); mount) {
+				if(debugResolve)
+					std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
+				next = ViewPath{std::move(mount), mount->getOrigin()};
+			}else{
+				next = ViewPath{_currentPath.first, std::move(child)};
+			}
+
+			// Finally, we might need to follow symlinks.
+			if(next.second->getTarget()->getType() == VfsType::symlink
+					&& !(_components.empty() && (flags & resolveDontFollow))) {
+				auto result = COFIBER_AWAIT next.second->getTarget()->readSymlink(next.second.get());
+				auto link = Path::decompose(std::get<std::string>(result));
+
+				if(debugResolve) {
+					std::cout << "posix " << sn << ":     Link target is a symlink to '"
+							<< (link.isRelative() ? "" : "/");
+					for(auto it = link.begin(); it != link.end(); ++it) {
+						if(it != link.begin())
+							std::cout << "/";
+						std::cout << *it;
+					}
+					std::cout << "'" << std::endl;
+				}
+
+				if(!link.isRelative())
+					_currentPath = _rootPath;
+				_components.insert(_components.begin(), link.begin(), link.end());
+			}else{
+				_currentPath = std::move(next);
+			}
 		}
 	}
 

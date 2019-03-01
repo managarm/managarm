@@ -57,11 +57,11 @@ private:
 	VfsType getType() override {
 		return _type;
 	}
-	
+
 	DeviceId readDevice() override {
 		return _id;
 	}
-	
+
 	FutureMaybe<SharedFilePtr> open(std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(link), semantic_flags);
@@ -85,25 +85,33 @@ struct SocketNode : Node {
 
 struct Link : FsLink {
 public:
+	explicit Link(std::shared_ptr<FsNode> target)
+	: _target(std::move(target)) { }
+
 	explicit Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
-	: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
-	
+	: _owner(std::move(owner)), _name(std::move(name)), _target(std::move(target)) {
+		assert(_owner);
+		assert(!_name.empty());
+	}
+
 	std::shared_ptr<FsNode> getOwner() override {
-		return owner;
+		return _owner;
 	}
 
 	std::string getName() override {
-		return name;
+		// The root link does not have a name.
+		assert(_owner);
+		return _name;
 	}
 
 	std::shared_ptr<FsNode> getTarget() override {
-		return target;
+		return _target;
 	}
 
 private:
-	std::shared_ptr<FsNode> owner;
-	std::string name;
-	std::shared_ptr<FsNode> target;
+	std::shared_ptr<FsNode> _owner;
+	std::string _name;
+	std::shared_ptr<FsNode> _target;
 };
 
 struct LinkCompare {
@@ -112,13 +120,13 @@ struct LinkCompare {
 	bool operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
 		return link->getName() < name;
 	}
-	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
-		return name < link->getName();
-	}
+bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+	return name < link->getName();
+}
 
-	bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
-		return a->getName() < b->getName();
-	}
+bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+	return a->getName() < b->getName();
+}
 };
 
 struct DirectoryNode;
@@ -147,9 +155,16 @@ private:
 struct DirectoryNode : Node, std::enable_shared_from_this<DirectoryNode> {
 	friend struct Superblock;
 	friend struct DirectoryFile;
+
+	static std::shared_ptr<Link> createRootDirectory(Superblock *superblock);
+
 private:
 	VfsType getType() override {
 		return VfsType::directory;
+	}
+
+	std::shared_ptr<FsLink> treeLink() override {
+		return _treeLink;
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
@@ -180,12 +195,12 @@ private:
 	}))
 
 	async::result<std::shared_ptr<FsLink>> mkdir(std::string name) override;
-	
+
 	async::result<std::shared_ptr<FsLink>> symlink(std::string name, std::string path) override;
-	
+
 	async::result<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id) override;
-	
+
 	COFIBER_ROUTINE(FutureMaybe<void>, unlink(std::string name) override, ([=] {
 		auto it = _entries.find(name);
 		assert(it != _entries.end());
@@ -197,6 +212,8 @@ public:
 	DirectoryNode(Superblock *superblock);
 
 private:
+	// TODO: This creates a circular reference -- fix this.
+	std::shared_ptr<Link> _treeLink;
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
 };
 
@@ -243,15 +260,15 @@ public:
 	expected<off_t> seek(off_t delta, VfsSeek whence) override;
 
 	expected<size_t> readSome(Process *, void *buffer, size_t max_length) override;
-	
+
 	async::result<void> writeAll(Process *, const void *buffer, size_t length) override;
-	
+
 	FutureMaybe<void> truncate(size_t size) override;
-	
+
 	FutureMaybe<void> allocate(int64_t offset, size_t size) override;
 
 	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t);
-	
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
@@ -312,7 +329,7 @@ struct Superblock : FsSuperblock {
 		auto node = std::make_shared<MemoryNode>(this);
 		COFIBER_RETURN(std::move(node));
 	}))
-	
+
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, createSocket() override, ([=] {
 		auto node = std::make_shared<SocketNode>(this);
 		COFIBER_RETURN(std::move(node));
@@ -386,7 +403,7 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length), ([=] {
 	_offset += length;
 
 	COFIBER_RETURN();
-}))	
+}))
 
 COFIBER_ROUTINE(async::result<void>,
 MemoryFile::truncate(size_t size), ([=] {
@@ -409,7 +426,7 @@ MemoryFile::allocate(int64_t offset, size_t size), ([=] {
 	node->_resizeFile(offset + size);
 
 	COFIBER_RETURN();
-}))	
+}))
 
 COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>,
 MemoryFile::accessMemory(off_t offset),
@@ -498,6 +515,14 @@ SocketNode::SocketNode(Superblock *superblock)
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
+std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock) {
+	auto node = std::make_shared<DirectoryNode>(superblock);
+	auto the_node = node.get();
+	auto link = std::make_shared<Link>(std::move(node));
+	the_node->_treeLink = link;
+	return std::move(link);
+}
+
 DirectoryNode::DirectoryNode(Superblock *superblock)
 : Node{superblock} { }
 
@@ -505,11 +530,13 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>,
 DirectoryNode::mkdir(std::string name), ([=] {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));
+	auto the_node = node.get();
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	the_node->_treeLink = link;
 	_entries.insert(link);
 	COFIBER_RETURN(link);
 }))
-	
+
 COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>,
 DirectoryNode::symlink(std::string name, std::string path), ([=] {
 	assert(_entries.find(name) == _entries.end());
@@ -541,8 +568,7 @@ std::shared_ptr<FsNode> createMemoryNode(std::string path) {
 }
 
 std::shared_ptr<FsLink> createRoot() {
-	auto node = std::make_shared<DirectoryNode>(&globalSuperblock);
-	return std::make_shared<Link>(nullptr, std::string{}, std::move(node));
+	return DirectoryNode::createRootDirectory(&globalSuperblock);
 }
 
 } // namespace tmp_fs
