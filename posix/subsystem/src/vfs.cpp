@@ -143,16 +143,9 @@ struct Path {
 			auto start = std::exchange(it, std::find(it, string.end(), '/'));
 
 			auto component = string.substr(start - string.begin(), it - start);
-			if(component == "..") {
-				// We resolve double-dots unless they are at the beginning of the path.
-				// TODO: We probably should not do this! Might break symlinks!
-				if(components.empty() || components.back() == "..") {
-					components.push_back("..");
-				}else{
-					components.pop_back();
-				}
-			}else if(!component.empty() && component != ".") {
-				// we discard multiple slashes and single-dots.
+			// Note: Due to the way .. interacts with symlins, do not resolve it here!
+			// However, we discard multiple slashes and single-dots.
+			if(!component.empty() && component != ".") {
 				components.push_back(std::move(component));
 			}
 
