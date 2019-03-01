@@ -72,6 +72,9 @@ int main() {
 
 	if(chroot("/realfs"))
 		throw std::runtime_error("chroot() failed");
+	// Some programs, e.g. bash with its builtin getcwd() cannot deal with CWD outside of /.
+	if(chdir("/"))
+		throw std::runtime_error("chdir() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
 

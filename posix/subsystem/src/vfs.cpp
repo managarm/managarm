@@ -26,6 +26,10 @@ std::shared_ptr<MountView> MountView::createRoot(std::shared_ptr<FsLink> origin)
 	return std::make_shared<MountView>(nullptr, nullptr, std::move(origin));
 }
 
+std::shared_ptr<MountView> MountView::getParent() const {
+	return _parent;
+}
+
 std::shared_ptr<FsLink> MountView::getAnchor() const {
 	return _anchor;
 }
@@ -215,14 +219,22 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 
 		// Resolve the link into the directory.
 		if(name == "..") {
-			// TODO: Correctly traverse mount boundaries upwards.
-			assert(_currentPath.second != _currentPath.first->getAnchor()
-					&& "Resolution of .. across mount boundaries is not implemented");
-
-			if(auto owner = _currentPath.second->getOwner(); owner) {
-				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
+			if(_currentPath.second == _currentPath.first->getOrigin()) {
+				if(auto parent = _currentPath.first->getParent(); parent) {
+					auto anchor = _currentPath.first->getAnchor();
+					assert(anchor); // Non-root mounts must have anchors in their parents.
+					auto owner = anchor->getOwner();
+					// TODO: We have to decide if the following is something we want to support:
+					assert(owner && "FS mounted over root of parent mount");
+					_currentPath = ViewPath{parent, owner->treeLink()};
+				}else{
+					// We are at the root -- do not modify _currentPath at all.
+				}
 			}else{
-				// We are at the root -- do not modify _currentPath at all.
+				auto owner = _currentPath.second->getOwner();
+				assert(owner && "VFS resolution crosses root directory of non-root"
+							" mount! (Mount configuration broken?)");
+				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
 			}
 		}else{
 			auto child = COFIBER_AWAIT _currentPath.second->getTarget()->getLink(std::move(name));

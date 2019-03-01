@@ -36,6 +36,8 @@ struct MountView : std::enable_shared_from_this<MountView> {
 			std::shared_ptr<FsLink> origin)
 	: _parent{std::move(parent)}, _anchor{std::move(anchor)}, _origin{std::move(origin)} { }
 
+
+	std::shared_ptr<MountView> getParent() const;
 	std::shared_ptr<FsLink> getAnchor() const;
 	std::shared_ptr<FsLink> getOrigin() const;
 
