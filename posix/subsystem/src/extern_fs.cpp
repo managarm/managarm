@@ -21,15 +21,19 @@ private:
 	std::weak_ptr<Node> _self;
 };
 
+struct DirectoryNode;
+
 struct Context {
-	std::shared_ptr<FsNode> internalizeNode(int64_t id, int type, helix::UniqueLane lane);
-	std::shared_ptr<FsLink> internalizeRoot(std::shared_ptr<FsNode> target);
-	std::shared_ptr<FsLink> internalizeLink(Node *parent, std::string name,
-			std::shared_ptr<FsNode> target);
+	std::shared_ptr<Node> internalizeStructural(int64_t id, helix::UniqueLane lane);
+	std::shared_ptr<Node> internalizeStructural(Node *owner, int64_t id, helix::UniqueLane lane);
+	std::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
+	std::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
+			std::shared_ptr<Node> target);
 
 private:
-	std::map<int64_t, std::weak_ptr<FsNode>> _activeNodes;
-	std::map<std::pair<FsNode *, std::string>, std::weak_ptr<FsLink>> _activeLinks;
+	std::map<int64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
+	std::map<int64_t, std::weak_ptr<Node>> _activePeripheralNodes;
+	std::map<std::pair<Node *, std::string>, std::weak_ptr<FsLink>> _activePeripheralLinks;
 };
 
 struct OpenFile : File {
@@ -222,7 +226,7 @@ private:
 	helix::UniqueLane _lane;
 };
 
-struct Entry : FsLink {
+struct Link : FsLink {
 private:
 	std::shared_ptr<FsNode> getOwner() override {
 		return _owner;
@@ -232,26 +236,60 @@ private:
 		assert(!"No associated name");
 	}
 
+public:
+	Link() = default;
+
+	Link(std::shared_ptr<FsNode> owner)
+	: _owner{std::move(owner)} { }
+
+private:
+	std::shared_ptr<FsNode> _owner;
+};
+
+// This class maintains a strong reference to the target.
+struct PeripheralLink : Link {
+private:
 	std::shared_ptr<FsNode> getTarget() override {
 		return _target;
 	}
 
 public:
-	Entry(std::shared_ptr<FsNode> target)
-	: _target{std::move(target)} { }
-
-	Entry(std::shared_ptr<FsNode> owner, std::shared_ptr<FsNode> target)
-	: _owner{std::move(owner)}, _target{std::move(target)} { }
+	PeripheralLink(std::shared_ptr<FsNode> owner, std::shared_ptr<FsNode> target)
+	: Link{std::move(owner)}, _target{std::move(target)} { }
 
 private:
-	std::shared_ptr<FsNode> _owner;
 	std::shared_ptr<FsNode> _target;
+};
+
+// This class is embedded in a DirectoryNode and share its lifetime.
+struct StructuralLink : Link {
+private:
+	std::shared_ptr<FsNode> getTarget() override;
+
+public:
+	StructuralLink(DirectoryNode *target)
+	: _target{std::move(target)} {
+		assert(_target);
+	}
+
+	StructuralLink(std::shared_ptr<FsNode> owner, DirectoryNode *target)
+	: Link{std::move(owner)}, _target{std::move(target)} {
+		assert(_target);
+	}
+
+private:
+	DirectoryNode *_target;
 };
 
 struct DirectoryNode : Node {
 private:
 	VfsType getType() override {
 		return VfsType::directory;
+	}
+
+	std::shared_ptr<FsLink> treeLink() {
+		auto self = std::shared_ptr<FsNode>{weakNode()};
+		return std::shared_ptr<FsLink>{std::move(self), &_treeLink};
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
@@ -311,9 +349,15 @@ private:
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pull_node.error());
 
-			auto child = _context->internalizeNode(resp.id(), resp.file_type(),
-					pull_node.descriptor());
-			COFIBER_RETURN(_context->internalizeLink(this, name, std::move(child)));
+			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
+				auto child = _context->internalizeStructural(this,
+						resp.id(), pull_node.descriptor());
+				COFIBER_RETURN(child->treeLink());
+			}else{
+				auto child = _context->internalizePeripheralNode(resp.file_type(), resp.id(),
+						pull_node.descriptor());
+				COFIBER_RETURN(_context->internalizePeripheralLink(this, name, std::move(child)));
+			}
 		}else{
 			COFIBER_RETURN(nullptr);
 		}
@@ -357,25 +401,59 @@ private:
 
 public:
 	DirectoryNode(Context *context, int64_t inode, helix::UniqueLane lane)
-	: _context{context}, _inode{inode}, _lane{std::move(lane)} { }
+	: _context{context}, _treeLink{this}, _inode{inode}, _lane{std::move(lane)} { }
+
+	DirectoryNode(Context *context, std::shared_ptr<Node> owner,
+			int64_t inode, helix::UniqueLane lane)
+	: _context{context}, _treeLink{std::move(owner), this},
+			_inode{inode}, _lane{std::move(lane)} { }
 
 private:
 	Context *_context;
+	StructuralLink _treeLink;
 	int64_t _inode;
 	helix::UniqueLane _lane;
 };
 
-std::shared_ptr<FsNode> Context::internalizeNode(int64_t id, int type, helix::UniqueLane lane) {
-	auto entry = &_activeNodes[id];
+std::shared_ptr<FsNode> StructuralLink::getTarget() {
+	return std::shared_ptr<Node>{_target->weakNode()};
+}
+
+std::shared_ptr<Node> Context::internalizeStructural(int64_t id, helix::UniqueLane lane) {
+	auto entry = &_activeStructural[id];
+	auto intern = entry->lock();
+	if(intern)
+		return std::move(intern);
+
+	auto node = std::make_shared<DirectoryNode>(this, id, std::move(lane));
+	node->setupWeakNode(node);
+	*entry = node;
+	return std::move(node);
+}
+
+std::shared_ptr<Node> Context::internalizeStructural(Node *parent,
+		int64_t id, helix::UniqueLane lane) {
+	auto entry = &_activeStructural[id];
+	auto intern = entry->lock();
+	if(intern)
+		return std::move(intern);
+
+	auto owner = std::shared_ptr<Node>{parent->weakNode()};
+	auto node = std::make_shared<DirectoryNode>(this, owner, id, std::move(lane));
+	node->setupWeakNode(node);
+	*entry = node;
+	return std::move(node);
+}
+
+std::shared_ptr<Node> Context::internalizePeripheralNode(int64_t type,
+		int id, helix::UniqueLane lane) {
+	auto entry = &_activePeripheralNodes[id];
 	auto intern = entry->lock();
 	if(intern)
 		return std::move(intern);
 
 	std::shared_ptr<Node> node;
 	switch(type) {
-	case managarm::fs::FileType::DIRECTORY:
-		node = std::make_shared<DirectoryNode>(this, id, std::move(lane));
-		break;
 	case managarm::fs::FileType::REGULAR:
 		node = std::make_shared<RegularNode>(id, std::move(lane));
 		break;
@@ -390,26 +468,15 @@ std::shared_ptr<FsNode> Context::internalizeNode(int64_t id, int type, helix::Un
 	return std::move(node);
 }
 
-std::shared_ptr<FsLink> Context::internalizeRoot(std::shared_ptr<FsNode> target) {
-	auto entry = &_activeLinks[{nullptr, std::string{}}];
-	auto intern = entry->lock();
-	if(intern)
-		return std::move(intern);
-
-	auto link = std::make_shared<Entry>(std::move(target));
-	*entry = link;
-	return link;
-}
-
-std::shared_ptr<FsLink> Context::internalizeLink(Node *parent, std::string name,
-		std::shared_ptr<FsNode> target) {
-	auto entry = &_activeLinks[{parent, name}];
+std::shared_ptr<FsLink> Context::internalizePeripheralLink(Node *parent, std::string name,
+		std::shared_ptr<Node> target) {
+	auto entry = &_activePeripheralLinks[{parent, name}];
 	auto intern = entry->lock();
 	if(intern)
 		return std::move(intern);
 
 	auto owner = std::shared_ptr<Node>{parent->weakNode()};
-	auto link = std::make_shared<Entry>(std::move(owner), std::move(target));
+	auto link = std::make_shared<PeripheralLink>(std::move(owner), std::move(target));
 	*entry = link;
 	return link;
 }
@@ -419,8 +486,8 @@ std::shared_ptr<FsLink> Context::internalizeLink(Node *parent, std::string name,
 std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 	auto context = new Context{};
 	// FIXME: 2 is the ext2fs root inode.
-	auto node = context->internalizeNode(2, managarm::fs::FileType::DIRECTORY, std::move(lane));
-	return context->internalizeRoot(std::move(node));
+	auto node = context->internalizeStructural(2, std::move(lane));
+	return node->treeLink();
 }
 
 smarter::shared_ptr<File, FileHandle>
