@@ -333,9 +333,12 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 
 		handled = closure.fault.resolved();
 	}
-	
+
 	if(handled)
 		return;
+	frigg::infoLogger() << "thor: Unhandled page fault"
+			<< " at " << (void *)address
+			<< ", faulting ip: " << (void *)*image.ip() << frigg::endLog;
 
 	if(!(*image.code() & kPfUser)
 			|| this_thread->flags & Thread::kFlagTrapsAreFatal) {
@@ -378,6 +381,9 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	default:
 		frigg::panicLogger() << "Unexpected fault code" << frigg::endLog;
 	}
+
+	frigg::infoLogger() << "thor: Unhandled " << name << " fault"
+			<< ", faulting ip: " << (void *)*image.ip() << frigg::endLog;
 
 	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
 		frigg::infoLogger() << "traps-are-fatal thread killed by "

@@ -1322,8 +1322,10 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 		AddressSpace::Guard space_guard(&lock);
 
 		mapping = _getMapping(address);
-		if(!mapping)
-			return false;
+		if(!mapping) {
+			node->_resolved = false;
+			return true;
+		}
 	}
 	
 	// FIXME: mapping might be deleted here!
