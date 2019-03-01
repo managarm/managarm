@@ -8,11 +8,24 @@ namespace extern_fs {
 
 namespace {
 
-struct Context {
+struct Node : FsNode {
+	void setupWeakNode(std::weak_ptr<Node> self) {
+		_self = std::move(self);
+	}
 
-	std::shared_ptr<FsNode> internalizeNode(int64_t id, std::shared_ptr<FsNode> node);
-	std::shared_ptr<FsLink> internalizeLink(FsNode *parent, std::string name,
-			std::shared_ptr<FsLink> link);
+	std::weak_ptr<Node> weakNode() {
+		return _self;
+	}
+
+private:
+	std::weak_ptr<Node> _self;
+};
+
+struct Context {
+	std::shared_ptr<FsNode> internalizeNode(int64_t id, int type, helix::UniqueLane lane);
+	std::shared_ptr<FsLink> internalizeRoot(std::shared_ptr<FsNode> target);
+	std::shared_ptr<FsLink> internalizeLink(Node *parent, std::string name,
+			std::shared_ptr<FsNode> target);
 
 private:
 	std::map<int64_t, std::weak_ptr<FsNode>> _activeNodes;
@@ -69,7 +82,7 @@ private:
 	protocols::fs::File _file;
 };
 
-struct RegularNode : FsNode {
+struct RegularNode : Node {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
@@ -159,7 +172,7 @@ private:
 	helix::UniqueLane _lane;
 };
 
-struct SymlinkNode : FsNode {
+struct SymlinkNode : Node {
 private:
 	VfsType getType() override {
 		return VfsType::symlink;
@@ -224,6 +237,9 @@ private:
 	}
 
 public:
+	Entry(std::shared_ptr<FsNode> target)
+	: _target{std::move(target)} { }
+
 	Entry(std::shared_ptr<FsNode> owner, std::shared_ptr<FsNode> target)
 	: _owner{std::move(owner)}, _target{std::move(target)} { }
 
@@ -232,7 +248,7 @@ private:
 	std::shared_ptr<FsNode> _target;
 };
 
-struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
+struct DirectoryNode : Node {
 private:
 	VfsType getType() override {
 		return VfsType::directory;
@@ -295,23 +311,9 @@ private:
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pull_node.error());
 
-			std::shared_ptr<FsNode> child;
-			switch(resp.file_type()) {
-			case managarm::fs::FileType::DIRECTORY:
-				child = std::make_shared<DirectoryNode>(_context, resp.id(), pull_node.descriptor());
-				break;
-			case managarm::fs::FileType::REGULAR:
-				child = std::make_shared<RegularNode>(resp.id(), pull_node.descriptor());
-				break;
-			case managarm::fs::FileType::SYMLINK:
-				child = std::make_shared<SymlinkNode>(resp.id(), pull_node.descriptor());
-				break;
-			default:
-				throw std::runtime_error("extern_fs: Unexpected file type");
-			}
-			auto intern = _context->internalizeNode(resp.id(), child);
-			auto link = std::make_shared<Entry>(shared_from_this(), intern);
-			COFIBER_RETURN(_context->internalizeLink(this, name, link));
+			auto child = _context->internalizeNode(resp.id(), resp.file_type(),
+					pull_node.descriptor());
+			COFIBER_RETURN(_context->internalizeLink(this, name, std::move(child)));
 		}else{
 			COFIBER_RETURN(nullptr);
 		}
@@ -363,33 +365,52 @@ private:
 	helix::UniqueLane _lane;
 };
 
-std::shared_ptr<FsNode> Context::internalizeNode(int64_t id, std::shared_ptr<FsNode> node) {
-	auto it = _activeNodes.find(id);
-	if(it != _activeNodes.end()) {
-		auto intern = it->second.lock();
-		if(intern) {
-			return intern;
-		}else{
-			it->second = node;
-			return node;
-		}
+std::shared_ptr<FsNode> Context::internalizeNode(int64_t id, int type, helix::UniqueLane lane) {
+	auto entry = &_activeNodes[id];
+	auto intern = entry->lock();
+	if(intern)
+		return std::move(intern);
+
+	std::shared_ptr<Node> node;
+	switch(type) {
+	case managarm::fs::FileType::DIRECTORY:
+		node = std::make_shared<DirectoryNode>(this, id, std::move(lane));
+		break;
+	case managarm::fs::FileType::REGULAR:
+		node = std::make_shared<RegularNode>(id, std::move(lane));
+		break;
+	case managarm::fs::FileType::SYMLINK:
+		node = std::make_shared<SymlinkNode>(id, std::move(lane));
+		break;
+	default:
+		throw std::runtime_error("extern_fs: Unexpected file type");
 	}
-	_activeNodes.insert({id, std::weak_ptr<FsNode>{node}});
-	return node;
+	node->setupWeakNode(node);
+	*entry = node;
+	return std::move(node);
 }
 
-std::shared_ptr<FsLink> Context::internalizeLink(FsNode *parent, std::string name, std::shared_ptr<FsLink> link) {
-	auto it = _activeLinks.find({parent, name});
-	if(it != _activeLinks.end()) {
-		auto intern = it->second.lock();
-		if(intern) {
-			return intern;
-		}else{
-			it->second = link;
-			return link;
-		}
-	}
-	_activeLinks.insert({{parent, name}, std::weak_ptr<FsLink>{link}});
+std::shared_ptr<FsLink> Context::internalizeRoot(std::shared_ptr<FsNode> target) {
+	auto entry = &_activeLinks[{nullptr, std::string{}}];
+	auto intern = entry->lock();
+	if(intern)
+		return std::move(intern);
+
+	auto link = std::make_shared<Entry>(std::move(target));
+	*entry = link;
+	return link;
+}
+
+std::shared_ptr<FsLink> Context::internalizeLink(Node *parent, std::string name,
+		std::shared_ptr<FsNode> target) {
+	auto entry = &_activeLinks[{parent, name}];
+	auto intern = entry->lock();
+	if(intern)
+		return std::move(intern);
+
+	auto owner = std::shared_ptr<Node>{parent->weakNode()};
+	auto link = std::make_shared<Entry>(std::move(owner), std::move(target));
+	*entry = link;
 	return link;
 }
 
@@ -398,10 +419,8 @@ std::shared_ptr<FsLink> Context::internalizeLink(FsNode *parent, std::string nam
 std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 	auto context = new Context{};
 	// FIXME: 2 is the ext2fs root inode.
-	auto node = std::make_shared<DirectoryNode>(context, 2, std::move(lane));
-	auto intern = context->internalizeNode(2, node);
-	auto link = std::make_shared<Entry>(nullptr, intern);
-	return context->internalizeLink(nullptr, std::string{}, link);
+	auto node = context->internalizeNode(2, managarm::fs::FileType::DIRECTORY, std::move(lane));
+	return context->internalizeRoot(std::move(node));
 }
 
 smarter::shared_ptr<File, FileHandle>
