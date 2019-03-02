@@ -46,7 +46,7 @@ public:
 	}
 
 	ReaderFile()
-	: File{StructName::get("fifo.read")} { }
+	: File{StructName::get("fifo.read"), File::defaultPipeLikeSeek} { }
 
 	void connect(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
@@ -102,7 +102,7 @@ public:
 	}
 
 	WriterFile()
-	: File{StructName::get("fifo.write")} { }
+	: File{StructName::get("fifo.write"), File::defaultPipeLikeSeek} { }
 
 	void connect(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
