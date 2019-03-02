@@ -187,9 +187,8 @@ struct NodeOperations {
 async::result<void>
 serveFile(helix::UniqueLane lane, void *file, const FileOperations *file_ops);
 
-async::cancelable_result<void>
-servePassthrough(helix::UniqueLane lane, smarter::shared_ptr<void> file,
-		const FileOperations *file_ops);
+async::result<void> servePassthrough(helix::UniqueLane lane, smarter::shared_ptr<void> file,
+		const FileOperations *file_ops, async::result<void> cancellation = {});
 
 cofiber::no_future serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 		const NodeOperations *node_ops);

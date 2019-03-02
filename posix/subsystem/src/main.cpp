@@ -366,11 +366,15 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HelThreadStats stats;
 			HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
 
-			uint64_t user_time = stats.userTime;
-			if(req.mode() == RUSAGE_CHILDREN) {
-				user_time += self->accumulatedUsage().userTime;
+			uint64_t user_time;
+			if(req.mode() == RUSAGE_SELF) {
+				user_time = stats.userTime;
+			}else if(req.mode() == RUSAGE_CHILDREN) {
+				user_time = self->accumulatedUsage().userTime;
 			}else{
-				assert(req.mode() == RUSAGE_SELF);
+				std::cout << "\e[31mposix: GET_RESOURCE_USAGE mode is not supported\e[39m"
+						<< std::endl;
+				// TODO: Return an error response.
 			}
 
 			helix::SendBuffer send_resp;
