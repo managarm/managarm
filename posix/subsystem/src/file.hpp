@@ -80,28 +80,31 @@ public:
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
 	// ------------------------------------------------------------------------
-	
+
 	static async::result<protocols::fs::SeekResult>
-	ptSeek(void *object, int64_t offset);
+	ptSeekRel(void *object, int64_t offset);
+
+	static async::result<protocols::fs::SeekResult>
+	ptSeekAbs(void *object, int64_t offset);
 
 	static async::result<protocols::fs::ReadResult>
 	ptRead(void *object, const char *credentials, void *buffer, size_t length);
-	
+
 	static async::result<void>
 	ptWrite(void *object, const char *credentials, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(void *object);
-	
+
 	static async::result<void>
 	ptTruncate(void *object, size_t size);
 
 	static async::result<void>
 	ptAllocate(void *object, int64_t offset, size_t size);
-	
+
 	static async::result<int>
 	ptGetOption(void *object, int option);
-	
+
 	static async::result<void>
 	ptSetOption(void *object, int option, int value);
 
@@ -112,16 +115,17 @@ public:
 	static async::result<void>
 	ptConnect(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
-	
+
 	static async::result<size_t>
 	ptSockname(void *object, void *addr_ptr, size_t max_addr_length);
-	
+
 	static async::result<void> 
 	ptIoctl(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
-	
+
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
-			.withSeekRel(&ptSeek)
+			.withSeekAbs(&ptSeekAbs)
+			.withSeekRel(&ptSeekRel)
 			.withRead(&ptRead)
 			.withWrite(&ptWrite)
 			.withReadEntries(&ptReadEntries)
@@ -230,14 +234,14 @@ public:
 
 	virtual async::result<void> connect(Process *process,
 			const void *addr_ptr, size_t addr_length);
-	
+
 	virtual async::result<size_t> sockname(void *addr_ptr, size_t max_addr_length);
 
 	// TODO: This should not depend on an offset.
 	// Due to missing support from the kernel, we currently need multiple memory
 	// objects per file for DRM device files.
 	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t offset = 0);
-	
+
 	virtual async::result<void> ioctl(Process *process, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 

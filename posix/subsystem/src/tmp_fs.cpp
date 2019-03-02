@@ -373,8 +373,12 @@ void MemoryFile::handleClose() {
 
 COFIBER_ROUTINE(expected<off_t>,
 MemoryFile::seek(off_t delta, VfsSeek whence), ([=] {
-	assert(whence == VfsSeek::relative);
-	_offset += delta;
+	if(whence == VfsSeek::absolute) {
+		_offset = delta;
+	}else{
+		assert(whence == VfsSeek::relative);
+		_offset += delta;
+	}
 	COFIBER_RETURN(_offset);
 }))
 

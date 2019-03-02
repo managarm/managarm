@@ -21,7 +21,20 @@ constexpr bool logDestruction = false;
 // --------------------------------------------------------
 
 COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>,
-File::ptSeek(void *object, int64_t offset), ([=] {
+File::ptSeekAbs(void *object, int64_t offset), ([=] {
+	auto self = static_cast<File *>(object);
+	auto result = COFIBER_AWAIT self->seek(offset, VfsSeek::absolute);
+	auto error = std::get_if<Error>(&result);
+	if(error && *error == Error::seekOnPipe) {
+		COFIBER_RETURN(protocols::fs::Error::seekOnPipe);
+	}else{
+		assert(!error);
+		COFIBER_RETURN(std::get<off_t>(result));
+	}
+}))
+
+COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>,
+File::ptSeekRel(void *object, int64_t offset), ([=] {
 	auto self = static_cast<File *>(object);
 	auto result = COFIBER_AWAIT self->seek(offset, VfsSeek::relative);
 	auto error = std::get_if<Error>(&result);
