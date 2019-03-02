@@ -41,11 +41,19 @@ void setupInputTranslation(Element *element) {
 			switch(element->usageId) {
 				case 0x30: setInput(EV_ABS, ABS_X); break;
 				case 0x31: setInput(EV_ABS, ABS_Y); break;
+				case 0x38: setInput(EV_ABS, ABS_WHEEL); break;
+				default:
+					std::cout << "usb-hid: Unknown usage " << element->usageId
+							<< " in Generic Desktop Page" << std::endl;
 			}
 		}else{
 			switch(element->usageId) {
 				case 0x30: setInput(EV_REL, REL_X); break;
 				case 0x31: setInput(EV_REL, REL_Y); break;
+				case 0x38: setInput(EV_REL, REL_WHEEL); break;
+				default:
+					std::cout << "usb-hid: Unknown usage " << element->usageId
+							<< " in Generic Desktop Page" << std::endl;
 			}
 		}
 	}else if(element->usagePage == pages::keyboard) {
@@ -118,6 +126,9 @@ void setupInputTranslation(Element *element) {
 			case 0xE5: setInput(EV_KEY, KEY_RIGHTSHIFT); break;
 			case 0xE6: setInput(EV_KEY, KEY_RIGHTALT); break;
 			case 0xE7: setInput(EV_KEY, KEY_RIGHTMETA); break;
+			default:
+				std::cout << "usb-hid: Unknown usage " << element->usageId
+						<< " in Keyboard Page" << std::endl;
 		}
 	}else if(element->usagePage == pages::button) {
 //		assert(element->isAbsolute);
@@ -125,7 +136,12 @@ void setupInputTranslation(Element *element) {
 			case 0x01: setInput(EV_KEY, BTN_LEFT); break;
 			case 0x02: setInput(EV_KEY, BTN_RIGHT); break;
 			case 0x03: setInput(EV_KEY, BTN_MIDDLE); break;
+			default:
+				std::cout << "usb-hid: Unknown usage " << element->usageId
+						<< " in Button Page" << std::endl;
 		}
+	}else{
+		std::cout << "usb-hid: Unkown usage page " << element->usagePage << std::endl;
 	}
 }
 
