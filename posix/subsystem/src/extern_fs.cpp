@@ -9,6 +9,57 @@ namespace extern_fs {
 namespace {
 
 struct Node : FsNode {
+	COFIBER_ROUTINE(async::result<FileStats>, getStats() override, ([=] {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_GET_STATS);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+		FileStats stats{};
+		stats.inodeNumber = getInode(); // TODO: Move this out of FileStats.
+		stats.fileSize = resp.file_size();
+		stats.numLinks = resp.num_links();
+		stats.mode = 0; //resp.mode(); // TODO: Fix this after fixing modes in mlibc.
+		stats.uid = resp.uid();
+		stats.gid = resp.gid();
+		stats.atimeSecs = resp.atime_secs();
+		stats.atimeNanos = resp.atime_nanos();
+		stats.ctimeSecs = resp.mtime_secs();
+		stats.atimeNanos = resp.mtime_nanos();
+		stats.ctimeSecs = resp.ctime_secs();
+		stats.atimeNanos = resp.ctime_nanos();
+
+		COFIBER_RETURN(stats);
+	}))
+
+public:
+	Node(uint64_t inode, helix::UniqueLane lane)
+	: _inode{inode}, _lane{std::move(lane)} { }
+
+	uint64_t getInode() {
+		return _inode;
+	}
+
+	helix::BorrowedLane getLane() {
+		return _lane;
+	}
+
 	void setupWeakNode(std::weak_ptr<Node> self) {
 		_self = std::move(self);
 	}
@@ -19,6 +70,8 @@ struct Node : FsNode {
 
 private:
 	std::weak_ptr<Node> _self;
+	uint64_t _inode;
+	helix::UniqueLane _lane;
 };
 
 struct DirectoryNode;
@@ -92,45 +145,6 @@ private:
 		return VfsType::regular;
 	}
 
-	COFIBER_ROUTINE(async::result<FileStats>, getStats() override, ([=] {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_GET_STATS);
-
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		COFIBER_AWAIT transmit.async_wait();
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
-
-		managarm::fs::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-
-		FileStats stats{};
-		stats.inodeNumber = _inode; // TODO: Move this out of FileStats.
-		stats.fileSize = resp.file_size();
-		stats.numLinks = resp.num_links();
-		stats.mode = resp.mode();
-		stats.uid = resp.uid();
-		stats.gid = resp.gid();
-		stats.atimeSecs = resp.atime_secs();
-		stats.atimeNanos = resp.atime_nanos();
-		stats.ctimeSecs = resp.mtime_secs();
-		stats.atimeNanos = resp.mtime_nanos();
-		stats.ctimeSecs = resp.ctime_secs();
-		stats.atimeNanos = resp.ctime_nanos();
-
-		COFIBER_RETURN(stats);
-	}))
-
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
@@ -144,7 +158,7 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
@@ -169,11 +183,7 @@ private:
 
 public:
 	RegularNode(uint64_t inode, helix::UniqueLane lane)
-	: _inode{inode}, _lane{std::move(lane)} { }
-
-private:
-	uint64_t _inode;
-	helix::UniqueLane _lane;
+	: Node{inode, std::move(lane)} { }
 };
 
 struct SymlinkNode : Node {
@@ -181,13 +191,6 @@ private:
 	VfsType getType() override {
 		return VfsType::symlink;
 	}
-
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		FileStats stats{};
-		stats.inodeNumber = _inode; // TODO: Move this out of FileStats.
-		std::cout << "\e[31mposix: Fix extern_fs SymlinkNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(stats);
-	}))
 
 	COFIBER_ROUTINE(expected<std::string>, readSymlink(FsLink *) override, ([=] {
 		helix::Offer offer;
@@ -199,7 +202,7 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_READ_SYMLINK);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
@@ -219,11 +222,7 @@ private:
 
 public:
 	SymlinkNode(int64_t inode, helix::UniqueLane lane)
-	: _inode{inode}, _lane{std::move(lane)} { }
-
-private:
-	int64_t _inode;
-	helix::UniqueLane _lane;
+	: Node{inode, std::move(lane)} { }
 };
 
 struct Link : FsLink {
@@ -292,13 +291,6 @@ private:
 		return std::shared_ptr<FsLink>{std::move(self), &_treeLink};
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		FileStats stats{};
-		stats.inodeNumber = _inode; // TODO: Move this out of FileStats.
-		std::cout << "\e[31mposix: Fix extern_fs DirectoryNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(stats);
-	}))
-
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			mkdir(std::string name) override, ([=] {
 		(void)name;
@@ -334,7 +326,7 @@ private:
 		req.set_path(name);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
@@ -376,7 +368,7 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
@@ -401,18 +393,15 @@ private:
 
 public:
 	DirectoryNode(Context *context, int64_t inode, helix::UniqueLane lane)
-	: _context{context}, _treeLink{this}, _inode{inode}, _lane{std::move(lane)} { }
+	: Node{inode, std::move(lane)}, _context{context}, _treeLink{this} { }
 
 	DirectoryNode(Context *context, std::shared_ptr<Node> owner,
 			int64_t inode, helix::UniqueLane lane)
-	: _context{context}, _treeLink{std::move(owner), this},
-			_inode{inode}, _lane{std::move(lane)} { }
+	: Node{inode, std::move(lane)}, _context{context}, _treeLink{std::move(owner), this} { }
 
 private:
 	Context *_context;
 	StructuralLink _treeLink;
-	int64_t _inode;
-	helix::UniqueLane _lane;
 };
 
 std::shared_ptr<FsNode> StructuralLink::getTarget() {
