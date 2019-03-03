@@ -1,6 +1,7 @@
 
 #include <sys/epoll.h>
 
+#include <async/cancellation.hpp>
 #include "file.hpp"
 
 namespace epoll {
@@ -13,7 +14,7 @@ void modifyItem(File *epfile, File *file, int flags, uint64_t cookie);
 void deleteItem(File *epfile, File *file, int flags);
 
 async::result<size_t> wait(File *epfile, struct epoll_event *events,
-		size_t max_events, async::result<void> cancellation);
+		size_t max_events, async::cancellation_token cancellation = {});
 
 } // namespace epoll
 

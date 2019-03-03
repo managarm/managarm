@@ -156,19 +156,18 @@ public:
 
 	COFIBER_ROUTINE(async::result<size_t>,
 	waitForEvents(struct epoll_event *events, size_t max_events,
-			async::result_reference<void> cancellation), ([=] {
+			async::cancellation_token cancellation), ([=] {
 		assert(max_events);
 		if(logEpoll) {
-			auto cf = cancellation.get_awaitable() ? cancellation.get_awaitable()->ready() : false;
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
-					" There are " << _pendingQueue.size() << " pending items;"
-					" cancellation flag is " << (cf ? "set" : "clear") << std::endl;
+					" There are " << _pendingQueue.size() << " pending items; cancellation is "
+					<< (cancellation.is_cancellation_requested() ? "active" : "inactive")
+					<< std::endl;
 		}
 
 		size_t k = 0;
-		bool waiting = true;
 		boost::intrusive::list<Item> repoll_queue;
-		while(waiting) {
+		while(true) {
 			// TODO: Stop waiting in this case.
 			assert(isOpen());
 
@@ -242,10 +241,14 @@ public:
 				break;
 
 			// Block and re-check if there are pending events.
+			if(cancellation.is_cancellation_requested())
+				break;
+
 			auto future = _statusBell.async_wait();
-			waiting = COFIBER_AWAIT async::complete_or_cancel<void>{future, cancellation};
-			if(!waiting)
-				_statusBell.cancel_async_wait(future);
+			async::result_reference<void> ref = future;
+			async::cancellation_callback cancel_callback{cancellation, [&] {
+				_statusBell.cancel_async_wait(ref);
+			}};
 			COFIBER_AWAIT std::move(future);
 		}
 
@@ -363,7 +366,7 @@ void deleteItem(File *epfile, File *file, int flags) {
 }
 
 async::result<size_t> wait(File *epfile, struct epoll_event *events,
-		size_t max_events, async::result<void> cancellation) {
+		size_t max_events, async::cancellation_token cancellation) {
 	auto epoll = static_cast<OpenFile *>(epfile);
 	return epoll->waitForEvents(events, max_events, cancellation);
 }

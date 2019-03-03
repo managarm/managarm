@@ -1416,14 +1416,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			struct epoll_event events[16];
 			size_t k;
 			if(req.timeout() == -1 || req.timeout() > 0) {
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
-						16, async::result<void>{});
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16);
 			}else if(req.timeout() == 0) {
 				// Do not bother to set up a timer for zero timeouts.
-				async::promise<void> promise;
-				promise.set_value();
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
-						16, promise.async_get());
+				async::cancellation_event cancel_wait;
+				cancel_wait.cancel();
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
 			}else{
 				assert(!"posix: Implement real epoll timeouts");
 				__builtin_unreachable();
@@ -1546,13 +1544,13 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			size_t k;
 			if(req.timeout() == -1 || req.timeout() > 0) {
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
-						std::min(req.size(), uint32_t(16)), async::result<void>{});
+						std::min(req.size(), uint32_t(16)));
 			}else if(req.timeout() == 0) {
 				// Do not bother to set up a timer for zero timeouts.
-				async::promise<void> promise;
-				promise.set_value();
+				async::cancellation_event cancel_wait;
+				cancel_wait.cancel();
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
-						std::min(req.size(), uint32_t(16)), promise.async_get());
+						std::min(req.size(), uint32_t(16)), cancel_wait);
 			}else{
 				assert(!"posix: Implement real epoll timeouts");
 				__builtin_unreachable();
