@@ -23,6 +23,7 @@
 
 namespace {
 	constexpr bool logDescriptorParser = false;
+	constexpr bool logUnknownCodes = false;
 	constexpr bool logFields = false;
 	constexpr bool logRawPackets = false;
 	constexpr bool logFieldValues = false;
@@ -43,8 +44,9 @@ void setupInputTranslation(Element *element) {
 				case 0x31: setInput(EV_ABS, ABS_Y); break;
 				case 0x38: setInput(EV_ABS, ABS_WHEEL); break;
 				default:
-					std::cout << "usb-hid: Unknown usage " << element->usageId
-							<< " in Generic Desktop Page" << std::endl;
+					if(logUnknownCodes)
+						std::cout << "usb-hid: Unknown usage " << element->usageId
+								<< " in Generic Desktop Page" << std::endl;
 			}
 		}else{
 			switch(element->usageId) {
@@ -52,8 +54,9 @@ void setupInputTranslation(Element *element) {
 				case 0x31: setInput(EV_REL, REL_Y); break;
 				case 0x38: setInput(EV_REL, REL_WHEEL); break;
 				default:
-					std::cout << "usb-hid: Unknown usage " << element->usageId
-							<< " in Generic Desktop Page" << std::endl;
+					if(logUnknownCodes)
+						std::cout << "usb-hid: Unknown usage " << element->usageId
+								<< " in Generic Desktop Page" << std::endl;
 			}
 		}
 	}else if(element->usagePage == pages::keyboard) {
@@ -106,9 +109,27 @@ void setupInputTranslation(Element *element) {
 			case 0x30: setInput(EV_KEY, KEY_RIGHTBRACE); break;
 			case 0x31: setInput(EV_KEY, KEY_BACKSLASH); break;
 			case 0x33: setInput(EV_KEY, KEY_SEMICOLON); break;
+			case 0x34: setInput(EV_KEY, KEY_APOSTROPHE); break;
+			case 0x35: setInput(EV_KEY, KEY_GRAVE); break;
 			case 0x36: setInput(EV_KEY, KEY_COMMA); break;
 			case 0x37: setInput(EV_KEY, KEY_DOT); break;
 			case 0x38: setInput(EV_KEY, KEY_SLASH); break;
+			case 0x3A: setInput(EV_KEY, KEY_F1); break;
+			case 0x3B: setInput(EV_KEY, KEY_F2); break;
+			case 0x3C: setInput(EV_KEY, KEY_F3); break;
+			case 0x3D: setInput(EV_KEY, KEY_F4); break;
+			case 0x3E: setInput(EV_KEY, KEY_F5); break;
+			case 0x3F: setInput(EV_KEY, KEY_F6); break;
+			case 0x40: setInput(EV_KEY, KEY_F7); break;
+			case 0x41: setInput(EV_KEY, KEY_F8); break;
+			case 0x42: setInput(EV_KEY, KEY_F9); break;
+			case 0x43: setInput(EV_KEY, KEY_F10); break;
+			case 0x44: setInput(EV_KEY, KEY_F11); break;
+			case 0x45: setInput(EV_KEY, KEY_F12); break;
+			case 0x46: setInput(EV_KEY, KEY_SYSRQ); break;
+			case 0x47: setInput(EV_KEY, KEY_SCROLLLOCK); break;
+			case 0x48: setInput(EV_KEY, KEY_PAUSE); break;
+			case 0x49: setInput(EV_KEY, KEY_INSERT); break;
 			case 0x4A: setInput(EV_KEY, KEY_HOME); break;
 			case 0x4B: setInput(EV_KEY, KEY_PAGEUP); break;
 			case 0x4C: setInput(EV_KEY, KEY_DELETE); break;
@@ -118,6 +139,24 @@ void setupInputTranslation(Element *element) {
 			case 0x50: setInput(EV_KEY, KEY_LEFT); break;
 			case 0x51: setInput(EV_KEY, KEY_DOWN); break;
 			case 0x52: setInput(EV_KEY, KEY_UP); break;
+			case 0x53: setInput(EV_KEY, KEY_NUMLOCK); break;
+			case 0x54: setInput(EV_KEY, KEY_KPSLASH); break;
+			case 0x55: setInput(EV_KEY, KEY_KPASTERISK); break;
+			case 0x56: setInput(EV_KEY, KEY_KPMINUS); break;
+			case 0x57: setInput(EV_KEY, KEY_KPPLUS); break;
+			case 0x58: setInput(EV_KEY, KEY_KPENTER); break;
+			case 0x59: setInput(EV_KEY, KEY_KP1); break;
+			case 0x5A: setInput(EV_KEY, KEY_KP2); break;
+			case 0x5B: setInput(EV_KEY, KEY_KP3); break;
+			case 0x5C: setInput(EV_KEY, KEY_KP4); break;
+			case 0x5D: setInput(EV_KEY, KEY_KP5); break;
+			case 0x5E: setInput(EV_KEY, KEY_KP6); break;
+			case 0x5F: setInput(EV_KEY, KEY_KP7); break;
+			case 0x60: setInput(EV_KEY, KEY_KP8); break;
+			case 0x61: setInput(EV_KEY, KEY_KP9); break;
+			case 0x62: setInput(EV_KEY, KEY_KP0); break;
+			case 0x63: setInput(EV_KEY, KEY_KPDOT); break;
+			case 0x64: setInput(EV_KEY, KEY_102ND); break;
 			case 0xE0: setInput(EV_KEY, KEY_LEFTCTRL); break;
 			case 0xE1: setInput(EV_KEY, KEY_LEFTSHIFT); break;
 			case 0xE2: setInput(EV_KEY, KEY_LEFTALT); break;
@@ -127,8 +166,9 @@ void setupInputTranslation(Element *element) {
 			case 0xE6: setInput(EV_KEY, KEY_RIGHTALT); break;
 			case 0xE7: setInput(EV_KEY, KEY_RIGHTMETA); break;
 			default:
-				std::cout << "usb-hid: Unknown usage " << element->usageId
-						<< " in Keyboard Page" << std::endl;
+				if(logUnknownCodes)
+					std::cout << "usb-hid: Unknown usage " << element->usageId
+							<< " in Keyboard Page" << std::endl;
 		}
 	}else if(element->usagePage == pages::button) {
 //		assert(element->isAbsolute);
@@ -137,11 +177,13 @@ void setupInputTranslation(Element *element) {
 			case 0x02: setInput(EV_KEY, BTN_RIGHT); break;
 			case 0x03: setInput(EV_KEY, BTN_MIDDLE); break;
 			default:
-				std::cout << "usb-hid: Unknown usage " << element->usageId
-						<< " in Button Page" << std::endl;
+				if(logUnknownCodes)
+					std::cout << "usb-hid: Unknown usage " << element->usageId
+							<< " in Button Page" << std::endl;
 		}
 	}else{
-		std::cout << "usb-hid: Unkown usage page " << element->usagePage << std::endl;
+		if(logUnknownCodes)
+			std::cout << "usb-hid: Unkown usage page " << element->usagePage << std::endl;
 	}
 }
 
