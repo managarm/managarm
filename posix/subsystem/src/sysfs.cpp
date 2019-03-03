@@ -35,14 +35,14 @@ void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 	std::tie(lane, file->_passthrough) = helix::createStream();
 	protocols::fs::servePassthrough(std::move(lane),
 			smarter::shared_ptr<File>{file}, &File::fileOperations,
-			file->_cancelServe.async_get());
+			file->_cancelServe);
 }
 
 AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
 : File{StructName::get("sysfs.attr"), std::move(link)}, _cached{false}, _offset{0} { }
 
 void AttributeFile::handleClose() {
-	_cancelServe.set_value();
+	_cancelServe.cancel();
 }
 
 COFIBER_ROUTINE(expected<off_t>,
@@ -84,7 +84,7 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 	std::tie(lane, file->_passthrough) = helix::createStream();
 	protocols::fs::servePassthrough(std::move(lane),
 			smarter::shared_ptr<File>{file}, &File::fileOperations,
-			file->_cancelServe.async_get());
+			file->_cancelServe);
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
@@ -93,7 +93,7 @@ DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
 		_iter{_node->_entries.begin()} { }
 
 void DirectoryFile::handleClose() {
-	_cancelServe.set_value();
+	_cancelServe.cancel();
 }
 
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.

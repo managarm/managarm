@@ -83,7 +83,7 @@ public:
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		protocols::fs::servePassthrough(std::move(lane),
 				smarter::shared_ptr<File>{file}, &File::fileOperations,
-				file->_cancelServe.async_get());
+				file->_cancelServe);
 	}
 
 	OpenFile(bool non_block)
@@ -96,7 +96,7 @@ public:
 
 	void handleClose() {
 		_seqBell.ring();
-		_cancelServe.set_value();
+		_cancelServe.cancel();
 	}
 
 	COFIBER_ROUTINE(expected<size_t>,
@@ -145,7 +145,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
-	async::promise<void> _cancelServe;
+	async::cancellation_event _cancelServe;
 	bool _nonBlock;
 
 	// Currently active timer.

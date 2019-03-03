@@ -147,7 +147,7 @@ private:
 	DirectoryNode *_node;
 
 	helix::UniqueLane _passthrough;
-	async::promise<void> _cancelServe;
+	async::cancellation_event _cancelServe;
 
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
@@ -249,7 +249,7 @@ public:
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		protocols::fs::servePassthrough(std::move(lane), file, &fileOperations,
-				file->_cancelServe.async_get());
+				file->_cancelServe);
 	}
 
 	MemoryFile(std::shared_ptr<FsLink> link)
@@ -275,7 +275,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
-	async::promise<void> _cancelServe;
+	async::cancellation_event _cancelServe;
 
 	uint64_t _offset;
 };
@@ -368,7 +368,7 @@ MemoryNode::MemoryNode(Superblock *superblock)
 : Node{superblock}, _areaSize{0}, _fileSize{0} { }
 
 void MemoryFile::handleClose() {
-	_cancelServe.set_value();
+	_cancelServe.cancel();
 }
 
 COFIBER_ROUTINE(expected<off_t>,
@@ -456,11 +456,11 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 	std::tie(lane, file->_passthrough) = helix::createStream();
 	protocols::fs::servePassthrough(std::move(lane),
 			smarter::shared_ptr<File>{file}, &File::fileOperations,
-			file->_cancelServe.async_get());
+			file->_cancelServe);
 }
 
 void DirectoryFile::handleClose() {
-	_cancelServe.set_value();
+	_cancelServe.cancel();
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)

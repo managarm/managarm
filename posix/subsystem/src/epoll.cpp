@@ -291,7 +291,7 @@ public:
 		}
 
 		_statusBell.ring();
-		_cancelServe.set_value();
+		_cancelServe.cancel();
 	}
 
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq) override, ([=] {
@@ -316,7 +316,7 @@ public:
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		protocols::fs::servePassthrough(std::move(lane),
 				smarter::shared_ptr<File>{file}, &File::fileOperations,
-				file->_cancelServe.async_get());
+				file->_cancelServe);
 	}
 
 	OpenFile()
@@ -324,7 +324,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
-	async::promise<void> _cancelServe;
+	async::cancellation_event _cancelServe;
 
 	// FIXME: This really has to map std::weak_ptrs or std::shared_ptrs.
 	std::unordered_map<File *, Item *> _fileMap;

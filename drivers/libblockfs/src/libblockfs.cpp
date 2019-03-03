@@ -123,17 +123,17 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 COFIBER_ROUTINE(cofiber::no_future, serve(smarter::shared_ptr<ext2fs::OpenFile> file,
 		helix::UniqueLane local_ctrl_, helix::UniqueLane local_pt_),
 		([file, local_ctrl = std::move(local_ctrl_), local_pt = std::move(local_pt_)] () mutable {
-	async::promise<void> cancel_pt;
+	async::cancellation_event cancel_pt;
 	auto ctrl_result = protocols::fs::serveFile(std::move(local_ctrl),
 			file.get(), &fileOperations);
 	auto pt_result = protocols::fs::servePassthrough(std::move(local_pt),
-			file, &fileOperations, cancel_pt.async_get());
+			file, &fileOperations, cancel_pt);
 	
 	// Wait until the file is closed by the client.
 	COFIBER_AWAIT std::move(ctrl_result);
 
 	// Passthrough streams do not keep the file open.
-	cancel_pt.set_value();
+	cancel_pt.cancel();
 	COFIBER_AWAIT std::move(pt_result);
 }))
 

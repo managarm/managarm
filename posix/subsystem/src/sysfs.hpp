@@ -42,7 +42,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
-	async::promise<void> _cancelServe;
+	async::cancellation_event _cancelServe;
 
 	bool _cached;
 	std::string _buffer;
@@ -65,7 +65,7 @@ private:
 	DirectoryNode *_node;
 
 	helix::UniqueLane _passthrough;
-	async::promise<void> _cancelServe;
+	async::cancellation_event _cancelServe;
 
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };

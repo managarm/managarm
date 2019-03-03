@@ -349,8 +349,13 @@ serveFile(helix::UniqueLane p, void *file,
 }))
 
 COFIBER_ROUTINE(async::result<void>, servePassthrough(helix::UniqueLane p,
-		smarter::shared_ptr<void> file, const FileOperations *file_ops, async::result<void> c),
-		([lane = std::move(p), file, file_ops, cancellation = std::move(c)] () mutable {
+		smarter::shared_ptr<void> file, const FileOperations *file_ops,
+		async::cancellation_token cancellation),
+		([lane = std::move(p), file, file_ops, cancellation] () mutable {
+	async::cancellation_callback cancel_callback{cancellation, [&] {
+		HEL_CHECK(helShutdownLane(lane.getHandle()));
+	}};
+
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -358,11 +363,7 @@ COFIBER_ROUTINE(async::result<void>, servePassthrough(helix::UniqueLane p,
 		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		auto future = initiate.async_wait();
-		auto complete = COFIBER_AWAIT async::complete_or_cancel<void>{future, cancellation};
-		if(!complete)
-			HEL_CHECK(helShutdownLane(lane.getHandle()));
-		COFIBER_AWAIT std::move(future);
+		COFIBER_AWAIT initiate.async_wait();
 
 		// TODO: Handle end-of-lane correctly. Why does it even happen here?
 		if(accept.error() == kHelErrLaneShutdown
