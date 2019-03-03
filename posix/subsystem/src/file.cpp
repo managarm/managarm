@@ -119,6 +119,17 @@ async::result<void> File::ptIoctl(void *object, managarm::fs::CntRequest req,
 	return self->ioctl(nullptr, std::move(req), std::move(conversation));
 }
 
+File::~File() {
+	// Nothing to do here.
+	if(logDestruction)
+		std::cout << "\e[37mposix \e[1;34m" << structName()
+				<< "\e[0m\e[37m: File was destructed\e[39m" << std::endl;
+}
+
+bool File::isTerminal() {
+	return _defaultOps & defaultIsTerminal;
+}
+
 COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(Process *process,
 		void *data, size_t length), ([=] {
 	size_t offset = 0;
@@ -130,13 +141,6 @@ COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(Process *process,
 
 	COFIBER_RETURN();
 }))
-
-File::~File() {
-	// Nothing to do here.
-	if(logDestruction)
-		std::cout << "\e[37mposix \e[1;34m" << structName()
-				<< "\e[0m\e[37m: File was destructed\e[39m" << std::endl;
-}
 
 COFIBER_ROUTINE(expected<size_t>, File::readSome(Process *, void *, size_t), ([=] {
 	std::cout << "\e[35mposix \e[1;34m" << structName()

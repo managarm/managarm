@@ -1023,12 +1023,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: IS_TTY" << std::endl;
 
+			auto file = self->fileContext()->getFile(req.fd());
+			assert(file && "Illegal FD for IS_TTY");
+
 			helix::SendBuffer send_resp;
 
-			std::cout << "\e[31mposix: Fix IS_TTY\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_mode(1);
+			resp.set_mode(file->isTerminal());
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

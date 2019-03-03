@@ -75,7 +75,8 @@ struct File : private smarter::crtp_counter<File, DisposeFileHandle> {
 	friend struct smarter::crtp_counter<File, DisposeFileHandle>;
 public:
 	using DefaultOps = uint32_t;
-	static inline constexpr DefaultOps defaultPipeLikeSeek = 1 << 1;
+	static inline constexpr DefaultOps defaultIsTerminal = 1 << 1;
+	static inline constexpr DefaultOps defaultPipeLikeSeek = 1 << 2;
 
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
@@ -189,6 +190,8 @@ public:
 	std::shared_ptr<FsLink> associatedLink() {
 		return _link;
 	}
+
+	bool isTerminal();
 
 	FutureMaybe<void> readExactly(Process *process, void *data, size_t length);
 

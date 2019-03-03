@@ -408,7 +408,8 @@ SlaveDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), (
 }))
 
 SlaveFile::SlaveFile(std::shared_ptr<FsLink> link, std::shared_ptr<Channel> channel)
-: File{StructName::get("pts.slave"), std::move(link), File::defaultPipeLikeSeek},
+: File{StructName::get("pts.slave"), std::move(link),
+		File::defaultIsTerminal | File::defaultPipeLikeSeek},
 		_channel{std::move(channel)} { }
 
 COFIBER_ROUTINE(expected<size_t>,
