@@ -85,8 +85,11 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 				sequence, helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
 
-		if(observe.error() == kHelErrThreadTerminated)
+		if(observe.error() == kHelErrThreadTerminated) {
+			std::cout << "\e[33mposix: Exiting observe()\e[39m" << std::endl;
+			self->currentGeneration()->cancelServe.cancel();
 			COFIBER_RETURN();
+		}
 
 		HEL_CHECK(observe.error());
 		sequence = observe.sequence();
@@ -187,8 +190,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			parent->signalContext()->issueSignal(SIGCHLD, info);
 			self->notify();
 
-			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
-			return;
+			HEL_CHECK(helKillThread(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
@@ -292,22 +294,31 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> self,
-		helix::BorrowedDescriptor thread), ([=] {
+		helix::BorrowedDescriptor thread, async::cancellation_token cancellation), ([=] {
 	uint64_t sequence = 1;
 	while(true) {
+		if(cancellation.is_cancellation_requested())
+			break;
 		//std::cout << "Waiting for raise in " << self->pid() << std::endl;
-		sequence = COFIBER_AWAIT self->signalContext()->pollSignal(sequence, UINT64_C(-1));
+		sequence = COFIBER_AWAIT self->signalContext()->pollSignal(sequence,
+				UINT64_C(-1), cancellation);
 		//std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
 		HEL_CHECK(helInterruptThread(thread.getHandle()));
 	}
+	std::cout << "\e[33mposix: Exiting interruptThread()\e[39m" << std::endl;
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
-		helix::BorrowedDescriptor thread), ([=] {
+		helix::BorrowedDescriptor thread, async::cancellation_token cancellation), ([=] {
 	helix::UniqueDescriptor lane = thread.dup();
 
 	observe(self, lane);
-	interruptThread(self, lane);
+	interruptThread(self, lane, cancellation);
+
+	async::cancellation_callback cancel_callback{cancellation, [&] {
+		std::cout << "\e[33mposix: Cancellation detected in serve()\e[39m" << std::endl;
+		//HEL_CHECK(helShutdownLane(lane.getHandle()));
+	}};
 
 	while(true) {
 		helix::Accept accept;

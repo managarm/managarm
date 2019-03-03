@@ -11,7 +11,8 @@
 
 static bool logFileAttach = false;
 
-cofiber::no_future serve(std::shared_ptr<Process> self, helix::BorrowedDescriptor p);
+cofiber::no_future serve(std::shared_ptr<Process> self, helix::BorrowedDescriptor p,
+		async::cancellation_token cancellation);
 
 // ----------------------------------------------------------------------------
 // VmContext.
@@ -359,15 +360,28 @@ void SignalContext::issueSignal(int sn, SignalInfo info) {
 }
 
 COFIBER_ROUTINE(async::result<uint64_t>,
-SignalContext::pollSignal(uint64_t in_seq, uint64_t mask), ([=] {
+SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
+		async::cancellation_token cancellation), ([=] {
 	assert(in_seq <= _currentSeq);
 
-	while(in_seq == _currentSeq)
-		COFIBER_AWAIT _signalBell.async_wait();
+	while(in_seq == _currentSeq && !cancellation.is_cancellation_requested()) {
+		auto future = _signalBell.async_wait();
+		async::result_reference<void> ref = future;
+		async::cancellation_callback cancel_callback{cancellation, [&] {
+			_signalBell.cancel_async_wait(ref);
+		}};
+		COFIBER_AWAIT std::move(future);
+	}
 
 	// Wait until one of the requested signals becomes active.
-	while(!(_activeSet & mask))
-		COFIBER_AWAIT _signalBell.async_wait();
+	while(!(_activeSet & mask) && !cancellation.is_cancellation_requested()) {
+		auto future = _signalBell.async_wait();
+		async::result_reference<void> ref = future;
+		async::cancellation_callback cancel_callback{cancellation, [&] {
+			_signalBell.cancel_async_wait(ref);
+		}};
+		COFIBER_AWAIT std::move(future);
+	}
 
 	COFIBER_RETURN(_currentSeq);
 }));
@@ -537,7 +551,8 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
 
-	serve(process, process->_threadDescriptor);
+	process->_currentGeneration = new Generation;
+	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
 
 	COFIBER_RETURN(process);
 }))
@@ -573,7 +588,8 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			0, 0, kHelThreadStopped, &new_thread));
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 
-	serve(process, process->_threadDescriptor);
+	process->_currentGeneration = new Generation;
+	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
 
 	return process;
 }
@@ -612,7 +628,8 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	process->_threadDescriptor = std::move(thread);
 
 	// TODO: execute() should return a stopped thread that we can start here.
-	serve(process, process->_threadDescriptor);
+	process->_currentGeneration = new Generation;
+	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
 
 	COFIBER_RETURN();
 }))

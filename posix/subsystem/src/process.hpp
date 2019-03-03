@@ -165,7 +165,8 @@ public:
 
 	void issueSignal(int sn, SignalInfo info);
 
-	async::result<uint64_t> pollSignal(uint64_t in_seq, uint64_t mask);
+	async::result<uint64_t> pollSignal(uint64_t in_seq, uint64_t mask,
+			async::cancellation_token cancellation = {});
 
 	SignalItem *fetchSignal(uint64_t mask);
 
@@ -195,6 +196,10 @@ struct ResourceUsage {
 	uint64_t userTime;
 };
 
+struct Generation {
+	async::cancellation_event cancelServe;
+};
+
 struct Process : std::enable_shared_from_this<Process> {
 	static std::shared_ptr<Process> findProcess(ProcessId pid);
 
@@ -205,6 +210,7 @@ struct Process : std::enable_shared_from_this<Process> {
 	static async::result<void> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
 
+	// Called when the PID is released (by waitpid()).
 	static void retire(Process *process);
 
 public:
@@ -217,6 +223,10 @@ public:
 	int pid() {
 		assert(_pid); // Do not return uninitialized information.
 	 	return _pid;
+	}
+
+	Generation *currentGeneration() {
+		return _currentGeneration;
 	}
 
 	std::string path() {
@@ -272,6 +282,7 @@ private:
 	Process *_parent;
 
 	int _pid;
+	Generation *_currentGeneration;
 	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;
 	std::shared_ptr<FsContext> _fsContext;
