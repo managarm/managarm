@@ -51,6 +51,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 	}
 }
 
+// FIXME: This function does not save the state! It needs to be given a ImageAccessor parameter!
 void Thread::deferCurrent() {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
@@ -64,7 +65,6 @@ void Thread::deferCurrent() {
 	this_thread->_runState = kRunDeferred;
 	this_thread->_uninvoke();
 
-	// TODO: We had forkExecutor() here. Did that serve any purpose?
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
 		localScheduler()->reschedule();
@@ -198,11 +198,11 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) killed" << frigg::endLog;
 
-		// TODO: Unassociate from scheduler here!
 		this_thread->_runState = kRunTerminated;
 		++this_thread->_stateSeq;
-		saveExecutor(&this_thread->_executor, image);
+		saveExecutor(&this_thread->_executor, image); // FIXME: Why do we save the state here?
 		Scheduler::suspendCurrent();
+		Scheduler::unassociate(this_thread.get());
 		this_thread->_uninvoke();
 
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
@@ -276,30 +276,7 @@ void Thread::unblockOther(ThreadBlocker *blocker) {
 }
 
 void Thread::killOther(frigg::UnsafePtr<Thread> thread) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&thread->_mutex);
-
-	if(thread->_runState == kRunSuspended || thread->_runState == kRunInterrupted) {
-		// TODO: Unassociate from scheduler here!
-		thread->_runState = kRunTerminated;
-		++thread->_stateSeq;
-
-		ObserveQueue queue;
-		queue.splice(queue.end(), thread->_observeQueue);
-
-		lock.unlock();
-
-		while(!queue.empty()) {
-			auto observe = queue.pop_front();
-			observe->error = Error::kErrThreadExited;
-			observe->sequence = 0;
-			observe->interrupt = kIntrNull;
-			WorkQueue::post(observe->triggered);
-		}
-	}else{
-		// TODO: Wake up blocked threads.
-		thread->_pendingKill = true;
-	}
+	thread->_kill();
 }
 
 void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
@@ -347,37 +324,20 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 }
 
 Thread::~Thread() {
-	assert(_runState == kRunInterrupted);
+	assert(_runState == kRunTerminated);
 	assert(_observeQueue.empty());
 }
 
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
-	// TODO: We should be able to just call killOther() here!
-	// TODO: Make sure that this is called!
 	frigg::infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m" << frigg::endLog;
-	ObserveQueue queue;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
-
-		// TODO: Set state to kRunTerminated!
-		Scheduler::unassociate(this);
-		
-		queue.splice(queue.end(), _observeQueue);
-	}
-
-	while(!queue.empty()) {
-		auto observe = queue.pop_front();
-		observe->error = Error::kErrThreadExited;
-		observe->sequence = 0;
-		observe->interrupt = kIntrNull;
-		WorkQueue::post(observe->triggered);
-	}
+	_kill();
 }
 
 void Thread::cleanup() {
+	// TODO: Audit code to make sure this is called late enough (i.e. after termination completes).
 	// TODO: Make sure that this is called!
+	frigg::infoLogger() << "\e[31mthor: Deallocating thread\e[39m" << frigg::endLog;
 	frigg::destruct(*kernelAlloc, this);
 }
 
@@ -462,6 +422,36 @@ void Thread::invoke() {
 
 void Thread::_uninvoke() {
 	UserContext::deactivate();
+}
+
+void Thread::_kill() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	if(_runState == kRunTerminated)
+		return;
+
+	if(_runState == kRunSuspended || _runState == kRunInterrupted) {
+		_runState = kRunTerminated;
+		++_stateSeq;
+		Scheduler::unassociate(this);
+
+		ObserveQueue queue;
+		queue.splice(queue.end(), _observeQueue);
+
+		lock.unlock();
+
+		while(!queue.empty()) {
+			auto observe = queue.pop_front();
+			observe->error = Error::kErrThreadExited;
+			observe->sequence = 0;
+			observe->interrupt = kIntrNull;
+			WorkQueue::post(observe->triggered);
+		}
+	}else{
+		// TODO: Wake up blocked threads.
+		_pendingKill = true;
+	}
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {

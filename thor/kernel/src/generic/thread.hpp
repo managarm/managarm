@@ -153,6 +153,7 @@ public:
 
 private:
 	void _uninvoke();
+	void _kill();
 
 public:
 	void doSubmitObserve(uint64_t in_seq, ObserveBase *observe);
