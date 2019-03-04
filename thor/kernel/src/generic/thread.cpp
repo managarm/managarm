@@ -198,6 +198,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) killed" << frigg::endLog;
 
+		// TODO: Unassociate from scheduler here!
 		this_thread->_runState = kRunTerminated;
 		++this_thread->_stateSeq;
 		saveExecutor(&this_thread->_executor, image);
@@ -278,9 +279,27 @@ void Thread::killOther(frigg::UnsafePtr<Thread> thread) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&thread->_mutex);
 
-	// TODO: Perform the kill immediately if possible.
+	if(thread->_runState == kRunSuspended || thread->_runState == kRunInterrupted) {
+		// TODO: Unassociate from scheduler here!
+		thread->_runState = kRunTerminated;
+		++thread->_stateSeq;
 
-	thread->_pendingKill = true;
+		ObserveQueue queue;
+		queue.splice(queue.end(), thread->_observeQueue);
+
+		lock.unlock();
+
+		while(!queue.empty()) {
+			auto observe = queue.pop_front();
+			observe->error = Error::kErrThreadExited;
+			observe->sequence = 0;
+			observe->interrupt = kIntrNull;
+			WorkQueue::post(observe->triggered);
+		}
+	}else{
+		// TODO: Wake up blocked threads.
+		thread->_pendingKill = true;
+	}
 }
 
 void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
@@ -334,12 +353,15 @@ Thread::~Thread() {
 
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
-//	frigg::infoLogger() << "\e[31mthor: Shutting down thread\e[39m" << frigg::endLog;
+	// TODO: We should be able to just call killOther() here!
+	// TODO: Make sure that this is called!
+	frigg::infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m" << frigg::endLog;
 	ObserveQueue queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
+		// TODO: Set state to kRunTerminated!
 		Scheduler::unassociate(this);
 		
 		queue.splice(queue.end(), _observeQueue);
@@ -355,6 +377,7 @@ void Thread::destruct() {
 }
 
 void Thread::cleanup() {
+	// TODO: Make sure that this is called!
 	frigg::destruct(*kernelAlloc, this);
 }
 

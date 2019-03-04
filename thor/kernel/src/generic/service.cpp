@@ -681,8 +681,29 @@ namespace initrd {
 						<< _process->name().data() << frigg::endLog;
 				return;
 			}else if(interrupt == kIntrSuperCall + 1) {
+				struct ManagarmProcessData {
+					HelHandle posixLane;
+					HelHandle *fileTable;
+					void *clockTrackerPage;
+				};
+
+				ManagarmProcessData data = {
+					kHelThisThread,
+					reinterpret_cast<HelHandle *>(_process->clientFileTable),
+					nullptr
+				};
+
+				AcquireNode node;
+
+				auto accessor = ForeignSpaceAccessor{_thread->getAddressSpace().toShared(),
+						reinterpret_cast<void *>(_thread->_executor.general()->rsi),
+						sizeof(ManagarmProcessData)};
+				node.setup(nullptr);
+				auto acq = accessor.acquire(&node);
+				assert(acq);
+				accessor.write(0, &data, sizeof(ManagarmProcessData));
+
 				_thread->_executor.general()->rdi = kHelErrNone;
-				_thread->_executor.general()->rsi = (Word)_process->clientFileTable;
 				Thread::resumeOther(_thread);
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
 				_thread->_executor.general()->rdi = kHelErrNone;

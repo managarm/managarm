@@ -95,13 +95,25 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 		sequence = observe.sequence();
 
 		if(observe.observation() == kHelObserveSuperCall + 1) {
+			struct ManagarmProcessData {
+				HelHandle posixLane;
+				HelHandle *fileTable;
+				void *clockTrackerPage;
+			};
+
+			ManagarmProcessData data = {
+				kHelThisThread,
+				static_cast<HelHandle *>(self->clientFileTable()),
+				self->clientClkTrackerPage()
+			};
+
 			if(logRequests)
-				std::cout << "posix: clientFileTable supercall" << std::endl;
+				std::cout << "posix: GET_PROCESS_DATA supercall" << std::endl;
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helStoreForeign(thread.getHandle(), gprs[5],
+					sizeof(ManagarmProcessData), &data));
 			gprs[4] = kHelErrNone;
-			gprs[2] = reinterpret_cast<uintptr_t>(self->clientClkTrackerPage());
-			gprs[5] = reinterpret_cast<uintptr_t>(self->clientFileTable());
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 2) {
