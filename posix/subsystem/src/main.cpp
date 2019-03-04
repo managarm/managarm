@@ -70,13 +70,9 @@ void dumpRegisters(helix::BorrowedDescriptor thread) {
 	printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
-		helix::BorrowedDescriptor thread), ([=] {
-	// TODO: Do this at process creation time to avoid races.
-	std::array<char, 16> creds;
-	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));
-	auto res = globalCredentialsMap.insert({creds, self});
-	assert(res.second);
+COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
+		std::shared_ptr<Generation> generation), ([=] {
+	helix::BorrowedDescriptor thread = generation->threadDescriptor;
 
 	uint64_t sequence = 1;
 	while(true) {
@@ -87,7 +83,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 		if(observe.error() == kHelErrThreadTerminated) {
 			std::cout << "\e[33mposix: Exiting observe()\e[39m" << std::endl;
-			self->currentGeneration()->cancelServe.cancel();
+			generation->cancelServe.cancel();
 			COFIBER_RETURN();
 		}
 
@@ -122,7 +118,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			auto child = Process::fork(self);
 
 			// Copy registers from the current thread to the new one.
-			auto new_thread = child->threadDescriptor().getHandle();
+			auto new_thread = child->currentGeneration()->threadDescriptor.getHandle();
 			uintptr_t pcrs[2], gprs[15], thrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
@@ -202,7 +198,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			parent->signalContext()->issueSignal(SIGCHLD, info);
 			self->notify();
 
-			HEL_CHECK(helKillThread(thread.getHandle()));
+			self->terminate();
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
@@ -266,13 +262,13 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
-				self->signalContext()->raiseContext(active, thread);
+				self->signalContext()->raiseContext(active, self.get(), generation.get());
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			printf("posix: Process %s was interrupted\n", self->path().c_str());
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
-				self->signalContext()->raiseContext(active, thread);
+				self->signalContext()->raiseContext(active, self.get(), generation.get());
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mUser space panic in process %s\n", self->path().c_str());
@@ -305,8 +301,11 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 	}
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> self,
-		helix::BorrowedDescriptor thread, async::cancellation_token cancellation), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, serveSignals(std::shared_ptr<Process> self,
+		std::shared_ptr<Generation> generation), ([=] {
+	helix::BorrowedDescriptor thread = generation->threadDescriptor;
+	async::cancellation_token cancellation = generation->cancelServe;
+
 	uint64_t sequence = 1;
 	while(true) {
 		if(cancellation.is_cancellation_requested())
@@ -317,33 +316,35 @@ COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> sel
 		//std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
 		HEL_CHECK(helInterruptThread(thread.getHandle()));
 	}
-	std::cout << "\e[33mposix: Exiting interruptThread()\e[39m" << std::endl;
+	std::cout << "\e[33mposix: Exiting serveSignals()\e[39m" << std::endl;
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
-		helix::BorrowedDescriptor thread, async::cancellation_token cancellation), ([=] {
-	helix::UniqueDescriptor lane = self->currentGeneration()->posixLane.dup();
-
-	observe(self, thread);
-	interruptThread(self, thread, cancellation);
+COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
+		std::shared_ptr<Generation> generation), ([=] {
+	async::cancellation_token cancellation = generation->cancelServe;
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
 		std::cout << "\e[33mposix: Cancellation detected in serve()\e[39m" << std::endl;
-		//HEL_CHECK(helShutdownLane(lane.getHandle()));
+		HEL_CHECK(helShutdownLane(generation->posixLane.getHandle()));
 	}};
 
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
+		auto &&header = helix::submitAsync(generation->posixLane, helix::Dispatcher::global(),
+				helix::action(&accept));
 		COFIBER_AWAIT header.async_wait();
+
+		if(accept.error() == kHelErrLaneShutdown)
+			break;
 		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-		
 		auto conversation = accept.descriptor();
+
+		auto &&initiate = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&recv_req));
+		COFIBER_AWAIT initiate.async_wait();
+		HEL_CHECK(recv_req.error());
 
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
@@ -387,7 +388,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				std::cout << "posix: GET_RESOURCE_USAGE" << std::endl;
 
 			HelThreadStats stats;
-			HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
+			HEL_CHECK(helQueryThreadStats(generation->threadDescriptor.getHandle(), &stats));
 
 			uint64_t user_time;
 			if(req.mode() == RUSAGE_SELF) {
@@ -1684,6 +1685,19 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}
 	}
 }))
+
+void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {
+	helix::BorrowedDescriptor thread = generation->threadDescriptor;
+
+	std::array<char, 16> creds;
+	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));
+	auto res = globalCredentialsMap.insert({creds, self});
+	assert(res.second);
+
+	observeThread(self, generation);
+	serveSignals(self, generation);
+	serveRequests(self, generation);
+}
 
 // --------------------------------------------------------
 // main() function

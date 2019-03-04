@@ -11,6 +11,9 @@
 
 #include "vfs.hpp"
 
+struct Generation;
+struct Process;
+
 typedef int ProcessId;
 
 // TODO: This struct should store the process' VMAs once we implement them.
@@ -174,7 +177,7 @@ public:
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
 	
-	void raiseContext(SignalItem *item, helix::BorrowedDescriptor thread);
+	void raiseContext(SignalItem *item, Process *process, Generation *generation);
 
 	void restoreContext(helix::BorrowedDescriptor thread);
 
@@ -197,7 +200,10 @@ struct ResourceUsage {
 };
 
 struct Generation {
+	~Generation();
+
 	helix::UniqueLane posixLane;
+	helix::UniqueDescriptor threadDescriptor;
 	async::cancellation_event cancelServe;
 };
 
@@ -217,6 +223,8 @@ struct Process : std::enable_shared_from_this<Process> {
 public:
 	Process(Process *parent);
 
+	~Process();
+
 	Process *getParent() {
 		return _parent;
 	}
@@ -226,16 +234,12 @@ public:
 	 	return _pid;
 	}
 
-	Generation *currentGeneration() {
+	std::shared_ptr<Generation> currentGeneration() {
 		return _currentGeneration;
 	}
 
 	std::string path() {
 		return _path;
-	}
-
-	helix::BorrowedDescriptor threadDescriptor() {
-		return _threadDescriptor;
 	}
 
 	// TODO: The following three function do not need to return shared_ptrs.
@@ -267,19 +271,20 @@ public:
 	void *clientFileTable() { return _clientFileTable; }
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
 
+	void terminate();
 	void notify();
 
 	async::result<int> wait(int pid, bool non_blocking);
 
 	ResourceUsage accumulatedUsage() {
-		return _accumulatedUsage;
+		return _childrenUsage;
 	}
 
 private:
 	Process *_parent;
 
 	int _pid;
-	Generation *_currentGeneration;
+	std::shared_ptr<Generation> _currentGeneration;
 	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;
 	std::shared_ptr<FsContext> _fsContext;
@@ -289,8 +294,6 @@ private:
 	HelHandle _clientPosixLane;
 	void *_clientFileTable;
 	void *_clientClkTrackerPage;
-
-	helix::UniqueDescriptor _threadDescriptor;
 
 	uint64_t _signalMask;
 	std::vector<std::shared_ptr<Process>> _children;
@@ -311,8 +314,10 @@ private:
 
 	async::doorbell _notifyBell;
 
+	// Resource usage accumulated from previous generations.
+	ResourceUsage _generationUsage = {};
 	// Resource usage accumulated from children.
-	ResourceUsage _accumulatedUsage = {};
+	ResourceUsage _childrenUsage = {};
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);

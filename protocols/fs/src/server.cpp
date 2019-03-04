@@ -367,8 +367,9 @@ COFIBER_ROUTINE(async::result<void>, servePassthrough(helix::UniqueLane p,
 
 		// TODO: Handle end-of-lane correctly. Why does it even happen here?
 		if(accept.error() == kHelErrLaneShutdown
-				|| accept.error() == kHelErrEndOfLane)
+				|| accept.error() == kHelErrEndOfLane) {
 			COFIBER_RETURN();
+		}
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());	
 		auto conversation = accept.descriptor();

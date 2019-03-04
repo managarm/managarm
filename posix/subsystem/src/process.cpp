@@ -11,8 +11,7 @@
 
 static bool logFileAttach = false;
 
-cofiber::no_future serve(std::shared_ptr<Process> self, helix::BorrowedDescriptor p,
-		async::cancellation_token cancellation);
+void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation);
 
 // ----------------------------------------------------------------------------
 // VmContext.
@@ -24,7 +23,7 @@ std::shared_ptr<VmContext> VmContext::create() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 	context->_space = helix::UniqueDescriptor(space);
-	
+
 	return context;
 }
 
@@ -41,7 +40,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 
 COFIBER_ROUTINE(async::result<void *>,
 VmContext::mapFile(smarter::shared_ptr<File, FileHandle> file,
-		intptr_t offset, size_t size, uint32_t native_flags), ([=] {	
+		intptr_t offset, size_t size, uint32_t native_flags), ([=] {
 	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
 
 	auto memory = COFIBER_AWAIT file->accessMemory(offset);
@@ -81,7 +80,7 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
 	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(old_pointer));
 	assert(it != _areaTree.end());
 	assert(it->second.areaSize == aligned_old_size);
-	
+
 	auto memory = COFIBER_AWAIT it->second.file->accessMemory(it->second.offset);
 
 	// Perform the actual mapping.
@@ -93,7 +92,7 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
 
 	// Unmap the old area.
 	HEL_CHECK(helUnmapMemory(_space.getHandle(), old_pointer, aligned_old_size));
-	
+
 	// Construct the new area from the old one.
 	Area area;
 	area.areaSize = aligned_new_size;
@@ -224,7 +223,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 }
 
 int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
-		bool close_on_exec) {	
+		bool close_on_exec) {
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
@@ -243,11 +242,11 @@ int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 }
 
 void FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
-		bool close_on_exec) {	
+		bool close_on_exec) {
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
-	
+
 	if(logFileAttach)
 		std::cout << "posix: Attaching fixed FD " << fd << std::endl;
 
@@ -332,7 +331,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 	// Copy the current signal handler table.
 	for(int sn = 0; sn < 64; sn++)
 		context->_handlers[sn] = original->_handlers[sn];
-		
+
 	return context;
 }
 
@@ -423,7 +422,9 @@ struct SignalFrame {
 	siginfo_t info;
 };
 
-void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thread) {
+void SignalContext::raiseContext(SignalItem *item, Process *process, Generation *generation) {
+	helix::BorrowedDescriptor thread = generation->threadDescriptor;
+
 	SignalHandler handler = _handlers[item->signalNumber];
 	assert(!(handler.flags & signalOnce));
 
@@ -433,7 +434,8 @@ void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thr
 			return;
 		}else{
 			std::cout << "posix: Thread killed as the result of a signal" << std::endl;
-			HEL_CHECK(helKillThread(thread.getHandle()));
+			// TODO: Make sure that we are in the current generation?
+			process->terminate();
 			return;
 		}
 	}
@@ -466,7 +468,7 @@ void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thr
 	auto frame = alignFrame(sizeof(SignalFrame));
 	HEL_CHECK(helStoreForeign(thread.getHandle(), frame,
 			sizeof(SignalFrame), &sf));
-	
+
 	std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
 	std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
 
@@ -478,7 +480,7 @@ void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thr
 
 	sf.pcrs[kHelRegIp] = handler.handlerIp;
 	sf.pcrs[kHelRegSp] = frame;
-	
+
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
@@ -495,9 +497,17 @@ void SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
 	SignalFrame sf;
 	HEL_CHECK(helLoadForeign(thread.getHandle(), frame,
 			sizeof(SignalFrame), &sf));
-	
+
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
+}
+
+// ----------------------------------------------------------------------------
+// Generation.
+// ----------------------------------------------------------------------------
+
+Generation::~Generation() {
+	std::cout << "\e[33mposix: Generation is destructed\e[39m" << std::endl;
 }
 
 // ----------------------------------------------------------------------------
@@ -518,6 +528,10 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 Process::Process(Process *parent)
 : _parent{parent}, _pid{0}, _clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
 		_notifyType{NotifyType::null} { }
+
+Process::~Process() {
+	std::cout << "\e[33mposix: Process is destructed\e[39m" << std::endl;
+}
 
 COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
 		([=] {
@@ -544,21 +558,22 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientClkTrackerPage));
-	
+
 	assert(globalPidMap.find(1) == globalPidMap.end());
 	process->_pid = 1;
 	globalPidMap.insert({1, process.get()});
 
 	// TODO: Do not pass an empty argument vector?
-	process->_threadDescriptor = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path,
+	auto generation = std::make_shared<Generation>();
+	generation->threadDescriptor = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path,
 			std::vector<std::string>{}, std::vector<std::string>{},
 			process->_vmContext,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
+	generation->posixLane = std::move(server_lane);
 
-	process->_currentGeneration = new Generation;
-	process->_currentGeneration->posixLane = std::move(server_lane);
-	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
+	process->_currentGeneration = generation;
+	serve(process, std::move(generation));
 
 	COFIBER_RETURN(process);
 }))
@@ -586,22 +601,23 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientClkTrackerPage));
-	
+
 	ProcessId pid = nextPid++;
 	assert(globalPidMap.find(pid) == globalPidMap.end());
 	process->_pid = pid;
 	original->_children.push_back(process);
 	globalPidMap.insert({pid, process.get()});
 
+	auto generation = std::make_shared<Generation>();
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
 			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 			0, 0, kHelThreadStopped, &new_thread));
-	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
+	generation->threadDescriptor = helix::UniqueDescriptor{new_thread};
+	generation->posixLane = std::move(server_lane);
 
-	process->_currentGeneration = new Generation;
-	process->_currentGeneration->posixLane = std::move(server_lane);
-	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
+	process->_currentGeneration = generation;
+	serve(process, std::move(generation));
 
 	return process;
 }
@@ -626,7 +642,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&exec_client_table));
-	
+
 	// TODO: We should only do this if the execute succeeds.
 	process->_fileContext->closeOnExec();
 
@@ -644,22 +660,32 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
-	process->_threadDescriptor = std::move(thread);
 
 	// TODO: execute() should return a stopped thread that we can start here.
-	process->_currentGeneration = new Generation;
-	process->_currentGeneration->posixLane = std::move(server_lane);
-	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
+	auto generation = std::make_shared<Generation>();
+	generation->threadDescriptor = std::move(thread);
+	generation->posixLane = std::move(server_lane);
+
+	process->_currentGeneration = generation;
+	serve(process, std::move(generation));
 
 	COFIBER_RETURN();
 }))
 
 void Process::retire(Process *process) {
 	assert(process->_parent);
+	process->_parent->_childrenUsage.userTime += process->_generationUsage.userTime;
+}
 
+void Process::terminate() {
+	HEL_CHECK(helKillThread(_currentGeneration->threadDescriptor.getHandle()));
+
+	// TODO: Do the accumulation + _currentGeneration reset after the thread has really terminated?
 	HelThreadStats stats;
-	HEL_CHECK(helQueryThreadStats(process->_threadDescriptor.getHandle(), &stats));
-	process->_parent->_accumulatedUsage.userTime += stats.userTime;
+	HEL_CHECK(helQueryThreadStats(_currentGeneration->threadDescriptor.getHandle(), &stats));
+	_generationUsage.userTime += stats.userTime;
+
+	_currentGeneration = nullptr;
 }
 
 void Process::notify() {
@@ -681,7 +707,6 @@ COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking), (
 			if(pid > 0 && pid != it->pid())
 				continue;
 			_notifyQueue.erase(it);
-			// TODO: Do we really want to retire here?
 			Process::retire(&(*it));
 			result = it->pid();
 			break;
