@@ -516,7 +516,7 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 }
 
 Process::Process(Process *parent)
-: _parent{parent}, _pid{0}, _clientFileTable{nullptr},
+: _parent{parent}, _pid{0}, _clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
 		_notifyType{NotifyType::null} { }
 
 COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
@@ -531,14 +531,19 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	// The initial signal mask allows all signals.
 	process->_signalMask = 0;
 
-	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
-			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
-			&process->_clientClkTrackerPage));
+	auto [server_lane, client_lane] = helix::createStream();
+	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
+			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+	client_lane.release();
+
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
+	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			&process->_clientClkTrackerPage));
 	
 	assert(globalPidMap.find(1) == globalPidMap.end());
 	process->_pid = 1;
@@ -552,6 +557,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 			process->_fileContext->clientMbusLane());
 
 	process->_currentGeneration = new Generation;
+	process->_currentGeneration->posixLane = std::move(server_lane);
 	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
 
 	COFIBER_RETURN(process);
@@ -567,14 +573,19 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	// Signal masks are copied on fork().
 	process->_signalMask = original->_signalMask;
 
-	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
-			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
-			&process->_clientClkTrackerPage));
+	auto [server_lane, client_lane] = helix::createStream();
+	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
+			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+	client_lane.release();
+
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
+	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			&process->_clientClkTrackerPage));
 	
 	ProcessId pid = nextPid++;
 	assert(globalPidMap.find(pid) == globalPidMap.end());
@@ -589,6 +600,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 
 	process->_currentGeneration = new Generation;
+	process->_currentGeneration->posixLane = std::move(server_lane);
 	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
 
 	return process;
@@ -597,6 +609,12 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> process,
 		std::string path, std::vector<std::string> args, std::vector<std::string> env), ([=] {
 	auto exec_vm_context = VmContext::create();
+
+	HelHandle exec_posix_lane;
+	auto [server_lane, client_lane] = helix::createStream();
+	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
+			process->_fileContext->getUniverse().getHandle(), &exec_posix_lane));
+	client_lane.release();
 
 	void *exec_clk_tracker_page;
 	void *exec_client_table;
@@ -623,12 +641,14 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	process->_path = std::move(path);
 	process->_vmContext = std::move(exec_vm_context);
 	process->_signalContext->resetHandlers();
-	process->_clientClkTrackerPage = exec_clk_tracker_page;
+	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
+	process->_clientClkTrackerPage = exec_clk_tracker_page;
 	process->_threadDescriptor = std::move(thread);
 
 	// TODO: execute() should return a stopped thread that we can start here.
 	process->_currentGeneration = new Generation;
+	process->_currentGeneration->posixLane = std::move(server_lane);
 	serve(process, process->_threadDescriptor, process->_currentGeneration->cancelServe);
 
 	COFIBER_RETURN();

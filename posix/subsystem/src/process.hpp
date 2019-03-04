@@ -197,6 +197,7 @@ struct ResourceUsage {
 };
 
 struct Generation {
+	helix::UniqueLane posixLane;
 	async::cancellation_event cancelServe;
 };
 
@@ -262,13 +263,9 @@ public:
 		return _signalMask;
 	}
 
-	void *clientClkTrackerPage() {
-		return _clientClkTrackerPage;
-	}
-
-	void *clientFileTable() {
-		return _clientFileTable;
-	}
+	HelHandle clientPosixLane() { return _clientPosixLane; }
+	void *clientFileTable() { return _clientFileTable; }
+	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
 
 	void notify();
 
@@ -289,9 +286,9 @@ private:
 	std::shared_ptr<FileContext> _fileContext;
 	std::shared_ptr<SignalContext> _signalContext;
 
-	void *_clientThreadPage;
-	void *_clientClkTrackerPage;
+	HelHandle _clientPosixLane;
 	void *_clientFileTable;
+	void *_clientClkTrackerPage;
 
 	helix::UniqueDescriptor _threadDescriptor;
 

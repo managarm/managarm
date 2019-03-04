@@ -102,7 +102,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			};
 
 			ManagarmProcessData data = {
-				kHelThisThread,
+				self->clientPosixLane(),
 				static_cast<HelHandle *>(self->clientFileTable()),
 				self->clientClkTrackerPage()
 			};
@@ -322,10 +322,10 @@ COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> sel
 
 COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		helix::BorrowedDescriptor thread, async::cancellation_token cancellation), ([=] {
-	helix::UniqueDescriptor lane = thread.dup();
+	helix::UniqueDescriptor lane = self->currentGeneration()->posixLane.dup();
 
-	observe(self, lane);
-	interruptThread(self, lane, cancellation);
+	observe(self, thread);
+	interruptThread(self, thread, cancellation);
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
 		std::cout << "\e[33mposix: Cancellation detected in serve()\e[39m" << std::endl;
