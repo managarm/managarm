@@ -72,6 +72,8 @@ public:
 	static std::shared_ptr<FileContext> create();
 	static std::shared_ptr<FileContext> clone(std::shared_ptr<FileContext> original);
 
+	~FileContext();
+
 	helix::BorrowedDescriptor getUniverse() {
 		return _universe;
 	}
@@ -199,6 +201,8 @@ struct ResourceUsage {
 	uint64_t userTime;
 };
 
+// Represents exactly the state of a process that is changed by execve().
+// In particular, stores the kernel thread.
 struct Generation {
 	~Generation();
 
@@ -242,22 +246,12 @@ public:
 		return _path;
 	}
 
-	// TODO: The following three function do not need to return shared_ptrs.
-	std::shared_ptr<VmContext> vmContext() {
-		return _vmContext;
-	}
-	
-	std::shared_ptr<FsContext> fsContext() {
-		return _fsContext;
-	}
-	
-	std::shared_ptr<FileContext> fileContext() {
-		return _fileContext;
-	}
-
-	SignalContext *signalContext() {
-		return _signalContext.get();
-	}
+	// As the contexts associated with a process can change (e.g. when unshare() is implemented),
+	// those functions return refcounted pointers.
+	std::shared_ptr<VmContext> vmContext() { return _vmContext; }
+	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
+	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
+	SignalContext *signalContext() { return _signalContext.get(); }
 	
 	void setSignalMask(uint64_t mask) {
 		_signalMask = mask;

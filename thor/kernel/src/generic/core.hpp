@@ -112,6 +112,7 @@ public:
 	typedef frigg::LockGuard<frigg::TicketLock> Guard;
 
 	Universe();
+	~Universe();
 
 	Handle attachDescriptor(Guard &guard, AnyDescriptor descriptor);
 

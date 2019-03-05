@@ -147,6 +147,10 @@ CpuData::CpuData()
 Universe::Universe()
 : _descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc), _nextHandle(1) { }
 
+Universe::~Universe() {
+	frigg::infoLogger() << "\e[31mthor: Universe is deallocated\e[39m" << frigg::endLog;
+}
+
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {
 	assert(guard.protects(&lock));
 

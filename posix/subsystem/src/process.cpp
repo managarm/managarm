@@ -222,6 +222,10 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	return context;
 }
 
+FileContext::~FileContext() {
+	std::cout << "\e[33mposix: FileContext is destructed\e[39m" << std::endl;
+}
+
 int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 		bool close_on_exec) {
 	HelHandle handle;
@@ -666,7 +670,8 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	generation->threadDescriptor = std::move(thread);
 	generation->posixLane = std::move(server_lane);
 
-	process->_currentGeneration = generation;
+	auto previous = std::exchange(process->_currentGeneration, generation);
+	HEL_CHECK(helKillThread(previous->threadDescriptor.getHandle()));
 	serve(process, std::move(generation));
 
 	COFIBER_RETURN();

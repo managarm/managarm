@@ -337,8 +337,9 @@ void Thread::destruct() {
 void Thread::cleanup() {
 	// TODO: Audit code to make sure this is called late enough (i.e. after termination completes).
 	// TODO: Make sure that this is called!
-	frigg::infoLogger() << "\e[31mthor: Deallocating thread\e[39m" << frigg::endLog;
-	frigg::destruct(*kernelAlloc, this);
+	frigg::infoLogger() << "\e[31mthor: Uncomment invocation of thread destructor\e[39m"
+			<< frigg::endLog;
+	//frigg::destruct(*kernelAlloc, this);
 }
 
 void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {

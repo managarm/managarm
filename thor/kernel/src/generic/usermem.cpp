@@ -1115,6 +1115,7 @@ void CowMapping::uninstall(bool clear) {
 AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
+	frigg::infoLogger() << "\e[31mthor: AddressSpace is deallocated\e[39m" << frigg::endLog;
 	Hole *hole = _holes.get_root();
 	while(hole) {
 		auto next = HoleTree::successor(hole);
