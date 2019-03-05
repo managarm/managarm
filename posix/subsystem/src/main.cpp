@@ -189,15 +189,6 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
 
-			// TODO: Handle the case that the init process exits (by issuing a panic).
-			auto parent = self->getParent();
-			assert(parent);
-
-			UserSignal info;
-			info.pid = self->pid();
-			parent->signalContext()->issueSignal(SIGCHLD, info);
-			self->notify();
-
 			self->terminate();
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)

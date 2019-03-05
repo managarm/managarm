@@ -683,24 +683,30 @@ void Process::retire(Process *process) {
 }
 
 void Process::terminate() {
+	auto parent = getParent();
+	assert(parent);
+
+	// Kill the current Generation and accumulate stats.
 	HEL_CHECK(helKillThread(_currentGeneration->threadDescriptor.getHandle()));
 
+	// TODO: Also do this before switching to a new Generation in execve().
 	// TODO: Do the accumulation + _currentGeneration reset after the thread has really terminated?
 	HelThreadStats stats;
 	HEL_CHECK(helQueryThreadStats(_currentGeneration->threadDescriptor.getHandle(), &stats));
 	_generationUsage.userTime += stats.userTime;
 
 	_currentGeneration = nullptr;
-}
 
-void Process::notify() {
-	auto parent = getParent();
-	assert(parent);
-
+	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);
 	_notifyType = NotifyType::terminated;
 	parent->_notifyQueue.push_back(*this);
 	parent->_notifyBell.ring();
+
+	// Send SIGCHLD to the parent.
+	UserSignal info;
+	info.pid = pid();
+	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
 COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking), ([=] {
