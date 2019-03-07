@@ -1112,10 +1112,15 @@ void CowMapping::uninstall(bool clear) {
 
 // --------------------------------------------------------
 
+void AddressSpace::activate(frigg::SharedPtr<AddressSpace> space) {
+	auto page_space = &space->_pageSpace;
+	PageSpace::activate(frigg::SharedPtr<PageSpace>{std::move(space), page_space});
+}
+
 AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
-	frigg::infoLogger() << "\e[31mthor: AddressSpace is deallocated\e[39m" << frigg::endLog;
+	frigg::infoLogger() << "\e[31mthor: Running ~AddressSpace()\e[39m" << frigg::endLog;
 	Hole *hole = _holes.get_root();
 	while(hole) {
 		auto next = HoleTree::successor(hole);
@@ -1131,6 +1136,15 @@ AddressSpace::~AddressSpace() {
 		frg::destruct(*kernelAlloc, mapping);
 		mapping = next;
 	}
+}
+
+void AddressSpace::destruct() {
+	frigg::infoLogger() << "\e[31mthor: AddressSpace is unused\e[39m" << frigg::endLog;
+}
+
+void AddressSpace::cleanup() {
+	frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
+	frigg::destruct(*kernelAlloc, this);
 }
 
 void AddressSpace::setupDefaultMappings() {
@@ -1390,7 +1404,7 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 }
 
 bool AddressSpace::fork(ForkNode *node) {
-	node->_fork = frigg::makeShared<AddressSpace>(*kernelAlloc);
+	node->_fork = AddressSpace::create();
 	node->_original = this;
 
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -1511,10 +1525,6 @@ bool AddressSpace::fork(ForkNode *node) {
 	};
 
 	return Ops::process(node);
-}
-
-void AddressSpace::activate() {
-	_pageSpace.activate();
 }
 
 Mapping *AddressSpace::_getMapping(VirtualAddr address) {

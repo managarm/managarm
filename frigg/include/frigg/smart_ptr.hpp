@@ -310,7 +310,10 @@ public:
 
 	WeakPtr()
 	: _control(nullptr), _object(nullptr) { }
-	
+
+	WeakPtr(decltype(nullptr))
+	: _control(nullptr), _object(nullptr) { }
+
 	WeakPtr(const SharedPtr<T, Control> &shared)
 	: _control(shared._control), _object(shared._object) {
 		assert(_control);
@@ -334,9 +337,7 @@ public:
 	}
 	
 	SharedPtr<T, Control> grab() {
-		assert(_control);
-		
-		if(_control.tryToIncrement())
+		if(_control && _control.tryToIncrement())
 				return SharedPtr<T, Control>(_control, _object);
 		return SharedPtr<T, Control>();
 	}

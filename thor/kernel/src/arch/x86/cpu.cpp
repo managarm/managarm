@@ -508,7 +508,10 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 // --------------------------------------------------------
 
 PlatformCpuData::PlatformCpuData()
-: pcidBindings{0, 1, 2, 3, 4, 5, 6, 7}, haveSmap{false}, havePcids{false} {
+: haveSmap{false}, havePcids{false} {
+	for(int i = 0; i < maxPcidCount; i++)
+		pcidBindings[i].setupPcid(i);
+
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
 	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexNull);

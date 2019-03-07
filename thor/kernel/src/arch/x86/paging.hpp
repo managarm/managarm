@@ -4,6 +4,7 @@
 #include <atomic>
 #include <frg/list.hpp>
 #include <frigg/algorithm.hpp>
+#include <frigg/smart_ptr.hpp>
 #include "../../generic/types.hpp"
 
 namespace thor {
@@ -93,14 +94,19 @@ private:
 };
 
 struct PageBinding {
-	PageBinding(int pcid);
+	PageBinding();
 
 	PageBinding(const PageBinding &) = delete;
 	
 	PageBinding &operator= (const PageBinding &) = delete;
 
-	PageSpace *boundSpace() {
-		return _boundSpace;
+	frigg::SharedPtr<PageSpace> boundSpace() {
+		return _boundSpace.grab();
+	}
+
+	void setupPcid(int pcid) {
+		assert(!_pcid);
+		_pcid = pcid;
 	}
 
 	uint64_t primaryStamp() {
@@ -109,14 +115,17 @@ struct PageBinding {
 
 	void makePrimary();
 
-	void rebind(PageSpace *space);
+	void rebind(frigg::SharedPtr<PageSpace> space);
 
 	void shootdown();
 
 private:
 	int _pcid;
 
-	PageSpace *_boundSpace;
+	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
+	//       to the PageSpace (that does *not* prevent the PageSpace from becoming
+	//       "unactivatable".
+	frigg::WeakPtr<PageSpace> _boundSpace;
 
 	bool _wasRebound;
 
@@ -126,6 +135,8 @@ private:
 };
 
 struct PageSpace {
+	static void activate(frigg::SharedPtr<PageSpace> space);
+
 	friend struct PageBinding;
 
 	PageSpace(PhysicalAddr root_table);
@@ -208,8 +219,6 @@ public:
 	~ClientPageSpace();
 
 	ClientPageSpace &operator= (const ClientPageSpace &) = delete;
-	
-	void activate();
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access,
 			uint32_t flags, CachingMode caching_mode);

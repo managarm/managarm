@@ -470,7 +470,7 @@ HelError helCreateSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc);
+	auto space = AddressSpace::create();
 	space->setupDefaultMappings();
 	
 	auto irq_lock = frigg::guard(&irqMutex());

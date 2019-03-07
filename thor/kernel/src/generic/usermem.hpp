@@ -81,9 +81,9 @@ struct InitiateBase {
 		length = length_;
 		_worklet = worklet;
 	}
-	
+
 	Error error() { return _error; }
-	
+
 	void setup(Error error) {
 		_error = error;
 	}
@@ -132,13 +132,13 @@ private:
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
-struct MemoryBundle {	
+struct MemoryBundle {
 protected:
 	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size,
 			CachingMode cm) {
 		node->_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, cm};
 	}
-	
+
 	static void callbackFetch(FetchNode *node) {
 		WorkQueue::post(node->_fetched);
 	}
@@ -152,7 +152,7 @@ public:
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
 	virtual bool fetchRange(uintptr_t offset, FetchNode *node) = 0;
-	
+
 	PhysicalAddr blockForRange(uintptr_t offset);
 };
 
@@ -229,7 +229,7 @@ struct Memory : MemoryBundle {
 	Memory(const Memory &) = delete;
 
 	Memory &operator= (const Memory &) = delete;
-	
+
 	MemoryTag tag() const {
 		return _tag;
 	}
@@ -308,7 +308,7 @@ struct AllocatedMemory : Memory {
 
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
-	
+
 	size_t getLength();
 
 private:
@@ -327,7 +327,7 @@ struct ManagedSpace {
 
 	ManagedSpace(size_t length);
 	~ManagedSpace();
-	
+
 	void progressLoads();
 	bool isComplete(InitiateBase *initiate);
 
@@ -651,7 +651,7 @@ private:
 	ShootNode _shootNode;
 };
 
-class AddressSpace {
+class AddressSpace : frigg::SharedCounter {
 	friend struct ForeignSpaceAccessor;
 	friend struct NormalMapping;
 	friend struct CowMapping;
@@ -682,41 +682,50 @@ public:
 		kFaultExecute = (1 << 2)
 	};
 
+	static frigg::SharedPtr<AddressSpace> create() {
+		auto space = frigg::construct<AddressSpace>(*kernelAlloc);
+		return frigg::SharedPtr<AddressSpace>{frigg::adoptShared, space, 
+				frigg::SharedControl{space}};
+	}
+
+	static void activate(frigg::SharedPtr<AddressSpace> space);
+
 	AddressSpace();
 
 	~AddressSpace();
+
+	void destruct() override; // Called when shared_ptr refcount reaches zero.
+	void cleanup() override; // Called when weak_ptr refcount reaches zero.
 
 	void setupDefaultMappings();
 
 	Error map(Guard &guard, frigg::UnsafePtr<VirtualView> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
-	
+
 	void unmap(Guard &guard, VirtualAddr address, size_t length,
 			AddressUnmapNode *node);
 
 	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
-	
+
 	bool fork(ForkNode *node);
-	
-	void activate();
 
 	Lock lock;
-	
+
 	Futex futexSpace;
 
 private:
-	
+
 	// Allocates a new mapping of the given length somewhere in the address space.
 	VirtualAddr _allocate(size_t length, MapFlags flags);
 
 	VirtualAddr _allocateAt(VirtualAddr address, size_t length);
-	
+
 	Mapping *_getMapping(VirtualAddr address);
 
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
-	
+
 	HoleTree _holes;
 	MappingTree _mappings;
 
@@ -756,7 +765,7 @@ public:
 
 	ForeignSpaceAccessor()
 	: _acquired{false} { }
-	
+
 	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
 			void *address, size_t length)
 	: _space(frigg::move(space)), _address(address), _length(length),
@@ -768,7 +777,7 @@ public:
 	: ForeignSpaceAccessor() {
 		swap(*this, other);
 	}
-	
+
 	ForeignSpaceAccessor &operator= (ForeignSpaceAccessor other) {
 		swap(*this, other);
 		return *this;
@@ -785,7 +794,7 @@ public:
 	}
 
 	bool acquire(AcquireNode *node);
-	
+
 	PhysicalAddr getPhysical(size_t offset);
 
 	void load(size_t offset, void *pointer, size_t size);

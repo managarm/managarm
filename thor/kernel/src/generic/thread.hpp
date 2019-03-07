@@ -146,8 +146,8 @@ public:
 	}
 
 	// TODO: Do not expose these functions publically.
-	void destruct() override;
-	void cleanup() override;
+	void destruct() override; // Called when shared_ptr refcount reaches zero.
+	void cleanup() override; // Called when weak_ptr refcount reaches zero.
 
 	[[ noreturn ]] void invoke() override;
 

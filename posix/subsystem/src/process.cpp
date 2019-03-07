@@ -695,6 +695,10 @@ void Process::terminate() {
 	HEL_CHECK(helQueryThreadStats(_currentGeneration->threadDescriptor.getHandle(), &stats));
 	_generationUsage.userTime += stats.userTime;
 
+	_vmContext = nullptr;
+	_fsContext = nullptr;
+	_fileContext = nullptr;
+	//_signalContext = nullptr; // TODO: Migrate the notifications to PID 1.
 	_currentGeneration = nullptr;
 
 	// Notify the parent of our status change.

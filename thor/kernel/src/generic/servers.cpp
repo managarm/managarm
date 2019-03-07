@@ -236,7 +236,7 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 void executeModule(frigg::StringView name, MfsRegular *module,
 		LaneHandle xpipe_lane, LaneHandle mbus_lane,
 		Scheduler *scheduler) {
-	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc);
+	auto space = AddressSpace::create();
 	space->setupDefaultMappings();
 
 	ImageInfo exec_info = loadModuleImage(space, 0, module->getMemory());
