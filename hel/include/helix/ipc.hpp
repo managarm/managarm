@@ -639,9 +639,8 @@ struct AwaitEvent : Operation {
 		return result()->error;
 	}
 
-	uint64_t sequence() {
-		return result()->sequence;
-	}
+	uint64_t sequence() { return result()->sequence; }
+	uint32_t bitset() { return result()->bitset; }
 
 private:
 	HelEventResult *result() {

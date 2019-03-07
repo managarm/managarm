@@ -27,7 +27,7 @@
 #include "spec.hpp"
 #include "ehci.hpp"
 
-static const bool logIrqs = false;
+static const bool logIrqs = true;
 static const bool logPackets = false;
 static const bool logSubmits = false;
 static const bool logControllerEnumeration = false;
@@ -187,10 +187,10 @@ Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
 	_operational = _space.subspace(offset);
 	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;
 	std::cout << "ehci: " << _numPorts  << " ports" << std::endl;
-	
+
 	if(_space.load(cap_regs::hccparams) & hccparams::extendedStructs)
 		std::cout << "ehci: Controller uses 64-bit pointers" << std::endl;
-	
+
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
@@ -226,7 +226,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 		_operational.store(op_regs::usbcmd, usbcmd::run(false)
 				| usbcmd::irqThreshold(command & usbcmd::irqThreshold));
 	}
-	
+
 	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)) {
 		// Wait until the controller halts.
 	}
@@ -252,7 +252,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 
 void Controller::_checkPorts() {
 	assert(!(_space.load(cap_regs::hcsparams) & hcsparams::portPower));
-	
+
 	for(int i = 0; i < _numPorts; i++) {
 		auto offset = _space.load(cap_regs::caplength);
 		auto port_space = _space.subspace(offset + 0x44 + (4 * i));
@@ -269,7 +269,7 @@ void Controller::_checkPorts() {
 				std::cout << "ehci: Spurious portsc::enableChange" << std::endl;
 			}
 		}
-		
+
 		if(sc & portsc::connectChange) {
 			// TODO: Be careful to set the correct bits (e.g. suspend once we support it).
 			port_space.store(port_regs::sc, portsc::connectChange(true)
@@ -316,7 +316,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 
 	COFIBER_AWAIT _directTransfer(ControlTransfer{kXferToDevice,
 			set_address, arch::dma_buffer_view{}}, queue, 0);
-	
+
 	queue->setAddress(address);
 
 	// Enquire the maximum packet size of the default control pipe.
@@ -331,13 +331,13 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	get_header->index = 0;
 	get_header->length = 8;
 
-	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};	
+	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};
 	COFIBER_AWAIT _directTransfer(ControlTransfer{kXferToHost,
 			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
 
 	_activeDevices[address].controlStates[0].queueEntity = queue;
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
-	
+
 	// Read the rest of the device descriptor.
 	if(logDeviceEnumeration)
 		std::cout << "ehci: Getting full device descriptor" << std::endl;
@@ -374,9 +374,9 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 		{"usb.protocol", mbus::StringItem{protocol}},
 		{"usb.release", mbus::StringItem{release}}
 	};
-	
+
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
-	
+
 	char name[3];
 	sprintf(name, "%.2x", address);
 
@@ -401,6 +401,8 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 
 	std::vector<uint8_t> kernlet_program;
 	kernlet_program.push_back(FNR_OP_BINDING);
+	kernlet_program.push_back(2);
+	kernlet_program.push_back(FNR_OP_BINDING);
 	kernlet_program.push_back(0);
 	kernlet_program.push_back(FNR_OP_BINDING);
 	kernlet_program.push_back(1);
@@ -414,18 +416,31 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	kernlet_program.push_back(FNR_OP_CONST);
 	kernlet_program.push_back(23); // USB transaction, error, port change and host error bits.
 	kernlet_program.push_back(FNR_OP_AND);
+	kernlet_program.push_back(FNR_OP_INTRIN);
+	for(const char *s = "__trigger_bitset"; *s; ++s)
+		kernlet_program.push_back(*s);
+	kernlet_program.push_back(0); // Null-terminator.
 
 	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
-			kernlet_program.size(), {BindType::memoryView, BindType::offset});
+			kernlet_program.size(), {BindType::memoryView, BindType::offset,
+			BindType::bitsetEvent});
 
-	HelKernletData data[2];
+	HelHandle event_handle;
+	HEL_CHECK(helCreateBitsetEvent(&event_handle));
+	helix::UniqueDescriptor event{event_handle};
+
+	HelKernletData data[3];
 	data[0].handle = _mmio.getHandle();
-	data[1].handle = _mapping.offset();
+	data[1].handle = _mapping.offset() + _space.load(cap_regs::caplength);
+	data[2].handle = event.getHandle();
 	HelHandle bound_handle;
-	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 2, &bound_handle));
+	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 3, &bound_handle));
 	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
 
 	COFIBER_AWAIT _hwDevice.enableBusIrq();
+
+	auto status0 = _operational.load(op_regs::usbsts);
+	std::cout << "ehci: Status register is " << (uint32_t)status0 << std::endl;
 
 	// TODO: We should not need this kick anymore.
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
@@ -433,43 +448,38 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	uint64_t sequence = 0;
 	while(true) {
 		if(logIrqs)
-			std::cout << "ehci: Awaiting IRQ" << std::endl;
-		helix::AwaitEvent await_irq;
-		auto &&submit = helix::submitAwaitEvent(_irq, &await_irq,
+			std::cout << "ehci: Awaiting IRQ event" << std::endl;
+		helix::AwaitEvent await_event;
+		auto &&submit = helix::submitAwaitEvent(event, &await_event,
 				sequence, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
-		HEL_CHECK(await_irq.error());
-		sequence = await_irq.sequence();
+		HEL_CHECK(await_event.error());
+		sequence = await_event.sequence();
 		if(logIrqs)
-			std::cout << "ehci: IRQ fired (sequence: " << sequence << ")" << std::endl;
+			std::cout << "ehci: IRQ event fired (sequence: " << sequence << "), bits: "
+					<< await_event.bitset() << std::endl;
 
 		auto status = _operational.load(op_regs::usbsts);
-		assert(!(status & usbsts::hostError));
-		if(!(status & usbsts::transactionIrq)
-				&& !(status & usbsts::errorIrq)
-			 	&& !(status & usbsts::portChange)) {
-			if(logIrqs)
-				std::cout << "ehci: IRQ is not from this controller" << std::endl;
-			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
-			continue;
-		}
+		std::cout << "ehci: Status register is " << (uint32_t)status << std::endl;
 
-		if(status & usbsts::errorIrq)
+		auto bits = arch::bit_value<uint32_t>(await_event.bitset());
+
+		// TODO: The kernlet should write the status register!
+		if(bits & usbsts::errorIrq)
 			printf("\e[31mehci: Error interrupt\e[39m\n");
 		_operational.store(op_regs::usbsts,
-				usbsts::transactionIrq(status & usbsts::transactionIrq)
-				| usbsts::errorIrq(status & usbsts::errorIrq)
-				| usbsts::portChange(status & usbsts::portChange));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
-		
-		if((status & usbsts::transactionIrq)
-				|| (status & usbsts::errorIrq)) {
+				usbsts::transactionIrq(bits & usbsts::transactionIrq)
+				| usbsts::errorIrq(bits & usbsts::errorIrq)
+				| usbsts::portChange(bits & usbsts::portChange));
+
+		if((bits & usbsts::transactionIrq)
+				|| (bits & usbsts::errorIrq)) {
 			if(logIrqs)
 				std::cout << "ehci: Processing transfers" << std::endl;
 			_progressSchedule();
 		}
-		
-		if(status & usbsts::portChange) {
+
+		if(bits & usbsts::portChange) {
 			if(logIrqs)
 				std::cout << "ehci: Checking ports" << std::endl;
 			_checkPorts();
@@ -527,7 +537,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::useConfiguration(int address,
 
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToDevice,
 			set_config, arch::dma_buffer_view{}});
-	
+
 	COFIBER_RETURN();
 }))
 
@@ -548,7 +558,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 		// TODO: Set QH multiplier for high-bandwidth endpoints.
 		if(desc->maxPacketSize & 0x1800)
 			std::cout << "\e[35mehci: Endpoint is high bandwidth\e[39m" << std::endl;
-		
+
 		int pipe = info.endpointNumber.value();
 		if(info.endpointIn.value()) {
 			if(logDeviceEnumeration)
@@ -570,7 +580,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
 		}
 	});
-	
+
 	COFIBER_RETURN();
 }))
 
@@ -623,7 +633,7 @@ void Controller::QueueEntity::setAddress(int address) {
 async::result<void> Controller::transfer(int address, int pipe, ControlTransfer info) {
 	auto device = &_activeDevices[address];
 	auto endpoint = &device->controlStates[pipe];
-	
+
 	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer,  endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
@@ -688,7 +698,7 @@ auto Controller::_buildControl(XferFlags dir,
 			| td_status::totalBytes(sizeof(SetupPacket)));
 	transfers[0].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer(setup.data())));
 	transfers[0].extendedPtr0.store(0);
-	
+
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
@@ -900,7 +910,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		entity->transactions.pop_front();
 		//delete active;
 		// TODO: _reclaim(active);
-		
+
 		// Schedule the next transaction.
 		assert(entity->head->nextTd.load() & td_ptr::terminate);
 		if(!entity->transactions.empty()) {
@@ -914,9 +924,9 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			|| (active->transfers[current].status.load() & td_status::babbleDetected)
 			|| (active->transfers[current].status.load() & td_status::dataBufferError)) {
 		printf("Transfer error!\n");
-		
+
 		_dump(entity);
-		
+
 		// Clean up the Queue.
 		entity->transactions.pop_front();
 		//delete active;
@@ -932,9 +942,9 @@ void Controller::_progressQueue(QueueEntity *entity) {
 COFIBER_ROUTINE(cofiber::no_future, Controller::resetPort(int number), ([=] {
 	auto offset = _space.load(cap_regs::caplength);
 	auto port_space = _space.subspace(offset + 0x44 + (4 * number));
-	
+
 //	std::cout << "ehci: Port reset." << std::endl;
-	port_space.store(port_regs::sc, portsc::portReset(true));	
+	port_space.store(port_regs::sc, portsc::portReset(true));
 
 	uint64_t tick;
 	HEL_CHECK(helGetClock(&tick));
@@ -952,7 +962,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::resetPort(int number), ([=] {
 	do {
 		sc = port_space.load(port_regs::sc);
 	} while(sc & portsc::portReset);
-	
+
 	if(sc & portsc::enableStatus) {
 		assert(!(sc & portsc::enableChange)); // See handleIrqs().
 		std::cout << "ehci: Port " << number << " was enabled." << std::endl;
@@ -1039,9 +1049,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = COFIBER_AWAIT device.accessBar(0);
 	auto irq = COFIBER_AWAIT device.accessIrq();
-	
-	auto controller = std::make_shared<Controller>(std::move(device),
-			helix::Mapping{bar, info.barInfo[0].offset, info.barInfo[0].length},
+
+	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
+	auto controller = std::make_shared<Controller>(std::move(device), std::move(mapping),
 			std::move(bar), std::move(irq));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
@@ -1061,7 +1071,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		std::cout << "ehci: Detected controller" << std::endl;
 		bindController(std::move(entity));
 	});
-	
+
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
@@ -1081,7 +1091,7 @@ int main() {
 	}
 
 	helix::globalQueue()->run();
-	
+
 	return 0;
 }
  

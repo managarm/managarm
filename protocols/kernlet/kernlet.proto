@@ -11,6 +11,7 @@ enum Error {
 enum ParameterType {
 	OFFSET = 1;
 	MEMORY_VIEW = 2;
+	BITSET_EVENT = 3;
 }
 
 enum CntReqType {

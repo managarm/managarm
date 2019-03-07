@@ -300,15 +300,6 @@ void IrqObject::automate(frigg::SharedPtr<BoundKernlet> kernlet) {
 }
 
 IrqStatus IrqObject::raise() {
-	// TODO: Run the automation kernlet _after_ waking the wait queue.
-	// That way, waiters would still work in the presence of automation.
-	if(_automationKernlet) {
-		if(!_automationKernlet->invokeIrqAutomation())
-			return IrqStatus::nacked;
-		// TODO: Once we support notification mechanisms from within the kernel, we can ack here.
-//		return IrqStatus::acked;
-	}
-
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
 		node->_error = kErrSuccess;
@@ -316,7 +307,12 @@ IrqStatus IrqObject::raise() {
 		WorkQueue::post(node->_awaited);
 	}
 
-	return IrqStatus::null;
+	if(_automationKernlet) {
+		if(!_automationKernlet->invokeIrqAutomation())
+			return IrqStatus::nacked;
+		return IrqStatus::acked;
+	}else
+		return IrqStatus::null;
 }
 
 void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {

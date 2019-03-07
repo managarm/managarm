@@ -118,6 +118,7 @@ namespace _detail {
 	};
 }
 
+using _detail::mem_ops;
 using _detail::mem_space;
 
 static constexpr mem_space global_mem(nullptr);

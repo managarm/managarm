@@ -52,6 +52,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, 
 		switch(bt) {
 		case BindType::offset: proto = managarm::kernlet::OFFSET; break;
 		case BindType::memoryView: proto = managarm::kernlet::MEMORY_VIEW; break;
+		case BindType::bitsetEvent: proto = managarm::kernlet::BITSET_EVENT; break;
 		default:
 			assert(!"Unexpected binding type");
 		}
@@ -114,6 +115,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 				switch(proto) {
 				case managarm::kernlet::OFFSET: bt = BindType::offset; break;
 				case managarm::kernlet::MEMORY_VIEW: bt = BindType::memoryView; break;
+				case managarm::kernlet::BITSET_EVENT: bt = BindType::bitsetEvent; break;
 				default:
 					assert(!"Unexpected binding type");
 				}

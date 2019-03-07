@@ -73,6 +73,7 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			comp.opstack.push_back(result);
 		}else if(opcode == FNR_OP_BINDING) {
 			auto index = extractUint();
+			assert(index < comp.bindings.size());
 
 			if(comp.bindings[index].type == BindType::offset) {
 				auto inst = comp.bb->insertNewInstruction<lewis::LoadOffsetInstruction>(
@@ -86,8 +87,15 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 				auto result = inst->result.setNew<lewis::LocalValue>();
 				result->setType(lewis::globalPointerType());
 				comp.opstack.push_back(result);
+			}else if(comp.bindings[index].type == BindType::bitsetEvent) {
+				auto inst = comp.bb->insertNewInstruction<lewis::LoadOffsetInstruction>(
+						argument, comp.bindings[index].disp);
+				auto result = inst->result.setNew<lewis::LocalValue>();
+				result->setType(lewis::globalPointerType());
+				comp.opstack.push_back(result);
 			}else assert(!"Unexpected binding type");
 		}else if(opcode == FNR_OP_AND) {
+			assert(comp.opstack.size() >= 2);
 			auto left = comp.opstack.back();
 			comp.opstack.pop_back();
 			auto right = comp.opstack.back();
@@ -99,6 +107,7 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			result->setType(lewis::globalInt32Type());
 			comp.opstack.push_back(result);
 		}else if(opcode == FNR_OP_ADD) {
+			assert(comp.opstack.size() >= 2);
 			auto left = comp.opstack.back();
 			comp.opstack.pop_back();
 			auto right = comp.opstack.back();
@@ -112,9 +121,10 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 		}else if(opcode == FNR_OP_INTRIN) {
 			auto function = extractString();
 
-			auto handle = comp.opstack.back();
-			comp.opstack.pop_back();
+			assert(comp.opstack.size() >= 2);
 			auto offset = comp.opstack.back();
+			comp.opstack.pop_back();
+			auto handle = comp.opstack.back();
 			comp.opstack.pop_back();
 
 			auto inst = comp.bb->insertNewInstruction<lewis::InvokeInstruction>(
@@ -130,6 +140,7 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 		}
 	}
 
+	assert(comp.opstack.size() == 1);
     auto branch = comp.bb->setBranch(std::make_unique<lewis::FunctionReturnBranch>(1));
 	branch->operand(0) = comp.opstack.back();
 	comp.opstack.pop_back();

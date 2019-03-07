@@ -2082,34 +2082,48 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 
 		if(defn.type == KernletParameterType::offset) {
 			bound->setupOffsetBinding(i, x);
-		}else{
-			assert(defn.type == KernletParameterType::memoryView);
-
+		}else if(defn.type == KernletParameterType::memoryView) {
 			frigg::SharedPtr<Memory> memory;
 			{
 				auto irq_lock = frigg::guard(&irqMutex());
 				Universe::Guard universe_guard(&this_universe->lock);
 
-				auto memory_wrapper = this_universe->getDescriptor(universe_guard, x);
-				if(!memory_wrapper)
+				auto wrapper = this_universe->getDescriptor(universe_guard, x);
+				if(!wrapper)
 					return kHelErrNoDescriptor;
-				if(!memory_wrapper->is<MemoryBundleDescriptor>())
+				if(!wrapper->is<MemoryBundleDescriptor>())
 					return kHelErrBadDescriptor;
-				memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+				memory = wrapper->get<MemoryBundleDescriptor>().memory;
 			}
 
 			auto window = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));
 			assert(memory->getLength() <= 0x10000);
 
 			for(size_t off = 0; off < memory->getLength(); off += kPageSize) {
-			//	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 				auto range = memory->peekRange(off);
 				assert(range.get<0>() != PhysicalAddr(-1));
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<uintptr_t>(window + off),
-						range.get<0>(), 0, range.get<1>());
+						range.get<0>(), page_access::write, range.get<1>());
 			}
 
 			bound->setupMemoryViewBinding(i, window);
+		}else{
+			assert(defn.type == KernletParameterType::bitsetEvent);
+
+			frigg::SharedPtr<BitsetEvent> event;
+			{
+				auto irq_lock = frigg::guard(&irqMutex());
+				Universe::Guard universe_guard(&this_universe->lock);
+
+				auto wrapper = this_universe->getDescriptor(universe_guard, x);
+				if(!wrapper)
+					return kHelErrNoDescriptor;
+				if(!wrapper->is<BitsetEventDescriptor>())
+					return kHelErrBadDescriptor;
+				event = wrapper->get<BitsetEventDescriptor>().event;
+			}
+
+			bound->setupBitsetEventBinding(i, std::move(event));
 		}
 	}
 

@@ -1,6 +1,7 @@
 
 #include <stdint.h>
 
+#include <arch/mem_space.hpp>
 #include <frg/string.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/debug.hpp>
@@ -15,6 +16,11 @@
 #include "kernlet.frigg_pb.hpp"
 
 namespace thor {
+
+namespace {
+	constexpr bool logBinding = false;
+	constexpr bool logIo = true;
+}
 
 extern frigg::LazyInitializer<LaneHandle> mbusClient;
 
@@ -31,6 +37,10 @@ KernletObject::KernletObject(void *entry,
 			_bindDefns.push_back({type, _instanceSize});
 			_instanceSize += 4;
 		}else if(type == KernletParameterType::memoryView) {
+			_instanceSize = (_instanceSize + 7) & ~size_t(7);
+			_bindDefns.push_back({type, _instanceSize});
+			_instanceSize += 8;
+		}else if(type == KernletParameterType::bitsetEvent) {
 			_instanceSize = (_instanceSize + 7) & ~size_t(7);
 			_bindDefns.push_back({type, _instanceSize});
 			_instanceSize += 8;
@@ -64,16 +74,28 @@ BoundKernlet::BoundKernlet(frigg::SharedPtr<KernletObject> object)
 void BoundKernlet::setupOffsetBinding(size_t index, uint32_t offset) {
 	assert(index < _object->numberOfBindParameters());
 	const auto &defn = _object->defnOfBindParameter(index);
-//	frigg::infoLogger() << "thor: Binding offset " << offset
-//			<< " at " << defn.offset << frigg::endLog;
+	if(logBinding)
+		frigg::infoLogger() << "thor: Binding offset " << offset
+				<< " to instance offset " << defn.offset << frigg::endLog;
 	memcpy(_instance + defn.offset, &offset, sizeof(uint32_t));
 }
 
 void BoundKernlet::setupMemoryViewBinding(size_t index, void *p) {
 	assert(index < _object->numberOfBindParameters());
 	const auto &defn = _object->defnOfBindParameter(index);
-//	frigg::infoLogger() << "thor: Binding memory view at "
-//			<< defn.offset << frigg::endLog;
+	if(logBinding)
+		frigg::infoLogger() << "thor: Binding memory view " << p
+				<< " to instance offset " << defn.offset << frigg::endLog;
+	memcpy(_instance + defn.offset, &p, sizeof(void *));
+}
+
+void BoundKernlet::setupBitsetEventBinding(size_t index, frigg::SharedPtr<BitsetEvent> event) {
+	assert(index < _object->numberOfBindParameters());
+	const auto &defn = _object->defnOfBindParameter(index);
+	if(logBinding)
+		frigg::infoLogger() << "thor: Binding bitset event " << (void *)event.get()
+				<< " to instance offset " << defn.offset << frigg::endLog;
+	auto p = event.get();
 	memcpy(_instance + defn.offset, &p, sizeof(void *));
 }
 
@@ -191,12 +213,37 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 
 	// Perform relocations.
 	auto resolveExternal = [] (frg::string_view name) -> void * {
-		uint8_t (*abi_mmio_read32)(const char *, ptrdiff_t) =
-			[] (const char *base, ptrdiff_t offset) -> uint8_t {
-				return *reinterpret_cast<volatile const uint32_t *>(base + offset);
+		uint32_t (*abi_mmio_read32)(const char *, ptrdiff_t) =
+			[] (const char *base, ptrdiff_t offset) -> uint32_t {
+				auto p = reinterpret_cast<const uint32_t *>(base + offset);
+				if(logIo)
+					frigg::infoLogger() << "__mmio_read32 on " << (void *)base
+							<< ", offset: " << offset << " " << (void *)p << frigg::endLog;
+				auto value = arch::mem_ops<uint32_t>::load(p);
+				if(logIo)
+					frigg::infoLogger() << "    __mmio_read32 returns " << value << frigg::endLog;
+				return value;
+			};
+		void (*abi_mmio_write32)(char *, ptrdiff_t, uint32_t) =
+			[] (char *base, ptrdiff_t offset, uint32_t value) {
+				auto p = reinterpret_cast<uint32_t *>(base + offset);
+				arch::mem_ops<uint32_t>::store(p, value);
+			};
+		uint32_t (*abi_trigger_bitset)(void *, uint32_t) =
+			[] (void *p, uint32_t bits) -> uint32_t {
+				if(logIo)
+					frigg::infoLogger() << "__trigger_bitset on "
+							<< p << ", bits: " << bits << frigg::endLog;
+				auto event = static_cast<BitsetEvent *>(p);
+				event->trigger(bits);
+				return bits;
 			};
 		if(name == "__mmio_read32")
 			return reinterpret_cast<void *>(abi_mmio_read32);
+		else if(name == "__mmio_write32")
+			return reinterpret_cast<void *>(abi_mmio_write32);
+		else if(name == "__trigger_bitset")
+			return reinterpret_cast<void *>(abi_trigger_bitset);
 		frigg::panicLogger() << "Could not resolve external " << name.data() << frigg::endLog;
 	};
 
@@ -267,6 +314,9 @@ bool handleReq(LaneHandle lane) {
 				break;
 			case managarm::kernlet::ParameterType::MEMORY_VIEW:
 				bind_types.push_back(KernletParameterType::memoryView);
+				break;
+			case managarm::kernlet::ParameterType::BITSET_EVENT:
+				bind_types.push_back(KernletParameterType::bitsetEvent);
 				break;
 			default:
 				assert(!"Unexpected kernlet parameter type");

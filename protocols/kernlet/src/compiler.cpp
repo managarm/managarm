@@ -47,6 +47,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size
 		switch(bt) {
 		case BindType::offset: proto = managarm::kernlet::OFFSET; break;
 		case BindType::memoryView: proto = managarm::kernlet::MEMORY_VIEW; break;
+		case BindType::bitsetEvent: proto = managarm::kernlet::BITSET_EVENT; break;
 		default:
 			assert(!"Unexpected binding type");
 		}

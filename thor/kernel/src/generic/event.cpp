@@ -3,9 +3,16 @@
 
 namespace thor {
 
-BitsetEvent::BitsetEvent() = default;
+BitsetEvent::BitsetEvent()
+: _currentSequence{1} {
+	for(int i = 0; i < 32; i++)
+		_lastTrigger[i] = 0;
+}
 
 void BitsetEvent::trigger(uint32_t bits) {
+	if(!bits)
+		return; // TODO: Return an error!
+
 	auto lock = frigg::guard(&_mutex);
 
 	_currentSequence++;

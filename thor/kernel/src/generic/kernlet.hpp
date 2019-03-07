@@ -3,6 +3,7 @@
 
 #include <frg/vector.hpp>
 #include <frigg/variant.hpp>
+#include "event.hpp"
 
 namespace thor {
 
@@ -11,7 +12,8 @@ struct BoundKernlet;
 enum class KernletParameterType {
 	null,
 	offset,
-	memoryView
+	memoryView,
+	bitsetEvent
 };
 
 struct KernletParameterDefn {
@@ -49,6 +51,7 @@ struct BoundKernlet {
 
 	void setupOffsetBinding(size_t index, uint32_t offset);
 	void setupMemoryViewBinding(size_t index, void *p);
+	void setupBitsetEventBinding(size_t index, frigg::SharedPtr<BitsetEvent> event);
 
 	bool invokeIrqAutomation();
 

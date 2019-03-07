@@ -7,7 +7,8 @@
 enum class BindType {
 	null,
 	offset,
-	memoryView
+	memoryView,
+	bitsetEvent
 };
 
 async::result<void> connectKernletCompiler();
