@@ -101,7 +101,7 @@ struct PageBinding {
 	PageBinding &operator= (const PageBinding &) = delete;
 
 	frigg::SharedPtr<PageSpace> boundSpace() {
-		return _boundSpace.grab();
+		return _boundSpace;
 	}
 
 	void setupPcid(int pcid) {
@@ -123,11 +123,9 @@ private:
 	int _pcid;
 
 	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
-	//       to the PageSpace (that does *not* prevent the PageSpace from becoming
-	//       "unactivatable".
-	frigg::WeakPtr<PageSpace> _boundSpace;
-
-	bool _wasRebound;
+	//       to the PageSpace that does *not* prevent the PageSpace from becoming
+	//       "activatable".
+	frigg::SharedPtr<PageSpace> _boundSpace;
 
 	uint64_t _primaryStamp;
 
@@ -140,6 +138,8 @@ struct PageSpace {
 	friend struct PageBinding;
 
 	PageSpace(PhysicalAddr root_table);
+
+	~PageSpace();
 
 	PhysicalAddr rootTable() {
 		return _rootTable;

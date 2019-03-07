@@ -68,7 +68,7 @@ PageContext::PageContext()
 : _nextStamp{1}, _primaryBinding{nullptr} { }
 
 PageBinding::PageBinding()
-: _pcid{0}, _boundSpace{nullptr}, _wasRebound{false},
+: _pcid{0}, _boundSpace{nullptr},
 		_primaryStamp{0}, _alreadyShotSequence{0} { }
 
 void PageBinding::makePrimary() {
@@ -76,73 +76,30 @@ void PageBinding::makePrimary() {
 	assert(getCpuData()->havePcids || !_pcid);
 	auto context = &getCpuData()->pageContext;
 
-	// If we are the primary binding, we might be able to avoid changing CR3.
-	if(_wasRebound || context->_primaryBinding != this) {
-		auto space = _boundSpace.grab();
-		assert(space);
-		auto cr3 = space->rootTable() | _pcid;
+	// If we are the primary binding, we can avoid to change CR3.
+	if(context->_primaryBinding != this) {
+		assert(_boundSpace);
+		auto cr3 = _boundSpace->rootTable() | _pcid;
 		if(getCpuData()->havePcids)
-			cr3 |= PhysicalAddr(1) << 63;
+			cr3 |= PhysicalAddr(1) << 63; // Do not invalidate the PCID.
 		asm volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
 	}
 
-	_wasRebound = false;
 	_primaryStamp = context->_nextStamp++;
 	context->_primaryBinding = this;
 }
 
 void PageBinding::rebind(frigg::SharedPtr<PageSpace> space) {
 	assert(!intsAreEnabled());
+	assert(getCpuData()->havePcids || !_pcid);
+	auto context = &getCpuData()->pageContext;
 
-	auto unbound = _boundSpace.grab();
-	if(unbound && unbound.get() == space.get())
+	auto unbound_space = _boundSpace;
+	auto unbound_sequence = _alreadyShotSequence;
+	if(unbound_space && unbound_space.get() == space.get())
 		return;
 
-	// If we switch to another space, we have to invalidate PCIDs.
-	if(getCpuData()->havePcids)
-		invalidatePcid(_pcid);
-
-	_wasRebound = true;
-
-	// Mark everything as shot-down.
-	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> complete;
-
-	if(unbound) {
-		auto lock = frigg::guard(&unbound->_mutex);
-
-		if(!unbound->_shootQueue.empty()) {
-			auto current = unbound->_shootQueue.back();
-			while(current->_sequence > _alreadyShotSequence) {
-				auto predecessor = current->_queueNode.previous;
-
-				// Signal completion of the shootdown.
-				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-					auto it = unbound->_shootQueue.iterator_to(current);
-					unbound->_shootQueue.erase(it);
-					complete.push_front(current);
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
-
-		unbound->_numBindings--;
-	}
-
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->shotDown(current);
-	}
-
+	// Bind the new space.
 	uint64_t target_seq;
 	{
 		auto lock = frigg::guard(&space->_mutex);
@@ -153,19 +110,67 @@ void PageBinding::rebind(frigg::SharedPtr<PageSpace> space) {
 
 	_boundSpace = space;
 	_alreadyShotSequence = target_seq;
+
+	// Switch the CR3 and invalidate the PCID.
+	auto cr3 = space->rootTable() | _pcid;
+	asm volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+
+	_primaryStamp = context->_nextStamp++;
+	context->_primaryBinding = this;
+
+	// Mark every shootdown request in the unbound space as shot-down.
+	frg::intrusive_list<
+		ShootNode,
+		frg::locate_member<
+			ShootNode,
+			frg::default_list_hook<ShootNode>,
+			&ShootNode::_queueNode
+		>
+	> complete;
+
+	if(unbound_space) {
+		auto lock = frigg::guard(&unbound_space->_mutex);
+
+		if(!unbound_space->_shootQueue.empty()) {
+			auto current = unbound_space->_shootQueue.back();
+			while(current->_sequence > unbound_sequence) {
+				auto predecessor = current->_queueNode.previous;
+
+				// Signal completion of the shootdown.
+				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+					auto it = unbound_space->_shootQueue.iterator_to(current);
+					unbound_space->_shootQueue.erase(it);
+					complete.push_front(current);
+				}
+
+				if(!predecessor)
+					break;
+				current = predecessor;
+			}
+		}
+
+		unbound_space->_numBindings--;
+	}
+
+	while(!complete.empty()) {
+		auto current = complete.pop_front();
+		current->shotDown(current);
+	}
 }
 
 void PageBinding::shootdown() {
 	assert(!intsAreEnabled());
 
-	auto space = _boundSpace.grab();
+	auto space = _boundSpace;
 	if(!space) {
-		// Unbind PageSpaces that have are not alive anymore.
+		// TODO: Unbind PageSpaces that have are not alive anymore.
+/*
 		if(_boundSpace) {
 			// TODO: Complete ShootNodes of that space.
 			invalidatePcid(_pcid);
-			_boundSpace = frigg::WeakPtr<PageSpace>{};
+			_boundSpace = frigg::SharedPtr<PageSpace>{};
 		}
+*/
 		return;
 	}
 
@@ -251,12 +256,15 @@ void PageSpace::activate(frigg::SharedPtr<PageSpace> space) {
 	}
 
 	bindings[k].rebind(space);
-	bindings[k].makePrimary();
 }
 
 
 PageSpace::PageSpace(PhysicalAddr root_table)
 : _rootTable{root_table}, _numBindings{0}, _shootSequence{0} { }
+
+PageSpace::~PageSpace() {
+	assert(!_numBindings);
+}
 
 void PageSpace::submitShootdown(ShootNode *node) {
 	bool any_bindings;
