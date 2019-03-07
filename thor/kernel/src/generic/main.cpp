@@ -691,6 +691,16 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helFutexWake((int *)arg0);
 	} break;
 
+	case kHelCallCreateLatchEvent: {
+		HelHandle handle;
+		*image.error() = helCreateLatchEvent(&handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallCreateBitsetEvent: {
+		HelHandle handle;
+		*image.error() = helCreateBitsetEvent(&handle);
+		*image.out0() = handle;
+	} break;
 	case kHelCallAccessIrq: {
 		HelHandle handle;
 		*image.error() = helAccessIrq((int)arg0, &handle);

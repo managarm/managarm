@@ -132,10 +132,18 @@ struct LaneDescriptor {
 };
 
 // --------------------------------------------------------
-// IO related descriptors
+// Event related descriptors.
 // --------------------------------------------------------
 
 struct IrqObject;
+struct BitsetEvent;
+
+struct BitsetEventDescriptor {
+	BitsetEventDescriptor(frigg::SharedPtr<BitsetEvent> event)
+	: event{frigg::move(event)} { }
+
+	frigg::SharedPtr<BitsetEvent> event;
+};
 
 struct IrqDescriptor {
 	IrqDescriptor(frigg::SharedPtr<IrqObject> irq)
@@ -143,6 +151,10 @@ struct IrqDescriptor {
 
 	frigg::SharedPtr<IrqObject> irq;
 };
+
+// --------------------------------------------------------
+// I/O related descriptors.
+// --------------------------------------------------------
 
 struct IoDescriptor {
 	IoDescriptor(frigg::SharedPtr<IoSpace> io_space)
@@ -178,6 +190,7 @@ typedef frigg::Variant<
 	ThreadDescriptor,
 	LaneDescriptor,
 	IrqDescriptor,
+	BitsetEventDescriptor,
 	IoDescriptor,
 	KernletObjectDescriptor,
 	BoundKernletDescriptor

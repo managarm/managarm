@@ -4,6 +4,7 @@
 #include <atomic>
 
 #include <frg/list.hpp>
+#include <frigg/atomic.hpp>
 
 namespace thor {
 

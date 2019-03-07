@@ -28,7 +28,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
 	generic/cancel.o generic/core.o generic/fiber.o generic/ipc-queue.o generic/usermem.o \
 	generic/schedule.o generic/futex.o generic/stream.o \
-	generic/timer.o generic/thread.o generic/irq.o generic/io.o \
+	generic/timer.o generic/thread.o generic/event.o generic/irq.o generic/io.o \
 	generic/kernlet.o generic/servers.o generic/service_helpers.o \
 	generic/work-queue.o
 $c_OBJECTS += generic/font-8x16.o system/boot-screen.o system/fb.o
