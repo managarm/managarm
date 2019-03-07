@@ -56,7 +56,8 @@ enum {
 	kPagePcd = 0x10,
 	kPagePat = 0x80,
 	kPageGlobal = 0x100,
-	kPageXd = 0x8000000000000000
+	kPageXd = 0x8000000000000000,
+	kPageAddress = 0x000FFFFFFFFFF000
 };
 
 namespace thor {
@@ -443,8 +444,37 @@ ClientPageSpace::ClientPageSpace()
 }
 
 ClientPageSpace::~ClientPageSpace() {
-	frigg::infoLogger() << "\e[31mthor: ClientPageSpace does not properly"
-			" deallocate page tables\e[39m" << frigg::endLog;
+	auto clearLevel2 = [&] (PhysicalAddr ps) {
+		PageAccessor accessor{ps};
+		auto tbl = reinterpret_cast<uint64_t *>(accessor.get());
+		for(int i = 0; i < 512; i++) {
+			if(tbl[i] & kPagePresent)
+				physicalAllocator->free(tbl[i] & kPageAddress, kPageSize);
+		}
+	};
+
+	auto clearLevel3 = [&] (PhysicalAddr ps) {
+		PageAccessor accessor{ps};
+		auto tbl = reinterpret_cast<uint64_t *>(accessor.get());
+		for(int i = 0; i < 512; i++) {
+			if(!(tbl[i] & kPagePresent))
+				continue;
+			clearLevel2(tbl[i] & kPageAddress);
+			physicalAllocator->free(tbl[i] & kPageAddress, kPageSize);
+		}
+	};
+
+	// From PML4, we only clear the lower half (higher half is shared with kernel).
+	PageAccessor root_accessor{rootTable()};
+	auto root_tbl = reinterpret_cast<uint64_t *>(root_accessor.get());
+	for(int i = 0; i < 256; i++) {
+		if(!(root_tbl[i] & kPagePresent))
+			continue;
+		clearLevel3(root_tbl[i] & kPageAddress);
+		physicalAllocator->free(root_tbl[i] & kPageAddress, kPageSize);
+	}
+
+	physicalAllocator->free(rootTable(), kPageSize);
 }
 
 void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
