@@ -32,7 +32,9 @@ enum class Error {
 
 	seekOnPipe,
 
-	wouldBlock
+	wouldBlock,
+
+	brokenPipe
 };
 
 // TODO: Rename this enum as is not part of the VFS.

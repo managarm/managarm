@@ -16,6 +16,7 @@ enum Errors {
 	END_OF_FILE = 7;
 	BAD_FD = 8;
 	WOULD_BLOCK = 10;
+	BROKEN_PIPE = 11;
 }
 
 enum CntReqType {

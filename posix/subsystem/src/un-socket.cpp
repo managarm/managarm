@@ -40,7 +40,9 @@ struct OpenFile : File {
 	enum class State {
 		null,
 		listening,
-		connected
+		connected,
+		remoteShutDown,
+		closed
 	};
 
 public:
@@ -61,7 +63,7 @@ public:
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-				&File::fileOperations);
+				&File::fileOperations, file->_cancelServe);
 	}
 
 	OpenFile(Process *process = nullptr)
@@ -70,6 +72,21 @@ public:
 			_remote{nullptr}, _passCreds{false} {
 		if(process)
 			_ownerPid = process->pid();
+	}
+
+	void handleClose() override {
+		if(_currentState == State::connected) {
+			auto rf = _remote;
+			rf->_currentState = State::remoteShutDown;
+			rf->_stateSeq = ++rf->_currentSeq;
+			rf->_stateBell.ring();
+			rf->_remote = nullptr;
+			_remote = nullptr;
+		}
+		_currentState = State::closed;
+		_stateSeq = ++_currentSeq;
+		_stateBell.ring();
+		_cancelServe.cancel();
 	}
 
 public:
@@ -81,7 +98,7 @@ public:
 
 		while(_recvQueue.empty())
 			COFIBER_AWAIT _statusBell.async_wait();
-		
+
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
 		assert(!packet->offset);
@@ -92,7 +109,7 @@ public:
 		_recvQueue.pop_front();
 		COFIBER_RETURN(size);
 	}))
-	
+
 	COFIBER_ROUTINE(FutureMaybe<void>,
 	writeAll(Process *process, const void *data, size_t length) override, ([=] {
 		assert(process);
@@ -116,11 +133,15 @@ public:
 	COFIBER_ROUTINE(expected<RecvResult>,
 	recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
 			void *, size_t, size_t max_ctrl_length) override, ([=] {
-		assert(_currentState == State::connected);
 		assert(!(flags & ~(msgNoWait | msgCloseOnExec)));
+
+		if(_currentState == State::remoteShutDown)
+			COFIBER_RETURN(RecvResult(0, 0, {}));
+
+		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
-		
+
 		if(_recvQueue.empty() && (flags & msgNoWait)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
@@ -129,9 +150,9 @@ public:
 
 		while(_recvQueue.empty())
 			COFIBER_AWAIT _statusBell.async_wait();
-		
+
 		auto packet = &_recvQueue.front();
-		
+
 		CtrlBuilder ctrl{max_ctrl_length};
 
 		if(_passCreds) {
@@ -155,7 +176,7 @@ public:
 
 			packet->files.clear();
 		}
-		
+
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 		memcpy(data, packet->buffer.data() + packet->offset, chunk);
@@ -165,13 +186,17 @@ public:
 			_recvQueue.pop_front();
 		COFIBER_RETURN(RecvResult(chunk, 0, ctrl.buffer()));
 	}))
-	
+
 	COFIBER_ROUTINE(expected<size_t>,
 	sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
-		assert(_currentState == State::connected);
 		assert(!(flags & ~(msgNoWait)));
+
+		if(_currentState == State::remoteShutDown)
+			COFIBER_RETURN(Error::brokenPipe);
+
+		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -190,22 +215,22 @@ public:
 
 		COFIBER_RETURN(max_length);
 	}))
-	
+
 	COFIBER_ROUTINE(async::result<int>, getOption(int option) override, ([=] {
 		assert(option == SO_PEERCRED);
 		assert(_currentState == State::connected);
 		COFIBER_RETURN(_remote->_ownerPid);
 	}));
-	
+
 	COFIBER_ROUTINE(async::result<void>, setOption(int option, int value) override, ([=] {
 		assert(option == SO_PASSCRED);
 		_passCreds = value;
 		COFIBER_RETURN();
 	}));
-	
+
 	COFIBER_ROUTINE(async::result<AcceptResult>, accept(Process *process) override, ([=] {
 		assert(!_acceptQueue.empty());
-		
+
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
 
@@ -216,28 +241,36 @@ public:
 		connectPair(remote, local.get());
 		COFIBER_RETURN(File::constructHandle(std::move(local)));
 	}))
-	
+
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq) override, ([=] {
+		if(_currentState == State::closed)
+			COFIBER_RETURN(Error::fileClosed);
+
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq)
 			COFIBER_AWAIT _statusBell.async_wait();
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
+		if(_stateSeq > past_seq)
+			if(_currentState == State::remoteShutDown)
+				edges |= EPOLLHUP;
 		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
 
 		int events = EPOLLOUT;
+		if(_currentState == State::remoteShutDown)
+			events |= EPOLLHUP;
 		if(!_acceptQueue.empty() || !_recvQueue.empty())
 			events |= EPOLLIN;
-		
+
 //		std::cout << "posix: poll(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
 //				<< " returns (" << _currentSeq
 //				<< ", " << edges << ", " << events << ")" << std::endl;
-	
+
 		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
 	}))
-	
+
 	COFIBER_ROUTINE(async::result<void>,
 	bind(Process *process, const void *addr_ptr, size_t addr_length) override, ([=] {
 		// Create a new socket node in the FS.
@@ -265,14 +298,14 @@ public:
 
 		COFIBER_RETURN();
 	}))
-	
+
 	COFIBER_ROUTINE(async::result<void>,
 	connect(Process *process, const void *addr_ptr, size_t addr_length) override, ([=] {
 		// Resolve the socket node in the FS.
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
-		
+
 		std::string path{sa.sun_path, strnlen(sa.sun_path,
 				addr_length - offsetof(sockaddr_un, sun_path))};
 		std::cout << "posix: Connect to " << path << std::endl;
@@ -299,13 +332,14 @@ public:
 		std::cout << "posix: Connect returns" << std::endl;
 		COFIBER_RETURN();
 	}))
-	
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
 
 	async::doorbell _stateBell;
 	State _currentState;
@@ -313,8 +347,9 @@ private:
 	// Status management for poll().
 	async::doorbell _statusBell;
 	uint64_t _currentSeq;
+	uint64_t _stateSeq;
 	uint64_t _inSeq;
-	
+
 	// TODO: Use weak_ptrs here!
 	std::deque<OpenFile *> _acceptQueue;
 

@@ -123,7 +123,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsThread, &thrs));
-			
+
 			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsProgram, &pcrs));
 			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsThread, &thrs));
 
@@ -147,7 +147,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 			path.resize(gprs[3]);
 			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
 					gprs[5], gprs[3], path.data()));
-			
+
 			std::string args_area;
 			args_area.resize(gprs[6]);
 			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
@@ -157,7 +157,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 			env_area.resize(gprs[8]);
 			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
 					gprs[7], gprs[8], env_area.data()));
-			
+
 			if(logRequests || logPaths)
 				std::cout << "posix: execve path: " << path << std::endl;
 
@@ -193,7 +193,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
-			
+
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto mode = gprs[kHelRegRsi];
@@ -217,13 +217,13 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 		}else if(observe.observation() == kHelObserveSuperCall + 6) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
-			
+
 			self->signalContext()->restoreContext(thread);
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 5) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
-			
+
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto pid = gprs[kHelRegRsi];
@@ -250,7 +250,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 			info.pid = self->pid();
 			info.uid = 0;
 			target->signalContext()->issueSignal(sn, info);
-			
+
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
 				self->signalContext()->raiseContext(active, self.get(), generation.get());
@@ -690,7 +690,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
-			
+
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.target_path());
@@ -785,7 +785,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
-			
+
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path(), resolveDontFollow);
 			if(!path.second) {
@@ -833,7 +833,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
-			
+
 			assert(!(req.flags() & ~(managarm::posix::OF_CREATE
 					| managarm::posix::OF_EXCLUSIVE
 					| managarm::posix::OF_NONBLOCK
@@ -842,7 +842,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			SemanticFlags semantic_flags = 0;
 			if(req.flags() & managarm::posix::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
-			
+
 			smarter::shared_ptr<File, FileHandle> file;
 
 			PathResolver resolver;
@@ -893,7 +893,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				}
 			}else{
 				COFIBER_AWAIT resolver.resolve();
-				
+
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
 					file = COFIBER_AWAIT target->open(resolver.currentLink(), semantic_flags);
@@ -945,7 +945,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			assert(file && "Illegal FD for DUP");
 
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
-			
+
 			int newfd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OF_CLOEXEC);
 
@@ -1071,15 +1071,15 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::UNLINK) {
 			if(logRequests || logPaths)
 				std::cout << "posix: UNLINK path: " << req.path() << std::endl;
-			
+
 			helix::SendBuffer send_resp;
-			
+
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				auto owner = path.second->getOwner();
 				COFIBER_AWAIT owner->unlink(path.second->getName());
-			
+
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -1103,9 +1103,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: FD_GET_FLAGS" << std::endl;
 
 			helix::SendBuffer send_resp;
-			
+
 			auto descriptor = self->fileContext()->getDescriptor(req.fd());
-			
+
 			int flags = 0;
 			if(descriptor.closeOnExec)
 				flags |= O_CLOEXEC;
@@ -1211,7 +1211,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
-			
+
 			if(req.flags() & SOCK_NONBLOCK)
 				std::cout << "\e[31mposix: socket(SOCK_NONBLOCK)"
 						" is not implemented correctly\e[39m" << std::endl;
@@ -1303,13 +1303,13 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			helix::RecvInline recv_data;
 			helix::RecvInline recv_addr;
 			helix::SendBuffer send_resp;
-		
+
 			auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&recv_data, kHelItemChain),
 					helix::action(&recv_addr));
 			COFIBER_AWAIT submit_data.async_wait();
 			HEL_CHECK(recv_data.error());
-			
+
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for SENDMSG");
 
@@ -1343,6 +1343,19 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					std::move(files));
 
 			managarm::posix::SvrResponse resp;
+
+			auto error = std::get_if<Error>(&result_or_error);
+			if(error && *error == Error::brokenPipe) {
+				resp.set_error(managarm::posix::Errors::BROKEN_PIPE);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_size(std::get<size_t>(result_or_error));
 
@@ -1359,7 +1372,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_data;
 			helix::SendBuffer send_addr;
 			helix::SendBuffer send_ctrl;
-			
+
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for SENDMSG");
 
@@ -1373,7 +1386,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				flags |= msgNoWait;
 			if(req.flags() & MSG_CMSG_CLOEXEC)
 				flags |= msgCloseOnExec;
-			
+
 			std::vector<char> buffer;
 			std::vector<char> address;
 			buffer.resize(req.size());
@@ -1381,7 +1394,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto result_or_error = COFIBER_AWAIT sockfile->recvMsg(self.get(), flags,
 					buffer.data(), req.size(),
 					address.data(), req.addr_size(), req.ctrl_size());
-			
+
 			managarm::posix::SvrResponse resp;
 
 			auto error = std::get_if<Error>(&result_or_error);
@@ -1413,7 +1426,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: EPOLL_CALL" << std::endl;
 
 			helix::SendBuffer send_resp;
-			
+
 			auto epfile = epoll::createFile();
 			assert(req.fds_size() == req.events_size());
 			for(int i = 0; i < req.fds_size(); i++) {
@@ -1424,7 +1437,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				epoll::addItem(epfile.get(), self.get(), std::move(locked),
 						req.events(i), i);
 			}
-			
+
 			if(req.timeout() > 0)
 				std::cout << "posix: Ignoring non-zero EPOLL_WAIT timeout" << std::endl;
 
@@ -1460,9 +1473,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: EPOLL_CREATE" << std::endl;
 
 			helix::SendBuffer send_resp;
-			
+
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
-			
+
 			auto file = epoll::createFile();
 			auto fd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OF_CLOEXEC);
@@ -1548,10 +1561,10 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
-			
+
 			auto epfile = self->fileContext()->getFile(req.fd());
 			assert(epfile && "Illegal FD for EPOLL_WAIT");
-			
+
 			if(req.timeout() > 0)
 				std::cout << "posix: Ignoring non-zero EPOLL_WAIT timeout" << std::endl;
 
@@ -1570,7 +1583,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				assert(!"posix: Implement real epoll timeouts");
 				__builtin_unreachable();
 			}
-			
+
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -1585,7 +1598,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: TIMERFD_CREATE" << std::endl;
 
 			helix::SendBuffer send_resp;
-	
+
 			assert(!(req.flags() & ~(TFD_CLOEXEC | TFD_NONBLOCK)));
 
 			auto file = timerfd::createFile(req.flags() & TFD_NONBLOCK);
@@ -1624,9 +1637,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: SIGNALFD_CREATE" << std::endl;
 
 			helix::SendBuffer send_resp;
-			
+
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
-			
+
 			auto file = createSignalFile(req.sigset());
 			auto fd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OF_CLOEXEC);
@@ -1645,9 +1658,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: INOTIFY_CREATE" << std::endl;
 
 			helix::SendBuffer send_resp;
-			
+
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
-			
+
 			auto file = inotify::createFile();
 			auto fd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OF_CLOEXEC);
@@ -1704,7 +1717,7 @@ int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
-	
+
 	{
 		async::queue_scope scope{helix::globalQueue()};
 
