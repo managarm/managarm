@@ -12,6 +12,7 @@ static std::atomic<uint64_t> globalThreadId;
 namespace {
 	constexpr bool logTransitions = false;
 	constexpr bool logRunStates = false;
+	constexpr bool logCleanup = false;
 }
 
 // --------------------------------------------------------
@@ -330,14 +331,17 @@ Thread::~Thread() {
 
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
-	frigg::infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m" << frigg::endLog;
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m"
+				<< frigg::endLog;
 	_kill();
 }
 
 void Thread::cleanup() {
 	// TODO: Audit code to make sure this is called late enough (i.e. after termination completes).
 	// TODO: Make sure that this is called!
-	frigg::infoLogger() << "\e[31mthor: Thread is destructed\e[39m" << frigg::endLog;
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: Thread is destructed\e[39m" << frigg::endLog;
 	frigg::destruct(*kernelAlloc, this);
 }
 

@@ -201,6 +201,9 @@ public:
 
 	SharedPtr()
 	: _object(nullptr) { }
+
+	SharedPtr(decltype(nullptr))
+	: _object(nullptr) { }
 	
 	template<typename Allocator>
 	SharedPtr(AdoptShared, SharedBlock<T, Allocator> *block)

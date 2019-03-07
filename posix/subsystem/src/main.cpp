@@ -40,9 +40,12 @@
 #include "tmp_fs.hpp"
 #include <posix.pb.h>
 
-bool logRequests = false;
-bool logPaths = false;
-bool logSignals = true;
+namespace {
+	constexpr bool logRequests = false;
+	constexpr bool logPaths = false;
+	constexpr bool logSignals = true;
+	constexpr bool logCleanup = false;
+}
 
 std::map<
 	std::array<char, 16>,
@@ -82,7 +85,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 		COFIBER_AWAIT(submit.async_wait());
 
 		if(observe.error() == kHelErrThreadTerminated) {
-			std::cout << "\e[33mposix: Exiting observe()\e[39m" << std::endl;
+			if(logCleanup)
+				std::cout << "\e[33mposix: Thread was killed\e[39m" << std::endl;
 			generation->cancelServe.cancel();
 			COFIBER_RETURN();
 		}
@@ -307,7 +311,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveSignals(std::shared_ptr<Process> self,
 		//std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
 		HEL_CHECK(helInterruptThread(thread.getHandle()));
 	}
-	std::cout << "\e[33mposix: Exiting serveSignals()\e[39m" << std::endl;
+
+	if(logCleanup)
+		std::cout << "\e[33mposix: Exiting serveSignals()\e[39m" << std::endl;
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
@@ -315,7 +321,6 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 	async::cancellation_token cancellation = generation->cancelServe;
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
-		std::cout << "\e[33mposix: Cancellation detected in serve()\e[39m" << std::endl;
 		HEL_CHECK(helShutdownLane(generation->posixLane.getHandle()));
 	}};
 
@@ -1688,6 +1693,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}
 	}
+
+	if(logCleanup)
+		std::cout << "\e[33mposix: Existing serveRequests()\e[39m" << std::endl;
 }))
 
 void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {

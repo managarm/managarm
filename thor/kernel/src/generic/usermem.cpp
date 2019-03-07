@@ -6,6 +6,10 @@
 
 namespace thor {
 
+namespace {
+	constexpr bool logCleanup = false;
+}
+
 PhysicalAddr MemoryBundle::blockForRange(uintptr_t) {
 	assert(!"This function is not supported anymore. Convert code to fetchRange");
 	__builtin_unreachable();
@@ -1120,7 +1124,6 @@ void AddressSpace::activate(frigg::SharedPtr<AddressSpace> space) {
 AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
-	frigg::infoLogger() << "\e[31mthor: Running ~AddressSpace()\e[39m" << frigg::endLog;
 	Hole *hole = _holes.get_root();
 	while(hole) {
 		auto next = HoleTree::successor(hole);
@@ -1139,11 +1142,13 @@ AddressSpace::~AddressSpace() {
 }
 
 void AddressSpace::destruct() {
-	frigg::infoLogger() << "\e[31mthor: AddressSpace is unused\e[39m" << frigg::endLog;
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: AddressSpace is unused\e[39m" << frigg::endLog;
 }
 
 void AddressSpace::cleanup() {
-	frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
 	frigg::destruct(*kernelAlloc, this);
 }
 

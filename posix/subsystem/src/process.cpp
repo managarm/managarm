@@ -10,6 +10,7 @@
 #include "process.hpp"
 
 static bool logFileAttach = false;
+static bool logCleanup = false;
 
 void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation);
 
@@ -223,7 +224,8 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 }
 
 FileContext::~FileContext() {
-	std::cout << "\e[33mposix: FileContext is destructed\e[39m" << std::endl;
+	if(logCleanup)
+		std::cout << "\e[33mposix: FileContext is destructed\e[39m" << std::endl;
 }
 
 int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
@@ -511,7 +513,8 @@ void SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
 // ----------------------------------------------------------------------------
 
 Generation::~Generation() {
-	std::cout << "\e[33mposix: Generation is destructed\e[39m" << std::endl;
+	if(logCleanup)
+		std::cout << "\e[33mposix: Generation is destructed\e[39m" << std::endl;
 }
 
 // ----------------------------------------------------------------------------

@@ -8,6 +8,10 @@ void operator delete(void *, size_t) {
 
 namespace thor {
 
+namespace {
+	constexpr bool logCleanup = false;
+}
+
 // --------------------------------------------------------
 // Debugging and logging
 // --------------------------------------------------------
@@ -148,7 +152,8 @@ Universe::Universe()
 : _descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc), _nextHandle(1) { }
 
 Universe::~Universe() {
-	frigg::infoLogger() << "\e[31mthor: Universe is deallocated\e[39m" << frigg::endLog;
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: Universe is deallocated\e[39m" << frigg::endLog;
 }
 
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {
