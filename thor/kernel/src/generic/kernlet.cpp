@@ -19,7 +19,7 @@ namespace thor {
 
 namespace {
 	constexpr bool logBinding = false;
-	constexpr bool logIo = true;
+	constexpr bool logIo = false;
 }
 
 extern frigg::LazyInitializer<LaneHandle> mbusClient;
@@ -222,6 +222,8 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				auto value = arch::mem_ops<uint32_t>::load(p);
 				if(logIo)
 					frigg::infoLogger() << "    __mmio_read32 returns " << value << frigg::endLog;
+				// FIXME: Hack to make EHCI work while we finish the lewis/fafnir implementation.
+				arch::mem_ops<uint32_t>::store(const_cast<uint32_t *>(p), value);
 				return value;
 			};
 		void (*abi_mmio_write32)(char *, ptrdiff_t, uint32_t) =

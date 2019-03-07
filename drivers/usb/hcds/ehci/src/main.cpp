@@ -27,7 +27,7 @@
 #include "spec.hpp"
 #include "ehci.hpp"
 
-static const bool logIrqs = true;
+static const bool logIrqs = false;
 static const bool logPackets = false;
 static const bool logSubmits = false;
 static const bool logControllerEnumeration = false;
@@ -439,9 +439,6 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 
 	COFIBER_AWAIT _hwDevice.enableBusIrq();
 
-	auto status0 = _operational.load(op_regs::usbsts);
-	std::cout << "ehci: Status register is " << (uint32_t)status0 << std::endl;
-
 	// TODO: We should not need this kick anymore.
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
 
@@ -458,9 +455,6 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		if(logIrqs)
 			std::cout << "ehci: IRQ event fired (sequence: " << sequence << "), bits: "
 					<< await_event.bitset() << std::endl;
-
-		auto status = _operational.load(op_regs::usbsts);
-		std::cout << "ehci: Status register is " << (uint32_t)status << std::endl;
 
 		auto bits = arch::bit_value<uint32_t>(await_event.bitset());
 

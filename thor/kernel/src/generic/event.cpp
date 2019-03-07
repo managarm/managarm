@@ -38,7 +38,7 @@ void BitsetEvent::submitAwait(AwaitBitsetNode *node, uint64_t sequence) {
 		for(int i = 0; i < 32; i++)
 			if(_lastTrigger[i] > sequence)
 				bits |= 1 << i;
-		assert(bits);
+		assert(!sequence || bits);
 
 		node->_error = kErrSuccess;
 		node->_sequence = _currentSequence;
