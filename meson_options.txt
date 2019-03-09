@@ -1,4 +1,5 @@
 
+option('build_kernel', type: 'boolean', value: false)
 option('build_drivers', type: 'boolean', value: false)
 option('build_tools', type: 'boolean', value: false)
 

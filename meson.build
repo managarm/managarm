@@ -1,15 +1,28 @@
 
-project('managarm', 'cpp')
+project('managarm', 'c', 'cpp')
 add_project_arguments('--std=c++17', language: ['cpp'])
-compiler = meson.get_compiler('cpp')
+c_compiler = meson.get_compiler('cpp')
+cpp_compiler = meson.get_compiler('cpp')
+
+if get_option('build_kernel')
+	protoc = find_program('protoc')
+	frigg_pb = find_program('frigg_pb')
+
+	cxxshim = subproject('cxxshim')
+	frigg = subproject('frigg')
+	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
+	frigg_dep = frigg.get_variable('frigg_dep')
+
+	subdir('eir')
+	subdir('thor/kernel')
+endif
 
 if get_option('build_drivers')
-	proto_lite_dep = dependency('protobuf-lite')
-
 	protoc = find_program('protoc')
 
-	lib_helix_dep = compiler.find_library('helix')
-	lib_cofiber_dep = compiler.find_library('cofiber')
+	proto_lite_dep = dependency('protobuf-lite')
+	lib_helix_dep = cpp_compiler.find_library('helix')
+	lib_cofiber_dep = cpp_compiler.find_library('cofiber')
 
 	subdir('libarch/')
 	subdir('protocols/clock/')
