@@ -218,7 +218,7 @@ struct Process : std::enable_shared_from_this<Process> {
 
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
 
-	static async::result<void> exec(std::shared_ptr<Process> process,
+	static async::result<Error> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
 
 	// Called when the PID is released (by waitpid()).

@@ -571,12 +571,17 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	globalPidMap.insert({1, process.get()});
 
 	// TODO: Do not pass an empty argument vector?
-	auto generation = std::make_shared<Generation>();
-	generation->threadDescriptor = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path,
+	auto thread_or_error = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path,
 			std::vector<std::string>{}, std::vector<std::string>{},
 			process->_vmContext,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
+	auto error = std::get_if<Error>(&thread_or_error);
+	if(error)
+		throw std::logic_error("Could not execute() init process");
+
+	auto generation = std::make_shared<Generation>();
+	generation->threadDescriptor = std::move(std::get<helix::UniqueDescriptor>(thread_or_error));
 	generation->posixLane = std::move(server_lane);
 
 	process->_currentGeneration = generation;
@@ -629,7 +634,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	return process;
 }
 
-COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> process,
+COFIBER_ROUTINE(async::result<Error>, Process::exec(std::shared_ptr<Process> process,
 		std::string path, std::vector<std::string> args, std::vector<std::string> env), ([=] {
 	auto exec_vm_context = VmContext::create();
 
@@ -655,10 +660,15 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
-	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
+	auto thread_or_error = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
 			path, std::move(args), std::move(env), exec_vm_context,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
+	auto error = std::get_if<Error>(&thread_or_error);
+	if(error && *error == Error::noSuchFile) {
+		COFIBER_RETURN(*error);
+	}else if(error)
+		throw std::logic_error("Unexpected error from execute()");
 
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
@@ -670,7 +680,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 
 	// TODO: execute() should return a stopped thread that we can start here.
 	auto generation = std::make_shared<Generation>();
-	generation->threadDescriptor = std::move(thread);
+	generation->threadDescriptor = std::move(std::get<helix::UniqueDescriptor>(thread_or_error));
 	generation->posixLane = std::move(server_lane);
 
 	auto previous = std::exchange(process->_currentGeneration, generation);

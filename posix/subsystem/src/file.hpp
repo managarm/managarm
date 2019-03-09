@@ -23,6 +23,7 @@ using SharedFilePtr = smarter::shared_ptr<File, FileHandle>;
 // TODO: Rename this enum as is not part of the VFS.
 enum class Error {
 	success,
+	noSuchFile,
 	eof,
 	fileClosed,
 
