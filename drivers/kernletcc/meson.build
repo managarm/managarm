@@ -1,5 +1,5 @@
 
-lewis_dep = compiler.find_library('lewis')
+lewis_dep = cpp_compiler.find_library('lewis')
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],

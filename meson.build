@@ -21,8 +21,9 @@ if get_option('build_drivers')
 	protoc = find_program('protoc')
 
 	proto_lite_dep = dependency('protobuf-lite')
-	lib_helix_dep = cpp_compiler.find_library('helix')
 	lib_cofiber_dep = cpp_compiler.find_library('cofiber')
+
+	subdir('hel')
 
 	subdir('libarch/')
 	subdir('protocols/clock/')
