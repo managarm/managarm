@@ -14,6 +14,10 @@
 namespace blockfs {
 namespace ext2fs {
 
+namespace {
+	constexpr bool logSuperblock = false;
+}
+
 // --------------------------------------------------------
 // Inode
 // --------------------------------------------------------
@@ -27,11 +31,8 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 
 	COFIBER_AWAIT readyJump.async_wait();
 
-	auto map_size = fileSize;
-	if(map_size % 0x1000 != 0)
-		map_size += 0x1000 - map_size % 0x1000;
-
 	helix::LockMemory lock_memory;
+	auto map_size = (fileSize + 0xFFF) & ~size_t(0xFFF);
 	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
 			0, map_size, helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
@@ -83,31 +84,37 @@ FileSystem::FileSystem(BlockDevice *device)
 }
 
 COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
-	// TODO: Use std::string instead of malloc().
-	auto superblock_buffer = malloc(1024);
-	
-	COFIBER_AWAIT device->readSectors(2, superblock_buffer, 2);
-	
-	DiskSuperblock *sb = (DiskSuperblock *)superblock_buffer;
-	assert(sb->magic == 0xEF53);
+	std::vector<uint8_t> buffer(1024);
+	COFIBER_AWAIT device->readSectors(2, buffer.data(), 2);
 
-	inodeSize = sb->inodeSize;
-	blockSize = 1024 << sb->logBlockSize;
+	DiskSuperblock sb;
+	memcpy(&sb, buffer.data(), sizeof(DiskSuperblock));
+	assert(sb.magic == 0xEF53);
+
+	inodeSize = sb.inodeSize;
+	blockShift = 10 + sb.logBlockSize;
+	blockSize = 1024 << sb.logBlockSize;
 	sectorsPerBlock = blockSize / 512;
-	numBlockGroups = sb->blocksCount / sb->blocksPerGroup;
-	inodesPerGroup = sb->inodesPerGroup;
+	numBlockGroups = sb.blocksCount / sb.blocksPerGroup;
+	inodesPerGroup = sb.inodesPerGroup;
 
-	size_t bgdt_size = numBlockGroups * sizeof(DiskGroupDesc);
-	if(bgdt_size % 512)
-		bgdt_size += 512 - (bgdt_size % 512);
+	if(logSuperblock) {
+		std::cout << "ext2fs: Block size is: " << blockSize << std::endl;
+		std::cout << "ext2fs: Optional features: " << sb.featureCompat
+				<< ", w-required features: " << sb.featureRoCompat
+				<< ", r/w-required features: " << sb.featureIncompat << std::endl;
+	}
+
+	auto bgdt_size = (numBlockGroups * sizeof(DiskGroupDesc) + 511) & ~size_t(511);
 	// TODO: Use std::string instead of malloc().
 	blockGroupDescriptorBuffer = malloc(bgdt_size);
 
-	COFIBER_AWAIT device->readSectors(2 * sectorsPerBlock,
+	auto bgdt_offset = (1024 + blockSize - 1) & ~size_t(blockSize - 1);
+	COFIBER_AWAIT device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer, bgdt_size / 512);
-	
+
 	blockCache.preallocate(32);
-	
+
 	COFIBER_RETURN();
 }))
 
@@ -121,7 +128,7 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 	std::shared_ptr<Inode> active_inode = inode_slot.lock();
 	if(active_inode)
 		return std::move(active_inode);
-	
+
 	auto new_inode = std::make_shared<Inode>(*this, number);
 	inode_slot = std::weak_ptr<Inode>(new_inode);
 	initiateInode(new_inode);
@@ -131,9 +138,6 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 
 COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<Inode> inode),
 		([=] {
-	// TODO: Use std::string instead of malloc().
-	auto sector_buffer = (char *)malloc(512);
-	
 	uint32_t block_group = (inode->number - 1) / inodesPerGroup;
 	uint32_t index = (inode->number - 1) % inodesPerGroup;
 	uint32_t offset = index * inodeSize;
@@ -141,47 +145,50 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 	auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
 	uint32_t inode_table_block = bgdt[block_group].inodeTable;
 
+	std::vector<uint8_t> buffer(512);
 	uint32_t sector = inode_table_block * sectorsPerBlock + (offset / 512);
-	COFIBER_AWAIT device->readSectors(sector, sector_buffer, 1);
-	
-	DiskInode *disk_inode = (DiskInode *)(sector_buffer + (offset % 512));
-//	printf("Inode %u: file size: %u\n", inode->number, disk_inode->size);
+	COFIBER_AWAIT device->readSectors(sector, buffer.data(), 1);
 
-	if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
+	DiskInode disk_inode;
+	memcpy(&disk_inode, buffer.data() + (offset % 512), sizeof(DiskInode));
+//	printf("Inode %u: file size: %u\n", inode->number, disk_inode.size);
+
+	if((disk_inode.mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
 		inode->fileType = kTypeRegular;
-	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFLNK) {
+	}else if((disk_inode.mode & EXT2_S_IFMT) == EXT2_S_IFLNK) {
 		inode->fileType = kTypeSymlink;
-	}else{
-		assert((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFDIR);
+	}else if((disk_inode.mode & EXT2_S_IFMT) == EXT2_S_IFDIR) {
 		inode->fileType = kTypeDirectory;
+	}else{
+		std::cerr << "ext2fs: Unexpected inode type " << (disk_inode.mode & EXT2_S_IFMT)
+				<< " for inode " << inode->number << std::endl;
+		abort();
 	}
 
 	// TODO: support large files
-	inode->fileSize = disk_inode->size;
-	inode->fileData = disk_inode->data;
+	inode->fileSize = disk_inode.size;
+	inode->fileData = disk_inode.data;
 
 	// filter out the file type from the mode
 	// TODO: ext2fs stores a 32-bit mode
-	inode->mode = disk_inode->mode & 0x0FFF;
+	inode->mode = disk_inode.mode & 0x0FFF;
 
-	inode->numLinks = disk_inode->linksCount;
+	inode->numLinks = disk_inode.linksCount;
 	// TODO: support large uid / gids
-	inode->uid = disk_inode->uid;
-	inode->gid = disk_inode->gid;
-	inode->accessTime.tv_sec = disk_inode->atime;
+	inode->uid = disk_inode.uid;
+	inode->gid = disk_inode.gid;
+	inode->accessTime.tv_sec = disk_inode.atime;
 	inode->accessTime.tv_nsec = 0;
-	inode->dataModifyTime.tv_sec = disk_inode->mtime;
+	inode->dataModifyTime.tv_sec = disk_inode.mtime;
 	inode->dataModifyTime.tv_nsec = 0;
-	inode->anyChangeTime.tv_sec = disk_inode->ctime;
+	inode->anyChangeTime.tv_sec = disk_inode.ctime;
 	inode->anyChangeTime.tv_nsec = 0;
 
-	// allocate a page cache for the file
-	size_t cache_size = inode->fileSize;
-	if(cache_size % 0x1000)
-		cache_size += 0x1000 - cache_size % 0x1000;
+	// Allocate a page cache for the file.
+	auto cache_size = (inode->fileSize + 0xFFF) & ~size_t(0xFFF);
 	HEL_CHECK(helCreateManagedMemory(cache_size, kHelAllocBacked,
 			&inode->backingMemory, &inode->frontalMemory));
-	
+
 	inode->isReady = true;
 	inode->readyJump.trigger();
 
@@ -197,7 +204,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(manage.error());
 		assert(manage.offset() + manage.length() <= ((inode->fileSize + 0xFFF) & ~size_t(0xFFF)));
-		
+
 		void *window;
 		HEL_CHECK(helMapMemory(inode->backingMemory, kHelNullHandle, nullptr,
 				manage.offset(), manage.length(), kHelMapProtRead | kHelMapProtWrite, &window));
@@ -230,7 +237,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 		}
 		return std::pair<size_t, size_t>{list[index], n};
 	};
-	
+
 	size_t per_indirect = blockSize / 4;
 	size_t per_single = per_indirect;
 	size_t per_double = per_indirect * per_indirect;
@@ -298,7 +305,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 COFIBER_ROUTINE(cofiber::no_future, FileSystem::BlockCacheEntry::initiate(FileSystem *fs,
 		uint64_t block, BlockCacheEntry *entry), ([=] {
 	assert(entry->state == BlockCacheEntry::kStateInitial);
-	
+
 	entry->state = BlockCacheEntry::kStateLoading;
 //	std::cout << "Fetching block " << block << " into cache" << std::endl;
 	COFIBER_AWAIT fs->device->readSectors(block * fs->sectorsPerBlock,
@@ -351,7 +358,7 @@ OpenFile::OpenFile(std::shared_ptr<Inode> inode)
 COFIBER_ROUTINE(async::result<std::optional<std::string>>,
 OpenFile::readEntries(), ([=] {
 	COFIBER_AWAIT inode->readyJump.async_wait();
-	
+
 	assert(offset <= inode->fileSize);
 	if(offset == inode->fileSize)
 		COFIBER_RETURN(std::nullopt);
