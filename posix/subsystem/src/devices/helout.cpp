@@ -32,7 +32,7 @@ private:
 
 public:
 	HeloutFile(std::shared_ptr<FsLink> link)
-	: File{StructName::get("helout"), std::move(link)} { }
+	: File{StructName::get("helout"), std::move(link), File::defaultIsTerminal} { }
 };
 
 struct HeloutDevice : UnixDevice {
