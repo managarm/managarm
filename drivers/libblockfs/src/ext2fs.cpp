@@ -15,7 +15,7 @@ namespace blockfs {
 namespace ext2fs {
 
 namespace {
-	constexpr bool logSuperblock = false;
+	constexpr bool logSuperblock = true;
 }
 
 // --------------------------------------------------------
@@ -109,7 +109,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	// TODO: Use std::string instead of malloc().
 	blockGroupDescriptorBuffer = malloc(bgdt_size);
 
-	auto bgdt_offset = (1024 + blockSize - 1) & ~size_t(blockSize - 1);
+	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 	COFIBER_AWAIT device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer, bgdt_size / 512);
 
