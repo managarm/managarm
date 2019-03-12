@@ -11,7 +11,7 @@
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
-#include <fafnir/language.h>
+#include <fafnir/dsl.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
@@ -400,48 +400,30 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	COFIBER_AWAIT connectKernletCompiler();
 
 	std::vector<uint8_t> kernlet_program;
-	kernlet_program.push_back(FNR_OP_BINDING);
-	kernlet_program.push_back(0);
-	kernlet_program.push_back(FNR_OP_BINDING);
-	kernlet_program.push_back(1);
-	kernlet_program.push_back(FNR_OP_CONST);
-	kernlet_program.push_back(4); // Offset of USBSTS.
-	kernlet_program.push_back(FNR_OP_ADD);
-	kernlet_program.push_back(FNR_OP_INTRIN);
-	kernlet_program.push_back(2);
-	for(const char *s = "__mmio_read32"; *s; ++s)
-		kernlet_program.push_back(*s);
-	kernlet_program.push_back(0); // Null-terminator.
-	kernlet_program.push_back(FNR_OP_CONST);
-	kernlet_program.push_back(23); // USB transaction, error, port change and host error bits.
-	kernlet_program.push_back(FNR_OP_AND);
-
-	kernlet_program.push_back(FNR_OP_BINDING);
-	kernlet_program.push_back(0);
-	kernlet_program.push_back(FNR_OP_BINDING);
-	kernlet_program.push_back(1);
-	kernlet_program.push_back(FNR_OP_CONST);
-	kernlet_program.push_back(4); // Offset of USBSTS.
-	kernlet_program.push_back(FNR_OP_ADD);
-	kernlet_program.push_back(FNR_OP_DUP);
-	kernlet_program.push_back(2);
-	kernlet_program.push_back(FNR_OP_INTRIN);
-	kernlet_program.push_back(3);
-	for(const char *s = "__mmio_write32"; *s; ++s)
-		kernlet_program.push_back(*s);
-	kernlet_program.push_back(0); // Null-terminator.
-	kernlet_program.push_back(FNR_OP_DROP);
-
-	kernlet_program.push_back(FNR_OP_BINDING);
-	kernlet_program.push_back(2);
-	kernlet_program.push_back(FNR_OP_DUP);
-	kernlet_program.push_back(1);
-	kernlet_program.push_back(FNR_OP_INTRIN);
-	kernlet_program.push_back(2);
-	for(const char *s = "__trigger_bitset"; *s; ++s)
-		kernlet_program.push_back(*s);
-	kernlet_program.push_back(0); // Null-terminator.
-	kernlet_program.push_back(FNR_OP_DROP);
+	fnr::emit_to(std::back_inserter(kernlet_program),
+		// Load the USBSTS register.
+		fnr::binding{0}, // EHCI MMIO region (bound to slot 0).
+		fnr::binding{1}, // EHCI MMIO offset (bound to slot 1).
+		fnr::literal{4}, // Offset of USBSTS.
+		fnr::add{},
+		fnr::intrin{"__mmio_read32", 2, 1},
+		// Mask out the interrupt bits.
+		fnr::literal{23}, // USB transaction, error, port change and host error bits.
+		fnr::bitwise_and{},
+		// Write back the interrupt bits back to USBSTS to deassert the IRQ.
+		fnr::binding{0},
+		fnr::binding{1},
+		fnr::literal{4}, // Offset of USBSTS.
+		fnr::add{},
+		fnr::dup{2},
+		fnr::intrin{"__mmio_write32", 3, 1},
+		fnr::drop{},
+		// Trigger the bitset event (bound to slot 2).
+		fnr::binding{2},
+		fnr::dup{1},
+		fnr::intrin{"__trigger_bitset", 2, 1},
+		fnr::drop{}
+	);
 
 	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
 			kernlet_program.size(), {BindType::memoryView, BindType::offset,
