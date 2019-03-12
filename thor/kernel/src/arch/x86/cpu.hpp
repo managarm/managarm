@@ -129,7 +129,8 @@ struct FaultImageAccessor {
 	Word *code() { return &_frame()->code; }
 	
 	bool inKernelDomain() {
-		if(*cs() == kSelSystemIdleCode
+		if(*cs() == kSelSystemIrqCode
+				|| *cs() == kSelSystemIdleCode
 				|| *cs() == kSelSystemFiberCode
 				|| *cs() == kSelExecutorFaultCode
 				|| *cs() == kSelExecutorSyscallCode) {

@@ -8,6 +8,7 @@
 #ifdef FRIGG_NO_LIBC
 
 #include <frigg/libc.hpp>
+#include <frigg/macros.hpp>
 
 #ifdef __cplusplus
 extern "C" {

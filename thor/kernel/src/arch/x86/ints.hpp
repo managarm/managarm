@@ -2,6 +2,8 @@
 #define THOR_ARCH_X86_INTS_HPP
 
 #include <atomic>
+#include <frigg/atomic.hpp>
+#include <frigg/debug.hpp>
 
 namespace thor {
 

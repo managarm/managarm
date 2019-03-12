@@ -1,4 +1,5 @@
 
+#include "arch/x86/ints.hpp"
 #include "event.hpp"
 
 namespace thor {
@@ -13,6 +14,7 @@ void BitsetEvent::trigger(uint32_t bits) {
 	if(!bits)
 		return; // TODO: Return an error!
 
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	_currentSequence++;
@@ -30,6 +32,7 @@ void BitsetEvent::trigger(uint32_t bits) {
 }
 
 void BitsetEvent::submitAwait(AwaitBitsetNode *node, uint64_t sequence) {
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	assert(sequence <= _currentSequence);
