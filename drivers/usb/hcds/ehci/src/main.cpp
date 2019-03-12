@@ -410,19 +410,21 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		// Mask out the interrupt bits.
 		fnr::literal{23}, // USB transaction, error, port change and host error bits.
 		fnr::bitwise_and{},
+		fnr::s_define{},
 		// Write back the interrupt bits back to USBSTS to deassert the IRQ.
 		fnr::binding{0},
 		fnr::binding{1},
 		fnr::literal{4}, // Offset of USBSTS.
 		fnr::add{},
-		fnr::dup{2},
+		fnr::s_value{0},
 		fnr::intrin{"__mmio_write32", 3, 1},
 		fnr::drop{},
 		// Trigger the bitset event (bound to slot 2).
 		fnr::binding{2},
-		fnr::dup{1},
+		fnr::s_value{0},
 		fnr::intrin{"__trigger_bitset", 2, 1},
-		fnr::drop{}
+		fnr::drop{},
+		fnr::s_value{0}
 	);
 
 	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),

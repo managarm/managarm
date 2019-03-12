@@ -21,6 +21,7 @@ struct Compilation {
 	lewis::Function fn;
 	lewis::BasicBlock *bb;
 	std::vector<lewis::Value *> opstack;
+	std::vector<lewis::Value *> fvstack;
 };
 
 std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
@@ -70,7 +71,7 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			comp.opstack.push_back(comp.opstack[comp.opstack.size() - index - 1]);
 		}else if(opcode == FNR_OP_DROP) {
 			comp.opstack.pop_back();
-		}else if(opcode == FNR_OP_CONST) {
+		}else if(opcode == FNR_OP_LITERAL) {
 			auto operand = extractUint();
 
 			auto inst = comp.bb->insertNewInstruction<lewis::LoadConstInstruction>(operand);
@@ -100,11 +101,22 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 				result->setType(lewis::globalPointerType());
 				comp.opstack.push_back(result);
 			}else assert(!"Unexpected binding type");
-		}else if(opcode == FNR_OP_AND) {
-			assert(comp.opstack.size() >= 2);
-			auto left = comp.opstack.back();
+		}else if(opcode == FNR_OP_S_DEFINE) {
+			assert(comp.opstack.size());
+			auto operand = comp.opstack.back();
 			comp.opstack.pop_back();
+
+			comp.fvstack.push_back(operand);
+		}else if(opcode == FNR_OP_S_VALUE) {
+			auto index = extractUint();
+			assert(index < comp.fvstack.size());
+
+			comp.opstack.push_back(comp.fvstack[index]);
+		}else if(opcode == FNR_OP_BITWISE_AND) {
+			assert(comp.opstack.size() >= 2);
 			auto right = comp.opstack.back();
+			comp.opstack.pop_back();
+			auto left = comp.opstack.back();
 			comp.opstack.pop_back();
 
 			auto inst = comp.bb->insertNewInstruction<lewis::BinaryMathInstruction>(
@@ -114,9 +126,9 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			comp.opstack.push_back(result);
 		}else if(opcode == FNR_OP_ADD) {
 			assert(comp.opstack.size() >= 2);
-			auto left = comp.opstack.back();
-			comp.opstack.pop_back();
 			auto right = comp.opstack.back();
+			comp.opstack.pop_back();
+			auto left = comp.opstack.back();
 			comp.opstack.pop_back();
 
 			auto inst = comp.bb->insertNewInstruction<lewis::BinaryMathInstruction>(
