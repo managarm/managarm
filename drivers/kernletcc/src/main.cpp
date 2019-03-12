@@ -124,6 +124,16 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 
 			auto elf = compileFafnir(reinterpret_cast<const uint8_t *>(recv_code.data()),
 					recv_code.length(), bind_types);
+
+			for(size_t i = 0; i < elf.size(); i++) {
+				printf("%02x", elf[i]);
+				if((i % 32) == 31)
+					putchar('\n');
+				else if((i % 8) == 7)
+					putchar(' ');
+			}
+			putchar('\n');
+
 			auto object = COFIBER_AWAIT upload(elf.data(), elf.size(), bind_types);
 
 			managarm::kernlet::SvrResponse resp;

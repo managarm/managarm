@@ -215,21 +215,24 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 	auto resolveExternal = [] (frg::string_view name) -> void * {
 		uint32_t (*abi_mmio_read32)(const char *, ptrdiff_t) =
 			[] (const char *base, ptrdiff_t offset) -> uint32_t {
-				auto p = reinterpret_cast<const uint32_t *>(base + offset);
 				if(logIo)
 					frigg::infoLogger() << "__mmio_read32 on " << (void *)base
-							<< ", offset: " << offset << " " << (void *)p << frigg::endLog;
+							<< ", offset: " << offset << frigg::endLog;
+				auto p = reinterpret_cast<const uint32_t *>(base + offset);
 				auto value = arch::mem_ops<uint32_t>::load(p);
 				if(logIo)
-					frigg::infoLogger() << "    __mmio_read32 returns " << value << frigg::endLog;
-				// FIXME: Hack to make EHCI work while we finish the lewis/fafnir implementation.
-				arch::mem_ops<uint32_t>::store(const_cast<uint32_t *>(p), value);
+					frigg::infoLogger() << "    Read " << value << frigg::endLog;
 				return value;
 			};
 		void (*abi_mmio_write32)(char *, ptrdiff_t, uint32_t) =
 			[] (char *base, ptrdiff_t offset, uint32_t value) {
+				if(logIo)
+					frigg::infoLogger() << "__mmio_write32 on " << (void *)base
+							<< ", offset: " << offset << frigg::endLog;
 				auto p = reinterpret_cast<uint32_t *>(base + offset);
 				arch::mem_ops<uint32_t>::store(p, value);
+				if(logIo)
+					frigg::infoLogger() << "    Wrote " << value << frigg::endLog;
 			};
 		uint32_t (*abi_trigger_bitset)(void *, uint32_t) =
 			[] (void *p, uint32_t bits) -> uint32_t {

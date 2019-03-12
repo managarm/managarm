@@ -401,8 +401,6 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 
 	std::vector<uint8_t> kernlet_program;
 	kernlet_program.push_back(FNR_OP_BINDING);
-	kernlet_program.push_back(2);
-	kernlet_program.push_back(FNR_OP_BINDING);
 	kernlet_program.push_back(0);
 	kernlet_program.push_back(FNR_OP_BINDING);
 	kernlet_program.push_back(1);
@@ -410,16 +408,40 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	kernlet_program.push_back(4); // Offset of USBSTS.
 	kernlet_program.push_back(FNR_OP_ADD);
 	kernlet_program.push_back(FNR_OP_INTRIN);
+	kernlet_program.push_back(2);
 	for(const char *s = "__mmio_read32"; *s; ++s)
 		kernlet_program.push_back(*s);
 	kernlet_program.push_back(0); // Null-terminator.
 	kernlet_program.push_back(FNR_OP_CONST);
 	kernlet_program.push_back(23); // USB transaction, error, port change and host error bits.
 	kernlet_program.push_back(FNR_OP_AND);
+
+	kernlet_program.push_back(FNR_OP_BINDING);
+	kernlet_program.push_back(0);
+	kernlet_program.push_back(FNR_OP_BINDING);
+	kernlet_program.push_back(1);
+	kernlet_program.push_back(FNR_OP_CONST);
+	kernlet_program.push_back(4); // Offset of USBSTS.
+	kernlet_program.push_back(FNR_OP_ADD);
+	kernlet_program.push_back(FNR_OP_DUP);
+	kernlet_program.push_back(2);
 	kernlet_program.push_back(FNR_OP_INTRIN);
+	kernlet_program.push_back(3);
+	for(const char *s = "__mmio_write32"; *s; ++s)
+		kernlet_program.push_back(*s);
+	kernlet_program.push_back(0); // Null-terminator.
+	kernlet_program.push_back(FNR_OP_DROP);
+
+	kernlet_program.push_back(FNR_OP_BINDING);
+	kernlet_program.push_back(2);
+	kernlet_program.push_back(FNR_OP_DUP);
+	kernlet_program.push_back(1);
+	kernlet_program.push_back(FNR_OP_INTRIN);
+	kernlet_program.push_back(2);
 	for(const char *s = "__trigger_bitset"; *s; ++s)
 		kernlet_program.push_back(*s);
 	kernlet_program.push_back(0); // Null-terminator.
+	kernlet_program.push_back(FNR_OP_DROP);
 
 	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
 			kernlet_program.size(), {BindType::memoryView, BindType::offset,

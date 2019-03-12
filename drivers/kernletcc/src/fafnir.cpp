@@ -64,7 +64,13 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 
 	while(s < code + size) {
 		auto opcode = extractUint();
-		if(opcode == FNR_OP_CONST) {
+		if(opcode == FNR_OP_DUP) {
+			auto index = extractUint();
+			assert(comp.opstack.size() > index);
+			comp.opstack.push_back(comp.opstack[comp.opstack.size() - index - 1]);
+		}else if(opcode == FNR_OP_DROP) {
+			comp.opstack.pop_back();
+		}else if(opcode == FNR_OP_CONST) {
 			auto operand = extractUint();
 
 			auto inst = comp.bb->insertNewInstruction<lewis::LoadConstInstruction>(operand);
@@ -119,18 +125,16 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			result->setType(lewis::globalInt32Type());
 			comp.opstack.push_back(result);
 		}else if(opcode == FNR_OP_INTRIN) {
+			auto nargs = extractUint();
 			auto function = extractString();
-
-			assert(comp.opstack.size() >= 2);
-			auto offset = comp.opstack.back();
-			comp.opstack.pop_back();
-			auto handle = comp.opstack.back();
-			comp.opstack.pop_back();
+			assert(comp.opstack.size() >= nargs);
 
 			auto inst = comp.bb->insertNewInstruction<lewis::InvokeInstruction>(
-					std::move(function), 2);
-			inst->operand(0) = handle;
-			inst->operand(1) = offset;
+					std::move(function), nargs);
+			for(int i = nargs - 1; i >= 0; i--) {
+				inst->operand(i) = comp.opstack.back();
+				comp.opstack.pop_back();
+			}
 			auto result = inst->result.setNew<lewis::LocalValue>();
 			result->setType(lewis::globalInt32Type());
 			comp.opstack.push_back(result);
