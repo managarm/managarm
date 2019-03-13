@@ -234,15 +234,15 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				if(logIo)
 					frigg::infoLogger() << "    Wrote " << value << frigg::endLog;
 			};
-		uint32_t (*abi_trigger_bitset)(void *, uint32_t) =
-			[] (void *p, uint32_t bits) -> uint32_t {
+		void (*abi_trigger_bitset)(void *, uint32_t) =
+			[] (void *p, uint32_t bits) {
 				if(logIo)
 					frigg::infoLogger() << "__trigger_bitset on "
 							<< p << ", bits: " << bits << frigg::endLog;
 				auto event = static_cast<BitsetEvent *>(p);
 				event->trigger(bits);
-				return bits;
 			};
+
 		if(name == "__mmio_read32")
 			return reinterpret_cast<void *>(abi_mmio_read32);
 		else if(name == "__mmio_write32")

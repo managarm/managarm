@@ -417,13 +417,11 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		fnr::literal{4}, // Offset of USBSTS.
 		fnr::add{},
 		fnr::s_value{0},
-		fnr::intrin{"__mmio_write32", 3, 1},
-		fnr::drop{},
+		fnr::intrin{"__mmio_write32", 3, 0},
 		// Trigger the bitset event (bound to slot 2).
 		fnr::binding{2},
 		fnr::s_value{0},
-		fnr::intrin{"__trigger_bitset", 2, 1},
-		fnr::drop{},
+		fnr::intrin{"__trigger_bitset", 2, 0},
 		fnr::s_value{0}
 	);
 

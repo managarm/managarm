@@ -137,19 +137,23 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			result->setType(lewis::globalInt32Type());
 			comp.opstack.push_back(result);
 		}else if(opcode == FNR_OP_INTRIN) {
-			auto nargs = extractUint();
+			int nargs = extractUint();
+			int nrvs = extractUint();
 			auto function = extractString();
 			assert(comp.opstack.size() >= nargs);
 
 			auto inst = comp.bb->insertNewInstruction<lewis::InvokeInstruction>(
-					std::move(function), nargs);
+					std::move(function), nargs, nrvs);
 			for(int i = nargs - 1; i >= 0; i--) {
 				inst->operand(i) = comp.opstack.back();
 				comp.opstack.pop_back();
 			}
-			auto result = inst->result.setNew<lewis::LocalValue>();
-			result->setType(lewis::globalInt32Type());
-			comp.opstack.push_back(result);
+
+			for(int i = 0; i < nrvs; i++) {
+				auto result = inst->result(i).setNew<lewis::LocalValue>();
+				result->setType(lewis::globalInt32Type());
+				comp.opstack.push_back(result);
+			}
 		}else{
 			std::cerr << "FNR opcode: " << opcode << std::endl;
 			assert(!"Unexpected fafnir opcode");
