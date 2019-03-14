@@ -411,18 +411,27 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		fnr::literal{23}, // USB transaction, error, port change and host error bits.
 		fnr::bitwise_and{},
 		fnr::s_define{},
-		// Write back the interrupt bits back to USBSTS to deassert the IRQ.
-		fnr::binding{0},
-		fnr::binding{1},
-		fnr::literal{4}, // Offset of USBSTS.
-		fnr::add{},
-		fnr::s_value{0},
-		fnr::intrin{"__mmio_write32", 3, 0},
-		// Trigger the bitset event (bound to slot 2).
-		fnr::binding{2},
-		fnr::s_value{0},
-		fnr::intrin{"__trigger_bitset", 2, 0},
-		fnr::s_value{0}
+		// Ack the IRQ iff one of the bits was set.
+		fnr::check_if{},
+			fnr::s_value{0},
+		fnr::then{},
+			// Write back the interrupt bits to USBSTS to deassert the IRQ.
+			fnr::binding{0},
+			fnr::binding{1},
+			fnr::literal{4}, // Offset of USBSTS.
+			fnr::add{},
+			fnr::s_value{0},
+			fnr::intrin{"__mmio_write32", 3, 0},
+			// Trigger the bitset event (bound to slot 2).
+			fnr::binding{2},
+			fnr::s_value{0},
+			fnr::intrin{"__trigger_bitset", 2, 0},
+			fnr::literal{1},
+			fnr::s_define{},
+		fnr::else_then{},
+			fnr::literal{2},
+			fnr::s_define{},
+		fnr::end{}
 	);
 
 	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
