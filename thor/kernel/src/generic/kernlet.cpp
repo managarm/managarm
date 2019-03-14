@@ -99,8 +99,8 @@ void BoundKernlet::setupBitsetEventBinding(size_t index, frigg::SharedPtr<Bitset
 	memcpy(_instance + defn.offset, &p, sizeof(void *));
 }
 
-bool BoundKernlet::invokeIrqAutomation() {
-	auto entry = reinterpret_cast<bool (*)(const void *)>(_object->_entry);
+int BoundKernlet::invokeIrqAutomation() {
+	auto entry = reinterpret_cast<int (*)(const void *)>(_object->_entry);
 	return entry(_instance);
 }
 
@@ -294,6 +294,8 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				continue;
 			return base + candidate->st_value;
 		}
+		frigg::panicLogger() << "thor: Unable to resolve kernel symbol '"
+				<< name.data() << "'" << frigg::endLog;
 		assert(!"Unable to resolve symbol");
 	};
 

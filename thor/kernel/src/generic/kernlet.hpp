@@ -53,7 +53,7 @@ struct BoundKernlet {
 	void setupMemoryViewBinding(size_t index, void *p);
 	void setupBitsetEventBinding(size_t index, frigg::SharedPtr<BitsetEvent> event);
 
-	bool invokeIrqAutomation();
+	int invokeIrqAutomation();
 
 private:
 	frigg::SharedPtr<KernletObject> _object;

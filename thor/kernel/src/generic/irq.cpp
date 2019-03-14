@@ -308,9 +308,16 @@ IrqStatus IrqObject::raise() {
 	}
 
 	if(_automationKernlet) {
-		if(!_automationKernlet->invokeIrqAutomation())
+		auto result = _automationKernlet->invokeIrqAutomation();
+		if(result == 1) {
+			return IrqStatus::acked;
+		}else if(result == 2) {
+			frigg::infoLogger() << "\e[33mthor: IRQ was nacked!\e[33m" << frigg::endLog;
 			return IrqStatus::nacked;
-		return IrqStatus::acked;
+		}else{
+			assert(!result);
+			return IrqStatus::null;
+		}
 	}else
 		return IrqStatus::null;
 }
