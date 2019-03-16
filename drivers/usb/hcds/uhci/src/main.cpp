@@ -13,12 +13,14 @@
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
+#include <fafnir/dsl.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include <protocols/hw/client.hpp>
+#include <protocols/kernlet/compiler.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
@@ -439,8 +441,9 @@ std::shared_ptr<StandardHub> create(Device device) {
 // Controller.
 // ----------------------------------------------------------------------------
 
-Controller::Controller(protocols::hw::Device hw_device, arch::io_space base, helix::UniqueIrq irq)
-: _hwDevice{std::move(hw_device)},  _base{base}, _irq{frigg::move(irq)},
+Controller::Controller(protocols::hw::Device hw_device, uintptr_t base,
+		arch::io_space space, helix::UniqueIrq irq)
+: _hwDevice{std::move(hw_device)}, _ioBase{base}, _ioSpace{space}, _irq{frigg::move(irq)},
 		_lastFrame{0}, _frameCounter{0},
 		_enumerator{this} {
 	for(int i = 1; i < 128; i++) {
@@ -450,11 +453,11 @@ Controller::Controller(protocols::hw::Device hw_device, arch::io_space base, hel
 
 void Controller::initialize() {
 	// Host controller reset.
-	_base.store(op_regs::command, command::hostReset(true));
-	while((_base.load(op_regs::command) & command::hostReset) != 0) { }
+	_ioSpace.store(op_regs::command, command::hostReset(true));
+	while((_ioSpace.load(op_regs::command) & command::hostReset) != 0) { }
 
 	// TODO: What is the rationale of this check?
-	auto initial_status = _base.load(op_regs::status);
+	auto initial_status = _ioSpace.load(op_regs::status);
 	assert(!(initial_status & status::transactionIrq));
 	assert(!(initial_status & status::errorIrq));
 
@@ -473,11 +476,11 @@ void Controller::initialize() {
 	uintptr_t list_physical;
 	HEL_CHECK(helPointerPhysical(_frameList, &list_physical));
 	assert((list_physical % 0x1000) == 0);
-	_base.store(op_regs::frameListBase, list_physical);
-	_base.store(op_regs::command, command::runStop(true));
+	_ioSpace.store(op_regs::frameListBase, list_physical);
+	_ioSpace.store(op_regs::command, command::runStop(true));
 	
 	// Enable interrupts.
-	_base.store(op_regs::irqEnable, irq::timeout(true) | irq::resume(true)
+	_ioSpace.store(op_regs::irqEnable, irq::timeout(true) | irq::resume(true)
 			| irq::transaction(true) | irq::shortPacket(true));
 
 	_enumerator.observeHub(std::make_shared<RootHub>(this));
@@ -486,32 +489,74 @@ void Controller::initialize() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
+	COFIBER_AWAIT connectKernletCompiler();
+
+	std::vector<uint8_t> kernlet_program;
+	fnr::emit_to(std::back_inserter(kernlet_program),
+		// Load the USBSTS register.
+		fnr::scope_push{} (
+			fnr::intrin{"__pio_read16", 1, 1} (
+				fnr::binding{0} // UHCI PIO offset (bound to slot 0).
+					 + fnr::literal{op_regs::status.offset()}
+			) & fnr::literal{static_cast<uint16_t>(status::transactionIrq(true)
+					| status::errorIrq(true)
+					| status::hostProcessError(true)
+					| status::hostSystemError(true))}
+		),
+		// Ack the IRQ iff one of the bits was set.
+		fnr::check_if{},
+			fnr::scope_get{0},
+		fnr::then{},
+			// Write back the interrupt bits to USBSTS to deassert the IRQ.
+			fnr::intrin{"__pio_write16", 2, 0} (
+				fnr::binding{0} // UHCI PIO offset (bound to slot 0).
+					+ fnr::literal{op_regs::status.offset()},
+				fnr::scope_get{0}
+			),
+			// Trigger the bitset event (bound to slot 1).
+			fnr::intrin{"__trigger_bitset", 2, 0} (
+				fnr::binding{1},
+				fnr::scope_get{0}
+			),
+			fnr::scope_push{} ( fnr::literal{1} ),
+		fnr::else_then{},
+			fnr::scope_push{} ( fnr::literal{2} ),
+		fnr::end{}
+	);
+
+	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
+			kernlet_program.size(), {BindType::offset, BindType::bitsetEvent});
+
+	HelHandle event_handle;
+	HEL_CHECK(helCreateBitsetEvent(&event_handle));
+	helix::UniqueDescriptor event{event_handle};
+
+	HelKernletData data[2];
+	data[0].handle = _ioBase;
+	data[1].handle = event.getHandle();
+	HelHandle bound_handle;
+	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 2, &bound_handle));
+	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
+
 	COFIBER_AWAIT _hwDevice.enableBusIrq();
 
 	uint64_t sequence = 0;
 	while(true) {
-		helix::AwaitEvent await_irq;
-		auto &&submit = helix::submitAwaitEvent(_irq, &await_irq, sequence,
+		helix::AwaitEvent await;
+		auto &&submit = helix::submitAwaitEvent(event, &await, sequence,
 				helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
-		HEL_CHECK(await_irq.error());
-		sequence = await_irq.sequence();
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
 
-		auto stat = _base.load(op_regs::status);
-		assert(!(stat & status::hostProcessError));
-		assert(!(stat & status::hostSystemError));
-		if(!(stat & status::transactionIrq) && !(stat & status::errorIrq)) {
-			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
-			continue;
-		}
+		auto bits = arch::bit_value<uint16_t>(await.bitset());
 
-		_base.store(op_regs::status, status::transactionIrq(stat & status::transactionIrq) 
-				| status::errorIrq(stat & status::errorIrq));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
-		
-		if(stat & status::errorIrq)
+		assert(!(bits & status::hostProcessError));
+		assert(!(bits & status::hostSystemError));
+
+		if(bits & status::errorIrq)
 			printf("\e[31muhci: Error interrupt\e[39m\n");
-		if((stat & status::transactionIrq) || (stat & status::errorIrq)) {
+		if((bits & status::transactionIrq) || (bits & status::errorIrq)) {
 			//printf("uhci: Processing transfers.\n");
 			_progressSchedule();
 		}
@@ -535,13 +580,13 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_refreshFrame(), ([=] {
 }))
 
 void Controller::_updateFrame() {
-	auto frame = _base.load(op_regs::frameNumber);
+	auto frame = _ioSpace.load(op_regs::frameNumber);
 	auto counter = (frame >= _lastFrame) ? (_frameCounter + frame - _lastFrame)
 			: (_frameCounter + 2048 - _lastFrame + frame);
 
 	if(counter / 1024 > _frameCounter / 1024) {
 		for(int port = 0; port < 2; port++) {
-			auto port_space = _base.subspace(0x10 + (2 * port));
+			auto port_space = _ioSpace.subspace(0x10 + (2 * port));
 			auto sc = port_space.load(port_regs::statusCtrl);
 //			std::cout << "uhci: Port " << port << " status/control: "
 //					<< static_cast<uint16_t>(sc) << std::endl;
@@ -603,7 +648,7 @@ COFIBER_ROUTINE(async::result<PortState>, Controller::RootHub::pollState(int por
 
 COFIBER_ROUTINE(async::result<bool>,
 Controller::RootHub::issueReset(int port, bool *low_speed), ([=] {
-	auto port_space = _controller->_base.subspace(0x10 + (2 * port));
+	auto port_space = _controller->_ioSpace.subspace(0x10 + (2 * port));
 
 	// Reset the port for 50 ms.
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(true));
@@ -1200,7 +1245,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	HEL_CHECK(helEnableIo(bar.getHandle()));
 	
 	arch::io_space base = arch::global_io.subspace(info.barInfo[4].address);
-	auto controller = std::make_shared<Controller>(std::move(device), base, std::move(irq));
+	auto controller = std::make_shared<Controller>(std::move(device),
+			info.barInfo[4].address, base, std::move(irq));
 	controller->initialize();
 
 	globalControllers.push_back(std::move(controller));

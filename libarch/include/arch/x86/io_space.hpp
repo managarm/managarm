@@ -76,6 +76,7 @@ namespace _detail {
 	};
 }
 
+using _detail::io_ops;
 using _detail::io_space;
 
 static constexpr io_space global_io(0);

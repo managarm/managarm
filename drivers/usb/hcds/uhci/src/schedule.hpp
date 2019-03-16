@@ -69,7 +69,8 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 		Controller *_controller;
 	};
 
-	Controller(protocols::hw::Device hw_device, arch::io_space base, helix::UniqueIrq irq);
+	Controller(protocols::hw::Device hw_device, uintptr_t base,
+			arch::io_space space, helix::UniqueIrq irq);
 
 	void initialize();
 	cofiber::no_future _handleIrqs();
@@ -79,7 +80,8 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 
 private:
 	protocols::hw::Device _hwDevice;
-	arch::io_space _base;
+	uintptr_t _ioBase;
+	arch::io_space _ioSpace;
 	helix::UniqueIrq _irq;
 
 	uint16_t _lastFrame;

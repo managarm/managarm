@@ -312,7 +312,6 @@ IrqStatus IrqObject::raise() {
 		if(result == 1) {
 			return IrqStatus::acked;
 		}else if(result == 2) {
-			frigg::infoLogger() << "\e[33mthor: IRQ was nacked!\e[33m" << frigg::endLog;
 			return IrqStatus::nacked;
 		}else{
 			assert(!result);

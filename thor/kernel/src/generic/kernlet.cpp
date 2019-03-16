@@ -1,6 +1,7 @@
 
 #include <stdint.h>
 
+#include <arch/io_space.hpp>
 #include <arch/mem_space.hpp>
 #include <frg/string.hpp>
 #include <frigg/elf.hpp>
@@ -213,6 +214,25 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 
 	// Perform relocations.
 	auto resolveExternal = [] (frg::string_view name) -> void * {
+		uint16_t (*abi_pio_read16)(ptrdiff_t) =
+			[] (ptrdiff_t offset) -> uint16_t {
+				if(logIo)
+					frigg::infoLogger() << "__pio_read16 on offset: " << offset << frigg::endLog;
+				auto value = arch::io_ops<uint16_t>::load(offset);
+				if(logIo)
+					frigg::infoLogger() << "    Read " << (unsigned int)value << frigg::endLog;
+				return value;
+			};
+
+		void (*abi_pio_write16)(ptrdiff_t, uint16_t) =
+			[] (ptrdiff_t offset, uint16_t value) {
+				if(logIo)
+					frigg::infoLogger() << "__pio_write16 on offset: " << offset << frigg::endLog;
+				arch::io_ops<uint16_t>::store(offset, value);
+				if(logIo)
+					frigg::infoLogger() << "    Wrote " << value << frigg::endLog;
+			};
+
 		uint8_t (*abi_mmio_read8)(const char *, ptrdiff_t) =
 			[] (const char *base, ptrdiff_t offset) -> uint8_t {
 				if(logIo)
@@ -235,6 +255,7 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 					frigg::infoLogger() << "    Read " << value << frigg::endLog;
 				return value;
 			};
+
 		void (*abi_mmio_write32)(char *, ptrdiff_t, uint32_t) =
 			[] (char *base, ptrdiff_t offset, uint32_t value) {
 				if(logIo)
@@ -245,6 +266,7 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				if(logIo)
 					frigg::infoLogger() << "    Wrote " << value << frigg::endLog;
 			};
+
 		void (*abi_trigger_bitset)(void *, uint32_t) =
 			[] (void *p, uint32_t bits) {
 				if(logIo)
@@ -254,7 +276,11 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				event->trigger(bits);
 			};
 
-		if(name == "__mmio_read8")
+		if(name == "__pio_read16")
+			return reinterpret_cast<void *>(abi_pio_read16);
+		else if(name == "__pio_write16")
+			return reinterpret_cast<void *>(abi_pio_write16);
+		else if(name == "__mmio_read8")
 			return reinterpret_cast<void *>(abi_mmio_read8);
 		else if(name == "__mmio_read32")
 			return reinterpret_cast<void *>(abi_mmio_read32);
