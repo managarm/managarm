@@ -16,7 +16,7 @@ struct basic_register {
 	explicit constexpr basic_register(P offset)
 	: _offset(offset) { }
 
-	P offset() {
+	P offset() const {
 		return _offset;
 	}
 

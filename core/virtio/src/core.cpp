@@ -4,6 +4,8 @@
 #include <optional>
 
 #include <core/virtio/core.hpp>
+#include <fafnir/dsl.hpp>
+#include <protocols/kernlet/compiler.hpp>
 
 namespace virtio_core {
 
@@ -406,6 +408,49 @@ void StandardPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
+	COFIBER_AWAIT connectKernletCompiler();
+
+	std::vector<uint8_t> kernlet_program;
+	fnr::emit_to(std::back_inserter(kernlet_program),
+		// Load the PCI_ISR register.
+		fnr::scope_push{} (
+			fnr::intrin{"__mmio_read8", 2, 1} (
+				fnr::binding{0}, // IRQ space MMIO region (bound to slot 0).
+				fnr::binding{1} // IRQ space MMIO offset (bound to slot 1).
+					 + fnr::literal{PCI_ISR.offset()} // Offset of USBSTS.
+			) & fnr::literal{3} // Progress and configuration change bits.
+		),
+		// Ack the IRQ iff one of the bits was set.
+		fnr::check_if{},
+			fnr::scope_get{0},
+		fnr::then{},
+			// Trigger the bitset event (bound to slot 2).
+			fnr::intrin{"__trigger_bitset", 2, 0} (
+				fnr::binding{2},
+				fnr::scope_get{0}
+			),
+			fnr::scope_push{} ( fnr::literal{1} ),
+		fnr::else_then{},
+			fnr::scope_push{} ( fnr::literal{2} ),
+		fnr::end{}
+	);
+
+	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
+			kernlet_program.size(), {BindType::memoryView, BindType::offset,
+			BindType::bitsetEvent});
+
+	HelHandle event_handle;
+	HEL_CHECK(helCreateBitsetEvent(&event_handle));
+	helix::UniqueDescriptor event{event_handle};
+
+	HelKernletData data[3];
+	data[0].handle = _isrMapping.memory().getHandle();
+	data[1].handle = _isrMapping.offset();
+	data[2].handle = event.getHandle();
+	HelHandle bound_handle;
+	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 3, &bound_handle));
+	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
+
 	COFIBER_AWAIT _hwDevice.enableBusIrq();
 
 	// TODO: The kick here should not be required.
@@ -415,30 +460,21 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await;
-		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
+		auto &&submit = helix::submitAwaitEvent(event, &await, sequence,
 				helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
+		assert(await.bitset() & 3);
 //		std::cout << "core-virtio " << getpid() << ": Got IRQ #" << sequence << std::endl;
 
-		auto isr = _isrSpace().load(PCI_ISR);
-		if(!(isr & 3)) {
-//			std::cout << "core-virtio: " << getpid() << " But it's not for me" << std::endl;
-			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
-			continue;
-		}
-
-//		std::cout << "core-virtio: " << getpid() << " Let's ack it" << std::endl;
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
-
-
-		if(isr & 2) {
+		if(await.bitset() & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;
 			auto status = _commonSpace().load(PCI_DEVICE_STATUS);
 			assert(!(status & DEVICE_NEEDS_RESET));
 		}
-		if(isr & 1)
+
+		if(await.bitset() & 1)
 			for(auto &queue : _queues)
 				queue->processInterrupt();
 	}

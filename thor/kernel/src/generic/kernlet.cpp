@@ -213,6 +213,17 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 
 	// Perform relocations.
 	auto resolveExternal = [] (frg::string_view name) -> void * {
+		uint8_t (*abi_mmio_read8)(const char *, ptrdiff_t) =
+			[] (const char *base, ptrdiff_t offset) -> uint8_t {
+				if(logIo)
+					frigg::infoLogger() << "__mmio_read8 on " << (void *)base
+							<< ", offset: " << offset << frigg::endLog;
+				auto p = reinterpret_cast<const uint8_t *>(base + offset);
+				auto value = arch::mem_ops<uint8_t>::load(p);
+				if(logIo)
+					frigg::infoLogger() << "    Read " << (unsigned int)value << frigg::endLog;
+				return value;
+			};
 		uint32_t (*abi_mmio_read32)(const char *, ptrdiff_t) =
 			[] (const char *base, ptrdiff_t offset) -> uint32_t {
 				if(logIo)
@@ -243,7 +254,9 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				event->trigger(bits);
 			};
 
-		if(name == "__mmio_read32")
+		if(name == "__mmio_read8")
+			return reinterpret_cast<void *>(abi_mmio_read8);
+		else if(name == "__mmio_read32")
 			return reinterpret_cast<void *>(abi_mmio_read32);
 		else if(name == "__mmio_write32")
 			return reinterpret_cast<void *>(abi_mmio_write32);
