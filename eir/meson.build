@@ -19,5 +19,6 @@ executable('eir', eir_sources,
 		'-Wall'],
 	link_args: ['-m32', '-nostdlib',
 		'-T', meson.current_source_dir() + '/src/link.x'],
+	objects: './libgcc.a',
 	link_depends: files('src/link.x'))
 

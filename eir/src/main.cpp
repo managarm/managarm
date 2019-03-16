@@ -18,6 +18,7 @@ static constexpr int kPageShift = 12;
 static constexpr size_t kPageSize = size_t(1) << kPageShift;
 
 uint64_t bootMemoryLimit;
+uint64_t allocatedMemory;
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -25,9 +26,8 @@ uint64_t bootMemoryLimit;
 
 enum class RegionType {
 	null,
-	reserved,
-	allocatable,
-	skeletal
+	unconstructed,
+	allocatable
 };
 
 struct Region {
@@ -43,16 +43,15 @@ struct Region {
 	uint64_t buddyMap;
 };
 
-static constexpr size_t numRegions = 1024;
+static constexpr size_t numRegions = 64;
 
 Region regions[numRegions];
-Region *skeletalRegion;
 
 Region *obtainRegion() {
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::null)
 			continue;
-		regions[i].regionType = RegionType::reserved;
+		regions[i].regionType = RegionType::unconstructed;
 		return &regions[i];
 	}
 	frigg::panicLogger() << "Eir: Memory region limit exhausted" << frigg::endLog;
@@ -111,38 +110,9 @@ uint64_t cutFromRegion(size_t size) {
 	frigg::panicLogger() << "Eir: Unable to cut memory from a region" << frigg::endLog;
 }
 
-void setupSkeletalRegion() {
-	assert(!skeletalRegion);
-
-	size_t core_size = 0;
-	for(size_t i = 0; i < numRegions; ++i) {
-		if(regions[i].regionType != RegionType::allocatable)
-			continue;
-		core_size += regions[i].size;
-	}
-
-	// We need roughly one page to map 512 other pages.
-	// Thus we reserve 1/512 of all memory for kernel paging structures.
-	// Note that this choice here effectively limits how much of the kernel's
-	// half of the address space can actually be used.
-	// It is a little unfortunate that we fix this at boot time however
-	// being able to directly access kernel paging structures greatly
-	// simplifies kernel TLB shootdown handling and justifies this tradeoff.
-	// FIXME: This is increased to 1/256 now, which is inefficient.
-	// However, we plan to remove the skeletal region anyways.
-	size_t skeletal_size = core_size >> 8;
-	skeletal_size = (skeletal_size + (kPageSize - 1)) & ~uint64_t(kPageSize - 1);
-
-	skeletalRegion = obtainRegion();
-	skeletalRegion->regionType = RegionType::skeletal;
-	skeletalRegion->address = cutFromRegion(skeletal_size);
-	skeletalRegion->size = skeletal_size;
-}
-
 void setupRegionStructs() {
 	for(size_t i = 0; i < numRegions; ++i) {
-		if(regions[i].regionType != RegionType::allocatable
-				&& regions[i].regionType != RegionType::skeletal)
+		if(regions[i].regionType != RegionType::allocatable)
 			continue;
 
 		// Setup a buddy allocator.
@@ -248,11 +218,17 @@ T *bootAllocN(int n) {
 }
 
 uintptr_t allocPage() {
-	auto table = reinterpret_cast<int8_t *>(skeletalRegion->buddyTree);
-	auto physical = skeletalRegion->address + (frigg::buddy_tools::allocate(table,
-			skeletalRegion->numRoots, skeletalRegion->order, 0) << kPageShift);
-//		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
-	return physical;
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType != RegionType::allocatable)
+			continue;
+
+		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
+		auto physical = regions[i].address + (frigg::buddy_tools::allocate(table,
+				regions[i].numRoots, regions[i].order, 0) << kPageShift);
+		allocatedMemory += kPageSize;
+	//		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
+		return physical;
+	}
 }
 
 uintptr_t eirPml4Pointer = 0;
@@ -388,8 +364,7 @@ void mapRegionsAndStructs() {
 
 	uint64_t tree_mapping = 0xFFFF'C080'0000'0000;
 	for(size_t i = 0; i < numRegions; ++i) {
-		if(regions[i].regionType != RegionType::allocatable
-				&& regions[i].regionType != RegionType::skeletal)
+		if(regions[i].regionType != RegionType::allocatable)
 			continue;
 
 		// Map the region itself.
@@ -596,7 +571,6 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		offset += map->size + 4;
 	}
 
-	setupSkeletalRegion();
 	setupRegionStructs();
 	
 	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
@@ -606,8 +580,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		frigg::infoLogger() << "    Type " << (int)regions[i].regionType << " region."
 				<< " Base: " << (void *)regions[i].address
 				<< ", length: " << (void *)regions[i].size << frigg::endLog;
-		if(regions[i].regionType == RegionType::allocatable
-				|| regions[i].regionType == RegionType::skeletal)
+		if(regions[i].regionType == RegionType::allocatable)
 			frigg::infoLogger() << "        Buddy tree at " << (void *)regions[i].buddyTree
 					<< ", overhead: " << frigg::logHex(regions[i].buddyOverhead)
 					<< frigg::endLog;
@@ -625,6 +598,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	frigg::arch_x86::wrmsr(0x277, pat);
 	
 	setupPaging();
+	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
+			" after setting up paging" << frigg::endLog;
 
 	// Identically map the first 128 MiB so that we can activate paging
 	// without causing a page fault.
@@ -640,6 +615,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	uint64_t kernel_entry;
 	loadKernelImage(kernel_module->startAddress, &kernel_entry);
+	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
+			" after loading the kernel" << frigg::endLog;
 
 	// Setup the kernel stack.
 	for(size_t page = 0; page < 0x10000; page += kPageSize)
@@ -651,11 +628,6 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == 0x40000000);
 	info_ptr->signature = eirSignatureValue;
-	info_ptr->skeletalRegion.address = skeletalRegion->address;
-	info_ptr->skeletalRegion.length = skeletalRegion->size;
-	info_ptr->skeletalRegion.order = skeletalRegion->order;
-	info_ptr->skeletalRegion.numRoots = skeletalRegion->numRoots;
-	info_ptr->skeletalRegion.buddyTree = skeletalRegion->buddyMap;
 	info_ptr->coreRegion.address = regions[0].address;
 	info_ptr->coreRegion.length = regions[0].size;
 	info_ptr->coreRegion.order = regions[0].order;

@@ -4,10 +4,8 @@
 namespace thor {
 
 struct SkeletalRegion {
-	typedef frigg::TicketLock Mutex;
 public:
-	static void initialize(PhysicalAddr physical_base,
-			int order, size_t num_roots, int8_t *buddy_tree);
+	static void initialize();
 
 	static SkeletalRegion &global();
 
@@ -18,18 +16,7 @@ public:
 	
 	SkeletalRegion &operator= (const SkeletalRegion &other) = delete;
 
-	PhysicalAddr allocate();
-	void deallocate(PhysicalAddr phyiscal);
-
 	void *access(PhysicalAddr physical);
-
-private:
-	Mutex _mutex;
-
-	PhysicalAddr _physicalBase;
-	int _order;
-	size_t _numRoots;
-	int8_t *_buddyTree;
 };
 
 class PhysicalChunkAllocator {

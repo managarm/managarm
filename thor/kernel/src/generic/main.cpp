@@ -74,10 +74,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
 	KernelPageSpace::initialize(pml4_ptr);
 
-	SkeletalRegion::initialize(info->skeletalRegion.address,
-			info->skeletalRegion.order, info->skeletalRegion.numRoots,
-			reinterpret_cast<int8_t *>(info->skeletalRegion.buddyTree));
-
+	SkeletalRegion::initialize();
 	physicalAllocator.initialize();
 	physicalAllocator->bootstrap(info->coreRegion.address, info->coreRegion.order,
 			info->coreRegion.numRoots, reinterpret_cast<int8_t *>(info->coreRegion.buddyTree));
