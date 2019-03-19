@@ -8,6 +8,23 @@ namespace thor {
 
 namespace {
 	constexpr bool logCleanup = false;
+	constexpr bool logUsage = false;
+
+	void logRss(AddressSpace *space) {
+		if(!logUsage)
+			return;
+		auto rss = space->rss();
+		if(!rss)
+			return;
+		auto b = 63 -__builtin_clz(rss);
+		if(b < 1)
+			return;
+		if(rss & ((1 << (b - 1)) - 1))
+			return;
+		frigg::infoLogger() << "thor: RSS of " << space << " increases above "
+				<< (rss >> 10) << " KiB (physical memory allocated: "
+				<< (physicalAllocator->numUsedPages() * 4) << " KiB)" << frigg::endLog;
+	}
 }
 
 PhysicalAddr MemoryBundle::blockForRange(uintptr_t) {
@@ -330,10 +347,16 @@ AllocatedMemory::AllocatedMemory(size_t desired_length, size_t desired_chunk_siz
 AllocatedMemory::~AllocatedMemory() {
 	// TODO: This destructor takes a lock. This is potentially unexpected.
 	// Rework this to only schedule the deallocation but not actually perform it?
+	if(logUsage)
+		frigg::infoLogger() << "thor: Releasing AllocatedMemory ("
+				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
 	for(size_t i = 0; i < _physicalChunks.size(); ++i) {
 		if(_physicalChunks[i] != PhysicalAddr(-1))
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
 	}
+	if(logUsage)
+		frigg::infoLogger() << "thor:     ("
+				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
 }
 
 void AllocatedMemory::resize(size_t new_length) {
@@ -917,9 +940,12 @@ void NormalMapping::install(bool overwrite) {
 		}else{
 			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
-		if(bundle_range.get<0>() != PhysicalAddr(-1))
+		if(bundle_range.get<0>() != PhysicalAddr(-1)) {
 			owner()->_pageSpace.mapSingle4k(vaddr, bundle_range.get<0>(), true,
 					page_flags, bundle_range.get<1>());
+			owner()->_residuentSize += kPageSize;
+			logRss(owner());
+		}
 	}
 }
 
@@ -944,6 +970,11 @@ CowChain::CowChain(frigg::SharedPtr<CowChain> chain, ptrdiff_t offset, size_t si
 : _superChain{frigg::move(chain)}, _superOffset{offset}, _pages{kernelAlloc.get()} {
 	assert(!(size & (kPageSize - 1)));
 	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
+}
+
+CowChain::~CowChain() {
+	if(logUsage)
+		frigg::infoLogger() << "thor: Releasing CowChain" << frigg::endLog;
 }
 
 // --------------------------------------------------------
@@ -1393,6 +1424,8 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 
 			mapping->owner()->_pageSpace.mapSingle4k(vaddr, range.get<0>(),
 					true, page_flags, range.get<1>());
+			mapping->owner()->_residuentSize += kPageSize;
+			logRss(mapping->owner());
 			node->_resolved = true;
 		}
 	};

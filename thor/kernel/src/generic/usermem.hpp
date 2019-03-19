@@ -520,6 +520,8 @@ struct CowChain {
 
 	CowChain(frigg::SharedPtr<CowChain> chain, ptrdiff_t offset, size_t size);
 
+	~CowChain();
+
 // TODO: Either this private again or make this class POD-like.
 	frigg::TicketLock _mutex;
 
@@ -710,6 +712,10 @@ public:
 
 	bool fork(ForkNode *node);
 
+	size_t rss() {
+		return _residuentSize;
+	}
+
 	Lock lock;
 
 	Futex futexSpace;
@@ -730,6 +736,8 @@ private:
 	MappingTree _mappings;
 
 	ClientPageSpace _pageSpace;
+
+	int64_t _residuentSize = 0;
 };
 
 struct AcquireNode {
