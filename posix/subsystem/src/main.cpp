@@ -498,13 +498,25 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
 			if(logRequests)
-				std::cout << "posix: MOUNT" << std::endl;
+				std::cout << "posix: MOUNT " << req.fs_type() << " on " << req.path()
+						<< " to " << req.target_path() << std::endl;
 
 			helix::SendBuffer send_resp;
 
 			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.target_path());
-			assert(target.second);
+			if(!target.second) {
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			if(req.fs_type() == "sysfs") {
 				target.first->mount(target.second, getSysfs());	
 			}else if(req.fs_type() == "devtmpfs") {
@@ -523,6 +535,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto link = COFIBER_AWAIT device->mount();
 				target.first->mount(target.second, std::move(link));	
 			}
+
+			if(logRequests)
+				std::cout << "posix:     MOUNT succeeds" << std::endl;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -867,7 +882,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					continue;
 				}
 
-				std::cout << "posix: Creating file " << req.path() << std::endl;
+				if(logRequests)
+					std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
 				auto tail = COFIBER_AWAIT directory->getLink(resolver.nextComponent());
@@ -919,6 +935,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
+				if(logRequests)
+					std::cout << "posix:     OPEN failed: file not found" << std::endl;
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();

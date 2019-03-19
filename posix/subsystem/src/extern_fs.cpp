@@ -103,7 +103,7 @@ private:
 		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
 		COFIBER_RETURN(length);
 	}))
-	
+
 	// TODO: For extern_fs, we can simply return POLLIN | POLLOUT here.
 	// Move device code out of this file.
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence) override, ([=] {
@@ -216,7 +216,7 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		
+
 		COFIBER_RETURN((std::string{static_cast<char *>(recv_target.data()), recv_target.length()}));
 	}))
 
@@ -296,14 +296,14 @@ private:
 		(void)name;
 		assert(!"mkdir is not implemented for extern_fs");
 	}))
-	
+
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			symlink(std::string name, std::string link) override, ([=] {
 		(void)name;
 		(void)link;
 		assert(!"symlink is not implemented for extern_fs");
 	}))
-	
+
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mkdev(std::string name,
 			VfsType type, DeviceId id) override, ([=] {
 		(void)name;
@@ -314,8 +314,6 @@ private:
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			getLink(std::string name) override, ([=] {
-//		std::cout << "extern_fs: getLink() " << name << std::endl;
-
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
