@@ -321,7 +321,7 @@ FileSystem::BlockCacheEntry::BlockCacheEntry(void *buffer)
 
 async::result<void> FileSystem::BlockCacheEntry::waitUntilReady() {
 	assert(state == kStateLoading || state == kStateReady);
-	return readyJump.async_wait();
+	return async::make_result(readyJump.async_wait());
 }
 
 // --------------------------------------------------------

@@ -184,8 +184,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveTerminal(helix::UniqueLane p),
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			protocols::fs::servePassthrough(std::move(local_lane), nullptr,
-					&fileOperations);
+			async::detach(protocols::fs::servePassthrough(
+					std::move(local_lane), nullptr, &fileOperations));
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

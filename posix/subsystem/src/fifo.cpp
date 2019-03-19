@@ -41,8 +41,8 @@ public:
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-				&File::fileOperations);
+		async::detach(protocols::fs::servePassthrough(std::move(lane),
+				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
 	ReaderFile()
@@ -97,8 +97,8 @@ public:
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-				&File::fileOperations);
+		async::detach(protocols::fs::servePassthrough(std::move(lane),
+				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
 	WriterFile()

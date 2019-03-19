@@ -69,8 +69,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto file = smarter::make_shared<drm_core::File>(device);
-			protocols::fs::servePassthrough(std::move(local_lane), file,
-					&fileOperations);
+			async::detach(protocols::fs::servePassthrough(
+					std::move(local_lane), file, &fileOperations));
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

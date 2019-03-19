@@ -248,8 +248,8 @@ public:
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), file, &fileOperations,
-				file->_cancelServe);
+		async::detach(protocols::fs::servePassthrough(std::move(lane),
+				file, &fileOperations, file->_cancelServe));
 	}
 
 	MemoryFile(std::shared_ptr<FsLink> link)
@@ -454,9 +454,8 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane),
-			smarter::shared_ptr<File>{file}, &File::fileOperations,
-			file->_cancelServe);
+	async::detach(protocols::fs::servePassthrough(std::move(lane),
+			file, &File::fileOperations, file->_cancelServe));
 }
 
 void DirectoryFile::handleClose() {

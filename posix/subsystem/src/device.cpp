@@ -32,9 +32,11 @@ void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
+	// TODO: Make createDeviceNode() synchronous and get rid of the post_awaitable().
 	auto node_path = device->nodePath();
 	if(!node_path.empty())
-		createDeviceNode(std::move(node_path), device->type(), device->getId());
+		async::detach(createDeviceNode(std::move(node_path),
+				device->type(), device->getId()));
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {

@@ -250,8 +250,8 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 helix::UniqueLane File::serve(smarter::shared_ptr<File> file) {
 	helix::UniqueLane local_lane, remote_lane;
 	std::tie(local_lane, remote_lane) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(local_lane), file,
-			&fileOperations);
+	async::detach(protocols::fs::servePassthrough(
+			std::move(local_lane), file, &fileOperations));
 	return std::move(remote_lane);
 }
 

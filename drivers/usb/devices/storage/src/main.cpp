@@ -26,7 +26,7 @@ namespace {
 	constexpr bool enableRead6 = false;
 }
 
-COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf_num), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, StorageDevice::run(int config_num, int intf_num), ([=] {
 	auto descriptor = COFIBER_AWAIT _usbDevice.configurationDescriptor();
 
 	std::experimental::optional<int> in_endp_number;

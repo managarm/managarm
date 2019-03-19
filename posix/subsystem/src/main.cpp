@@ -188,7 +188,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 				k = d + 1;
 			}
 
-			Process::exec(self, path, std::move(args), std::move(env));
+			async::detach(Process::exec(self,
+					path, std::move(args), std::move(env)));
 		}else if(observe.observation() == kHelObserveSuperCall + 4) {
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
@@ -641,7 +642,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			parent->mkdir(resolver.nextComponent());
+			COFIBER_AWAIT parent->mkdir(resolver.nextComponent());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -663,7 +664,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
-			parent->symlink(resolver.nextComponent(), req.target_path());
+			COFIBER_AWAIT parent->symlink(resolver.nextComponent(), req.target_path());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -1718,7 +1719,7 @@ void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 	COFIBER_AWAIT clk::enumerateTracker();
 	COFIBER_AWAIT populateRootView();
-	Process::init("sbin/posix-init");
+	COFIBER_AWAIT Process::init("sbin/posix-init");
 }))
 
 int main() {
