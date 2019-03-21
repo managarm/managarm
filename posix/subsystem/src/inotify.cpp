@@ -30,7 +30,8 @@ public:
 		throw std::runtime_error("read() from inotify is not implemented");
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence,
+			async::cancellation_token) override, ([=] {
 		std::cout << "posix: Fix inotify::poll()" << std::endl;
 		COFIBER_AWAIT cofiber::suspend_always{};
 	}))

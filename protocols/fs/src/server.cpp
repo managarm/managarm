@@ -248,7 +248,8 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		HEL_CHECK(pull_cancel.error());
 
 		assert(file_ops->poll);
-		auto result = COFIBER_AWAIT(file_ops->poll(file.get(), req.sequence()));
+		auto result = COFIBER_AWAIT(file_ops->poll(file.get(), req.sequence(),
+				async::cancellation_token{}));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);

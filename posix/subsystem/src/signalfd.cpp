@@ -30,7 +30,8 @@ public:
 		throw std::runtime_error("read() from signalfd is not implemented");
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *process, uint64_t in_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *process, uint64_t in_seq,
+			async::cancellation_token) override, ([=] {
 		std::cout << "posix: signalfd poll() with mask " << _mask << std::endl;
 		auto sequence = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq, _mask);
 		std::cout << "posix: signalfd poll() returns" << std::endl;

@@ -126,7 +126,7 @@ async::result<void> File::write(void *, const char *, const void *, size_t) {
 }
 
 COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
-File::poll(void *object, uint64_t past_seq), ([=] {
+File::poll(void *object, uint64_t past_seq, async::cancellation_token cancellation), ([=] {
 	auto self = static_cast<File *>(object);
 
 	assert(past_seq <= self->_device->_currentSeq);

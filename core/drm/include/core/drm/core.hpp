@@ -8,6 +8,7 @@
 #include <optional>
 
 #include <arch/mem_space.hpp>
+#include <async/cancellation.hpp>
 #include <async/doorbell.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
@@ -168,7 +169,7 @@ struct File {
 	ioctl(void *object, managarm::fs::CntRequest req, helix::UniqueLane conversation);
 
 	static async::result<protocols::fs::PollResult>
-	poll(void *object, uint64_t sequence);
+	poll(void *object, uint64_t sequence, async::cancellation_token cancellation);
 
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
 	void detachFrameBuffer(FrameBuffer *frame_buffer);

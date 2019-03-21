@@ -224,8 +224,8 @@ public:
 	// Returns (current-sequence, edges since in-sequence, current events).
 	// current-sequence is incremented each time an edge (i.e. an event bit
 	// transitions from clear to set) happens.
-	// TODO: This request should be cancelable.
-	virtual expected<PollResult> poll(Process *, uint64_t sequence);
+	virtual expected<PollResult> poll(Process *, uint64_t sequence,
+			async::cancellation_token cancellation = {});
 
 	// Like poll, but only checks the current state. Does not return edges.
 	virtual expected<PollResult> checkStatus(Process *);

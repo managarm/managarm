@@ -145,7 +145,8 @@ public:
 		COFIBER_RETURN();
 	}));
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override, ([=] {
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq)
 			COFIBER_AWAIT _statusBell.async_wait();

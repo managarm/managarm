@@ -879,7 +879,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 }))
 
 COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
-drm_core::File::poll(void *object, uint64_t sequence),
+drm_core::File::poll(void *object, uint64_t sequence, async::cancellation_token cancellation),
 		([object = std::move(object), sequence] {
 	auto self = static_cast<drm_core::File *>(object);
 

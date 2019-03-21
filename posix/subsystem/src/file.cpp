@@ -196,14 +196,14 @@ expected<off_t> File::seek(off_t, VfsSeek) {
 	}
 }
 
-expected<PollResult> File::poll(Process *, uint64_t) {
+expected<PollResult> File::poll(Process *, uint64_t, async::cancellation_token) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement poll()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::poll()");
 }
 
 expected<PollResult> File::checkStatus(Process *process) {
-	return poll(process, 0);
+	return poll(process, 0, async::cancellation_token{});
 }
 
 async::result<int> File::getOption(int) {

@@ -297,7 +297,8 @@ public:
 		_cancelServe.cancel();
 	}
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override, ([=] {
 		assert(past_seq <= _currentSeq);
 		while(_currentSeq == past_seq) {
 			assert(isOpen()); // TODO: Return a poll error here.

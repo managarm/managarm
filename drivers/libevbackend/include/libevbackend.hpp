@@ -45,7 +45,7 @@ struct File {
 	write(void *object, const char *, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::PollResult>
-	poll(void *object, uint64_t past_seq);
+	poll(void *object, uint64_t past_seq, async::cancellation_token cancellation);
 
 	static async::result<void>
 	ioctl(void *object, managarm::fs::CntRequest req,

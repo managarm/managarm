@@ -17,7 +17,8 @@ private:
 		assert(!"Not implemented");
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence,
+			async::cancellation_token) override, ([=] {
 		// TODO: Signal that we are ready to accept output.
 		std::cout << "posix: poll() on helout" << std::endl;
 		if(!sequence) {

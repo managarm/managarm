@@ -72,7 +72,8 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 	COFIBER_RETURN(recv_data.actualLength());
 }))	
 
-COFIBER_ROUTINE(async::result<PollResult>, File::poll(uint64_t sequence), ([=] {
+COFIBER_ROUTINE(async::result<PollResult>, File::poll(uint64_t sequence,
+		async::cancellation_token cancellation), ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::PushDescriptor push_cancel;
@@ -81,6 +82,11 @@ COFIBER_ROUTINE(async::result<PollResult>, File::poll(uint64_t sequence), ([=] {
 	HelHandle cancel_handle;
 	HEL_CHECK(helCreateOneshotEvent(&cancel_handle));
 	helix::UniqueDescriptor cancel_event{cancel_handle};
+
+	async::cancellation_callback cancel_cb{cancellation, [&] {
+		std::cerr << "\e[33mprotocols/fs: poll() was cancelled on client-side\e[39m" << std::endl;
+		HEL_CHECK(helRaiseEvent(cancel_event.getHandle()));
+	}};
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::FILE_POLL);

@@ -242,7 +242,8 @@ public:
 		COFIBER_RETURN(File::constructHandle(std::move(local)));
 	}))
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override, ([=] {
 		if(_currentState == State::closed)
 			COFIBER_RETURN(Error::fileClosed);
 

@@ -115,7 +115,7 @@ struct FileOperations {
 		return *this;
 	}
 	constexpr FileOperations &withPoll(async::result<PollResult> (*f)(void *object,
-			uint64_t sequence)) {
+			uint64_t sequence, async::cancellation_token cancellation)) {
 		poll = f;
 		return *this;
 	}
@@ -151,7 +151,8 @@ struct FileOperations {
 			helix::UniqueLane conversation);
 	async::result<int> (*getOption)(void *object, int option);
 	async::result<void> (*setOption)(void *object, int option, int value);
-	async::result<PollResult> (*poll)(void *object, uint64_t sequence);
+	async::result<PollResult> (*poll)(void *object, uint64_t sequence,
+			async::cancellation_token cancellation);
 	async::result<void> (*bind)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<void> (*listen)(void *object);

@@ -108,7 +108,8 @@ public:
 		COFIBER_RETURN(sizeof(uint64_t));
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t in_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t in_seq,
+			async::cancellation_token cancellation) override, ([=] {
 		if(logTimerfd)
 			std::cout << "posix: timerfd::poll(" << in_seq << ")" << std::endl;
 		assert(in_seq <= _theSeq);

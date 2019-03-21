@@ -113,8 +113,9 @@ private:
 		COFIBER_RETURN(length);
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence) override, ([=] {
-		auto result = COFIBER_AWAIT _file.poll(sequence);
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence,
+			async::cancellation_token cancellation = {}) override, ([=] {
+		auto result = COFIBER_AWAIT _file.poll(sequence, cancellation);
 		COFIBER_RETURN(result);
 	}))
 	
