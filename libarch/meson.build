@@ -2,6 +2,7 @@
 libarch_inc = include_directories('include/')
 libarch_lib = shared_library('arch', 'src/dma_pool.cpp',
 	include_directories: libarch_inc,
+	dependencies: lib_helix_dep,
 	install: true)
 
 libarch_dep = declare_dependency(
