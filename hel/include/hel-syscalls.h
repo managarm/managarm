@@ -288,9 +288,9 @@ extern inline __attribute__ (( always_inline )) HelError helFutexWake(int *point
 	return helSyscall1(kHelCallFutexWake, (HelWord)pointer);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCreateLatchEvent(HelHandle *handle) {
+extern inline __attribute__ (( always_inline )) HelError helCreateOneshotEvent(HelHandle *handle) {
 	HelWord handle_word;
-	HelError error = helSyscall0_1(kHelCallCreateLatchEvent, &handle_word);
+	HelError error = helSyscall0_1(kHelCallCreateOneshotEvent, &handle_word);
 	*handle = (HelHandle)handle_word;
 	return error;
 };
@@ -300,6 +300,10 @@ extern inline __attribute__ (( always_inline )) HelError helCreateBitsetEvent(He
 	HelError error = helSyscall0_1(kHelCallCreateBitsetEvent, &handle_word);
 	*handle = (HelHandle)handle_word;
 	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helRaiseEvent(HelHandle handle) {
+	return helSyscall1(kHelCallRaiseEvent, (HelWord)handle);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAccessIrq(int number, 

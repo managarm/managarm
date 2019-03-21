@@ -4,6 +4,55 @@
 
 namespace thor {
 
+//---------------------------------------------------------------------------------------
+// OneshotEvent implementation.
+//---------------------------------------------------------------------------------------
+
+void OneshotEvent::trigger() {
+	assert(!_triggered); // TODO: Return an error!
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	_triggered = true;
+
+	while(!_waitQueue.empty()) {
+		auto node = _waitQueue.pop_front();
+		node->_error = kErrSuccess;
+		node->_sequence = 2;
+		node->_bitset = 1;
+		WorkQueue::post(node->_awaited);
+	}
+}
+
+void OneshotEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	assert(sequence <= 1); // TODO: Return an error.
+
+	if(_triggered) {
+		node->_error = kErrSuccess;
+		node->_sequence = 2;
+		node->_bitset = 1;
+		WorkQueue::post(node->_awaited);
+	}else{
+		if(!sequence) {
+			node->_error = kErrSuccess;
+			node->_sequence = 1;
+			node->_bitset = 0;
+			WorkQueue::post(node->_awaited);
+		}else{
+			assert(sequence == 1);
+			_waitQueue.push_back(node);
+		}
+	}
+}
+
+//---------------------------------------------------------------------------------------
+// BitsetEvent implementation.
+//---------------------------------------------------------------------------------------
+
 BitsetEvent::BitsetEvent()
 : _currentSequence{1} {
 	for(int i = 0; i < 32; i++)
@@ -31,7 +80,7 @@ void BitsetEvent::trigger(uint32_t bits) {
 	}
 }
 
-void BitsetEvent::submitAwait(AwaitBitsetNode *node, uint64_t sequence) {
+void BitsetEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 

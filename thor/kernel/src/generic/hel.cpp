@@ -1763,11 +1763,19 @@ HelError helFutexWake(int *pointer) {
 	return kHelErrNone;
 }
 
-HelError helCreateLatchEvent(HelHandle *handle) {
+HelError helCreateOneshotEvent(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::panicLogger() << "thor: Implement latch events" << frigg::endLog;
+	auto event = frigg::makeShared<OneshotEvent>(*kernelAlloc);
+
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		*handle = this_universe->attachDescriptor(universe_guard,
+				OneshotEventDescriptor(frigg::move(event)));
+	}
 
 	return kHelErrNone;
 }
@@ -1775,7 +1783,7 @@ HelError helCreateLatchEvent(HelHandle *handle) {
 HelError helCreateBitsetEvent(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	auto event = frigg::makeShared<BitsetEvent>(*kernelAlloc);
 
 	{
@@ -1784,6 +1792,31 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 
 		*handle = this_universe->attachDescriptor(universe_guard,
 				BitsetEventDescriptor(frigg::move(event)));
+	}
+
+	return kHelErrNone;
+}
+
+HelError helRaiseEvent(HelHandle handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	AnyDescriptor descriptor;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		descriptor = *wrapper;
+	}
+
+	if(descriptor.is<OneshotEventDescriptor>()) {
+		auto event = descriptor.get<OneshotEventDescriptor>().event;
+		event->trigger();
+	}else{
+		return kHelErrBadDescriptor;
 	}
 
 	return kHelErrNone;
@@ -1889,31 +1922,38 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelEventResult result;
 	};
 
-	struct BitsetClosure : IpcNode {
+	struct EventClosure : IpcNode {
+		static void issue(frigg::SharedPtr<OneshotEvent> event, uint64_t sequence,
+				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
+			auto closure = frigg::construct<EventClosure>(*kernelAlloc,
+					frigg::move(queue), context);
+			event->submitAwait(&closure->eventNode, sequence);
+		}
+
 		static void issue(frigg::SharedPtr<BitsetEvent> event, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
-			auto closure = frigg::construct<BitsetClosure>(*kernelAlloc,
+			auto closure = frigg::construct<EventClosure>(*kernelAlloc,
 					frigg::move(queue), context);
-			event->submitAwait(&closure->bitsetNode, sequence);
+			event->submitAwait(&closure->eventNode, sequence);
 		}
-		
+
 		static void awaited(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &BitsetClosure::worklet);
-			closure->result.error = translateError(closure->bitsetNode.error());
-			closure->result.sequence = closure->bitsetNode.sequence();
-			closure->result.bitset = closure->bitsetNode.bitset();
+			auto closure = frg::container_of(worklet, &EventClosure::worklet);
+			closure->result.error = translateError(closure->eventNode.error());
+			closure->result.sequence = closure->eventNode.sequence();
+			closure->result.bitset = closure->eventNode.bitset();
 			closure->_queue->submit(closure);
 		}
 
 	public:
-		explicit BitsetClosure(frigg::SharedPtr<IpcQueue> the_queue, uintptr_t context)
+		explicit EventClosure(frigg::SharedPtr<IpcQueue> the_queue, uintptr_t context)
 		: _queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelEventResult), nullptr} {
 			memset(&result, 0, sizeof(HelEventResult));
 			setupContext(context);
 			setupSource(&source);
-			worklet.setup(&BitsetClosure::awaited);
-			bitsetNode.setup(&worklet);
+			worklet.setup(&EventClosure::awaited);
+			eventNode.setup(&worklet);
 		}
 
 		void complete() override {
@@ -1922,7 +1962,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	private:
 		Worklet worklet;
-		AwaitBitsetNode bitsetNode;
+		AwaitEventNode eventNode;
 		frigg::SharedPtr<IpcQueue> _queue;
 		QueueSource source;
 		HelEventResult result;
@@ -1955,9 +1995,13 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		auto irq = descriptor.get<IrqDescriptor>().irq;
 		IrqClosure::issue(frigg::move(irq), sequence,
 				frigg::move(queue), context);
+	}else if(descriptor.is<OneshotEventDescriptor>()) {
+		auto event = descriptor.get<OneshotEventDescriptor>().event;
+		EventClosure::issue(frigg::move(event), sequence,
+				frigg::move(queue), context);
 	}else if(descriptor.is<BitsetEventDescriptor>()) {
 		auto event = descriptor.get<BitsetEventDescriptor>().event;
-		BitsetClosure::issue(frigg::move(event), sequence,
+		EventClosure::issue(frigg::move(event), sequence,
 				frigg::move(queue), context);
 	}else{
 		return kHelErrBadDescriptor;

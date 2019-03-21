@@ -239,8 +239,14 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
+		helix::PullDescriptor pull_cancel;
 		helix::SendBuffer send_resp;
-		
+
+		auto &&receive = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&pull_cancel));
+		COFIBER_AWAIT receive.async_wait();
+		HEL_CHECK(pull_cancel.error());
+
 		assert(file_ops->poll);
 		auto result = COFIBER_AWAIT(file_ops->poll(file.get(), req.sequence()));
 		

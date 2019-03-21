@@ -7,7 +7,8 @@
 
 namespace thor {
 
-struct AwaitBitsetNode {
+struct AwaitEventNode {
+	friend struct OneshotEvent;
 	friend struct BitsetEvent;
 
 	void setup(Worklet *awaited) {
@@ -25,7 +26,30 @@ private:
 	uint64_t _sequence;
 	uint32_t _bitset;
 
-	frg::default_list_hook<AwaitBitsetNode> _queueNode;
+	frg::default_list_hook<AwaitEventNode> _queueNode;
+};
+
+struct OneshotEvent {
+	OneshotEvent() = default;
+
+	void trigger();
+
+	void submitAwait(AwaitEventNode *node, uint64_t sequence);
+
+private:
+	frigg::TicketLock _mutex;
+
+	bool _triggered = false;
+
+	// Protected by the sinkMutex.
+	frg::intrusive_list<
+		AwaitEventNode,
+		frg::locate_member<
+			AwaitEventNode,
+			frg::default_list_hook<AwaitEventNode>,
+			&AwaitEventNode::_queueNode
+		>
+	> _waitQueue;
 };
 
 struct BitsetEvent {
@@ -33,7 +57,7 @@ struct BitsetEvent {
 
 	void trigger(uint32_t bits);
 
-	void submitAwait(AwaitBitsetNode *node, uint64_t sequence);
+	void submitAwait(AwaitEventNode *node, uint64_t sequence);
 
 private:
 	frigg::TicketLock _mutex;
@@ -43,11 +67,11 @@ private:
 
 	// Protected by the sinkMutex.
 	frg::intrusive_list<
-		AwaitBitsetNode,
+		AwaitEventNode,
 		frg::locate_member<
-			AwaitBitsetNode,
-			frg::default_list_hook<AwaitBitsetNode>,
-			&AwaitBitsetNode::_queueNode
+			AwaitEventNode,
+			frg::default_list_hook<AwaitEventNode>,
+			&AwaitEventNode::_queueNode
 		>
 	> _waitQueue;
 };

@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 98,
+	kHelNumCalls = 99,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -69,8 +69,9 @@ enum {
 	kHelCallFutexWait = 70,
 	kHelCallFutexWake = 71,
 	
-	kHelCallCreateLatchEvent = 96,
+	kHelCallCreateOneshotEvent = 96,
 	kHelCallCreateBitsetEvent = 97,
+	kHelCallRaiseEvent = 98,
 	kHelCallAccessIrq = 14,
 	kHelCallAcknowledgeIrq = 81,
 	kHelCallSubmitAwaitEvent = 82,
@@ -436,8 +437,9 @@ HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
 
-HEL_C_LINKAGE HelError helCreateLatchEvent(HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateOneshotEvent(HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
+HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
 HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,

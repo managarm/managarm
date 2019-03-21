@@ -136,7 +136,15 @@ struct LaneDescriptor {
 // --------------------------------------------------------
 
 struct IrqObject;
+struct OneshotEvent;
 struct BitsetEvent;
+
+struct OneshotEventDescriptor {
+	OneshotEventDescriptor(frigg::SharedPtr<OneshotEvent> event)
+	: event{frigg::move(event)} { }
+
+	frigg::SharedPtr<OneshotEvent> event;
+};
 
 struct BitsetEventDescriptor {
 	BitsetEventDescriptor(frigg::SharedPtr<BitsetEvent> event)
@@ -190,6 +198,7 @@ typedef frigg::Variant<
 	ThreadDescriptor,
 	LaneDescriptor,
 	IrqDescriptor,
+	OneshotEventDescriptor,
 	BitsetEventDescriptor,
 	IoDescriptor,
 	KernletObjectDescriptor,
