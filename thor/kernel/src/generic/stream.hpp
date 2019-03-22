@@ -145,6 +145,7 @@ public:
 	size_t _actualLength;
 	frigg::UniqueMemory<KernelAlloc> _transmitBuffer;
 	LaneHandle _lane;
+	LaneHandle _pairedLane;
 	AnyDescriptor _descriptor;
 };
 
@@ -474,12 +475,14 @@ private:
 			&StreamNode::processQueueItem
 		>
 	> _processQueue[2];
-
-	// protected by _mutex.
-	frigg::LinkedList<frigg::SharedPtr<Stream>, KernelAlloc> _conversationQueue;
 	
-	// protected by _mutex.
+	// Protected by _mutex.
+	// Further submissions cannot happen (lane went out-of-scope).
+	// Submissions to the paired lane return end-of-lane errors.
 	bool _laneBroken[2];
+	// Submissions are disallowed and return lane-shutdown errors.
+	// Submissions to the paired lane return end-of-lane errors.
+	bool _laneShutDown[2];
 };
 
 frigg::Tuple<LaneHandle, LaneHandle> createStream();
