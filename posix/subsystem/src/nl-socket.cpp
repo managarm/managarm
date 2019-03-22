@@ -148,8 +148,11 @@ public:
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
 			async::cancellation_token cancellation) override, ([=] {
 		assert(past_seq <= _currentSeq);
-		while(past_seq == _currentSeq)
-			COFIBER_AWAIT _statusBell.async_wait();
+		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
+			COFIBER_AWAIT _statusBell.async_wait(cancellation);
+		if(cancellation.is_cancellation_requested())
+			std::cout << "\e[33mposix: nl_socket::poll() cancellation is untested\e[39m"
+					<< std::endl;
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;

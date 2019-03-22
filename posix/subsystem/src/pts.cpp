@@ -354,8 +354,9 @@ MasterFile::writeAll(Process *, const void *data, size_t length), ([=] {
 COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(Process *, uint64_t past_seq,
 		async::cancellation_token cancellation), ([=] {
 	assert(past_seq <= _channel->currentSeq);
-	while(past_seq == _channel->currentSeq)
-		COFIBER_AWAIT _channel->statusBell.async_wait();
+	while(past_seq == _channel->currentSeq
+			&& !cancellation.is_cancellation_requested())
+		COFIBER_AWAIT _channel->statusBell.async_wait(cancellation);
 
 	// For now making pts files always writable is sufficient.
 	int edges = EPOLLOUT;
@@ -469,8 +470,9 @@ SlaveFile::writeAll(Process *, const void *data, size_t length), ([=] {
 COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(Process *, uint64_t past_seq,
 		async::cancellation_token cancellation), ([=] {
 	assert(past_seq <= _channel->currentSeq);
-	while(past_seq == _channel->currentSeq)
-		COFIBER_AWAIT _channel->statusBell.async_wait();
+	while(past_seq == _channel->currentSeq
+			&& !cancellation.is_cancellation_requested())
+		COFIBER_AWAIT _channel->statusBell.async_wait(cancellation);
 
 	// For now making pts files always writable is sufficient.
 	int edges = EPOLLOUT;

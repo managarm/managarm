@@ -42,6 +42,7 @@ private:
 		int eventMask;
 		uint64_t cookie;
 
+		async::cancellation_event cancelPoll;
 		expected<PollResult> pollFuture;
 	};
 
@@ -104,7 +105,9 @@ private:
 						<< "\e[0m still not pending after poll()."
 						<< " Mask is " << item->eventMask << ", while "
 						<< std::get<2>(result) << " is active" << std::endl;
-			item->pollFuture = item->file->poll(item->process, std::get<0>(result));
+			item->cancelPoll.reset();
+			item->pollFuture = item->file->poll(item->process, std::get<0>(result),
+					item->cancelPoll);
 			item->pollFuture.then([item] {
 				_awaitPoll(item);
 			});
@@ -114,6 +117,7 @@ private:
 public:
 	~OpenFile() {
 		// Nothing to do here.
+		std::cout << "\e[33mposix: epoll file is destructed\e[39m" << std::endl;
 	}
 
 	void addItem(Process *process, smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
@@ -214,7 +218,9 @@ public:
 					item->state |= statePolling;
 
 					// Once an item is not pending anymore, we continue watching it.
-					item->pollFuture = item->file->poll(item->process, std::get<0>(result));
+					item->cancelPoll.reset();
+					item->pollFuture = item->file->poll(item->process, std::get<0>(result),
+							item->cancelPoll);
 					item->pollFuture.then([item] {
 						_awaitPoll(item);
 					});
@@ -280,8 +286,7 @@ public:
 			item->state &= ~stateActive;
 
 			if(item->state & statePolling)
-				std::cout << "\e[31mposix: handleClose() does not cancel epoll polling\e[39m"
-						<< std::endl;
+				item->cancelPoll.cancel();
 
 			if(item->state & statePending) {
 				auto qit = _pendingQueue.iterator_to(*item);
@@ -300,10 +305,12 @@ public:
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
 			async::cancellation_token cancellation) override, ([=] {
 		assert(past_seq <= _currentSeq);
-		while(_currentSeq == past_seq) {
+		while(_currentSeq == past_seq && !cancellation.is_cancellation_requested()) {
 			assert(isOpen()); // TODO: Return a poll error here.
-			COFIBER_AWAIT _statusBell.async_wait();
+			COFIBER_AWAIT _statusBell.async_wait(cancellation);
 		}
+		if(cancellation.is_cancellation_requested())
+			std::cout << "\e[33mposix: epoll::poll() cancellation is untested\e[39m" << std::endl;
 
 		COFIBER_RETURN(PollResult(_currentSeq, EPOLLIN, _pendingQueue.empty() ? 0 : EPOLLIN));
 	}))

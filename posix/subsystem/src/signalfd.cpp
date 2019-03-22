@@ -31,9 +31,10 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *process, uint64_t in_seq,
-			async::cancellation_token) override, ([=] {
+			async::cancellation_token cancellation) override, ([=] {
 		std::cout << "posix: signalfd poll() with mask " << _mask << std::endl;
-		auto sequence = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq, _mask);
+		auto sequence = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq, _mask,
+				cancellation);
 		std::cout << "posix: signalfd poll() returns" << std::endl;
 		COFIBER_RETURN(PollResult(sequence, EPOLLIN, EPOLLIN));
 	}))

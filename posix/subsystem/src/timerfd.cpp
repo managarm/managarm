@@ -113,12 +113,14 @@ public:
 		if(logTimerfd)
 			std::cout << "posix: timerfd::poll(" << in_seq << ")" << std::endl;
 		assert(in_seq <= _theSeq);
-		while(in_seq == _theSeq) {
+		while(in_seq == _theSeq && !cancellation.is_cancellation_requested()) {
 			if(!isOpen())
 				COFIBER_RETURN(Error::fileClosed);
 
-			COFIBER_AWAIT _seqBell.async_wait();
+			COFIBER_AWAIT _seqBell.async_wait(cancellation);
 		}
+		if(cancellation.is_cancellation_requested())
+			std::cout << "\e[33mposix: timerfd::poll() cancellation is untested\e[39m" << std::endl;
 
 		COFIBER_RETURN(PollResult(_theSeq, EPOLLIN, _expirations ? EPOLLIN : 0));
 	}))
