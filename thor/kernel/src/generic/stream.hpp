@@ -91,6 +91,8 @@ struct StreamNode {
 			WorkQueue::post(_packet->_transmitted);
 	}
 
+	LaneHandle _transmitLane;
+
 private:
 	int _tag;
 	StreamPacket *_packet;
@@ -149,6 +151,15 @@ public:
 	AnyDescriptor _descriptor;
 };
 
+using StreamList = frg::intrusive_list<
+	StreamNode,
+	frg::locate_member<
+		StreamNode,
+		frg::default_list_hook<StreamNode>,
+		&StreamNode::processQueueItem
+	>
+>;
+
 struct OfferBase : StreamPacket, StreamNode {
 	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagOffer;
@@ -156,7 +167,7 @@ struct OfferBase : StreamPacket, StreamNode {
 
 	static void transmitted(Worklet *base) {
 		auto packet = frg::container_of(base, &OfferBase::worklet);
-		packet->callback(packet->error());
+		packet->callback(packet->error(), packet->lane());
 	}
 
 	explicit OfferBase() {
@@ -165,13 +176,13 @@ struct OfferBase : StreamPacket, StreamNode {
 		StreamNode::setup(kTagOffer, this);
 	}
 
-	virtual void callback(Error error) = 0;
+	virtual void callback(Error error, LaneHandle handle) = 0;
 
 	Worklet worklet;
 };
 
 template<typename F>
-using Offer = Realization<OfferBase, void(Error), F>;
+using Offer = Realization<OfferBase, void(Error, LaneHandle), F>;
 
 struct AcceptBase : StreamPacket, StreamNode {
 	static bool classOf(const StreamNode &base) {
@@ -180,28 +191,24 @@ struct AcceptBase : StreamPacket, StreamNode {
 	
 	static void transmitted(Worklet *base) {
 		auto packet = frg::container_of(base, &AcceptBase::worklet);
-		packet->callback(packet->error(), packet->_universe, LaneDescriptor{packet->lane()});
+		packet->callback(packet->error(), packet->lane());
 	}
 
-	explicit AcceptBase(frigg::WeakPtr<Universe> universe)
-	: _universe(frigg::move(universe)) {
+	explicit AcceptBase() {
 		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagAccept, this);
 	}
 
-	virtual void callback(Error error, frigg::WeakPtr<Universe> universe,
-			LaneDescriptor lane) = 0;
+	virtual void callback(Error error, LaneHandle lane) = 0;
 	
-	frigg::WeakPtr<Universe> _universe;
-
 	Worklet worklet;
 };
 
 template<typename F>
 using Accept = Realization<
 	AcceptBase,
-	void(Error, frigg::WeakPtr<Universe>, LaneDescriptor),
+	void(Error, LaneHandle),
 	F
 >;
 
@@ -365,28 +372,24 @@ struct PullDescriptorBase : StreamPacket, StreamNode {
 	
 	static void transmitted(Worklet *base) {
 		auto packet = frg::container_of(base, &PullDescriptorBase::worklet);
-		packet->callback(packet->error(), packet->_universe, packet->descriptor());
+		packet->callback(packet->error(), packet->descriptor());
 	}
 
-	explicit PullDescriptorBase(frigg::WeakPtr<Universe> universe)
-	: _universe(frigg::move(universe)) {
+	explicit PullDescriptorBase() {
 		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagPullDescriptor, this);
 	}
 
-	virtual void callback(Error error, frigg::WeakPtr<Universe> universe,
-			AnyDescriptor descriptor) = 0;
+	virtual void callback(Error error, AnyDescriptor descriptor) = 0;
 	
-	frigg::WeakPtr<Universe> _universe;
-
 	Worklet worklet;
 };
 
 template<typename F>
 using PullDescriptor = Realization<
 	PullDescriptorBase,
-	void(Error, frigg::WeakPtr<Universe>, AnyDescriptor),
+	void(Error, AnyDescriptor),
 	F
 >;
 
@@ -397,6 +400,14 @@ struct Stream {
 	static void incrementPeers(Stream *stream, int lane);
 	static bool decrementPeers(Stream *stream, int lane);
 
+	static void transmit(StreamList &list) {
+		while(!list.empty()) {
+			auto *node = list.pop_front();
+			auto stream = node->_transmitLane.getStream();
+			stream->transmit(node->_transmitLane.getLane(), node);
+		}
+	}
+
 	Stream();
 	~Stream();
 
@@ -406,26 +417,26 @@ struct Stream {
 	void shutdownLane(int lane);
 
 	template<typename F>
-	LaneHandle submitOffer(int lane, F functor) {
-		return transmit(lane, frigg::construct<Offer<F>>(*kernelAlloc,
+	void submitOffer(int lane, F functor) {
+		transmit(lane, frigg::construct<Offer<F>>(*kernelAlloc,
 				frigg::move(functor)));
 	}
 	
 	template<typename F>
-	LaneHandle submitAccept(int lane, frigg::WeakPtr<Universe> universe, F functor) {
-		return transmit(lane, frigg::construct<Accept<F>>(*kernelAlloc,
-				frigg::move(functor), frigg::move(universe)));
+	void submitAccept(int lane, F functor) {
+		transmit(lane, frigg::construct<Accept<F>>(*kernelAlloc,
+				frigg::move(functor)));
 	}
 	
 	template<typename F>
-	LaneHandle submitImbueCredentials(int lane, const char *credentials, F functor) {
-		return transmit(lane, frigg::construct<ImbueCredentials<F>>(*kernelAlloc,
+	void submitImbueCredentials(int lane, const char *credentials, F functor) {
+		transmit(lane, frigg::construct<ImbueCredentials<F>>(*kernelAlloc,
 				frigg::move(functor), credentials));
 	}
 	
 	template<typename F>
-	LaneHandle submitExtractCredentials(int lane, F functor) {
-		return transmit(lane, frigg::construct<ExtractCredentials<F>>(*kernelAlloc,
+	void submitExtractCredentials(int lane, F functor) {
+		transmit(lane, frigg::construct<ExtractCredentials<F>>(*kernelAlloc,
 				frigg::move(functor)));
 	}
 
@@ -454,9 +465,9 @@ struct Stream {
 	}
 	
 	template<typename F>
-	void submitPullDescriptor(int lane, frigg::WeakPtr<Universe> universe, F functor) {
+	void submitPullDescriptor(int lane, F functor) {
 		transmit(lane, frigg::construct<PullDescriptor<F>>(*kernelAlloc,
-				frigg::move(functor), frigg::move(universe)));
+				frigg::move(functor)));
 	}
 
 private:

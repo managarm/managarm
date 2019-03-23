@@ -18,8 +18,8 @@ namespace posix = managarm::posix;
 namespace fs = managarm::fs;
 
 void serviceAccept(LaneHandle handle,
-		frigg::CallbackPtr<void(Error, frigg::WeakPtr<Universe>, LaneDescriptor)> callback) {
-	handle.getStream()->submitAccept(handle.getLane(), frigg::WeakPtr<Universe>(), callback);
+		frigg::CallbackPtr<void(Error, LaneHandle)> callback) {
+	handle.getStream()->submitAccept(handle.getLane(), callback);
 }
 
 void serviceExtractCreds(LaneHandle handle,
@@ -137,10 +137,10 @@ namespace stdio {
 		}
 
 	private:
-		void onAccept(Error error, frigg::WeakPtr<Universe>, LaneDescriptor descriptor) {
+		void onAccept(Error error, LaneHandle handle) {
 			assert(error == kErrSuccess);
 
-			_requestLane = frigg::move(descriptor.handle);
+			_requestLane = frigg::move(handle);
 			serviceRecv(_requestLane, _buffer, 128,
 					CALLBACK_MEMBER(this, &RequestClosure::onReceive));
 		}
@@ -313,10 +313,10 @@ namespace initrd {
 		}
 
 	private:
-		void onAccept(Error error, frigg::WeakPtr<Universe>, LaneDescriptor descriptor) {
+		void onAccept(Error error, LaneHandle handle) {
 			assert(error == kErrSuccess);
 
-			_requestLane = frigg::move(descriptor.handle);
+			_requestLane = frigg::move(handle);
 			serviceRecv(_requestLane, _buffer, 128,
 					CALLBACK_MEMBER(this, &FileRequestClosure::onReceive));
 		}
@@ -619,10 +619,10 @@ namespace initrd {
 		}
 
 	private:
-		void onAccept(Error error, frigg::WeakPtr<Universe>, LaneDescriptor descriptor) {
+		void onAccept(Error error, LaneHandle handle) {
 			assert(error == kErrSuccess);
 
-			_requestLane = frigg::move(descriptor.handle);
+			_requestLane = frigg::move(handle);
 			serviceRecv(_requestLane, _buffer, 128,
 					CALLBACK_MEMBER(this, &ServerRequestClosure::onReceive));
 		}

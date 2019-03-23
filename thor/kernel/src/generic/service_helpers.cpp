@@ -79,16 +79,18 @@ LaneHandle fiberOffer(LaneHandle lane) {
 		FiberBlocker blocker;
 	} closure;
 
-	auto callback = [&] (Error error) {
+	LaneHandle handle;
+	auto callback = [&] (Error error, LaneHandle the_handle) {
 		assert(!error);
+		handle = std::move(the_handle);
 		KernelFiber::unblockOther(&closure.blocker);
 	};
 
 	closure.blocker.setup();
-	auto branch = lane.getStream()->submitOffer(lane.getLane(), wrap<void(Error)>(callback));
+	lane.getStream()->submitOffer(lane.getLane(), wrap<void(Error, LaneHandle)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
-	return branch;
+	return handle;
 }
 
 LaneHandle fiberAccept(LaneHandle lane) {
@@ -97,22 +99,21 @@ LaneHandle fiberAccept(LaneHandle lane) {
 	} closure;
 
 	Error error;
-	LaneDescriptor handle;
-	auto callback = [&] (Error the_error, frigg::WeakPtr<Universe>, LaneDescriptor the_handle) {
+	LaneHandle handle;
+	auto callback = [&] (Error the_error, LaneHandle the_handle) {
 		error = the_error;
 		handle = std::move(the_handle);
 		KernelFiber::unblockOther(&closure.blocker);
 	};
 
 	closure.blocker.setup();
-	lane.getStream()->submitAccept(lane.getLane(), frigg::WeakPtr<Universe>{},
-			wrap<void(Error, frigg::WeakPtr<Universe>, LaneDescriptor)>(callback));
+	lane.getStream()->submitAccept(lane.getLane(), wrap<void(Error, LaneHandle)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
 	if(error == kErrEndOfLane)
 		return LaneHandle{};
 	assert(!error);
-	return handle.handle;
+	return handle;
 }
 
 void fiberSend(LaneHandle lane, const void *buffer, size_t length) {
@@ -176,15 +177,15 @@ AnyDescriptor fiberPullDescriptor(LaneHandle lane) {
 	} closure;
 
 	AnyDescriptor descriptor;
-	auto callback = [&] (Error error, frigg::WeakPtr<Universe>, AnyDescriptor the_descriptor) {
+	auto callback = [&] (Error error, AnyDescriptor the_descriptor) {
 		assert(!error);
 		descriptor = std::move(the_descriptor);
 		KernelFiber::unblockOther(&closure.blocker);
 	};
 
 	closure.blocker.setup();
-	lane.getStream()->submitPullDescriptor(lane.getLane(), frigg::WeakPtr<Universe>{},
-			wrap<void(Error, frigg::WeakPtr<Universe>, AnyDescriptor)>(callback));
+	lane.getStream()->submitPullDescriptor(lane.getLane(),
+			wrap<void(Error, AnyDescriptor)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
 	return frigg::move(descriptor);
