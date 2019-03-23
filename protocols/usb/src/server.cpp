@@ -19,6 +19,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
+		if(accept.error() == kHelErrEndOfLane)
+			COFIBER_RETURN();
+
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -118,6 +121,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
+		if(accept.error() == kHelErrEndOfLane)
+			COFIBER_RETURN();
+
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -172,6 +178,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
+		if(accept.error() == kHelErrEndOfLane)
+			COFIBER_RETURN();
+
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -226,6 +235,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
+		if(accept.error() == kHelErrEndOfLane)
+			COFIBER_RETURN();
+
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		

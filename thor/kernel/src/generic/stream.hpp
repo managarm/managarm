@@ -114,7 +114,7 @@ public:
 			frg::default_list_hook<StreamNode>,
 			&StreamNode::processQueueItem
 		>
-	> ancillaryList;
+	> ancillaryChain;
 
 	// ------------------------------------------------------------------------
 	// Transmission outputs.

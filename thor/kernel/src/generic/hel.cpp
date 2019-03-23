@@ -1663,7 +1663,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			root_chain.push_back(&closure->items[i].transmit);
 		}else{
 			// Add the item to an ancillary list.
-			ancillary_stack.back()->ancillaryList.push_back(&closure->items[i].transmit);
+			ancillary_stack.back()->ancillaryChain.push_back(&closure->items[i].transmit);
 		}
 
 		if(!(action.flags & kHelItemChain))

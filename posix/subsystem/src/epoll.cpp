@@ -117,7 +117,6 @@ private:
 public:
 	~OpenFile() {
 		// Nothing to do here.
-		std::cout << "\e[33mposix: epoll file is destructed\e[39m" << std::endl;
 	}
 
 	void addItem(Process *process, smarter::shared_ptr<File> file, int mask, uint64_t cookie) {

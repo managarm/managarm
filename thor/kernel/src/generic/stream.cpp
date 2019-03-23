@@ -153,8 +153,8 @@ void Stream::Submitter::run() {
 			u->_lane = LaneHandle{adoptLane, branch, 0};
 			v->_lane = LaneHandle{adoptLane, branch, 1};
 
-			enqueue(u->_lane, u->ancillaryList);
-			enqueue(v->_lane, v->ancillaryList);
+			enqueue(u->_lane, u->ancillaryChain);
+			enqueue(v->_lane, v->ancillaryChain);
 
 			transfer(OfferAccept{}, u, v);
 		}else if(ImbueCredentialsBase::classOf(*u)
@@ -238,8 +238,17 @@ void Stream::shutdownLane(int lane) {
 }
 
 void Stream::_cancelItem(StreamNode *item, Error error) {
+	StreamList pending;
+	pending.splice(pending.end(), item->ancillaryChain);
+
 	item->_error = error;
 	item->complete();
+
+	while(!pending.empty()) {
+		item = pending.pop_front();
+		item->_error = error;
+		item->complete();
+	}
 }
 
 frigg::Tuple<LaneHandle, LaneHandle> createStream() {
