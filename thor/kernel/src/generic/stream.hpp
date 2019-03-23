@@ -46,6 +46,23 @@ enum {
 	kTagPullDescriptor
 };
 
+inline int getStreamOrientation(int tag) {
+	switch(tag) {
+	case kTagAccept:
+	case kTagExtractCredentials:
+	case kTagRecvInline:
+	case kTagRecvToBuffer:
+	case kTagPullDescriptor:
+		return -1;
+	case kTagOffer:
+	case kTagImbueCredentials:
+	case kTagSendFromBuffer:
+	case kTagPushDescriptor:
+		return 1;
+	}
+	return 0;
+}
+
 struct StreamNode {
 	friend struct Stream;
 
@@ -139,7 +156,6 @@ public:
 	size_t _actualLength;
 	frigg::UniqueMemory<KernelAlloc> _transmitBuffer;
 	LaneHandle _lane;
-	LaneHandle _pairedLane;
 	AnyDescriptor _descriptor;
 };
 

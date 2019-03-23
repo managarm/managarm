@@ -107,89 +107,68 @@ void Stream::Submitter::run() {
 		StreamNode *u = _pending.pop_front();
 		StreamNode *v = nullptr;
 
-		// p/q is the number of the local/remote lane.
-		// u/v is the local/remote item that we are processing.
-		auto s = u->_transmitLane.getStream();
-		int p = u->_transmitLane.getLane();
-		assert(!(p & ~int(1)));
-		int q = 1 - p;
-
 		// Note: Try to do as little work as possible while holding the lock.
 		{
+			// p/q is the number of the local/remote lane.
+			// u/v is the local/remote item that we are processing.
+			auto s = u->_transmitLane.getStream();
+			int p = u->_transmitLane.getLane();
+			assert(!(p & ~int(1)));
+			int q = 1 - p;
+
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&s->_mutex);
 			assert(!s->_laneBroken[p]);
 
-			if(s->_processQueue[q].empty()) {
-				// Accept and Offer create new streams.
-				if(OfferBase::classOf(*u) || AcceptBase::classOf(*u)) {
-					// Initially there will be 3 references to the stream:
-					// * One reference for the original shared pointer.
-					// * One reference for each of the two lanes.
-					auto conversation = frigg::makeShared<Stream>(*kernelAlloc);
-					conversation.control().counter()->setRelaxed(3);
-					u->_lane = LaneHandle{adoptLane, conversation, p};
-					u->_pairedLane = LaneHandle{adoptLane, conversation, q};
-				}
-
-				if(s->_laneShutDown[p]) {
-					s->_cancelItem(u, kErrLaneShutdown);
-				}else if(s->_laneBroken[q] || s->_laneShutDown[q]) {
-					s->_cancelItem(u, kErrEndOfLane);
-				}else{
-					s->_processQueue[p].push_back(u);
-				}
-
+			if(s->_laneShutDown[p]) {
+				assert(s->_processQueue[q].empty());
+				s->_cancelItem(u, kErrLaneShutdown);
+				continue;
+			}else if(s->_laneBroken[q] || s->_laneShutDown[q]) {
+				assert(s->_processQueue[q].empty());
+				s->_cancelItem(u, kErrEndOfLane);
 				continue;
 			}
 
-			// If any lane is broken or shut down, the _processQueue should have been empty.
-			assert(!s->_laneShutDown[p]);
-			assert(!s->_laneBroken[q] && !s->_laneShutDown[q]);
-
-			// Both lanes have items; we need to process them.
+			// If both lanes have items, we need to process them.
+			// Otherwise, we just queue the new node.
+			if(s->_processQueue[q].empty()) {
+				s->_processQueue[p].push_back(u);
+				continue;
+			}
 			v = s->_processQueue[q].pop_front();
 		}
 
+		// Make sure that we only need to consider one permutation of tags.
+		if(getStreamOrientation(u->tag()) < getStreamOrientation(v->tag()))
+			std::swap(u, v);
+
 		// Do the main work here, after we released the lock.
 		if(OfferBase::classOf(*u) && AcceptBase::classOf(*v)) {
-			// "Steal" the paired lane from v.
-			assert(v->_pairedLane);
-			u->_lane = std::move(v->_pairedLane);
+			// Initially there will be 3 references to the new stream:
+			// * One reference for the original shared pointer.
+			// * One reference for each of the two lanes.
+			auto branch = frigg::makeShared<Stream>(*kernelAlloc);
+			branch.control().counter()->setRelaxed(3);
+			u->_lane = LaneHandle{adoptLane, branch, 0};
+			v->_lane = LaneHandle{adoptLane, branch, 1};
+
 			enqueue(u->_lane, u->ancillaryList);
 			enqueue(v->_lane, v->ancillaryList);
+
 			transfer(OfferAccept{}, u, v);
-		}else if(OfferBase::classOf(*v) && AcceptBase::classOf(*u)) {
-			// "Steal" the paired lane from v.
-			assert(v->_pairedLane);
-			u->_lane = std::move(v->_pairedLane);
-			enqueue(u->_lane, u->ancillaryList);
-			enqueue(v->_lane, v->ancillaryList);
-			transfer(OfferAccept{}, v, u);
 		}else if(ImbueCredentialsBase::classOf(*u)
 				&& ExtractCredentialsBase::classOf(*v)) {
 			transfer(ImbueExtract{}, u, v);
-		}else if(ImbueCredentialsBase::classOf(*v)
-				&& ExtractCredentialsBase::classOf(*u)) {
-			transfer(ImbueExtract{}, v, u);
 		}else if(SendFromBufferBase::classOf(*u)
 				&& RecvInlineBase::classOf(*v)) {
 			transfer(SendRecvInline{}, u, v);
-		}else if(SendFromBufferBase::classOf(*v)
-				&& RecvInlineBase::classOf(*u)) {
-			transfer(SendRecvInline{}, v, u);
 		}else if(SendFromBufferBase::classOf(*u)
 				&& RecvToBufferBase::classOf(*v)) {
 			transfer(SendRecvBuffer{}, u, v);
-		}else if(SendFromBufferBase::classOf(*v)
-				&& RecvToBufferBase::classOf(*u)) {
-			transfer(SendRecvBuffer{}, v, u);
 		}else if(PushDescriptorBase::classOf(*u)
 				&& PullDescriptorBase::classOf(*v)) {
 			transfer(PushPull{}, u, v);
-		}else if(PushDescriptorBase::classOf(*v)
-				&& PullDescriptorBase::classOf(*u)) {
-			transfer(PushPull{}, v, u);
 		}else{
 			frigg::infoLogger() << u->tag()
 					<< " vs. " << v->tag() << frigg::endLog;
