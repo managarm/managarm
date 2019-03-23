@@ -19,23 +19,23 @@ namespace fs = managarm::fs;
 
 void serviceAccept(LaneHandle handle,
 		frigg::CallbackPtr<void(Error, LaneHandle)> callback) {
-	handle.getStream()->submitAccept(handle.getLane(), callback);
+	submitAccept(handle, callback);
 }
 
 void serviceExtractCreds(LaneHandle handle,
 		frigg::CallbackPtr<void(Error, frigg::Array<char, 16>)> callback) {
-	handle.getStream()->submitExtractCredentials(handle.getLane(), callback);
+	submitExtractCredentials(handle, callback);
 }
 
 void serviceRecv(LaneHandle handle, void *buffer, size_t max_length,
 		frigg::CallbackPtr<void(Error, size_t)> callback) {
-	handle.getStream()->submitRecvBuffer(handle.getLane(),
+	submitRecvBuffer(handle,
 			KernelAccessor::acquire(buffer, max_length), callback);
 }
 
 void serviceRecvInline(LaneHandle handle,
 		frigg::CallbackPtr<void(Error, frigg::UniqueMemory<KernelAlloc>)> callback) {
-	handle.getStream()->submitRecvInline(handle.getLane(), callback);
+	submitRecvInline(handle, callback);
 }
 
 void serviceSend(LaneHandle handle, const void *buffer, size_t length,
@@ -43,7 +43,7 @@ void serviceSend(LaneHandle handle, const void *buffer, size_t length,
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.data(), buffer, length);
 	
-	handle.getStream()->submitSendBuffer(handle.getLane(), frigg::move(kernel_buffer), callback);
+	submitSendBuffer(handle, frigg::move(kernel_buffer), callback);
 }
 
 struct OpenFile {
@@ -287,8 +287,7 @@ namespace initrd {
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
 
-			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
-					MemoryBundleDescriptor(_file->module->getMemory()),
+			submitPushDescriptor(_lane, MemoryBundleDescriptor(_file->module->getMemory()),
 					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
 		

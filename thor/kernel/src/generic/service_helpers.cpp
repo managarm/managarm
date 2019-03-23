@@ -87,7 +87,7 @@ LaneHandle fiberOffer(LaneHandle lane) {
 	};
 
 	closure.blocker.setup();
-	lane.getStream()->submitOffer(lane.getLane(), wrap<void(Error, LaneHandle)>(callback));
+	submitOffer(lane, wrap<void(Error, LaneHandle)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
 	return handle;
@@ -107,7 +107,7 @@ LaneHandle fiberAccept(LaneHandle lane) {
 	};
 
 	closure.blocker.setup();
-	lane.getStream()->submitAccept(lane.getLane(), wrap<void(Error, LaneHandle)>(callback));
+	submitAccept(lane, wrap<void(Error, LaneHandle)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
 	if(error == kErrEndOfLane)
@@ -130,7 +130,7 @@ void fiberSend(LaneHandle lane, const void *buffer, size_t length) {
 	memcpy(kernel_buffer.data(), buffer, length);
 
 	closure.blocker.setup();
-	lane.getStream()->submitSendBuffer(lane.getLane(),
+	submitSendBuffer(lane,
 			frigg::move(kernel_buffer), wrap<void(Error)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 }
@@ -148,7 +148,7 @@ frigg::UniqueMemory<KernelAlloc> fiberRecv(LaneHandle lane) {
 	};
 
 	closure.blocker.setup();
-	lane.getStream()->submitRecvInline(lane.getLane(),
+	submitRecvInline(lane,
 			wrap<void(Error, frigg::UniqueMemory<KernelAlloc>)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
@@ -166,7 +166,7 @@ void fiberPushDescriptor(LaneHandle lane, AnyDescriptor descriptor) {
 	};
 
 	closure.blocker.setup();
-	lane.getStream()->submitPushDescriptor(lane.getLane(), frigg::move(descriptor),
+	submitPushDescriptor(lane, frigg::move(descriptor),
 			wrap<void(Error)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 }
@@ -184,7 +184,7 @@ AnyDescriptor fiberPullDescriptor(LaneHandle lane) {
 	};
 
 	closure.blocker.setup();
-	lane.getStream()->submitPullDescriptor(lane.getLane(),
+	submitPullDescriptor(lane,
 			wrap<void(Error, AnyDescriptor)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
