@@ -1564,55 +1564,33 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	closure->setupContext(context);
 	closure->items = frigg::constructN<Item>(*kernelAlloc, count);
 
-	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);
-	stack.push(frigg::move(lane));
+	StreamList root_list;
+	frigg::Vector<StreamNode *, KernelAlloc> ancillary_stack(*kernelAlloc);
 
-	size_t i = 0;
-	while(!stack.empty()) {
-		assert(i < count);
-		HelAction action = readUserObject(actions + i++);
-
-		auto target = stack.back();
-		if(!(action.flags & kHelItemChain))
-			stack.pop();
+	for(size_t i = 0; i < count; i++) {
+		HelAction action = readUserObject(actions + i);
 
 		switch(action.type) {
 		case kHelActionOffer: {
-			closure->items[i - 1].transmit.setup(kTagOffer, &closure->packet);
-			LaneHandle branch = target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
-
-			if(action.flags & kHelItemAncillary)
-				stack.push(branch);
+			closure->items[i].transmit.setup(kTagOffer, &closure->packet);
 		} break;
 		case kHelActionAccept: {
-			closure->items[i - 1].transmit.setup(kTagAccept, &closure->packet);
-			LaneHandle branch = target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
-
-			if(action.flags & kHelItemAncillary)
-				stack.push(branch);
+			closure->items[i].transmit.setup(kTagAccept, &closure->packet);
 		} break;
 		case kHelActionImbueCredentials: {
-			closure->items[i - 1].transmit.setup(kTagImbueCredentials, &closure->packet);
-			memcpy(closure->items[i - 1].transmit._inCredentials.data(),
+			closure->items[i].transmit.setup(kTagImbueCredentials, &closure->packet);
+			memcpy(closure->items[i].transmit._inCredentials.data(),
 					this_thread->credentials(), 16);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionExtractCredentials: {
-			closure->items[i - 1].transmit.setup(kTagExtractCredentials, &closure->packet);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
+			closure->items[i].transmit.setup(kTagExtractCredentials, &closure->packet);
 		} break;
 		case kHelActionSendFromBuffer: {
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
 			readUserMemory(buffer.data(), action.buffer, action.length);
 
-			closure->items[i - 1].transmit.setup(kTagSendFromBuffer, &closure->packet);
-			closure->items[i - 1].transmit._inBuffer = frigg::move(buffer);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
+			closure->items[i].transmit.setup(kTagSendFromBuffer, &closure->packet);
+			closure->items[i].transmit._inBuffer = frigg::move(buffer);
 		} break;
 		case kHelActionSendFromBufferSg: {
 			size_t length = 0;
@@ -1631,16 +1609,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				offset += item.length;
 			}
 
-			closure->items[i - 1].transmit.setup(kTagSendFromBuffer, &closure->packet);
-			closure->items[i - 1].transmit._inBuffer = frigg::move(buffer);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
+			closure->items[i].transmit.setup(kTagSendFromBuffer, &closure->packet);
+			closure->items[i].transmit._inBuffer = frigg::move(buffer);
 		} break;
 		case kHelActionRecvInline: {
 			auto space = this_thread->getAddressSpace().toShared();
-			closure->items[i - 1].transmit.setup(kTagRecvInline, &closure->packet);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
+			closure->items[i].transmit.setup(kTagRecvInline, &closure->packet);
 		} break;
 		case kHelActionRecvToBuffer: {
 			auto space = this_thread->getAddressSpace().toShared();
@@ -1651,10 +1625,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto acq = accessor.acquire(&node);
 			assert(acq);
 
-			closure->items[i - 1].transmit.setup(kTagRecvToBuffer, &closure->packet);
-			closure->items[i - 1].transmit._inAccessor = frigg::move(accessor);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
+			closure->items[i].transmit.setup(kTagRecvToBuffer, &closure->packet);
+			closure->items[i].transmit._inAccessor = frigg::move(accessor);
 		} break;
 		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
@@ -1668,21 +1640,34 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				operand = *wrapper;
 			}
 
-			closure->items[i - 1].transmit.setup(kTagPushDescriptor, &closure->packet);
-			closure->items[i - 1].transmit._inDescriptor = frigg::move(operand);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
+			closure->items[i].transmit.setup(kTagPushDescriptor, &closure->packet);
+			closure->items[i].transmit._inDescriptor = frigg::move(operand);
 		} break;
 		case kHelActionPullDescriptor: {
-			closure->items[i - 1].transmit.setup(kTagPullDescriptor, &closure->packet);
-			target.getStream()->transmit(target.getLane(),
-					&closure->items[i - 1].transmit);
+			closure->items[i].transmit.setup(kTagPullDescriptor, &closure->packet);
 		} break;
 		default:
 			assert(!"Fix error handling here");
 		}
+
+		if(ancillary_stack.empty()) {
+			// Add the item to the root list.
+			root_list.push_back(&closure->items[i].transmit);
+//			if(!(action.flags & kHelItemChain))
+//				assert(i + 1 == count && "non-final item does not have kHelItemChain set");
+		}else{
+			// Add the item to an ancillary list.
+			ancillary_stack.back()->ancillaryList.push_back(&closure->items[i].transmit);
+			if(!(action.flags & kHelItemChain))
+				ancillary_stack.pop();
+		}
+
+		if(action.flags & kHelItemAncillary)
+			ancillary_stack.push(&closure->items[i].transmit);
 	}
-	assert(i == count);
+	assert(ancillary_stack.empty() && "ancillary stack must be empty after submission");
+
+	Stream::transmit(lane, root_list);
 
 	return kHelErrNone;
 }

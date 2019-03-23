@@ -158,96 +158,109 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 	item->complete();
 }
 
-LaneHandle Stream::transmit(int p, StreamNode *u) {
-	// p/q is the number of the local/remote lane.
-	// u/v is the local/remote item that we are processing.
-	assert(!(p & ~int(1)));
-	int q = 1 - p;
-	StreamNode *v = nullptr;
+void Stream::doTransmit(StreamList &queue) {
+	auto enqueue = [&] (const LaneHandle &lane, StreamList &list) {
+		while(!list.empty()) {
+			auto node = list.pop_front();
+			node->_transmitLane = lane;
+			queue.push_back(node);
+		}
+	};
 
-	// Note: Try to do as little work as possible while holding the lock.
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
-		assert(!_laneBroken[p]);
+	while(!queue.empty()) {
+		StreamNode *u = queue.pop_front();
+		StreamNode *v = nullptr;
 
-		if(_processQueue[q].empty()) {
-			// Accept and Offer create new streams.
-			if(OfferBase::classOf(*u) || AcceptBase::classOf(*u)) {
-				// Initially there will be 3 references to the stream:
-				// * One reference for the original shared pointer.
-				// * One reference for each of the two lanes.
-				auto conversation = frigg::makeShared<Stream>(*kernelAlloc);
-				conversation.control().counter()->setRelaxed(3);
-				u->_lane = LaneHandle{adoptLane, conversation, p};
-				u->_pairedLane = LaneHandle{adoptLane, conversation, q};
+		// p/q is the number of the local/remote lane.
+		// u/v is the local/remote item that we are processing.
+		auto s = u->_transmitLane.getStream();
+		int p = u->_transmitLane.getLane();
+		assert(!(p & ~int(1)));
+		int q = 1 - p;
+
+		// Note: Try to do as little work as possible while holding the lock.
+		{
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&s->_mutex);
+			assert(!s->_laneBroken[p]);
+
+			if(s->_processQueue[q].empty()) {
+				// Accept and Offer create new streams.
+				if(OfferBase::classOf(*u) || AcceptBase::classOf(*u)) {
+					// Initially there will be 3 references to the stream:
+					// * One reference for the original shared pointer.
+					// * One reference for each of the two lanes.
+					auto conversation = frigg::makeShared<Stream>(*kernelAlloc);
+					conversation.control().counter()->setRelaxed(3);
+					u->_lane = LaneHandle{adoptLane, conversation, p};
+					u->_pairedLane = LaneHandle{adoptLane, conversation, q};
+				}
+
+				if(s->_laneShutDown[p]) {
+					s->_cancelItem(u, kErrLaneShutdown);
+				}else if(s->_laneBroken[q] || s->_laneShutDown[q]) {
+					s->_cancelItem(u, kErrEndOfLane);
+				}else{
+					s->_processQueue[p].push_back(u);
+				}
+
+				continue;
 			}
 
-			if(_laneShutDown[p]) {
-				_cancelItem(u, kErrLaneShutdown);
-			}else if(_laneBroken[q] || _laneShutDown[q]) {
-				_cancelItem(u, kErrEndOfLane);
-			}else{
-				_processQueue[p].push_back(u);
-			}
+			// If any lane is broken or shut down, the _processQueue should have been empty.
+			assert(!s->_laneShutDown[p]);
+			assert(!s->_laneBroken[q] && !s->_laneShutDown[q]);
 
-			return u->_lane;
+			// Both lanes have items; we need to process them.
+			v = s->_processQueue[q].pop_front();
 		}
 
-		// If any lane is broken or shut down, the _processQueue should have been empty.
-		assert(!_laneShutDown[p]);
-		assert(!_laneBroken[q] && !_laneShutDown[q]);
-
-		// Both lanes have items; we need to process them.
-		v = _processQueue[q].pop_front();
+		// Do the main work here, after we released the lock.
+		if(OfferBase::classOf(*u) && AcceptBase::classOf(*v)) {
+			// "Steal" the paired lane from v.
+			assert(v->_pairedLane);
+			u->_lane = std::move(v->_pairedLane);
+			enqueue(u->_lane, u->ancillaryList);
+			enqueue(v->_lane, v->ancillaryList);
+			transfer(OfferAccept{}, u, v);
+		}else if(OfferBase::classOf(*v) && AcceptBase::classOf(*u)) {
+			// "Steal" the paired lane from v.
+			assert(v->_pairedLane);
+			u->_lane = std::move(v->_pairedLane);
+			enqueue(u->_lane, u->ancillaryList);
+			enqueue(v->_lane, v->ancillaryList);
+			transfer(OfferAccept{}, v, u);
+		}else if(ImbueCredentialsBase::classOf(*u)
+				&& ExtractCredentialsBase::classOf(*v)) {
+			transfer(ImbueExtract{}, u, v);
+		}else if(ImbueCredentialsBase::classOf(*v)
+				&& ExtractCredentialsBase::classOf(*u)) {
+			transfer(ImbueExtract{}, v, u);
+		}else if(SendFromBufferBase::classOf(*u)
+				&& RecvInlineBase::classOf(*v)) {
+			transfer(SendRecvInline{}, u, v);
+		}else if(SendFromBufferBase::classOf(*v)
+				&& RecvInlineBase::classOf(*u)) {
+			transfer(SendRecvInline{}, v, u);
+		}else if(SendFromBufferBase::classOf(*u)
+				&& RecvToBufferBase::classOf(*v)) {
+			transfer(SendRecvBuffer{}, u, v);
+		}else if(SendFromBufferBase::classOf(*v)
+				&& RecvToBufferBase::classOf(*u)) {
+			transfer(SendRecvBuffer{}, v, u);
+		}else if(PushDescriptorBase::classOf(*u)
+				&& PullDescriptorBase::classOf(*v)) {
+			transfer(PushPull{}, u, v);
+		}else if(PushDescriptorBase::classOf(*v)
+				&& PullDescriptorBase::classOf(*u)) {
+			transfer(PushPull{}, v, u);
+		}else{
+			frigg::infoLogger() << u->tag()
+					<< " vs. " << v->tag() << frigg::endLog;
+			assert(!"Operations do not match");
+			__builtin_trap();
+		}
 	}
-
-	// Do the main work here, after we released the lock.
-	LaneHandle conversation;
-	if(OfferBase::classOf(*u) && AcceptBase::classOf(*v)) {
-		// "Steal" the paired lane from v.
-		conversation = std::move(v->_pairedLane);
-		assert(conversation);
-		u->_lane = conversation;
-		transfer(OfferAccept{}, u, v);
-	}else if(OfferBase::classOf(*v) && AcceptBase::classOf(*u)) {
-		// "Steal" the paired lane from v.
-		conversation = std::move(v->_pairedLane);
-		assert(conversation);
-		u->_lane = conversation;
-		transfer(OfferAccept{}, v, u);
-	}else if(ImbueCredentialsBase::classOf(*u)
-			&& ExtractCredentialsBase::classOf(*v)) {
-		transfer(ImbueExtract{}, u, v);
-	}else if(ImbueCredentialsBase::classOf(*v)
-			&& ExtractCredentialsBase::classOf(*u)) {
-		transfer(ImbueExtract{}, v, u);
-	}else if(SendFromBufferBase::classOf(*u)
-			&& RecvInlineBase::classOf(*v)) {
-		transfer(SendRecvInline{}, u, v);
-	}else if(SendFromBufferBase::classOf(*v)
-			&& RecvInlineBase::classOf(*u)) {
-		transfer(SendRecvInline{}, v, u);
-	}else if(SendFromBufferBase::classOf(*u)
-			&& RecvToBufferBase::classOf(*v)) {
-		transfer(SendRecvBuffer{}, u, v);
-	}else if(SendFromBufferBase::classOf(*v)
-			&& RecvToBufferBase::classOf(*u)) {
-		transfer(SendRecvBuffer{}, v, u);
-	}else if(PushDescriptorBase::classOf(*u)
-			&& PullDescriptorBase::classOf(*v)) {
-		transfer(PushPull{}, u, v);
-	}else if(PushDescriptorBase::classOf(*v)
-			&& PullDescriptorBase::classOf(*u)) {
-		transfer(PushPull{}, v, u);
-	}else{
-		frigg::infoLogger() << u->tag()
-				<< " vs. " << v->tag() << frigg::endLog;
-		assert(!"Operations do not match");
-		__builtin_trap();
-	}
-
-	return std::move(conversation);
 }
 
 frigg::Tuple<LaneHandle, LaneHandle> createStream() {

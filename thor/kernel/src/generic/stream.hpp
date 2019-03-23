@@ -89,6 +89,16 @@ public:
 	AnyBufferAccessor _inAccessor;
 	AnyDescriptor _inDescriptor;
 
+	// List of StreamNodes that will be submitted to the ancillary lane on offer/accept.
+	frg::intrusive_list<
+		StreamNode,
+		frg::locate_member<
+			StreamNode,
+			frg::default_list_hook<StreamNode>,
+			&StreamNode::processQueueItem
+		>
+	> ancillaryList;
+
 	// ------------------------------------------------------------------------
 	// Transmission outputs.
 	// ------------------------------------------------------------------------
@@ -149,23 +159,21 @@ struct Stream {
 	static void incrementPeers(Stream *stream, int lane);
 	static bool decrementPeers(Stream *stream, int lane);
 
-	static void transmit(StreamList &list) {
-		while(!list.empty()) {
-			auto *node = list.pop_front();
-			auto stream = node->_transmitLane.getStream();
-			stream->transmit(node->_transmitLane.getLane(), node);
-		}
-	}
-
 	Stream();
 	~Stream();
 
 	// Submits an operation to the stream.
-	LaneHandle transmit(int lane, StreamNode *control);
+	static void transmit(const LaneHandle &lane, StreamList &list) {
+		for(StreamNode *node : list)
+			node->_transmitLane = lane;
+		doTransmit(list);
+	}
 
 	void shutdownLane(int lane);
 
 private:
+	static void doTransmit(StreamList &queue);
+
 	static void _cancelItem(StreamNode *item, Error error);
 
 	std::atomic<int> _peerCount[2];
@@ -451,56 +459,74 @@ using PullDescriptor = StreamNodeAdapter<
 
 template<typename F>
 void submitOffer(LaneHandle lane, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<Offer<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<Offer<F>>(*kernelAlloc,
 			frigg::move(functor)));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitAccept(LaneHandle lane, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<Accept<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<Accept<F>>(*kernelAlloc,
 			frigg::move(functor)));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitImbueCredentials(LaneHandle lane, const char *credentials, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<ImbueCredentials<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<ImbueCredentials<F>>(*kernelAlloc,
 			frigg::move(functor), credentials));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitExtractCredentials(LaneHandle lane, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<ExtractCredentials<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<ExtractCredentials<F>>(*kernelAlloc,
 			frigg::move(functor)));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitSendBuffer(LaneHandle lane, frigg::UniqueMemory<KernelAlloc> buffer, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<SendFromBuffer<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<SendFromBuffer<F>>(*kernelAlloc,
 			frigg::move(functor), frigg::move(buffer)));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitRecvInline(LaneHandle lane, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<RecvInline<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<RecvInline<F>>(*kernelAlloc,
 			frigg::move(functor)));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitRecvBuffer(LaneHandle lane, AnyBufferAccessor accessor, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<RecvToBuffer<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<RecvToBuffer<F>>(*kernelAlloc,
 			frigg::move(functor), frigg::move(accessor)));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitPushDescriptor(LaneHandle lane, AnyDescriptor descriptor, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<PushDescriptor<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<PushDescriptor<F>>(*kernelAlloc,
 			frigg::move(functor), frigg::move(descriptor)));
+	Stream::transmit(lane, list);
 }
 
 template<typename F>
 void submitPullDescriptor(LaneHandle lane, F functor) {
-	lane.getStream()->transmit(lane.getLane(), frigg::construct<PullDescriptor<F>>(*kernelAlloc,
+	StreamList list;
+	list.push_back(frigg::construct<PullDescriptor<F>>(*kernelAlloc,
 			frigg::move(functor)));
+	Stream::transmit(lane, list);
 }
 
 } // namespace thor
