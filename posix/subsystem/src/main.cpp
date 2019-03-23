@@ -1154,30 +1154,35 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				assert(!"Flags not implemented");
 			}
 
-			SignalHandler handler;
-			if(req.sig_handler() == uintptr_t(-2)) {
-				handler.disposition = SignalDisposition::none;
-			}else if(req.sig_handler() == uintptr_t(-3)) {
-				handler.disposition = SignalDisposition::ignore;
+			SignalHandler saved_handler;
+			if(req.mode()) {
+				SignalHandler handler;
+				if(req.sig_handler() == uintptr_t(-2)) {
+					handler.disposition = SignalDisposition::none;
+				}else if(req.sig_handler() == uintptr_t(-3)) {
+					handler.disposition = SignalDisposition::ignore;
+				}else{
+					handler.disposition = SignalDisposition::handle;
+					handler.handlerIp = req.sig_handler();
+				}
+
+				handler.flags = 0;
+				handler.mask = req.sig_mask();
+				handler.restorerIp = req.sig_restorer();
+
+				if(req.flags() & SA_SIGINFO)
+					handler.flags |= signalInfo;
+				if(req.flags() & SA_RESETHAND)
+					handler.flags |= signalOnce;
+				if(req.flags() & SA_NODEFER)
+					handler.flags |= signalReentrant;
+				if(req.flags() & SA_RESTART)
+					std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
+
+				saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
 			}else{
-				handler.disposition = SignalDisposition::handle;
-				handler.handlerIp = req.sig_handler();
+				saved_handler = self->signalContext()->getHandler(req.sig_number());
 			}
-
-			handler.flags = 0;
-			handler.mask = req.sig_mask();
-			handler.restorerIp = req.sig_restorer();
-
-			if(req.flags() & SA_SIGINFO)
-				handler.flags |= signalInfo;
-			if(req.flags() & SA_RESETHAND)
-				handler.flags |= signalOnce;
-			if(req.flags() & SA_NODEFER)
-				handler.flags |= signalReentrant;
-			if(req.flags() & SA_RESTART)
-				std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
-
-			auto saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
 
 			int saved_flags = 0;
 			if(saved_handler.flags & signalInfo)

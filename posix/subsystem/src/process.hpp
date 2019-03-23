@@ -166,6 +166,7 @@ public:
 
 	void resetHandlers();
 
+	SignalHandler getHandler(int sn);
 	SignalHandler changeHandler(int sn, SignalHandler handler);
 
 	void issueSignal(int sn, SignalInfo info);

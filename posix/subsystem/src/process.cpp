@@ -347,6 +347,10 @@ void SignalContext::resetHandlers() {
 			_handlers[sn].disposition = SignalDisposition::none;
 }
 
+SignalHandler SignalContext::getHandler(int sn) {
+	return _handlers[sn];
+}
+
 SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
 	assert(sn < 64);
 	return std::exchange(_handlers[sn], handler);
