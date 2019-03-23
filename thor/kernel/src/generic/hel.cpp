@@ -1564,11 +1564,17 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	closure->setupContext(context);
 	closure->items = frigg::constructN<Item>(*kernelAlloc, count);
 
-	StreamList root_list;
-	frigg::Vector<StreamNode *, KernelAlloc> ancillary_stack(*kernelAlloc);
+	StreamList root_chain;
+	frg::vector<StreamNode *, KernelAlloc> ancillary_stack(*kernelAlloc);
+
+	// We use this as a marker that the root chain has not ended.
+	ancillary_stack.push_back(nullptr);
 
 	for(size_t i = 0; i < count; i++) {
 		HelAction action = readUserObject(actions + i);
+
+		// TODO: Turn this into an error return.
+		assert(!ancillary_stack.empty() && "expected end of chain");
 
 		switch(action.type) {
 		case kHelActionOffer: {
@@ -1647,27 +1653,29 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			closure->items[i].transmit.setup(kTagPullDescriptor, &closure->packet);
 		} break;
 		default:
+			// TODO: Turn this into an error return.
 			assert(!"Fix error handling here");
 		}
 
-		if(ancillary_stack.empty()) {
+		// Here, we make sure of our marker on the ancillary_stack.
+		if(!ancillary_stack.back()) {
 			// Add the item to the root list.
-			root_list.push_back(&closure->items[i].transmit);
-//			if(!(action.flags & kHelItemChain))
-//				assert(i + 1 == count && "non-final item does not have kHelItemChain set");
+			root_chain.push_back(&closure->items[i].transmit);
 		}else{
 			// Add the item to an ancillary list.
 			ancillary_stack.back()->ancillaryList.push_back(&closure->items[i].transmit);
-			if(!(action.flags & kHelItemChain))
-				ancillary_stack.pop();
 		}
 
+		if(!(action.flags & kHelItemChain))
+			ancillary_stack.pop();
 		if(action.flags & kHelItemAncillary)
 			ancillary_stack.push(&closure->items[i].transmit);
 	}
+
+	// TODO: Turn this into an error return.
 	assert(ancillary_stack.empty() && "ancillary stack must be empty after submission");
 
-	Stream::transmit(lane, root_list);
+	Stream::transmit(lane, root_chain);
 
 	return kHelErrNone;
 }
