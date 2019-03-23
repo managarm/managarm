@@ -94,81 +94,17 @@ static void transfer(PushPull, StreamNode *push, StreamNode *pull) {
 	pull->complete();
 }
 
-void Stream::incrementPeers(Stream *stream, int lane) {
-	auto count = stream->_peerCount[lane].fetch_add(1, std::memory_order_relaxed);
-	assert(count);
-}
-
-bool Stream::decrementPeers(Stream *stream, int lane) {
-	auto count = stream->_peerCount[lane].fetch_sub(1, std::memory_order_release);
-	if(count > 1)
-		return false;
-
-	std::atomic_thread_fence(std::memory_order_acquire);
-
-// TODO: remove debugging messages?
-//	frigg::infoLogger() << "\e[31mClosing lane " << lane << "\e[0m" << frigg::endLog;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&stream->_mutex);
-		assert(!stream->_laneBroken[lane]);
-
-		stream->_laneBroken[lane] = true;
-
-		while(!stream->_processQueue[!lane].empty()) {
-			auto item = stream->_processQueue[!lane].pop_front();
-			_cancelItem(item, kErrEndOfLane);
-		}
-	}
-	return true;
-}
-
-Stream::Stream()
-: _laneBroken{false, false}, _laneShutDown{false, false} {
-	_peerCount[0].store(1, std::memory_order_relaxed);
-	_peerCount[1].store(1, std::memory_order_relaxed);
-}
-
-Stream::~Stream() {
-// TODO: remove debugging messages?
-//	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
-}
-
-void Stream::shutdownLane(int lane) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-	assert(!_laneBroken[lane]);
-
-//	frigg::infoLogger() << "Shutting down lane" << frigg::endLog;
-	_laneShutDown[lane] = true;
-
-	while(!_processQueue[lane].empty()) {
-		auto item = _processQueue[lane].pop_front();
-		_cancelItem(item, kErrLaneShutdown);
-	}
-
-	while(!_processQueue[!lane].empty()) {
-		auto item = _processQueue[!lane].pop_front();
-		_cancelItem(item, kErrEndOfLane);
+void Stream::Submitter::enqueue(const LaneHandle &lane, StreamList &chain) {
+	while(!chain.empty()) {
+		auto node = chain.pop_front();
+		node->_transmitLane = lane;
+		_pending.push_back(node);
 	}
 }
 
-void Stream::_cancelItem(StreamNode *item, Error error) {
-	item->_error = error;
-	item->complete();
-}
-
-void Stream::doTransmit(StreamList &queue) {
-	auto enqueue = [&] (const LaneHandle &lane, StreamList &list) {
-		while(!list.empty()) {
-			auto node = list.pop_front();
-			node->_transmitLane = lane;
-			queue.push_back(node);
-		}
-	};
-
-	while(!queue.empty()) {
-		StreamNode *u = queue.pop_front();
+void Stream::Submitter::run() {
+	while(!_pending.empty()) {
+		StreamNode *u = _pending.pop_front();
 		StreamNode *v = nullptr;
 
 		// p/q is the number of the local/remote lane.
@@ -261,6 +197,70 @@ void Stream::doTransmit(StreamList &queue) {
 			__builtin_trap();
 		}
 	}
+}
+
+void Stream::incrementPeers(Stream *stream, int lane) {
+	auto count = stream->_peerCount[lane].fetch_add(1, std::memory_order_relaxed);
+	assert(count);
+}
+
+bool Stream::decrementPeers(Stream *stream, int lane) {
+	auto count = stream->_peerCount[lane].fetch_sub(1, std::memory_order_release);
+	if(count > 1)
+		return false;
+
+	std::atomic_thread_fence(std::memory_order_acquire);
+
+// TODO: remove debugging messages?
+//	frigg::infoLogger() << "\e[31mClosing lane " << lane << "\e[0m" << frigg::endLog;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&stream->_mutex);
+		assert(!stream->_laneBroken[lane]);
+
+		stream->_laneBroken[lane] = true;
+
+		while(!stream->_processQueue[!lane].empty()) {
+			auto item = stream->_processQueue[!lane].pop_front();
+			_cancelItem(item, kErrEndOfLane);
+		}
+	}
+	return true;
+}
+
+Stream::Stream()
+: _laneBroken{false, false}, _laneShutDown{false, false} {
+	_peerCount[0].store(1, std::memory_order_relaxed);
+	_peerCount[1].store(1, std::memory_order_relaxed);
+}
+
+Stream::~Stream() {
+// TODO: remove debugging messages?
+//	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
+}
+
+void Stream::shutdownLane(int lane) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+	assert(!_laneBroken[lane]);
+
+//	frigg::infoLogger() << "Shutting down lane" << frigg::endLog;
+	_laneShutDown[lane] = true;
+
+	while(!_processQueue[lane].empty()) {
+		auto item = _processQueue[lane].pop_front();
+		_cancelItem(item, kErrLaneShutdown);
+	}
+
+	while(!_processQueue[!lane].empty()) {
+		auto item = _processQueue[!lane].pop_front();
+		_cancelItem(item, kErrEndOfLane);
+	}
+}
+
+void Stream::_cancelItem(StreamNode *item, Error error) {
+	item->_error = error;
+	item->complete();
 }
 
 frigg::Tuple<LaneHandle, LaneHandle> createStream() {

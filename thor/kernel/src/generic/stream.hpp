@@ -153,6 +153,15 @@ using StreamList = frg::intrusive_list<
 >;
 
 struct Stream {
+	struct Submitter {
+		void enqueue(const LaneHandle &lane, StreamList &chain);
+
+		void run();
+
+	private:
+		StreamList _pending;
+	};
+
 	// manage the peer counter of each lane.
 	// incrementing a peer counter that is already at zero is undefined.
 	// decrementPeers() returns true if the counter reaches zero.
@@ -162,18 +171,16 @@ struct Stream {
 	Stream();
 	~Stream();
 
-	// Submits an operation to the stream.
-	static void transmit(const LaneHandle &lane, StreamList &list) {
-		for(StreamNode *node : list)
-			node->_transmitLane = lane;
-		doTransmit(list);
+	// Submits a chain of operations to the stream.
+	static void transmit(const LaneHandle &lane, StreamList &chain) {
+		Submitter submitter;
+		submitter.enqueue(lane, chain);
+		submitter.run();
 	}
 
 	void shutdownLane(int lane);
 
 private:
-	static void doTransmit(StreamList &queue);
-
 	static void _cancelItem(StreamNode *item, Error error);
 
 	std::atomic<int> _peerCount[2];
