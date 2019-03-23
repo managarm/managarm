@@ -119,8 +119,6 @@ public:
 
 			COFIBER_AWAIT _seqBell.async_wait(cancellation);
 		}
-		if(cancellation.is_cancellation_requested())
-			std::cout << "\e[33mposix: timerfd::poll() cancellation is untested\e[39m" << std::endl;
 
 		COFIBER_RETURN(PollResult(_theSeq, EPOLLIN, _expirations ? EPOLLIN : 0));
 	}))
