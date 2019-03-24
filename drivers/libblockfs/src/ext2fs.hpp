@@ -12,7 +12,6 @@
 
 #include <blockfs.hpp>
 #include "common.hpp"
-#include "cache.hpp"
 #include "fs.pb.h"
 
 namespace blockfs {
@@ -234,43 +233,6 @@ struct FileSystem {
 
 	async::result<void> readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer);
-
-	struct BlockCache;
-
-	struct BlockCacheEntry {
-	friend class BlockCache;
-		static cofiber::no_future initiate(FileSystem *fs,
-				uint64_t block, BlockCacheEntry *entry);
-
-		enum State {
-			kStateInitial,
-			kStateLoading,
-			kStateReady
-		};
-
-		BlockCacheEntry(void *buffer);
-
-		async::result<void> waitUntilReady();
-
-		void *buffer;
-	
-	private:
-		// current state of the cached content
-		State state;
-	
-		// called when the cache entry becomes ready
-		async::jump readyJump;
-	};
-	
-	struct BlockCache : util::Cache<uint64_t, BlockCacheEntry> {
-		BlockCache(FileSystem &fs);
-
-		Element *allocate() override;
-		void initEntry(uint64_t block, BlockCacheEntry *entry) override;
-		void finishEntry(BlockCacheEntry *entry) override;
-
-		FileSystem &fs;
-	};
 
 	BlockDevice *device;
 	uint16_t inodeSize;

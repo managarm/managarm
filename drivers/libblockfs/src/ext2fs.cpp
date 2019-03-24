@@ -319,8 +319,6 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 
 	size_t progress = 0;
 	while(progress < num_blocks) {
-		BlockCache::Ref s_cache;
-
 		// Block number and block count of the readSectors() command that we will issue here.
 		std::pair<size_t, size_t> issue;
 
@@ -378,56 +376,6 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 
 	COFIBER_RETURN();
 }))
-
-// --------------------------------------------------------
-// FileSystem::BlockCacheEntry
-// --------------------------------------------------------
-
-COFIBER_ROUTINE(cofiber::no_future, FileSystem::BlockCacheEntry::initiate(FileSystem *fs,
-		uint64_t block, BlockCacheEntry *entry), ([=] {
-	assert(entry->state == BlockCacheEntry::kStateInitial);
-
-	entry->state = BlockCacheEntry::kStateLoading;
-//	std::cout << "Fetching block " << block << " into cache" << std::endl;
-	COFIBER_AWAIT fs->device->readSectors(block * fs->sectorsPerBlock,
-			entry->buffer, fs->sectorsPerBlock);
-
-	assert(entry->state == kStateLoading);
-	entry->state = kStateReady;
-	entry->readyJump.trigger();
-}))
-
-FileSystem::BlockCacheEntry::BlockCacheEntry(void *buffer)
-: buffer(buffer), state(kStateInitial) { }
-
-async::result<void> FileSystem::BlockCacheEntry::waitUntilReady() {
-	assert(state == kStateLoading || state == kStateReady);
-	return async::make_result(readyJump.async_wait());
-}
-
-// --------------------------------------------------------
-// FileSystem::BlockCache
-// --------------------------------------------------------
-
-FileSystem::BlockCache::BlockCache(FileSystem &fs)
-: fs(fs) { }
-
-auto FileSystem::BlockCache::allocate() -> Element * {
-	// TODO: Use std::string instead of malloc().
-	void *buffer = malloc(fs.blockSize);
-	return new Element{buffer};
-}
-
-void FileSystem::BlockCache::initEntry(uint64_t block, BlockCacheEntry *entry) {
-	BlockCacheEntry::initiate(&fs, block, entry);
-}
-
-void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
-	assert(entry->state == BlockCacheEntry::kStateReady);
-	entry->state = BlockCacheEntry::kStateInitial;
-	entry->readyJump.reset();
-}
-
 
 // --------------------------------------------------------
 // OpenFile
