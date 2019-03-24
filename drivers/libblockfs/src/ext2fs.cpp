@@ -8,6 +8,7 @@
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
+#include <helix/memory.hpp>
 
 #include "ext2fs.hpp"
 
@@ -16,6 +17,9 @@ namespace ext2fs {
 
 namespace {
 	constexpr bool logSuperblock = true;
+
+	constexpr int pageShift = 12;
+	constexpr size_t pageSize = size_t{1} << pageShift;
 }
 
 // --------------------------------------------------------
@@ -80,7 +84,7 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 // --------------------------------------------------------
 
 FileSystem::FileSystem(BlockDevice *device)
-: device(device), blockCache(*this) {
+: device(device) {
 }
 
 COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
@@ -94,6 +98,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	inodeSize = sb.inodeSize;
 	blockShift = 10 + sb.logBlockSize;
 	blockSize = 1024 << sb.logBlockSize;
+	blockPagesShift = blockShift < pageShift ? pageShift : blockShift;
 	sectorsPerBlock = blockSize / 512;
 	numBlockGroups = sb.blocksCount / sb.blocksPerGroup;
 	inodesPerGroup = sb.inodesPerGroup;
@@ -112,8 +117,6 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 	COFIBER_AWAIT device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer, bgdt_size / 512);
-
-	blockCache.preallocate(32);
 
 	COFIBER_RETURN();
 }))
@@ -192,10 +195,21 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 	inode->isReady = true;
 	inode->readyJump.trigger();
 
-	manageInode(inode);
+	HelHandle frontalOrder1, frontalOrder2;
+	HelHandle backingOrder1, backingOrder2;
+	HEL_CHECK(helCreateManagedMemory(3 << blockPagesShift,
+			kHelAllocBacked, &backingOrder1, &frontalOrder1));
+	HEL_CHECK(helCreateManagedMemory((blockSize / 4) << blockPagesShift,
+			kHelAllocBacked, &backingOrder2, &frontalOrder2));
+	inode->indirectOrder1 = helix::UniqueDescriptor{frontalOrder1};
+	inode->indirectOrder2 = helix::UniqueDescriptor{frontalOrder2};
+
+	manageIndirect(inode, 1, helix::UniqueDescriptor{backingOrder1});
+	manageIndirect(inode, 2, helix::UniqueDescriptor{backingOrder2});
+	manageFileData(inode);
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inode> inode),
+COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<Inode> inode),
 		([=] {
 	while(true) {
 		helix::ManageMemory manage;
@@ -221,6 +235,59 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 
 		HEL_CHECK(helCompleteLoad(inode->backingMemory, manage.offset(), manage.length()));
 		HEL_CHECK(helUnmapMemory(kHelNullHandle, window, manage.length()));
+	}
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<Inode> inode,
+		int order, helix::UniqueDescriptor the_memory), ([=, memory = std::move(the_memory)] {
+	while(true) {
+		helix::ManageMemory manage;
+		auto &&submit_manage = helix::submitManageMemory(memory,
+				&manage, helix::Dispatcher::global());
+		COFIBER_AWAIT(submit_manage.async_wait());
+		HEL_CHECK(manage.error());
+
+		uint32_t element = manage.offset() >> blockPagesShift;
+
+		uint32_t block;
+		if(order == 1) {
+			switch(element) {
+			case 0: block = inode->fileData.blocks.singleIndirect; break;
+			case 1: block = inode->fileData.blocks.doubleIndirect; break;
+			case 2: block = inode->fileData.blocks.tripleIndirect; break;
+			default:
+				assert(!"unexpected offset");
+				abort();
+			}
+		}else{
+			assert(order == 2);
+
+			auto indirect_frame = element >> (blockShift - 2);
+			auto indirect_index = element & ((1 << (blockShift - 2)) - 1);
+
+			helix::LockMemory lock_indirect;
+			auto &&submit_indirect = helix::submitLockMemory(inode->indirectOrder1,
+					&lock_indirect,
+					(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
+					helix::Dispatcher::global());
+			COFIBER_AWAIT submit_indirect.async_wait();
+			HEL_CHECK(lock_indirect.error());
+
+			helix::Mapping indirect_map{inode->indirectOrder1,
+					(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
+					kHelMapProtRead | kHelMapDontRequireBacking};
+			block = reinterpret_cast<uint32_t *>(indirect_map.get())[indirect_index];
+		}
+
+		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
+				&& "TODO: propery support multi-page blocks");
+		assert(manage.length() == (1 << blockPagesShift)
+				&& "TODO: propery support multi-page blocks");
+
+		helix::Mapping out_map{memory, manage.offset(), manage.length()};
+		COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
+				out_map.get(), sectorsPerBlock);
+		HEL_CHECK(helCompleteLoad(memory.getHandle(), manage.offset(), manage.length()));
 	}
 }))
 
@@ -253,7 +320,6 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 	size_t progress = 0;
 	while(progress < num_blocks) {
 		BlockCache::Ref s_cache;
-		BlockCache::Ref d_cache;
 
 		// Block number and block count of the readSectors() command that we will issue here.
 		std::pair<size_t, size_t> issue;
@@ -264,23 +330,38 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 
 		assert(index < d_range);
 		if(index >= d_range) {
-			assert(!"Fix tripple indirect blocks");
-		}else if(index >= s_range) {
-			d_cache = blockCache.lock(inode->fileData.blocks.doubleIndirect);
-			COFIBER_AWAIT d_cache->waitUntilReady();
-
+			assert(!"Fix triple indirect blocks");
+		}else if(index >= s_range) { // Use the double indirect block.
 			// TODO: Use shift/and instead of div/mod.
-			auto d_element = (index - s_range) / per_single;
-			auto s_element = (index - s_range) % per_single;
-			s_cache = blockCache.lock(((uint32_t *)d_cache->buffer)[d_element]);
-			COFIBER_AWAIT s_cache->waitUntilReady();
-			issue = fuse(s_element, num_blocks - progress,
-					(uint32_t *)s_cache->buffer, per_indirect);
-		}else if(index >= i_range) {
-			s_cache = blockCache.lock(inode->fileData.blocks.singleIndirect);
-			COFIBER_AWAIT s_cache->waitUntilReady();
+			auto indirect_frame = (index - s_range) >> (blockShift - 2);
+			auto indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
+
+			helix::LockMemory lock_indirect;
+			auto &&submit = helix::submitLockMemory(inode->indirectOrder2, &lock_indirect,
+					indirect_frame << blockPagesShift, 1 << blockPagesShift,
+					helix::Dispatcher::global());
+			COFIBER_AWAIT submit.async_wait();
+			HEL_CHECK(lock_indirect.error());
+
+			helix::Mapping indirect_map{inode->indirectOrder2,
+					indirect_frame << blockPagesShift, 1 << blockPagesShift,
+					kHelMapProtRead | kHelMapDontRequireBacking};
+
+			issue = fuse(indirect_index, num_blocks - progress,
+					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
+		}else if(index >= i_range) { // Use the triple indirect block.
+			helix::LockMemory lock_indirect;
+			auto &&submit = helix::submitLockMemory(inode->indirectOrder1,
+					&lock_indirect, 0, 1 << blockPagesShift,
+					helix::Dispatcher::global());
+			COFIBER_AWAIT submit.async_wait();
+			HEL_CHECK(lock_indirect.error());
+
+			helix::Mapping indirect_map{inode->indirectOrder1,
+					0, 1 << blockPagesShift,
+					kHelMapProtRead | kHelMapDontRequireBacking};
 			issue = fuse(index - i_range, num_blocks - progress,
-					(uint32_t *)s_cache->buffer, per_indirect);
+					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
 		}else{
 			issue = fuse(index, num_blocks - progress, inode->fileData.blocks.direct, 12);
 		}

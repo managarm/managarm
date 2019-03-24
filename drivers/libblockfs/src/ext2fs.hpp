@@ -187,6 +187,19 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
+
+	// Caches indirection blocks reachable from the inode.
+	// - Indirection level 1/1 for single indirect blocks.
+	// - Indirection level 1/2 for double indirect blocks.
+	// - Indirection level 1/3 for triple indirect blocks.
+	helix::UniqueDescriptor indirectOrder1;
+	// Caches indirection blocks reachable from order 1 blocks.
+	// - Indirection level 2/2 for double indirect blocks.
+	// - Indirection level 2/3 for triple indirect blocks.
+	helix::UniqueDescriptor indirectOrder2;
+	// Caches indirection blocks reachable from order 2 blocks.
+	// - Indirection level 3/3 for triple indirect blocks.
+	helix::UniqueDescriptor indirectOrder3;
 	
 	// NOTE: The following fields are only meaningful if the isReady is true
 
@@ -215,7 +228,9 @@ struct FileSystem {
 	std::shared_ptr<Inode> accessInode(uint32_t number);
 
 	cofiber::no_future initiateInode(std::shared_ptr<Inode> inode);
-	cofiber::no_future manageInode(std::shared_ptr<Inode> inode);
+	cofiber::no_future manageFileData(std::shared_ptr<Inode> inode);
+	cofiber::no_future manageIndirect(std::shared_ptr<Inode> inode, int order,
+			helix::UniqueDescriptor memory);
 
 	async::result<void> readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer);
@@ -261,13 +276,11 @@ struct FileSystem {
 	uint16_t inodeSize;
 	uint32_t blockShift;
 	uint32_t blockSize;
+	uint32_t blockPagesShift;
 	uint32_t sectorsPerBlock;
 	uint32_t numBlockGroups;
 	uint32_t inodesPerGroup;
 	void *blockGroupDescriptorBuffer;
-	
-	// caches ext2fs meta data blocks
-	BlockCache blockCache;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };

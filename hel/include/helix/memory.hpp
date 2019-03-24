@@ -22,11 +22,14 @@ struct Mapping {
 	: _window{nullptr}, _offset{0}, _size{0} { }
 
 	Mapping(helix::BorrowedDescriptor memory, ptrdiff_t offset, size_t size)
+	: Mapping{memory, offset, size, kHelMapProtRead | kHelMapProtWrite} { }
+
+	Mapping(helix::BorrowedDescriptor memory, ptrdiff_t offset, size_t size, uint32_t flags)
 	: _offset{offset}, _size{size} {
 		HEL_CHECK(helMapMemory(memory.getHandle(), kHelNullHandle,
 				nullptr, _offset & ~(pageSize - 1),
 				((_offset & (pageSize - 1)) + _size + (pageSize - 1)) & ~(pageSize - 1),
-				kHelMapProtRead | kHelMapProtWrite, &_window));
+				flags, &_window));
 	}
 
 	Mapping(const Mapping &) = delete;
