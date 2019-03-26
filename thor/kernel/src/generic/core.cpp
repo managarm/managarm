@@ -8,6 +8,8 @@ void operator delete(void *, size_t) {
 
 namespace thor {
 
+size_t kernelMemoryUsage = 0;
+
 namespace {
 	constexpr bool logCleanup = false;
 }
@@ -98,6 +100,7 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, physical,
 				page_access::write, CachingMode::null);
 	}
+	kernelMemoryUsage += length;
 
 	return uintptr_t(p);
 }
@@ -110,6 +113,7 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 		PhysicalAddr physical = KernelPageSpace::global().unmapSingle4k(address + offset);
 		physicalAllocator->free(physical, kPageSize);
 	}
+	kernelMemoryUsage -= length;
 
 	for(size_t offset = 0; offset < length; offset += kPageSize)
 		invalidatePage(reinterpret_cast<char *>(address) + offset);

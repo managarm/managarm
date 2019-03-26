@@ -1,14 +1,18 @@
 
 #include <type_traits>
 #include "kernel.hpp"
+#include "fiber.hpp"
+#include "service_helpers.hpp"
 #include <frg/container_of.hpp>
 #include "types.hpp"
 
 namespace thor {
 
+extern size_t kernelMemoryUsage;
+
 namespace {
 	constexpr bool logCleanup = false;
-	constexpr bool logUsage = false;
+	constexpr bool logUsage = true;
 
 	void logRss(AddressSpace *space) {
 		if(!logUsage)
@@ -22,8 +26,10 @@ namespace {
 		if(rss & ((1 << (b - 1)) - 1))
 			return;
 		frigg::infoLogger() << "thor: RSS of " << space << " increases above "
-				<< (rss >> 10) << " KiB (physical memory allocated: "
-				<< (physicalAllocator->numUsedPages() * 4) << " KiB)" << frigg::endLog;
+				<< (rss / 1024) << " KiB" << frigg::endLog;
+		frigg::infoLogger() << "thor:     Physical usage: "
+				<< (physicalAllocator->numUsedPages() * 4) << " KiB, kernel usage: "
+				<< (kernelMemoryUsage / 1024) << " KiB" << frigg::endLog;
 	}
 }
 
@@ -937,6 +943,7 @@ void NormalMapping::install(bool overwrite) {
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
 			owner()->_pageSpace.unmapRange(vaddr, kPageSize, PageMode::normal);
+			owner()->_residuentSize -= kPageSize;
 		}else{
 			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
@@ -953,6 +960,9 @@ void NormalMapping::uninstall(bool clear) {
 	if(!clear)
 		return;
 
+	for(size_t pg = 0; pg < length(); pg += kPageSize)
+		if(owner()->_pageSpace.isMapped(address() + pg))
+			owner()->_residuentSize -= kPageSize;
 	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
@@ -1126,6 +1136,7 @@ void CowMapping::install(bool overwrite) {
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
 			owner()->_pageSpace.unmapRange(vaddr, kPageSize, PageMode::normal);
+			owner()->_residuentSize -= kPageSize;
 		}else{
 			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
@@ -1136,6 +1147,9 @@ void CowMapping::uninstall(bool clear) {
 	if(!clear)
 		return;
 
+	for(size_t pg = 0; pg < length(); pg += kPageSize)
+		if(owner()->_pageSpace.isMapped(address() + pg))
+			owner()->_residuentSize -= kPageSize;
 	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
