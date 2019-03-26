@@ -332,9 +332,10 @@ void sendPingIpi(uint32_t apic) {
 }
 
 void sendGlobalNmi() {
+	// Send the NMI to all /other/ CPUs but not to the current one.
 	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
 	picBase.store(lApicIcrLow, apicIcrLowVector(0) | apicIcrLowDelivMode(4)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
 	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 		// Wait for IPI delivery.
 	}
