@@ -46,7 +46,7 @@ private:
 struct CacheBundle {
 	virtual ~CacheBundle() = default;
 
-	virtual void evictPage(CachePage *page, ReclaimNode *node) = 0;
+	virtual bool evictPage(CachePage *page, ReclaimNode *node) = 0;
 
 	// Called once the reference count of a CachePage reaches zero.
 	virtual void retirePage(CachePage *page) = 0;
@@ -177,9 +177,24 @@ private:
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
+struct EvictNode {
+	void setup(Worklet *worklet, size_t pending) {
+		_pending.store(pending, std::memory_order_relaxed);
+		_worklet = worklet;
+	}
+
+	void done() {
+		if(_pending.fetch_sub(1, std::memory_order_acq_rel) == 1)
+			WorkQueue::post(_worklet);
+	}
+
+private:
+	std::atomic<size_t> _pending;
+	Worklet *_worklet;
+};
+
 struct MemoryObserver {
-	// TODO: This class will have some eviction function.
-	//virtual void evactRange();
+	virtual void evictRange(uintptr_t offset, size_t length, EvictNode *node) = 0;
 
 	frg::default_list_hook<MemoryObserver> listHook;
 };
@@ -220,6 +235,10 @@ struct SliceRange {
 struct MemorySlice {
 	MemorySlice(frigg::SharedPtr<MemoryView> view,
 			ptrdiff_t view_offset, size_t view_size);
+
+	frigg::SharedPtr<MemoryView> getView() {
+		return _view;
+	}
 
 	size_t length();
 
@@ -368,7 +387,7 @@ struct ManagedSpace : CacheBundle {
 	ManagedSpace(size_t length);
 	~ManagedSpace();
 
-	void evictPage(CachePage *page, ReclaimNode *node) override;
+	bool evictPage(CachePage *page, ReclaimNode *node) override;
 
 	void retirePage(CachePage *page) override;
 
@@ -391,6 +410,8 @@ struct ManagedSpace : CacheBundle {
 			&MemoryObserver::listHook
 		>
 	> observers;
+
+	size_t numObservers = 0;
 
 	InitiateList initiateLoadQueue;
 	InitiateList pendingLoadQueue;
@@ -541,7 +562,7 @@ private:
 	MappingFlags _flags;
 };
 
-struct NormalMapping : Mapping {
+struct NormalMapping : Mapping, MemoryObserver {
 	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
 
@@ -556,8 +577,11 @@ struct NormalMapping : Mapping {
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
+	void evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
+
 private:
-	frigg::SharedPtr<MemorySlice> _view;
+	frigg::SharedPtr<MemorySlice> _slice;
+	frigg::SharedPtr<MemoryView> _view;
 	size_t _offset;
 };
 

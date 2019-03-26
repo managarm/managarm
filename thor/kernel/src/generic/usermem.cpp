@@ -101,8 +101,8 @@ struct MemoryReclaimer {
 
 			closure.blocker.setup();
 			closure.node.setup(&closure.worklet);
-			page->bundle->evictPage(page, &closure.node);
-			KernelFiber::blockCurrent(&closure.blocker);
+			if(!page->bundle->evictPage(page, &closure.node))
+				KernelFiber::blockCurrent(&closure.blocker);
 
 			return true;
 		};
@@ -305,7 +305,7 @@ void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t si
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset - misalign, &node->_fetch))
 			assert(!"Handle the asynchronous case");
-		
+
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 
@@ -321,7 +321,7 @@ void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t si
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
-		
+
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 
@@ -332,15 +332,15 @@ void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t si
 
 	if(size - progress > 0) {
 		assert(!((offset + progress) % kPageSize));
-		
+
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
-		
+
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
-		
+
 		PageAccessor accessor{page};
 		memcpy(accessor.get(), (uint8_t *)pointer + progress, size - progress);
 	}
@@ -354,7 +354,7 @@ void copyFromBundle(Memory *view, ptrdiff_t offset, void *buffer, size_t size,
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
-		
+
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset - misalign, &node->_fetch))
@@ -378,7 +378,7 @@ void copyFromBundle(Memory *view, ptrdiff_t offset, void *buffer, size_t size,
 
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
-		
+
 		PageAccessor accessor{page};
 		memcpy((uint8_t *)buffer + progress, accessor.get(), kPageSize);
 		progress += kPageSize;
@@ -386,15 +386,15 @@ void copyFromBundle(Memory *view, ptrdiff_t offset, void *buffer, size_t size,
 
 	if(size - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		
+
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
-		
+
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
-		
+
 		PageAccessor accessor{page};
 		memcpy((uint8_t *)buffer + progress, accessor.get(), size - progress);
 	}
@@ -527,7 +527,7 @@ void AllocatedMemory::removeObserver(MemoryObserver *observer) {
 
 frigg::Tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
-	
+
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -544,7 +544,7 @@ frigg::Tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t off
 bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
-	
+
 	auto index = offset / _chunkSize;
 	auto disp = offset & (_chunkSize - 1);
 	assert(index < _physicalChunks.size());
@@ -591,9 +591,31 @@ ManagedSpace::~ManagedSpace() {
 	assert(!"Implement this");
 }
 
-void ManagedSpace::evictPage(CachePage *page, ReclaimNode *node) {
+bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex);
+
+	if(!numObservers)
+		return true;
+
 	// TODO: For now, we do not actually evict the page.
-	node->complete();
+	struct Closure {
+		Worklet worklet;
+		EvictNode node;
+		ReclaimNode *continuation;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	closure->worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		closure->continuation->complete();
+		frigg::destruct(*kernelAlloc, closure);
+	});
+	closure->continuation = continuation;
+
+	closure->node.setup(&closure->worklet, numObservers);
+	for(auto observer : observers)
+		observer->evictRange((page - pages) << kPageShift, kPageSize, &closure->node);
+	return false;
 }
 
 void ManagedSpace::retirePage(CachePage *page) {
@@ -666,6 +688,7 @@ void BackingMemory::addObserver(MemoryObserver *observer) {
 	auto lock = frigg::guard(&_managed->mutex);
 
 	_managed->observers.push_back(observer);
+	_managed->numObservers++;
 }
 
 void BackingMemory::removeObserver(MemoryObserver *observer) {
@@ -674,6 +697,7 @@ void BackingMemory::removeObserver(MemoryObserver *observer) {
 
 	auto it = _managed->observers.iterator_to(observer);
 	_managed->observers.erase(it);
+	_managed->numObservers--;
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
@@ -691,14 +715,14 @@ frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offse
 bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
-	
+
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 	assert(index < _managed->physicalPages.size());
 	if(_managed->physicalPages[index] == PhysicalAddr(-1)) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 		assert(physical != PhysicalAddr(-1));
-		
+
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 		_managed->physicalPages[index] = physical;
@@ -743,7 +767,7 @@ void BackingMemory::submitManage(ManageBase *handle) {
 void BackingMemory::completeLoad(size_t offset, size_t length) {
 	assert((offset % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
-	
+
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 	assert((offset + length) / kPageSize <= _managed->physicalPages.size());
@@ -794,6 +818,7 @@ void FrontalMemory::addObserver(MemoryObserver *observer) {
 	auto lock = frigg::guard(&_managed->mutex);
 
 	_managed->observers.push_back(observer);
+	_managed->numObservers++;
 }
 
 void FrontalMemory::removeObserver(MemoryObserver *observer) {
@@ -802,6 +827,7 @@ void FrontalMemory::removeObserver(MemoryObserver *observer) {
 
 	auto it = _managed->observers.iterator_to(observer);
 	_managed->observers.erase(it);
+	_managed->numObservers--;
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
@@ -906,7 +932,7 @@ void FrontalMemory::submitInitiateLoad(InitiateBase *initiate) {
 	assert(initiate->length % kPageSize == 0);
 	assert((initiate->offset + initiate->length) / kPageSize
 			<= _managed->physicalPages.size());
-	
+
 	_managed->initiateLoadQueue.push_back(initiate);
 	_managed->progressLoads();
 
@@ -957,7 +983,7 @@ bool HoleAggregator::aggregate(Hole *hole) {
 		size = HoleTree::get_left(hole)->largestHole;
 	if(HoleTree::get_right(hole) && HoleTree::get_right(hole)->largestHole > size)
 		size = HoleTree::get_right(hole)->largestHole;
-	
+
 	if(hole->largestHole == size)
 		return false;
 	hole->largestHole = size;
@@ -974,7 +1000,7 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 		size = tree.get_left(hole)->largestHole;
 	if(tree.get_right(hole) && tree.get_right(hole)->largestHole > size)
 		size = tree.get_right(hole)->largestHole;
-	
+
 	if(hole->largestHole != size) {
 		frigg::infoLogger() << "largestHole violation: " << "Expected " << size
 				<< ", got " << hole->largestHole << "." << frigg::endLog;
@@ -990,7 +1016,7 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 		frigg::infoLogger() << "Non-overlapping (right) violation" << frigg::endLog;
 		return false;
 	}
-	
+
 	return true;
 }
 
@@ -1008,15 +1034,16 @@ Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
 
 NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 		MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset)
-: Mapping{owner, address, length, flags}, _view{frigg::move(view)}, _offset{offset} {
-	assert(_offset + NormalMapping::length() <= _view->length());
+: Mapping{owner, address, length, flags}, _slice{frigg::move(view)}, _offset{offset} {
+	assert(_offset + NormalMapping::length() <= _slice->length());
+	_view = _slice->getView();
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode>
 NormalMapping::resolveRange(ptrdiff_t offset) {
 	// TODO: This function should be rewritten.
 	assert((size_t)offset + kPageSize <= length());
-	auto range = _view->translateRange(_offset + offset,
+	auto range = _slice->translateRange(_offset + offset,
 			frigg::min((size_t)kPageSize, length() - (size_t)offset));
 	auto bundle_range = range.view->peekRange(range.displacement);
 	return frigg::Tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
@@ -1042,13 +1069,13 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 					return false;
 			return true;
 		}
-		
+
 		static bool transfer(Closure *closure) {
 			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
 			auto offset = closure->node->_offset + closure->progress;
-			
-			auto view_range = self->_view->translateRange(self->_offset + offset,
+
+			auto view_range = self->_slice->translateRange(self->_offset + offset,
 					closure->node->_size - offset);
 			closure->worklet.setup(&Ops::fetched);
 			closure->fetch.setup(&closure->worklet);
@@ -1058,7 +1085,7 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 			closure->progress += closure->fetch.range().get<1>();
 			return true;
 		}
-		
+
 		static void fetched(Worklet *base) {
 			auto closure = frg::container_of(base, &Closure::worklet);
 			if(!process(closure))
@@ -1080,16 +1107,18 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 Mapping *NormalMapping::shareMapping(AddressSpace *dest_space) {
 	// TODO: Always keep the exact flags?
 	return frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
-			address(), length(), flags(), _view, _offset);
+			address(), length(), flags(), _slice, _offset);
 }
 
 Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
-	auto chain = frigg::makeShared<CowChain>(*kernelAlloc, _view, _offset, length());
+	auto chain = frigg::makeShared<CowChain>(*kernelAlloc, _slice, _offset, length());
 	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
 			address(), length(), flags(), frigg::move(chain));
 }
 
 void NormalMapping::install(bool overwrite) {
+	_view->addObserver(this);
+
 	uint32_t page_flags = 0;
 	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
 		page_flags |= page_access::write;
@@ -1103,7 +1132,7 @@ void NormalMapping::install(bool overwrite) {
 		//if(flags() & MappingFlags::dontRequireBacking)
 		//	grab_flags |= kGrabDontRequireBacking;
 
-		auto range = _view->translateRange(_offset + progress, kPageSize);
+		auto range = _slice->translateRange(_offset + progress, kPageSize);
 		assert(range.size >= kPageSize);
 		auto bundle_range = range.view->peekRange(range.displacement);
 
@@ -1124,13 +1153,19 @@ void NormalMapping::install(bool overwrite) {
 }
 
 void NormalMapping::uninstall(bool clear) {
-	if(!clear)
-		return;
+	if(clear) {
+		for(size_t pg = 0; pg < length(); pg += kPageSize)
+			if(owner()->_pageSpace.isMapped(address() + pg))
+				owner()->_residuentSize -= kPageSize;
+		owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
+	}
 
-	for(size_t pg = 0; pg < length(); pg += kPageSize)
-		if(owner()->_pageSpace.isMapped(address() + pg))
-			owner()->_residuentSize -= kPageSize;
-	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
+	_view->removeObserver(this);
+}
+
+void NormalMapping::evictRange(uintptr_t offset, size_t length, EvictNode *node) {
+	// TODO: Unmap the range and perform shootdown.
+	node->done();
 }
 
 // --------------------------------------------------------
@@ -1191,7 +1226,7 @@ bool CowMapping::prepareRange(PrepareNode *node) {
 					return false;
 			return true;
 		}
-		
+
 		static bool transfer(Closure *closure) {
 			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
@@ -1280,7 +1315,7 @@ bool CowMapping::prepareRange(PrepareNode *node) {
 
 	if(!Ops::process(closure))
 		return false;
-	
+
 	frigg::destruct(*kernelAlloc, closure);
 	return true;
 }
@@ -1391,17 +1426,17 @@ Error AddressSpace::map(Guard &guard,
 
 //	frigg::infoLogger() << "Creating new mapping at " << (void *)target
 //			<< ", length: " << (void *)length << frigg::endLog;
-	
+
 	// Setup a new Mapping object.
 	std::underlying_type_t<MappingFlags> mapping_flags = 0;
-	
+
 	// TODO: This is a hack to "upgrade" CoW@fork to CoW.
 	// TODO: Remove this once we remove CopyOnWriteAtFork.
 	if(flags & kMapCopyOnWriteAtFork)
 		flags |= kMapCopyOnWrite;
 	if((flags & kMapCopyOnWrite) || (flags & kMapCopyOnWriteAtFork))
 		mapping_flags |= MappingFlags::copyOnWriteAtFork;
-	
+
 	if(flags & kMapDropAtFork) {
 		mapping_flags |= MappingFlags::dropAtFork;
 	}else if(flags & kMapShareAtFork) {
@@ -1429,7 +1464,7 @@ Error AddressSpace::map(Guard &guard,
 	}else{
 		assert(!(flags & mask));
 	}
-	
+
 	if(flags & kMapDontRequireBacking)
 		mapping_flags |= MappingFlags::dontRequireBacking;
 
@@ -1559,10 +1594,10 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 			return true;
 		}
 	}
-	
+
 	// FIXME: mapping might be deleted here!
 	// We need to use either refcounting or QS garbage collection here!
-	
+
 	node->_mapping = mapping;
 
 	// Here we do the mapping-based fault handling.
@@ -1583,7 +1618,7 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 			update(node);
 			WorkQueue::post(node->_handled);
 		}
-		
+
 		static void update(FaultNode *node) {
 			auto mapping = node->_mapping;
 
@@ -1772,7 +1807,7 @@ VirtualAddr AddressSpace::_allocate(size_t length, MapFlags flags) {
 
 	if(_holes.get_root()->largestHole < length)
 		return 0; // TODO: Return something else here?
-	
+
 	auto current = _holes.get_root();
 	while(true) {
 		if(flags & kMapPreferBottom) {
@@ -1782,7 +1817,7 @@ VirtualAddr AddressSpace::_allocate(size_t length, MapFlags flags) {
 				current = HoleTree::get_left(current);
 				continue;
 			}
-			
+
 			if(current->length() >= length) {
 				_splitHole(current, 0, length);
 				return current->address();
@@ -1794,7 +1829,7 @@ VirtualAddr AddressSpace::_allocate(size_t length, MapFlags flags) {
 		}else{
 			// Try to allocate memory at the top of the range.
 			assert(flags & kMapPreferTop);
-			
+
 			if(HoleTree::get_right(current)
 					&& HoleTree::get_right(current)->largestHole >= length) {
 				current = HoleTree::get_right(current);
@@ -1833,7 +1868,7 @@ VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
 			break;
 		}
 	}
-	
+
 	_splitHole(current, address - current->address(), length);
 	return address;
 }
@@ -1841,7 +1876,7 @@ VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
 void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	assert(length);
 	assert(offset + length <= hole->length());
-	
+
 	_holes.remove(hole);
 
 	if(offset) {
@@ -1854,7 +1889,7 @@ void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 				hole->address() + offset + length, hole->length() - (offset + length));
 		_holes.insert(successor);
 	}
-	
+
 	frigg::destruct(*kernelAlloc, hole);
 }
 
@@ -1907,7 +1942,7 @@ void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard guard(&_space->lock);
-	
+
 	size_t progress = 0;
 	while(progress < size) {
 		VirtualAddr write = (VirtualAddr)_address + offset + progress;
@@ -1928,7 +1963,7 @@ Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t siz
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard guard(&_space->lock);
-	
+
 	size_t progress = 0;
 	while(progress < size) {
 		VirtualAddr write = (VirtualAddr)_address + offset + progress;
