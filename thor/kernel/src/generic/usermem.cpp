@@ -889,18 +889,18 @@ void FrontalMemory::submitInitiateLoad(InitiateBase *initiate) {
 
 // --------------------------------------------------------
 
-ExteriorBundleView::ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
+MemorySlice::MemorySlice(frigg::SharedPtr<MemoryBundle> bundle,
 		ptrdiff_t view_offset, size_t view_size)
 : _bundle{frigg:move(bundle)}, _viewOffset{view_offset}, _viewSize{view_size} {
 	assert(!(_viewOffset & (kPageSize - 1)));
 	assert(!(_viewSize & (kPageSize - 1)));
 }
 
-size_t ExteriorBundleView::length() {
+size_t MemorySlice::length() {
 	return _viewSize;
 }
 
-SliceRange ExteriorBundleView::translateRange(ptrdiff_t offset, size_t size) {
+SliceRange MemorySlice::translateRange(ptrdiff_t offset, size_t size) {
 	assert(offset + size <= _viewSize);
 	return SliceRange{_bundle.get(), _viewOffset + offset,
 			frigg::min(size, _viewSize - offset)};
@@ -1639,7 +1639,7 @@ bool AddressSpace::fork(ForkNode *node) {
 
 				node->_items.addBack(ForkItem{cur_mapping, bundle.get()});
 
-				auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+				auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 						frigg::move(bundle), 0, cur_mapping->length());
 
 				auto fork_mapping = frigg::construct<NormalMapping>(*kernelAlloc,

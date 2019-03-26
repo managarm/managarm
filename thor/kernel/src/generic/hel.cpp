@@ -454,7 +454,7 @@ HelError helCreateSliceView(HelHandle bundle_handle,
 		bundle = wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 
-	auto slice = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+	auto slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
 			frigg::move(bundle), offset, size);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -558,7 +558,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		}else if(memory_wrapper->is<MemoryBundleDescriptor>()) {
 			auto memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
 			auto bundle_length = memory->getLength();
-			slice = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+			slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					frigg::move(memory), 0, bundle_length);
 		}else{
 			return kHelErrBadDescriptor;

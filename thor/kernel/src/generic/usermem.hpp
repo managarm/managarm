@@ -214,9 +214,17 @@ struct SliceRange {
 };
 
 struct MemorySlice {
-	virtual size_t length() = 0;
+	MemorySlice(frigg::SharedPtr<MemoryBundle> bundle,
+			ptrdiff_t view_offset, size_t view_size);
 
-	virtual SliceRange translateRange(ptrdiff_t offset, size_t size) = 0;
+	size_t length();
+
+	SliceRange translateRange(ptrdiff_t offset, size_t size);
+
+private:
+	frigg::SharedPtr<MemoryBundle> _bundle;
+	ptrdiff_t _viewOffset;
+	size_t _viewSize;
 };
 
 struct TransferNode {
@@ -414,20 +422,6 @@ public:
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;
-};
-
-struct ExteriorBundleView : MemorySlice {
-	ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
-			ptrdiff_t view_offset, size_t view_size);
-
-	size_t length() override;
-
-	SliceRange translateRange(ptrdiff_t offset, size_t size) override;
-
-private:
-	frigg::SharedPtr<MemoryBundle> _bundle;
-	ptrdiff_t _viewOffset;
-	size_t _viewSize;
 };
 
 struct Hole {

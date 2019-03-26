@@ -175,7 +175,7 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 			if(!Memory::transfer(&copy))
 				assert(!"Fix the asynchronous case");
 
-			auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					frigg::move(memory), 0, virt_length);
 
 			VirtualAddr actual_address;
@@ -250,7 +250,7 @@ void executeModule(frigg::StringView name, MfsRegular *module,
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, stack_size);
-	auto stack_view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+	auto stack_view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 			stack_memory, 0, stack_size);
 
 	VirtualAddr stack_base;

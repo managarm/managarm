@@ -423,7 +423,7 @@ namespace initrd {
 		Process(frg::string<KernelAlloc> name, frigg::SharedPtr<Thread> thread)
 		: _name{std::move(name)}, _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, 0x1000);
-			auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					fileTableMemory, 0, 0x1000);
 
 			auto irq_lock = frigg::guard(&irqMutex());
