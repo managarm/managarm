@@ -1499,23 +1499,20 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 	assert(mapping->length() == length);
 	mapping->uninstall(true);
 
-	_mappings.remove(mapping);
-	frigg::destruct(*kernelAlloc, mapping);
+	static constexpr auto deleteMapping = [] (AddressSpace *space, Mapping *mapping) {
+		space->_mappings.remove(mapping);
+		frigg::destruct(*kernelAlloc, mapping);
+	};
 
-	node->_shootNode.shotDown = [] (ShootNode *sn) {
-		auto node = frg::container_of(sn, &AddressUnmapNode::_shootNode);
-
-		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard space_guard(&node->_space->lock);
-
+	static constexpr auto closeHole = [] (AddressSpace *space, VirtualAddr address, size_t length) {
 		// Find the holes that preceede/succeede mapping.
 		Hole *pre;
 		Hole *succ;
 
-		auto current = node->_space->_holes.get_root();
+		auto current = space->_holes.get_root();
 		while(true) {
 			assert(current);
-			if(sn->address < current->address()) {
+			if(address < current->address()) {
 				if(HoleTree::get_left(current)) {
 					current = HoleTree::get_left(current);
 				}else{
@@ -1524,7 +1521,7 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 					break;
 				}
 			}else{
-				assert(sn->address >= current->address() + current->length());
+				assert(address >= current->address() + current->length());
 				if(HoleTree::get_right(current)) {
 					current = HoleTree::get_right(current);
 				}else{
@@ -1536,39 +1533,50 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 		}
 
 		// Try to merge the new hole and the existing ones.
-		if(pre && pre->address() + pre->length() == sn->address
-				&& succ && sn->address + sn->size == succ->address()) {
+		if(pre && pre->address() + pre->length() == address
+				&& succ && address + length == succ->address()) {
 			auto hole = frigg::construct<Hole>(*kernelAlloc, pre->address(),
-					pre->length() + sn->size + succ->length());
+					pre->length() + length + succ->length());
 
-			node->_space->_holes.remove(pre);
-			node->_space->_holes.remove(succ);
-			node->_space->_holes.insert(hole);
+			space->_holes.remove(pre);
+			space->_holes.remove(succ);
+			space->_holes.insert(hole);
 			frigg::destruct(*kernelAlloc, pre);
 			frigg::destruct(*kernelAlloc, succ);
-		}else if(pre && pre->address() + pre->length() == sn->address) {
+		}else if(pre && pre->address() + pre->length() == address) {
 			auto hole = frigg::construct<Hole>(*kernelAlloc,
-					pre->address(), pre->length() + sn->size);
+					pre->address(), pre->length() + length);
 
-			node->_space->_holes.remove(pre);
-			node->_space->_holes.insert(hole);
+			space->_holes.remove(pre);
+			space->_holes.insert(hole);
 			frigg::destruct(*kernelAlloc, pre);
-		}else if(succ && sn->address + sn->size == succ->address()) {
+		}else if(succ && address + length == succ->address()) {
 			auto hole = frigg::construct<Hole>(*kernelAlloc,
-					sn->address, sn->size + succ->length());
+					address, length + succ->length());
 
-			node->_space->_holes.remove(succ);
-			node->_space->_holes.insert(hole);
+			space->_holes.remove(succ);
+			space->_holes.insert(hole);
 			frigg::destruct(*kernelAlloc, succ);
 		}else{
 			auto hole = frigg::construct<Hole>(*kernelAlloc,
-					sn->address, sn->size);
+					address, length);
 
-			node->_space->_holes.insert(hole);
+			space->_holes.insert(hole);
 		}
 	};
 
+	node->_shootNode.shotDown = [] (ShootNode *sn) {
+		auto node = frg::container_of(sn, &AddressUnmapNode::_shootNode);
+
+		auto irq_lock = frigg::guard(&irqMutex());
+		AddressSpace::Guard space_guard(&node->_space->lock);
+
+		deleteMapping(node->_space, node->_mapping);
+		closeHole(node->_space, sn->address, sn->size);
+	};
+
 	node->_space = this;
+	node->_mapping = mapping;
 	node->_shootNode.address = address;
 	node->_shootNode.size = length;
 
@@ -1576,7 +1584,8 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 	// TODO: This should probably be resolved by running shotDown() from some callback queue.
 	guard.unlock();
 
-	_pageSpace.submitShootdown(&node->_shootNode);
+	if(_pageSpace.submitShootdown(&node->_shootNode))
+		node->_shootNode.shotDown(&node->_shootNode);
 }
 
 bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {

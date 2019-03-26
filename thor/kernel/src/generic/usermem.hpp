@@ -720,6 +720,7 @@ struct AddressUnmapNode {
 
 private:
 	AddressSpace *_space;
+	Mapping *_mapping;
 	ShootNode _shootNode;
 };
 

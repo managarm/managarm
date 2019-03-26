@@ -113,7 +113,9 @@ struct PageBinding {
 		return _primaryStamp;
 	}
 
-	void makePrimary();
+	bool isPrimary();
+
+	void rebind();
 
 	void rebind(frigg::SharedPtr<PageSpace> space);
 
@@ -145,7 +147,7 @@ struct PageSpace {
 		return _rootTable;
 	}
 
-	void submitShootdown(ShootNode *node);
+	bool submitShootdown(ShootNode *node);
 
 private:
 	PhysicalAddr _rootTable;
