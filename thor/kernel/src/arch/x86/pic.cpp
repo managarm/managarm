@@ -315,7 +315,7 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 void sendShootdownIpi() {
 	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
 	picBase.store(lApicIcrLow, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
 	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 		// Wait for IPI delivery.
 	}
@@ -334,7 +334,7 @@ void sendPingIpi(uint32_t apic) {
 void sendGlobalNmi() {
 	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
 	picBase.store(lApicIcrLow, apicIcrLowVector(0) | apicIcrLowDelivMode(4)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
 	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 		// Wait for IPI delivery.
 	}
