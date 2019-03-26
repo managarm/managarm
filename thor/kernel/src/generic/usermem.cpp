@@ -69,6 +69,21 @@ struct MemoryReclaimer {
 		_lruList.push_back(page);
 	}
 
+	void removePage(CachePage *page) {
+		// TODO: Do we need the IRQ lock here?
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+
+		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
+			auto it = _lruList.iterator_to(page);
+			_lruList.erase(it);
+			_cachedSize -= kPageSize;
+		}else{
+			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimEvicting);
+		}
+		page->flags &= ~CachePage::reclaimStateMask;
+	}
+
 	KernelFiber *createReclaimFiber() {
 		auto checkReclaim = [this] () -> bool {
 			// Take a single page out of the LRU list.
@@ -598,18 +613,45 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 	if(!numObservers)
 		return true;
 
+	size_t index = page - pages;
+	assert(loadState[index] == kStateLoaded);
+	loadState[index] = kStateEvicting;
+
 	struct Closure {
+		ManagedSpace *bundle;
+		size_t index;
 		Worklet worklet;
 		EvictNode node;
 		ReclaimNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
+	static constexpr auto retirePage = [] (ManagedSpace *bundle, size_t index) {
+		if(bundle->loadState[index] != kStateEvicting)
+			return;
+
+		frigg::infoLogger() << "\e[33mEvicting physical page\e[39m" << frigg::endLog;
+		assert(bundle->physicalPages[index] != PhysicalAddr(-1));
+		physicalAllocator->free(bundle->physicalPages[index], kPageSize);
+		bundle->loadState[index] = kStateMissing;
+		bundle->physicalPages[index] = PhysicalAddr(-1);
+		globalReclaimer->removePage(&bundle->pages[index]);
+	};
+
 	closure->worklet.setup([] (Worklet *base) {
 		auto closure = frg::container_of(base, &Closure::worklet);
 		frigg::infoLogger() << "\e[33mEviction completes (slow-path)\e[39m" << frigg::endLog;
+		{
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&closure->bundle->mutex);
+
+			retirePage(closure->bundle, closure->index);
+		}
+
 		closure->continuation->complete();
 		frigg::destruct(*kernelAlloc, closure);
 	});
+	closure->bundle = this;
+	closure->index = index;
 	closure->continuation = continuation;
 
 	frigg::infoLogger() << "\e[33mThere are " << numObservers
@@ -625,6 +667,7 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 		return false;
 
 	frigg::infoLogger() << "\e[33mEviction completes (fast-path)\e[39m" << frigg::endLog;
+	retirePage(this, index);
 	frigg::destruct(*kernelAlloc, closure);
 	return true;
 }
@@ -660,10 +703,14 @@ void ManagedSpace::progressLoads() {
 			completedManageQueue.push_back(handle);
 
 			initiate->progress += count << kPageShift;
-		}else if(loadState[index] == kStateLoading) {
+		}else if(loadState[index] == kStateLoading
+				|| loadState[index] == kStateLoaded) {
+			// Skip the page.
 			initiate->progress += kPageSize;
 		}else{
-			assert(loadState[index] == kStateLoaded);
+			assert(loadState[index] == kStateEvicting);
+			loadState[index] = kStateLoaded;
+			globalReclaimer->bumpPage(&pages[index]);
 			initiate->progress += kPageSize;
 		}
 
@@ -737,7 +784,6 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 		_managed->physicalPages[index] = physical;
-		globalReclaimer->addPage(&_managed->pages[index]);
 	}
 
 	completeFetch(node, _managed->physicalPages[index] + misalign, kPageSize - misalign,
@@ -798,6 +844,7 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 		size_t index = (offset + p) / kPageSize;
 		assert(_managed->loadState[index] == ManagedSpace::kStateLoading);
 		_managed->loadState[index] = ManagedSpace::kStateLoaded;
+		globalReclaimer->addPage(&_managed->pages[index]);
 	}
 
 	InitiateList queue;
@@ -862,7 +909,10 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 	assert(index < _managed->physicalPages.size());
-	if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
+	if(_managed->loadState[index] == ManagedSpace::kStateEvicting) {
+		_managed->loadState[index] = ManagedSpace::kStateLoaded;
+		globalReclaimer->bumpPage(&_managed->pages[index]);
+	}else if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
 		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
 		struct Closure {
 			uintptr_t offset;

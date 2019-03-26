@@ -385,7 +385,8 @@ struct ManagedSpace : CacheBundle {
 	enum LoadState {
 		kStateMissing,
 		kStateLoading,
-		kStateLoaded
+		kStateLoaded,
+		kStateEvicting
 	};
 
 	ManagedSpace(size_t length);
