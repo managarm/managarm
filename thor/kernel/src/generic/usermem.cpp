@@ -12,7 +12,8 @@ extern size_t kernelMemoryUsage;
 
 namespace {
 	constexpr bool logCleanup = false;
-	constexpr bool logUsage = true;
+	constexpr bool logUsage = false;
+	constexpr bool logUncaching = false;
 
 	void logRss(AddressSpace *space) {
 		if(!logUsage)
@@ -60,7 +61,7 @@ struct MemoryReclaimer {
 			auto it = _lruList.iterator_to(page);
 			_lruList.erase(it);
 		}else {
-			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimEvicting);
+			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimUncaching);
 			page->flags &= ~CachePage::reclaimStateMask;
 			page->flags |= CachePage::reclaimCached;
 			_cachedSize += kPageSize;
@@ -79,7 +80,7 @@ struct MemoryReclaimer {
 			_lruList.erase(it);
 			_cachedSize -= kPageSize;
 		}else{
-			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimEvicting);
+			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimUncaching);
 		}
 		page->flags &= ~CachePage::reclaimStateMask;
 	}
@@ -98,7 +99,7 @@ struct MemoryReclaimer {
 
 				page = _lruList.pop_front();
 				page->flags &= ~CachePage::reclaimStateMask;
-				page->flags |= CachePage::reclaimEvicting;
+				page->flags |= CachePage::reclaimUncaching;
 				_cachedSize -= kPageSize;
 			}
 
@@ -116,7 +117,7 @@ struct MemoryReclaimer {
 
 			closure.blocker.setup();
 			closure.node.setup(&closure.worklet);
-			if(!page->bundle->evictPage(page, &closure.node))
+			if(!page->bundle->uncachePage(page, &closure.node))
 				KernelFiber::blockCurrent(&closure.blocker);
 
 			return true;
@@ -124,7 +125,7 @@ struct MemoryReclaimer {
 
 		return KernelFiber::post([=] {
 			while(true) {
-				{
+				if(logUncaching) {
 					auto irq_lock = frigg::guard(&irqMutex());
 					auto lock = frigg::guard(&_mutex);
 					frigg::infoLogger() << "thor: " << (_cachedSize / 1024)
@@ -606,7 +607,7 @@ ManagedSpace::~ManagedSpace() {
 	assert(!"Implement this");
 }
 
-bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
+bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
 
@@ -629,7 +630,8 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 		if(bundle->loadState[index] != kStateEvicting)
 			return;
 
-		frigg::infoLogger() << "\e[33mEvicting physical page\e[39m" << frigg::endLog;
+		if(logUncaching)
+			frigg::infoLogger() << "\e[33mEvicting physical page\e[39m" << frigg::endLog;
 		assert(bundle->physicalPages[index] != PhysicalAddr(-1));
 		physicalAllocator->free(bundle->physicalPages[index], kPageSize);
 		bundle->loadState[index] = kStateMissing;
@@ -639,7 +641,8 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 
 	closure->worklet.setup([] (Worklet *base) {
 		auto closure = frg::container_of(base, &Closure::worklet);
-		frigg::infoLogger() << "\e[33mEviction completes (slow-path)\e[39m" << frigg::endLog;
+		if(logUncaching)
+			frigg::infoLogger() << "\e[33mEviction completes (slow-path)\e[39m" << frigg::endLog;
 		{
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&closure->bundle->mutex);
@@ -654,8 +657,9 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 	closure->index = index;
 	closure->continuation = continuation;
 
-	frigg::infoLogger() << "\e[33mThere are " << numObservers
-			<< " observers\e[39m" << frigg::endLog;
+	if(logUncaching)
+		frigg::infoLogger() << "\e[33mThere are " << numObservers
+				<< " observers\e[39m" << frigg::endLog;
 	closure->node.setup(&closure->worklet, numObservers);
 	size_t fast_paths = 0;
 	for(auto observer : observers)
@@ -666,7 +670,8 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 	if(!closure->node.retirePending(fast_paths))
 		return false;
 
-	frigg::infoLogger() << "\e[33mEviction completes (fast-path)\e[39m" << frigg::endLog;
+	if(logUncaching)
+		frigg::infoLogger() << "\e[33mEviction completes (fast-path)\e[39m" << frigg::endLog;
 	retirePage(this, index);
 	frigg::destruct(*kernelAlloc, closure);
 	return true;
@@ -1242,7 +1247,6 @@ bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 	assert(!(shoot_size & (kPageSize - 1)));
 
 	// TODO: Perform proper locking here!
-	frigg::infoLogger() << "\e[33mShooting memory range\e[39m" << frigg::endLog;
 
 	// Unmap the memory range.
 	for(size_t pg = 0; pg < shoot_size; pg += kPageSize)
@@ -1258,7 +1262,6 @@ bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
 	closure->worklet.setup([] (Worklet *base) {
-		frigg::infoLogger() << "\e[33mShootdown succeeded\e[39m" << frigg::endLog;
 		auto closure = frg::container_of(base, &Closure::worklet);
 		closure->continuation->done();
 		frigg::destruct(*kernelAlloc, closure);
@@ -1271,7 +1274,6 @@ bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 	if(!owner()->_pageSpace.submitShootdown(&closure->node))
 		return false;
 
-	frigg::infoLogger() << "\e[33mShootdown fast-path\e[39m" << frigg::endLog;
 	frigg::destruct(*kernelAlloc, closure);
 	return true;
 }
@@ -1489,7 +1491,6 @@ bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 	assert(!(shoot_size & (kPageSize - 1)));
 
 	// TODO: Perform proper locking here!
-	frigg::infoLogger() << "\e[33mShooting memory range\e[39m" << frigg::endLog;
 
 	// Unmap the memory range.
 	// TODO: This is only necessary if the page was not copied already.
@@ -1506,7 +1507,6 @@ bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
 	closure->worklet.setup([] (Worklet *base) {
-		frigg::infoLogger() << "\e[33mShootdown succeeded\e[39m" << frigg::endLog;
 		auto closure = frg::container_of(base, &Closure::worklet);
 		closure->continuation->done();
 		frigg::destruct(*kernelAlloc, closure);
@@ -1519,7 +1519,6 @@ bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 	if(!owner()->_pageSpace.submitShootdown(&closure->node))
 		return false;
 
-	frigg::infoLogger() << "\e[33mShootdown fast-path\e[39m" << frigg::endLog;
 	frigg::destruct(*kernelAlloc, closure);
 	return true;
 }

@@ -18,15 +18,6 @@ struct AddressSpace;
 struct ForeignSpaceAccessor;
 struct FaultNode;
 
-using GrabIntent = uint32_t;
-enum : GrabIntent {
-	kGrabQuery = GrabIntent(1) << 0,
-	kGrabFetch = GrabIntent(1) << 1,
-	kGrabRead = GrabIntent(1) << 2,
-	kGrabWrite = GrabIntent(1) << 3,
-	kGrabDontRequireBacking = GrabIntent(1) << 4
-};
-
 struct CachePage;
 
 struct ReclaimNode {
@@ -46,7 +37,7 @@ private:
 struct CacheBundle {
 	virtual ~CacheBundle() = default;
 
-	virtual bool evictPage(CachePage *page, ReclaimNode *node) = 0;
+	virtual bool uncachePage(CachePage *page, ReclaimNode *node) = 0;
 
 	// Called once the reference count of a CachePage reaches zero.
 	virtual void retirePage(CachePage *page) = 0;
@@ -57,7 +48,7 @@ struct CachePage {
 	// Page is clean and evicatable (part of LRU list).
 	static constexpr uint32_t reclaimCached    = 0x01;
 	// Page is currently being evicted (not in LRU list).
-	static constexpr uint32_t reclaimEvicting  = 0x02;
+	static constexpr uint32_t reclaimUncaching  = 0x02;
 
 	// CacheBundle that owns this page.
 	CacheBundle *bundle = nullptr;
@@ -392,7 +383,7 @@ struct ManagedSpace : CacheBundle {
 	ManagedSpace(size_t length);
 	~ManagedSpace();
 
-	bool evictPage(CachePage *page, ReclaimNode *node) override;
+	bool uncachePage(CachePage *page, ReclaimNode *node) override;
 
 	void retirePage(CachePage *page) override;
 
