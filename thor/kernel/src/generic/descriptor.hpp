@@ -34,8 +34,8 @@ struct UniverseDescriptor {
 // Memory related descriptors
 // --------------------------------------------------------
 
-struct MemoryBundleDescriptor {
-	MemoryBundleDescriptor(frigg::SharedPtr<Memory> memory)
+struct MemoryViewDescriptor {
+	MemoryViewDescriptor(frigg::SharedPtr<Memory> memory)
 	: memory(frigg::move(memory)) { }
 
 	frigg::SharedPtr<Memory> memory;
@@ -192,7 +192,7 @@ struct BoundKernletDescriptor {
 typedef frigg::Variant<
 	UniverseDescriptor,
 	QueueDescriptor,
-	MemoryBundleDescriptor,
+	MemoryViewDescriptor,
 	MemorySliceDescriptor,
 	AddressSpaceDescriptor,
 	ThreadDescriptor,

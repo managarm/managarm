@@ -358,7 +358,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryBundleDescriptor(frigg::move(memory)));
+				MemoryViewDescriptor(frigg::move(memory)));
 	}
 
 	return kHelErrNone;
@@ -376,9 +376,9 @@ HelError helResizeMemory(HelHandle handle, size_t new_size) {
 		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(!wrapper->is<MemoryBundleDescriptor>())
+		if(!wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = wrapper->get<MemoryBundleDescriptor>().memory;
+		memory = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
 	memory->resize(new_size);
@@ -404,9 +404,9 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*backing_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryBundleDescriptor(frigg::move(backing_memory)));
+				MemoryViewDescriptor(frigg::move(backing_memory)));
 		*frontal_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryBundleDescriptor(frigg::move(frontal_memory)));
+				MemoryViewDescriptor(frigg::move(frontal_memory)));
 	}
 
 	return kHelErrNone;
@@ -426,7 +426,7 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryBundleDescriptor(frigg::move(memory)));
+				MemoryViewDescriptor(frigg::move(memory)));
 	}
 
 	return kHelErrNone;
@@ -449,9 +449,9 @@ HelError helCreateSliceView(HelHandle bundle_handle,
 		auto wrapper = this_universe->getDescriptor(universe_guard, bundle_handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(!wrapper->is<MemoryBundleDescriptor>())
+		if(!wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		bundle = wrapper->get<MemoryBundleDescriptor>().memory;
+		bundle = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
 	auto slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
@@ -555,8 +555,8 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			return kHelErrNoDescriptor;
 		if(memory_wrapper->is<MemorySliceDescriptor>()) {
 			slice = memory_wrapper->get<MemorySliceDescriptor>().slice;
-		}else if(memory_wrapper->is<MemoryBundleDescriptor>()) {
-			auto memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+		}else if(memory_wrapper->is<MemoryViewDescriptor>()) {
+			auto memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
 			auto bundle_length = memory->getLength();
 			slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					frigg::move(memory), 0, bundle_length);
@@ -772,9 +772,9 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(!wrapper->is<MemoryBundleDescriptor>())
+		if(!wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = wrapper->get<MemoryBundleDescriptor>().memory;
+		memory = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
 	*size = memory->getLength();
@@ -794,9 +794,9 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryBundleDescriptor>())
+		if(!memory_wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
 		
 		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
 		if(!queue_wrapper)
@@ -857,9 +857,9 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryBundleDescriptor>())
+		if(!memory_wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
 
@@ -882,9 +882,9 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryBundleDescriptor>())
+		if(!memory_wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
 
 		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
 		if(!queue_wrapper)
@@ -944,9 +944,9 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryBundleDescriptor>())
+		if(!memory_wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
 /*	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
@@ -2128,9 +2128,9 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 				auto wrapper = this_universe->getDescriptor(universe_guard, x);
 				if(!wrapper)
 					return kHelErrNoDescriptor;
-				if(!wrapper->is<MemoryBundleDescriptor>())
+				if(!wrapper->is<MemoryViewDescriptor>())
 					return kHelErrBadDescriptor;
-				memory = wrapper->get<MemoryBundleDescriptor>().memory;
+				memory = wrapper->get<MemoryViewDescriptor>().memory;
 			}
 
 			auto window = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));

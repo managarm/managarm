@@ -33,11 +33,6 @@ namespace {
 	}
 }
 
-PhysicalAddr MemoryBundle::blockForRange(uintptr_t) {
-	assert(!"This function is not supported anymore. Convert code to fetchRange");
-	__builtin_unreachable();
-}
-
 // --------------------------------------------------------
 // Reclaim implementation.
 // --------------------------------------------------------
@@ -299,7 +294,7 @@ void Memory::completeLoad(size_t offset, size_t length) {
 // Copy operations.
 // --------------------------------------------------------
 
-void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size,
+void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *)) {
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
@@ -308,7 +303,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
-		if(!bundle->fetchRange(offset - misalign, &node->_fetch))
+		if(!view->fetchRange(offset - misalign, &node->_fetch))
 			assert(!"Handle the asynchronous case");
 		
 		auto page = node->_fetch.range().get<0>();
@@ -324,7 +319,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
-		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
 		
 		auto page = node->_fetch.range().get<0>();
@@ -340,7 +335,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 		
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
-		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
 		
 		auto page = node->_fetch.range().get<0>();
@@ -353,7 +348,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	complete(node);
 }
 
-void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
+void copyFromBundle(Memory *view, ptrdiff_t offset, void *buffer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *)) {
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
@@ -362,7 +357,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 		
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
-		if(!bundle->fetchRange(offset - misalign, &node->_fetch))
+		if(!view->fetchRange(offset - misalign, &node->_fetch))
 			assert(!"Handle the asynchronous case");
 
 		auto page = node->_fetch.range().get<0>();
@@ -378,7 +373,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
-		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
 
 		auto page = node->_fetch.range().get<0>();
@@ -394,7 +389,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 		
 		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
-		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
 		
 		auto page = node->_fetch.range().get<0>();
@@ -889,9 +884,9 @@ void FrontalMemory::submitInitiateLoad(InitiateBase *initiate) {
 
 // --------------------------------------------------------
 
-MemorySlice::MemorySlice(frigg::SharedPtr<MemoryBundle> bundle,
+MemorySlice::MemorySlice(frigg::SharedPtr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size)
-: _bundle{frigg:move(bundle)}, _viewOffset{view_offset}, _viewSize{view_size} {
+: _view{frigg:move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
 	assert(!(_viewOffset & (kPageSize - 1)));
 	assert(!(_viewSize & (kPageSize - 1)));
 }
@@ -902,7 +897,7 @@ size_t MemorySlice::length() {
 
 SliceRange MemorySlice::translateRange(ptrdiff_t offset, size_t size) {
 	assert(offset + size <= _viewSize);
-	return SliceRange{_bundle.get(), _viewOffset + offset,
+	return SliceRange{_view.get(), _viewOffset + offset,
 			frigg::min(size, _viewSize - offset)};
 }
 
@@ -977,7 +972,7 @@ NormalMapping::resolveRange(ptrdiff_t offset) {
 	assert((size_t)offset + kPageSize <= length());
 	auto range = _view->translateRange(_offset + offset,
 			frigg::min((size_t)kPageSize, length() - (size_t)offset));
-	auto bundle_range = range.bundle->peekRange(range.displacement);
+	auto bundle_range = range.view->peekRange(range.displacement);
 	return frigg::Tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
@@ -1011,7 +1006,7 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 					closure->node->_size - offset);
 			closure->worklet.setup(&Ops::fetched);
 			closure->fetch.setup(&closure->worklet);
-			if(!view_range.bundle->fetchRange(view_range.displacement, &closure->fetch))
+			if(!view_range.view->fetchRange(view_range.displacement, &closure->fetch))
 				return false;
 
 			closure->progress += closure->fetch.range().get<1>();
@@ -1064,7 +1059,7 @@ void NormalMapping::install(bool overwrite) {
 
 		auto range = _view->translateRange(_offset + progress, kPageSize);
 		assert(range.size >= kPageSize);
-		auto bundle_range = range.bundle->peekRange(range.displacement);
+		auto bundle_range = range.view->peekRange(range.displacement);
 
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
@@ -1199,7 +1194,7 @@ bool CowMapping::prepareRange(PrepareNode *node) {
 					assert(view_range.size >= kPageSize);
 
 					closure->worklet.setup(&Ops::copied);
-					closure->copy.setup(self->_chain->_copy.get(), page, view_range.bundle,
+					closure->copy.setup(self->_chain->_copy.get(), page, view_range.view,
 							view_range.displacement, kPageSize, &closure->worklet);
 					if(!Memory::transfer(&closure->copy))
 						return false;

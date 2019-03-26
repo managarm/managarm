@@ -160,7 +160,7 @@ using InitiateList = frg::intrusive_list<
 >;
 
 struct FetchNode {
-	friend struct MemoryBundle;
+	friend struct MemoryView;
 
 	void setup(Worklet *fetched) {
 		_fetched = fetched;
@@ -183,7 +183,7 @@ struct MemoryMapping {
 	frg::default_list_hook<MemoryMapping> listHook;
 };
 
-struct MemoryBundle {
+struct MemoryView {
 protected:
 	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size,
 			CachingMode cm) {
@@ -203,18 +203,16 @@ public:
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
 	virtual bool fetchRange(uintptr_t offset, FetchNode *node) = 0;
-
-	PhysicalAddr blockForRange(uintptr_t offset);
 };
 
 struct SliceRange {
-	MemoryBundle *bundle;
+	MemoryView *view;
 	uintptr_t displacement;
 	size_t size;
 };
 
 struct MemorySlice {
-	MemorySlice(frigg::SharedPtr<MemoryBundle> bundle,
+	MemorySlice(frigg::SharedPtr<MemoryView> view,
 			ptrdiff_t view_offset, size_t view_size);
 
 	size_t length();
@@ -222,14 +220,14 @@ struct MemorySlice {
 	SliceRange translateRange(ptrdiff_t offset, size_t size);
 
 private:
-	frigg::SharedPtr<MemoryBundle> _bundle;
+	frigg::SharedPtr<MemoryView> _view;
 	ptrdiff_t _viewOffset;
 	size_t _viewSize;
 };
 
 struct TransferNode {
-	void setup(MemoryBundle *dest_memory, uintptr_t dest_offset,
-			MemoryBundle *src_memory, uintptr_t src_offset, size_t length,
+	void setup(MemoryView *dest_memory, uintptr_t dest_offset,
+			MemoryView *src_memory, uintptr_t src_offset, size_t length,
 			Worklet *copied) {
 		_destBundle = dest_memory;
 		_srcBundle = src_memory;
@@ -239,8 +237,8 @@ struct TransferNode {
 		_copied = copied;
 	}
 
-	MemoryBundle *_destBundle;
-	MemoryBundle *_srcBundle;
+	MemoryView *_destBundle;
+	MemoryView *_srcBundle;
 	uintptr_t _destOffset;
 	uintptr_t _srcOffset;
 	size_t _size;
@@ -252,7 +250,7 @@ struct TransferNode {
 	Worklet _worklet;
 };
 
-struct Memory : MemoryBundle {
+struct Memory : MemoryView {
 	static bool transfer(TransferNode *node);
 
 	Memory(MemoryTag tag)
@@ -300,10 +298,10 @@ private:
 	FetchNode _fetch;
 };
 
-void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size,
+void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *));
 
-void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *pointer, size_t size,
+void copyFromBundle(Memory *view, ptrdiff_t offset, void *pointer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
 struct HardwareMemory : Memory {

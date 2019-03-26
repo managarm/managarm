@@ -73,7 +73,7 @@ namespace {
 				descriptor = IoDescriptor{device->bars[index].io};
 			}else{
 				assert(device->bars[index].type == PciDevice::kBarMemory);
-				descriptor = MemoryBundleDescriptor{device->bars[index].memory};
+				descriptor = MemoryViewDescriptor{device->bars[index].memory};
 			}
 			
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -205,7 +205,7 @@ namespace {
 			auto fb = device->associatedFrameBuffer;
 			assert(fb);
 
-			MemoryBundleDescriptor descriptor{fb->memory};
+			MemoryViewDescriptor descriptor{fb->memory};
 			
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);

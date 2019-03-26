@@ -287,7 +287,7 @@ namespace initrd {
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
 
-			submitPushDescriptor(_lane, MemoryBundleDescriptor(_file->module->getMemory()),
+			submitPushDescriptor(_lane, MemoryViewDescriptor(_file->module->getMemory()),
 					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
 		
