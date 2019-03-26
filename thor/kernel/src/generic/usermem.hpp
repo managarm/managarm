@@ -29,14 +29,35 @@ enum : GrabIntent {
 
 struct CachePage;
 
+struct ReclaimNode {
+	void setup(Worklet *worklet) {
+		_worklet = worklet;
+	}
+
+	void complete() {
+		WorkQueue::post(_worklet);
+	}
+
+private:
+	Worklet *_worklet;
+};
+
 struct CacheBundle {
 	virtual ~CacheBundle() = default;
+
+	virtual void evictPage(CachePage *page, ReclaimNode *node) = 0;
 
 	// Called once the reference count of a CachePage reaches zero.
 	virtual void retirePage(CachePage *page) = 0;
 };
 
 struct CachePage {
+	static constexpr uint32_t reclaimStateMask = 0x03;
+	// Page is clean and evicatable (part of LRU list).
+	static constexpr uint32_t reclaimCached    = 0x01;
+	// Page is currently being evicted (not in LRU list).
+	static constexpr uint32_t reclaimEvicting  = 0x02;
+
 	// CacheBundle that owns this page.
 	CacheBundle *bundle = nullptr;
 
@@ -46,6 +67,8 @@ struct CachePage {
 	// To coordinate memory reclaim and the CacheBundle that owns this page,
 	// we need a reference counter. This is not related to memory locking.
 	std::atomic<uint32_t> refcount = 0;
+
+	uint32_t flags = 0;
 };
 
 enum class MemoryTag {
@@ -348,6 +371,8 @@ struct ManagedSpace : CacheBundle {
 
 	ManagedSpace(size_t length);
 	~ManagedSpace();
+
+	void evictPage(CachePage *page, ReclaimNode *node) override;
 
 	void retirePage(CachePage *page) override;
 

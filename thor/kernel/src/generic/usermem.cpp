@@ -50,7 +50,9 @@ struct MemoryReclaimer {
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
+		assert(!(page->flags & CachePage::reclaimStateMask));
 		_lruList.push_back(page);
+		page->flags |= CachePage::reclaimCached;
 		_cachedSize += kPageSize;
 	}
 
@@ -59,22 +61,68 @@ struct MemoryReclaimer {
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
-		auto it = _lruList.iterator_to(page);
-		_lruList.erase(it);
+		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
+			auto it = _lruList.iterator_to(page);
+			_lruList.erase(it);
+		}else {
+			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimEvicting);
+			page->flags &= ~CachePage::reclaimStateMask;
+			page->flags |= CachePage::reclaimCached;
+			_cachedSize += kPageSize;
+		}
+
 		_lruList.push_back(page);
 	}
 
 	KernelFiber *createReclaimFiber() {
-		auto checkReclaim = [this] {
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_mutex);
-			frigg::infoLogger() << "thor: " << (_cachedSize / 1024)
-					<< " KiB could be reclaimed" << frigg::endLog;
+		auto checkReclaim = [this] () -> bool {
+			// Take a single page out of the LRU list.
+			// TODO: We have to acquire a refcount here.
+			CachePage *page;
+			{
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&_mutex);
+
+				if(_cachedSize <= (1 << 20))
+					return false;
+
+				page = _lruList.pop_front();
+				page->flags &= ~CachePage::reclaimStateMask;
+				page->flags |= CachePage::reclaimEvicting;
+				_cachedSize -= kPageSize;
+			}
+
+			// Evict the page and wait until it is evicted.
+			struct Closure {
+				FiberBlocker blocker;
+				Worklet worklet;
+				ReclaimNode node;
+			} closure;
+
+			closure.worklet.setup([] (Worklet *base) {
+				auto closure = frg::container_of(base, &Closure::worklet);
+				KernelFiber::unblockOther(&closure->blocker);
+			});
+
+			closure.blocker.setup();
+			closure.node.setup(&closure.worklet);
+			page->bundle->evictPage(page, &closure.node);
+			KernelFiber::blockCurrent(&closure.blocker);
+
+			return true;
 		};
 
 		return KernelFiber::post([=] {
 			while(true) {
-				checkReclaim();
+				{
+					auto irq_lock = frigg::guard(&irqMutex());
+					auto lock = frigg::guard(&_mutex);
+					frigg::infoLogger() << "thor: " << (_cachedSize / 1024)
+							<< " KiB of cached pages" << frigg::endLog;
+				}
+
+				while(checkReclaim())
+					;
 				fiberSleep(1'000'000'000);
 			}
 		});
@@ -530,6 +578,11 @@ ManagedSpace::ManagedSpace(size_t length)
 
 ManagedSpace::~ManagedSpace() {
 	assert(!"Implement this");
+}
+
+void ManagedSpace::evictPage(CachePage *page, ReclaimNode *node) {
+	// TODO: For now, we do not actually evict the page.
+	node->complete();
 }
 
 void ManagedSpace::retirePage(CachePage *page) {
