@@ -158,7 +158,7 @@ void PageBinding::rebind(frigg::SharedPtr<PageSpace> space) {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		current->shotDown(current);
+		WorkQueue::post(current->_worklet);
 	}
 }
 
@@ -230,7 +230,7 @@ void PageBinding::shootdown() {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		current->shotDown(current);
+		WorkQueue::post(current->_worklet);
 	}
 }
 

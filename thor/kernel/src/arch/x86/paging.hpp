@@ -6,6 +6,7 @@
 #include <frigg/algorithm.hpp>
 #include <frigg/smart_ptr.hpp>
 #include "../../generic/types.hpp"
+#include "../../generic/work-queue.hpp"
 
 namespace thor {
 
@@ -60,9 +61,13 @@ struct ShootNode {
 	VirtualAddr address;
 	size_t size;
 
-	void (*shotDown)(ShootNode *node);
+	void setup(Worklet *worklet) {
+		_worklet = worklet;
+	}
 
 private:
+	Worklet *_worklet;
+
 	uint64_t _sequence;
 
 	std::atomic<unsigned int> _bindingsToShoot;

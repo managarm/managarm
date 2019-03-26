@@ -1207,16 +1207,17 @@ bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 		EvictNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
-	closure->node.shotDown = [] (ShootNode *sn) {
+	closure->worklet.setup([] (Worklet *base) {
 		frigg::infoLogger() << "\e[33mShootdown succeeded\e[39m" << frigg::endLog;
-		auto closure = frg::container_of(sn, &Closure::node);
+		auto closure = frg::container_of(base, &Closure::worklet);
 		closure->continuation->done();
 		frigg::destruct(*kernelAlloc, closure);
-	};
+	});
 	closure->continuation = continuation;
 
 	closure->node.address = address() + shoot_offset;
 	closure->node.size = shoot_size;
+	closure->node.setup(&closure->worklet);
 	if(!owner()->_pageSpace.submitShootdown(&closure->node))
 		return false;
 
@@ -1622,27 +1623,26 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 		}
 	};
 
-	node->_shootNode.shotDown = [] (ShootNode *sn) {
-		auto node = frg::container_of(sn, &AddressUnmapNode::_shootNode);
+	node->_worklet.setup([] (Worklet *base) {
+		auto node = frg::container_of(base, &AddressUnmapNode::_worklet);
 
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&node->_space->lock);
 
 		deleteMapping(node->_space, node->_mapping);
-		closeHole(node->_space, sn->address, sn->size);
-	};
+		closeHole(node->_space, node->_shootNode.address, node->_shootNode.size);
+	});
 
 	node->_space = this;
 	node->_mapping = mapping;
 	node->_shootNode.address = address;
 	node->_shootNode.size = length;
+	node->_shootNode.setup(&node->_worklet);
+	if(!_pageSpace.submitShootdown(&node->_shootNode))
+		return;
 
-	// Work around a deadlock if submitShootdown() invokes shotDown() immediately.
-	// TODO: This should probably be resolved by running shotDown() from some callback queue.
-	guard.unlock();
-
-	if(_pageSpace.submitShootdown(&node->_shootNode))
-		node->_shootNode.shotDown(&node->_shootNode);
+	deleteMapping(this, mapping);
+	closeHole(this, address, length);
 }
 
 bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {

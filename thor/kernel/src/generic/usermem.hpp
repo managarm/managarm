@@ -725,6 +725,7 @@ struct AddressUnmapNode {
 private:
 	AddressSpace *_space;
 	Mapping *_mapping;
+	Worklet _worklet;
 	ShootNode _shootNode;
 };
 
