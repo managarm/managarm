@@ -42,16 +42,16 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
-	// TODO: Use a RAII mapping class to get rid of the mapping on return.
-	// map the page cache into the address space
-	void *window;
-	HEL_CHECK(helMapMemory(frontalMemory, kHelNullHandle, nullptr, 0, map_size,
-			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking, &window));
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{frontalMemory},
+			0, map_size,
+			kHelMapProtRead | kHelMapDontRequireBacking};
 
-	// read the directory structure
+	// Read the directory structure.
 	uintptr_t offset = 0;
 	while(offset < fileSize) {
-		auto disk_entry = reinterpret_cast<DiskDirEntry *>((char *)window + offset);
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+				reinterpret_cast<char *>(file_map.get()) + offset);
 		// TODO: use memcmp?
 		if(name.length() == disk_entry->nameLength
 				&& strncmp(disk_entry->name, name.c_str(), disk_entry->nameLength) == 0) {
@@ -108,6 +108,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 		std::cout << "ext2fs: Optional features: " << sb.featureCompat
 				<< ", w-required features: " << sb.featureRoCompat
 				<< ", r/w-required features: " << sb.featureIncompat << std::endl;
+		std::cout << "ext2fs: There are " << numBlockGroups << " block groups" << std::endl;
 	}
 
 	auto bgdt_size = (numBlockGroups * sizeof(DiskGroupDesc) + 511) & ~size_t(511);
@@ -219,9 +220,9 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 		HEL_CHECK(manage.error());
 		assert(manage.offset() + manage.length() <= ((inode->fileSize + 0xFFF) & ~size_t(0xFFF)));
 
-		void *window;
-		HEL_CHECK(helMapMemory(inode->backingMemory, kHelNullHandle, nullptr,
-				manage.offset(), manage.length(), kHelMapProtRead | kHelMapProtWrite, &window));
+		helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
+				manage.offset(), manage.length(),
+				kHelMapProtRead | kHelMapProtWrite};
 
 		size_t read_size = std::min(manage.length(), inode->fileSize - manage.offset());
 		size_t num_blocks = read_size / inode->fs.blockSize;
@@ -231,10 +232,9 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 		assert(manage.offset() % inode->fs.blockSize == 0);
 		assert(num_blocks * inode->fs.blockSize <= manage.length());
 		COFIBER_AWAIT inode->fs.readData(inode, manage.offset() / inode->fs.blockSize,
-				num_blocks, window);
+				num_blocks, file_map.get());
 
 		HEL_CHECK(helCompleteLoad(inode->backingMemory, manage.offset(), manage.length()));
-		HEL_CHECK(helUnmapMemory(kHelNullHandle, window, manage.length()));
 	}
 }))
 
@@ -400,14 +400,14 @@ OpenFile::readEntries(), ([=] {
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
-	// TODO: Use a RAII mapping class to get rid of the mapping on return.
-	// map the page cache into the address space
-	void *window;
-	HEL_CHECK(helMapMemory(inode->frontalMemory, kHelNullHandle, nullptr, 0, map_size,
-			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking, &window));
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
+			0, map_size,
+			kHelMapProtRead | kHelMapDontRequireBacking};
 
 	// Read the directory structure.
-	auto disk_entry = reinterpret_cast<DiskDirEntry *>((char *)window + offset);
+	auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+			reinterpret_cast<char *>(file_map.get()) + offset);
 	assert(offset + sizeof(DiskDirEntry) <= inode->fileSize);
 	assert(offset + disk_entry->recordLength <= inode->fileSize);
 	offset += disk_entry->recordLength;

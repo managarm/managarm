@@ -59,13 +59,13 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, con
 	COFIBER_AWAIT(submit.async_wait());
 	HEL_CHECK(lock_memory.error());
 
-	// TODO: Use a RAII mapping class to get rid of the mapping on return.
-	// map the page cache into the address space
-	void *window;
-	HEL_CHECK(helMapMemory(self->inode->frontalMemory, kHelNullHandle,
-			nullptr, map_offset, map_size, kHelMapProtRead | kHelMapDontRequireBacking, &window));
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{self->inode->frontalMemory},
+			map_offset, map_size,
+			kHelMapProtRead | kHelMapDontRequireBacking};
 
-	memcpy(buffer, (char *)window + (chunk_offset - map_offset), chunk_size);
+	memcpy(buffer, reinterpret_cast<char *>(file_map.get())
+			+ (chunk_offset - map_offset), chunk_size);
 	COFIBER_RETURN(chunk_size);
 }))
 
