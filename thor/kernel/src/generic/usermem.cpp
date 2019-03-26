@@ -900,10 +900,10 @@ size_t ExteriorBundleView::length() {
 	return _viewSize;
 }
 
-ViewRange ExteriorBundleView::translateRange(ptrdiff_t offset, size_t size) {
+SliceRange ExteriorBundleView::translateRange(ptrdiff_t offset, size_t size) {
 	assert(offset + size <= _viewSize);
-	return ViewRange{_bundle.get(), _viewOffset + offset,
-			frigg::min(size, _viewSize - offset), ViewRestriction::null};
+	return SliceRange{_bundle.get(), _viewOffset + offset,
+			frigg::min(size, _viewSize - offset)};
 }
 
 // --------------------------------------------------------
@@ -966,7 +966,7 @@ Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
 // --------------------------------------------------------
 
 NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-		MappingFlags flags, frigg::SharedPtr<VirtualView> view, uintptr_t offset)
+		MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset)
 : Mapping{owner, address, length, flags}, _view{frigg::move(view)}, _offset{offset} {
 	assert(_offset + NormalMapping::length() <= _view->length());
 }
@@ -1096,7 +1096,7 @@ void NormalMapping::uninstall(bool clear) {
 // CowMapping
 // --------------------------------------------------------
 
-CowChain::CowChain(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size)
+CowChain::CowChain(frigg::SharedPtr<MemorySlice> view, ptrdiff_t offset, size_t size)
 : _superRoot{frigg::move(view)}, _superOffset{offset}, _pages{kernelAlloc.get()} {
 	assert(!(size & (kPageSize - 1)));
 	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
@@ -1329,7 +1329,7 @@ void AddressSpace::setupDefaultMappings() {
 }
 
 Error AddressSpace::map(Guard &guard,
-		frigg::UnsafePtr<VirtualView> view, VirtualAddr address,
+		frigg::UnsafePtr<MemorySlice> view, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
 	assert(length);

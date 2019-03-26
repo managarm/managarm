@@ -176,6 +176,13 @@ private:
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
+struct MemoryMapping {
+	// TODO: This class will have some eviction function.
+	//virtual void evactRange();
+
+	frg::default_list_hook<MemoryMapping> listHook;
+};
+
 struct MemoryBundle {
 protected:
 	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size,
@@ -200,43 +207,16 @@ public:
 	PhysicalAddr blockForRange(uintptr_t offset);
 };
 
-enum class ViewRestriction {
-	null,
-	writeProtected,
-};
-
-struct ViewRange {
+struct SliceRange {
 	MemoryBundle *bundle;
 	uintptr_t displacement;
 	size_t size;
-	ViewRestriction restriction;
 };
 
-struct ViewListener {
-	friend struct VirtualView;
-
-	virtual void upgrade(uintptr_t offset, size_t size, ViewRange range) = 0;
-
-private:
-	frg::default_list_hook<ViewListener> _listHook;
-};
-
-struct VirtualView {
-	void attachListener(ViewListener *listener);
-
+struct MemorySlice {
 	virtual size_t length() = 0;
 
-	virtual ViewRange translateRange(ptrdiff_t offset, size_t size) = 0;
-
-private:
-	frg::intrusive_list<
-		ViewListener,
-		frg::locate_member<
-			ViewListener,
-			frg::default_list_hook<ViewListener>,
-			&ViewListener::_listHook
-		>
-	> _listenerList;
+	virtual SliceRange translateRange(ptrdiff_t offset, size_t size) = 0;
 };
 
 struct TransferNode {
@@ -436,13 +416,13 @@ private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
-struct ExteriorBundleView : VirtualView {
+struct ExteriorBundleView : MemorySlice {
 	ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
 			ptrdiff_t view_offset, size_t view_size);
 
 	size_t length() override;
 
-	ViewRange translateRange(ptrdiff_t offset, size_t size) override;
+	SliceRange translateRange(ptrdiff_t offset, size_t size) override;
 
 private:
 	frigg::SharedPtr<MemoryBundle> _bundle;
@@ -548,7 +528,7 @@ private:
 
 struct NormalMapping : Mapping {
 	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-			MappingFlags flags, frigg::SharedPtr<VirtualView> view, uintptr_t offset);
+			MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
 
 	frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) override;
@@ -562,12 +542,12 @@ struct NormalMapping : Mapping {
 	void uninstall(bool clear) override;
 
 private:
-	frigg::SharedPtr<VirtualView> _view;
+	frigg::SharedPtr<MemorySlice> _view;
 	size_t _offset;
 };
 
 struct CowChain {
-	CowChain(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size);
+	CowChain(frigg::SharedPtr<MemorySlice> view, ptrdiff_t offset, size_t size);
 
 	CowChain(frigg::SharedPtr<CowChain> chain, ptrdiff_t offset, size_t size);
 
@@ -576,7 +556,7 @@ struct CowChain {
 // TODO: Either this private again or make this class POD-like.
 	frigg::TicketLock _mutex;
 
-	frigg::SharedPtr<VirtualView> _superRoot;
+	frigg::SharedPtr<MemorySlice> _superRoot;
 	frigg::SharedPtr<CowChain> _superChain;
 	ptrdiff_t _superOffset;
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
@@ -752,7 +732,7 @@ public:
 
 	void setupDefaultMappings();
 
-	Error map(Guard &guard, frigg::UnsafePtr<VirtualView> view,
+	Error map(Guard &guard, frigg::UnsafePtr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 

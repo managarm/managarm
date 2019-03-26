@@ -454,14 +454,14 @@ HelError helCreateSliceView(HelHandle bundle_handle,
 		bundle = wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 
-	auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+	auto slice = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
 			frigg::move(bundle), offset, size);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				VirtualViewDescriptor(frigg::move(view)));
+				MemorySliceDescriptor(frigg::move(slice)));
 	}
 
 	return kHelErrNone;
@@ -544,7 +544,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<VirtualView> view;
+	frigg::SharedPtr<MemorySlice> slice;
 	frigg::SharedPtr<AddressSpace> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -553,12 +553,12 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, memory_handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(memory_wrapper->is<VirtualViewDescriptor>()) {
-			view = memory_wrapper->get<VirtualViewDescriptor>().view;
+		if(memory_wrapper->is<MemorySliceDescriptor>()) {
+			slice = memory_wrapper->get<MemorySliceDescriptor>().slice;
 		}else if(memory_wrapper->is<MemoryBundleDescriptor>()) {
 			auto memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
 			auto bundle_length = memory->getLength();
-			view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+			slice = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
 					frigg::move(memory), 0, bundle_length);
 		}else{
 			return kHelErrBadDescriptor;
@@ -613,7 +613,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&space->lock);
 
-		error = space->map(space_guard, view, (VirtualAddr)pointer, offset, length,
+		error = space->map(space_guard, slice, (VirtualAddr)pointer, offset, length,
 				map_flags, &actual_address);
 	}
 

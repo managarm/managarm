@@ -12,7 +12,7 @@ struct Memory;
 struct Thread;
 struct Universe;
 struct IpcQueue;
-struct VirtualView;
+struct MemorySlice;
 struct KernletObject;
 struct BoundKernlet;
 
@@ -41,11 +41,11 @@ struct MemoryBundleDescriptor {
 	frigg::SharedPtr<Memory> memory;
 };
 
-struct VirtualViewDescriptor {
-	VirtualViewDescriptor(frigg::SharedPtr<VirtualView> view)
-	: view(frigg::move(view)) { }
+struct MemorySliceDescriptor {
+	MemorySliceDescriptor(frigg::SharedPtr<MemorySlice> slice)
+	: slice(frigg::move(slice)) { }
 
-	frigg::SharedPtr<VirtualView> view;
+	frigg::SharedPtr<MemorySlice> slice;
 };
 
 struct AddressSpaceDescriptor {
@@ -193,7 +193,7 @@ typedef frigg::Variant<
 	UniverseDescriptor,
 	QueueDescriptor,
 	MemoryBundleDescriptor,
-	VirtualViewDescriptor,
+	MemorySliceDescriptor,
 	AddressSpaceDescriptor,
 	ThreadDescriptor,
 	LaneDescriptor,
