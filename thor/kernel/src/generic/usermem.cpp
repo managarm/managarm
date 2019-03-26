@@ -1391,6 +1391,9 @@ Mapping *CowMapping::copyOnWrite(AddressSpace *dest_space) {
 }
 
 void CowMapping::install(bool overwrite) {
+	assert(_chain->_superRoot && "TODO: fix eviction of chains");
+	_chain->_superRoot->getView()->addObserver(this);
+
 	// For now we just unmap everything. TODO: Map available pages.
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
@@ -1404,13 +1407,71 @@ void CowMapping::install(bool overwrite) {
 }
 
 void CowMapping::uninstall(bool clear) {
-	if(!clear)
-		return;
+	assert(_chain->_superRoot && "TODO: fix eviction of chains");
 
-	for(size_t pg = 0; pg < length(); pg += kPageSize)
-		if(owner()->_pageSpace.isMapped(address() + pg))
+	if(clear) {
+		for(size_t pg = 0; pg < length(); pg += kPageSize)
+			if(owner()->_pageSpace.isMapped(address() + pg))
+				owner()->_residuentSize -= kPageSize;
+		owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
+	}
+
+	_chain->_superRoot->getView()->removeObserver(this);
+}
+
+bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
+		EvictNode *continuation) {
+	assert(_chain->_superRoot && "TODO: fix eviction of chains");
+
+	if(evict_offset + evict_length <= _chain->_superOffset
+			|| evict_offset >= _chain->_superOffset + length())
+		return true;
+
+	// Begin and end offsets of the region that we need to unmap.
+	auto shoot_begin = frg::max(evict_offset, static_cast<size_t>(_chain->_superOffset));
+	auto shoot_end = frg::min(evict_offset + evict_length, _chain->_superOffset + length());
+
+	// Offset from the beginning of the mapping.
+	auto shoot_offset = shoot_begin - _chain->_superOffset;
+	auto shoot_size = shoot_end - shoot_begin;
+	assert(shoot_size);
+	assert(!(shoot_offset & (kPageSize - 1)));
+	assert(!(shoot_size & (kPageSize - 1)));
+
+	// TODO: Perform proper locking here!
+	frigg::infoLogger() << "\e[33mShooting memory range\e[39m" << frigg::endLog;
+
+	// Unmap the memory range.
+	// TODO: This is only necessary if the page was not copied already.
+	for(size_t pg = 0; pg < shoot_size; pg += kPageSize)
+		if(owner()->_pageSpace.isMapped(address() + shoot_offset + pg))
 			owner()->_residuentSize -= kPageSize;
-	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
+	owner()->_pageSpace.unmapRange(address() + shoot_offset, shoot_size, PageMode::remap);
+
+	// Perform shootdown.
+	struct Closure {
+		Worklet worklet;
+		ShootNode node;
+		EvictNode *continuation;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	closure->worklet.setup([] (Worklet *base) {
+		frigg::infoLogger() << "\e[33mShootdown succeeded\e[39m" << frigg::endLog;
+		auto closure = frg::container_of(base, &Closure::worklet);
+		closure->continuation->done();
+		frigg::destruct(*kernelAlloc, closure);
+	});
+	closure->continuation = continuation;
+
+	closure->node.address = address() + shoot_offset;
+	closure->node.size = shoot_size;
+	closure->node.setup(&closure->worklet);
+	if(!owner()->_pageSpace.submitShootdown(&closure->node))
+		return false;
+
+	frigg::infoLogger() << "\e[33mShootdown fast-path\e[39m" << frigg::endLog;
+	frigg::destruct(*kernelAlloc, closure);
+	return true;
 }
 
 // --------------------------------------------------------

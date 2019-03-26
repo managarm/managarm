@@ -606,7 +606,7 @@ struct CowChain {
 	frigg::SharedPtr<Memory> _copy;
 };
 
-struct CowMapping : Mapping {
+struct CowMapping : Mapping, MemoryObserver {
 	CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<CowChain> chain);
 
@@ -620,6 +620,8 @@ struct CowMapping : Mapping {
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
+
+	bool evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
 	frigg::SharedPtr<CowChain> _chain;
