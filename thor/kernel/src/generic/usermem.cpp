@@ -598,7 +598,6 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 	if(!numObservers)
 		return true;
 
-	// TODO: For now, we do not actually evict the page.
 	struct Closure {
 		Worklet worklet;
 		EvictNode node;
@@ -607,15 +606,27 @@ bool ManagedSpace::evictPage(CachePage *page, ReclaimNode *continuation) {
 
 	closure->worklet.setup([] (Worklet *base) {
 		auto closure = frg::container_of(base, &Closure::worklet);
+		frigg::infoLogger() << "\e[33mEviction completes (slow-path)\e[39m" << frigg::endLog;
 		closure->continuation->complete();
 		frigg::destruct(*kernelAlloc, closure);
 	});
 	closure->continuation = continuation;
 
+	frigg::infoLogger() << "\e[33mThere are " << numObservers
+			<< " observers\e[39m" << frigg::endLog;
 	closure->node.setup(&closure->worklet, numObservers);
+	size_t fast_paths = 0;
 	for(auto observer : observers)
-		observer->evictRange((page - pages) << kPageShift, kPageSize, &closure->node);
-	return false;
+		if(observer->evictRange((page - pages) << kPageShift, kPageSize, &closure->node))
+			fast_paths++;
+	if(!fast_paths)
+		return false;
+	if(!closure->node.retirePending(fast_paths))
+		return false;
+
+	frigg::infoLogger() << "\e[33mEviction completes (fast-path)\e[39m" << frigg::endLog;
+	frigg::destruct(*kernelAlloc, closure);
+	return true;
 }
 
 void ManagedSpace::retirePage(CachePage *page) {
@@ -1034,8 +1045,8 @@ Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
 
 NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 		MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset)
-: Mapping{owner, address, length, flags}, _slice{frigg::move(view)}, _offset{offset} {
-	assert(_offset + NormalMapping::length() <= _slice->length());
+: Mapping{owner, address, length, flags}, _slice{frigg::move(view)}, _viewOffset{offset} {
+	assert(_viewOffset + NormalMapping::length() <= _slice->length());
 	_view = _slice->getView();
 }
 
@@ -1043,7 +1054,7 @@ frigg::Tuple<PhysicalAddr, CachingMode>
 NormalMapping::resolveRange(ptrdiff_t offset) {
 	// TODO: This function should be rewritten.
 	assert((size_t)offset + kPageSize <= length());
-	auto range = _slice->translateRange(_offset + offset,
+	auto range = _slice->translateRange(_viewOffset + offset,
 			frigg::min((size_t)kPageSize, length() - (size_t)offset));
 	auto bundle_range = range.view->peekRange(range.displacement);
 	return frigg::Tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
@@ -1075,7 +1086,7 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 			auto self = closure->self;
 			auto offset = closure->node->_offset + closure->progress;
 
-			auto view_range = self->_slice->translateRange(self->_offset + offset,
+			auto view_range = self->_slice->translateRange(self->_viewOffset + offset,
 					closure->node->_size - offset);
 			closure->worklet.setup(&Ops::fetched);
 			closure->fetch.setup(&closure->worklet);
@@ -1107,11 +1118,11 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 Mapping *NormalMapping::shareMapping(AddressSpace *dest_space) {
 	// TODO: Always keep the exact flags?
 	return frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
-			address(), length(), flags(), _slice, _offset);
+			address(), length(), flags(), _slice, _viewOffset);
 }
 
 Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
-	auto chain = frigg::makeShared<CowChain>(*kernelAlloc, _slice, _offset, length());
+	auto chain = frigg::makeShared<CowChain>(*kernelAlloc, _slice, _viewOffset, length());
 	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
 			address(), length(), flags(), frigg::move(chain));
 }
@@ -1132,7 +1143,7 @@ void NormalMapping::install(bool overwrite) {
 		//if(flags() & MappingFlags::dontRequireBacking)
 		//	grab_flags |= kGrabDontRequireBacking;
 
-		auto range = _slice->translateRange(_offset + progress, kPageSize);
+		auto range = _slice->translateRange(_viewOffset + progress, kPageSize);
 		assert(range.size >= kPageSize);
 		auto bundle_range = range.view->peekRange(range.displacement);
 
@@ -1163,9 +1174,55 @@ void NormalMapping::uninstall(bool clear) {
 	_view->removeObserver(this);
 }
 
-void NormalMapping::evictRange(uintptr_t offset, size_t length, EvictNode *node) {
-	// TODO: Unmap the range and perform shootdown.
-	node->done();
+bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
+		EvictNode *continuation) {
+	if(evict_offset + evict_length <= _viewOffset
+			|| evict_offset >= _viewOffset + length())
+		return true;
+
+	// Begin and end offsets of the region that we need to unmap.
+	auto shoot_begin = frg::max(evict_offset, _viewOffset);
+	auto shoot_end = frg::min(evict_offset + evict_length, _viewOffset + length());
+
+	// Offset from the beginning of the mapping.
+	auto shoot_offset = shoot_begin - _viewOffset;
+	auto shoot_size = shoot_end - shoot_begin;
+	assert(shoot_size);
+	assert(!(shoot_offset & (kPageSize - 1)));
+	assert(!(shoot_size & (kPageSize - 1)));
+
+	// TODO: Perform proper locking here!
+	frigg::infoLogger() << "\e[33mShooting memory range\e[39m" << frigg::endLog;
+
+	// Unmap the memory range.
+	for(size_t pg = 0; pg < shoot_size; pg += kPageSize)
+		if(owner()->_pageSpace.isMapped(address() + shoot_offset + pg))
+			owner()->_residuentSize -= kPageSize;
+	owner()->_pageSpace.unmapRange(address() + shoot_offset, shoot_size, PageMode::remap);
+
+	// Perform shootdown.
+	struct Closure {
+		Worklet worklet;
+		ShootNode node;
+		EvictNode *continuation;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	closure->node.shotDown = [] (ShootNode *sn) {
+		frigg::infoLogger() << "\e[33mShootdown succeeded\e[39m" << frigg::endLog;
+		auto closure = frg::container_of(sn, &Closure::node);
+		closure->continuation->done();
+		frigg::destruct(*kernelAlloc, closure);
+	};
+	closure->continuation = continuation;
+
+	closure->node.address = address() + shoot_offset;
+	closure->node.size = shoot_size;
+	if(!owner()->_pageSpace.submitShootdown(&closure->node))
+		return false;
+
+	frigg::infoLogger() << "\e[33mShootdown fast-path\e[39m" << frigg::endLog;
+	frigg::destruct(*kernelAlloc, closure);
+	return true;
 }
 
 // --------------------------------------------------------

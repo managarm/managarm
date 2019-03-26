@@ -188,13 +188,17 @@ struct EvictNode {
 			WorkQueue::post(_worklet);
 	}
 
+	bool retirePending(size_t n) {
+		return _pending.fetch_sub(n, std::memory_order_acq_rel) == n;
+	}
+
 private:
 	std::atomic<size_t> _pending;
 	Worklet *_worklet;
 };
 
 struct MemoryObserver {
-	virtual void evictRange(uintptr_t offset, size_t length, EvictNode *node) = 0;
+	virtual bool evictRange(uintptr_t offset, size_t length, EvictNode *node) = 0;
 
 	frg::default_list_hook<MemoryObserver> listHook;
 };
@@ -577,12 +581,12 @@ struct NormalMapping : Mapping, MemoryObserver {
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
-	void evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
+	bool evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
 	frigg::SharedPtr<MemorySlice> _slice;
 	frigg::SharedPtr<MemoryView> _view;
-	size_t _offset;
+	size_t _viewOffset;
 };
 
 struct CowChain {
