@@ -1655,9 +1655,9 @@ Error AddressSpace::map(Guard &guard,
 	return kErrSuccess;
 }
 
-void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
-		AddressUnmapNode *node) {
-	assert(guard.protects(&lock));
+bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	AddressSpace::Guard space_guard(&lock);
 
 	Mapping *mapping = _getMapping(address);
 	assert(mapping);
@@ -1741,6 +1741,7 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 
 		deleteMapping(node->_space, node->_mapping);
 		closeHole(node->_space, node->_shootNode.address, node->_shootNode.size);
+		node->complete();
 	});
 
 	node->_space = this;
@@ -1749,10 +1750,11 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 	node->_shootNode.size = length;
 	node->_shootNode.setup(&node->_worklet);
 	if(!_pageSpace.submitShootdown(&node->_shootNode))
-		return;
+		return false;
 
 	deleteMapping(this, mapping);
 	closeHole(this, address, length);
+	return true;
 }
 
 bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {

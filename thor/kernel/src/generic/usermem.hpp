@@ -716,7 +716,16 @@ private:
 struct AddressUnmapNode {
 	friend struct AddressSpace;
 
+	void setup(Worklet *completion) {
+		_completion = completion;
+	}
+
+	void complete() {
+		WorkQueue::post(_completion);
+	}
+
 private:
+	Worklet *_completion;
 	AddressSpace *_space;
 	Mapping *_mapping;
 	Worklet _worklet;
@@ -775,8 +784,7 @@ public:
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 
-	void unmap(Guard &guard, VirtualAddr address, size_t length,
-			AddressUnmapNode *node);
+	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
 	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
 
