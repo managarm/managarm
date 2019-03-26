@@ -416,6 +416,14 @@ HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
+void HardwareMemory::addObserver(MemoryObserver *observer) {
+	// As we never evict memory, there is no need to handle observers.
+}
+
+void HardwareMemory::removeObserver(MemoryObserver *observer) {
+	// As we never evict memory, there is no need to handle observers.
+}
+
 frigg::Tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 	return frigg::Tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
@@ -507,6 +515,14 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 	PageAccessor accessor{_physicalChunks[index]
 			+ ((offset % _chunkSize) / kPageSize)};
 	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
+}
+
+void AllocatedMemory::addObserver(MemoryObserver *observer) {
+	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
+}
+
+void AllocatedMemory::removeObserver(MemoryObserver *observer) {
+	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
@@ -645,6 +661,21 @@ bool ManagedSpace::isComplete(InitiateBase *initiate) {
 // BackingMemory
 // --------------------------------------------------------
 
+void BackingMemory::addObserver(MemoryObserver *observer) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
+	_managed->observers.push_back(observer);
+}
+
+void BackingMemory::removeObserver(MemoryObserver *observer) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
+	auto it = _managed->observers.iterator_to(observer);
+	_managed->observers.erase(it);
+}
+
 frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
@@ -757,6 +788,21 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 // --------------------------------------------------------
 // FrontalMemory
 // --------------------------------------------------------
+
+void FrontalMemory::addObserver(MemoryObserver *observer) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
+	_managed->observers.push_back(observer);
+}
+
+void FrontalMemory::removeObserver(MemoryObserver *observer) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
+	auto it = _managed->observers.iterator_to(observer);
+	_managed->observers.erase(it);
+}
 
 frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));

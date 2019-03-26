@@ -42,6 +42,7 @@ private:
 	Worklet *_worklet;
 };
 
+// This is the "backend" part of a memory object.
 struct CacheBundle {
 	virtual ~CacheBundle() = default;
 
@@ -176,13 +177,14 @@ private:
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
-struct MemoryMapping {
+struct MemoryObserver {
 	// TODO: This class will have some eviction function.
 	//virtual void evactRange();
 
-	frg::default_list_hook<MemoryMapping> listHook;
+	frg::default_list_hook<MemoryObserver> listHook;
 };
 
+// View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
 	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size,
@@ -195,6 +197,10 @@ protected:
 	}
 
 public:
+	// Add/remove memory observers. These will be notified of page evictions.
+	virtual void addObserver(MemoryObserver *observer) = 0;
+	virtual void removeObserver(MemoryObserver *observer) = 0;
+
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
 	virtual frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) = 0;
@@ -312,6 +318,8 @@ struct HardwareMemory : Memory {
 	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
 	~HardwareMemory();
 
+	void addObserver(MemoryObserver *observer) override;
+	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
@@ -336,6 +344,8 @@ struct AllocatedMemory : Memory {
 
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
+	void addObserver(MemoryObserver *observer) override;
+	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
@@ -373,6 +383,15 @@ struct ManagedSpace : CacheBundle {
 	// TODO: Use a unique_ptr to manage this array.
 	CachePage *pages;
 
+	frg::intrusive_list<
+		MemoryObserver,
+		frg::locate_member<
+			MemoryObserver,
+			frg::default_list_hook<MemoryObserver>,
+			&MemoryObserver::listHook
+		>
+	> observers;
+
 	InitiateList initiateLoadQueue;
 	InitiateList pendingLoadQueue;
 	InitiateList completedLoadQueue;
@@ -390,6 +409,8 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
+	void addObserver(MemoryObserver *observer) override;
+	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
@@ -411,6 +432,8 @@ public:
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
+	void addObserver(MemoryObserver *observer) override;
+	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
