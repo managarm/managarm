@@ -39,6 +39,70 @@ PhysicalAddr MemoryBundle::blockForRange(uintptr_t) {
 }
 
 // --------------------------------------------------------
+// Reclaim implementation.
+// --------------------------------------------------------
+
+extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+
+struct MemoryReclaimer {
+	void addPage(CachePage *page) {
+		// TODO: Do we need the IRQ lock here?
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+
+		_lruList.push_back(page);
+		_cachedSize += kPageSize;
+	}
+
+	void bumpPage(CachePage *page) {
+		// TODO: Do we need the IRQ lock here?
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+
+		auto it = _lruList.iterator_to(page);
+		_lruList.erase(it);
+		_lruList.push_back(page);
+	}
+
+	KernelFiber *createReclaimFiber() {
+		auto checkReclaim = [this] {
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_mutex);
+			frigg::infoLogger() << "thor: " << (_cachedSize / 1024)
+					<< " KiB could be reclaimed" << frigg::endLog;
+		};
+
+		return KernelFiber::post([=] {
+			while(true) {
+				checkReclaim();
+				fiberSleep(1'000'000'000);
+			}
+		});
+	}
+
+private:
+	frigg::TicketLock _mutex;
+
+	frg::intrusive_list<
+		CachePage,
+		frg::locate_member<
+			CachePage,
+			frg::default_list_hook<CachePage>,
+			&CachePage::lruHook
+		>
+	> _lruList;
+
+	size_t _cachedSize = 0;
+};
+
+frigg::LazyInitializer<MemoryReclaimer> globalReclaimer;
+
+void initializeReclaim() {
+	globalReclaimer.initialize();
+	earlyFibers->push(globalReclaimer->createReclaimFiber());
+}
+
+// --------------------------------------------------------
 // Memory
 // --------------------------------------------------------
 
@@ -456,13 +520,20 @@ size_t AllocatedMemory::getLength() {
 
 ManagedSpace::ManagedSpace(size_t length)
 : physicalPages(*kernelAlloc), loadState(*kernelAlloc) {
-	assert(length % kPageSize == 0);
-	physicalPages.resize(length / kPageSize, PhysicalAddr(-1));
-	loadState.resize(length / kPageSize, kStateMissing);
+	assert(!(length & (kPageSize - 1)));
+	physicalPages.resize(length >> kPageShift, PhysicalAddr(-1));
+	loadState.resize(length >> kPageShift, kStateMissing);
+	pages = frg::construct_n<CachePage>(*kernelAlloc, length >> kPageShift);
+	for(size_t i = 0; i < (length >> kPageShift); i++)
+		pages[i].bundle = this;
 }
 
 ManagedSpace::~ManagedSpace() {
 	assert(!"Implement this");
+}
+
+void ManagedSpace::retirePage(CachePage *page) {
+
 }
 
 // TODO: Split this into a function to match initiate <-> handle requests
@@ -552,6 +623,7 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 		_managed->physicalPages[index] = physical;
+		globalReclaimer->addPage(&_managed->pages[index]);
 	}
 
 	completeFetch(node, _managed->physicalPages[index] + misalign, kPageSize - misalign,
@@ -720,6 +792,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	auto physical = _managed->physicalPages[index];
 	assert(physical != PhysicalAddr(-1));
+	globalReclaimer->bumpPage(&_managed->pages[index]);
 	completeFetch(node, physical + misalign, kPageSize - misalign, CachingMode::null);
 	return true;
 }
@@ -1499,6 +1572,7 @@ bool AddressSpace::fork(ForkNode *node) {
 				auto origin_mapping = cur_mapping->copyOnWrite(this);
 				auto fork_mapping = cur_mapping->copyOnWrite(node->_fork.get());
 
+				// TODO: We have to perform shootdown if we remap the mapping.
 				_mappings.remove(cur_mapping);
 				_mappings.insert(origin_mapping);
 				node->_fork->_mappings.insert(fork_mapping);

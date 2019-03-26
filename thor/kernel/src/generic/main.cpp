@@ -88,6 +88,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	earlyFibers.initialize(*kernelAlloc);
 
+	initializeReclaim();
+
 	for(int i = 0; i < 24; i++)
 		globalIrqSlots[i].initialize();
 

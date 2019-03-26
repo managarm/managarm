@@ -27,6 +27,27 @@ enum : GrabIntent {
 	kGrabDontRequireBacking = GrabIntent(1) << 4
 };
 
+struct CachePage;
+
+struct CacheBundle {
+	virtual ~CacheBundle() = default;
+
+	// Called once the reference count of a CachePage reaches zero.
+	virtual void retirePage(CachePage *page) = 0;
+};
+
+struct CachePage {
+	// CacheBundle that owns this page.
+	CacheBundle *bundle = nullptr;
+
+	// Hooks for LRU lists.
+	frg::default_list_hook<CachePage> lruHook;
+
+	// To coordinate memory reclaim and the CacheBundle that owns this page,
+	// we need a reference counter. This is not related to memory locking.
+	std::atomic<uint32_t> refcount = 0;
+};
+
 enum class MemoryTag {
 	null,
 	hardware,
@@ -318,7 +339,7 @@ private:
 	size_t _chunkSize, _chunkAlign;
 };
 
-struct ManagedSpace {
+struct ManagedSpace : CacheBundle {
 	enum LoadState {
 		kStateMissing,
 		kStateLoading,
@@ -328,13 +349,18 @@ struct ManagedSpace {
 	ManagedSpace(size_t length);
 	~ManagedSpace();
 
+	void retirePage(CachePage *page) override;
+
 	void progressLoads();
 	bool isComplete(InitiateBase *initiate);
 
 	frigg::TicketLock mutex;
 
+	// TODO: Store all of this information in a radix tree.
 	frigg::Vector<PhysicalAddr, KernelAlloc> physicalPages;
 	frigg::Vector<LoadState, KernelAlloc> loadState;
+	// TODO: Use a unique_ptr to manage this array.
+	CachePage *pages;
 
 	InitiateList initiateLoadQueue;
 	InitiateList pendingLoadQueue;
@@ -828,6 +854,8 @@ private:
 	size_t _length;
 	bool _acquired;
 };
+
+void initializeReclaim();
 
 } // namespace thor
 

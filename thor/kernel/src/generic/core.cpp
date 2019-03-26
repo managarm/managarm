@@ -115,6 +115,7 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	}
 	kernelMemoryUsage -= length;
 
+	// TODO: Perform proper shootdown here.
 	for(size_t offset = 0; offset < length; offset += kPageSize)
 		invalidatePage(reinterpret_cast<char *>(address) + offset);
 }
