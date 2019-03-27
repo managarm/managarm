@@ -605,8 +605,9 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helSubmitManageMemory((HelHandle)arg0,
 				(HelHandle)arg1, (uintptr_t)arg2);
 	} break;
-	case kHelCallCompleteLoad: {
-		*image.error() = helCompleteLoad((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
+	case kHelCallUpdateMemory: {
+		*image.error() = helUpdateMemory((HelHandle)arg0, (int)arg1,
+				(uintptr_t)arg2, (size_t)arg3);
 	} break;
 	case kHelCallSubmitLockMemory: {
 		*image.error() = helSubmitLockMemory((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,

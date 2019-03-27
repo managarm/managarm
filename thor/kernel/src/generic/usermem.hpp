@@ -12,6 +12,12 @@
 
 namespace thor {
 
+enum class ManageRequest {
+	null,
+	initialize,
+	writeback
+};
+
 struct Memory;
 struct Mapping;
 struct AddressSpace;
@@ -70,12 +76,6 @@ enum class MemoryTag {
 	backing,
 	frontal,
 	copyOnWrite
-};
-
-enum class ManageRequest {
-	null,
-	initialize,
-	writeback
 };
 
 struct ManageBase {
@@ -233,6 +233,9 @@ public:
 
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
+
+	// Called (e.g. by user space) to update a range after loading or writeback.
+	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
 };
 
 struct SliceRange {
@@ -308,7 +311,6 @@ struct Memory : MemoryView {
 	void submitInitiateLoad(InitiateBase *initiate);
 
 	void submitManage(ManageBase *handle);
-	void completeLoad(size_t offset, size_t length);
 
 private:
 	MemoryTag _tag;
@@ -452,7 +454,7 @@ public:
 	size_t getLength();
 
 	void submitManage(ManageBase *handle);
-	void completeLoad(size_t offset, size_t length);
+	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;

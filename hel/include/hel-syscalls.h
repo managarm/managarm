@@ -170,9 +170,10 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitManageMemory(H
 	return helSyscall3(kHelCallSubmitManageMemory, (HelWord)handle, (HelWord)queue, (HelWord)context);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCompleteLoad(HelHandle handle,
-		uintptr_t offset, size_t length) {
-	return helSyscall3(kHelCallCompleteLoad, (HelWord)handle, (HelWord)offset, (HelWord)length);
+extern inline __attribute__ (( always_inline )) HelError helUpdateMemory(HelHandle handle,
+		int type, uintptr_t offset, size_t length) {
+	return helSyscall4(kHelCallUpdateMemory, (HelWord)handle, (HelWord)type,
+			(HelWord)offset, (HelWord)length);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitLockMemory(HelHandle handle,

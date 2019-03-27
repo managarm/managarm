@@ -162,6 +162,14 @@ void initializeReclaim() {
 }
 
 // --------------------------------------------------------
+// MemoryView.
+// --------------------------------------------------------
+
+Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
+	return kErrIllegalObject;
+}
+
+// --------------------------------------------------------
 // Memory
 // --------------------------------------------------------
 
@@ -290,16 +298,6 @@ void Memory::submitManage(ManageBase *handle) {
 	switch(tag()) {
 	case MemoryTag::backing:
 		static_cast<BackingMemory *>(this)->submitManage(handle);
-		break;
-	default:
-		assert(!"Not supported");
-	}
-}
-
-void Memory::completeLoad(size_t offset, size_t length) {
-	switch(tag()) {
-	case MemoryTag::backing:
-		static_cast<BackingMemory *>(this)->completeLoad(offset, length);
 		break;
 	default:
 		assert(!"Not supported");
@@ -856,7 +854,7 @@ void BackingMemory::submitManage(ManageBase *handle) {
 	}
 }
 
-void BackingMemory::completeLoad(size_t offset, size_t length) {
+Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t length) {
 	assert((offset % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
 
@@ -875,31 +873,42 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 	}
 	log << frigg::endLog;*/
 
-	for(size_t p = 0; p < length; p += kPageSize) {
-		size_t index = (offset + p) / kPageSize;
-		assert(_managed->loadState[index] == ManagedSpace::kStateLoading);
-		_managed->loadState[index] = ManagedSpace::kStateLoaded;
-		globalReclaimer->addPage(&_managed->pages[index]);
-	}
+	if(type == ManageRequest::initialize) {
+		for(size_t pg = 0; pg < length; pg += kPageSize) {
+			size_t index = (offset + pg) / kPageSize;
+			assert(_managed->loadState[index] == ManagedSpace::kStateLoading);
+			_managed->loadState[index] = ManagedSpace::kStateLoaded;
+			globalReclaimer->addPage(&_managed->pages[index]);
+		}
 
-	InitiateList queue;
-	for(auto it = _managed->pendingLoadQueue.begin(); it != _managed->pendingLoadQueue.end(); ) {
-		auto it_copy = it;
-		auto node = *it++;
-		if(_managed->isComplete(node)) {
-			_managed->pendingLoadQueue.erase(it_copy);
-			queue.push_back(node);
+		InitiateList queue;
+		for(auto it = _managed->pendingLoadQueue.begin(); it != _managed->pendingLoadQueue.end(); ) {
+			auto it_copy = it;
+			auto node = *it++;
+			if(_managed->isComplete(node)) {
+				_managed->pendingLoadQueue.erase(it_copy);
+				queue.push_back(node);
+			}
+		}
+
+		irq_lock.unlock();
+		lock.unlock();
+
+		while(!queue.empty()) {
+			auto node = queue.pop_front();
+			node->setup(kErrSuccess);
+			node->complete();
+		}
+	}else{
+		for(size_t pg = 0; pg < length; pg += kPageSize) {
+			size_t index = (offset + pg) / kPageSize;
+			assert(_managed->loadState[index] == ManagedSpace::kStateWriteback);
+			_managed->loadState[index] = ManagedSpace::kStateLoaded;
+			globalReclaimer->addPage(&_managed->pages[index]);
 		}
 	}
 
-	irq_lock.unlock();
-	lock.unlock();
-
-	while(!queue.empty()) {
-		auto node = queue.pop_front();
-		node->setup(kErrSuccess);
-		node->complete();
-	}
+	return kErrSuccess;
 }
 
 // --------------------------------------------------------

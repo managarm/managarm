@@ -861,7 +861,8 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	return kHelErrNone;
 }
 
-HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
+HelError helUpdateMemory(HelHandle handle, int type,
+		uintptr_t offset, size_t length) {
 	assert(offset % kPageSize == 0 && length % kPageSize == 0);
 
 	auto this_thread = getCurrentThread();
@@ -880,9 +881,22 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 		memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
+	Error error;
+	switch(type) {
+	case kHelManageInitialize:
+		error = memory->updateRange(ManageRequest::initialize, offset, length);
+		break;
+	case kHelManageWriteback:
+		error = memory->updateRange(ManageRequest::writeback, offset, length);
+		break;
+	default:
+		return kHelErrIllegalArgs;
+	}
 
-	memory->completeLoad(offset, length);
+	if(error == kErrIllegalObject)
+		return kHelErrBadDescriptor;
 
+	assert(!error);
 	return kHelErrNone;
 }
 

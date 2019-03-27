@@ -232,7 +232,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 			COFIBER_AWAIT inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize,
 					num_blocks, file_map.get());
 
-			HEL_CHECK(helCompleteLoad(inode->backingMemory, manage.offset(), manage.length()));
+			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
+					manage.offset(), manage.length()));
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
@@ -246,6 +247,9 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
 			COFIBER_AWAIT inode->fs.writeDataBlocks(inode, manage.offset() / inode->fs.blockSize,
 					num_blocks, file_map.get());
+
+			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
+					manage.offset(), manage.length()));
 		}
 	}
 }))
@@ -300,7 +304,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 		helix::Mapping out_map{memory, manage.offset(), manage.length()};
 		COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
 				out_map.get(), sectorsPerBlock);
-		HEL_CHECK(helCompleteLoad(memory.getHandle(), manage.offset(), manage.length()));
+		HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+				manage.offset(), manage.length()));
 	}
 }))
 
