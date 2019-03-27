@@ -720,7 +720,8 @@ void ManagedSpace::progressLoads() {
 
 				initiate->progress += count << kPageShift;
 			}else if(loadState[index] == kStateLoading
-					|| loadState[index] == kStateLoaded) {
+					|| loadState[index] == kStateLoaded
+					|| loadState[index] == kStateWriteback) {
 				// Skip the page.
 				initiate->progress += kPageSize;
 			}else{
@@ -1025,6 +1026,7 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	auto index = offset >> kPageShift;
 	if(_managed->loadState[index] == ManagedSpace::kStateLoaded) {
 		_managed->loadState[index] = ManagedSpace::kStateWriteback;
+		globalReclaimer->removePage(&_managed->pages[index]);
 	}else{
 		assert(_managed->loadState[index] == ManagedSpace::kStateWriteback);
 		return;
