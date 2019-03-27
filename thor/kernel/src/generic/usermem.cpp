@@ -277,7 +277,7 @@ size_t Memory::getLength() {
 	}
 }
 
-void Memory::submitInitiateLoad(InitiateBase *initiate) {
+void Memory::submitInitiateLoad(MonitorNode *initiate) {
 	switch(tag()) {
 	case MemoryTag::frontal:
 		static_cast<FrontalMemory *>(this)->submitInitiateLoad(initiate);
@@ -294,7 +294,7 @@ void Memory::submitInitiateLoad(InitiateBase *initiate) {
 	}
 }
 
-void Memory::submitManage(ManageBase *handle) {
+void Memory::submitManage(ManageNode *handle) {
 	switch(tag()) {
 	case MemoryTag::backing:
 		static_cast<BackingMemory *>(this)->submitManage(handle);
@@ -689,6 +689,63 @@ void ManagedSpace::retirePage(CachePage *page) {
 
 }
 
+void ManagedSpace::submitManagement(ManageNode *node) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex);
+
+	submittedManageQueue.push_back(node);
+	progressLoads();
+
+	InitiateList initiate_queue;
+	ManageList manage_queue;
+	initiate_queue.splice(initiate_queue.end(), completedLoadQueue);
+	manage_queue.splice(manage_queue.end(), completedManageQueue);
+
+	lock.unlock();
+	irq_lock.unlock();
+
+	while(!initiate_queue.empty()) {
+		auto node = initiate_queue.pop_front();
+		node->complete();
+	}
+	while(!manage_queue.empty()) {
+		auto node = manage_queue.pop_front();
+		node->complete();
+	}
+}
+
+void ManagedSpace::submitMonitor(MonitorNode *node) {
+	node->progress = 0;
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex);
+
+	assert(node->offset % kPageSize == 0);
+	assert(node->length % kPageSize == 0);
+	assert((node->offset + node->length) / kPageSize
+			<= physicalPages.size());
+
+	initiateLoadQueue.push_back(node);
+	progressLoads();
+
+	InitiateList initiate_queue;
+	ManageList manage_queue;
+	initiate_queue.splice(initiate_queue.end(), completedLoadQueue);
+	manage_queue.splice(manage_queue.end(), completedManageQueue);
+
+	lock.unlock();
+	irq_lock.unlock();
+
+	while(!initiate_queue.empty()) {
+		auto node = initiate_queue.pop_front();
+		node->complete();
+	}
+	while(!manage_queue.empty()) {
+		auto node = manage_queue.pop_front();
+		node->complete();
+	}
+}
+
 // TODO: Split this into a function to match initiate <-> handle requests
 // + a different function to complete initiate requests.
 void ManagedSpace::progressLoads() {
@@ -757,7 +814,7 @@ void ManagedSpace::progressLoads() {
 	}
 }
 
-bool ManagedSpace::isComplete(InitiateBase *initiate) {
+bool ManagedSpace::isComplete(MonitorNode *initiate) {
 	for(size_t p = 0; p < initiate->length; p += kPageSize) {
 		size_t index = (initiate->offset + p) / kPageSize;
 		if(loadState[index] != kStateLoaded)
@@ -829,29 +886,8 @@ size_t BackingMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
 
-void BackingMemory::submitManage(ManageBase *handle) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
-
-	_managed->submittedManageQueue.push_back(handle);
-	_managed->progressLoads();
-
-	InitiateList initiate_queue;
-	ManageList manage_queue;
-	initiate_queue.splice(initiate_queue.end(), _managed->completedLoadQueue);
-	manage_queue.splice(manage_queue.end(), _managed->completedManageQueue);
-
-	lock.unlock();
-	irq_lock.unlock();
-
-	while(!initiate_queue.empty()) {
-		auto node = initiate_queue.pop_front();
-		node->complete();
-	}
-	while(!manage_queue.empty()) {
-		auto node = manage_queue.pop_front();
-		node->complete();
-	}
+void BackingMemory::submitManage(ManageNode *node) {
+	_managed->submitManagement(node);
 }
 
 Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t length) {
@@ -964,7 +1000,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			ManagedSpace *bundle;
 
 			Worklet worklet;
-			InitiateBase initiate;
+			MonitorNode initiate;
 		} *closure = frigg::construct<Closure>(*kernelAlloc);
 
 		struct Ops {
@@ -1027,25 +1063,28 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	assert(!(offset % kPageSize));
 	assert(!(size % kPageSize));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	// Put the pages into the writeback state.
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_managed->mutex);
 
-	// TODO: To support multi-page writeback, we'd have to track the progress of the request.
-	assert(size == kPageSize);
-	auto index = offset >> kPageShift;
-	if(_managed->loadState[index] == ManagedSpace::kStateLoaded) {
-		_managed->loadState[index] = ManagedSpace::kStateWriteback;
-		globalReclaimer->removePage(&_managed->pages[index]);
-	}else{
-		assert(_managed->loadState[index] == ManagedSpace::kStateWriteback);
-		return;
+		// TODO: To support multi-page writeback, we'd have to track the progress of the request.
+		assert(size == kPageSize);
+		auto index = offset >> kPageShift;
+		if(_managed->loadState[index] == ManagedSpace::kStateLoaded) {
+			_managed->loadState[index] = ManagedSpace::kStateWriteback;
+			globalReclaimer->removePage(&_managed->pages[index]);
+		}else{
+			assert(_managed->loadState[index] == ManagedSpace::kStateWriteback);
+			return;
+		}
 	}
 
 	// TODO: We need to be able with OOM here...
 	struct Closure {
 		ManagedSpace *bundle;
 		Worklet worklet;
-		InitiateBase initiate;
+		MonitorNode initiate;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
 	closure->bundle = _managed.get();
@@ -1057,27 +1096,7 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	});
 	closure->initiate.setup(ManageRequest::writeback,
 			offset, size, &closure->worklet);
-	closure->initiate.progress = 0;
-	_managed->initiateLoadQueue.push_back(&closure->initiate);
-	_managed->progressLoads();
-
-	InitiateList initiate_queue;
-	ManageList manage_queue;
-	initiate_queue.splice(initiate_queue.end(), _managed->completedLoadQueue);
-	manage_queue.splice(manage_queue.end(), _managed->completedManageQueue);
-
-	lock.unlock();
-	irq_lock.unlock();
-
-	while(!initiate_queue.empty()) {
-		auto node = initiate_queue.pop_front();
-		node->complete();
-	}
-	while(!manage_queue.empty()) {
-		auto node = manage_queue.pop_front();
-		node->complete();
-	}
-
+	_managed->submitMonitor(&closure->initiate);
 }
 
 size_t FrontalMemory::getLength() {
@@ -1085,36 +1104,8 @@ size_t FrontalMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
 
-void FrontalMemory::submitInitiateLoad(InitiateBase *initiate) {
-	initiate->progress = 0;
-
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
-
-	assert(initiate->offset % kPageSize == 0);
-	assert(initiate->length % kPageSize == 0);
-	assert((initiate->offset + initiate->length) / kPageSize
-			<= _managed->physicalPages.size());
-
-	_managed->initiateLoadQueue.push_back(initiate);
-	_managed->progressLoads();
-
-	InitiateList initiate_queue;
-	ManageList manage_queue;
-	initiate_queue.splice(initiate_queue.end(), _managed->completedLoadQueue);
-	manage_queue.splice(manage_queue.end(), _managed->completedManageQueue);
-
-	lock.unlock();
-	irq_lock.unlock();
-
-	while(!initiate_queue.empty()) {
-		auto node = initiate_queue.pop_front();
-		node->complete();
-	}
-	while(!manage_queue.empty()) {
-		auto node = manage_queue.pop_front();
-		node->complete();
-	}
+void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
+	_managed->submitMonitor(node);
 }
 
 // --------------------------------------------------------

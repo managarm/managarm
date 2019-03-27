@@ -78,7 +78,7 @@ enum class MemoryTag {
 	copyOnWrite
 };
 
-struct ManageBase {
+struct ManageNode {
 	void setup(Worklet *worklet) {
 		_worklet = worklet;
 	}
@@ -99,7 +99,7 @@ struct ManageBase {
 		WorkQueue::post(_worklet);
 	}
 
-	frg::default_list_hook<ManageBase> processQueueItem;
+	frg::default_list_hook<ManageNode> processQueueItem;
 
 private:
 	// Results of the operation.
@@ -112,15 +112,15 @@ private:
 };
 
 using ManageList = frg::intrusive_list<
-	ManageBase,
+	ManageNode,
 	frg::locate_member<
-		ManageBase,
-		frg::default_list_hook<ManageBase>,
-		&ManageBase::processQueueItem
+		ManageNode,
+		frg::default_list_hook<ManageNode>,
+		&ManageNode::processQueueItem
 	>
 >;
 
-struct InitiateBase {
+struct MonitorNode {
 	void setup(ManageRequest type_, uintptr_t offset_, size_t length_, Worklet *worklet) {
 		type = type_;
 		offset = offset_;
@@ -147,18 +147,18 @@ private:
 
 	Worklet *_worklet;
 public:
-	frg::default_list_hook<InitiateBase> processQueueItem;
+	frg::default_list_hook<MonitorNode> processQueueItem;
 
 	// Current progress in bytes.
 	size_t progress;
 };
 
 using InitiateList = frg::intrusive_list<
-	InitiateBase,
+	MonitorNode,
 	frg::locate_member<
-		InitiateBase,
-		frg::default_list_hook<InitiateBase>,
-		&InitiateBase::processQueueItem
+		MonitorNode,
+		frg::default_list_hook<MonitorNode>,
+		&MonitorNode::processQueueItem
 	>
 >;
 
@@ -308,9 +308,9 @@ struct Memory : MemoryView {
 	size_t getLength();
 
 	// TODO: InitiateLoad does more or less the same as fetchRange(). Remove it.
-	void submitInitiateLoad(InitiateBase *initiate);
+	void submitInitiateLoad(MonitorNode *initiate);
 
-	void submitManage(ManageBase *handle);
+	void submitManage(ManageNode *handle);
 
 private:
 	MemoryTag _tag;
@@ -406,8 +406,10 @@ struct ManagedSpace : CacheBundle {
 
 	void retirePage(CachePage *page) override;
 
+	void submitManagement(ManageNode *node);
+	void submitMonitor(MonitorNode *node);
 	void progressLoads();
-	bool isComplete(InitiateBase *initiate);
+	bool isComplete(MonitorNode *initiate);
 
 	frigg::TicketLock mutex;
 
@@ -453,7 +455,7 @@ public:
 
 	size_t getLength();
 
-	void submitManage(ManageBase *handle);
+	void submitManage(ManageNode *handle);
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 
 private:
@@ -477,7 +479,7 @@ public:
 
 	size_t getLength();
 
-	void submitInitiateLoad(InitiateBase *initiate);
+	void submitInitiateLoad(MonitorNode *initiate);
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;

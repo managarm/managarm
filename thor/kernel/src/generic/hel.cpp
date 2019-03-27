@@ -826,7 +826,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 
 		frigg::SharedPtr<IpcQueue> ipcQueue;
 		Worklet worklet;
-		ManageBase manage;
+		ManageNode manage;
 		QueueSource ipcSource;
 
 		HelManageResult helResult;
@@ -938,7 +938,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 
 		frigg::SharedPtr<IpcQueue> ipcQueue;
 		Worklet worklet;
-		InitiateBase initiate;
+		MonitorNode initiate;
 		QueueSource ipcSource;
 
 		HelSimpleResult helResult;
