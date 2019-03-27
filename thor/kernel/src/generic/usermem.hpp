@@ -60,7 +60,7 @@ struct CachePage {
 	CacheBundle *bundle = nullptr;
 
 	// Hooks for LRU lists.
-	frg::default_list_hook<CachePage> lruHook;
+	frg::default_list_hook<CachePage> listHook;
 
 	// To coordinate memory reclaim and the CacheBundle that owns this page,
 	// we need a reference counter. This is not related to memory locking.
@@ -393,9 +393,12 @@ private:
 struct ManagedSpace : CacheBundle {
 	enum LoadState {
 		kStateMissing,
-		kStateLoading,
-		kStateLoaded,
+		kStatePresent,
+		kStateWantInitialization,
+		kStateInitialization,
+		kStateWantWriteback,
 		kStateWriteback,
+		kStateAnotherWriteback,
 		kStateEvicting
 	};
 
@@ -408,8 +411,8 @@ struct ManagedSpace : CacheBundle {
 
 	void submitManagement(ManageNode *node);
 	void submitMonitor(MonitorNode *node);
-	void progressLoads();
-	bool isComplete(MonitorNode *initiate);
+	void _progressManagement();
+	void _progressMonitors();
 
 	frigg::TicketLock mutex;
 
@@ -430,12 +433,26 @@ struct ManagedSpace : CacheBundle {
 
 	size_t numObservers = 0;
 
-	InitiateList initiateLoadQueue;
-	InitiateList pendingLoadQueue;
-	InitiateList completedLoadQueue;
+	frg::intrusive_list<
+		CachePage,
+		frg::locate_member<
+			CachePage,
+			frg::default_list_hook<CachePage>,
+			&CachePage::listHook
+		>
+	> _initializationList;
 
-	ManageList submittedManageQueue;
-	ManageList completedManageQueue;
+	frg::intrusive_list<
+		CachePage,
+		frg::locate_member<
+			CachePage,
+			frg::default_list_hook<CachePage>,
+			&CachePage::listHook
+		>
+	> _writebackList;
+
+	ManageList _managementQueue;
+	InitiateList _monitorQueue;
 };
 
 struct BackingMemory : Memory {
