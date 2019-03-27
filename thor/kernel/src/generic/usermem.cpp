@@ -604,6 +604,8 @@ ManagedSpace::ManagedSpace(size_t length)
 }
 
 ManagedSpace::~ManagedSpace() {
+	// TODO: Free all physical memory.
+	// TODO: We also have to remove all Loaded/Evicting pages from the reclaimer.
 	assert(!"Implement this");
 }
 
@@ -1550,6 +1552,7 @@ AddressSpace::~AddressSpace() {
 	Mapping *mapping = _mappings.get_root();
 	while(mapping) {
 		auto next = MappingTree::successor(mapping);
+		mapping->uninstall(true);
 		_mappings.remove(mapping);
 		frg::destruct(*kernelAlloc, mapping);
 		mapping = next;

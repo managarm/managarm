@@ -438,6 +438,8 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 
 ClientPageSpace::ClientPageSpace()
 : PageSpace{physicalAllocator->allocate(kPageSize)} {
+	assert(rootTable() != PhysicalAddr(-1));
+
 	// Initialize the bottom half to unmapped memory.
 	PageAccessor accessor;
 	accessor = PageAccessor{rootTable()};
@@ -522,6 +524,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
+		assert(tbl_address != PhysicalAddr(-1));
 		accessor3 = PageAccessor{tbl_address};
 		memset(accessor3.get(), 0, kPageSize);
 
@@ -539,6 +542,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
+		assert(tbl_address != PhysicalAddr(-1));
 		accessor2 = PageAccessor{tbl_address};
 		memset(accessor2.get(), 0, kPageSize);
 
@@ -556,6 +560,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
+		assert(tbl_address != PhysicalAddr(-1));
 		accessor1 = PageAccessor{tbl_address};
 		memset(accessor1.get(), 0, kPageSize);
 

@@ -27,7 +27,8 @@ struct PageAccessor {
 	: _pointer{nullptr} { }
 
 	PageAccessor(PhysicalAddr physical) {
-		assert(!(physical & (kPageSize - 1)));
+		assert(physical != PhysicalAddr(-1) && "trying to access invalid physical page");
+		assert(!(physical & (kPageSize - 1)) && "physical page is not aligned");
 		assert(physical < 0x4000'0000'0000);
 		_pointer = reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
 	}
