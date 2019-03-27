@@ -219,6 +219,9 @@ public:
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
 	virtual bool fetchRange(uintptr_t offset, FetchNode *node) = 0;
+
+	// Marks a range of pages as dirty.
+	virtual void markDirty(uintptr_t offset, size_t size) = 0;
 };
 
 struct SliceRange {
@@ -336,6 +339,7 @@ struct HardwareMemory : Memory {
 	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	void markDirty(uintptr_t offset, size_t size) override;
 
 	size_t getLength();
 
@@ -362,6 +366,7 @@ struct AllocatedMemory : Memory {
 	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	void markDirty(uintptr_t offset, size_t size) override;
 
 	size_t getLength();
 
@@ -430,6 +435,7 @@ public:
 	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	void markDirty(uintptr_t offset, size_t size) override;
 
 	size_t getLength();
 
@@ -453,6 +459,7 @@ public:
 	void removeObserver(MemoryObserver *observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	void markDirty(uintptr_t offset, size_t size) override;
 
 	size_t getLength();
 

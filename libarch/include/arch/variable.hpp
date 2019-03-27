@@ -24,6 +24,10 @@ struct basic_variable {
 		_detail::mem_ops<B>::store(&_embedded, static_cast<B>(r));
 	}
 
+	R atomic_exchange(R r) {
+		return static_cast<R>(_detail::mem_ops<B>::atomic_exchange(&_embedded, static_cast<B>(r)));
+	}
+
 private:
 	B _embedded;
 };

@@ -54,6 +54,7 @@ enum {
 	kPageUser = 0x4,
 	kPagePwt = 0x8,
 	kPagePcd = 0x10,
+	kPageDirty = 0x40,
 	kPagePat = 0x80,
 	kPageGlobal = 0x100,
 	kPageXd = 0x8000000000000000,
@@ -590,6 +591,58 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
 	}
 	tbl1[index1].store(new_entry);
+}
+
+PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
+	assert(!(pointer & (kPageSize - 1)));
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	PageAccessor accessor4;
+	PageAccessor accessor3;
+	PageAccessor accessor2;
+	PageAccessor accessor1;
+
+	auto index4 = (int)((pointer >> 39) & 0x1FF);
+	auto index3 = (int)((pointer >> 30) & 0x1FF);
+	auto index2 = (int)((pointer >> 21) & 0x1FF);
+	auto index1 = (int)((pointer >> 12) & 0x1FF);
+
+	// The PML4 is always present.
+	accessor4 = PageAccessor{rootTable()};
+	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
+
+	// Find the PDPT.
+	if(!(tbl4[index4].load() & kPagePresent))
+		return 0;
+	assert(tbl4[index4].load() & kPagePresent);
+	accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
+	auto tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
+
+	// Find the PD.
+	if(!(tbl3[index3].load() & kPagePresent))
+		return 0;
+	assert(tbl3[index3].load() & kPagePresent);
+	accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
+	auto tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+
+	// Find the PT.
+	if(!(tbl2[index2].load() & kPagePresent))
+		return 0;
+	assert(tbl2[index2].load() & kPagePresent);
+	accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
+	auto tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+
+	// TODO: Do we want to preserve some bits?
+	auto bits = tbl1[index1].atomic_exchange(0);
+	if(!(bits & kPagePresent))
+		return 0;
+
+	PageStatus status = page_status::present;
+	if(bits & kPageDirty)
+		status |= page_status::dirty;
+	return status;
 }
 
 void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode) {

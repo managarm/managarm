@@ -189,6 +189,13 @@ namespace page_access {
 	static constexpr uint32_t execute = 2;
 }
 
+using PageStatus = uint32_t;
+
+namespace page_status {
+	static constexpr PageStatus present = 1;
+	static constexpr PageStatus dirty = 2;
+};
+
 enum class CachingMode {
 	null,
 	uncached,
@@ -230,6 +237,7 @@ public:
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access,
 			uint32_t flags, CachingMode caching_mode);
+	PageStatus unmapSingle4k(VirtualAddr pointer);
 	void unmapRange(VirtualAddr pointer, size_t size, PageMode mode);
 	bool isMapped(VirtualAddr pointer);
 

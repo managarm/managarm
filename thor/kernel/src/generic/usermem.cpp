@@ -432,11 +432,11 @@ HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-void HardwareMemory::addObserver(MemoryObserver *observer) {
+void HardwareMemory::addObserver(MemoryObserver *) {
 	// As we never evict memory, there is no need to handle observers.
 }
 
-void HardwareMemory::removeObserver(MemoryObserver *observer) {
+void HardwareMemory::removeObserver(MemoryObserver *) {
 	// As we never evict memory, there is no need to handle observers.
 }
 
@@ -450,6 +450,10 @@ bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	completeFetch(node, _base + offset, _length - offset, _cacheMode);
 	return true;
+}
+
+void HardwareMemory::markDirty(uintptr_t, size_t) {
+	// We never evict memory, there is no need to track dirty pages.
 }
 
 size_t HardwareMemory::getLength() {
@@ -580,6 +584,10 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
 	completeFetch(node, _physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null);
 	return true;
+}
+
+void AllocatedMemory::markDirty(uintptr_t offset, size_t size) {
+	// Do nothing for now.
 }
 
 size_t AllocatedMemory::getLength() {
@@ -798,6 +806,10 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	return true;
 }
 
+void BackingMemory::markDirty(uintptr_t offset, size_t size) {
+	// Writes through the BackingMemory do not affect the dirty state!
+}
+
 size_t BackingMemory::getLength() {
 	// Size is constant so we do not need to lock.
 	return _managed->physicalPages.size() * kPageSize;
@@ -983,6 +995,10 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	globalReclaimer->bumpPage(&_managed->pages[index]);
 	completeFetch(node, physical + misalign, kPageSize - misalign, CachingMode::null);
 	return true;
+}
+
+void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
+	// TODO: Implement markDirty().
 }
 
 size_t FrontalMemory::getLength() {
@@ -1222,10 +1238,14 @@ void NormalMapping::install(bool overwrite) {
 
 void NormalMapping::uninstall(bool clear) {
 	if(clear) {
-		for(size_t pg = 0; pg < length(); pg += kPageSize)
-			if(owner()->_pageSpace.isMapped(address() + pg))
-				owner()->_residuentSize -= kPageSize;
-		owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
+		for(size_t pg = 0; pg < length(); pg += kPageSize) {
+			auto status = owner()->_pageSpace.unmapSingle4k(address() + pg);
+			if(!(status & page_status::present))
+				continue;
+			if(status & page_status::dirty)
+				_view->markDirty(_viewOffset + pg, kPageSize);
+			owner()->_residuentSize -= kPageSize;
+		}
 	}
 
 	_view->removeObserver(this);
@@ -1251,10 +1271,14 @@ bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 	// TODO: Perform proper locking here!
 
 	// Unmap the memory range.
-	for(size_t pg = 0; pg < shoot_size; pg += kPageSize)
-		if(owner()->_pageSpace.isMapped(address() + shoot_offset + pg))
-			owner()->_residuentSize -= kPageSize;
-	owner()->_pageSpace.unmapRange(address() + shoot_offset, shoot_size, PageMode::remap);
+	for(size_t pg = 0; pg < shoot_size; pg += kPageSize) {
+		auto status = owner()->_pageSpace.unmapSingle4k(address() + shoot_offset + pg);
+		if(!(status & page_status::present))
+			continue;
+		if(status & page_status::dirty)
+			_view->markDirty(_viewOffset + shoot_offset + pg, kPageSize);
+		owner()->_residuentSize -= kPageSize;
+	}
 
 	// Perform shootdown.
 	struct Closure {

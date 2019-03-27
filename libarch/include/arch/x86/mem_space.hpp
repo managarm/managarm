@@ -86,6 +86,11 @@ namespace _detail {
 			asm volatile ("movq %1, %0" : "=r"(v) : "m"(*p));
 			return v;
 		}
+
+		static uint64_t atomic_exchange(uint64_t *p, uint64_t v) {
+			asm volatile ("xchgq %0, %1" : "+r"(v) : "m"(*p) : "memory");
+			return v;
+		}
 	};
 
 	struct mem_space {
