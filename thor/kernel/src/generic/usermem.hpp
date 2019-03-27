@@ -72,17 +72,25 @@ enum class MemoryTag {
 	copyOnWrite
 };
 
+enum class ManageRequest {
+	null,
+	initialize,
+	writeback
+};
+
 struct ManageBase {
 	void setup(Worklet *worklet) {
 		_worklet = worklet;
 	}
 
 	Error error() { return _error; }
+	ManageRequest type() { return _type; }
 	uintptr_t offset() { return _offset; }
 	size_t size() { return _size; }
 
-	void setup(Error error, uintptr_t offset, size_t size) {
+	void setup(Error error, ManageRequest type, uintptr_t offset, size_t size) {
 		_error = error;
+		_type = type;
 		_offset = offset;
 		_size = size;
 	}
@@ -96,6 +104,7 @@ struct ManageBase {
 private:
 	// Results of the operation.
 	Error _error;
+	ManageRequest _type;
 	uintptr_t _offset;
 	size_t _size;
 
@@ -112,7 +121,8 @@ using ManageList = frg::intrusive_list<
 >;
 
 struct InitiateBase {
-	void setup(uintptr_t offset_, size_t length_, Worklet *worklet) {
+	void setup(ManageRequest type_, uintptr_t offset_, size_t length_, Worklet *worklet) {
+		type = type_;
 		offset = offset_;
 		length = length_;
 		_worklet = worklet;
@@ -128,6 +138,7 @@ struct InitiateBase {
 		WorkQueue::post(_worklet);
 	}
 
+	ManageRequest type;
 	uintptr_t offset;
 	size_t length;
 
@@ -382,6 +393,7 @@ struct ManagedSpace : CacheBundle {
 		kStateMissing,
 		kStateLoading,
 		kStateLoaded,
+		kStateWriteback,
 		kStateEvicting
 	};
 

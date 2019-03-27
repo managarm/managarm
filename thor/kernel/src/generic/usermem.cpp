@@ -698,47 +698,62 @@ void ManagedSpace::progressLoads() {
 	while(!initiateLoadQueue.empty()) {
 		auto initiate = initiateLoadQueue.front();
 
-		size_t index = (initiate->offset + initiate->progress) >> kPageShift;
-		if(loadState[index] == kStateMissing) {
-			if(submittedManageQueue.empty())
-				break;
+		if(initiate->type == ManageRequest::initialize) {
+			size_t index = (initiate->offset + initiate->progress) >> kPageShift;
+			if(loadState[index] == kStateMissing) {
+				if(submittedManageQueue.empty())
+					break;
 
-			// Fuse the request using adjacent missing pages.
-			size_t count = 0;
-			while(initiate->progress + (count << kPageShift) < initiate->length
-					&& loadState[index] == kStateMissing) {
-				loadState[index] = kStateLoading;
-				index++;
-				count++;
+				// Fuse the request using adjacent missing pages.
+				size_t count = 0;
+				while(initiate->progress + (count << kPageShift) < initiate->length
+						&& loadState[index] == kStateMissing) {
+					loadState[index] = kStateLoading;
+					index++;
+					count++;
+				}
+
+				auto handle = submittedManageQueue.pop_front();
+				handle->setup(kErrSuccess, ManageRequest::initialize,
+						initiate->offset + initiate->progress, count << kPageShift);
+				completedManageQueue.push_back(handle);
+
+				initiate->progress += count << kPageShift;
+			}else if(loadState[index] == kStateLoading
+					|| loadState[index] == kStateLoaded) {
+				// Skip the page.
+				initiate->progress += kPageSize;
+			}else{
+				assert(loadState[index] == kStateEvicting);
+				loadState[index] = kStateLoaded;
+				globalReclaimer->bumpPage(&pages[index]);
+				initiate->progress += kPageSize;
 			}
+
+			assert(initiate->progress <= initiate->length);
+			if(initiate->progress == initiate->length) {
+				if(isComplete(initiate)) {
+					initiateLoadQueue.pop_front();
+					initiate->setup(kErrSuccess);
+					completedLoadQueue.push_back(initiate);
+				}else{
+					initiateLoadQueue.pop_front();
+					pendingLoadQueue.push_back(initiate);
+				}
+			}
+		}else{
+			assert(initiate->type == ManageRequest::writeback);
+
+			if(submittedManageQueue.empty())
+				return;
 
 			auto handle = submittedManageQueue.pop_front();
-			handle->setup(kErrSuccess, initiate->offset + initiate->progress,
-					count << kPageShift);
+			handle->setup(kErrSuccess, ManageRequest::writeback,
+					initiate->offset + initiate->progress, initiate->length);
 			completedManageQueue.push_back(handle);
 
-			initiate->progress += count << kPageShift;
-		}else if(loadState[index] == kStateLoading
-				|| loadState[index] == kStateLoaded) {
-			// Skip the page.
-			initiate->progress += kPageSize;
-		}else{
-			assert(loadState[index] == kStateEvicting);
-			loadState[index] = kStateLoaded;
-			globalReclaimer->bumpPage(&pages[index]);
-			initiate->progress += kPageSize;
-		}
-
-		assert(initiate->progress <= initiate->length);
-		if(initiate->progress == initiate->length) {
-			if(isComplete(initiate)) {
-				initiateLoadQueue.pop_front();
-				initiate->setup(kErrSuccess);
-				completedLoadQueue.push_back(initiate);
-			}else{
-				initiateLoadQueue.pop_front();
-				pendingLoadQueue.push_back(initiate);
-			}
+			initiateLoadQueue.pop_front();
+			completedLoadQueue.push_back(initiate);
 		}
 	}
 }
@@ -971,7 +986,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		closure->bundle = _managed.get();
 
 		closure->worklet.setup(&Ops::initiated);
-		closure->initiate.setup(offset, kPageSize, &closure->worklet);
+		closure->initiate.setup(ManageRequest::initialize,
+				offset, kPageSize, &closure->worklet);
 		_managed->initiateLoadQueue.push_back(&closure->initiate);
 		_managed->progressLoads();
 
@@ -998,7 +1014,59 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 }
 
 void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
-	// TODO: Implement markDirty().
+	assert(!(offset % kPageSize));
+	assert(!(size % kPageSize));
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
+	// TODO: To support multi-page writeback, we'd have to track the progress of the request.
+	assert(size == kPageSize);
+	auto index = offset >> kPageShift;
+	if(_managed->loadState[index] == ManagedSpace::kStateLoaded) {
+		_managed->loadState[index] = ManagedSpace::kStateWriteback;
+	}else{
+		assert(_managed->loadState[index] == ManagedSpace::kStateWriteback);
+		return;
+	}
+
+	// TODO: We need to be able with OOM here...
+	struct Closure {
+		ManagedSpace *bundle;
+		Worklet worklet;
+		InitiateBase initiate;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	closure->bundle = _managed.get();
+
+	closure->worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		assert(closure->initiate.error() == kErrSuccess);
+		frigg::destruct(*kernelAlloc, closure);
+	});
+	closure->initiate.setup(ManageRequest::writeback,
+			offset, size, &closure->worklet);
+	closure->initiate.progress = 0;
+	_managed->initiateLoadQueue.push_back(&closure->initiate);
+	_managed->progressLoads();
+
+	InitiateList initiate_queue;
+	ManageList manage_queue;
+	initiate_queue.splice(initiate_queue.end(), _managed->completedLoadQueue);
+	manage_queue.splice(manage_queue.end(), _managed->completedManageQueue);
+
+	lock.unlock();
+	irq_lock.unlock();
+
+	while(!initiate_queue.empty()) {
+		auto node = initiate_queue.pop_front();
+		node->complete();
+	}
+	while(!manage_queue.empty()) {
+		auto node = manage_queue.pop_front();
+		node->complete();
+	}
+
 }
 
 size_t FrontalMemory::getLength() {

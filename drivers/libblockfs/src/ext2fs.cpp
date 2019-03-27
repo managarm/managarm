@@ -219,6 +219,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(manage.error());
 		assert(manage.offset() + manage.length() <= ((inode->fileSize + 0xFFF) & ~size_t(0xFFF)));
+		assert(manage.type() == kHelManageInitialize);
 
 		helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
 				manage.offset(), manage.length(),
@@ -246,6 +247,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 				&manage, helix::Dispatcher::global());
 		COFIBER_AWAIT(submit_manage.async_wait());
 		HEL_CHECK(manage.error());
+		assert(manage.type() == kHelManageInitialize);
 
 		uint32_t element = manage.offset() >> blockPagesShift;
 

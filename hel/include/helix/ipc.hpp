@@ -427,6 +427,10 @@ struct ManageMemory : Operation {
 		return result()->error;
 	}
 
+	int type() {
+		return result()->type;
+	}
+
 	uintptr_t offset() {
 		return result()->offset;
 	}

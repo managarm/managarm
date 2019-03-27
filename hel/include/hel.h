@@ -177,6 +177,11 @@ enum HelAllocFlags {
 	kHelAllocBacked = 2
 };
 
+enum HelManageRequests {
+	kHelManageInitialize = 1,
+	kHelManageWriteback = 2
+};
+
 enum HelMapFlags {
 	// Basic mapping modes. One of these flags needs to be set.
 	kHelMapShareAtFork = 8,
@@ -308,7 +313,7 @@ struct HelCredentialsResult {
 
 struct HelManageResult {
 	HelError error;
-	int reserved;
+	int type;
 	uintptr_t offset;
 	size_t length;
 };

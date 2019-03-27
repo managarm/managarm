@@ -835,8 +835,18 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	struct Ops {
 		static void managed(Worklet *base) {
 			auto closure = frg::container_of(base, &Closure::worklet);
-			closure->helResult = HelManageResult{translateError(closure->manage.error()), 0,
-					closure->manage.offset(), closure->manage.size()};
+
+			int hel_type;
+			switch(closure->manage.type()) {
+			case ManageRequest::initialize: hel_type = kHelManageInitialize; break;
+			case ManageRequest::writeback: hel_type = kHelManageWriteback; break;
+			default:
+				assert(!"unexpected ManageRequest");
+				__builtin_trap();
+			}
+
+			closure->helResult = HelManageResult{translateError(closure->manage.error()),
+					hel_type, closure->manage.offset(), closure->manage.size()};
 			closure->ipcQueue->submit(closure);
 		}
 	};
@@ -932,7 +942,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 	closure->setupContext(context);
 
 	closure->worklet.setup(&Ops::initiated);
-	closure->initiate.setup(offset, size, &closure->worklet);
+	closure->initiate.setup(ManageRequest::initialize, offset, size, &closure->worklet);
 	memory->submitInitiateLoad(&closure->initiate);
 
 	return kHelErrNone;
