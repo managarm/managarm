@@ -73,11 +73,16 @@ Guid Partition::type() {
 	return _type;
 }
 
-async::result<void> Partition::readSectors(uint64_t sector, void *buffer,
-		size_t num_read_sectors) {
-	assert(sector + num_read_sectors <= _numSectors);
+async::result<void> Partition::readSectors(uint64_t sector, void *buffer, size_t count) {
+	assert(sector + count <= _numSectors);
 	return _table.getDevice()->readSectors(_startLba + sector,
-			buffer, num_read_sectors);
+			buffer, count);
+}
+
+async::result<void> Partition::writeSectors(uint64_t sector, const void *buffer, size_t count) {
+	assert(sector + count <= _numSectors);
+	return _table.getDevice()->writeSectors(_startLba + sector,
+			buffer, count);
 }
 
 } } // namespace blockfs::gpt

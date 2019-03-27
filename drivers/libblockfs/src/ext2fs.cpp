@@ -219,23 +219,34 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(manage.error());
 		assert(manage.offset() + manage.length() <= ((inode->fileSize + 0xFFF) & ~size_t(0xFFF)));
-		assert(manage.type() == kHelManageInitialize);
 
-		helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
-				manage.offset(), manage.length(),
-				kHelMapProtRead | kHelMapProtWrite};
+		if(manage.type() == kHelManageInitialize) {
+			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
+					manage.offset(), manage.length(), kHelMapProtWrite};
 
-		size_t read_size = std::min(manage.length(), inode->fileSize - manage.offset());
-		size_t num_blocks = read_size / inode->fs.blockSize;
-		if(read_size % inode->fs.blockSize != 0)
-			num_blocks++;
+			assert(!(manage.offset() % inode->fs.blockSize));
+			size_t backed_size = std::min(manage.length(), inode->fileSize - manage.offset());
+			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 
-		assert(manage.offset() % inode->fs.blockSize == 0);
-		assert(num_blocks * inode->fs.blockSize <= manage.length());
-		COFIBER_AWAIT inode->fs.readData(inode, manage.offset() / inode->fs.blockSize,
-				num_blocks, file_map.get());
+			assert(num_blocks * inode->fs.blockSize <= manage.length());
+			COFIBER_AWAIT inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize,
+					num_blocks, file_map.get());
 
-		HEL_CHECK(helCompleteLoad(inode->backingMemory, manage.offset(), manage.length()));
+			HEL_CHECK(helCompleteLoad(inode->backingMemory, manage.offset(), manage.length()));
+		}else{
+			assert(manage.type() == kHelManageWriteback);
+
+			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
+					manage.offset(), manage.length(), kHelMapProtRead};
+
+			assert(!(manage.offset() % inode->fs.blockSize));
+			size_t backed_size = std::min(manage.length(), inode->fileSize - manage.offset());
+			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
+
+			assert(num_blocks * inode->fs.blockSize <= manage.length());
+			COFIBER_AWAIT inode->fs.writeDataBlocks(inode, manage.offset() / inode->fs.blockSize,
+					num_blocks, file_map.get());
+		}
 	}
 }))
 
@@ -293,10 +304,10 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 	}
 }))
 
-COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode> inode,
+COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 		uint64_t offset, size_t num_blocks, void *buffer), ([=] {
-	// We perform "read-fusion" here i.e. we try to read multiple
-	// consecutive blocks in a single readSectors() operation.
+	// We perform "block-fusion" here i.e. we try to read/write multiple
+	// consecutive blocks in a single read/writeSectors() operation.
 	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) {
 		size_t n = 1;
 		while(n < remaining && index + n < limit) {
@@ -369,14 +380,98 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 //		std::cout << "Issuing read of " << issue.second
 //				<< " blocks, starting at " << issue.first << std::endl;
 
-		assert(issue.first != 0);
+		assert(issue.first);
 		COFIBER_AWAIT device->readSectors(issue.first * sectorsPerBlock,
 				(uint8_t *)buffer + progress * blockSize,
 				issue.second * sectorsPerBlock);
 		progress += issue.second;
 	}
+}))
 
-	COFIBER_RETURN();
+// TODO: There is a lot of overlap between this method and readDataBlocks.
+//       Refactor common code into a another method.
+COFIBER_ROUTINE(async::result<void>, FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
+		uint64_t offset, size_t num_blocks, const void *buffer), ([=] {
+	// We perform "block-fusion" here i.e. we try to read/write multiple
+	// consecutive blocks in a single read/writeSectors() operation.
+	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) {
+		size_t n = 1;
+		while(n < remaining && index + n < limit) {
+			if(list[index + n] != list[index] + n)
+				break;
+			n++;
+		}
+		return std::pair<size_t, size_t>{list[index], n};
+	};
+
+	size_t per_indirect = blockSize / 4;
+	size_t per_single = per_indirect;
+	size_t per_double = per_indirect * per_indirect;
+
+	// Number of blocks that can be accessed by:
+	size_t i_range = 12; // Direct blocks only.
+	size_t s_range = i_range + per_single; // Plus the first single indirect block.
+	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+
+	COFIBER_AWAIT inode->readyJump.async_wait();
+	// TODO: Assert that we do not write past the EOF.
+
+	size_t progress = 0;
+	while(progress < num_blocks) {
+		// Block number and block count of the writeSectors() command that we will issue here.
+		std::pair<size_t, size_t> issue;
+
+		auto index = offset + progress;
+//		std::cout << "Write " << index << "-th block to inode " << inode->number
+//				<< " (" << progress << "/" << num_blocks << " in request)" << std::endl;
+
+		assert(index < d_range);
+		if(index >= d_range) {
+			assert(!"Fix triple indirect blocks");
+		}else if(index >= s_range) { // Use the double indirect block.
+			// TODO: Use shift/and instead of div/mod.
+			auto indirect_frame = (index - s_range) >> (blockShift - 2);
+			auto indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
+
+			helix::LockMemory lock_indirect;
+			auto &&submit = helix::submitLockMemory(inode->indirectOrder2, &lock_indirect,
+					indirect_frame << blockPagesShift, 1 << blockPagesShift,
+					helix::Dispatcher::global());
+			COFIBER_AWAIT submit.async_wait();
+			HEL_CHECK(lock_indirect.error());
+
+			helix::Mapping indirect_map{inode->indirectOrder2,
+					indirect_frame << blockPagesShift, 1 << blockPagesShift,
+					kHelMapProtRead | kHelMapDontRequireBacking};
+
+			issue = fuse(indirect_index, num_blocks - progress,
+					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
+		}else if(index >= i_range) { // Use the triple indirect block.
+			helix::LockMemory lock_indirect;
+			auto &&submit = helix::submitLockMemory(inode->indirectOrder1,
+					&lock_indirect, 0, 1 << blockPagesShift,
+					helix::Dispatcher::global());
+			COFIBER_AWAIT submit.async_wait();
+			HEL_CHECK(lock_indirect.error());
+
+			helix::Mapping indirect_map{inode->indirectOrder1,
+					0, 1 << blockPagesShift,
+					kHelMapProtRead | kHelMapDontRequireBacking};
+			issue = fuse(index - i_range, num_blocks - progress,
+					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
+		}else{
+			issue = fuse(index, num_blocks - progress, inode->fileData.blocks.direct, 12);
+		}
+
+//		std::cout << "Issuing write of " << issue.second
+//				<< " blocks, starting at " << issue.first << std::endl;
+
+		assert(issue.first);
+		COFIBER_AWAIT device->writeSectors(issue.first * sectorsPerBlock,
+				(const uint8_t *)buffer + progress * blockSize,
+				issue.second * sectorsPerBlock);
+		progress += issue.second;
+	}
 }))
 
 // --------------------------------------------------------

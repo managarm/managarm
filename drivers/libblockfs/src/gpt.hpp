@@ -61,7 +61,7 @@ struct DiskEntry {
 	uint64_t firstLba;
 	uint64_t lastLba;
 	uint64_t attrFlags;
-	uint8_t partitionName[72];	
+	uint8_t partitionName[72];
 };
 static_assert(sizeof(DiskEntry) == 128, "Bad GPT entry struct size");
 
@@ -97,6 +97,9 @@ struct Partition : public BlockDevice {
 			uint64_t start_lba, uint64_t num_sectors);
 
 	async::result<void> readSectors(uint64_t sector, void *buffer,
+			size_t num_sectors) override;
+
+	async::result<void> writeSectors(uint64_t sector, const void *buffer,
 			size_t num_sectors) override;
 
 	Guid id();

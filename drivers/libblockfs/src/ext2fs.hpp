@@ -231,8 +231,10 @@ struct FileSystem {
 	cofiber::no_future manageIndirect(std::shared_ptr<Inode> inode, int order,
 			helix::UniqueDescriptor memory);
 
-	async::result<void> readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
+	async::result<void> readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer);
+	async::result<void> writeDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
+			size_t num_blocks, const void *buffer);
 
 	BlockDevice *device;
 	uint16_t inodeSize;

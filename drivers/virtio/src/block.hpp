@@ -36,8 +36,9 @@ struct Device;
 // --------------------------------------------------------
 
 struct UserRequest : virtio_core::Request {
-	UserRequest(uint64_t sector, void *buffer, size_t num_sectors);
+	UserRequest(bool write, uint64_t sector, void *buffer, size_t num_sectors);
 
+	bool write;
 	uint64_t sector;
 	void *buffer;
 	size_t numSectors;
@@ -56,6 +57,9 @@ struct Device : blockfs::BlockDevice {
 
 	async::result<void> readSectors(uint64_t sector,
 			void *buffer, size_t num_sectors) override;
+
+	async::result<void> writeSectors(uint64_t sector,
+			const void *buffer, size_t num_sectors) override;
 
 private:
 	// Submits requests from _pendingQueue to the device.
