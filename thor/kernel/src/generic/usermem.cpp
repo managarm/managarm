@@ -1603,17 +1603,18 @@ bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 
 void AddressSpace::activate(smarter::shared_ptr<AddressSpace, BindableHandle> space) {
 	auto page_space = &space->_pageSpace;
-	PageSpace::activate(smarter::shared_ptr<PageSpace, BindableHandle>{std::move(space), page_space});
+	PageSpace::activate(smarter::shared_ptr<PageSpace>{space->selfPtr.lock(), page_space});
 }
 
 AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
-	frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
 }
 
 void AddressSpace::dispose(BindableHandle) {
-//	if(logCleanup)
+	if(logCleanup)
 		frigg::infoLogger() << "\e[31mthor: AddressSpace is cleared\e[39m" << frigg::endLog;
 
 	while(_holes.get_root()) {
@@ -1628,6 +1629,8 @@ void AddressSpace::dispose(BindableHandle) {
 		_mappings.remove(mapping);
 		mapping->selfPtr.ctr()->decrement();
 	}
+
+	_pageSpace.retire();
 }
 
 void AddressSpace::setupDefaultMappings() {

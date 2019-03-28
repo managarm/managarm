@@ -95,7 +95,7 @@ void PageBinding::rebind() {
 	context->_primaryBinding = this;
 }
 
-void PageBinding::rebind(smarter::shared_ptr<PageSpace, BindableHandle> space) {
+void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 	assert(!intsAreEnabled());
 	assert(getCpuData()->havePcids || !_pcid);
 	assert(!_boundSpace || _boundSpace.get() != space.get()); // This would be unnecessary work.
@@ -116,7 +116,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace, BindableHandle> space) {
 	_boundSpace = space;
 	_alreadyShotSequence = target_seq;
 
-	// Switch the CR3 and invalidate the PCID.
+	// Switch CR3 and invalidate the PCID.
 	auto cr3 = space->rootTable() | _pcid;
 	asm volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
 
@@ -163,19 +163,78 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace, BindableHandle> space) {
 	}
 }
 
+void PageBinding::unbind() {
+	assert(!intsAreEnabled());
+
+	if(!_boundSpace)
+		return;
+
+	// Perform shootdown.
+	if(isPrimary()) {
+		// Switch to the kernel CR3 and invalidate the PCID.
+		auto cr3 = KernelPageSpace::global().rootTable() | _pcid;
+		asm volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+	}else{
+		// If there was only a single binding, it would have been primary.
+		assert(getCpuData()->havePcids);
+		invalidatePcid(_pcid);
+	}
+
+	frg::intrusive_list<
+		ShootNode,
+		frg::locate_member<
+			ShootNode,
+			frg::default_list_hook<ShootNode>,
+			&ShootNode::_queueNode
+		>
+	> complete;
+
+	{
+		auto lock = frigg::guard(&_boundSpace->_mutex);
+
+		if(!_boundSpace->_shootQueue.empty()) {
+			auto current = _boundSpace->_shootQueue.back();
+			while(current->_sequence > _alreadyShotSequence) {
+				auto predecessor = current->_queueNode.previous;
+
+				// The actual shootdown was done above.
+				assert(!(current->address & (kPageSize - 1)));
+				assert(!(current->size & (kPageSize - 1)));
+
+				// Signal completion of the shootdown.
+				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+					auto it = _boundSpace->_shootQueue.iterator_to(current);
+					_boundSpace->_shootQueue.erase(it);
+					complete.push_front(current);
+				}
+
+				if(!predecessor)
+					break;
+				current = predecessor;
+			}
+		}
+
+		_boundSpace->_numBindings--;
+	}
+
+	_boundSpace = nullptr;
+	_alreadyShotSequence = 0;
+
+	while(!complete.empty()) {
+		auto current = complete.pop_front();
+		WorkQueue::post(current->_worklet);
+	}
+}
+
 void PageBinding::shootdown() {
 	assert(!intsAreEnabled());
 
-	auto space = _boundSpace;
-	if(!space) {
-		// TODO: Unbind PageSpaces that have are not alive anymore.
-/*
-		if(_boundSpace) {
-			// TODO: Complete ShootNodes of that space.
-			invalidatePcid(_pcid);
-			_boundSpace = smarter::shared_ptr<PageSpace, BindableHandle>{};
-		}
-*/
+	if(!_boundSpace)
+		return;
+
+	// If we retire the space anyway, just flush the whole PCID.
+	if(_boundSpace->_retired.load(std::memory_order_acquire)) {
+		unbind();
 		return;
 	}
 
@@ -190,41 +249,39 @@ void PageBinding::shootdown() {
 
 	uint64_t target_seq;
 	{
-		auto lock = frigg::guard(&space->_mutex);
+		auto lock = frigg::guard(&_boundSpace->_mutex);
 
-		if(space->_shootQueue.empty())
-			return;
+		if(!_boundSpace->_shootQueue.empty()) {
+			auto current = _boundSpace->_shootQueue.back();
+			while(current->_sequence > _alreadyShotSequence) {
+				auto predecessor = current->_queueNode.previous;
 
-		target_seq = space->_shootSequence;
+				// Perform the actual shootdown.
+				assert(!(current->address & (kPageSize - 1)));
+				assert(!(current->size & (kPageSize - 1)));
 
-		auto current = space->_shootQueue.back();
-		while(current->_sequence > _alreadyShotSequence) {
-			auto predecessor = current->_queueNode.previous;
+				if(!getCpuData()->havePcids) {
+					assert(!_pcid);
+					for(size_t pg = 0; pg < current->size; pg += kPageSize)
+						invalidatePage(reinterpret_cast<void *>(current->address + pg));
+				}else{
+					for(size_t pg = 0; pg < current->size; pg += kPageSize)
+						invalidatePage(_pcid, reinterpret_cast<void *>(current->address + pg));
+				}
 
-			// Perform the actual shootdown.
-			assert(!(current->address & (kPageSize - 1)));
-			assert(!(current->size & (kPageSize - 1)));
+				// Signal completion of the shootdown.
+				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+					auto it = _boundSpace->_shootQueue.iterator_to(current);
+					_boundSpace->_shootQueue.erase(it);
+					complete.push_front(current);
+				}
 
-			if(!getCpuData()->havePcids) {
-				assert(!_pcid);
-				for(size_t pg = 0; pg < current->size; pg += kPageSize)
-					invalidatePage(reinterpret_cast<void *>(current->address + pg));
-			}else{
-				for(size_t pg = 0; pg < current->size; pg += kPageSize)
-					invalidatePage(_pcid, reinterpret_cast<void *>(current->address + pg));
+				if(!predecessor)
+					break;
+				current = predecessor;
 			}
-
-			// Signal completion of the shootdown.
-			if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-				auto it = space->_shootQueue.iterator_to(current);
-				space->_shootQueue.erase(it);
-				complete.push_front(current);
-			}
-
-			if(!predecessor)
-				break;
-			current = predecessor;
 		}
+		target_seq = _boundSpace->_shootSequence;
 	}
 
 	_alreadyShotSequence = target_seq;
@@ -239,7 +296,7 @@ void PageBinding::shootdown() {
 // PageSpace.
 // --------------------------------------------------------
 
-void PageSpace::activate(smarter::shared_ptr<PageSpace, BindableHandle> space) {
+void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
 	auto bindings = getCpuData()->pcidBindings;
 
 	int k = 0;
@@ -270,6 +327,11 @@ PageSpace::PageSpace(PhysicalAddr root_table)
 
 PageSpace::~PageSpace() {
 	assert(!_numBindings);
+}
+
+void PageSpace::retire() {
+	_retired.store(true, std::memory_order_release);
+	sendShootdownIpi();
 }
 
 bool PageSpace::submitShootdown(ShootNode *node) {

@@ -108,7 +108,7 @@ struct PageBinding {
 	
 	PageBinding &operator= (const PageBinding &) = delete;
 
-	smarter::shared_ptr<PageSpace, BindableHandle> boundSpace() {
+	smarter::shared_ptr<PageSpace> boundSpace() {
 		return _boundSpace;
 	}
 
@@ -125,7 +125,9 @@ struct PageBinding {
 
 	void rebind();
 
-	void rebind(smarter::shared_ptr<PageSpace, BindableHandle> space);
+	void rebind(smarter::shared_ptr<PageSpace> space);
+
+	void unbind();
 
 	void shootdown();
 
@@ -135,7 +137,7 @@ private:
 	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
 	//       to the PageSpace that does *not* prevent the PageSpace from becoming
 	//       "activatable".
-	smarter::shared_ptr<PageSpace, BindableHandle> _boundSpace;
+	smarter::shared_ptr<PageSpace> _boundSpace;
 
 	uint64_t _primaryStamp;
 
@@ -143,7 +145,7 @@ private:
 };
 
 struct PageSpace {
-	static void activate(smarter::shared_ptr<PageSpace, BindableHandle> space);
+	static void activate(smarter::shared_ptr<PageSpace> space);
 
 	friend struct PageBinding;
 
@@ -155,10 +157,14 @@ struct PageSpace {
 		return _rootTable;
 	}
 
+	void retire();
+
 	bool submitShootdown(ShootNode *node);
 
 private:
 	PhysicalAddr _rootTable;
+
+	std::atomic<bool> _retired = false;
 
 	frigg::TicketLock _mutex;
 	
