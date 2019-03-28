@@ -1153,11 +1153,14 @@ NormalMapping::NormalMapping(smarter::shared_ptr<AddressSpace> owner,
 }
 
 NormalMapping::~NormalMapping() {
+	assert(_state == MappingState::retired);
 	//frigg::infoLogger() << "\e[31mthor: NormalMapping is destructed\e[39m" << frigg::endLog;
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode>
 NormalMapping::resolveRange(ptrdiff_t offset) {
+	assert(_state == MappingState::active);
+
 	// TODO: This function should be rewritten.
 	assert((size_t)offset + kPageSize <= length());
 	auto range = _slice->translateRange(_viewOffset + offset,
@@ -1167,6 +1170,8 @@ NormalMapping::resolveRange(ptrdiff_t offset) {
 }
 
 bool NormalMapping::prepareRange(PrepareNode *node) {
+	assert(_state == MappingState::active);
+
 	struct Closure {
 		NormalMapping *self;
 		PrepareNode *node;
@@ -1240,6 +1245,8 @@ Mapping *NormalMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space
 }
 
 void NormalMapping::install(bool overwrite) {
+	assert(_state == MappingState::null);
+	_state = MappingState::active;
 	_view->addObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr.lock()));
 
 	uint32_t page_flags = 0;
@@ -1276,6 +1283,9 @@ void NormalMapping::install(bool overwrite) {
 }
 
 void NormalMapping::uninstall(bool clear) {
+	assert(_state == MappingState::active);
+	_state = MappingState::zombie;
+
 	if(clear) {
 		for(size_t pg = 0; pg < length(); pg += kPageSize) {
 			auto status = owner()->_pageSpace.unmapSingle4k(address() + pg);
@@ -1286,12 +1296,18 @@ void NormalMapping::uninstall(bool clear) {
 			owner()->_residuentSize -= kPageSize;
 		}
 	}
+}
 
+void NormalMapping::retire() {
+	assert(_state == MappingState::zombie);
 	_view->removeObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr));
+	_state = MappingState::retired;
 }
 
 bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 		EvictNode *continuation) {
+	assert(_state == MappingState::active);
+
 	if(evict_offset + evict_length <= _viewOffset
 			|| evict_offset >= _viewOffset + length())
 		return true;
@@ -1373,11 +1389,14 @@ CowMapping::CowMapping(smarter::shared_ptr<AddressSpace> owner,
 }
 
 CowMapping::~CowMapping() {
+	assert(_state == MappingState::retired);
 	//frigg::infoLogger() << "\e[31mthor: CowMapping is destructed\e[39m" << frigg::endLog;
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode>
 CowMapping::resolveRange(ptrdiff_t offset) {
+	assert(_state == MappingState::active);
+
 	if(auto it = _chain->_pages.find(offset >> kPageShift); it) {
 		auto physical = it->load(std::memory_order_relaxed);
 		return frigg::Tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
@@ -1387,6 +1406,8 @@ CowMapping::resolveRange(ptrdiff_t offset) {
 }
 
 bool CowMapping::prepareRange(PrepareNode *node) {
+	assert(_state == MappingState::active);
+
 	struct Closure {
 		CowMapping *self;
 		PrepareNode *node;
@@ -1515,6 +1536,9 @@ Mapping *CowMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) {
 }
 
 void CowMapping::install(bool overwrite) {
+	assert(_state == MappingState::null);
+	_state = MappingState::active;
+
 	assert(_chain->_superRoot && "TODO: fix eviction of chains");
 	_chain->_superRoot->getView()->addObserver(
 			smarter::static_pointer_cast<CowMapping>(selfPtr.lock()));
@@ -1532,6 +1556,9 @@ void CowMapping::install(bool overwrite) {
 }
 
 void CowMapping::uninstall(bool clear) {
+	assert(_state == MappingState::active);
+	_state = MappingState::zombie;
+
 	assert(_chain->_superRoot && "TODO: fix eviction of chains");
 
 	if(clear) {
@@ -1540,13 +1567,18 @@ void CowMapping::uninstall(bool clear) {
 				owner()->_residuentSize -= kPageSize;
 		owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 	}
+}
 
+void CowMapping::retire() {
+	assert(_state == MappingState::zombie);
 	_chain->_superRoot->getView()->removeObserver(
 			smarter::static_pointer_cast<CowMapping>(selfPtr));
+	_state = MappingState::retired;
 }
 
 bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 		EvictNode *continuation) {
+	assert(_state == MappingState::active);
 	assert(_chain->_superRoot && "TODO: fix eviction of chains");
 
 	if(evict_offset + evict_length <= _chain->_superOffset
@@ -1626,6 +1658,7 @@ void AddressSpace::dispose(BindableHandle) {
 	while(_mappings.get_root()) {
 		auto mapping = _mappings.get_root();
 		mapping->uninstall(true);
+		mapping->retire(); // TODO: We have to shootdown first.
 		_mappings.remove(mapping);
 		mapping->selfPtr.ctr()->decrement();
 	}
@@ -1741,6 +1774,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 
 	static constexpr auto deleteMapping = [] (AddressSpace *space, Mapping *mapping) {
 		space->_mappings.remove(mapping);
+		mapping->retire();
 		mapping->selfPtr.ctr()->decrement();
 	};
 
@@ -1958,6 +1992,7 @@ bool AddressSpace::fork(ForkNode *node) {
 				cur_mapping->uninstall(false);
 				origin_mapping->install(true);
 				fork_mapping->install(false);
+				cur_mapping->retire(); // TODO: Shootdown before doing this.
 				cur_mapping->selfPtr.ctr()->decrement();
 			}else{
 				auto bundle = frigg::makeShared<AllocatedMemory>(*kernelAlloc,

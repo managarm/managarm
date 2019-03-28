@@ -555,6 +555,13 @@ struct PrepareNode {
 	Worklet *_prepared;
 };
 
+enum class MappingState {
+	null,
+	active,
+	zombie,
+	retired
+};
+
 struct Mapping {
 	Mapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
 			MappingFlags flags);
@@ -592,6 +599,7 @@ public:
 
 	virtual void install(bool overwrite) = 0;
 	virtual void uninstall(bool clear) = 0;
+	virtual void retire() = 0;
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
 
@@ -620,10 +628,12 @@ struct NormalMapping : Mapping, MemoryObserver {
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
+	void retire() override;
 
 	bool evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
+	MappingState _state = MappingState::null;
 	frigg::SharedPtr<MemorySlice> _slice;
 	frigg::SharedPtr<MemoryView> _view;
 	size_t _viewOffset;
@@ -662,10 +672,12 @@ struct CowMapping : Mapping, MemoryObserver {
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
+	void retire() override;
 
 	bool evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
+	MappingState _state = MappingState::null;
 	frigg::SharedPtr<CowChain> _chain;
 };
 
