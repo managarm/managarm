@@ -430,11 +430,11 @@ HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-void HardwareMemory::addObserver(MemoryObserver *) {
+void HardwareMemory::addObserver(smarter::shared_ptr<MemoryObserver>) {
 	// As we never evict memory, there is no need to handle observers.
 }
 
-void HardwareMemory::removeObserver(MemoryObserver *) {
+void HardwareMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver>) {
 	// As we never evict memory, there is no need to handle observers.
 }
 
@@ -535,11 +535,11 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
 }
 
-void AllocatedMemory::addObserver(MemoryObserver *observer) {
+void AllocatedMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
-void AllocatedMemory::removeObserver(MemoryObserver *observer) {
+void AllocatedMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
@@ -800,21 +800,23 @@ void ManagedSpace::_progressMonitors() {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::addObserver(MemoryObserver *observer) {
+void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
-	_managed->observers.push_back(observer);
+	_managed->observers.push_back(observer.get());
 	_managed->numObservers++;
+	observer.release(); // Reference is now owned by the ManagedSpace;
 }
 
-void BackingMemory::removeObserver(MemoryObserver *observer) {
+void BackingMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
-	auto it = _managed->observers.iterator_to(observer);
+	auto it = _managed->observers.iterator_to(observer.get());
 	_managed->observers.erase(it);
 	_managed->numObservers--;
+	observer.ctr()->decrement();
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
@@ -909,21 +911,23 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 // FrontalMemory
 // --------------------------------------------------------
 
-void FrontalMemory::addObserver(MemoryObserver *observer) {
+void FrontalMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
-	_managed->observers.push_back(observer);
+	_managed->observers.push_back(observer.get());
 	_managed->numObservers++;
+	observer.release(); // Reference is now owned by the ManagedSpace;
 }
 
-void FrontalMemory::removeObserver(MemoryObserver *observer) {
+void FrontalMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
-	auto it = _managed->observers.iterator_to(observer);
+	auto it = _managed->observers.iterator_to(observer.get());
 	_managed->observers.erase(it);
 	_managed->numObservers--;
+	observer.ctr()->decrement();
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
@@ -1131,19 +1135,25 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 // Mapping
 // --------------------------------------------------------
 
-Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
+Mapping::Mapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr base_address, size_t length,
 		MappingFlags flags)
-: _owner{owner}, _address{base_address}, _length{length}, _flags{flags} { }
+: _owner{std::move(owner)}, _address{base_address}, _length{length}, _flags{flags} { }
 
 // --------------------------------------------------------
 // NormalMapping
 // --------------------------------------------------------
 
-NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+NormalMapping::NormalMapping(smarter::shared_ptr<AddressSpace> owner,
+		VirtualAddr address, size_t length,
 		MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset)
-: Mapping{owner, address, length, flags}, _slice{frigg::move(view)}, _viewOffset{offset} {
+: Mapping{std::move(owner), address, length, flags},
+		_slice{frigg::move(view)}, _viewOffset{offset} {
 	assert(_viewOffset + NormalMapping::length() <= _slice->length());
 	_view = _slice->getView();
+}
+
+NormalMapping::~NormalMapping() {
+	//frigg::infoLogger() << "\e[31mthor: NormalMapping is destructed\e[39m" << frigg::endLog;
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode>
@@ -1211,20 +1221,26 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 	return true;
 }
 
-Mapping *NormalMapping::shareMapping(AddressSpace *dest_space) {
+Mapping *NormalMapping::shareMapping(smarter::shared_ptr<AddressSpace> dest_space) {
 	// TODO: Always keep the exact flags?
-	return frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
+	auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{}, std::move(dest_space),
 			address(), length(), flags(), _slice, _viewOffset);
+	ptr->selfPtr = ptr;
+	auto mapping = ptr.get();
+	ptr.release(); // AddressSpace owns one reference.
+	return mapping;
 }
 
-Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
-	auto chain = frigg::makeShared<CowChain>(*kernelAlloc, _slice, _viewOffset, length());
-	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
-			address(), length(), flags(), frigg::move(chain));
+Mapping *NormalMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) {
+	assert(!"Fix construction of Mapping");
+	__builtin_trap();
+//	auto chain = frigg::makeShared<CowChain>(*kernelAlloc, _slice, _viewOffset, length());
+//	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
+//			address(), length(), flags(), frigg::move(chain));
 }
 
 void NormalMapping::install(bool overwrite) {
-	_view->addObserver(this);
+	_view->addObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr.lock()));
 
 	uint32_t page_flags = 0;
 	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
@@ -1271,7 +1287,7 @@ void NormalMapping::uninstall(bool clear) {
 		}
 	}
 
-	_view->removeObserver(this);
+	_view->removeObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr));
 }
 
 bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
@@ -1350,9 +1366,14 @@ CowChain::~CowChain() {
 
 // --------------------------------------------------------
 
-CowMapping::CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+CowMapping::CowMapping(smarter::shared_ptr<AddressSpace> owner,
+		VirtualAddr address, size_t length,
 		MappingFlags flags, frigg::SharedPtr<CowChain> chain)
-: Mapping{owner, address, length, flags}, _chain{frigg::move(chain)} {
+: Mapping{std::move(owner), address, length, flags}, _chain{frigg::move(chain)} {
+}
+
+CowMapping::~CowMapping() {
+	//frigg::infoLogger() << "\e[31mthor: CowMapping is destructed\e[39m" << frigg::endLog;
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode>
@@ -1479,21 +1500,24 @@ bool CowMapping::prepareRange(PrepareNode *node) {
 	return true;
 }
 
-Mapping *CowMapping::shareMapping(AddressSpace *dest_space) {
+Mapping *CowMapping::shareMapping(smarter::shared_ptr<AddressSpace> dest_space) {
 	(void)dest_space;
 	assert(!"Fix this");
 	__builtin_unreachable();
 }
 
-Mapping *CowMapping::copyOnWrite(AddressSpace *dest_space) {
-	auto sub_chain = frigg::makeShared<CowChain>(*kernelAlloc, _chain, 0, length());
-	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
-			address(), length(), flags(), frigg::move(sub_chain));
+Mapping *CowMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) {
+	assert(!"Fix construction of Mapping");
+	__builtin_trap();
+//	auto sub_chain = frigg::makeShared<CowChain>(*kernelAlloc, _chain, 0, length());
+//	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
+//			address(), length(), flags(), frigg::move(sub_chain));
 }
 
 void CowMapping::install(bool overwrite) {
 	assert(_chain->_superRoot && "TODO: fix eviction of chains");
-	_chain->_superRoot->getView()->addObserver(this);
+	_chain->_superRoot->getView()->addObserver(
+			smarter::static_pointer_cast<CowMapping>(selfPtr.lock()));
 
 	// For now we just unmap everything. TODO: Map available pages.
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
@@ -1517,7 +1541,8 @@ void CowMapping::uninstall(bool clear) {
 		owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 	}
 
-	_chain->_superRoot->getView()->removeObserver(this);
+	_chain->_superRoot->getView()->removeObserver(
+			smarter::static_pointer_cast<CowMapping>(selfPtr));
 }
 
 bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
@@ -1591,21 +1616,17 @@ void AddressSpace::dispose(BindableHandle) {
 //	if(logCleanup)
 		frigg::infoLogger() << "\e[31mthor: AddressSpace is cleared\e[39m" << frigg::endLog;
 
-	Hole *hole = _holes.get_root();
-	while(hole) {
-		auto next = HoleTree::successor(hole);
+	while(_holes.get_root()) {
+		auto hole = _holes.get_root();
 		_holes.remove(hole);
 		frg::destruct(*kernelAlloc, hole);
-		hole = next;
 	}
 
-	Mapping *mapping = _mappings.get_root();
-	while(mapping) {
-		auto next = MappingTree::successor(mapping);
+	while(_mappings.get_root()) {
+		auto mapping = _mappings.get_root();
 		mapping->uninstall(true);
 		_mappings.remove(mapping);
-		frg::destruct(*kernelAlloc, mapping);
-		mapping = next;
+		mapping->selfPtr.ctr()->decrement();
 	}
 }
 
@@ -1681,11 +1702,17 @@ Error AddressSpace::map(Guard &guard,
 	Mapping *mapping;
 	if(flags & kMapCopyOnWrite) {
 		auto chain = frigg::makeShared<CowChain>(*kernelAlloc, view.toShared(), offset, length);
-		mapping = frigg::construct<CowMapping>(*kernelAlloc, this, target, length,
-				static_cast<MappingFlags>(mapping_flags), frigg::move(chain));
+		auto ptr = smarter::allocate_shared<CowMapping>(Allocator{}, selfPtr.lock(),
+				target, length, static_cast<MappingFlags>(mapping_flags), frigg::move(chain));
+		ptr->selfPtr = ptr;
+		mapping = ptr.get();
+		ptr.release(); // AddressSpace owns one reference.
 	}else{
-		mapping = frigg::construct<NormalMapping>(*kernelAlloc, this, target, length,
-				static_cast<MappingFlags>(mapping_flags), view.toShared(), offset);
+		auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{}, selfPtr.lock(),
+				target, length, static_cast<MappingFlags>(mapping_flags), view.toShared(), offset);
+		ptr->selfPtr = ptr;
+		mapping = ptr.get();
+		ptr.release(); // AddressSpace owns one reference.
 	}
 
 	// Install the new mapping object.
@@ -1711,7 +1738,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 
 	static constexpr auto deleteMapping = [] (AddressSpace *space, Mapping *mapping) {
 		space->_mappings.remove(mapping);
-		frigg::destruct(*kernelAlloc, mapping);
+		mapping->selfPtr.ctr()->decrement();
 	};
 
 	static constexpr auto closeHole = [] (AddressSpace *space, VirtualAddr address, size_t length) {
@@ -1905,7 +1932,7 @@ bool AddressSpace::fork(ForkNode *node) {
 					cur_mapping->address(), cur_mapping->length());
 			node->_fork->_holes.insert(fork_hole);
 		}else if(cur_mapping->flags() & MappingFlags::shareAtFork) {
-			auto fork_mapping = cur_mapping->shareMapping(node->_fork.get());
+			auto fork_mapping = cur_mapping->shareMapping(node->_fork->selfPtr.lock());
 
 			node->_fork->_mappings.insert(fork_mapping);
 			fork_mapping->install(false);
@@ -1918,8 +1945,8 @@ bool AddressSpace::fork(ForkNode *node) {
 			// * Futexes attached to the memory object prevent CoW.
 			//     This ensures that processes do not miss wake ups in the original space.
 			if(false) {
-				auto origin_mapping = cur_mapping->copyOnWrite(this);
-				auto fork_mapping = cur_mapping->copyOnWrite(node->_fork.get());
+				auto origin_mapping = cur_mapping->copyOnWrite(selfPtr.lock());
+				auto fork_mapping = cur_mapping->copyOnWrite(node->_fork->selfPtr.lock());
 
 				// TODO: We have to perform shootdown if we remap the mapping.
 				_mappings.remove(cur_mapping);
@@ -1928,7 +1955,7 @@ bool AddressSpace::fork(ForkNode *node) {
 				cur_mapping->uninstall(false);
 				origin_mapping->install(true);
 				fork_mapping->install(false);
-				frigg::destruct(*kernelAlloc, cur_mapping);
+				cur_mapping->selfPtr.ctr()->decrement();
 			}else{
 				auto bundle = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 						cur_mapping->length(), kPageSize, kPageSize);
@@ -1938,9 +1965,12 @@ bool AddressSpace::fork(ForkNode *node) {
 				auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 						frigg::move(bundle), 0, cur_mapping->length());
 
-				auto fork_mapping = frigg::construct<NormalMapping>(*kernelAlloc,
-						node->_fork.get(), cur_mapping->address(), cur_mapping->length(),
+				auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{},
+						node->_fork->selfPtr.lock(), cur_mapping->address(), cur_mapping->length(),
 						cur_mapping->flags(), frigg::move(view), 0);
+				ptr->selfPtr = ptr;
+				auto fork_mapping = ptr.get();
+				ptr.release(); // AddressSpace owns one reference.
 				node->_fork->_mappings.insert(fork_mapping);
 				fork_mapping->install(false);
 			}

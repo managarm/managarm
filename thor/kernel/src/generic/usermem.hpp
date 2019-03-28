@@ -221,8 +221,8 @@ protected:
 
 public:
 	// Add/remove memory observers. These will be notified of page evictions.
-	virtual void addObserver(MemoryObserver *observer) = 0;
-	virtual void removeObserver(MemoryObserver *observer) = 0;
+	virtual void addObserver(smarter::shared_ptr<MemoryObserver> observer) = 0;
+	virtual void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
@@ -350,8 +350,8 @@ struct HardwareMemory : Memory {
 	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
 	~HardwareMemory();
 
-	void addObserver(MemoryObserver *observer) override;
-	void removeObserver(MemoryObserver *observer) override;
+	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
+	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -377,8 +377,8 @@ struct AllocatedMemory : Memory {
 
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
-	void addObserver(MemoryObserver *observer) override;
-	void removeObserver(MemoryObserver *observer) override;
+	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
+	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -466,8 +466,8 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
-	void addObserver(MemoryObserver *observer) override;
-	void removeObserver(MemoryObserver *observer) override;
+	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
+	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -490,8 +490,8 @@ public:
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
-	void addObserver(MemoryObserver *observer) override;
-	void removeObserver(MemoryObserver *observer) override;
+	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
+	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -556,13 +556,17 @@ struct PrepareNode {
 };
 
 struct Mapping {
-	Mapping(AddressSpace *owner, VirtualAddr address, size_t length,
+	Mapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
 			MappingFlags flags);
 
-	virtual ~Mapping() { }
+	Mapping(const Mapping &) = delete;
+
+	virtual ~Mapping() = default;
+
+	Mapping &operator= (const Mapping &) = delete;
 
 	AddressSpace *owner() {
-		return _owner;
+		return _owner.get();
 	}
 
 	VirtualAddr address() const {
@@ -577,40 +581,42 @@ struct Mapping {
 		return _flags;
 	}
 
-protected:
-
 public:
 	virtual frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) = 0;
 
 	virtual bool prepareRange(PrepareNode *node) = 0;
 
-	virtual Mapping *shareMapping(AddressSpace *dest_space) = 0;
-	virtual Mapping *copyOnWrite(AddressSpace *dest_space) = 0;
+	virtual Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) = 0;
+	virtual Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) = 0;
 
 	virtual void install(bool overwrite) = 0;
 	virtual void uninstall(bool clear) = 0;
 
+	smarter::borrowed_ptr<Mapping> selfPtr;
+
 	frg::rbtree_hook treeNode;
 
 private:
-	AddressSpace *_owner;
+	smarter::shared_ptr<AddressSpace> _owner;
 	VirtualAddr _address;
 	size_t _length;
 	MappingFlags _flags;
 };
 
 struct NormalMapping : Mapping, MemoryObserver {
-	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+	NormalMapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
+
+	~NormalMapping();
 
 	frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) override;
 
 	bool prepareRange(PrepareNode *node) override;
 
-	Mapping *shareMapping(AddressSpace *dest_space) override;
-	Mapping *copyOnWrite(AddressSpace *dest_space) override;
+	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
+	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
@@ -641,16 +647,18 @@ struct CowChain {
 };
 
 struct CowMapping : Mapping, MemoryObserver {
-	CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+	CowMapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<CowChain> chain);
+
+	~CowMapping();
 
 	frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) override;
 
 	bool prepareRange(PrepareNode *node) override;
 
-	Mapping *shareMapping(AddressSpace *dest_space) override;
-	Mapping *copyOnWrite(AddressSpace *dest_space) override;
+	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
+	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
@@ -814,7 +822,9 @@ public:
 	}
 
 	static smarter::shared_ptr<AddressSpace, BindableHandle> create() {
-		return constructHandle(smarter::allocate_shared<AddressSpace>(Allocator{}));
+		auto ptr = smarter::allocate_shared<AddressSpace>(Allocator{});
+		ptr->selfPtr = ptr;
+		return constructHandle(std::move(ptr));
 	}
 
 	static void activate(smarter::shared_ptr<AddressSpace, BindableHandle> space);
@@ -856,6 +866,8 @@ private:
 
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
+
+	smarter::borrowed_ptr<AddressSpace> selfPtr;
 
 	HoleTree _holes;
 	MappingTree _mappings;
