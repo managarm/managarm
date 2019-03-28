@@ -768,7 +768,7 @@ void ManagedSpace::_progressManagement() {
 
 void ManagedSpace::_progressMonitors() {
 	// TODO: Accelerate this by storing the monitors in a RB tree ordered by their progress.
-	auto progressNode = [&] (MonitorNode *node) {
+	auto progressNode = [&] (MonitorNode *node) -> bool {
 		while(node->progress < node->length) {
 			size_t index = (node->offset + node->progress) >> kPageShift;
 			if(loadState[index] == kStateWantInitialization
@@ -955,10 +955,13 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		_managed->loadState[index] = ManagedSpace::kStatePresent;
 		globalReclaimer->bumpPage(&_managed->pages[index]);
 	}else if(_managed->loadState[index] != ManagedSpace::kStatePresent) {
+		assert(!(node->flags() & FetchNode::disallowBacking));
+
 		if(_managed->loadState[index] == ManagedSpace::kStateMissing) {
 			_managed->loadState[index] = ManagedSpace::kStateWantInitialization;
 			_managed->_initializationList.push_back(&_managed->pages[index]);
 		}
+		_managed->_progressManagement();
 
 		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
 		struct Closure {
@@ -1001,8 +1004,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		closure->worklet.setup(&Ops::initiated);
 		closure->initiate.setup(ManageRequest::initialize,
 				offset, kPageSize, &closure->worklet);
+		closure->initiate.progress = 0;
 		_managed->_monitorQueue.push_back(&closure->initiate);
-		_managed->_progressManagement();
 		_managed->_progressMonitors();
 
 		return false;
@@ -1197,6 +1200,10 @@ bool NormalMapping::prepareRange(PrepareNode *node) {
 			auto self = closure->self;
 			auto offset = closure->node->_offset + closure->progress;
 
+			FetchFlags fetch_flags = 0;
+			if(self->flags() & MappingFlags::dontRequireBacking)
+				fetch_flags |= FetchNode::disallowBacking;
+
 			auto view_range = self->_slice->translateRange(self->_viewOffset + offset,
 					closure->node->_size - offset);
 			closure->worklet.setup(&Ops::fetched);
@@ -1258,10 +1265,6 @@ void NormalMapping::install(bool overwrite) {
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		// TODO: Add a don't-require-backing flag to peekRange.
-		//if(flags() & MappingFlags::dontRequireBacking)
-		//	grab_flags |= kGrabDontRequireBacking;
-
 		auto range = _slice->translateRange(_viewOffset + progress, kPageSize);
 		assert(range.size >= kPageSize);
 		auto bundle_range = range.view->peekRange(range.displacement);

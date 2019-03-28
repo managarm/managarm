@@ -164,11 +164,20 @@ using InitiateList = frg::intrusive_list<
 	>
 >;
 
+using FetchFlags = uint32_t;
+
 struct FetchNode {
 	friend struct MemoryView;
 
-	void setup(Worklet *fetched) {
+	static constexpr FetchFlags disallowBacking = 1;
+
+	void setup(Worklet *fetched, FetchFlags flags = 0) {
 		_fetched = fetched;
+		_flags = flags;
+	}
+
+	FetchFlags flags() {
+		return _flags;
 	}
 
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> range() {
@@ -177,6 +186,7 @@ struct FetchNode {
 
 private:
 	Worklet *_fetched;
+	uint32_t _flags;
 
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
