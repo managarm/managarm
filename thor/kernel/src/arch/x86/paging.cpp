@@ -95,7 +95,7 @@ void PageBinding::rebind() {
 	context->_primaryBinding = this;
 }
 
-void PageBinding::rebind(frigg::SharedPtr<PageSpace> space) {
+void PageBinding::rebind(smarter::shared_ptr<PageSpace, BindableHandle> space) {
 	assert(!intsAreEnabled());
 	assert(getCpuData()->havePcids || !_pcid);
 	assert(!_boundSpace || _boundSpace.get() != space.get()); // This would be unnecessary work.
@@ -173,7 +173,7 @@ void PageBinding::shootdown() {
 		if(_boundSpace) {
 			// TODO: Complete ShootNodes of that space.
 			invalidatePcid(_pcid);
-			_boundSpace = frigg::SharedPtr<PageSpace>{};
+			_boundSpace = smarter::shared_ptr<PageSpace, BindableHandle>{};
 		}
 */
 		return;
@@ -239,7 +239,7 @@ void PageBinding::shootdown() {
 // PageSpace.
 // --------------------------------------------------------
 
-void PageSpace::activate(frigg::SharedPtr<PageSpace> space) {
+void PageSpace::activate(smarter::shared_ptr<PageSpace, BindableHandle> space) {
 	auto bindings = getCpuData()->pcidBindings;
 
 	int k = 0;

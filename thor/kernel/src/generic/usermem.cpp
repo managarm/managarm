@@ -1576,18 +1576,21 @@ bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 // AddressSpace
 // --------------------------------------------------------
 
-
-
-// --------------------------------------------------------
-
-void AddressSpace::activate(frigg::SharedPtr<AddressSpace> space) {
+void AddressSpace::activate(smarter::shared_ptr<AddressSpace, BindableHandle> space) {
 	auto page_space = &space->_pageSpace;
-	PageSpace::activate(frigg::SharedPtr<PageSpace>{std::move(space), page_space});
+	PageSpace::activate(smarter::shared_ptr<PageSpace, BindableHandle>{std::move(space), page_space});
 }
 
 AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
+	frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
+}
+
+void AddressSpace::dispose(BindableHandle) {
+//	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: AddressSpace is cleared\e[39m" << frigg::endLog;
+
 	Hole *hole = _holes.get_root();
 	while(hole) {
 		auto next = HoleTree::successor(hole);
@@ -1604,17 +1607,6 @@ AddressSpace::~AddressSpace() {
 		frg::destruct(*kernelAlloc, mapping);
 		mapping = next;
 	}
-}
-
-void AddressSpace::destruct() {
-	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: AddressSpace is unused\e[39m" << frigg::endLog;
-}
-
-void AddressSpace::cleanup() {
-	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
-	frigg::destruct(*kernelAlloc, this);
 }
 
 void AddressSpace::setupDefaultMappings() {

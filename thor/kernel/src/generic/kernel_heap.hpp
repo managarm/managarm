@@ -58,6 +58,16 @@ private:
 extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
+struct Allocator {
+	void *allocate(size_t size) {
+		return kernelAlloc->allocate(size);
+	}
+
+	void deallocate(void *p, size_t size) {
+		kernelAlloc->deallocate(p, size);
+	}
+};
+
 } // namespace thor
 
 #endif // THOR_GENERIC_KERNEL_HEAP_HPP

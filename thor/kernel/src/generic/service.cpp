@@ -694,7 +694,7 @@ namespace initrd {
 
 				AcquireNode node;
 
-				auto accessor = ForeignSpaceAccessor{_thread->getAddressSpace().toShared(),
+				auto accessor = ForeignSpaceAccessor{_thread->getAddressSpace().lock(),
 						reinterpret_cast<void *>(_thread->_executor.general()->rsi),
 						sizeof(ManagarmProcessData)};
 				node.setup(nullptr);

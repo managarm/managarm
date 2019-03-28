@@ -70,7 +70,7 @@ private:
 	DirectSelfAccessor(T *address)
 	: _address(address) { }
 
-	frigg::SharedPtr<AddressSpace> _space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
 	T *_address;
 };
 

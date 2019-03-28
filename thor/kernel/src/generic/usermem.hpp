@@ -5,7 +5,9 @@
 #include <frg/container_of.hpp>
 #include <frg/rbtree.hpp>
 #include <frg/rcu_radixtree.hpp>
+#include <smarter.hpp>
 #include "error.hpp"
+#include "mm-rc.hpp"
 #include "types.hpp"
 #include "futex.hpp"
 #include "../arch/x86/paging.hpp"
@@ -737,7 +739,7 @@ struct ForkNode {
 	void setup(Worklet *forked) {
 		_forked = forked;
 	}
-	frigg::SharedPtr<AddressSpace> forkedSpace() {
+	smarter::shared_ptr<AddressSpace, BindableHandle> forkedSpace() {
 		return frigg::move(_fork);
 	}
 
@@ -746,7 +748,7 @@ private:
 
 	// TODO: This should be a SharedPtr, too.
 	AddressSpace *_original;
-	frigg::SharedPtr<AddressSpace> _fork;
+	smarter::shared_ptr<AddressSpace, BindableHandle> _fork;
 	frigg::LinkedList<ForkItem, KernelAlloc> _items;
 	Worklet _worklet;
 	PrepareNode _prepare;
@@ -772,7 +774,7 @@ private:
 	ShootNode _shootNode;
 };
 
-class AddressSpace : frigg::SharedCounter {
+struct AddressSpace : smarter::crtp_counter<AddressSpace, BindableHandle> {
 	friend struct ForeignSpaceAccessor;
 	friend struct NormalMapping;
 	friend struct CowMapping;
@@ -803,20 +805,25 @@ public:
 		kFaultExecute = (1 << 2)
 	};
 
-	static frigg::SharedPtr<AddressSpace> create() {
-		auto space = frigg::construct<AddressSpace>(*kernelAlloc);
-		return frigg::SharedPtr<AddressSpace>{frigg::adoptShared, space, 
-				frigg::SharedControl{space}};
+	static smarter::shared_ptr<AddressSpace, BindableHandle>
+	constructHandle(smarter::shared_ptr<AddressSpace> ptr) {
+		auto space = ptr.get();
+		space->setup(smarter::adopt_rc, ptr.ctr(), 1);
+		ptr.release();
+		return smarter::shared_ptr<AddressSpace, BindableHandle>{smarter::adopt_rc, space, space};
 	}
 
-	static void activate(frigg::SharedPtr<AddressSpace> space);
+	static smarter::shared_ptr<AddressSpace, BindableHandle> create() {
+		return constructHandle(smarter::allocate_shared<AddressSpace>(Allocator{}));
+	}
+
+	static void activate(smarter::shared_ptr<AddressSpace, BindableHandle> space);
 
 	AddressSpace();
 
 	~AddressSpace();
 
-	void destruct() override; // Called when shared_ptr refcount reaches zero.
-	void cleanup() override; // Called when weak_ptr refcount reaches zero.
+	void dispose(BindableHandle);
 
 	void setupDefaultMappings();
 
@@ -892,7 +899,7 @@ public:
 	ForeignSpaceAccessor()
 	: _acquired{false} { }
 
-	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
+	ForeignSpaceAccessor(smarter::shared_ptr<AddressSpace, BindableHandle> space,
 			void *address, size_t length)
 	: _space(frigg::move(space)), _address(address), _length(length),
 			_acquired{false} { }
@@ -909,7 +916,7 @@ public:
 		return *this;
 	}
 
-	frigg::UnsafePtr<AddressSpace> space() {
+	smarter::borrowed_ptr<AddressSpace, BindableHandle> space() {
 		return _space;
 	}
 	uintptr_t address() {
@@ -941,7 +948,7 @@ public:
 private:
 	PhysicalAddr _resolvePhysical(VirtualAddr vaddr);
 
-	frigg::SharedPtr<AddressSpace> _space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
 	void *_address;
 	size_t _length;
 	bool _acquired;

@@ -12,7 +12,7 @@ namespace thor {
 // IpcQueue
 // ----------------------------------------------------------------------------
 
-IpcQueue::IpcQueue(frigg::SharedPtr<AddressSpace> space, void *pointer)
+IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer)
 : _space{frigg::move(space)}, _pointer{pointer},
 		_waitInFutex{false},
 		_currentChunk{nullptr}, _currentProgress{0}, _nextIndex{0},
@@ -29,7 +29,7 @@ IpcQueue::IpcQueue(frigg::SharedPtr<AddressSpace> space, void *pointer)
 	_chunks.resize(1 << _sizeShift);
 }
 
-void IpcQueue::setupChunk(size_t index, frigg::SharedPtr<AddressSpace> space, void *pointer) {
+void IpcQueue::setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 

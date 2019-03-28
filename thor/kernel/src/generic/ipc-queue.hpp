@@ -96,11 +96,11 @@ private:
 		Chunk()
 		: pointer{nullptr} { }
 
-		Chunk(frigg::SharedPtr<AddressSpace> space_, void *pointer_)
+		Chunk(smarter::shared_ptr<AddressSpace, BindableHandle> space_, void *pointer_)
 		: space{frigg::move(space_)}, pointer{pointer_}, bufferSize{4096} { }
 
 		// Pointer (+ address space) to queue chunk struct.
-		frigg::SharedPtr<AddressSpace> space;
+		smarter::shared_ptr<AddressSpace, BindableHandle> space;
 		void *pointer;
 
 		// Size of the chunk's buffer.
@@ -108,13 +108,13 @@ private:
 	};
 
 public:
-	IpcQueue(frigg::SharedPtr<AddressSpace> space, void *pointer);
+	IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
 
 	IpcQueue(const IpcQueue &) = delete;
 
 	IpcQueue &operator= (const IpcQueue &) = delete;
 
-	void setupChunk(size_t index, frigg::SharedPtr<AddressSpace> space, void *pointer);
+	void setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
 
 	void submit(IpcNode *node);
 
@@ -129,7 +129,7 @@ private:
 	Mutex _mutex;
 
 	// Pointer (+ address space) to queue head struct.
-	frigg::SharedPtr<AddressSpace> _space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
 	void *_pointer;
 	
 	int _sizeShift;

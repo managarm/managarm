@@ -70,7 +70,7 @@ private:
 
 public:
 	static frigg::SharedPtr<Thread> create(frigg::SharedPtr<Universe> universe,
-			frigg::SharedPtr<AddressSpace> address_space,
+			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
 		auto thread = frigg::construct<Thread>(*kernelAlloc,
 				frigg::move(universe), frigg::move(address_space), abi);
@@ -112,7 +112,7 @@ public:
 	};
 
 	Thread(frigg::SharedPtr<Universe> universe,
-			frigg::SharedPtr<AddressSpace> address_space,
+			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi);
 	~Thread();
 
@@ -129,7 +129,7 @@ public:
 
 	UserContext &getContext();
 	frigg::UnsafePtr<Universe> getUniverse();
-	frigg::UnsafePtr<AddressSpace> getAddressSpace();
+	smarter::borrowed_ptr<AddressSpace, BindableHandle> getAddressSpace();
 
 	LaneHandle inferiorLane() {
 		return _inferiorLane;
@@ -226,7 +226,7 @@ public:
 
 private:
 	frigg::SharedPtr<Universe> _universe;
-	frigg::SharedPtr<AddressSpace> _addressSpace;
+	smarter::shared_ptr<AddressSpace, BindableHandle> _addressSpace;
 
 	LaneHandle _superiorLane;
 	LaneHandle _inferiorLane;

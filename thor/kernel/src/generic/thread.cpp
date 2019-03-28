@@ -305,7 +305,7 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 }
 
 Thread::Thread(frigg::SharedPtr<Universe> universe,
-		frigg::SharedPtr<AddressSpace> address_space, AbiParameters abi)
+		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this}, _pagingWorkQueue{this},
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
 		_numTicks{0}, _activationTick{0},
@@ -388,7 +388,7 @@ UserContext &Thread::getContext() {
 frigg::UnsafePtr<Universe> Thread::getUniverse() {
 	return _universe;
 }
-frigg::UnsafePtr<AddressSpace> Thread::getAddressSpace() {
+smarter::borrowed_ptr<AddressSpace, BindableHandle> Thread::getAddressSpace() {
 	return _addressSpace;
 }
 

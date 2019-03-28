@@ -136,7 +136,7 @@ struct ImageInfo {
 	frigg::String<KernelAlloc> interpreter;
 };
 
-ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
+ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
 		VirtualAddr base, frigg::SharedPtr<Memory> image) {
 	ImageInfo info;
 

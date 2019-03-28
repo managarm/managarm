@@ -5,6 +5,8 @@
 #include <frg/list.hpp>
 #include <frigg/algorithm.hpp>
 #include <frigg/smart_ptr.hpp>
+#include <smarter.hpp>
+#include "../../generic/mm-rc.hpp"
 #include "../../generic/types.hpp"
 #include "../../generic/work-queue.hpp"
 
@@ -106,7 +108,7 @@ struct PageBinding {
 	
 	PageBinding &operator= (const PageBinding &) = delete;
 
-	frigg::SharedPtr<PageSpace> boundSpace() {
+	smarter::shared_ptr<PageSpace, BindableHandle> boundSpace() {
 		return _boundSpace;
 	}
 
@@ -123,7 +125,7 @@ struct PageBinding {
 
 	void rebind();
 
-	void rebind(frigg::SharedPtr<PageSpace> space);
+	void rebind(smarter::shared_ptr<PageSpace, BindableHandle> space);
 
 	void shootdown();
 
@@ -133,7 +135,7 @@ private:
 	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
 	//       to the PageSpace that does *not* prevent the PageSpace from becoming
 	//       "activatable".
-	frigg::SharedPtr<PageSpace> _boundSpace;
+	smarter::shared_ptr<PageSpace, BindableHandle> _boundSpace;
 
 	uint64_t _primaryStamp;
 
@@ -141,7 +143,7 @@ private:
 };
 
 struct PageSpace {
-	static void activate(frigg::SharedPtr<PageSpace> space);
+	static void activate(smarter::shared_ptr<PageSpace, BindableHandle> space);
 
 	friend struct PageBinding;
 

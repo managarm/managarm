@@ -274,7 +274,7 @@ HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle) {
 	auto this_universe = this_thread->getUniverse();
 
 	auto queue = frigg::makeShared<IpcQueue>(*kernelAlloc,
-			this_thread->getAddressSpace().toShared(), head);
+			this_thread->getAddressSpace().lock(), head);
 	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -305,7 +305,7 @@ HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint3
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	queue->setupChunk(index, this_thread->getAddressSpace().toShared(), chunk);
+	queue->setupChunk(index, this_thread->getAddressSpace().lock(), chunk);
 
 	return kHelErrNone;
 }
@@ -487,13 +487,13 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<AddressSpace> space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		if(handle == kHelNullHandle) {
-			space = this_thread->getAddressSpace().toShared();
+			space = this_thread->getAddressSpace().lock();
 		}else{
 			auto space_wrapper = this_universe->getDescriptor(universe_guard, handle);
 			if(!space_wrapper)
@@ -545,7 +545,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	auto this_universe = this_thread->getUniverse();
 	
 	frigg::SharedPtr<MemorySlice> slice;
-	frigg::SharedPtr<AddressSpace> space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -565,7 +565,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		}
 		
 		if(space_handle == kHelNullHandle) {
-			space = this_thread->getAddressSpace().toShared();
+			space = this_thread->getAddressSpace().lock();
 		}else{
 			auto space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
 			if(!space_wrapper)
@@ -630,13 +630,13 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<AddressSpace> space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		if(space_handle == kHelNullHandle) {
-			space = this_thread->getAddressSpace().toShared();
+			space = this_thread->getAddressSpace().lock();
 		}else{
 			auto space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
 			if(!space_wrapper)
@@ -669,7 +669,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	auto this_thread = getCurrentThread();
 	
-	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
+	auto space = this_thread->getAddressSpace().lock();
 
 	// FIXME: The physical page can change after we destruct the accessor!
 	// We need a better hel API to properly handle that case.
@@ -694,7 +694,7 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<AddressSpace> space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -706,7 +706,7 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 			space = wrapper->get<AddressSpaceDescriptor>().space;
 		}else if(wrapper->is<ThreadDescriptor>()) {
 			auto thread = wrapper->get<ThreadDescriptor>().thread;
-			space = thread->getAddressSpace().toShared();
+			space = thread->getAddressSpace().lock();
 		}else{
 			return kHelErrBadDescriptor;
 		}
@@ -733,7 +733,7 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<AddressSpace> space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -745,7 +745,7 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 			space = wrapper->get<AddressSpaceDescriptor>().space;
 		}else if(wrapper->is<ThreadDescriptor>()) {
 			auto thread = wrapper->get<ThreadDescriptor>().thread;
-			space = thread->getAddressSpace().toShared();
+			space = thread->getAddressSpace().lock();
 		}else{
 			return kHelErrBadDescriptor;
 		}
@@ -1004,7 +1004,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		return kHelErrIllegalArgs;
 
 	frigg::SharedPtr<Universe> universe;
-	frigg::SharedPtr<AddressSpace> space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1021,7 +1021,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		}
 
 		if(space_handle == kHelNullHandle) {
-			space = this_thread->getAddressSpace().toShared();
+			space = this_thread->getAddressSpace().lock();
 		}else{
 			auto space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
 			if(!space_wrapper)
@@ -1651,11 +1651,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			closure->items[i].transmit._inBuffer = frigg::move(buffer);
 		} break;
 		case kHelActionRecvInline: {
-			auto space = this_thread->getAddressSpace().toShared();
+			auto space = this_thread->getAddressSpace().lock();
 			closure->items[i].transmit.setup(kTagRecvInline, &closure->packet);
 		} break;
 		case kHelActionRecvToBuffer: {
-			auto space = this_thread->getAddressSpace().toShared();
+			auto space = this_thread->getAddressSpace().lock();
 			AcquireNode node;
 			auto accessor = ForeignSpaceAccessor{frigg::move(space),
 					action.buffer, action.length};

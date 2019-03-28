@@ -291,7 +291,7 @@ extern "C" void handleProtectionFault(FaultImageAccessor image) {
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
-	frigg::UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
+	auto address_space = this_thread->getAddressSpace();
 
 	const Word kPfAccess = 1;
 	const Word kPfWrite = 2;

@@ -3,6 +3,8 @@
 
 #include <frigg/smart_ptr.hpp>
 #include <frigg/variant.hpp>
+#include <smarter.hpp>
+#include "mm-rc.hpp"
 
 namespace thor {
 
@@ -49,10 +51,10 @@ struct MemorySliceDescriptor {
 };
 
 struct AddressSpaceDescriptor {
-	AddressSpaceDescriptor(frigg::SharedPtr<AddressSpace> space)
+	AddressSpaceDescriptor(smarter::shared_ptr<AddressSpace, BindableHandle> space)
 	: space(frigg::move(space)) { }
 
-	frigg::SharedPtr<AddressSpace> space;
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 };
 
 // --------------------------------------------------------

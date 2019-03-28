@@ -10,8 +10,10 @@ if get_option('build_kernel')
 
 	cxxshim = subproject('cxxshim')
 	frigg = subproject('frigg')
+	libsmarter = subproject('libsmarter')
 	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	frigg_dep = frigg.get_variable('frigg_dep')
+	libsmarter_dep = libsmarter.get_variable('libsmarter_dep')
 
 	subdir('eir')
 	subdir('thor/kernel')
