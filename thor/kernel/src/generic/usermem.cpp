@@ -671,7 +671,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	closure->node.setup(&closure->worklet, numObservers);
 	size_t fast_paths = 0;
 	for(auto observer : observers)
-		if(observer->evictRange((page - pages) << kPageShift, kPageSize, &closure->node))
+		if(observer->observeEviction((page - pages) << kPageShift, kPageSize, &closure->node))
 			fast_paths++;
 	if(!fast_paths)
 		return false;
@@ -1307,7 +1307,7 @@ void NormalMapping::retire() {
 	_state = MappingState::retired;
 }
 
-bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
+bool NormalMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 		EvictNode *continuation) {
 	assert(_state == MappingState::active);
 
@@ -1340,6 +1340,7 @@ bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 
 	// Perform shootdown.
 	struct Closure {
+		smarter::shared_ptr<Mapping> mapping; // Need to keep the Mapping alive.
 		Worklet worklet;
 		ShootNode node;
 		EvictNode *continuation;
@@ -1350,6 +1351,7 @@ bool NormalMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 		closure->continuation->done();
 		frigg::destruct(*kernelAlloc, closure);
 	});
+	closure->mapping = selfPtr.lock();
 	closure->continuation = continuation;
 
 	closure->node.address = address() + shoot_offset;
@@ -1579,7 +1581,7 @@ void CowMapping::retire() {
 	_state = MappingState::retired;
 }
 
-bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
+bool CowMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 		EvictNode *continuation) {
 	assert(_state == MappingState::active);
 	assert(_chain->_superRoot && "TODO: fix eviction of chains");
@@ -1610,6 +1612,7 @@ bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 
 	// Perform shootdown.
 	struct Closure {
+		smarter::shared_ptr<Mapping> mapping; // Need to keep the Mapping alive.
 		Worklet worklet;
 		ShootNode node;
 		EvictNode *continuation;
@@ -1620,6 +1623,7 @@ bool CowMapping::evictRange(uintptr_t evict_offset, size_t evict_length,
 		closure->continuation->done();
 		frigg::destruct(*kernelAlloc, closure);
 	});
+	closure->mapping = selfPtr.lock();
 	closure->continuation = continuation;
 
 	closure->node.address = address() + shoot_offset;

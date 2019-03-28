@@ -212,7 +212,11 @@ private:
 };
 
 struct MemoryObserver {
-	virtual bool evictRange(uintptr_t offset, size_t length, EvictNode *node) = 0;
+	// Called before pages from a MemoryView are evicted.
+	// *Important*: While the caller always calls this with a positive RC,
+	//              it does *not* keep a reference until EvictNode::complete() is called!
+	//              Thus, observeEviction() should increment/decrement the RC itself.
+	virtual bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) = 0;
 
 	frg::default_list_hook<MemoryObserver> listHook;
 };
@@ -640,7 +644,7 @@ struct NormalMapping : Mapping, MemoryObserver {
 	void uninstall(bool clear) override;
 	void retire() override;
 
-	bool evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
+	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
 	MappingState _state = MappingState::null;
@@ -684,7 +688,7 @@ struct CowMapping : Mapping, MemoryObserver {
 	void uninstall(bool clear) override;
 	void retire() override;
 
-	bool evictRange(uintptr_t offset, size_t length, EvictNode *node) override;
+	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
 	MappingState _state = MappingState::null;
