@@ -1045,72 +1045,88 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 	assert(index < _managed->physicalPages.size());
-	if(_managed->loadState[index] == ManagedSpace::kStateEvicting) {
-		_managed->loadState[index] = ManagedSpace::kStatePresent;
-		globalReclaimer->addPage(&_managed->pages[index]);
-	}else if(_managed->loadState[index] != ManagedSpace::kStatePresent) {
-		assert(!(node->flags() & FetchNode::disallowBacking));
 
-		if(_managed->loadState[index] == ManagedSpace::kStateMissing) {
-			_managed->loadState[index] = ManagedSpace::kStateWantInitialization;
-			_managed->_initializationList.push_back(&_managed->pages[index]);
+	// Try the fast-paths first.
+	if(_managed->loadState[index] == ManagedSpace::kStatePresent
+			|| _managed->loadState[index] == ManagedSpace::kStateWantWriteback
+			|| _managed->loadState[index] == ManagedSpace::kStateWriteback
+			|| _managed->loadState[index] == ManagedSpace::kStateAnotherWriteback
+			|| _managed->loadState[index] == ManagedSpace::kStateEvicting) {
+		auto physical = _managed->physicalPages[index];
+		assert(physical != PhysicalAddr(-1));
+
+		if(_managed->loadState[index] == ManagedSpace::kStatePresent) {
+			if(!_managed->lockCount[index])
+				globalReclaimer->bumpPage(&_managed->pages[index]);
+		}else if(_managed->loadState[index] == ManagedSpace::kStateEvicting) {
+			// Cancel evication -- the page is still needed.
+			_managed->loadState[index] = ManagedSpace::kStatePresent;
+			globalReclaimer->addPage(&_managed->pages[index]);
 		}
-		_managed->_progressManagement();
 
-		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
-		struct Closure {
-			uintptr_t offset;
-			FetchNode *fetch;
-			ManagedSpace *bundle;
-
-			Worklet worklet;
-			MonitorNode initiate;
-		} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-		struct Ops {
-			static void initiated(Worklet *worklet) {
-				auto closure = frg::container_of(worklet, &Closure::worklet);
-				assert(closure->initiate.error() == kErrSuccess);
-
-				auto irq_lock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&closure->bundle->mutex);
-
-				auto index = closure->offset >> kPageShift;
-				auto misalign = closure->offset & (kPageSize - 1);
-				assert(closure->bundle->loadState[index] == ManagedSpace::kStatePresent);
-				auto physical = closure->bundle->physicalPages[index];
-				assert(physical != PhysicalAddr(-1));
-
-				lock.unlock();
-				irq_lock.unlock();
-
-				completeFetch(closure->fetch, physical + misalign, kPageSize - misalign,
-						CachingMode::null);
-				callbackFetch(closure->fetch);
-				frigg::destruct(*kernelAlloc, closure);
-			}
-		};
-
-		closure->offset = offset;
-		closure->fetch = node;
-		closure->bundle = _managed.get();
-
-		closure->worklet.setup(&Ops::initiated);
-		closure->initiate.setup(ManageRequest::initialize,
-				offset, kPageSize, &closure->worklet);
-		closure->initiate.progress = 0;
-		_managed->_monitorQueue.push_back(&closure->initiate);
-		_managed->_progressMonitors();
-
-		return false;
+		completeFetch(node, physical + misalign, kPageSize - misalign, CachingMode::null);
+		return true;
+	}else{
+		assert(_managed->loadState[index] == ManagedSpace::kStateMissing
+				|| _managed->loadState[index] == ManagedSpace::kStateWantInitialization
+				|| _managed->loadState[index] == ManagedSpace::kStateInitialization);
 	}
 
-	auto physical = _managed->physicalPages[index];
-	assert(physical != PhysicalAddr(-1));
-	if(!_managed->lockCount[index])
-		globalReclaimer->bumpPage(&_managed->pages[index]);
-	completeFetch(node, physical + misalign, kPageSize - misalign, CachingMode::null);
-	return true;
+	assert(!(node->flags() & FetchNode::disallowBacking));
+
+	// We have to take the slow-path, i.e., perform the fetch asynchronously.
+	if(_managed->loadState[index] == ManagedSpace::kStateMissing) {
+		_managed->loadState[index] = ManagedSpace::kStateWantInitialization;
+		_managed->_initializationList.push_back(&_managed->pages[index]);
+	}
+	_managed->_progressManagement();
+
+	// TODO: Do not allocate memory here; use pre-allocated nodes instead.
+	struct Closure {
+		uintptr_t offset;
+		FetchNode *fetch;
+		ManagedSpace *bundle;
+
+		Worklet worklet;
+		MonitorNode initiate;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	struct Ops {
+		static void initiated(Worklet *worklet) {
+			auto closure = frg::container_of(worklet, &Closure::worklet);
+			assert(closure->initiate.error() == kErrSuccess);
+
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&closure->bundle->mutex);
+
+			auto index = closure->offset >> kPageShift;
+			auto misalign = closure->offset & (kPageSize - 1);
+			assert(closure->bundle->loadState[index] == ManagedSpace::kStatePresent);
+			auto physical = closure->bundle->physicalPages[index];
+			assert(physical != PhysicalAddr(-1));
+
+			lock.unlock();
+			irq_lock.unlock();
+
+			completeFetch(closure->fetch, physical + misalign, kPageSize - misalign,
+					CachingMode::null);
+			callbackFetch(closure->fetch);
+			frigg::destruct(*kernelAlloc, closure);
+		}
+	};
+
+	closure->offset = offset;
+	closure->fetch = node;
+	closure->bundle = _managed.get();
+
+	closure->worklet.setup(&Ops::initiated);
+	closure->initiate.setup(ManageRequest::initialize,
+			offset, kPageSize, &closure->worklet);
+	closure->initiate.progress = 0;
+	_managed->_monitorQueue.push_back(&closure->initiate);
+	_managed->_progressMonitors();
+
+	return false;
 }
 
 void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
