@@ -576,6 +576,16 @@ enum MappingFlags : uint32_t {
 	dontRequireBacking = 0x100
 };
 
+struct TouchVirtualNode {
+	void setup(uintptr_t offset, Worklet *worklet) {
+		_offset = offset;
+		_worklet = worklet;
+	}
+
+	uintptr_t _offset;
+	Worklet *_worklet;
+};
+
 struct PrepareNode {
 	void setup(uintptr_t offset, size_t size, Worklet *prepared) {
 		_offset = offset;
@@ -625,6 +635,7 @@ public:
 	virtual frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) = 0;
 
+	virtual bool touchVirtualPage(TouchVirtualNode *node) = 0;
 	virtual bool prepareRange(PrepareNode *node) = 0;
 
 	virtual Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) = 0;
@@ -654,6 +665,7 @@ struct NormalMapping : Mapping, MemoryObserver {
 	frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) override;
 
+	bool touchVirtualPage(TouchVirtualNode *node) override;
 	bool prepareRange(PrepareNode *node) override;
 
 	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
@@ -697,6 +709,9 @@ struct CowMapping : Mapping, MemoryObserver {
 
 	frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) override;
+
+	// Ensures that a page of virtual memory is present.
+	bool touchVirtualPage(TouchVirtualNode *node) override;
 
 	bool prepareRange(PrepareNode *node) override;
 
@@ -775,7 +790,7 @@ private:
 
 	Mapping *_mapping;
 	Worklet _worklet;
-	PrepareNode _prepare;
+	TouchVirtualNode _touchVirtual;
 };
 
 struct ForkItem {
