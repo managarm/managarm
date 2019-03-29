@@ -582,11 +582,24 @@ struct TouchVirtualNode {
 		_worklet = worklet;
 	}
 
+	void setResult(frigg::Tuple<PhysicalAddr, size_t, CachingMode> range) {
+		_range = range;
+	}
+	void setResult(PhysicalAddr physical, size_t size, CachingMode mode) {
+		_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, mode};
+	}
+
+	frigg::Tuple<PhysicalAddr, size_t, CachingMode> range() {
+		return _range;
+	}
+
 	uintptr_t _offset;
 	Worklet *_worklet;
+
+	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
-struct PrepareNode {
+struct PopulateVirtualNode {
 	void setup(uintptr_t offset, size_t size, Worklet *prepared) {
 		_offset = offset;
 		_size = size;
@@ -635,8 +648,11 @@ public:
 	virtual frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) = 0;
 
+	// Ensures that a page of virtual memory is present.
 	virtual bool touchVirtualPage(TouchVirtualNode *node) = 0;
-	virtual bool prepareRange(PrepareNode *node) = 0;
+
+	// Helper function that calls touchVirtualPage() on a certain range.
+	bool populateVirtualRange(PopulateVirtualNode *node);
 
 	virtual Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) = 0;
 	virtual Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) = 0;
@@ -666,7 +682,6 @@ struct NormalMapping : Mapping, MemoryObserver {
 	resolveRange(ptrdiff_t offset) override;
 
 	bool touchVirtualPage(TouchVirtualNode *node) override;
-	bool prepareRange(PrepareNode *node) override;
 
 	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
 	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
@@ -710,10 +725,7 @@ struct CowMapping : Mapping, MemoryObserver {
 	frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) override;
 
-	// Ensures that a page of virtual memory is present.
 	bool touchVirtualPage(TouchVirtualNode *node) override;
-
-	bool prepareRange(PrepareNode *node) override;
 
 	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
 	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
@@ -819,7 +831,7 @@ private:
 	smarter::shared_ptr<AddressSpace, BindableHandle> _fork;
 	frigg::LinkedList<ForkItem, KernelAlloc> _items;
 	Worklet _worklet;
-	PrepareNode _prepare;
+	PopulateVirtualNode _prepare;
 	size_t _progress;
 };
 
@@ -956,7 +968,7 @@ private:
 
 	ForeignSpaceAccessor *_accessor;
 	Worklet _worklet;
-	PrepareNode _prepare;
+	PopulateVirtualNode _prepare;
 };
 
 struct ForeignSpaceAccessor {

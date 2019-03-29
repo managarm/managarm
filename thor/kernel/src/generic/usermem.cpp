@@ -1253,6 +1253,54 @@ Mapping::Mapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr base_addre
 		MappingFlags flags)
 : _owner{std::move(owner)}, _address{base_address}, _length{length}, _flags{flags} { }
 
+bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
+	struct Closure {
+		Mapping *self;
+		PopulateVirtualNode *continuation;
+		size_t progress = 0;
+		Worklet worklet;
+		TouchVirtualNode touchNode;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	struct Ops {
+		static bool process(Closure *closure) {
+			while(closure->progress < closure->continuation->_size)
+				if(!doTouch(closure))
+					return false;
+			return true;
+		}
+
+		static bool doTouch(Closure *closure) {
+			auto self = closure->self;
+
+			closure->touchNode.setup(closure->continuation->_offset + closure->progress,
+					&closure->worklet);
+			closure->worklet.setup([] (Worklet *base) {
+				auto closure = frg::container_of(base, &Closure::worklet);
+				closure->progress += closure->touchNode.range().get<1>();
+				if(!process(closure))
+					return;
+				WorkQueue::post(closure->continuation->_prepared);
+				frigg::destruct(*kernelAlloc, closure);
+			});
+			if(!self->touchVirtualPage(&closure->touchNode))
+				return false;
+			closure->progress += closure->touchNode.range().get<1>();
+			return true;
+		}
+
+	};
+
+	closure->self = this;
+	closure->continuation = continuation;
+
+	if(!Ops::process(closure))
+		return false;
+
+	frigg::destruct(*kernelAlloc, closure);
+	return true;
+}
+
 // --------------------------------------------------------
 // NormalMapping
 // --------------------------------------------------------
@@ -1295,28 +1343,24 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 	struct Ops {
 		static bool doFetch(Closure *closure) {
-			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
-			auto offset = closure->continuation->_offset;
 
 			FetchFlags fetch_flags = 0;
 			if(self->flags() & MappingFlags::dontRequireBacking)
 				fetch_flags |= FetchNode::disallowBacking;
 
-			auto view_range = self->_slice->translateRange(self->_viewOffset + offset,
-					kPageSize);
-			closure->worklet.setup(&Ops::fetched);
-			closure->fetch.setup(&closure->worklet);
-			if(!view_range.view->fetchRange(view_range.displacement, &closure->fetch))
+			closure->fetch.setup(&closure->worklet, fetch_flags);
+			closure->worklet.setup([] (Worklet *base) {
+				auto closure = frg::container_of(base, &Closure::worklet);
+				closure->continuation->setResult(closure->fetch.range());
+				WorkQueue::post(closure->continuation->_worklet);
+				frigg::destruct(*kernelAlloc, closure);
+			});
+			if(!self->_view->fetchRange(self->_viewOffset + closure->continuation->_offset,
+					&closure->fetch))
 				return false;
 
 			return true;
-		}
-
-		static void fetched(Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-			WorkQueue::post(closure->continuation->_worklet);
-			frigg::destruct(*kernelAlloc, closure);
 		}
 	};
 
@@ -1327,67 +1371,7 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 		return false;
 
 	frigg::destruct(*kernelAlloc, closure);
-	return true;
-}
-
-bool NormalMapping::prepareRange(PrepareNode *node) {
-	assert(_state == MappingState::active);
-
-	struct Closure {
-		NormalMapping *self;
-		PrepareNode *node;
-		size_t progress;
-		Worklet worklet;
-		FetchNode fetch;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	closure->self = this;
-	closure->node = node;
-	closure->progress = 0;
-
-	struct Ops {
-		static bool process(Closure *closure) {
-			while(closure->progress < closure->node->_size)
-				if(!transfer(closure))
-					return false;
-			return true;
-		}
-
-		static bool transfer(Closure *closure) {
-			// TODO: Assert that there is no overflow.
-			auto self = closure->self;
-			auto offset = closure->node->_offset + closure->progress;
-
-			FetchFlags fetch_flags = 0;
-			if(self->flags() & MappingFlags::dontRequireBacking)
-				fetch_flags |= FetchNode::disallowBacking;
-
-			auto view_range = self->_slice->translateRange(self->_viewOffset + offset,
-					closure->node->_size - offset);
-			closure->worklet.setup(&Ops::fetched);
-			closure->fetch.setup(&closure->worklet);
-			if(!view_range.view->fetchRange(view_range.displacement, &closure->fetch))
-				return false;
-
-			closure->progress += closure->fetch.range().get<1>();
-			return true;
-		}
-
-		static void fetched(Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-			if(!process(closure))
-				return;
-
-			WorkQueue::post(closure->node->_prepared);
-			frigg::destruct(*kernelAlloc, closure);
-		}
-
-	};
-
-	if(!Ops::process(closure))
-		return false;
-
-	frigg::destruct(*kernelAlloc, closure);
+	closure->continuation->setResult(closure->fetch.range());
 	return true;
 }
 
@@ -1580,38 +1564,43 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 	struct Ops {
 		static bool copyPage(Closure *closure) {
-			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
-			auto offset = closure->continuation->_offset;
-			auto page = offset & ~(kPageSize - 1);
+			auto page_offset = closure->continuation->_offset & ~(kPageSize - 1);
+			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_chain->_mutex);
 
 			// If the page is present in this bundle we just return it.
-			if(auto it = self->_chain->_pages.find(page >> kPageShift); it) {
+			if(auto it = self->_chain->_pages.find(page_offset >> kPageShift); it) {
 				auto physical = it->load(std::memory_order_relaxed);
 				assert(physical != PhysicalAddr(-1));
+				closure->continuation->setResult(physical, kPageSize - misalign,
+						CachingMode::null);
 				return true;
 			}
 
 			// Otherwise we need to copy from the super-tree.
 			auto source = self->_chain.get();
-			ptrdiff_t disp = page;
+			ptrdiff_t chain_disp = 0;
 			while(true) {
 				// Copy from a descendant CoW bundle.
-				if(auto it = source->_pages.find(disp >> kPageShift); it) {
+				if(auto it = source->_pages.find((chain_disp + page_offset) >> kPageShift); it) {
 					// Cannot copy from ourselves; this case is handled above.
 					assert(source != self->_chain.get());
-					closure->copy.setup(self->_chain->_copy.get(), page, source->_copy.get(),
-							disp, kPageSize, nullptr);
+					closure->copy.setup(self->_chain->_copy.get(), page_offset,
+							source->_copy.get(),
+							chain_disp + page_offset, kPageSize,
+							nullptr);
 					if(!Memory::transfer(&closure->copy))
 						assert(!"Fix the asynchronous case");
 
-					auto range = self->_chain->_copy->peekRange(page);
+					auto range = self->_chain->_copy->peekRange(page_offset);
 					auto physical = range.get<0>();
 					assert(physical != PhysicalAddr(-1));
-					auto cow_it = self->_chain->_pages.insert(page >> kPageShift,
+					closure->continuation->setResult(physical, kPageSize - misalign,
+							range.get<1>());
+					auto cow_it = self->_chain->_pages.insert(page_offset >> kPageShift,
 							PhysicalAddr(-1));
 					cow_it->store(physical, std::memory_order_relaxed);
 					return true;
@@ -1620,18 +1609,23 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 				// Copy from the root view.
 				if(!source->_superChain) {
 					assert(source->_superRoot);
-					auto view_range = source->_superRoot->translateRange(source->_superOffset + disp,
-							kPageSize);
-					assert(view_range.size >= kPageSize);
 
 					closure->worklet.setup([] (Worklet *base) {
 						auto closure = frg::container_of(base, &Closure::worklet);
+						auto self = closure->self;
+
+						auto irq_lock = frigg::guard(&irqMutex());
+						auto lock = frigg::guard(&self->_chain->_mutex);
+
 						finishPage(closure);
+
 						WorkQueue::post(closure->continuation->_worklet);
 						frigg::destruct(*kernelAlloc, closure);
 					});
-					closure->copy.setup(self->_chain->_copy.get(), page, view_range.view,
-							view_range.displacement, kPageSize, &closure->worklet);
+					closure->copy.setup(self->_chain->_copy.get(), page_offset,
+							source->_superRoot->getView().get(),
+							source->_superOffset + chain_disp + page_offset, kPageSize,
+							&closure->worklet);
 					if(!Memory::transfer(&closure->copy))
 						return false;
 
@@ -1639,7 +1633,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					return true;
 				}
 
-				disp += source->_superOffset;
+				chain_disp += source->_superOffset;
 				source = source->_superChain.get();
 			}
 		}
@@ -1647,13 +1641,14 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 		static void finishPage(Closure *closure) {
 			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
-			auto offset = closure->continuation->_offset;
-			auto page = offset & ~(kPageSize - 1);
+			auto page_offset = closure->continuation->_offset & ~(kPageSize - 1);
+			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
-			auto bundle_range = self->_chain->_copy->peekRange(page);
-			auto physical = bundle_range.get<0>();
+			auto range = self->_chain->_copy->peekRange(page_offset);
+			auto physical = range.get<0>();
 			assert(physical != PhysicalAddr(-1));
-			auto cow_it = self->_chain->_pages.insert(page >> kPageShift,
+			closure->continuation->setResult(physical, kPageSize - misalign, range.get<1>());
+			auto cow_it = self->_chain->_pages.insert(page_offset >> kPageShift,
 					PhysicalAddr(-1));
 			cow_it->store(physical, std::memory_order_relaxed);
 		}
@@ -1663,122 +1658,6 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	closure->continuation = continuation;
 
 	if(!Ops::copyPage(closure))
-		return false;
-
-	frigg::destruct(*kernelAlloc, closure);
-	return true;
-}
-
-bool CowMapping::prepareRange(PrepareNode *node) {
-	assert(_state == MappingState::active);
-
-	struct Closure {
-		CowMapping *self;
-		PrepareNode *node;
-		size_t progress;
-		Worklet worklet;
-		TransferNode copy;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	closure->self = this;
-	closure->node = node;
-	closure->progress = 0;
-
-	struct Ops {
-		static bool process(Closure *closure) {
-			while(closure->progress < closure->node->_size)
-				if(!transfer(closure))
-					return false;
-			return true;
-		}
-
-		static bool transfer(Closure *closure) {
-			// TODO: Assert that there is no overflow.
-			auto self = closure->self;
-			auto offset = closure->node->_offset + closure->progress;
-			auto page = offset & ~(kPageSize - 1);
-
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_chain->_mutex);
-
-			// If the page is present in this bundle we just return it.
-			if(auto it = self->_chain->_pages.find(page >> kPageShift); it) {
-				auto physical = it->load(std::memory_order_relaxed);
-				assert(physical != PhysicalAddr(-1));
-				closure->progress += kPageSize - (offset & (kPageSize - 1));
-				return true;
-			}
-
-			// Otherwise we need to copy from the super-tree.
-			auto source = self->_chain.get();
-			ptrdiff_t disp = page;
-			while(true) {
-				// Copy from a descendant CoW bundle.
-				if(auto it = source->_pages.find(disp >> kPageShift); it) {
-					// Cannot copy from ourselves; this case is handled above.
-					assert(source != self->_chain.get());
-					closure->copy.setup(self->_chain->_copy.get(), page, source->_copy.get(),
-							disp, kPageSize, nullptr);
-					if(!Memory::transfer(&closure->copy))
-						assert(!"Fix the asynchronous case");
-
-					auto range = self->_chain->_copy->peekRange(page);
-					auto physical = range.get<0>();
-					assert(physical != PhysicalAddr(-1));
-					auto cow_it = self->_chain->_pages.insert(page >> kPageShift,
-							PhysicalAddr(-1));
-					cow_it->store(physical, std::memory_order_relaxed);
-					closure->progress += kPageSize - (offset & (kPageSize - 1));
-					return true;
-				}
-
-				// Copy from the root view.
-				if(!source->_superChain) {
-					assert(source->_superRoot);
-					auto view_range = source->_superRoot->translateRange(source->_superOffset + disp,
-							kPageSize);
-					assert(view_range.size >= kPageSize);
-
-					closure->worklet.setup(&Ops::copied);
-					closure->copy.setup(self->_chain->_copy.get(), page, view_range.view,
-							view_range.displacement, kPageSize, &closure->worklet);
-					if(!Memory::transfer(&closure->copy))
-						return false;
-
-					finish(closure);
-					return true;
-				}
-
-				disp += source->_superOffset;
-				source = source->_superChain.get();
-			}
-		}
-
-		static void finish(Closure *closure) {
-			// TODO: Assert that there is no overflow.
-			auto self = closure->self;
-			auto offset = closure->node->_offset + closure->progress;
-			auto page = offset & ~(kPageSize - 1);
-
-			auto bundle_range = self->_chain->_copy->peekRange(page);
-			auto physical = bundle_range.get<0>();
-			assert(physical != PhysicalAddr(-1));
-			auto cow_it = self->_chain->_pages.insert(page >> kPageShift,
-					PhysicalAddr(-1));
-			cow_it->store(physical, std::memory_order_relaxed);
-			closure->progress += kPageSize - (offset & (kPageSize - 1));
-		}
-
-		static void copied(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &Closure::worklet);
-			finish(closure);
-
-			WorkQueue::post(closure->node->_prepared);
-			frigg::destruct(*kernelAlloc, closure);
-		}
-	};
-
-	if(!Ops::process(closure))
 		return false;
 
 	frigg::destruct(*kernelAlloc, closure);
@@ -2305,7 +2184,7 @@ bool AddressSpace::fork(ForkNode *node) {
 
 				node->_worklet.setup(&Ops::prepared);
 				node->_prepare.setup(node->_progress, kPageSize, &node->_worklet);
-				if(!item->mapping->prepareRange(&node->_prepare))
+				if(!item->mapping->populateVirtualRange(&node->_prepare))
 					return false;
 				doCopy(node);
 			}
@@ -2476,7 +2355,7 @@ bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
 	assert(mapping);
 	node->_worklet.setup(&Ops::prepared);
 	node->_prepare.setup(vaddr - mapping->address(), node->_accessor->_length, &node->_worklet);
-	if(mapping->prepareRange(&node->_prepare)) {
+	if(mapping->populateVirtualRange(&node->_prepare)) {
 		node->_accessor->_acquired = true;
 		return true;
 	}
@@ -2493,6 +2372,7 @@ PhysicalAddr ForeignSpaceAccessor::getPhysical(size_t offset) {
 
 void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
 	assert(_acquired);
+	assert(offset + size <= _length);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard guard(&_space->lock);
@@ -2514,6 +2394,7 @@ void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
 
 Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t size) {
 	assert(_acquired);
+	assert(offset + size <= _length);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard guard(&_space->lock);
