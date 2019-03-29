@@ -1319,6 +1319,14 @@ NormalMapping::~NormalMapping() {
 	//frigg::infoLogger() << "\e[31mthor: NormalMapping is destructed\e[39m" << frigg::endLog;
 }
 
+bool NormalMapping::lockVirtualRange(LockVirtualNode *node) {
+	_view->lockRange(_viewOffset + node->offset(), node->size());
+}
+
+void NormalMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
+	_view->unlockRange(_viewOffset + offset, size);
+}
+
 frigg::Tuple<PhysicalAddr, CachingMode>
 NormalMapping::resolveRange(ptrdiff_t offset) {
 	assert(_state == MappingState::active);
@@ -1538,6 +1546,38 @@ CowMapping::CowMapping(smarter::shared_ptr<AddressSpace> owner,
 CowMapping::~CowMapping() {
 	assert(_state == MappingState::retired);
 	//frigg::infoLogger() << "\e[31mthor: CowMapping is destructed\e[39m" << frigg::endLog;
+}
+
+bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
+	assert(_state == MappingState::active);
+	// For now, it is enough to populate the range, as pages can only be evicted from
+	// the root of the CoW chain, but copies are never evicted.
+
+	struct Closure {
+		Worklet worklet;
+		PopulateVirtualNode populateVirtual;
+		LockVirtualNode *continuation;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	closure->continuation = continuation;
+
+	closure->populateVirtual.setup(continuation->offset(), continuation->size(),
+			&closure->worklet);
+	closure->worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		LockVirtualNode::post(closure->continuation);
+		frigg::destruct(*kernelAlloc, closure);
+	});
+	if(!populateVirtualRange(&closure->populateVirtual))
+		return false;
+
+	frigg::destruct(*kernelAlloc, closure);
+	return true;
+}
+
+void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
+	assert(_state == MappingState::active);
+	// For now, we do nothing here.
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode>
@@ -2330,52 +2370,86 @@ void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 // ForeignSpaceAccessor
 // --------------------------------------------------------
 
-bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
-	node->_accessor = this;
+ForeignSpaceAccessor::ForeignSpaceAccessor(smarter::shared_ptr<AddressSpace, BindableHandle> space,
+		void *pointer, size_t length)
+: _space{std::move(space)}, _address{reinterpret_cast<uintptr_t>(pointer)}, _length{length} {
+	if(!_length)
+		return;
+	assert(_address);
 
-	if(!node->_accessor->_length) {
-		node->_accessor->_acquired = true;
+	auto irq_lock = frigg::guard(&irqMutex());
+	AddressSpace::Guard guard(&_space->lock);
+
+	// TODO: Verify the mapping's size.
+	auto mapping = _space->_getMapping(_address);
+	assert(mapping);
+	_mapping = mapping->selfPtr.lock();
+}
+
+ForeignSpaceAccessor::~ForeignSpaceAccessor() {
+	if(!_length)
+		return;
+
+	if(_active)
+		_mapping->unlockVirtualRange(_address - _mapping->address(), _length);
+}
+
+bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
+	if(!_length) {
+		_active = true;
 		return true;
 	}
 
+	node->_accessor = this;
+
 	struct Ops {
-		static void prepared(Worklet *base) {
-			assert(!"This is untested");
-			auto node = frg::container_of(base, &AcquireNode::_worklet);
-			node->_accessor->_acquired = true;
-			WorkQueue::post(node->_acquired);
+		static bool doLock(AcquireNode *node) {
+			auto self = node->_accessor;
+			node->_lockNode.setup(self->_address - self->_mapping->address(), self->_length,
+					&node->_worklet);
+			node->_worklet.setup([] (Worklet *base) {
+				auto node = frg::container_of(base, &AcquireNode::_worklet);
+				auto self = node->_accessor;
+				if(doPopulate(node)) {
+					self->_active = true;
+					WorkQueue::post(node->_acquired);
+				}
+			});
+			if(!self->_mapping->lockVirtualRange(&node->_lockNode))
+				return false;
+			return doPopulate(node);
+		}
+
+		static bool doPopulate(AcquireNode *node) {
+			auto self = node->_accessor;
+			node->_populateNode.setup(self->_address - self->_mapping->address(), self->_length,
+					&node->_worklet);
+			node->_worklet.setup([] (Worklet *base) {
+				auto node = frg::container_of(base, &AcquireNode::_worklet);
+				auto self = node->_accessor;
+				self->_active = true;
+				WorkQueue::post(node->_acquired);
+			});
+			if(!self->_mapping->populateVirtualRange(&node->_populateNode))
+				return false;
+			return true;
 		}
 	};
 
-	// TODO: Verify the mapping's size.
-	auto vaddr = reinterpret_cast<uintptr_t>(node->_accessor->_address);
-	if(!vaddr)
-		return false; // TODO: Remove this debugging test.
-	auto mapping = node->_accessor->_space->_getMapping(vaddr);
-	assert(mapping);
-	node->_worklet.setup(&Ops::prepared);
-	node->_prepare.setup(vaddr - mapping->address(), node->_accessor->_length, &node->_worklet);
-	if(mapping->populateVirtualRange(&node->_prepare)) {
-		node->_accessor->_acquired = true;
-		return true;
-	}
-	return false;
+	if(!Ops::doLock(node))
+		return false;
+
+	_active = true;
+	return true;
 }
 
 PhysicalAddr ForeignSpaceAccessor::getPhysical(size_t offset) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard guard(&_space->lock);
-
-	auto vaddr = reinterpret_cast<VirtualAddr>(_address) + offset;
-	return _resolvePhysical(vaddr);
+	return _resolvePhysical(_address + offset);
 }
 
 void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
-	assert(_acquired);
+	assert(_active);
 	assert(offset + size <= _length);
-
-	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard guard(&_space->lock);
 
 	size_t progress = 0;
 	while(progress < size) {
@@ -2393,11 +2467,8 @@ void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
 }
 
 Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t size) {
-	assert(_acquired);
+	assert(_active);
 	assert(offset + size <= _length);
-
-	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard guard(&_space->lock);
 
 	size_t progress = 0;
 	while(progress < size) {
@@ -2406,8 +2477,7 @@ Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t siz
 		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _resolvePhysical(write - misalign);
-		if(page == PhysicalAddr(-1))
-			return kErrFault;
+		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
 		memcpy((char *)accessor.get() + misalign, (char *)pointer + progress, chunk);
@@ -2418,9 +2488,7 @@ Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t siz
 }
 
 PhysicalAddr ForeignSpaceAccessor::_resolvePhysical(VirtualAddr vaddr) {
-	Mapping *mapping = _space->_getMapping(vaddr);
-	assert(mapping);
-	auto range = mapping->resolveRange(vaddr - mapping->address());
+	auto range = _mapping->resolveRange(vaddr - _mapping->address());
 	return range.get<0>();
 }
 

@@ -576,6 +576,26 @@ enum MappingFlags : uint32_t {
 	dontRequireBacking = 0x100
 };
 
+struct LockVirtualNode {
+	static void post(LockVirtualNode *node) {
+		WorkQueue::post(node->_worklet);
+	}
+
+	void setup(uintptr_t offset, size_t size, Worklet *worklet) {
+		_offset = offset;
+		_size = size;
+		_worklet = worklet;
+	}
+
+	auto offset() { return _offset; }
+	auto size() { return _size; }
+
+private:
+	uintptr_t _offset;
+	size_t _size;
+	Worklet *_worklet;
+};
+
 struct TouchVirtualNode {
 	void setup(uintptr_t offset, Worklet *worklet) {
 		_offset = offset;
@@ -645,10 +665,16 @@ struct Mapping {
 	}
 
 public:
+	// Makes sure that pages are not evicted from virtual memory.
+	virtual bool lockVirtualRange(LockVirtualNode *node) = 0;
+	virtual void unlockVirtualRange(uintptr_t offset, size_t length) = 0;
+
 	virtual frigg::Tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) = 0;
 
 	// Ensures that a page of virtual memory is present.
+	// Note that this does *not* guarantee that the page is not evicted immediately,
+	// unless you hold a lock (via lockVirtualRange()).
 	virtual bool touchVirtualPage(TouchVirtualNode *node) = 0;
 
 	// Helper function that calls touchVirtualPage() on a certain range.
@@ -678,9 +704,9 @@ struct NormalMapping : Mapping, MemoryObserver {
 
 	~NormalMapping();
 
-	frigg::Tuple<PhysicalAddr, CachingMode>
-	resolveRange(ptrdiff_t offset) override;
-
+	bool lockVirtualRange(LockVirtualNode *node) override;
+	void unlockVirtualRange(uintptr_t offset, size_t length) override;
+	frigg::Tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
 	bool touchVirtualPage(TouchVirtualNode *node) override;
 
 	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
@@ -722,9 +748,9 @@ struct CowMapping : Mapping, MemoryObserver {
 
 	~CowMapping();
 
-	frigg::Tuple<PhysicalAddr, CachingMode>
-	resolveRange(ptrdiff_t offset) override;
-
+	bool lockVirtualRange(LockVirtualNode *node) override;
+	void unlockVirtualRange(uintptr_t offset, size_t length) override;
+	frigg::Tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
 	bool touchVirtualPage(TouchVirtualNode *node) override;
 
 	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
@@ -968,25 +994,24 @@ private:
 
 	ForeignSpaceAccessor *_accessor;
 	Worklet _worklet;
-	PopulateVirtualNode _prepare;
+	LockVirtualNode _lockNode;
+	PopulateVirtualNode _populateNode;
 };
 
 struct ForeignSpaceAccessor {
 public:
 	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
 		frigg::swap(a._space, b._space);
+		frigg::swap(a._mapping, b._mapping);
 		frigg::swap(a._address, b._address);
 		frigg::swap(a._length, b._length);
-		frigg::swap(a._acquired, b._acquired);
+		frigg::swap(a._active, b._active);
 	}
 
-	ForeignSpaceAccessor()
-	: _acquired{false} { }
+	ForeignSpaceAccessor() = default;
 
 	ForeignSpaceAccessor(smarter::shared_ptr<AddressSpace, BindableHandle> space,
-			void *address, size_t length)
-	: _space(frigg::move(space)), _address(address), _length(length),
-			_acquired{false} { }
+			void *pointer, size_t length);
 
 	ForeignSpaceAccessor(const ForeignSpaceAccessor &other) = delete;
 
@@ -994,6 +1019,8 @@ public:
 	: ForeignSpaceAccessor() {
 		swap(*this, other);
 	}
+
+	~ForeignSpaceAccessor();
 
 	ForeignSpaceAccessor &operator= (ForeignSpaceAccessor other) {
 		swap(*this, other);
@@ -1004,7 +1031,7 @@ public:
 		return _space;
 	}
 	uintptr_t address() {
-		return (uintptr_t)_address;
+		return _address;
 	}
 	size_t length() {
 		return _length;
@@ -1033,9 +1060,10 @@ private:
 	PhysicalAddr _resolvePhysical(VirtualAddr vaddr);
 
 	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
-	void *_address;
-	size_t _length;
-	bool _acquired;
+	smarter::shared_ptr<Mapping> _mapping;
+	uintptr_t _address = 0;
+	size_t _length = 0;
+	bool _active = false; // Whether the accessor is acquired successfully.
 };
 
 void initializeReclaim();
