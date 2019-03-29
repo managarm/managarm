@@ -1520,13 +1520,11 @@ bool NormalMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 CowChain::CowChain(frigg::SharedPtr<MemorySlice> view, ptrdiff_t offset, size_t size)
 : _superRoot{frigg::move(view)}, _superOffset{offset}, _pages{kernelAlloc.get()} {
 	assert(!(size & (kPageSize - 1)));
-	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
 }
 
 CowChain::CowChain(frigg::SharedPtr<CowChain> chain, ptrdiff_t offset, size_t size)
 : _superChain{frigg::move(chain)}, _superOffset{offset}, _pages{kernelAlloc.get()} {
 	assert(!(size & (kPageSize - 1)));
-	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
 }
 
 CowChain::~CowChain() {
@@ -1608,7 +1606,9 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 	struct Closure {
 		CowMapping *self;
-		TransferNode copy;
+		PhysicalAddr physical;
+		PageAccessor accessor;
+		CopyFromBundleNode copy;
 		Worklet worklet;
 		TouchVirtualNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
@@ -1622,7 +1622,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_chain->_mutex);
 
-			// If the page is present in this bundle we just return it.
+			// If the page is present in our private chain, we just return it.
 			if(auto it = self->_chain->_pages.find(page_offset >> kPageShift); it) {
 				auto physical = it->load(std::memory_order_relaxed);
 				assert(physical != PhysicalAddr(-1));
@@ -1631,29 +1631,26 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 				return true;
 			}
 
-			// Otherwise we need to copy from the super-tree.
+			closure->physical = physicalAllocator->allocate(kPageSize);
+			assert(closure->physical != PhysicalAddr(-1));
+			closure->accessor = PageAccessor{closure->physical};
+
+			// Otherwise we need to copy from the chain.
 			auto source = self->_chain.get();
 			ptrdiff_t chain_disp = 0;
 			while(true) {
-				// Copy from a descendant CoW bundle.
+				// Copy from a descendant CoW chain.
 				if(auto it = source->_pages.find((chain_disp + page_offset) >> kPageShift); it) {
 					// Cannot copy from ourselves; this case is handled above.
 					assert(source != self->_chain.get());
-					closure->copy.setup(self->_chain->_copy.get(), page_offset,
-							source->_copy.get(),
-							chain_disp + page_offset, kPageSize,
-							nullptr);
-					if(!Memory::transfer(&closure->copy))
-						assert(!"Fix the asynchronous case");
 
-					auto range = self->_chain->_copy->peekRange(page_offset);
-					auto physical = range.get<0>();
-					assert(physical != PhysicalAddr(-1));
-					closure->continuation->setResult(physical, kPageSize - misalign,
-							range.get<1>());
-					auto cow_it = self->_chain->_pages.insert(page_offset >> kPageShift,
-							PhysicalAddr(-1));
-					cow_it->store(physical, std::memory_order_relaxed);
+					// We can just copy synchronously here -- the descendant is not evicted.
+					auto src_physical = it->load(std::memory_order_relaxed);
+					assert(src_physical != PhysicalAddr(-1));
+					auto src_accessor = PageAccessor{src_physical};
+					memcpy(closure->accessor.get(), src_accessor.get(), kPageSize);
+
+					insertPage(closure);
 					return true;
 				}
 
@@ -1668,19 +1665,23 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 						auto irq_lock = frigg::guard(&irqMutex());
 						auto lock = frigg::guard(&self->_chain->_mutex);
 
-						finishPage(closure);
-
+						insertPage(closure);
 						WorkQueue::post(closure->continuation->_worklet);
 						frigg::destruct(*kernelAlloc, closure);
 					});
-					closure->copy.setup(self->_chain->_copy.get(), page_offset,
-							source->_superRoot->getView().get(),
-							source->_superOffset + chain_disp + page_offset, kPageSize,
-							&closure->worklet);
-					if(!Memory::transfer(&closure->copy))
+					auto complete = [] (CopyFromBundleNode *base) {
+						// As CopyFromBundle calls its argument inline, we have to
+						// do this annoying detour of posting the worklet here.
+						auto closure = frg::container_of(base, &Closure::copy);
+						WorkQueue::post(&closure->worklet);
+					};
+					if(!copyFromBundle(source->_superRoot->getView().get(),
+							source->_superOffset + chain_disp + page_offset,
+							closure->accessor.get(), kPageSize,
+							&closure->copy, complete))
 						return false;
 
-					finishPage(closure);
+					insertPage(closure);
 					return true;
 				}
 
@@ -1689,19 +1690,17 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			}
 		}
 
-		static void finishPage(Closure *closure) {
+		static void insertPage(Closure *closure) {
 			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
 			auto page_offset = closure->continuation->_offset & ~(kPageSize - 1);
 			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
-			auto range = self->_chain->_copy->peekRange(page_offset);
-			auto physical = range.get<0>();
-			assert(physical != PhysicalAddr(-1));
-			closure->continuation->setResult(physical, kPageSize - misalign, range.get<1>());
+			closure->continuation->setResult(closure->physical, kPageSize - misalign,
+					CachingMode::null);
 			auto cow_it = self->_chain->_pages.insert(page_offset >> kPageShift,
 					PhysicalAddr(-1));
-			cow_it->store(physical, std::memory_order_relaxed);
+			cow_it->store(closure->physical, std::memory_order_relaxed);
 		}
 	};
 

@@ -746,7 +746,6 @@ struct CowChain {
 	frigg::SharedPtr<CowChain> _superChain;
 	ptrdiff_t _superOffset;
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
-	frigg::SharedPtr<Memory> _copy;
 };
 
 struct CowMapping : Mapping, MemoryObserver {
