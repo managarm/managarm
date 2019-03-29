@@ -374,60 +374,63 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_
 
 bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *)) {
-	size_t progress = 0;
-	size_t misalign = offset % kPageSize;
+	struct Ops {
+		static bool process(CopyFromBundleNode *node) {
+			while(node->_progress < node->_size) {
+				if(!fetchAndCopy(node))
+					return false;
+			}
 
+			node->_view->unlockRange(node->_viewOffset, node->_size);
+			return true;
+		}
+
+		static bool fetchAndCopy(CopyFromBundleNode *node) {
+			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
+			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
+
+			node->_fetch.setup(&node->_worklet);
+			node->_worklet.setup([] (Worklet *base) {
+				auto node = frg::container_of(base, &CopyFromBundleNode::_worklet);
+				doCopy(node);
+
+				// Tail of synchronous path.
+				if(!process(node))
+					return;
+				node->_complete(node);
+			});
+			if(!node->_view->fetchRange(node->_viewOffset + node->_progress - misalign,
+					&node->_fetch))
+				return false;
+			doCopy(node);
+			return true;
+		}
+
+		static void doCopy(CopyFromBundleNode *node) {
+			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
+			assert(node->_fetch.range().get<1>() >= kPageSize);
+			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
+			size_t chunk = frigg::min(kPageSize - misalign, node->_size - node->_progress);
+
+			auto physical = node->_fetch.range().get<0>();
+			assert(physical != PhysicalAddr(-1));
+			PageAccessor accessor{physical};
+			memcpy(reinterpret_cast<uint8_t *>(node->_buffer) + node->_progress,
+					reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+			node->_progress += chunk;
+		}
+	};
+
+	node->_view = view;
+	node->_viewOffset = offset;
+	node->_buffer = buffer;
+	node->_size = size;
+	node->_complete = complete;
+
+	node->_progress = 0;
 	view->lockRange(offset, size);
 
-	if(misalign > 0) {
-		size_t prefix = frigg::min(kPageSize - misalign, size);
-
-		node->_worklet.setup(nullptr);
-		node->_fetch.setup(&node->_worklet);
-		if(!view->fetchRange(offset - misalign, &node->_fetch))
-			assert(!"Handle the asynchronous case");
-
-		auto page = node->_fetch.range().get<0>();
-		assert(page != PhysicalAddr(-1));
-
-		PageAccessor accessor{page};
-		memcpy(buffer, (uint8_t *)accessor.get() + misalign, prefix);
-		progress += prefix;
-	}
-
-	while(size - progress >= kPageSize) {
-		assert((offset + progress) % kPageSize == 0);
-
-		node->_worklet.setup(nullptr);
-		node->_fetch.setup(&node->_worklet);
-		if(!view->fetchRange(offset + progress, &node->_fetch))
-			assert(!"Handle the asynchronous case");
-
-		auto page = node->_fetch.range().get<0>();
-		assert(page != PhysicalAddr(-1));
-
-		PageAccessor accessor{page};
-		memcpy((uint8_t *)buffer + progress, accessor.get(), kPageSize);
-		progress += kPageSize;
-	}
-
-	if(size - progress > 0) {
-		assert((offset + progress) % kPageSize == 0);
-
-		node->_worklet.setup(nullptr);
-		node->_fetch.setup(&node->_worklet);
-		if(!view->fetchRange(offset + progress, &node->_fetch))
-			assert(!"Handle the asynchronous case");
-
-		auto page = node->_fetch.range().get<0>();
-		assert(page != PhysicalAddr(-1));
-
-		PageAccessor accessor{page};
-		memcpy((uint8_t *)buffer + progress, accessor.get(), size - progress);
-	}
-
-	view->unlockRange(offset, size);
-	return true;
+	return Ops::process(node);
 }
 
 // --------------------------------------------------------
