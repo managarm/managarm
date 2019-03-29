@@ -800,13 +800,14 @@ void ManagedSpace::_progressManagement() {
 		// Fuse the request with adjacent pages in the list.
 		ptrdiff_t count = 0;
 		while(!_writebackList.empty()) {
-			auto fuse_page = _writebackList.pop_front();
+			auto fuse_page = _writebackList.front();
 			auto fuse_index = fuse_page - pages;
 			if(fuse_index != index + count)
 				break;
 			assert(loadState[fuse_index] == kStateWantWriteback);
 			loadState[fuse_index] = kStateWriteback;
 			count++;
+			_writebackList.pop_front();
 		}
 		assert(count);
 
@@ -817,21 +818,20 @@ void ManagedSpace::_progressManagement() {
 	}
 
 	while(!_initializationList.empty() && !_managementQueue.empty()) {
-		if(_managementQueue.empty())
-			return;
 		auto page = _initializationList.front();
 		auto index = page - pages;
 
 		// Fuse the request with adjacent pages in the list.
 		ptrdiff_t count = 0;
 		while(!_initializationList.empty()) {
-			auto fuse_page = _initializationList.pop_front();
+			auto fuse_page = _initializationList.front();
 			auto fuse_index = fuse_page - pages;
 			if(fuse_index != index + count)
 				break;
 			assert(loadState[fuse_index] == kStateWantInitialization);
 			loadState[fuse_index] = kStateInitialization;
 			count++;
+			_initializationList.pop_front();
 		}
 		assert(count);
 
@@ -1156,7 +1156,6 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	}
 
 	_managed->_progressManagement();
-	_managed->_progressMonitors();
 }
 
 size_t FrontalMemory::getLength() {
