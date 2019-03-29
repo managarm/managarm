@@ -1536,7 +1536,9 @@ CowChain::~CowChain() {
 CowMapping::CowMapping(smarter::shared_ptr<AddressSpace> owner,
 		VirtualAddr address, size_t length,
 		MappingFlags flags, frigg::SharedPtr<CowChain> chain)
-: Mapping{std::move(owner), address, length, flags}, _chain{frigg::move(chain)} {
+: Mapping{std::move(owner), address, length, flags}, _chain{frigg::move(chain)},
+		_lockCount{*kernelAlloc} {
+	_lockCount.resize(length >> kPageShift, 0);
 }
 
 CowMapping::~CowMapping() {
@@ -1548,6 +1550,11 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 	assert(_state == MappingState::active);
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
+
+	for(size_t pg = 0; pg < continuation->size(); pg += kPageSize) {
+		auto index = (continuation->offset() + pg) >> kPageShift;
+		_lockCount[index]++;
+	}
 
 	struct Closure {
 		Worklet worklet;
@@ -1573,7 +1580,12 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 
 void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 	assert(_state == MappingState::active);
-	// For now, we do nothing here.
+
+	for(size_t pg = 0; pg < size; pg += kPageSize) {
+		auto index = (offset + pg) >> kPageShift;
+		assert(_lockCount[index] > 0);
+		_lockCount[index]--;
+	}
 }
 
 frigg::Tuple<PhysicalAddr, CachingMode>

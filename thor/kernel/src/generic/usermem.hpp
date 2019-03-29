@@ -765,6 +765,7 @@ struct CowMapping : Mapping, MemoryObserver {
 private:
 	MappingState _state = MappingState::null;
 	frigg::SharedPtr<CowChain> _chain;
+	frigg::Vector<unsigned int, KernelAlloc> _lockCount;
 };
 
 struct HoleLess {
