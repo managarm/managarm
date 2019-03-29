@@ -721,11 +721,8 @@ void ManagedSpace::retirePage(CachePage *page) {
 
 }
 
+// Note: Neither offset nor size are necessarily multiples of the page size.
 void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
-	// TODO: Get rid of these restrictions.
-	assert((offset % kPageSize) == 0);
-	assert((size % kPageSize) == 0);
-
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
 	assert((offset + size) / kPageSize <= physicalPages.size());
@@ -745,17 +742,15 @@ void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 	}
 }
 
+// Note: Neither offset nor size are necessarily multiples of the page size.
 void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
-	// TODO: Get rid of these restrictions.
-	assert((offset % kPageSize) == 0);
-	assert((size % kPageSize) == 0);
-
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
 	assert((offset + size) / kPageSize <= physicalPages.size());
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
+		assert(lockCount[index] > 0);
 		lockCount[index]--;
 		if(!lockCount[index]) {
 			if(loadState[index] == kStatePresent)
@@ -1321,6 +1316,7 @@ NormalMapping::~NormalMapping() {
 
 bool NormalMapping::lockVirtualRange(LockVirtualNode *node) {
 	_view->lockRange(_viewOffset + node->offset(), node->size());
+	return true;
 }
 
 void NormalMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
