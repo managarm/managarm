@@ -34,8 +34,8 @@ void fiberCopyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, si
 	} closure;
 
 	closure.blocker.setup();
-	copyToBundle(bundle, offset, pointer, size, &closure.copy, &Closure::copied);
-	KernelFiber::blockCurrent(&closure.blocker);
+	if(!copyToBundle(bundle, offset, pointer, size, &closure.copy, &Closure::copied))
+		KernelFiber::blockCurrent(&closure.blocker);
 }
 
 void fiberCopyFromBundle(Memory *bundle, ptrdiff_t offset, void *pointer, size_t size) {
@@ -50,8 +50,8 @@ void fiberCopyFromBundle(Memory *bundle, ptrdiff_t offset, void *pointer, size_t
 	} closure;
 
 	closure.blocker.setup();
-	copyFromBundle(bundle, offset, pointer, size, &closure.copy, &Closure::copied);
-	KernelFiber::blockCurrent(&closure.blocker);
+	if(!copyFromBundle(bundle, offset, pointer, size, &closure.copy, &Closure::copied))
+		KernelFiber::blockCurrent(&closure.blocker);
 }
 
 void fiberSleep(uint64_t nanos) {

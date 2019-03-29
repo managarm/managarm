@@ -340,7 +340,7 @@ private:
 };
 
 struct CopyToBundleNode {
-	friend void copyToBundle(Memory *, ptrdiff_t, const void *, size_t,
+	friend bool copyToBundle(MemoryView *, ptrdiff_t, const void *, size_t,
 		CopyToBundleNode *, void (*)(CopyToBundleNode *));
 
 private:
@@ -349,7 +349,7 @@ private:
 };
 
 struct CopyFromBundleNode {
-	friend void copyFromBundle(Memory *, ptrdiff_t, void *, size_t,
+	friend bool copyFromBundle(MemoryView *, ptrdiff_t, void *, size_t,
 		CopyFromBundleNode *, void (*)(CopyFromBundleNode *));
 
 private:
@@ -357,10 +357,10 @@ private:
 	FetchNode _fetch;
 };
 
-void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t size,
+bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *));
 
-void copyFromBundle(Memory *view, ptrdiff_t offset, void *pointer, size_t size,
+bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *pointer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
 struct HardwareMemory : Memory {

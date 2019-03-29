@@ -314,7 +314,7 @@ void Memory::submitManage(ManageNode *handle) {
 // Copy operations.
 // --------------------------------------------------------
 
-void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t size,
+bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *)) {
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
@@ -369,10 +369,10 @@ void copyToBundle(Memory *view, ptrdiff_t offset, const void *pointer, size_t si
 	}
 
 	view->unlockRange(offset, size);
-	complete(node);
+	return true;
 }
 
-void copyFromBundle(Memory *view, ptrdiff_t offset, void *buffer, size_t size,
+bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *)) {
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
@@ -427,7 +427,7 @@ void copyFromBundle(Memory *view, ptrdiff_t offset, void *buffer, size_t size,
 	}
 
 	view->unlockRange(offset, size);
-	complete(node);
+	return true;
 }
 
 // --------------------------------------------------------

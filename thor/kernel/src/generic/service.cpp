@@ -234,8 +234,8 @@ namespace initrd {
 			assert(_file->offset <= _file->module->getMemory()->getLength());
 			_payload.resize(frigg::min(size_t(_req.size()),
 					_file->module->getMemory()->getLength() - _file->offset));
-			copyFromBundle(_file->module->getMemory().get(), _file->offset,
-					_payload.data(), _payload.size(), &_copyNode, [] (CopyFromBundleNode *ctx) {
+
+			auto complete = [] (CopyFromBundleNode *ctx) {
 				auto self = frg::container_of(ctx, &ReadClosure::_copyNode);
 
 				self->_file->offset += self->_payload.size();
@@ -246,7 +246,10 @@ namespace initrd {
 				resp.SerializeToString(&self->_buffer);
 				serviceSend(self->_lane, self->_buffer.data(), self->_buffer.size(),
 						CALLBACK_MEMBER(self, &ReadClosure::onSendResp));
-			});
+			};
+			if(copyFromBundle(_file->module->getMemory().get(), _file->offset,
+					_payload.data(), _payload.size(), &_copyNode, complete))
+				complete(&_copyNode);
 		}
 
 		void onSendResp(Error error) {
