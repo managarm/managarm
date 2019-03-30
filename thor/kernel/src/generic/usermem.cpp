@@ -1397,7 +1397,7 @@ Mapping *NormalMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space
 //			address(), length(), flags(), frigg::move(chain));
 }
 
-void NormalMapping::install(bool overwrite) {
+void NormalMapping::install() {
 	assert(_state == MappingState::null);
 	_state = MappingState::active;
 	_view->addObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr.lock()));
@@ -1416,12 +1416,8 @@ void NormalMapping::install(bool overwrite) {
 		auto bundle_range = range.view->peekRange(range.displacement);
 
 		VirtualAddr vaddr = address() + progress;
-		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
-			owner()->_pageSpace.unmapRange(vaddr, kPageSize, PageMode::normal);
-			owner()->_residuentSize -= kPageSize;
-		}else{
-			assert(!owner()->_pageSpace.isMapped(vaddr));
-		}
+		assert(!owner()->_pageSpace.isMapped(vaddr));
+
 		if(bundle_range.get<0>() != PhysicalAddr(-1)) {
 			owner()->_pageSpace.mapSingle4k(vaddr, bundle_range.get<0>(), true,
 					page_flags, bundle_range.get<1>());
@@ -1431,19 +1427,17 @@ void NormalMapping::install(bool overwrite) {
 	}
 }
 
-void NormalMapping::uninstall(bool clear) {
+void NormalMapping::uninstall() {
 	assert(_state == MappingState::active);
 	_state = MappingState::zombie;
 
-	if(clear) {
-		for(size_t pg = 0; pg < length(); pg += kPageSize) {
-			auto status = owner()->_pageSpace.unmapSingle4k(address() + pg);
-			if(!(status & page_status::present))
-				continue;
-			if(status & page_status::dirty)
-				_view->markDirty(_viewOffset + pg, kPageSize);
-			owner()->_residuentSize -= kPageSize;
-		}
+	for(size_t pg = 0; pg < length(); pg += kPageSize) {
+		auto status = owner()->_pageSpace.unmapSingle4k(address() + pg);
+		if(!(status & page_status::present))
+			continue;
+		if(status & page_status::dirty)
+			_view->markDirty(_viewOffset + pg, kPageSize);
+		owner()->_residuentSize -= kPageSize;
 	}
 }
 
@@ -1792,35 +1786,28 @@ Mapping *CowMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) {
 //			address(), length(), flags(), frigg::move(sub_chain));
 }
 
-void CowMapping::install(bool overwrite) {
+void CowMapping::install() {
 	assert(_state == MappingState::null);
 	_state = MappingState::active;
 
 	_slice->getView()->addObserver(
 			smarter::static_pointer_cast<CowMapping>(selfPtr.lock()));
 
-	// For now we just unmap everything. TODO: Map available pages.
+	// TODO: Map available pages.
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
-		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
-			owner()->_pageSpace.unmapRange(vaddr, kPageSize, PageMode::normal);
-			owner()->_residuentSize -= kPageSize;
-		}else{
-			assert(!owner()->_pageSpace.isMapped(vaddr));
-		}
+		assert(!owner()->_pageSpace.isMapped(vaddr));
 	}
 }
 
-void CowMapping::uninstall(bool clear) {
+void CowMapping::uninstall() {
 	assert(_state == MappingState::active);
 	_state = MappingState::zombie;
 
-	if(clear) {
-		for(size_t pg = 0; pg < length(); pg += kPageSize)
-			if(owner()->_pageSpace.isMapped(address() + pg))
-				owner()->_residuentSize -= kPageSize;
-		owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
-	}
+	for(size_t pg = 0; pg < length(); pg += kPageSize)
+		if(owner()->_pageSpace.isMapped(address() + pg))
+			owner()->_residuentSize -= kPageSize;
+	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
 void CowMapping::retire() {
@@ -1912,7 +1899,7 @@ void AddressSpace::dispose(BindableHandle) {
 
 	while(_mappings.get_root()) {
 		auto mapping = _mappings.get_root();
-		mapping->uninstall(true);
+		mapping->uninstall();
 		mapping->retire(); // TODO: We have to shootdown first.
 		_mappings.remove(mapping);
 		mapping->selfPtr.ctr()->decrement();
@@ -2011,7 +1998,7 @@ Error AddressSpace::map(Guard &guard,
 	// Install the new mapping object.
 	_mappings.insert(mapping);
 	assert(!(flags & kMapPopulate));
-	mapping->install(false);
+	mapping->install();
 
 	*actual_address = target;
 	return kErrSuccess;
@@ -2027,7 +2014,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	// TODO: Allow shrinking of the mapping.
 	assert(mapping->address() == address);
 	assert(mapping->length() == length);
-	mapping->uninstall(true);
+	mapping->uninstall();
 
 	static constexpr auto deleteMapping = [] (AddressSpace *space, Mapping *mapping) {
 		space->_mappings.remove(mapping);
@@ -2229,7 +2216,7 @@ bool AddressSpace::fork(ForkNode *node) {
 			auto fork_mapping = cur_mapping->shareMapping(node->_fork->selfPtr.lock());
 
 			node->_fork->_mappings.insert(fork_mapping);
-			fork_mapping->install(false);
+			fork_mapping->install();
 		}else if(cur_mapping->flags() & MappingFlags::copyOnWriteAtFork) {
 			// Note that locked pages require special attention during CoW: as we cannot
 			// replace them by copies, we have to copy them eagerly.
@@ -2317,7 +2304,7 @@ bool AddressSpace::fork(ForkNode *node) {
 			}
 
 			node->_fork->_mappings.insert(fs_mapping);
-			fs_mapping->install(false);
+			fs_mapping->install();
 
 			node->_items.addBack(ForkItem{cur_mapping});
 		}else{

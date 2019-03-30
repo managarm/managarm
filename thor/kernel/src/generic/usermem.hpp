@@ -691,8 +691,8 @@ public:
 	virtual Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) = 0;
 	virtual Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) = 0;
 
-	virtual void install(bool overwrite) = 0;
-	virtual void uninstall(bool clear) = 0;
+	virtual void install() = 0;
+	virtual void uninstall() = 0;
 	virtual void retire() = 0;
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
@@ -722,8 +722,8 @@ struct NormalMapping : Mapping, MemoryObserver {
 	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
 	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
 
-	void install(bool overwrite) override;
-	void uninstall(bool clear) override;
+	void install() override;
+	void uninstall() override;
 	void retire() override;
 
 	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
@@ -765,8 +765,8 @@ struct CowMapping : Mapping, MemoryObserver {
 	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
 	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
 
-	void install(bool overwrite) override;
-	void uninstall(bool clear) override;
+	void install() override;
+	void uninstall() override;
 	void retire() override;
 
 	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
