@@ -777,6 +777,7 @@ private:
 	uintptr_t _viewOffset;
 	frigg::SharedPtr<CowChain> _chain;
 
+	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _ownedPages;
 	frigg::Vector<unsigned int, KernelAlloc> _lockCount;
 };
 

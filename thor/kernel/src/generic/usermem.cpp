@@ -1531,7 +1531,7 @@ CowMapping::CowMapping(smarter::shared_ptr<AddressSpace> owner,
 		frigg::SharedPtr<CowChain> chain)
 : Mapping{std::move(owner), address, length, flags},
 		_slice{std::move(slice)}, _viewOffset{view_offset}, _chain{std::move(chain)},
-		_lockCount{*kernelAlloc} {
+		_ownedPages{kernelAlloc.get()}, _lockCount{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
 	assert(!(_viewOffset & (kPageSize - 1)));
 	_lockCount.resize(length >> kPageShift, 0);
@@ -1587,9 +1587,8 @@ void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 frigg::Tuple<PhysicalAddr, CachingMode>
 CowMapping::resolveRange(ptrdiff_t offset) {
 	assert(_state == MappingState::active);
-	auto page_offset = _viewOffset + offset;
 
-	if(auto it = _chain->_pages.find(page_offset >> kPageShift); it) {
+	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 		auto physical = it->load(std::memory_order_relaxed);
 		return frigg::Tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
 	}
@@ -1612,14 +1611,10 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	struct Ops {
 		static bool copyPage(Closure *closure) {
 			auto self = closure->self;
-			auto page_offset = self->_viewOffset + closure->continuation->_offset;
 			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_chain->_mutex);
-
 			// If the page is present in our private chain, we just return it.
-			if(auto it = self->_chain->_pages.find(page_offset >> kPageShift); it) {
+			if(auto it = self->_ownedPages.find(closure->continuation->_offset >> kPageShift); it) {
 				auto physical = it->load(std::memory_order_relaxed);
 				assert(physical != PhysicalAddr(-1));
 				closure->continuation->setResult(physical + misalign,
@@ -1627,18 +1622,20 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 				return true;
 			}
 
+			// Otherwise we need to copy from the chain or from the root view.
+			auto page_offset = self->_viewOffset + closure->continuation->_offset;
+
 			closure->physical = physicalAllocator->allocate(kPageSize);
 			assert(closure->physical != PhysicalAddr(-1));
 			closure->accessor = PageAccessor{closure->physical};
 
-			// Otherwise we need to copy from the chain.
-			auto current = self->_chain.get();
-			while(true) {
-				// Copy from a descendant CoW chain.
-				if(auto it = current->_pages.find(page_offset >> kPageShift); it) {
-					// Cannot copy from ourselves; this case is handled above.
-					assert(current != self->_chain.get());
+			// Try to copy from a descendant CoW chain.
+			auto chain = self->_chain;
+			while(chain) {
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&self->_chain->_mutex);
 
+				if(auto it = chain->_pages.find(page_offset >> kPageShift); it) {
 					// We can just copy synchronously here -- the descendant is not evicted.
 					auto src_physical = it->load(std::memory_order_relaxed);
 					assert(src_physical != PhysicalAddr(-1));
@@ -1649,48 +1646,42 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					return true;
 				}
 
-				// Copy from the root slice.
-				if(!current->_superChain) {
-					closure->worklet.setup([] (Worklet *base) {
-						auto closure = frg::container_of(base, &Closure::worklet);
-						auto self = closure->self;
-
-						auto irq_lock = frigg::guard(&irqMutex());
-						auto lock = frigg::guard(&self->_chain->_mutex);
-
-						insertPage(closure);
-						WorkQueue::post(closure->continuation->_worklet);
-						frigg::destruct(*kernelAlloc, closure);
-					});
-					auto complete = [] (CopyFromBundleNode *base) {
-						// As CopyFromBundle calls its argument inline, we have to
-						// do this annoying detour of posting the worklet here.
-						auto closure = frg::container_of(base, &Closure::copy);
-						WorkQueue::post(&closure->worklet);
-					};
-					if(!copyFromBundle(self->_slice->getView().get(),
-							page_offset & ~(kPageSize - 1),
-							closure->accessor.get(), kPageSize,
-							&closure->copy, complete))
-						return false;
-
-					insertPage(closure);
-					return true;
-				}
-
-				current = current->_superChain.get();
+				chain = chain->_superChain;
 			}
+
+			// Copy from the root view.
+			closure->worklet.setup([] (Worklet *base) {
+				auto closure = frg::container_of(base, &Closure::worklet);
+				auto self = closure->self;
+
+				insertPage(closure);
+				WorkQueue::post(closure->continuation->_worklet);
+				frigg::destruct(*kernelAlloc, closure);
+			});
+			auto complete = [] (CopyFromBundleNode *base) {
+				// As CopyFromBundle calls its argument inline, we have to
+				// do this annoying detour of posting the worklet here.
+				auto closure = frg::container_of(base, &Closure::copy);
+				WorkQueue::post(&closure->worklet);
+			};
+			if(!copyFromBundle(self->_slice->getView().get(),
+					page_offset & ~(kPageSize - 1),
+					closure->accessor.get(), kPageSize,
+					&closure->copy, complete))
+				return false;
+
+			insertPage(closure);
+			return true;
 		}
 
 		static void insertPage(Closure *closure) {
 			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
-			auto page_offset = self->_viewOffset + closure->continuation->_offset;
 			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
 			closure->continuation->setResult(closure->physical + misalign,
 					kPageSize - misalign, CachingMode::null);
-			auto cow_it = self->_chain->_pages.insert(page_offset >> kPageShift,
+			auto cow_it = self->_ownedPages.insert(closure->continuation->_offset >> kPageShift,
 					PhysicalAddr(-1));
 			cow_it->store(closure->physical, std::memory_order_relaxed);
 		}
@@ -1920,10 +1911,9 @@ Error AddressSpace::map(Guard &guard,
 
 	Mapping *mapping;
 	if(flags & kMapCopyOnWrite) {
-		auto chain = frigg::makeShared<CowChain>(*kernelAlloc, nullptr);
 		auto ptr = smarter::allocate_shared<CowMapping>(Allocator{}, selfPtr.lock(),
 				target, length, static_cast<MappingFlags>(mapping_flags),
-				slice.toShared(), offset, frigg::move(chain));
+				slice.toShared(), offset, nullptr);
 		ptr->selfPtr = ptr;
 		mapping = ptr.get();
 		ptr.release(); // AddressSpace owns one reference.
@@ -2167,17 +2157,14 @@ bool AddressSpace::fork(ForkNode *node) {
 			// If we get here, the Mapping is a CowMapping.
 			auto os_mapping = static_cast<CowMapping *>(cur_mapping);
 
-			// Create a new CowChain for the original mapping. To correct handle locks pages,
-			// we move all locked pages from the original mapping to the new chain.
-			auto p_chain = std::move(os_mapping->_chain);
-
-			auto os_chain = frigg::makeShared<CowChain>(*kernelAlloc, p_chain);
-			auto fs_chain = frigg::makeShared<CowChain>(*kernelAlloc, p_chain);
+			// Create a new CowChain for both the original and the forked mapping.
+			// To correct handle locks pages, we move only non-locked pages from
+			// the original mapping to the new chain.
+			auto new_chain = frigg::makeShared<CowChain>(*kernelAlloc, os_mapping->_chain);
 
 			// Finally, inspect all copied pages owned by the original mapping.
 			for(size_t pg = 0; pg < os_mapping->length(); pg += kPageSize) {
-				auto page_offset = os_mapping->_viewOffset + pg;
-				auto p_it = p_chain->_pages.find(page_offset >> kPageShift);
+				auto p_it = os_mapping->_ownedPages.find(pg >> kPageShift);
 
 				// TODO: We only do the locked case here.
 				//       The non-locked one will be added in a future commit.
@@ -2187,37 +2174,33 @@ bool AddressSpace::fork(ForkNode *node) {
 
 				// As the page is locked, it must exist.
 				assert(p_it);
-				auto os_physical = p_it->load(std::memory_order_relaxed);
-				assert(os_physical != PhysicalAddr(-1));
+				auto locked_physical = p_it->load(std::memory_order_relaxed);
+				assert(locked_physical != PhysicalAddr(-1));
 
 				// Allocate a new physical page for a copy.
-				auto fs_physical = physicalAllocator->allocate(kPageSize);
-				assert(fs_physical != PhysicalAddr(-1));
+				auto copy_physical = physicalAllocator->allocate(kPageSize);
+				assert(copy_physical != PhysicalAddr(-1));
 
 				// As the page is locked anyway, we can just copy it synchronously.
-				PageAccessor os_accessor{os_physical};
-				PageAccessor fs_accessor{fs_physical};
-				memcpy(fs_accessor.get(), os_accessor.get(), kPageSize);
+				PageAccessor locked_accessor{locked_physical};
+				PageAccessor copy_accessor{copy_physical};
+				memcpy(copy_accessor.get(), locked_accessor.get(), kPageSize);
 
 				// Update the chains.
-				auto os_it = os_chain->_pages.insert(page_offset >> kPageShift,
+				auto page_offset = os_mapping->_viewOffset + pg;
+				auto new_it = new_chain->_pages.insert(page_offset >> kPageShift,
 						PhysicalAddr(-1));
-				auto fs_it = fs_chain->_pages.insert(page_offset >> kPageShift,
-						PhysicalAddr(-1));
-
-				p_it->store(PhysicalAddr(-1), std::memory_order_relaxed);
-				os_it->store(os_physical, std::memory_order_relaxed);
-				fs_it->store(fs_physical, std::memory_order_relaxed);
+				new_it->store(copy_physical, std::memory_order_relaxed);
 			}
 
 			// Update the original mapping
-			os_mapping->_chain = std::move(os_chain);
+			os_mapping->_chain = new_chain;
 
-			// Create a new mappng in the forked space.
+			// Create a new mapping in the forked space.
 			auto ptr = smarter::allocate_shared<CowMapping>(Allocator{},
 					node->_fork->selfPtr.lock(), os_mapping->address(), os_mapping->length(),
 					os_mapping->flags(),
-					os_mapping->_slice, os_mapping->_viewOffset, std::move(fs_chain));
+					os_mapping->_slice, os_mapping->_viewOffset, new_chain);
 			ptr->selfPtr = ptr;
 			auto fs_mapping = ptr.get();
 			ptr.release(); // AddressSpace owns one reference.
