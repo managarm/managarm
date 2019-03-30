@@ -1766,8 +1766,86 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 }
 
 smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
-	assert(!"Fix this");
-	__builtin_unreachable();
+	// Note that locked pages require special attention during CoW: as we cannot
+	// replace them by copies, we have to copy them eagerly.
+	// Therefore, they are special-cased below.
+
+	// Create a new CowChain for both the original and the forked mapping.
+	// To correct handle locks pages, we move only non-locked pages from
+	// the original mapping to the new chain.
+	auto new_chain = frigg::makeShared<CowChain>(*kernelAlloc, _chain);
+
+	// Update the original mapping
+	_chain = new_chain;
+
+	// Create a new mapping in the forked space.
+	auto forked = smarter::allocate_shared<CowMapping>(Allocator{},
+			length(), flags(),
+			_slice, _viewOffset, new_chain);
+	forked->selfPtr = forked;
+
+	// Finally, inspect all copied pages owned by the original mapping.
+	for(size_t pg = 0; pg < length(); pg += kPageSize) {
+		auto os_it = _ownedPages.find(pg >> kPageShift);
+
+		// TODO: We only do the locked case here.
+		//       The non-locked one will be added in a future commit.
+		// The page is locked. We *need* to keep it in the old address space.
+		if(_lockCount[pg >> kPageShift]) {
+			// As the page is locked, it must exist.
+			assert(os_it);
+			auto locked_physical = os_it->load(std::memory_order_relaxed);
+			assert(locked_physical != PhysicalAddr(-1));
+
+			// Allocate a new physical page for a copy.
+			auto copy_physical = physicalAllocator->allocate(kPageSize);
+			assert(copy_physical != PhysicalAddr(-1));
+
+			// As the page is locked anyway, we can just copy it synchronously.
+			PageAccessor locked_accessor{locked_physical};
+			PageAccessor copy_accessor{copy_physical};
+			memcpy(copy_accessor.get(), locked_accessor.get(), kPageSize);
+
+			// Update the chains.
+			auto page_offset = _viewOffset + pg;
+			auto fs_it = forked->_ownedPages.insert(page_offset >> kPageShift,
+					PhysicalAddr(-1));
+			fs_it->store(copy_physical, std::memory_order_relaxed);
+		}else{
+			if(!os_it)
+				continue;
+
+			auto physical = os_it->load(std::memory_order_relaxed);
+			assert(physical != PhysicalAddr(-1));
+
+			// Update the chains.
+			auto page_offset = _viewOffset + pg;
+			auto new_it = new_chain->_pages.insert(page_offset >> kPageShift,
+					PhysicalAddr(-1));
+			_ownedPages.erase(pg >> kPageShift);
+			new_it->store(physical, std::memory_order_relaxed);
+
+			// TODO: Increment _residentSize, handle dirty pages, etc.
+			owner()->_pageSpace.unmapSingle4k(address() + pg);
+
+			// TODO: Keep the page mapped as read-only.
+
+			// We can keep the page mapped but we need to make it read-only.
+//			uint32_t page_flags = 0;
+//			if((flags() & MappingFlags::permissionMask)
+//					& MappingFlags::protExecute)
+//				page_flags |= page_access::execute;
+//			// TODO: Allow inaccessible mappings.
+//			assert((flags() & MappingFlags::permissionMask)
+//					& MappingFlags::protRead);
+
+			// As the page comes from a CowChain, it has a default caching mode.
+//			owner()->_pageSpace.mapSingle4k(address() + pg,
+//					physical, true, page_flags, CachingMode::null);
+		}
+	}
+
+	return forked;
 }
 
 void CowMapping::install() {
@@ -2172,135 +2250,44 @@ bool AddressSpace::fork(ForkNode *node) {
 	node->_fork = AddressSpace::create();
 	node->_original = this;
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&this->lock);
+	// Lock the space and iterate over all holes and mappings.
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&this->lock);
 
-	// Copy holes to the child space.
-	auto cur_hole = _holes.first();
-	while(cur_hole) {
-		auto fork_hole = frigg::construct<Hole>(*kernelAlloc,
-				cur_hole->address(), cur_hole->length());
-		node->_fork->_holes.insert(fork_hole);
+		// Copy holes to the child space.
+		auto os_hole = _holes.first();
+		while(os_hole) {
+			auto fs_hole = frigg::construct<Hole>(*kernelAlloc,
+					os_hole->address(), os_hole->length());
+			node->_fork->_holes.insert(fs_hole);
 
-		cur_hole = HoleTree::successor(cur_hole);
-	}
-
-	// Modify memory mapping of both spaces.
-	auto cur_mapping = _mappings.first();
-	while(cur_mapping) {
-		auto successor = MappingTree::successor(cur_mapping);
-
-		if(cur_mapping->flags() & MappingFlags::dropAtFork) {
-			// TODO: Merge this hole into adjacent holes.
-			auto fork_hole = frigg::construct<Hole>(*kernelAlloc,
-					cur_mapping->address(), cur_mapping->length());
-			node->_fork->_holes.insert(fork_hole);
-		}else if(cur_mapping->flags() & MappingFlags::shareAtFork) {
-			auto fs_mapping = cur_mapping->forkMapping();
-
-			fs_mapping->tie(node->_fork->selfPtr.lock(), cur_mapping->address());
-			node->_fork->_mappings.insert(fs_mapping.get());
-			fs_mapping->install();
-			fs_mapping.release(); // AddressSpace owns one reference.
-		}else if(cur_mapping->flags() & MappingFlags::copyOnWriteAtFork) {
-			// Note that locked pages require special attention during CoW: as we cannot
-			// replace them by copies, we have to copy them eagerly.
-			// Therefore, they are special-cased below.
-
-			// If we get here, the Mapping is a CowMapping.
-			auto os_mapping = static_cast<CowMapping *>(cur_mapping);
-
-			// Create a new CowChain for both the original and the forked mapping.
-			// To correct handle locks pages, we move only non-locked pages from
-			// the original mapping to the new chain.
-			auto new_chain = frigg::makeShared<CowChain>(*kernelAlloc, os_mapping->_chain);
-
-			// Update the original mapping
-			os_mapping->_chain = new_chain;
-
-			// Create a new mapping in the forked space.
-			auto fs_mapping = smarter::allocate_shared<CowMapping>(Allocator{},
-					os_mapping->length(), os_mapping->flags(),
-					os_mapping->_slice, os_mapping->_viewOffset, new_chain);
-			fs_mapping->selfPtr = fs_mapping;
-
-			// Finally, inspect all copied pages owned by the original mapping.
-			for(size_t pg = 0; pg < os_mapping->length(); pg += kPageSize) {
-				auto os_it = os_mapping->_ownedPages.find(pg >> kPageShift);
-
-				// TODO: We only do the locked case here.
-				//       The non-locked one will be added in a future commit.
-				// The page is locked. We *need* to keep it in the old address space.
-				if(os_mapping->_lockCount[pg >> kPageShift]) {
-					// As the page is locked, it must exist.
-					assert(os_it);
-					auto locked_physical = os_it->load(std::memory_order_relaxed);
-					assert(locked_physical != PhysicalAddr(-1));
-
-					// Allocate a new physical page for a copy.
-					auto copy_physical = physicalAllocator->allocate(kPageSize);
-					assert(copy_physical != PhysicalAddr(-1));
-
-					// As the page is locked anyway, we can just copy it synchronously.
-					PageAccessor locked_accessor{locked_physical};
-					PageAccessor copy_accessor{copy_physical};
-					memcpy(copy_accessor.get(), locked_accessor.get(), kPageSize);
-
-					// Update the chains.
-					auto page_offset = os_mapping->_viewOffset + pg;
-					auto fs_it = fs_mapping->_ownedPages.insert(page_offset >> kPageShift,
-							PhysicalAddr(-1));
-					fs_it->store(copy_physical, std::memory_order_relaxed);
-				}else{
-					if(!os_it)
-						continue;
-
-					auto physical = os_it->load(std::memory_order_relaxed);
-					assert(physical != PhysicalAddr(-1));
-
-					// Update the chains.
-					auto page_offset = os_mapping->_viewOffset + pg;
-					auto new_it = new_chain->_pages.insert(page_offset >> kPageShift,
-							PhysicalAddr(-1));
-					os_mapping->_ownedPages.erase(pg >> kPageShift);
-					new_it->store(physical, std::memory_order_relaxed);
-
-					// TODO: Increment _residentSize, handle dirty pages, etc.
-					_pageSpace.unmapSingle4k(os_mapping->address() + pg);
-
-					// TODO: Keep the page mapped as read-only.
-
-					// We can keep the page mapped but we need to make it read-only.
-//					uint32_t page_flags = 0;
-//					if((os_mapping->flags() & MappingFlags::permissionMask)
-//							& MappingFlags::protExecute)
-//						page_flags |= page_access::execute;
-//					// TODO: Allow inaccessible mappings.
-//					assert((os_mapping->flags() & MappingFlags::permissionMask)
-//							& MappingFlags::protRead);
-
-					// As the page comes from a CowChain, it has a default caching mode.
-//					_pageSpace.mapSingle4k(os_mapping->address() + pg,
-//							physical, true, page_flags, CachingMode::null);
-				}
-			}
-
-			node->_items.addBack(ForkItem{cur_mapping});
-
-			fs_mapping->tie(node->_fork->selfPtr.lock(), os_mapping->address());
-			node->_fork->_mappings.insert(fs_mapping.get());
-			fs_mapping->install();
-			fs_mapping.release(); // AddressSpace owns one reference.
-		}else{
-			assert(!"Illegal mapping type");
+			os_hole = HoleTree::successor(os_hole);
 		}
 
-		cur_mapping = successor;
-	}
+		// Modify memory mapping of both spaces.
+		auto os_mapping = _mappings.first();
+		while(os_mapping) {
+			if(os_mapping->flags() & MappingFlags::dropAtFork) {
+				// TODO: Merge this hole into adjacent holes.
+				auto fs_hole = frigg::construct<Hole>(*kernelAlloc,
+						os_mapping->address(), os_mapping->length());
+				node->_fork->_holes.insert(fs_hole);
+			}else{
+				auto fs_mapping = os_mapping->forkMapping();
+				fs_mapping->tie(node->_fork->selfPtr.lock(), os_mapping->address());
+				node->_fork->_mappings.insert(fs_mapping.get());
+				fs_mapping->install();
+				fs_mapping.release(); // AddressSpace owns one reference.
 
-	// TODO: Unlocking here should not be necessary.
-	lock.unlock();
-	irq_lock.unlock();
+				// In the case of CoW, we need to perform shootdown.
+				// TODO: Add not shoot down all mappings.
+				node->_items.addBack(ForkItem{os_mapping});
+			}
+
+			os_mapping = MappingTree::successor(os_mapping);
+		}
+	}
 
 	struct Ops {
 		static bool process(ForkNode *node) {
