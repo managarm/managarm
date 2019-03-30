@@ -275,7 +275,8 @@ struct MemorySlice {
 		return _view;
 	}
 
-	size_t length();
+	uintptr_t offset() { return _viewOffset; }
+	size_t length() { return _viewSize; }
 
 	SliceRange translateRange(ptrdiff_t offset, size_t size);
 
@@ -706,6 +707,8 @@ private:
 };
 
 struct NormalMapping : Mapping, MemoryObserver {
+	friend struct AddressSpace;
+
 	NormalMapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
 
@@ -733,24 +736,24 @@ private:
 };
 
 struct CowChain {
-	CowChain(frigg::SharedPtr<MemorySlice> view, ptrdiff_t offset, size_t size);
-
-	CowChain(frigg::SharedPtr<CowChain> chain, ptrdiff_t offset, size_t size);
+	CowChain(frigg::SharedPtr<CowChain> chain);
 
 	~CowChain();
 
 // TODO: Either this private again or make this class POD-like.
 	frigg::TicketLock _mutex;
 
-	frigg::SharedPtr<MemorySlice> _superRoot;
 	frigg::SharedPtr<CowChain> _superChain;
-	ptrdiff_t _superOffset;
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
 };
 
 struct CowMapping : Mapping, MemoryObserver {
+	friend struct AddressSpace;
+
 	CowMapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
-			MappingFlags flags, frigg::SharedPtr<CowChain> chain);
+			MappingFlags flags,
+			frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset,
+			frigg::SharedPtr<CowChain> chain);
 
 	~CowMapping();
 
@@ -770,7 +773,10 @@ struct CowMapping : Mapping, MemoryObserver {
 
 private:
 	MappingState _state = MappingState::null;
+	frigg::SharedPtr<MemorySlice> _slice;
+	uintptr_t _viewOffset;
 	frigg::SharedPtr<CowChain> _chain;
+
 	frigg::Vector<unsigned int, KernelAlloc> _lockCount;
 };
 
@@ -840,7 +846,6 @@ private:
 
 struct ForkItem {
 	Mapping *mapping;
-	AllocatedMemory *destBundle;
 };
 
 struct ForkNode {
@@ -864,8 +869,7 @@ private:
 	smarter::shared_ptr<AddressSpace, BindableHandle> _fork;
 	frigg::LinkedList<ForkItem, KernelAlloc> _items;
 	Worklet _worklet;
-	PopulateVirtualNode _prepare;
-	size_t _progress;
+	ShootNode _shootNode;
 };
 
 struct AddressUnmapNode {
