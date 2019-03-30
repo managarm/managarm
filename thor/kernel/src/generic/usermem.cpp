@@ -394,7 +394,7 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t siz
 				auto node = frg::container_of(base, &CopyFromBundleNode::_worklet);
 				doCopy(node);
 
-				// Tail of synchronous path.
+				// Tail of asynchronous path.
 				if(!process(node))
 					return;
 				node->_complete(node);
@@ -1547,27 +1547,108 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
 
-	for(size_t pg = 0; pg < continuation->size(); pg += kPageSize) {
-		auto index = (continuation->offset() + pg) >> kPageShift;
-		_lockCount[index]++;
-	}
-
 	struct Closure {
+		CowMapping *self;
+		size_t progress = 0;
+		PhysicalAddr physical;
+		PageAccessor accessor;
+		CopyFromBundleNode copy;
 		Worklet worklet;
-		PopulateVirtualNode populateVirtual;
 		LockVirtualNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
+	struct Ops {
+		static bool process(Closure *closure) {
+			while(closure->progress < closure->continuation->size())
+				if(!copyPage(closure))
+					return false;
+			return true;
+		}
+
+		static bool copyPage(Closure *closure) {
+			auto self = closure->self;
+			auto offset = closure->continuation->offset() + closure->progress;
+
+			// If the page is present in our private chain, we just return it.
+			if(auto it = self->_ownedPages.find(offset >> kPageShift); it) {
+				auto physical = it->load(std::memory_order_relaxed);
+				assert(physical != PhysicalAddr(-1));
+				self->_lockCount[offset >> kPageShift]++;
+				closure->progress += kPageSize;
+				return true;
+			}
+
+			// Otherwise we need to copy from the chain or from the root view.
+			auto page_offset = self->_viewOffset + offset;
+
+			closure->physical = physicalAllocator->allocate(kPageSize);
+			assert(closure->physical != PhysicalAddr(-1));
+			closure->accessor = PageAccessor{closure->physical};
+
+			// Try to copy from a descendant CoW chain.
+			auto chain = self->_chain;
+			while(chain) {
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&self->_chain->_mutex);
+
+				if(auto it = chain->_pages.find(page_offset >> kPageShift); it) {
+					// We can just copy synchronously here -- the descendant is not evicted.
+					auto src_physical = it->load(std::memory_order_relaxed);
+					assert(src_physical != PhysicalAddr(-1));
+					auto src_accessor = PageAccessor{src_physical};
+					memcpy(closure->accessor.get(), src_accessor.get(), kPageSize);
+
+					insertPage(closure);
+					return true;
+				}
+
+				chain = chain->_superChain;
+			}
+
+			// Copy from the root view.
+			closure->worklet.setup([] (Worklet *base) {
+				auto closure = frg::container_of(base, &Closure::worklet);
+				auto self = closure->self;
+				insertPage(closure);
+
+				// Tail of asynchronous path.
+				if(!process(closure))
+					return;
+				LockVirtualNode::post(closure->continuation);
+				frigg::destruct(*kernelAlloc, closure);
+			});
+			auto complete = [] (CopyFromBundleNode *base) {
+				// As CopyFromBundle calls its argument inline, we have to
+				// do this annoying detour of posting the worklet here.
+				auto closure = frg::container_of(base, &Closure::copy);
+				WorkQueue::post(&closure->worklet);
+			};
+			if(!copyFromBundle(self->_slice->getView().get(),
+					page_offset & ~(kPageSize - 1),
+					closure->accessor.get(), kPageSize,
+					&closure->copy, complete))
+				return false;
+
+			insertPage(closure);
+			return true;
+		}
+
+		static void insertPage(Closure *closure) {
+			// TODO: Assert that there is no overflow.
+			auto self = closure->self;
+			auto offset = closure->continuation->offset() + closure->progress;
+
+			auto cow_it = self->_ownedPages.insert(offset >> kPageShift, PhysicalAddr(-1));
+			cow_it->store(closure->physical, std::memory_order_relaxed);
+			self->_lockCount[offset >> kPageShift]++;
+			closure->progress += kPageSize;
+		}
+	};
+
+	closure->self = this;
 	closure->continuation = continuation;
 
-	closure->populateVirtual.setup(continuation->offset(), continuation->size(),
-			&closure->worklet);
-	closure->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		LockVirtualNode::post(closure->continuation);
-		frigg::destruct(*kernelAlloc, closure);
-	});
-	if(!populateVirtualRange(&closure->populateVirtual))
+	if(!Ops::process(closure))
 		return false;
 
 	frigg::destruct(*kernelAlloc, closure);
@@ -2231,7 +2312,7 @@ bool AddressSpace::fork(ForkNode *node) {
 					auto node = frg::container_of(base, &ForkNode::_worklet);
 					node->_items.removeFront();
 
-					// Tail of synchronous path.
+					// Tail of asynchronous path.
 					if(!process(node))
 						return;
 					WorkQueue::post(node->_forked);
