@@ -1244,9 +1244,15 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 // Mapping
 // --------------------------------------------------------
 
-Mapping::Mapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr base_address, size_t length,
-		MappingFlags flags)
-: _owner{std::move(owner)}, _address{base_address}, _length{length}, _flags{flags} { }
+Mapping::Mapping(size_t length, MappingFlags flags)
+: _length{length}, _flags{flags} { }
+
+void Mapping::tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address) {
+	assert(!_owner);
+	assert(owner);
+	_owner = std::move(owner);
+	_address = address;
+}
 
 bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
 	struct Closure {
@@ -1300,11 +1306,10 @@ bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
 // NormalMapping
 // --------------------------------------------------------
 
-NormalMapping::NormalMapping(smarter::shared_ptr<AddressSpace> owner,
-		VirtualAddr address, size_t length,
-		MappingFlags flags, frigg::SharedPtr<MemorySlice> slice, uintptr_t offset)
-: Mapping{std::move(owner), address, length, flags},
-		_slice{frigg::move(slice)}, _viewOffset{offset} {
+NormalMapping::NormalMapping(size_t length, MappingFlags flags,
+		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset)
+: Mapping{length, flags},
+		_slice{frigg::move(slice)}, _viewOffset{view_offset} {
 	assert(_viewOffset + NormalMapping::length() <= _slice->length());
 	_view = _slice->getView();
 }
@@ -1381,11 +1386,12 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 Mapping *NormalMapping::shareMapping(smarter::shared_ptr<AddressSpace> dest_space) {
 	// TODO: Always keep the exact flags?
-	auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{}, std::move(dest_space),
-			address(), length(), flags(), _slice, _viewOffset);
+	auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{},
+			length(), flags(), _slice, _viewOffset);
 	ptr->selfPtr = ptr;
 	auto mapping = ptr.get();
 	ptr.release(); // AddressSpace owns one reference.
+	mapping->tie(dest_space, address());
 	return mapping;
 }
 
@@ -1519,11 +1525,10 @@ CowChain::~CowChain() {
 
 // --------------------------------------------------------
 
-CowMapping::CowMapping(smarter::shared_ptr<AddressSpace> owner,
-		VirtualAddr address, size_t length, MappingFlags flags,
+CowMapping::CowMapping(size_t length, MappingFlags flags,
 		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset,
 		frigg::SharedPtr<CowChain> chain)
-: Mapping{std::move(owner), address, length, flags},
+: Mapping{length, flags},
 		_slice{std::move(slice)}, _viewOffset{view_offset}, _chain{std::move(chain)},
 		_ownedPages{kernelAlloc.get()}, _lockCount{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
@@ -1979,16 +1984,16 @@ Error AddressSpace::map(Guard &guard,
 
 	Mapping *mapping;
 	if(flags & kMapCopyOnWrite) {
-		auto ptr = smarter::allocate_shared<CowMapping>(Allocator{}, selfPtr.lock(),
-				target, length, static_cast<MappingFlags>(mapping_flags),
+		auto ptr = smarter::allocate_shared<CowMapping>(Allocator{},
+				length, static_cast<MappingFlags>(mapping_flags),
 				slice.toShared(), offset, nullptr);
 		ptr->selfPtr = ptr;
 		mapping = ptr.get();
 		ptr.release(); // AddressSpace owns one reference.
 	}else{
 		assert(!(mapping_flags & MappingFlags::copyOnWriteAtFork));
-		auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{}, selfPtr.lock(),
-				target, length, static_cast<MappingFlags>(mapping_flags),
+		auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{},
+				length, static_cast<MappingFlags>(mapping_flags),
 				slice.toShared(), offset);
 		ptr->selfPtr = ptr;
 		mapping = ptr.get();
@@ -1996,6 +2001,7 @@ Error AddressSpace::map(Guard &guard,
 	}
 
 	// Install the new mapping object.
+	mapping->tie(selfPtr.lock(), target);
 	_mappings.insert(mapping);
 	assert(!(flags & kMapPopulate));
 	mapping->install();
@@ -2235,8 +2241,7 @@ bool AddressSpace::fork(ForkNode *node) {
 
 			// Create a new mapping in the forked space.
 			auto ptr = smarter::allocate_shared<CowMapping>(Allocator{},
-					node->_fork->selfPtr.lock(), os_mapping->address(), os_mapping->length(),
-					os_mapping->flags(),
+					os_mapping->length(), os_mapping->flags(),
 					os_mapping->_slice, os_mapping->_viewOffset, new_chain);
 			ptr->selfPtr = ptr;
 			auto fs_mapping = ptr.get();
@@ -2303,6 +2308,7 @@ bool AddressSpace::fork(ForkNode *node) {
 				}
 			}
 
+			fs_mapping->tie(node->_fork->selfPtr.lock(), os_mapping->address());
 			node->_fork->_mappings.insert(fs_mapping);
 			fs_mapping->install();
 

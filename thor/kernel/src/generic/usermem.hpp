@@ -647,8 +647,7 @@ enum class MappingState {
 };
 
 struct Mapping {
-	Mapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
-			MappingFlags flags);
+	Mapping(size_t length, MappingFlags flags);
 
 	Mapping(const Mapping &) = delete;
 
@@ -673,6 +672,8 @@ struct Mapping {
 	}
 
 public:
+	void tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address);
+
 	// Makes sure that pages are not evicted from virtual memory.
 	virtual bool lockVirtualRange(LockVirtualNode *node) = 0;
 	virtual void unlockVirtualRange(uintptr_t offset, size_t length) = 0;
@@ -709,8 +710,8 @@ private:
 struct NormalMapping : Mapping, MemoryObserver {
 	friend struct AddressSpace;
 
-	NormalMapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
-			MappingFlags flags, frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
+	NormalMapping(size_t length, MappingFlags flags,
+			frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
 
 	~NormalMapping();
 
@@ -750,8 +751,7 @@ struct CowChain {
 struct CowMapping : Mapping, MemoryObserver {
 	friend struct AddressSpace;
 
-	CowMapping(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address, size_t length,
-			MappingFlags flags,
+	CowMapping(size_t length, MappingFlags flags,
 			frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset,
 			frigg::SharedPtr<CowChain> chain);
 
