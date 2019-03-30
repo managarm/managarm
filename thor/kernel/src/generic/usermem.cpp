@@ -1595,7 +1595,6 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			// Copy from the root view.
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
-				auto self = closure->self;
 				insertPage(closure);
 
 				// Tail of asynchronous path.
@@ -1720,9 +1719,9 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			// Copy from the root view.
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
-				auto self = closure->self;
-
 				insertPage(closure);
+
+				// Tail of asynchronous path.
 				WorkQueue::post(closure->continuation->_worklet);
 				frigg::destruct(*kernelAlloc, closure);
 			});
@@ -1855,7 +1854,7 @@ void CowMapping::install() {
 	_slice->getView()->addObserver(
 			smarter::static_pointer_cast<CowMapping>(selfPtr.lock()));
 
-	auto findBorrowedPage = [&] (uintptr_t offset) -> PhysicalAddr {
+	auto findBorrowedPage = [&] (uintptr_t offset) -> frigg::Tuple<PhysicalAddr, CachingMode> {
 		auto page_offset = _viewOffset + offset;
 
 		// Get the page from a descendant CoW chain.
@@ -1868,14 +1867,14 @@ void CowMapping::install() {
 				// We can just copy synchronously here -- the descendant is not evicted.
 				auto physical = it->load(std::memory_order_relaxed);
 				assert(physical != PhysicalAddr(-1));
-				return physical;
+				return frigg::Tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
 			}
 
 			chain = chain->_superChain;
 		}
 
 		// Get the page from the root view.
-		return PhysicalAddr(-1);
+		return _slice->getView()->peekRange(page_offset);
 	};
 
 	uint32_t page_flags = 0;
@@ -1895,14 +1894,14 @@ void CowMapping::install() {
 			owner()->_pageSpace.mapSingle4k(address() + pg,
 					physical, true, page_flags, CachingMode::null);
 		}else{
-			auto physical = findBorrowedPage(pg);
-			if(physical == PhysicalAddr(-1))
+			auto range = findBorrowedPage(pg);
+			if(range.get<0>() == PhysicalAddr(-1))
 				continue;
 
 			// Note that we have to mask the writeable flag here.
 			// TODO: Update RSS.
-			owner()->_pageSpace.mapSingle4k(address() + pg,
-					physical, true, page_flags & ~page_access::write, CachingMode::null);
+			owner()->_pageSpace.mapSingle4k(address() + pg, range.get<0>(), true,
+					page_flags & ~page_access::write, range.get<1>());
 		}
 	}
 }
