@@ -1384,23 +1384,11 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	return true;
 }
 
-Mapping *NormalMapping::shareMapping(smarter::shared_ptr<AddressSpace> dest_space) {
-	// TODO: Always keep the exact flags?
-	auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{},
+smarter::shared_ptr<Mapping> NormalMapping::forkMapping() {
+	auto mapping = smarter::allocate_shared<NormalMapping>(Allocator{},
 			length(), flags(), _slice, _viewOffset);
-	ptr->selfPtr = ptr;
-	auto mapping = ptr.get();
-	ptr.release(); // AddressSpace owns one reference.
-	mapping->tie(dest_space, address());
-	return mapping;
-}
-
-Mapping *NormalMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) {
-	assert(!"Fix construction of Mapping");
-	__builtin_trap();
-//	auto chain = frigg::makeShared<CowChain>(*kernelAlloc, _slice, _viewOffset, length());
-//	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
-//			address(), length(), flags(), frigg::move(chain));
+	mapping->selfPtr = mapping;
+	return std::move(mapping);
 }
 
 void NormalMapping::install() {
@@ -1777,18 +1765,9 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	return true;
 }
 
-Mapping *CowMapping::shareMapping(smarter::shared_ptr<AddressSpace> dest_space) {
-	(void)dest_space;
+smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 	assert(!"Fix this");
 	__builtin_unreachable();
-}
-
-Mapping *CowMapping::copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) {
-	assert(!"Fix construction of Mapping");
-	__builtin_trap();
-//	auto sub_chain = frigg::makeShared<CowChain>(*kernelAlloc, _chain, 0, length());
-//	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
-//			address(), length(), flags(), frigg::move(sub_chain));
 }
 
 void CowMapping::install() {
@@ -1982,29 +1961,27 @@ Error AddressSpace::map(Guard &guard,
 	if(flags & kMapDontRequireBacking)
 		mapping_flags |= MappingFlags::dontRequireBacking;
 
-	Mapping *mapping;
+	smarter::shared_ptr<Mapping> mapping;
 	if(flags & kMapCopyOnWrite) {
-		auto ptr = smarter::allocate_shared<CowMapping>(Allocator{},
+		mapping = smarter::allocate_shared<CowMapping>(Allocator{},
 				length, static_cast<MappingFlags>(mapping_flags),
 				slice.toShared(), offset, nullptr);
-		ptr->selfPtr = ptr;
-		mapping = ptr.get();
-		ptr.release(); // AddressSpace owns one reference.
+		mapping->selfPtr = mapping;
 	}else{
 		assert(!(mapping_flags & MappingFlags::copyOnWriteAtFork));
-		auto ptr = smarter::allocate_shared<NormalMapping>(Allocator{},
+		mapping = smarter::allocate_shared<NormalMapping>(Allocator{},
 				length, static_cast<MappingFlags>(mapping_flags),
 				slice.toShared(), offset);
-		ptr->selfPtr = ptr;
-		mapping = ptr.get();
-		ptr.release(); // AddressSpace owns one reference.
+		mapping->selfPtr = mapping;
 	}
+
+	assert(!(flags & kMapPopulate));
 
 	// Install the new mapping object.
 	mapping->tie(selfPtr.lock(), target);
-	_mappings.insert(mapping);
-	assert(!(flags & kMapPopulate));
+	_mappings.insert(mapping.get());
 	mapping->install();
+	mapping.release(); // AddressSpace owns one reference.
 
 	*actual_address = target;
 	return kErrSuccess;
@@ -2219,10 +2196,12 @@ bool AddressSpace::fork(ForkNode *node) {
 					cur_mapping->address(), cur_mapping->length());
 			node->_fork->_holes.insert(fork_hole);
 		}else if(cur_mapping->flags() & MappingFlags::shareAtFork) {
-			auto fork_mapping = cur_mapping->shareMapping(node->_fork->selfPtr.lock());
+			auto fs_mapping = cur_mapping->forkMapping();
 
-			node->_fork->_mappings.insert(fork_mapping);
-			fork_mapping->install();
+			fs_mapping->tie(node->_fork->selfPtr.lock(), cur_mapping->address());
+			node->_fork->_mappings.insert(fs_mapping.get());
+			fs_mapping->install();
+			fs_mapping.release(); // AddressSpace owns one reference.
 		}else if(cur_mapping->flags() & MappingFlags::copyOnWriteAtFork) {
 			// Note that locked pages require special attention during CoW: as we cannot
 			// replace them by copies, we have to copy them eagerly.
@@ -2240,12 +2219,10 @@ bool AddressSpace::fork(ForkNode *node) {
 			os_mapping->_chain = new_chain;
 
 			// Create a new mapping in the forked space.
-			auto ptr = smarter::allocate_shared<CowMapping>(Allocator{},
+			auto fs_mapping = smarter::allocate_shared<CowMapping>(Allocator{},
 					os_mapping->length(), os_mapping->flags(),
 					os_mapping->_slice, os_mapping->_viewOffset, new_chain);
-			ptr->selfPtr = ptr;
-			auto fs_mapping = ptr.get();
-			ptr.release(); // AddressSpace owns one reference.
+			fs_mapping->selfPtr = fs_mapping;
 
 			// Finally, inspect all copied pages owned by the original mapping.
 			for(size_t pg = 0; pg < os_mapping->length(); pg += kPageSize) {
@@ -2308,11 +2285,12 @@ bool AddressSpace::fork(ForkNode *node) {
 				}
 			}
 
-			fs_mapping->tie(node->_fork->selfPtr.lock(), os_mapping->address());
-			node->_fork->_mappings.insert(fs_mapping);
-			fs_mapping->install();
-
 			node->_items.addBack(ForkItem{cur_mapping});
+
+			fs_mapping->tie(node->_fork->selfPtr.lock(), os_mapping->address());
+			node->_fork->_mappings.insert(fs_mapping.get());
+			fs_mapping->install();
+			fs_mapping.release(); // AddressSpace owns one reference.
 		}else{
 			assert(!"Illegal mapping type");
 		}

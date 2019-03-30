@@ -689,8 +689,7 @@ public:
 	// Helper function that calls touchVirtualPage() on a certain range.
 	bool populateVirtualRange(PopulateVirtualNode *node);
 
-	virtual Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) = 0;
-	virtual Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) = 0;
+	virtual smarter::shared_ptr<Mapping> forkMapping() = 0;
 
 	virtual void install() = 0;
 	virtual void uninstall() = 0;
@@ -720,8 +719,7 @@ struct NormalMapping : Mapping, MemoryObserver {
 	frigg::Tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
 	bool touchVirtualPage(TouchVirtualNode *node) override;
 
-	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
-	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
+	smarter::shared_ptr<Mapping> forkMapping() override;
 
 	void install() override;
 	void uninstall() override;
@@ -762,8 +760,7 @@ struct CowMapping : Mapping, MemoryObserver {
 	frigg::Tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
 	bool touchVirtualPage(TouchVirtualNode *node) override;
 
-	Mapping *shareMapping(smarter::shared_ptr<AddressSpace> dest_space) override;
-	Mapping *copyOnWrite(smarter::shared_ptr<AddressSpace> dest_space) override;
+	smarter::shared_ptr<Mapping> forkMapping() override;
 
 	void install() override;
 	void uninstall() override;
