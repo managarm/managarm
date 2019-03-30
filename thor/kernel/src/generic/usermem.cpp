@@ -2243,37 +2243,6 @@ bool AddressSpace::fork(ForkNode *node) {
 			// the original mapping to the new chain.
 			auto new_chain = frigg::makeShared<CowChain>(*kernelAlloc, os_mapping->_chain);
 
-			// Finally, inspect all copied pages owned by the original mapping.
-			for(size_t pg = 0; pg < os_mapping->length(); pg += kPageSize) {
-				auto p_it = os_mapping->_ownedPages.find(pg >> kPageShift);
-
-				// TODO: We only do the locked case here.
-				//       The non-locked one will be added in a future commit.
-				// The page is locked. We *need* to keep it in the old address space.
-				if(!p_it)
-					continue;
-
-				// As the page is locked, it must exist.
-				assert(p_it);
-				auto locked_physical = p_it->load(std::memory_order_relaxed);
-				assert(locked_physical != PhysicalAddr(-1));
-
-				// Allocate a new physical page for a copy.
-				auto copy_physical = physicalAllocator->allocate(kPageSize);
-				assert(copy_physical != PhysicalAddr(-1));
-
-				// As the page is locked anyway, we can just copy it synchronously.
-				PageAccessor locked_accessor{locked_physical};
-				PageAccessor copy_accessor{copy_physical};
-				memcpy(copy_accessor.get(), locked_accessor.get(), kPageSize);
-
-				// Update the chains.
-				auto page_offset = os_mapping->_viewOffset + pg;
-				auto new_it = new_chain->_pages.insert(page_offset >> kPageShift,
-						PhysicalAddr(-1));
-				new_it->store(copy_physical, std::memory_order_relaxed);
-			}
-
 			// Update the original mapping
 			os_mapping->_chain = new_chain;
 
@@ -2285,6 +2254,68 @@ bool AddressSpace::fork(ForkNode *node) {
 			ptr->selfPtr = ptr;
 			auto fs_mapping = ptr.get();
 			ptr.release(); // AddressSpace owns one reference.
+
+			// Finally, inspect all copied pages owned by the original mapping.
+			for(size_t pg = 0; pg < os_mapping->length(); pg += kPageSize) {
+				auto os_it = os_mapping->_ownedPages.find(pg >> kPageShift);
+
+				// TODO: We only do the locked case here.
+				//       The non-locked one will be added in a future commit.
+				// The page is locked. We *need* to keep it in the old address space.
+				if(os_mapping->_lockCount[pg >> kPageShift]) {
+					// As the page is locked, it must exist.
+					assert(os_it);
+					auto locked_physical = os_it->load(std::memory_order_relaxed);
+					assert(locked_physical != PhysicalAddr(-1));
+
+					// Allocate a new physical page for a copy.
+					auto copy_physical = physicalAllocator->allocate(kPageSize);
+					assert(copy_physical != PhysicalAddr(-1));
+
+					// As the page is locked anyway, we can just copy it synchronously.
+					PageAccessor locked_accessor{locked_physical};
+					PageAccessor copy_accessor{copy_physical};
+					memcpy(copy_accessor.get(), locked_accessor.get(), kPageSize);
+
+					// Update the chains.
+					auto page_offset = os_mapping->_viewOffset + pg;
+					auto fs_it = fs_mapping->_ownedPages.insert(page_offset >> kPageShift,
+							PhysicalAddr(-1));
+					fs_it->store(copy_physical, std::memory_order_relaxed);
+				}else{
+					if(!os_it)
+						continue;
+
+					auto physical = os_it->load(std::memory_order_relaxed);
+					assert(physical != PhysicalAddr(-1));
+
+					// Update the chains.
+					auto page_offset = os_mapping->_viewOffset + pg;
+					auto new_it = new_chain->_pages.insert(page_offset >> kPageShift,
+							PhysicalAddr(-1));
+					os_mapping->_ownedPages.erase(pg >> kPageShift);
+					new_it->store(physical, std::memory_order_relaxed);
+
+					// TODO: Increment _residentSize, handle dirty pages, etc.
+					_pageSpace.unmapSingle4k(os_mapping->address() + pg);
+
+					// TODO: Keep the page mapped as read-only.
+
+					// We can keep the page mapped but we need to make it read-only.
+//					uint32_t page_flags = 0;
+//					if((os_mapping->flags() & MappingFlags::permissionMask)
+//							& MappingFlags::protExecute)
+//						page_flags |= page_access::execute;
+//					// TODO: Allow inaccessible mappings.
+//					assert((os_mapping->flags() & MappingFlags::permissionMask)
+//							& MappingFlags::protRead);
+
+					// As the page comes from a CowChain, it has a default caching mode.
+//					_pageSpace.mapSingle4k(os_mapping->address() + pg,
+//							physical, true, page_flags, CachingMode::null);
+				}
+			}
+
 			node->_fork->_mappings.insert(fs_mapping);
 			fs_mapping->install(false);
 
