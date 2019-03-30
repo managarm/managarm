@@ -1855,10 +1855,55 @@ void CowMapping::install() {
 	_slice->getView()->addObserver(
 			smarter::static_pointer_cast<CowMapping>(selfPtr.lock()));
 
-	// TODO: Map available pages.
-	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		VirtualAddr vaddr = address() + progress;
-		assert(!owner()->_pageSpace.isMapped(vaddr));
+	auto findBorrowedPage = [&] (uintptr_t offset) -> PhysicalAddr {
+		auto page_offset = _viewOffset + offset;
+
+		// Get the page from a descendant CoW chain.
+		auto chain = _chain;
+		while(chain) {
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_chain->_mutex);
+
+			if(auto it = chain->_pages.find(page_offset >> kPageShift); it) {
+				// We can just copy synchronously here -- the descendant is not evicted.
+				auto physical = it->load(std::memory_order_relaxed);
+				assert(physical != PhysicalAddr(-1));
+				return physical;
+			}
+
+			chain = chain->_superChain;
+		}
+
+		// Get the page from the root view.
+		return PhysicalAddr(-1);
+	};
+
+	uint32_t page_flags = 0;
+	// TODO: Allow inaccessible mappings.
+	assert(flags() & MappingFlags::protRead);
+	if(flags() & MappingFlags::protWrite)
+		page_flags |= page_access::write;
+	if(flags() & MappingFlags::protExecute)
+		page_flags |= page_access::execute;
+
+	for(size_t pg = 0; pg < length(); pg += kPageSize) {
+		if(auto it = _ownedPages.find(pg >> kPageShift); it) {
+			auto physical = it->load(std::memory_order_relaxed);
+			assert(physical != PhysicalAddr(-1));
+
+			// TODO: Update RSS.
+			owner()->_pageSpace.mapSingle4k(address() + pg,
+					physical, true, page_flags, CachingMode::null);
+		}else{
+			auto physical = findBorrowedPage(pg);
+			if(physical == PhysicalAddr(-1))
+				continue;
+
+			// Note that we have to mask the writeable flag here.
+			// TODO: Update RSS.
+			owner()->_pageSpace.mapSingle4k(address() + pg,
+					physical, true, page_flags & ~page_access::write, CachingMode::null);
+		}
 	}
 }
 
@@ -2213,8 +2258,6 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 
 			auto fault_page = (node->_address - mapping->address()) & ~(kPageSize - 1);
 			auto vaddr = mapping->address() + fault_page;
-			// TODO: This can actually happen!
-			assert(!mapping->owner()->_pageSpace.isMapped(vaddr));
 
 			uint32_t page_flags = 0;
 			if((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
@@ -2227,6 +2270,11 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 			auto range = mapping->resolveRange(fault_page);
 			assert(range.get<0>() != PhysicalAddr(-1));
 
+			// TODO: Add some kind of warning if we repeatedly remap a page without any progress.
+			//assert(!mapping->owner()->_pageSpace.isMapped(vaddr));
+
+			// TODO: Update RSS, handle dirty pages, etc.
+			mapping->owner()->_pageSpace.unmapSingle4k(vaddr);
 			mapping->owner()->_pageSpace.mapSingle4k(vaddr, range.get<0>(),
 					true, page_flags, range.get<1>());
 			mapping->owner()->_residuentSize += kPageSize;
