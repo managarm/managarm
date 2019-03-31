@@ -1535,7 +1535,9 @@ CowChain::CowChain(frigg::SharedPtr<CowChain> chain)
 }
 
 CowChain::~CowChain() {
-	if(logUsage)
+	// TODO: Iterate over _pages and free the physical memory (as in ~CowMapping()).
+	assert(!"Fix destruction of CowChain");
+	if(logCleanup)
 		frigg::infoLogger() << "thor: Releasing CowChain" << frigg::endLog;
 }
 
@@ -1554,7 +1556,14 @@ CowMapping::CowMapping(size_t length, MappingFlags flags,
 
 CowMapping::~CowMapping() {
 	assert(_state == MappingState::retired);
-	//frigg::infoLogger() << "\e[31mthor: CowMapping is destructed\e[39m" << frigg::endLog;
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: CowMapping is destructed\e[39m" << frigg::endLog;
+
+	for(auto it = _ownedPages.begin(); it != _ownedPages.end(); ++it) {
+		auto physical = it->load(std::memory_order_relaxed);
+		assert(physical != PhysicalAddr(-1));
+		physicalAllocator->free(physical, kPageSize);
+	}
 }
 
 bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
