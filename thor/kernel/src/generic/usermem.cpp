@@ -1558,7 +1558,6 @@ CowMapping::~CowMapping() {
 }
 
 bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
-	assert(_state == MappingState::active);
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
 
@@ -1585,26 +1584,39 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			auto offset = closure->continuation->offset() + closure->progress;
 
 			// If the page is present in our private chain, we just return it.
-			if(auto it = self->_ownedPages.find(offset >> kPageShift); it) {
-				auto physical = it->load(std::memory_order_relaxed);
-				assert(physical != PhysicalAddr(-1));
-				self->_lockCount[offset >> kPageShift]++;
-				closure->progress += kPageSize;
-				return true;
+			frigg::SharedPtr<CowChain> chain;
+			frigg::SharedPtr<MemoryView> view;
+			uintptr_t view_offset;
+			{
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&self->_mutex);
+				assert(self->_state == MappingState::active);
+
+				if(auto it = self->_ownedPages.find(offset >> kPageShift); it) {
+					auto physical = it->load(std::memory_order_relaxed);
+					assert(physical != PhysicalAddr(-1));
+
+					self->_lockCount[offset >> kPageShift]++;
+					closure->progress += kPageSize;
+					return true;
+				}
+
+				chain = self->_chain;
+				view = self->_slice->getView();
+				view_offset = self->_viewOffset;
 			}
 
 			// Otherwise we need to copy from the chain or from the root view.
-			auto page_offset = self->_viewOffset + offset;
+			auto page_offset = view_offset + offset;
 
 			closure->physical = physicalAllocator->allocate(kPageSize);
 			assert(closure->physical != PhysicalAddr(-1));
 			closure->accessor = PageAccessor{closure->physical};
 
 			// Try to copy from a descendant CoW chain.
-			auto chain = self->_chain;
 			while(chain) {
 				auto irq_lock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&self->_chain->_mutex);
+				auto lock = frigg::guard(&chain->_mutex);
 
 				if(auto it = chain->_pages.find(page_offset >> kPageShift); it) {
 					// We can just copy synchronously here -- the descendant is not evicted.
@@ -1612,18 +1624,29 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 					assert(src_physical != PhysicalAddr(-1));
 					auto src_accessor = PageAccessor{src_physical};
 					memcpy(closure->accessor.get(), src_accessor.get(), kPageSize);
-
-					insertPage(closure);
-					return true;
+					break;
 				}
 
 				chain = chain->_superChain;
 			}
 
+			if(chain) {
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&self->_mutex);
+
+				insertPage(closure);
+				return true;
+			}
+
 			// Copy from the root view.
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
-				insertPage(closure);
+				{
+					auto irq_lock = frigg::guard(&irqMutex());
+					auto lock = frigg::guard(&closure->self->_mutex);
+
+					insertPage(closure);
+				}
 
 				// Tail of asynchronous path.
 				if(!process(closure))
@@ -1637,11 +1660,13 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 				auto closure = frg::container_of(base, &Closure::copy);
 				WorkQueue::post(&closure->worklet);
 			};
-			if(!copyFromBundle(self->_slice->getView().get(),
-					page_offset & ~(kPageSize - 1),
+			if(!copyFromBundle(view.get(), page_offset & ~(kPageSize - 1),
 					closure->accessor.get(), kPageSize,
 					&closure->copy, complete))
 				return false;
+
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&self->_mutex);
 
 			insertPage(closure);
 			return true;
@@ -1670,6 +1695,8 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 }
 
 void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 	assert(_state == MappingState::active);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
@@ -1681,6 +1708,8 @@ void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 
 frigg::Tuple<PhysicalAddr, CachingMode>
 CowMapping::resolveRange(ptrdiff_t offset) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 	assert(_state == MappingState::active);
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
@@ -1692,8 +1721,6 @@ CowMapping::resolveRange(ptrdiff_t offset) {
 }
 
 bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
-	assert(_state == MappingState::active);
-
 	struct Closure {
 		CowMapping *self;
 		PhysicalAddr physical;
@@ -1709,28 +1736,41 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
 			// If the page is present in our private chain, we just return it.
-			if(auto it = self->_ownedPages.find(closure->continuation->_offset >> kPageShift); it) {
-				closure->physical = it->load(std::memory_order_relaxed);
-				assert(closure->physical != PhysicalAddr(-1));
+			frigg::SharedPtr<CowChain> chain;
+			frigg::SharedPtr<MemoryView> view;
+			uintptr_t view_offset;
+			{
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&self->_mutex);
+				assert(self->_state == MappingState::active);
 
-				mapPage(closure);
-				closure->continuation->setResult(physical + misalign,
-						kPageSize - misalign, CachingMode::null);
-				return true;
+				if(auto it = self->_ownedPages.find(closure->continuation->_offset >> kPageShift);
+						it) {
+					closure->physical = it->load(std::memory_order_relaxed);
+					assert(closure->physical != PhysicalAddr(-1));
+
+					mapPage(closure);
+					closure->continuation->setResult(closure->physical + misalign,
+							kPageSize - misalign, CachingMode::null);
+					return true;
+				}
+
+				chain = self->_chain;
+				view = self->_slice->getView();
+				view_offset = self->_viewOffset;
 			}
 
 			// Otherwise we need to copy from the chain or from the root view.
-			auto page_offset = self->_viewOffset + closure->continuation->_offset;
+			auto page_offset = view_offset + closure->continuation->_offset;
 
 			closure->physical = physicalAllocator->allocate(kPageSize);
 			assert(closure->physical != PhysicalAddr(-1));
 			closure->accessor = PageAccessor{closure->physical};
 
 			// Try to copy from a descendant CoW chain.
-			auto chain = self->_chain;
 			while(chain) {
 				auto irq_lock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&self->_chain->_mutex);
+				auto lock = frigg::guard(&chain->_mutex);
 
 				if(auto it = chain->_pages.find(page_offset >> kPageShift); it) {
 					// We can just copy synchronously here -- the descendant is not evicted.
@@ -1738,20 +1778,31 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					assert(src_physical != PhysicalAddr(-1));
 					auto src_accessor = PageAccessor{src_physical};
 					memcpy(closure->accessor.get(), src_accessor.get(), kPageSize);
-
-					mapPage(closure);
-					insertPage(closure);
-					return true;
+					break;
 				}
 
 				chain = chain->_superChain;
 			}
 
+			if(chain) {
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&self->_mutex);
+
+				mapPage(closure);
+				insertPage(closure);
+				return true;
+			}
+
 			// Copy from the root view.
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
-				mapPage(closure);
-				insertPage(closure);
+				{
+					auto irq_lock = frigg::guard(&irqMutex());
+					auto lock = frigg::guard(&closure->self->_mutex);
+
+					mapPage(closure);
+					insertPage(closure);
+				}
 
 				// Tail of asynchronous path.
 				WorkQueue::post(closure->continuation->_worklet);
@@ -1763,11 +1814,13 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 				auto closure = frg::container_of(base, &Closure::copy);
 				WorkQueue::post(&closure->worklet);
 			};
-			if(!copyFromBundle(self->_slice->getView().get(),
-					page_offset & ~(kPageSize - 1),
+			if(!copyFromBundle(view.get(), page_offset & ~(kPageSize - 1),
 					closure->accessor.get(), kPageSize,
 					&closure->copy, complete))
 				return false;
+
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&self->_mutex);
 
 			mapPage(closure);
 			insertPage(closure);
@@ -1815,6 +1868,9 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 	// Note that locked pages require special attention during CoW: as we cannot
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 
 	// Create a new CowChain for both the original and the forked mapping.
 	// To correct handle locks pages, we move only non-locked pages from
@@ -1895,7 +1951,10 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 }
 
 void CowMapping::install() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 	assert(_state == MappingState::null);
+
 	_state = MappingState::active;
 
 	_slice->getView()->addObserver(
@@ -1954,7 +2013,10 @@ void CowMapping::install() {
 }
 
 void CowMapping::uninstall() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 	assert(_state == MappingState::active);
+
 	_state = MappingState::zombie;
 
 	for(size_t pg = 0; pg < length(); pg += kPageSize)
@@ -1964,7 +2026,10 @@ void CowMapping::uninstall() {
 }
 
 void CowMapping::retire() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 	assert(_state == MappingState::zombie);
+
 	_slice->getView()->removeObserver(
 			smarter::static_pointer_cast<CowMapping>(selfPtr));
 	_state = MappingState::retired;
@@ -1972,6 +2037,8 @@ void CowMapping::retire() {
 
 bool CowMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 		EvictNode *continuation) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 	assert(_state == MappingState::active);
 
 	if(evict_offset + evict_length <= _viewOffset

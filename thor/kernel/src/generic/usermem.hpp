@@ -772,11 +772,13 @@ struct CowMapping : Mapping, MemoryObserver {
 	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
-	MappingState _state = MappingState::null;
+	frigg::TicketLock _mutex;
+
 	frigg::SharedPtr<MemorySlice> _slice;
 	uintptr_t _viewOffset;
 	frigg::SharedPtr<CowChain> _chain;
 
+	MappingState _state = MappingState::null;
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _ownedPages;
 	frigg::Vector<unsigned int, KernelAlloc> _lockCount;
 };
