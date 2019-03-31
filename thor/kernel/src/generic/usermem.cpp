@@ -1545,7 +1545,7 @@ CowMapping::CowMapping(size_t length, MappingFlags flags,
 		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset,
 		frigg::SharedPtr<CowChain> chain)
 : Mapping{length, flags},
-		_slice{std::move(slice)}, _viewOffset{view_offset}, _chain{std::move(chain)},
+		_slice{std::move(slice)}, _viewOffset{view_offset}, _copyChain{std::move(chain)},
 		_ownedPages{kernelAlloc.get()}, _lockCount{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
 	assert(!(_viewOffset & (kPageSize - 1)));
@@ -1601,7 +1601,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 					return true;
 				}
 
-				chain = self->_chain;
+				chain = self->_copyChain;
 				view = self->_slice->getView();
 				view_offset = self->_viewOffset;
 			}
@@ -1755,7 +1755,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					return true;
 				}
 
-				chain = self->_chain;
+				chain = self->_copyChain;
 				view = self->_slice->getView();
 				view_offset = self->_viewOffset;
 			}
@@ -1875,10 +1875,10 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 	// Create a new CowChain for both the original and the forked mapping.
 	// To correct handle locks pages, we move only non-locked pages from
 	// the original mapping to the new chain.
-	auto new_chain = frigg::makeShared<CowChain>(*kernelAlloc, _chain);
+	auto new_chain = frigg::makeShared<CowChain>(*kernelAlloc, _copyChain);
 
 	// Update the original mapping
-	_chain = new_chain;
+	_copyChain = new_chain;
 
 	// Create a new mapping in the forked space.
 	auto forked = smarter::allocate_shared<CowMapping>(Allocator{},
@@ -1954,10 +1954,10 @@ void CowMapping::install() {
 		auto page_offset = _viewOffset + offset;
 
 		// Get the page from a descendant CoW chain.
-		auto chain = _chain;
+		auto chain = _copyChain;
 		while(chain) {
 			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_chain->_mutex);
+			auto lock = frigg::guard(&chain->_mutex);
 
 			if(auto it = chain->_pages.find(page_offset >> kPageShift); it) {
 				// We can just copy synchronously here -- the descendant is not evicted.

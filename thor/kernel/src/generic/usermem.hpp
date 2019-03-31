@@ -776,7 +776,7 @@ private:
 
 	frigg::SharedPtr<MemorySlice> _slice;
 	uintptr_t _viewOffset;
-	frigg::SharedPtr<CowChain> _chain;
+	frigg::SharedPtr<CowChain> _copyChain;
 
 	MappingState _state = MappingState::null;
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _ownedPages;
