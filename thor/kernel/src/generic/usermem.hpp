@@ -699,6 +699,9 @@ public:
 
 	frg::rbtree_hook treeNode;
 
+protected:
+	uint32_t compilePageFlags();
+
 private:
 	smarter::shared_ptr<AddressSpace> _owner;
 	VirtualAddr _address;

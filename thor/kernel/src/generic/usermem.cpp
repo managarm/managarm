@@ -1302,6 +1302,17 @@ bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
 	return true;
 }
 
+uint32_t Mapping::compilePageFlags() {
+	uint32_t page_flags = 0;
+	// TODO: Allow inaccessible mappings.
+	assert(flags() & MappingFlags::protRead);
+	if(flags() & MappingFlags::protWrite)
+		page_flags |= page_access::write;
+	if(flags() & MappingFlags::protExecute)
+		page_flags |= page_access::execute;
+	return page_flags;
+}
+
 // --------------------------------------------------------
 // NormalMapping
 // --------------------------------------------------------
@@ -1361,7 +1372,10 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			closure->fetch.setup(&closure->worklet, fetch_flags);
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
+				mapPage(closure);
 				closure->continuation->setResult(closure->fetch.range());
+
+				// Tail of asynchronous path.
 				WorkQueue::post(closure->continuation->_worklet);
 				frigg::destruct(*kernelAlloc, closure);
 			});
@@ -1369,7 +1383,22 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					&closure->fetch))
 				return false;
 
+			mapPage(closure);
+			closure->continuation->setResult(closure->fetch.range());
 			return true;
+		}
+
+		static void mapPage(Closure *closure) {
+			auto self = closure->self;
+			auto page_offset = self->address() + closure->continuation->_offset;
+
+			// TODO: Update RSS, handle dirty pages, etc.
+			self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
+			self->owner()->_pageSpace.mapSingle4k(page_offset & ~(kPageSize - 1),
+					closure->fetch.range().get<0>() & ~(kPageSize - 1),
+					true, self->compilePageFlags(), closure->fetch.range().get<2>());
+			self->owner()->_residuentSize += kPageSize;
+			logRss(self->owner());
 		}
 	};
 
@@ -1380,7 +1409,6 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 		return false;
 
 	frigg::destruct(*kernelAlloc, closure);
-	closure->continuation->setResult(closure->fetch.range());
 	return true;
 }
 
@@ -1682,8 +1710,10 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 			// If the page is present in our private chain, we just return it.
 			if(auto it = self->_ownedPages.find(closure->continuation->_offset >> kPageShift); it) {
-				auto physical = it->load(std::memory_order_relaxed);
-				assert(physical != PhysicalAddr(-1));
+				closure->physical = it->load(std::memory_order_relaxed);
+				assert(closure->physical != PhysicalAddr(-1));
+
+				mapPage(closure);
 				closure->continuation->setResult(physical + misalign,
 						kPageSize - misalign, CachingMode::null);
 				return true;
@@ -1709,6 +1739,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					auto src_accessor = PageAccessor{src_physical};
 					memcpy(closure->accessor.get(), src_accessor.get(), kPageSize);
 
+					mapPage(closure);
 					insertPage(closure);
 					return true;
 				}
@@ -1719,6 +1750,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			// Copy from the root view.
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
+				mapPage(closure);
 				insertPage(closure);
 
 				// Tail of asynchronous path.
@@ -1737,6 +1769,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					&closure->copy, complete))
 				return false;
 
+			mapPage(closure);
 			insertPage(closure);
 			return true;
 		}
@@ -1751,6 +1784,20 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			auto cow_it = self->_ownedPages.insert(closure->continuation->_offset >> kPageShift,
 					PhysicalAddr(-1));
 			cow_it->store(closure->physical, std::memory_order_relaxed);
+		}
+
+		static void mapPage(Closure *closure) {
+			auto self = closure->self;
+			auto page_offset = self->address() + closure->continuation->_offset;
+
+			// TODO: Update RSS, handle dirty pages, etc.
+			// The page is a copy with default caching mode.
+			self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
+			self->owner()->_pageSpace.mapSingle4k(page_offset & ~(kPageSize - 1),
+					closure->physical,
+					true, self->compilePageFlags(), CachingMode::null);
+			self->owner()->_residuentSize += kPageSize;
+			logRss(self->owner());
 		}
 	};
 
@@ -2245,48 +2292,15 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 			return true;
 		}
 
-	struct Ops {
-		static void prepared(Worklet *base) {
-			auto node = frg::container_of(base, &FaultNode::_worklet);
-			update(node);
-			WorkQueue::post(node->_handled);
-		}
-
-		static void update(FaultNode *node) {
-			auto mapping = node->_mapping;
-
-			auto fault_page = (node->_address - mapping->address()) & ~(kPageSize - 1);
-			auto vaddr = mapping->address() + fault_page;
-
-			uint32_t page_flags = 0;
-			if((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
-				page_flags |= page_access::write;
-			if((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
-				page_flags |= page_access::execute;
-			// TODO: Allow inaccessible mappings.
-			assert((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
-
-			auto range = mapping->resolveRange(fault_page);
-			assert(range.get<0>() != PhysicalAddr(-1));
-
-			// TODO: Add some kind of warning if we repeatedly remap a page without any progress.
-			//assert(!mapping->owner()->_pageSpace.isMapped(vaddr));
-
-			// TODO: Update RSS, handle dirty pages, etc.
-			mapping->owner()->_pageSpace.unmapSingle4k(vaddr);
-			mapping->owner()->_pageSpace.mapSingle4k(vaddr, range.get<0>(),
-					true, page_flags, range.get<1>());
-			mapping->owner()->_residuentSize += kPageSize;
-			logRss(mapping->owner());
-			node->_resolved = true;
-		}
-	};
-
 	auto fault_page = (node->_address - mapping->address()) & ~(kPageSize - 1);
-	node->_worklet.setup(Ops::prepared);
 	node->_touchVirtual.setup(fault_page, &node->_worklet);
+	node->_worklet.setup([] (Worklet *base) {
+		auto node = frg::container_of(base, &FaultNode::_worklet);
+		node->_resolved = true;
+		WorkQueue::post(node->_handled);
+	});
 	if(mapping->touchVirtualPage(&node->_touchVirtual)) {
-		Ops::update(node);
+		node->_resolved = true;
 		return true;
 	}else{
 		return false;
