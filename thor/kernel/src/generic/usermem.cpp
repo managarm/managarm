@@ -1930,20 +1930,10 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 			// TODO: Increment _residentSize, handle dirty pages, etc.
 			owner()->_pageSpace.unmapSingle4k(address() + pg);
 
-			// TODO: Keep the page mapped as read-only.
-
-			// We can keep the page mapped but we need to make it read-only.
-//			uint32_t page_flags = 0;
-//			if((flags() & MappingFlags::permissionMask)
-//					& MappingFlags::protExecute)
-//				page_flags |= page_access::execute;
-//			// TODO: Allow inaccessible mappings.
-//			assert((flags() & MappingFlags::permissionMask)
-//					& MappingFlags::protRead);
-
+			// Keep the page mapped as read-only.
 			// As the page comes from a CowChain, it has a default caching mode.
-//			owner()->_pageSpace.mapSingle4k(address() + pg,
-//					physical, true, page_flags, CachingMode::null);
+			owner()->_pageSpace.mapSingle4k(address() + pg, physical, true,
+					compilePageFlags() & ~page_access::write, CachingMode::null);
 		}
 	}
 
