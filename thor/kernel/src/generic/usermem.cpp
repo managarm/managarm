@@ -2132,6 +2132,13 @@ void AddressSpace::setupDefaultMappings() {
 	_holes.insert(hole);
 }
 
+smarter::shared_ptr<Mapping> AddressSpace::getMapping(VirtualAddr address) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	AddressSpace::Guard space_guard(&lock);
+
+	return _findMapping(address);
+}
+
 Error AddressSpace::map(Guard &guard,
 		frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
@@ -2226,7 +2233,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard space_guard(&lock);
 
-	Mapping *mapping = _getMapping(address);
+	auto mapping = _findMapping(address);
 	assert(mapping);
 
 	// TODO: Allow shrinking of the mapping.
@@ -2307,7 +2314,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&node->_space->lock);
 
-		deleteMapping(node->_space, node->_mapping);
+		deleteMapping(node->_space, node->_mapping.get());
 		closeHole(node->_space, node->_shootNode.address, node->_shootNode.size);
 		node->complete();
 	});
@@ -2320,7 +2327,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	if(!_pageSpace.submitShootdown(&node->_shootNode))
 		return false;
 
-	deleteMapping(this, mapping);
+	deleteMapping(this, mapping.get());
 	closeHole(this, address, length);
 	return true;
 }
@@ -2329,20 +2336,17 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 	node->_address = address;
 	node->_flags = fault_flags;
 
-	Mapping *mapping;
+	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&lock);
 
-		mapping = _getMapping(address);
+		mapping = _findMapping(address);
 		if(!mapping) {
 			node->_resolved = false;
 			return true;
 		}
 	}
-
-	// FIXME: mapping might be deleted here!
-	// We need to use either refcounting or QS garbage collection here!
 
 	node->_mapping = mapping;
 
@@ -2445,7 +2449,7 @@ bool AddressSpace::fork(ForkNode *node) {
 	return Ops::process(node);
 }
 
-Mapping *AddressSpace::_getMapping(VirtualAddr address) {
+smarter::shared_ptr<Mapping> AddressSpace::_findMapping(VirtualAddr address) {
 	auto current = _mappings.get_root();
 	while(current) {
 		if(address < current->address()) {
@@ -2455,7 +2459,7 @@ Mapping *AddressSpace::_getMapping(VirtualAddr address) {
 		}else{
 			assert(address >= current->address()
 					&& address < current->address() + current->length());
-			return current;
+			return current->selfPtr.lock();
 		}
 	}
 
@@ -2567,13 +2571,9 @@ ForeignSpaceAccessor::ForeignSpaceAccessor(smarter::shared_ptr<AddressSpace, Bin
 		return;
 	assert(_address);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard guard(&_space->lock);
-
 	// TODO: Verify the mapping's size.
-	auto mapping = _space->_getMapping(_address);
-	assert(mapping);
-	_mapping = mapping->selfPtr.lock();
+	_mapping = _space->getMapping(_address);
+	assert(_mapping);
 }
 
 ForeignSpaceAccessor::~ForeignSpaceAccessor() {

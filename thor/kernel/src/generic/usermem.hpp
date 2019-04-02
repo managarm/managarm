@@ -842,7 +842,7 @@ private:
 
 	bool _resolved;
 
-	Mapping *_mapping;
+	smarter::shared_ptr<Mapping> _mapping;
 	Worklet _worklet;
 	TouchVirtualNode _touchVirtual;
 };
@@ -889,7 +889,7 @@ struct AddressUnmapNode {
 private:
 	Worklet *_completion;
 	AddressSpace *_space;
-	Mapping *_mapping;
+	smarter::shared_ptr<Mapping> _mapping;
 	Worklet _worklet;
 	ShootNode _shootNode;
 };
@@ -949,6 +949,8 @@ public:
 
 	void setupDefaultMappings();
 
+	smarter::shared_ptr<Mapping> getMapping(VirtualAddr address);
+
 	Error map(Guard &guard, frigg::UnsafePtr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
@@ -974,7 +976,7 @@ private:
 
 	VirtualAddr _allocateAt(VirtualAddr address, size_t length);
 
-	Mapping *_getMapping(VirtualAddr address);
+	smarter::shared_ptr<Mapping> _findMapping(VirtualAddr address);
 
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
