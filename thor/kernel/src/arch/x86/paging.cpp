@@ -155,6 +155,10 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 		}
 
 		unbound_space->_numBindings--;
+		if(!unbound_space->_numBindings && unbound_space->_retireNode) {
+			WorkQueue::post(unbound_space->_retireNode->_worklet);
+			unbound_space->_retireNode = nullptr;
+		}
 	}
 
 	while(!complete.empty()) {
@@ -215,6 +219,10 @@ void PageBinding::unbind() {
 		}
 
 		_boundSpace->_numBindings--;
+		if(!_boundSpace->_numBindings && _boundSpace->_retireNode) {
+			WorkQueue::post(_boundSpace->_retireNode->_worklet);
+			_boundSpace->_retireNode = nullptr;
+		}
 	}
 
 	_boundSpace = nullptr;
@@ -233,7 +241,7 @@ void PageBinding::shootdown() {
 		return;
 
 	// If we retire the space anyway, just flush the whole PCID.
-	if(_boundSpace->_retired.load(std::memory_order_acquire)) {
+	if(_boundSpace->_wantToRetire.load(std::memory_order_acquire)) {
 		unbind();
 		return;
 	}
@@ -329,8 +337,22 @@ PageSpace::~PageSpace() {
 	assert(!_numBindings);
 }
 
-void PageSpace::retire() {
-	_retired.store(true, std::memory_order_release);
+void PageSpace::retire(RetireNode *node) {
+	bool any_bindings;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+
+		any_bindings = _numBindings;
+		if(any_bindings) {
+			_retireNode = node;
+			_wantToRetire.store(true, std::memory_order_release);
+		}
+	}
+
+	if(!any_bindings)
+		WorkQueue::post(node->_worklet);
+
 	sendShootdownIpi();
 }
 

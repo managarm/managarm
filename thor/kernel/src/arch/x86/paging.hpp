@@ -145,6 +145,18 @@ private:
 };
 
 struct PageSpace {
+	struct RetireNode {
+		friend struct PageSpace;
+		friend struct PageBinding;
+
+		void setup(Worklet *worklet) {
+			_worklet = worklet;
+		}
+
+	private:
+		Worklet *_worklet;
+	};
+
 	static void activate(smarter::shared_ptr<PageSpace> space);
 
 	friend struct PageBinding;
@@ -157,14 +169,16 @@ struct PageSpace {
 		return _rootTable;
 	}
 
-	void retire();
+	void retire(RetireNode *node);
 
 	bool submitShootdown(ShootNode *node);
 
 private:
 	PhysicalAddr _rootTable;
 
-	std::atomic<bool> _retired = false;
+	std::atomic<bool> _wantToRetire = false;
+
+	RetireNode * _retireNode = nullptr;
 
 	frigg::TicketLock _mutex;
 	

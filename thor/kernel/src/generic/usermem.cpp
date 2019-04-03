@@ -2104,27 +2104,48 @@ AddressSpace::AddressSpace() { }
 AddressSpace::~AddressSpace() {
 	if(logCleanup)
 		frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
-}
-
-void AddressSpace::dispose(BindableHandle) {
-	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: AddressSpace is cleared\e[39m" << frigg::endLog;
 
 	while(_holes.get_root()) {
 		auto hole = _holes.get_root();
 		_holes.remove(hole);
 		frg::destruct(*kernelAlloc, hole);
 	}
+}
 
-	while(_mappings.get_root()) {
-		auto mapping = _mappings.get_root();
+void AddressSpace::dispose(BindableHandle) {
+	if(logCleanup)
+		frigg::infoLogger() << "\e[31mthor: AddressSpace is cleared\e[39m" << frigg::endLog;
+
+	// TODO: Set some flag to make sure that no mappings are added/deleted.
+	auto mapping = _mappings.first();
+	while(mapping) {
 		mapping->uninstall();
-		mapping->retire(); // TODO: We have to shootdown first.
-		_mappings.remove(mapping);
-		mapping->selfPtr.ctr()->decrement();
+		mapping = MappingTree::successor(mapping);
 	}
 
-	_pageSpace.retire();
+	struct Closure {
+		smarter::shared_ptr<AddressSpace> self;
+		PageSpace::RetireNode retireNode;
+		Worklet worklet;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	closure->self = selfPtr.lock();
+
+	closure->retireNode.setup(&closure->worklet);
+	closure->worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		auto self = closure->self.get();
+
+		while(self->_mappings.get_root()) {
+			auto mapping = self->_mappings.get_root();
+			mapping->retire();
+			self->_mappings.remove(mapping);
+			mapping->selfPtr.ctr()->decrement();
+		}
+
+		frg::destruct(*kernelAlloc, closure);
+	});
+	_pageSpace.retire(&closure->retireNode);
 }
 
 void AddressSpace::setupDefaultMappings() {
