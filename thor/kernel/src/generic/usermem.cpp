@@ -1369,10 +1369,16 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			if(self->flags() & MappingFlags::dontRequireBacking)
 				fetch_flags |= FetchNode::disallowBacking;
 
+			self->_view->lockRange((self->_viewOffset + closure->continuation->_offset)
+					& ~(kPageSize - 1), kPageSize);
+
 			closure->fetch.setup(&closure->worklet, fetch_flags);
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
+				auto self = closure->self;
 				mapPage(closure);
+				self->_view->unlockRange((self->_viewOffset + closure->continuation->_offset)
+						& ~(kPageSize - 1), kPageSize);
 				closure->continuation->setResult(closure->fetch.range());
 
 				// Tail of asynchronous path.
@@ -1384,6 +1390,8 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 				return false;
 
 			mapPage(closure);
+			self->_view->unlockRange((self->_viewOffset + closure->continuation->_offset)
+					& ~(kPageSize - 1), kPageSize);
 			closure->continuation->setResult(closure->fetch.range());
 			return true;
 		}
@@ -1432,6 +1440,8 @@ void NormalMapping::install() {
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
+	_view->lockRange(_viewOffset, length());
+
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		auto range = _slice->translateRange(_viewOffset + progress, kPageSize);
 		assert(range.size >= kPageSize);
@@ -1447,6 +1457,8 @@ void NormalMapping::install() {
 			logRss(owner());
 		}
 	}
+
+	_view->unlockRange(_viewOffset, length());
 }
 
 void NormalMapping::uninstall() {
@@ -1990,6 +2002,8 @@ void CowMapping::install() {
 	if(flags() & MappingFlags::protExecute)
 		page_flags |= page_access::execute;
 
+	_slice->getView()->lockRange(_viewOffset, length());
+
 	for(size_t pg = 0; pg < length(); pg += kPageSize) {
 		if(auto it = _ownedPages.find(pg >> kPageShift); it) {
 			auto physical = it->load(std::memory_order_relaxed);
@@ -2009,6 +2023,8 @@ void CowMapping::install() {
 					page_flags & ~page_access::write, range.get<1>());
 		}
 	}
+
+	_slice->getView()->unlockRange(_viewOffset, length());
 }
 
 void CowMapping::uninstall() {
