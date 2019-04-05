@@ -46,6 +46,10 @@ struct MemoryReclaimer {
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
+		// The reclaimer owns one reference to the page.
+		// This ensures that it can safely initiate uncaching operations.
+		page->refcount.fetch_add(1, std::memory_order_acq_rel);
+
 		assert(!(page->flags & CachePage::reclaimStateMask));
 		_lruList.push_back(page);
 		page->flags |= CachePage::reclaimCached;
@@ -83,6 +87,9 @@ struct MemoryReclaimer {
 			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimUncaching);
 		}
 		page->flags &= ~CachePage::reclaimStateMask;
+
+		if(page->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+			page->bundle->retirePage(page);
 	}
 
 	KernelFiber *createReclaimFiber() {
@@ -98,6 +105,11 @@ struct MemoryReclaimer {
 					return false;
 
 				page = _lruList.pop_front();
+
+				// Take another reference while we do the uncaching. (removePage() could be
+				// called concurrently and release the reclaimer's reference).
+				page->refcount.fetch_add(1, std::memory_order_acq_rel);
+
 				page->flags &= ~CachePage::reclaimStateMask;
 				page->flags |= CachePage::reclaimUncaching;
 				_cachedSize -= kPageSize;
@@ -119,6 +131,9 @@ struct MemoryReclaimer {
 			closure.node.setup(&closure.worklet);
 			if(!page->bundle->uncachePage(page, &closure.node))
 				KernelFiber::blockCurrent(&closure.blocker);
+
+			if(page->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+				page->bundle->retirePage(page);
 
 			return true;
 		};
@@ -669,7 +684,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 		ReclaimNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
-	static constexpr auto retirePage = [] (ManagedSpace *bundle, size_t index) {
+	static constexpr auto finishEviction = [] (ManagedSpace *bundle, size_t index) {
 		if(bundle->loadState[index] != kStateEvicting)
 			return;
 		assert(!bundle->lockCount[index]);
@@ -690,7 +705,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&closure->bundle->mutex);
 
-			retirePage(closure->bundle, closure->index);
+			finishEviction(closure->bundle, closure->index);
 		}
 
 		closure->continuation->complete();
@@ -705,6 +720,8 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 				<< " observers\e[39m" << frigg::endLog;
 	closure->node.setup(&closure->worklet, numObservers);
 	size_t fast_paths = 0;
+	// TODO: This needs to be called without holding a lock.
+	//       After all, Mapping often calls into this class, leading to deadlocks.
 	for(auto observer : observers)
 		if(observer->observeEviction((page - pages) << kPageShift, kPageSize, &closure->node))
 			fast_paths++;
@@ -715,13 +732,15 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 
 	if(logUncaching)
 		frigg::infoLogger() << "\e[33mEviction completes (fast-path)\e[39m" << frigg::endLog;
-	retirePage(this, index);
+	finishEviction(this, index);
 	frigg::destruct(*kernelAlloc, closure);
 	return true;
 }
 
 void ManagedSpace::retirePage(CachePage *page) {
-
+	// TODO: Take a reference to the CachePage when it is first used.
+	//       Take a reference to the ManagedSpace for each CachePage in use (so that it is not
+	//       destructed until all CachePages are retired).
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
