@@ -96,17 +96,6 @@ private:
 	uintptr_t _context;
 };
 
-struct LockMemoryWriter {
-	LockMemoryWriter(Error error)
-	: source{&_result, sizeof(HelSimpleResult), nullptr},
-			_result{translateError(error), 0} { }
-
-	QueueSource source;
-
-private:
-	HelSimpleResult _result;
-};
-
 struct ObserveThreadWriter {
 	ObserveThreadWriter(Error error, uint64_t sequence, Interrupt interrupt)
 	: source{&_result, sizeof(HelObserveResult), nullptr},
@@ -900,7 +889,7 @@ HelError helUpdateMemory(HelHandle handle, int type,
 	return kHelErrNone;
 }
 
-HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
+HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size,
 		HelHandle queue_handle, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();

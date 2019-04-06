@@ -45,7 +45,7 @@ enum {
 	kHelCallMemoryInfo = 26,
 	kHelCallSubmitManageMemory = 46,
 	kHelCallUpdateMemory = 47,
-	kHelCallSubmitLockMemory = 48,
+	kHelCallSubmitLockMemoryView = 48,
 	kHelCallLoadahead = 49,
 	
 	kHelCallCreateThread = 67,
@@ -413,7 +413,7 @@ HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 HEL_C_LINKAGE HelError helSubmitManageMemory(HelHandle handle,
 		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helUpdateMemory(HelHandle handle, int type, uintptr_t offset, size_t length);
-HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
+HEL_C_LINKAGE HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size,
 		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
 

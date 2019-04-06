@@ -53,8 +53,8 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, con
 	auto map_size = ((chunk_offset + chunk_size) & ~size_t(0xFFF)) - map_offset + 0x1000;
 	self->offset += chunk_size;
 
-	helix::LockMemory lock_memory;
-	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(self->inode->frontalMemory),
+	helix::LockMemoryView lock_memory;
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
 			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
 	COFIBER_AWAIT(submit.async_wait());
 	HEL_CHECK(lock_memory.error());
@@ -86,8 +86,8 @@ COFIBER_ROUTINE(async::result<void>, write(void *object, const char *,
 	auto map_size = ((chunk_offset + chunk_size) & ~size_t(0xFFF)) - map_offset + 0x1000;
 	self->offset += chunk_size;
 
-	helix::LockMemory lock_memory;
-	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(self->inode->frontalMemory),
+	helix::LockMemoryView lock_memory;
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
 			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
 	COFIBER_AWAIT(submit.async_wait());
 	HEL_CHECK(lock_memory.error());

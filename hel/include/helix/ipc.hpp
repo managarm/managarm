@@ -445,9 +445,9 @@ private:
 	}
 };
 
-struct LockMemory : Operation {
+struct LockMemoryView : Operation {
 	static void completeOperation(Operation *base) {
-		auto self = static_cast<LockMemory *>(base);
+		auto self = static_cast<LockMemoryView *>(base);
 		if(!self->error())
 			self->_descriptor = UniqueDescriptor{self->result()->handle};
 	}
@@ -706,10 +706,10 @@ struct Submission : private Context {
 				reinterpret_cast<uintptr_t>(context())));
 	}
 
-	Submission(BorrowedDescriptor memory, LockMemory *operation,
+	Submission(BorrowedDescriptor memory, LockMemoryView *operation,
 			uintptr_t offset, size_t size, Dispatcher &dispatcher)
-	: _result(operation), _completeOperation{&LockMemory::completeOperation} {
-		HEL_CHECK(helSubmitLockMemory(memory.getHandle(), offset, size,
+	: _result(operation), _completeOperation{&LockMemoryView::completeOperation} {
+		HEL_CHECK(helSubmitLockMemoryView(memory.getHandle(), offset, size,
 				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
@@ -879,7 +879,7 @@ inline Submission submitManageMemory(BorrowedDescriptor memory, ManageMemory *op
 	return {memory, operation, dispatcher};
 }
 
-inline Submission submitLockMemory(BorrowedDescriptor memory, LockMemory *operation,
+inline Submission submitLockMemoryView(BorrowedDescriptor memory, LockMemoryView *operation,
 		uintptr_t offset, size_t size, Dispatcher &dispatcher) {
 	return {memory, operation, offset, size, dispatcher};
 }

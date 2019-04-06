@@ -35,9 +35,9 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 
 	COFIBER_AWAIT readyJump.async_wait();
 
-	helix::LockMemory lock_memory;
+	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize + 0xFFF) & ~size_t(0xFFF);
-	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
 			0, map_size, helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(lock_memory.error());
@@ -282,8 +282,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 			auto indirect_frame = element >> (blockShift - 2);
 			auto indirect_index = element & ((1 << (blockShift - 2)) - 1);
 
-			helix::LockMemory lock_indirect;
-			auto &&submit_indirect = helix::submitLockMemory(inode->indirectOrder1,
+			helix::LockMemoryView lock_indirect;
+			auto &&submit_indirect = helix::submitLockMemoryView(inode->indirectOrder1,
 					&lock_indirect,
 					(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
 					helix::Dispatcher::global());
@@ -352,8 +352,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<
 			auto indirect_frame = (index - s_range) >> (blockShift - 2);
 			auto indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
 
-			helix::LockMemory lock_indirect;
-			auto &&submit = helix::submitLockMemory(inode->indirectOrder2, &lock_indirect,
+			helix::LockMemoryView lock_indirect;
+			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
 					indirect_frame << blockPagesShift, 1 << blockPagesShift,
 					helix::Dispatcher::global());
 			COFIBER_AWAIT submit.async_wait();
@@ -366,8 +366,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<
 			issue = fuse(indirect_index, num_blocks - progress,
 					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
 		}else if(index >= i_range) { // Use the triple indirect block.
-			helix::LockMemory lock_indirect;
-			auto &&submit = helix::submitLockMemory(inode->indirectOrder1,
+			helix::LockMemoryView lock_indirect;
+			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
 					&lock_indirect, 0, 1 << blockPagesShift,
 					helix::Dispatcher::global());
 			COFIBER_AWAIT submit.async_wait();
@@ -438,8 +438,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::writeDataBlocks(std::shared_ptr
 			auto indirect_frame = (index - s_range) >> (blockShift - 2);
 			auto indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
 
-			helix::LockMemory lock_indirect;
-			auto &&submit = helix::submitLockMemory(inode->indirectOrder2, &lock_indirect,
+			helix::LockMemoryView lock_indirect;
+			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
 					indirect_frame << blockPagesShift, 1 << blockPagesShift,
 					helix::Dispatcher::global());
 			COFIBER_AWAIT submit.async_wait();
@@ -452,8 +452,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::writeDataBlocks(std::shared_ptr
 			issue = fuse(indirect_index, num_blocks - progress,
 					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
 		}else if(index >= i_range) { // Use the triple indirect block.
-			helix::LockMemory lock_indirect;
-			auto &&submit = helix::submitLockMemory(inode->indirectOrder1,
+			helix::LockMemoryView lock_indirect;
+			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
 					&lock_indirect, 0, 1 << blockPagesShift,
 					helix::Dispatcher::global());
 			COFIBER_AWAIT submit.async_wait();
@@ -496,8 +496,8 @@ OpenFile::readEntries(), ([=] {
 
 	auto map_size = (inode->fileSize + 0xFFF) & ~size_t(0xFFF);
 
-	helix::LockMemory lock_memory;
-	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(inode->frontalMemory),
+	helix::LockMemoryView lock_memory;
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
 			&lock_memory, 0, map_size, helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(lock_memory.error());

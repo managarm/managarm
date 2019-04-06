@@ -176,9 +176,9 @@ extern inline __attribute__ (( always_inline )) HelError helUpdateMemory(HelHand
 			(HelWord)offset, (HelWord)length);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSubmitLockMemory(HelHandle handle,
+extern inline __attribute__ (( always_inline )) HelError helSubmitLockMemoryView(HelHandle handle,
 		uintptr_t offset, size_t size, HelHandle queue, uintptr_t context) {
-	return helSyscall5(kHelCallSubmitLockMemory, (HelWord)handle, (HelWord)offset,
+	return helSyscall5(kHelCallSubmitLockMemoryView, (HelWord)handle, (HelWord)offset,
 			(HelWord)size, (HelWord)queue, (HelWord)context);
 };
 
