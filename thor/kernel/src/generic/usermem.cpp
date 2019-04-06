@@ -2633,10 +2633,10 @@ MemoryViewLockHandle::~MemoryViewLockHandle() {
 }
 
 // --------------------------------------------------------
-// ForeignSpaceAccessor
+// AddressSpaceLockHandle
 // --------------------------------------------------------
 
-ForeignSpaceAccessor::ForeignSpaceAccessor(smarter::shared_ptr<AddressSpace, BindableHandle> space,
+AddressSpaceLockHandle::AddressSpaceLockHandle(smarter::shared_ptr<AddressSpace, BindableHandle> space,
 		void *pointer, size_t length)
 : _space{std::move(space)}, _address{reinterpret_cast<uintptr_t>(pointer)}, _length{length} {
 	if(!_length)
@@ -2648,7 +2648,7 @@ ForeignSpaceAccessor::ForeignSpaceAccessor(smarter::shared_ptr<AddressSpace, Bin
 	assert(_mapping);
 }
 
-ForeignSpaceAccessor::~ForeignSpaceAccessor() {
+AddressSpaceLockHandle::~AddressSpaceLockHandle() {
 	if(!_length)
 		return;
 
@@ -2656,7 +2656,7 @@ ForeignSpaceAccessor::~ForeignSpaceAccessor() {
 		_mapping->unlockVirtualRange(_address - _mapping->address(), _length);
 }
 
-bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
+bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 	if(!_length) {
 		_active = true;
 		return true;
@@ -2705,11 +2705,11 @@ bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
 	return true;
 }
 
-PhysicalAddr ForeignSpaceAccessor::getPhysical(size_t offset) {
+PhysicalAddr AddressSpaceLockHandle::getPhysical(size_t offset) {
 	return _resolvePhysical(_address + offset);
 }
 
-void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
+void AddressSpaceLockHandle::load(size_t offset, void *pointer, size_t size) {
 	assert(_active);
 	assert(offset + size <= _length);
 
@@ -2728,7 +2728,7 @@ void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
 	}
 }
 
-Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t size) {
+Error AddressSpaceLockHandle::write(size_t offset, const void *pointer, size_t size) {
 	assert(_active);
 	assert(offset + size <= _length);
 
@@ -2749,7 +2749,7 @@ Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t siz
 	return kErrSuccess;
 }
 
-PhysicalAddr ForeignSpaceAccessor::_resolvePhysical(VirtualAddr vaddr) {
+PhysicalAddr AddressSpaceLockHandle::_resolvePhysical(VirtualAddr vaddr) {
 	auto range = _mapping->resolveRange(vaddr - _mapping->address());
 	return range.get<0>();
 }

@@ -16,7 +16,7 @@ template<typename T>
 struct DirectSpaceAccessor {
 	DirectSpaceAccessor() = default;
 
-	DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_t offset);
+	DirectSpaceAccessor(AddressSpaceLockHandle &lock, ptrdiff_t offset);
 
 	T *get() {
 		return reinterpret_cast<T *>((char *)_accessor.get() + _misalign);
@@ -125,7 +125,7 @@ public:
 	AnyBufferAccessor(KernelAccessor accessor)
 	: _variant(frigg::move(accessor)) { }
 	
-	AnyBufferAccessor(ForeignSpaceAccessor accessor)
+	AnyBufferAccessor(AddressSpaceLockHandle accessor)
 	: _variant(frigg::move(accessor)) { }
 
 	size_t length() {
@@ -143,7 +143,7 @@ public:
 private:
 	frigg::Variant<
 		KernelAccessor,
-		ForeignSpaceAccessor
+		AddressSpaceLockHandle
 	> _variant;
 };
 

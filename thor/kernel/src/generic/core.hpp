@@ -92,7 +92,7 @@ inline ExecutorContext *localExecutorContext() {
 namespace thor {
 
 template<typename T>
-DirectSpaceAccessor<T>::DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_t offset) {
+DirectSpaceAccessor<T>::DirectSpaceAccessor(AddressSpaceLockHandle &lock, ptrdiff_t offset) {
 	static_assert(sizeof(T) < kPageSize, "Type too large for DirectSpaceAccessor");
 	assert(!(lock.address() % sizeof(T)));
 	

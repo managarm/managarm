@@ -23,7 +23,7 @@ enum class ManageRequest {
 struct Memory;
 struct Mapping;
 struct AddressSpace;
-struct ForeignSpaceAccessor;
+struct AddressSpaceLockHandle;
 struct FaultNode;
 
 struct CachePage;
@@ -895,7 +895,7 @@ private:
 };
 
 struct AddressSpace : smarter::crtp_counter<AddressSpace, BindableHandle> {
-	friend struct ForeignSpaceAccessor;
+	friend struct AddressSpaceLockHandle;
 	friend struct NormalMapping;
 	friend struct CowMapping;
 
@@ -1025,7 +1025,7 @@ private:
 };
 
 struct AcquireNode {
-	friend struct ForeignSpaceAccessor;
+	friend struct AddressSpaceLockHandle;
 
 	AcquireNode()
 	: _acquired{nullptr} { }
@@ -1041,15 +1041,15 @@ struct AcquireNode {
 private:
 	Worklet *_acquired;
 
-	ForeignSpaceAccessor *_accessor;
+	AddressSpaceLockHandle *_accessor;
 	Worklet _worklet;
 	LockVirtualNode _lockNode;
 	PopulateVirtualNode _populateNode;
 };
 
-struct ForeignSpaceAccessor {
+struct AddressSpaceLockHandle {
 public:
-	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
+	friend void swap(AddressSpaceLockHandle &a, AddressSpaceLockHandle &b) {
 		frigg::swap(a._space, b._space);
 		frigg::swap(a._mapping, b._mapping);
 		frigg::swap(a._address, b._address);
@@ -1057,21 +1057,21 @@ public:
 		frigg::swap(a._active, b._active);
 	}
 
-	ForeignSpaceAccessor() = default;
+	AddressSpaceLockHandle() = default;
 
-	ForeignSpaceAccessor(smarter::shared_ptr<AddressSpace, BindableHandle> space,
+	AddressSpaceLockHandle(smarter::shared_ptr<AddressSpace, BindableHandle> space,
 			void *pointer, size_t length);
 
-	ForeignSpaceAccessor(const ForeignSpaceAccessor &other) = delete;
+	AddressSpaceLockHandle(const AddressSpaceLockHandle &other) = delete;
 
-	ForeignSpaceAccessor(ForeignSpaceAccessor &&other)
-	: ForeignSpaceAccessor() {
+	AddressSpaceLockHandle(AddressSpaceLockHandle &&other)
+	: AddressSpaceLockHandle() {
 		swap(*this, other);
 	}
 
-	~ForeignSpaceAccessor();
+	~AddressSpaceLockHandle();
 
-	ForeignSpaceAccessor &operator= (ForeignSpaceAccessor other) {
+	AddressSpaceLockHandle &operator= (AddressSpaceLockHandle other) {
 		swap(*this, other);
 		return *this;
 	}

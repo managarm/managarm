@@ -139,7 +139,7 @@ private:
 	FutexNode _futex;
 
 	// Accessors for the queue header.
-	ForeignSpaceAccessor _queuePin;
+	AddressSpaceLockHandle _queuePin;
 	DirectSpaceAccessor<QueueStruct> _queueAccessor;
 
 	bool _waitInFutex;
@@ -148,7 +148,7 @@ private:
 	Chunk *_currentChunk;
 
 	// Accessors for the current chunk.
-	ForeignSpaceAccessor _chunkPin;
+	AddressSpaceLockHandle _chunkPin;
 	DirectSpaceAccessor<ChunkStruct> _chunkAccessor;
 
 	// Progress into the current chunk.

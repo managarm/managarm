@@ -17,7 +17,7 @@ IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void
 		_waitInFutex{false},
 		_currentChunk{nullptr}, _currentProgress{0}, _nextIndex{0},
 		_chunks{*kernelAlloc} {
-	_queuePin = ForeignSpaceAccessor{_space, _pointer, sizeof(QueueStruct)};
+	_queuePin = AddressSpaceLockHandle{_space, _pointer, sizeof(QueueStruct)};
 	_acquireNode.setup(nullptr);
 	auto acq = _queuePin.acquire(&_acquireNode);
 	assert(acq);
@@ -91,7 +91,7 @@ void IpcQueue::_progress() {
 		auto dest = reinterpret_cast<Address>(_currentChunk->pointer)
 				+ offsetof(ChunkStruct, buffer) + _currentProgress;
 		assert(!(dest & 0x7));
-		auto accessor = ForeignSpaceAccessor{_currentChunk->space,
+		auto accessor = AddressSpaceLockHandle{_currentChunk->space,
 				reinterpret_cast<void *>(dest), sizeof(ElementStruct) + length};
 		_acquireNode.setup(nullptr);
 		auto acq = accessor.acquire(&_acquireNode);
@@ -131,7 +131,7 @@ void IpcQueue::_advanceChunk() {
 
 	auto source = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, indexQueue)
 			+ (_nextIndex & ((1 << _sizeShift) - 1)) * sizeof(int);
-	auto accessor = ForeignSpaceAccessor{_space,
+	auto accessor = AddressSpaceLockHandle{_space,
 			reinterpret_cast<void *>(source), sizeof(int)};
 	_acquireNode.setup(nullptr);
 	auto acq = accessor.acquire(&_acquireNode);
@@ -142,7 +142,7 @@ void IpcQueue::_advanceChunk() {
 
 	_currentChunk = &_chunks[cn];
 	_nextIndex = ((_nextIndex + 1) & kHeadMask);
-	_chunkPin = ForeignSpaceAccessor{_currentChunk->space,
+	_chunkPin = AddressSpaceLockHandle{_currentChunk->space,
 			_currentChunk->pointer, sizeof(ChunkStruct)};
 	_acquireNode.setup(nullptr);
 	auto acq_chunk = _chunkPin.acquire(&_acquireNode);
@@ -156,7 +156,7 @@ void IpcQueue::_retireChunk() {
 	_wakeProgressFutex(true);
 
 	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{};
-	_chunkPin = ForeignSpaceAccessor{};
+	_chunkPin = AddressSpaceLockHandle{};
 	_currentChunk = nullptr;
 	_currentProgress = 0;
 }
