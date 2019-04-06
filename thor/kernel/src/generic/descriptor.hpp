@@ -15,6 +15,7 @@ struct Thread;
 struct Universe;
 struct IpcQueue;
 struct MemorySlice;
+struct NamedMemoryViewLock;
 struct KernletObject;
 struct BoundKernlet;
 
@@ -55,6 +56,13 @@ struct AddressSpaceDescriptor {
 	: space(frigg::move(space)) { }
 
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+};
+
+struct MemoryViewLockDescriptor {
+	MemoryViewLockDescriptor(frigg::SharedPtr<NamedMemoryViewLock> lock)
+	: lock(frigg::move(lock)) { }
+
+	frigg::SharedPtr<NamedMemoryViewLock> lock;
 };
 
 // --------------------------------------------------------
@@ -197,6 +205,7 @@ typedef frigg::Variant<
 	MemoryViewDescriptor,
 	MemorySliceDescriptor,
 	AddressSpaceDescriptor,
+	MemoryViewLockDescriptor,
 	ThreadDescriptor,
 	LaneDescriptor,
 	IrqDescriptor,

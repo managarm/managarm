@@ -446,14 +446,27 @@ private:
 };
 
 struct LockMemory : Operation {
+	static void completeOperation(Operation *base) {
+		auto self = static_cast<LockMemory *>(base);
+		if(!self->error())
+			self->_descriptor = UniqueDescriptor{self->result()->handle};
+	}
+
 	HelError error() {
 		return result()->error;
 	}
 
-private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	UniqueDescriptor descriptor() {
+		HEL_CHECK(error());
+		return std::move(_descriptor);
 	}
+
+private:
+	HelHandleResult *result() {
+		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
+	}
+
+	UniqueDescriptor _descriptor;
 };
 
 struct Offer : Operation {
@@ -695,7 +708,7 @@ struct Submission : private Context {
 
 	Submission(BorrowedDescriptor memory, LockMemory *operation,
 			uintptr_t offset, size_t size, Dispatcher &dispatcher)
-	: _result(operation) {
+	: _result(operation), _completeOperation{&LockMemory::completeOperation} {
 		HEL_CHECK(helSubmitLockMemory(memory.getHandle(), offset, size,
 				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
@@ -734,10 +747,13 @@ private:
 		_element = std::move(element);
 
 		_result->_element = _element.data();
+		if(_completeOperation)
+			_completeOperation(_result);
 		_pledge.set_value();
 	}
 
 	Operation *_result;
+	void (*_completeOperation)(Operation *) = nullptr;
 	async::promise<void> _pledge;
 	ElementHandle _element;
 };

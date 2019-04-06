@@ -928,7 +928,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 
 	struct Closure : IpcNode {
 		Closure()
-		: ipcSource{&helResult, sizeof(HelSimpleResult), nullptr} {
+		: ipcSource{&helResult, sizeof(HelHandleResult), nullptr} {
 			setupSource(&ipcSource);
 		}
 
@@ -936,23 +936,43 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 			frigg::destruct(*kernelAlloc, this);
 		}
 
+		frigg::WeakPtr<Universe> weakUniverse;
 		frigg::SharedPtr<IpcQueue> ipcQueue;
 		Worklet worklet;
+		frigg::SharedPtr<NamedMemoryViewLock> lock;
 		MonitorNode initiate;
 		QueueSource ipcSource;
 
-		HelSimpleResult helResult;
+		HelHandleResult helResult;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
 	struct Ops {
 		static void initiated(Worklet *base) {
 			auto closure = frg::container_of(base, &Closure::worklet);
-			closure->helResult = HelSimpleResult{translateError(closure->initiate.error()), 0};
+
+			// Attach the descriptor.
+			HelHandle handle;
+			{
+				auto universe = closure->weakUniverse.grab();
+				assert(universe);
+
+				auto irq_lock = frigg::guard(&irqMutex());
+				Universe::Guard lock(&universe->lock);
+
+				handle = universe->attachDescriptor(lock,
+						MemoryViewLockDescriptor{std::move(closure->lock)});
+			}
+
+			closure->helResult = HelHandleResult{translateError(closure->initiate.error()),
+					0, handle};
 			closure->ipcQueue->submit(closure);
 		}
 	};
 
+	closure->weakUniverse = this_universe.toWeak();
 	closure->ipcQueue = frigg::move(queue);
+	closure->lock = frigg::makeShared<NamedMemoryViewLock>(*kernelAlloc,
+			MemoryViewLockHandle{memory, offset, size});
 	closure->setupContext(context);
 
 	closure->worklet.setup(&Ops::initiated);

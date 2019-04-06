@@ -991,6 +991,39 @@ private:
 	int64_t _residuentSize = 0;
 };
 
+struct MemoryViewLockHandle {
+	friend void swap(MemoryViewLockHandle &a, MemoryViewLockHandle &b) {
+		frigg::swap(a._view, b._view);
+		frigg::swap(a._offset, b._offset);
+		frigg::swap(a._size, b._size);
+		frigg::swap(a._active, b._active);
+	}
+
+	MemoryViewLockHandle() = default;
+
+	MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view, uintptr_t offset, size_t size);
+
+	MemoryViewLockHandle(const MemoryViewLockHandle &) = delete;
+
+	MemoryViewLockHandle(MemoryViewLockHandle &&other)
+	: MemoryViewLockHandle{} {
+		swap(*this, other);
+	}
+
+	~MemoryViewLockHandle();
+
+	MemoryViewLockHandle &operator= (MemoryViewLockHandle other) {
+		swap(*this, other);
+		return *this;
+	}
+
+private:
+	frigg::SharedPtr<MemoryView> _view = nullptr;
+	uintptr_t _offset = 0;
+	size_t _size = 0;
+	bool _active = false;
+};
+
 struct AcquireNode {
 	friend struct ForeignSpaceAccessor;
 
@@ -1080,6 +1113,20 @@ private:
 	uintptr_t _address = 0;
 	size_t _length = 0;
 	bool _active = false; // Whether the accessor is acquired successfully.
+};
+
+struct NamedMemoryViewLock {
+	NamedMemoryViewLock(MemoryViewLockHandle handle)
+	: _handle{std::move(handle)} { }
+
+	NamedMemoryViewLock(const NamedMemoryViewLock &) = delete;
+
+	~NamedMemoryViewLock();
+
+	NamedMemoryViewLock &operator= (const NamedMemoryViewLock &) = delete;
+
+private:
+	MemoryViewLockHandle _handle;
 };
 
 void initializeReclaim();

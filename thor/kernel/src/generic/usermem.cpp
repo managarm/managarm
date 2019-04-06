@@ -2617,6 +2617,22 @@ void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 }
 
 // --------------------------------------------------------
+// MemoryViewLockHandle.
+// --------------------------------------------------------
+
+MemoryViewLockHandle::MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view,
+		uintptr_t offset, size_t size)
+: _view{std::move(view)}, _offset{offset}, _size{size} {
+	_view->lockRange(_offset, _size);
+	_active = true;
+}
+
+MemoryViewLockHandle::~MemoryViewLockHandle() {
+	if(_active)
+		_view->unlockRange(_offset, _size);
+}
+
+// --------------------------------------------------------
 // ForeignSpaceAccessor
 // --------------------------------------------------------
 
@@ -2737,6 +2753,12 @@ PhysicalAddr ForeignSpaceAccessor::_resolvePhysical(VirtualAddr vaddr) {
 	auto range = _mapping->resolveRange(vaddr - _mapping->address());
 	return range.get<0>();
 }
+
+// --------------------------------------------------------
+// NamedMemoryViewLock.
+// --------------------------------------------------------
+
+NamedMemoryViewLock::~NamedMemoryViewLock() { }
 
 } // namespace thor
 
