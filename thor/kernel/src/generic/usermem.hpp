@@ -5,6 +5,7 @@
 #include <frg/container_of.hpp>
 #include <frg/rbtree.hpp>
 #include <frg/rcu_radixtree.hpp>
+#include <frg/vector.hpp>
 #include <smarter.hpp>
 #include "error.hpp"
 #include "mm-rc.hpp"
@@ -455,9 +456,9 @@ struct ManagedSpace : CacheBundle {
 	frigg::TicketLock mutex;
 
 	// TODO: Store all of this information in a radix tree.
-	frigg::Vector<PhysicalAddr, KernelAlloc> physicalPages;
-	frigg::Vector<LoadState, KernelAlloc> loadState;
-	frigg::Vector<unsigned int, KernelAlloc> lockCount;
+	frg::vector<PhysicalAddr, KernelAlloc> physicalPages;
+	frg::vector<LoadState, KernelAlloc> loadState;
+	frg::vector<unsigned int, KernelAlloc> lockCount;
 	// TODO: Use a unique_ptr to manage this array.
 	CachePage *pages;
 

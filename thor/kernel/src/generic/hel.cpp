@@ -378,8 +378,7 @@ HelError helResizeMemory(HelHandle handle, size_t new_size) {
 HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle) {
 	(void)flags;
-	assert(size > 0);
-	assert(size % kPageSize == 0);
+	assert(!(size & (kPageSize - 1)));
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
