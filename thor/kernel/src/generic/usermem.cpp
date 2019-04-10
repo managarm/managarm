@@ -648,9 +648,8 @@ size_t AllocatedMemory::getLength() {
 // --------------------------------------------------------
 
 ManagedSpace::ManagedSpace(size_t length)
-: physicalPages{*kernelAlloc}, pages{kernelAlloc.get()} {
+: pages{kernelAlloc.get()}, numPages{length >> kPageShift} {
 	assert(!(length & (kPageSize - 1)));
-	physicalPages.resize(length >> kPageShift, PhysicalAddr(-1));
 	for(size_t i = 0; i < (length >> kPageShift); i++)
 		pages.insert(i, this, i);
 }
@@ -692,10 +691,10 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 
 		if(logUncaching)
 			frigg::infoLogger() << "\e[33mEvicting physical page\e[39m" << frigg::endLog;
-		assert(bundle->physicalPages[index] != PhysicalAddr(-1));
-		physicalAllocator->free(bundle->physicalPages[index], kPageSize);
+		assert(page->physical != PhysicalAddr(-1));
+		physicalAllocator->free(page->physical, kPageSize);
 		page->loadState = kStateMissing;
-		bundle->physicalPages[index] = PhysicalAddr(-1);
+		page->physical = PhysicalAddr(-1);
 	};
 
 	closure->worklet.setup([] (Worklet *base) {
@@ -749,7 +748,7 @@ void ManagedSpace::retirePage(CachePage *page) {
 void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
-	assert((offset + size) / kPageSize <= physicalPages.size());
+	assert((offset + size) / kPageSize <= numPages);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
@@ -772,7 +771,7 @@ void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
-	assert((offset + size) / kPageSize <= physicalPages.size());
+	assert((offset + size) / kPageSize <= numPages);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
@@ -805,8 +804,7 @@ void ManagedSpace::submitMonitor(MonitorNode *node) {
 
 	assert(node->offset % kPageSize == 0);
 	assert(node->length % kPageSize == 0);
-	assert((node->offset + node->length) / kPageSize
-			<= physicalPages.size());
+	assert((node->offset + node->length) / kPageSize <= numPages);
 
 	_monitorQueue.push_back(node);
 	_progressMonitors();
@@ -948,9 +946,11 @@ frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offse
 	auto lock = frigg::guard(&_managed->mutex);
 
 	auto index = offset / kPageSize;
-	assert(index < _managed->physicalPages.size());
-	return frigg::Tuple<PhysicalAddr, CachingMode>{_managed->physicalPages[index],
-			CachingMode::null};
+	assert(index < _managed->numPages);
+	auto pit = _managed->pages.find(index);
+	assert(pit);
+
+	return frigg::Tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
 bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -959,17 +959,20 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
-	assert(index < _managed->physicalPages.size());
-	if(_managed->physicalPages[index] == PhysicalAddr(-1)) {
+	assert(index < _managed->numPages);
+	auto pit = _managed->pages.find(index);
+	assert(pit);
+
+	if(pit->physical == PhysicalAddr(-1)) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 		assert(physical != PhysicalAddr(-1));
 
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
-		_managed->physicalPages[index] = physical;
+		pit->physical = physical;
 	}
 
-	completeFetch(node, _managed->physicalPages[index] + misalign, kPageSize - misalign,
+	completeFetch(node, pit->physical + misalign, kPageSize - misalign,
 			CachingMode::null);
 	return true;
 }
@@ -980,7 +983,7 @@ void BackingMemory::markDirty(uintptr_t offset, size_t size) {
 
 size_t BackingMemory::getLength() {
 	// Size is constant so we do not need to lock.
-	return _managed->physicalPages.size() * kPageSize;
+	return _managed->numPages << kPageShift;
 }
 
 void BackingMemory::submitManage(ManageNode *node) {
@@ -993,7 +996,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
-	assert((offset + length) / kPageSize <= _managed->physicalPages.size());
+	assert((offset + length) / kPageSize <= _managed->numPages);
 
 /*	assert(length == kPageSize);
 	auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
@@ -1073,13 +1076,13 @@ frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offse
 	auto lock = frigg::guard(&_managed->mutex);
 
 	auto index = offset / kPageSize;
-	assert(index < _managed->physicalPages.size());
+	assert(index < _managed->numPages);
 	auto pit = _managed->pages.find(index);
 	assert(pit);
+
 	if(pit->loadState != ManagedSpace::kStatePresent)
 		return frigg::Tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
-	return frigg::Tuple<PhysicalAddr, CachingMode>{_managed->physicalPages[index],
-			CachingMode::null};
+	return frigg::Tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
 bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -1088,7 +1091,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
-	assert(index < _managed->physicalPages.size());
+	assert(index < _managed->numPages);
 
 	// Try the fast-paths first.
 	auto pit = _managed->pages.find(index);
@@ -1098,7 +1101,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			|| pit->loadState == ManagedSpace::kStateWriteback
 			|| pit->loadState == ManagedSpace::kStateAnotherWriteback
 			|| pit->loadState == ManagedSpace::kStateEvicting) {
-		auto physical = _managed->physicalPages[index];
+		auto physical = pit->physical;
 		assert(physical != PhysicalAddr(-1));
 
 		if(pit->loadState == ManagedSpace::kStatePresent) {
@@ -1149,7 +1152,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			auto index = closure->offset >> kPageShift;
 			auto misalign = closure->offset & (kPageSize - 1);
 			assert(closure->page->loadState == ManagedSpace::kStatePresent);
-			auto physical = closure->bundle->physicalPages[index];
+			auto physical = closure->page->physical;
 			assert(physical != PhysicalAddr(-1));
 
 			lock.unlock();
@@ -1209,7 +1212,7 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 
 size_t FrontalMemory::getLength() {
 	// Size is constant so we do not need to lock.
-	return _managed->physicalPages.size() * kPageSize;
+	return _managed->numPages << kPageShift;
 }
 
 void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
