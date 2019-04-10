@@ -224,6 +224,7 @@ struct FileSystem {
 	async::result<void> init();
 
 	cofiber::no_future manageBlockBitmap(helix::UniqueDescriptor memory);
+	cofiber::no_future manageInodeTable(helix::UniqueDescriptor memory);
 
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
@@ -257,6 +258,7 @@ struct FileSystem {
 	void *blockGroupDescriptorBuffer;
 
 	helix::UniqueDescriptor blockBitmap;
+	helix::UniqueDescriptor inodeTable;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
