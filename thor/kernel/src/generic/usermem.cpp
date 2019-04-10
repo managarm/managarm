@@ -648,16 +648,14 @@ size_t AllocatedMemory::getLength() {
 // --------------------------------------------------------
 
 ManagedSpace::ManagedSpace(size_t length)
-: physicalPages(*kernelAlloc), loadState(*kernelAlloc), lockCount(*kernelAlloc) {
+: physicalPages{*kernelAlloc}, loadState{*kernelAlloc}, lockCount{*kernelAlloc},
+		pages{kernelAlloc.get()} {
 	assert(!(length & (kPageSize - 1)));
 	physicalPages.resize(length >> kPageShift, PhysicalAddr(-1));
 	loadState.resize(length >> kPageShift, kStateMissing);
 	lockCount.resize(length >> kPageShift, 0);
-	pages = frg::construct_n<CachePage>(*kernelAlloc, length >> kPageShift);
-	for(size_t i = 0; i < (length >> kPageShift); i++) {
-		pages[i].bundle = this;
-		pages[i].identity = i;
-	}
+	for(size_t i = 0; i < (length >> kPageShift); i++)
+		pages.insert(i, this, i);
 }
 
 ManagedSpace::~ManagedSpace() {
@@ -676,7 +674,9 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	size_t index = page->identity;
 	assert(loadState[index] == kStatePresent);
 	loadState[index] = kStateEvicting;
-	globalReclaimer->removePage(&pages[index]);
+	auto pit = pages.find(index);
+	assert(pit);
+	globalReclaimer->removePage(&pit->cachePage);
 
 	struct Closure {
 		ManagedSpace *bundle;
@@ -756,7 +756,9 @@ void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 		lockCount[index]++;
 		if(lockCount[index] == 1) {
 			if(loadState[index] == kStatePresent) {
-				globalReclaimer->removePage(&pages[index]);
+				auto pit = pages.find(index);
+				assert(pit);
+				globalReclaimer->removePage(&pit->cachePage);
 			}else if(loadState[index] == kStateEvicting) {
 				// Stop the eviction to keep the page present.
 				loadState[index] = kStatePresent;
@@ -777,8 +779,11 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 		assert(lockCount[index] > 0);
 		lockCount[index]--;
 		if(!lockCount[index]) {
-			if(loadState[index] == kStatePresent)
-				globalReclaimer->addPage(&pages[index]);
+			if(loadState[index] == kStatePresent) {
+				auto pit = pages.find(index);
+				assert(pit);
+				globalReclaimer->addPage(&pit->cachePage);
+			}
 		}
 		assert(loadState[index] != kStateEvicting);
 	}
@@ -1002,8 +1007,11 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			size_t index = (offset + pg) / kPageSize;
 			assert(_managed->loadState[index] == ManagedSpace::kStateInitialization);
 			_managed->loadState[index] = ManagedSpace::kStatePresent;
-			if(!_managed->lockCount[index])
-				globalReclaimer->addPage(&_managed->pages[index]);
+			if(!_managed->lockCount[index]) {
+				auto pit = _managed->pages.find(index);
+				assert(pit);
+				globalReclaimer->addPage(&pit->cachePage);
+			}
 		}
 	}else{
 		for(size_t pg = 0; pg < length; pg += kPageSize) {
@@ -1012,8 +1020,11 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			//       and by re-inserting the page into the _writebackList.
 			assert(_managed->loadState[index] == ManagedSpace::kStateWriteback);
 			_managed->loadState[index] = ManagedSpace::kStatePresent;
-			if(!_managed->lockCount[index])
-				globalReclaimer->addPage(&_managed->pages[index]);
+			if(!_managed->lockCount[index]) {
+				auto pit = _managed->pages.find(index);
+				assert(pit);
+				globalReclaimer->addPage(&pit->cachePage);
+			}
 		}
 	}
 
@@ -1076,6 +1087,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(index < _managed->physicalPages.size());
 
 	// Try the fast-paths first.
+	auto pit = _managed->pages.find(index);
+	assert(pit);
 	if(_managed->loadState[index] == ManagedSpace::kStatePresent
 			|| _managed->loadState[index] == ManagedSpace::kStateWantWriteback
 			|| _managed->loadState[index] == ManagedSpace::kStateWriteback
@@ -1085,12 +1098,13 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		assert(physical != PhysicalAddr(-1));
 
 		if(_managed->loadState[index] == ManagedSpace::kStatePresent) {
-			if(!_managed->lockCount[index])
-				globalReclaimer->bumpPage(&_managed->pages[index]);
+			if(!_managed->lockCount[index]) {
+				globalReclaimer->bumpPage(&pit->cachePage);
+			}
 		}else if(_managed->loadState[index] == ManagedSpace::kStateEvicting) {
 			// Cancel evication -- the page is still needed.
 			_managed->loadState[index] = ManagedSpace::kStatePresent;
-			globalReclaimer->addPage(&_managed->pages[index]);
+			globalReclaimer->addPage(&pit->cachePage);
 		}
 
 		completeFetch(node, physical + misalign, kPageSize - misalign, CachingMode::null);
@@ -1106,7 +1120,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	// We have to take the slow-path, i.e., perform the fetch asynchronously.
 	if(_managed->loadState[index] == ManagedSpace::kStateMissing) {
 		_managed->loadState[index] = ManagedSpace::kStateWantInitialization;
-		_managed->_initializationList.push_back(&_managed->pages[index]);
+		_managed->_initializationList.push_back(&pit->cachePage);
 	}
 	_managed->_progressManagement();
 
@@ -1170,10 +1184,12 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		auto index = (offset + pg) >> kPageShift;
 		if(_managed->loadState[index] == ManagedSpace::kStatePresent) {
+			auto pit = _managed->pages.find(index);
+			assert(pit);
 			_managed->loadState[index] = ManagedSpace::kStateWantWriteback;
 			if(!_managed->lockCount[index])
-				globalReclaimer->removePage(&_managed->pages[index]);
-			_managed->_writebackList.push_back(&_managed->pages[index]);
+				globalReclaimer->removePage(&pit->cachePage);
+			_managed->_writebackList.push_back(&pit->cachePage);
 		}else if(_managed->loadState[index] == ManagedSpace::kStateWriteback) {
 			_managed->loadState[index] = ManagedSpace::kStateAnotherWriteback;
 		}else{
@@ -1198,8 +1214,10 @@ void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
 	for(size_t pg = 0; pg < node->length; pg += kPageSize) {
 		auto index = (node->offset + pg) >> kPageShift;
 		if(_managed->loadState[index] == ManagedSpace::kStateMissing) {
+			auto pit = _managed->pages.find(index);
+			assert(pit);
 			_managed->loadState[index] = ManagedSpace::kStateWantInitialization;
-			_managed->_initializationList.push_back(&_managed->pages[index]);
+			_managed->_initializationList.push_back(&pit->cachePage);
 		}
 	}
 	_managed->_progressManagement();

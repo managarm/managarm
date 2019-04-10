@@ -442,6 +442,19 @@ struct ManagedSpace : CacheBundle {
 		kStateEvicting
 	};
 
+	struct ManagedPage {
+		ManagedPage(ManagedSpace *bundle, uint64_t identity) {
+			cachePage.bundle = bundle;
+			cachePage.identity = identity;
+		}
+
+		ManagedPage(const ManagedPage &) = delete;
+
+		ManagedPage &operator= (const ManagedPage &) = delete;
+
+		CachePage cachePage;
+	};
+
 	ManagedSpace(size_t length);
 	~ManagedSpace();
 
@@ -463,8 +476,7 @@ struct ManagedSpace : CacheBundle {
 	frg::vector<PhysicalAddr, KernelAlloc> physicalPages;
 	frg::vector<LoadState, KernelAlloc> loadState;
 	frg::vector<unsigned int, KernelAlloc> lockCount;
-	// TODO: Use a unique_ptr to manage this array.
-	CachePage *pages;
+	frg::rcu_radixtree<ManagedPage, KernelAlloc> pages;
 
 	frg::intrusive_list<
 		MemoryObserver,
