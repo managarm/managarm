@@ -654,8 +654,10 @@ ManagedSpace::ManagedSpace(size_t length)
 	loadState.resize(length >> kPageShift, kStateMissing);
 	lockCount.resize(length >> kPageShift, 0);
 	pages = frg::construct_n<CachePage>(*kernelAlloc, length >> kPageShift);
-	for(size_t i = 0; i < (length >> kPageShift); i++)
+	for(size_t i = 0; i < (length >> kPageShift); i++) {
 		pages[i].bundle = this;
+		pages[i].identity = i;
+	}
 }
 
 ManagedSpace::~ManagedSpace() {
@@ -671,7 +673,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	if(!numObservers)
 		return true;
 
-	size_t index = page - pages;
+	size_t index = page->identity;
 	assert(loadState[index] == kStatePresent);
 	loadState[index] = kStateEvicting;
 	globalReclaimer->removePage(&pages[index]);
@@ -723,7 +725,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	// TODO: This needs to be called without holding a lock.
 	//       After all, Mapping often calls into this class, leading to deadlocks.
 	for(auto observer : observers)
-		if(observer->observeEviction((page - pages) << kPageShift, kPageSize, &closure->node))
+		if(observer->observeEviction(page->identity << kPageShift, kPageSize, &closure->node))
 			fast_paths++;
 	if(!fast_paths)
 		return false;
@@ -812,13 +814,13 @@ void ManagedSpace::_progressManagement() {
 
 	while(!_writebackList.empty() && !_managementQueue.empty()) {
 		auto page = _writebackList.front();
-		auto index = page - pages;
+		auto index = page->identity;
 
 		// Fuse the request with adjacent pages in the list.
 		ptrdiff_t count = 0;
 		while(!_writebackList.empty()) {
 			auto fuse_page = _writebackList.front();
-			auto fuse_index = fuse_page - pages;
+			auto fuse_index = fuse_page->identity;
 			if(fuse_index != index + count)
 				break;
 			assert(loadState[fuse_index] == kStateWantWriteback);
@@ -836,13 +838,13 @@ void ManagedSpace::_progressManagement() {
 
 	while(!_initializationList.empty() && !_managementQueue.empty()) {
 		auto page = _initializationList.front();
-		auto index = page - pages;
+		auto index = page->identity;
 
 		// Fuse the request with adjacent pages in the list.
 		ptrdiff_t count = 0;
 		while(!_initializationList.empty()) {
 			auto fuse_page = _initializationList.front();
-			auto fuse_index = fuse_page - pages;
+			auto fuse_index = fuse_page->identity;
 			if(fuse_index != index + count)
 				break;
 			assert(loadState[fuse_index] == kStateWantInitialization);

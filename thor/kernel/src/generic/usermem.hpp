@@ -62,6 +62,10 @@ struct CachePage {
 	// CacheBundle that owns this page.
 	CacheBundle *bundle = nullptr;
 
+	// Identity of the page as part of the bundle.
+	// Bundles can use this field however they like.
+	uint64_t identity = 0;
+
 	// Hooks for LRU lists.
 	frg::default_list_hook<CachePage> listHook;
 
