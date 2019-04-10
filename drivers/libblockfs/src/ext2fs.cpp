@@ -119,7 +119,47 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	COFIBER_AWAIT device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer, bgdt_size / 512);
 
+	HelHandle block_bitmap_frontal;
+	HelHandle block_bitmap_backing;
+	HEL_CHECK(helCreateManagedMemory(3 << blockPagesShift,
+			kHelAllocBacked, &block_bitmap_backing, &block_bitmap_frontal));
+	blockBitmap = helix::UniqueDescriptor{block_bitmap_frontal};
+
+	manageBlockBitmap(helix::UniqueDescriptor{block_bitmap_backing});
+
 	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageBlockBitmap(
+		helix::UniqueDescriptor the_memory), ([=, memory = std::move(the_memory)] {
+	while(true) {
+		helix::ManageMemory manage;
+		auto &&submit_manage = helix::submitManageMemory(memory,
+				&manage, helix::Dispatcher::global());
+		COFIBER_AWAIT(submit_manage.async_wait());
+		HEL_CHECK(manage.error());
+
+		// FIXME: Support writeback of the block bitmap.
+		if(manage.type() == kHelManageWriteback)
+			continue;
+		assert(manage.type() == kHelManageInitialize);
+
+		uint32_t bg_idx = manage.offset() >> blockPagesShift;
+		auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
+		auto block = bgdt[bg_idx].blockBitmap;
+		assert(block);
+
+		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
+				&& "TODO: propery support multi-page blocks");
+		assert(manage.length() == (1 << blockPagesShift)
+				&& "TODO: propery support multi-page blocks");
+
+		helix::Mapping out_map{memory, manage.offset(), manage.length()};
+		COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
+				out_map.get(), sectorsPerBlock);
+		HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+				manage.offset(), manage.length()));
+	}
 }))
 
 auto FileSystem::accessRoot() -> std::shared_ptr<Inode> {
@@ -139,6 +179,40 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 
 	return std::move(new_inode);
 }
+
+COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t offset,
+		const void *buffer, size_t length), ([=] {
+	COFIBER_AWAIT inode->readyJump.async_wait();
+
+	// Make sure that data blocks are allocated.
+	auto block_offset = offset & ~(blockSize - 1);
+	auto block_count = ((offset & (blockSize - 1)) + length + (blockSize - 1)) >> blockShift;
+	COFIBER_AWAIT assignDataBlocks(inode, block_offset, block_count);
+
+	// Resize the file if necessary.
+	if(offset + length > inode->fileSize) {
+		HEL_CHECK(helResizeMemory(inode->backingMemory,
+				(offset + length + (inode->fs.blockSize - 1)) & ~size_t(0xFFF)));
+		inode->fileSize = offset + length;
+	}
+
+	auto map_offset = offset & ~size_t(0xFFF);
+	auto map_size = ((offset & size_t(0xFFF)) + length + 0xFFF) & ~size_t(0xFFF);
+
+	helix::LockMemoryView lock_memory;
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
+			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
+	COFIBER_AWAIT(submit.async_wait());
+	HEL_CHECK(lock_memory.error());
+
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
+			map_offset, map_size,
+			kHelMapProtWrite | kHelMapDontRequireBacking};
+
+	memcpy(reinterpret_cast<char *>(file_map.get()) + (offset - map_offset),
+			buffer, length);
+}))
 
 COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<Inode> inode),
 		([=] {
@@ -309,6 +383,68 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 	}
 }))
 
+COFIBER_ROUTINE(async::result<uint64_t>, FileSystem::allocateBlock(), ([=] {
+	uint64_t bg_idx = 0;
+
+	helix::LockMemoryView lock_bitmap;
+	auto &&submit_bitmap = helix::submitLockMemoryView(blockBitmap,
+			&lock_bitmap,
+			bg_idx << blockPagesShift, 1 << blockPagesShift,
+			helix::Dispatcher::global());
+	COFIBER_AWAIT submit_bitmap.async_wait();
+	HEL_CHECK(lock_bitmap.error());
+
+	helix::Mapping bitmap_map{blockBitmap,
+			bg_idx << blockPagesShift, 1 << blockPagesShift,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+	auto bits = reinterpret_cast<uint32_t *>(bitmap_map.get());
+	for(int i = 0; i < 1024 / 4; i++) {
+		if(bits[i] == 0xFFFFFFFF)
+			continue;
+		for(int j = 0; j < 32; j++) {
+			if(!(bits[i] & (static_cast<uint32_t>(1) << j)))
+				continue;
+			// TODO: Make sure we never return reserved blocks.
+			assert(i * 32 + j != 0);
+			bits[i] |= static_cast<uint32_t>(1) << j;
+			COFIBER_RETURN(i * 32 + j);
+		}
+		assert(!"Failed to find zero-bit");
+	}
+
+	COFIBER_RETURN(0);
+}))
+
+COFIBER_ROUTINE(async::result<void>, FileSystem::assignDataBlocks(Inode *inode,
+		uint64_t block_offset, size_t num_blocks), ([=] {
+	size_t per_indirect = blockSize / 4;
+	size_t per_single = per_indirect;
+	size_t per_double = per_indirect * per_indirect;
+
+	// Number of blocks that can be accessed by:
+	size_t i_range = 12; // Direct blocks only.
+	size_t s_range = i_range + per_single; // Plus the first single indirect block.
+	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+
+	size_t prg = 0;
+	while(prg < num_blocks) {
+		if(block_offset + prg < i_range) {
+			while(block_offset + prg < i_range) {
+				auto idx = block_offset + prg;
+				if(inode->fileData.blocks.direct[idx])
+					continue;
+				auto block = COFIBER_AWAIT allocateBlock();
+				assert(block && "Out of disk space"); // TODO: Fix this.
+				inode->fileData.blocks.direct[idx] = block;
+				prg++;
+			}
+		}else{
+			assert(!"TODO: Implement allocation in double/tripple indirect blocks");
+		}
+	}
+}))
+
 COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 		uint64_t offset, size_t num_blocks, void *buffer), ([=] {
 	// We perform "block-fusion" here i.e. we try to read/write multiple
@@ -365,7 +501,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<
 
 			issue = fuse(indirect_index, num_blocks - progress,
 					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
-		}else if(index >= i_range) { // Use the triple indirect block.
+		}else if(index >= i_range) { // Use the single indirect block.
 			helix::LockMemoryView lock_indirect;
 			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
 					&lock_indirect, 0, 1 << blockPagesShift,

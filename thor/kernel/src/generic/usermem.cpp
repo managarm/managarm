@@ -871,6 +871,7 @@ void ManagedSpace::_progressMonitors() {
 			assert(loadState[index] == kStatePresent
 					|| loadState[index] == kStateWantWriteback
 					|| loadState[index] == kStateWriteback
+					|| loadState[index] == kStateAnotherWriteback
 					|| loadState[index] == kStateEvicting);
 			node->progress += kPageSize;
 		}
@@ -892,6 +893,15 @@ void ManagedSpace::_progressMonitors() {
 // --------------------------------------------------------
 // BackingMemory
 // --------------------------------------------------------
+
+void BackingMemory::resize(size_t new_length) {
+	assert(!(new_length & ~(kPageSize - 1)));
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
+	assert(!"TODO: Implement this");
+}
 
 void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -1163,8 +1173,7 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 				globalReclaimer->removePage(&_managed->pages[index]);
 			_managed->_writebackList.push_back(&_managed->pages[index]);
 		}else if(_managed->loadState[index] == ManagedSpace::kStateWriteback) {
-			// TODO: Implement this by entering kStateAnotherWriteback.
-			assert(!"Re-scheduling of writebacks is not implemented");
+			_managed->loadState[index] = ManagedSpace::kStateAnotherWriteback;
 		}else{
 			assert(_managed->loadState[index] == ManagedSpace::kStateWantWriteback
 					|| _managed->loadState[index] == ManagedSpace::kStateAnotherWriteback);

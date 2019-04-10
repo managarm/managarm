@@ -74,31 +74,8 @@ COFIBER_ROUTINE(async::result<void>, write(void *object, const char *,
 	assert(length);
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	COFIBER_AWAIT self->inode->readyJump.async_wait();
-
-	assert(self->offset < self->inode->fileSize); // TODO: Otherwise we have to allocate.
-	auto remaining = self->inode->fileSize - self->offset;
-	auto chunk_size = std::min(length, remaining);
-	assert(chunk_size);
-
-	auto chunk_offset = self->offset;
-	auto map_offset = chunk_offset & ~size_t(0xFFF);
-	auto map_size = ((chunk_offset + chunk_size) & ~size_t(0xFFF)) - map_offset + 0x1000;
-	self->offset += chunk_size;
-
-	helix::LockMemoryView lock_memory;
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
-			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
-	COFIBER_AWAIT(submit.async_wait());
-	HEL_CHECK(lock_memory.error());
-
-	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{self->inode->frontalMemory},
-			map_offset, map_size,
-			kHelMapProtWrite | kHelMapDontRequireBacking};
-
-	memcpy(reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
-			buffer, chunk_size);
+	COFIBER_AWAIT self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
+	self->offset += length;
 }))
 
 COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,

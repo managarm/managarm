@@ -176,10 +176,10 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	// ext2fs on-disk inode number
 	const uint32_t number;
-	
+
 	// true if this inode has already been loaded from disk
 	bool isReady;
-	
+
 	// called when the inode becomes ready
 	async::jump readyJump;
 
@@ -199,7 +199,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	// Caches indirection blocks reachable from order 2 blocks.
 	// - Indirection level 3/3 for triple indirect blocks.
 	helix::UniqueDescriptor indirectOrder3;
-	
+
 	// NOTE: The following fields are only meaningful if the isReady is true
 
 	FileType fileType;
@@ -223,13 +223,23 @@ struct FileSystem {
 
 	async::result<void> init();
 
+	cofiber::no_future manageBlockBitmap(helix::UniqueDescriptor memory);
+
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
+
+	async::result<void> write(Inode *inode, uint64_t offset,
+			const void *buffer, size_t length);
 
 	cofiber::no_future initiateInode(std::shared_ptr<Inode> inode);
 	cofiber::no_future manageFileData(std::shared_ptr<Inode> inode);
 	cofiber::no_future manageIndirect(std::shared_ptr<Inode> inode, int order,
 			helix::UniqueDescriptor memory);
+
+	async::result<uint64_t> allocateBlock();
+
+	async::result<void> assignDataBlocks(Inode *inode,
+			uint64_t block_offset, size_t num_blocks);
 
 	async::result<void> readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer);
@@ -245,6 +255,8 @@ struct FileSystem {
 	uint32_t numBlockGroups;
 	uint32_t inodesPerGroup;
 	void *blockGroupDescriptorBuffer;
+
+	helix::UniqueDescriptor blockBitmap;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };

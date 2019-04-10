@@ -504,6 +504,8 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
+	void resize(size_t new_length) override;
+
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	void lockRange(uintptr_t offset, size_t size) override;
