@@ -192,7 +192,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t of
 	// Resize the file if necessary.
 	if(offset + length > inode->fileSize) {
 		HEL_CHECK(helResizeMemory(inode->backingMemory,
-				(offset + length + (inode->fs.blockSize - 1)) & ~size_t(0xFFF)));
+				(offset + length + 0xFFF) & ~size_t(0xFFF)));
 		inode->fileSize = offset + length;
 	}
 

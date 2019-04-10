@@ -904,12 +904,17 @@ void ManagedSpace::_progressMonitors() {
 // --------------------------------------------------------
 
 void BackingMemory::resize(size_t new_length) {
-	assert(!(new_length & ~(kPageSize - 1)));
+	assert(!(new_length & (kPageSize - 1)));
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
-	assert(!"TODO: Implement this");
+	// TODO: Implement shrinking.
+	assert((new_length >> kPageShift) >= _managed->numPages);
+
+	for(size_t i = _managed->numPages; i < (new_length >> kPageShift); i++)
+		_managed->pages.insert(i, _managed.get(), i);
+	_managed->numPages = new_length >> kPageShift;
 }
 
 void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
