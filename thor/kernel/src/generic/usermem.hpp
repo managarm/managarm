@@ -453,6 +453,7 @@ struct ManagedSpace : CacheBundle {
 		ManagedPage &operator= (const ManagedPage &) = delete;
 
 		CachePage cachePage;
+		unsigned int lockCount = 0;
 	};
 
 	ManagedSpace(size_t length);
@@ -475,7 +476,6 @@ struct ManagedSpace : CacheBundle {
 	// TODO: Store all of this information in a radix tree.
 	frg::vector<PhysicalAddr, KernelAlloc> physicalPages;
 	frg::vector<LoadState, KernelAlloc> loadState;
-	frg::vector<unsigned int, KernelAlloc> lockCount;
 	frg::rcu_radixtree<ManagedPage, KernelAlloc> pages;
 
 	frg::intrusive_list<

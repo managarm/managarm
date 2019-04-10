@@ -648,12 +648,11 @@ size_t AllocatedMemory::getLength() {
 // --------------------------------------------------------
 
 ManagedSpace::ManagedSpace(size_t length)
-: physicalPages{*kernelAlloc}, loadState{*kernelAlloc}, lockCount{*kernelAlloc},
+: physicalPages{*kernelAlloc}, loadState{*kernelAlloc},
 		pages{kernelAlloc.get()} {
 	assert(!(length & (kPageSize - 1)));
 	physicalPages.resize(length >> kPageShift, PhysicalAddr(-1));
 	loadState.resize(length >> kPageShift, kStateMissing);
-	lockCount.resize(length >> kPageShift, 0);
 	for(size_t i = 0; i < (length >> kPageShift); i++)
 		pages.insert(i, this, i);
 }
@@ -681,15 +680,17 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	struct Closure {
 		ManagedSpace *bundle;
 		size_t index;
+		ManagedPage *page;
 		Worklet worklet;
 		EvictNode node;
 		ReclaimNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
-	static constexpr auto finishEviction = [] (ManagedSpace *bundle, size_t index) {
+	static constexpr auto finishEviction = [] (ManagedSpace *bundle,
+			size_t index, ManagedPage *page) {
 		if(bundle->loadState[index] != kStateEvicting)
 			return;
-		assert(!bundle->lockCount[index]);
+		assert(!page->lockCount);
 
 		if(logUncaching)
 			frigg::infoLogger() << "\e[33mEvicting physical page\e[39m" << frigg::endLog;
@@ -707,7 +708,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&closure->bundle->mutex);
 
-			finishEviction(closure->bundle, closure->index);
+			finishEviction(closure->bundle, closure->index, closure->page);
 		}
 
 		closure->continuation->complete();
@@ -715,6 +716,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	});
 	closure->bundle = this;
 	closure->index = index;
+	closure->page = pit;
 	closure->continuation = continuation;
 
 	if(logUncaching)
@@ -734,7 +736,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 
 	if(logUncaching)
 		frigg::infoLogger() << "\e[33mEviction completes (fast-path)\e[39m" << frigg::endLog;
-	finishEviction(this, index);
+	finishEviction(this, index, pit);
 	frigg::destruct(*kernelAlloc, closure);
 	return true;
 }
@@ -753,11 +755,11 @@ void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
-		lockCount[index]++;
-		if(lockCount[index] == 1) {
+		auto pit = pages.find(index);
+		assert(pit);
+		pit->lockCount++;
+		if(pit->lockCount == 1) {
 			if(loadState[index] == kStatePresent) {
-				auto pit = pages.find(index);
-				assert(pit);
 				globalReclaimer->removePage(&pit->cachePage);
 			}else if(loadState[index] == kStateEvicting) {
 				// Stop the eviction to keep the page present.
@@ -776,12 +778,12 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
-		assert(lockCount[index] > 0);
-		lockCount[index]--;
-		if(!lockCount[index]) {
+		auto pit = pages.find(index);
+		assert(pit);
+		assert(pit->lockCount > 0);
+		pit->lockCount--;
+		if(!pit->lockCount) {
 			if(loadState[index] == kStatePresent) {
-				auto pit = pages.find(index);
-				assert(pit);
 				globalReclaimer->addPage(&pit->cachePage);
 			}
 		}
@@ -1005,26 +1007,24 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	if(type == ManageRequest::initialize) {
 		for(size_t pg = 0; pg < length; pg += kPageSize) {
 			size_t index = (offset + pg) / kPageSize;
+			auto pit = _managed->pages.find(index);
+			assert(pit);
 			assert(_managed->loadState[index] == ManagedSpace::kStateInitialization);
 			_managed->loadState[index] = ManagedSpace::kStatePresent;
-			if(!_managed->lockCount[index]) {
-				auto pit = _managed->pages.find(index);
-				assert(pit);
+			if(!pit->lockCount)
 				globalReclaimer->addPage(&pit->cachePage);
-			}
 		}
 	}else{
 		for(size_t pg = 0; pg < length; pg += kPageSize) {
 			size_t index = (offset + pg) / kPageSize;
+			auto pit = _managed->pages.find(index);
+			assert(pit);
 			// TODO: Handle kStateAnotherWriteback here by entering kStateWantWriteback again
 			//       and by re-inserting the page into the _writebackList.
 			assert(_managed->loadState[index] == ManagedSpace::kStateWriteback);
 			_managed->loadState[index] = ManagedSpace::kStatePresent;
-			if(!_managed->lockCount[index]) {
-				auto pit = _managed->pages.find(index);
-				assert(pit);
+			if(!pit->lockCount)
 				globalReclaimer->addPage(&pit->cachePage);
-			}
 		}
 	}
 
@@ -1098,9 +1098,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		assert(physical != PhysicalAddr(-1));
 
 		if(_managed->loadState[index] == ManagedSpace::kStatePresent) {
-			if(!_managed->lockCount[index]) {
+			if(!pit->lockCount)
 				globalReclaimer->bumpPage(&pit->cachePage);
-			}
 		}else if(_managed->loadState[index] == ManagedSpace::kStateEvicting) {
 			// Cancel evication -- the page is still needed.
 			_managed->loadState[index] = ManagedSpace::kStatePresent;
@@ -1187,7 +1186,7 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 			auto pit = _managed->pages.find(index);
 			assert(pit);
 			_managed->loadState[index] = ManagedSpace::kStateWantWriteback;
-			if(!_managed->lockCount[index])
+			if(!pit->lockCount)
 				globalReclaimer->removePage(&pit->cachePage);
 			_managed->_writebackList.push_back(&pit->cachePage);
 		}else if(_managed->loadState[index] == ManagedSpace::kStateWriteback) {
