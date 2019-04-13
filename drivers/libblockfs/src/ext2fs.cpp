@@ -151,11 +151,6 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageBlockBitmap(
 		COFIBER_AWAIT(submit_manage.async_wait());
 		HEL_CHECK(manage.error());
 
-		// FIXME: Support writeback of the block bitmap.
-		if(manage.type() == kHelManageWriteback)
-			continue;
-		assert(manage.type() == kHelManageInitialize);
-
 		auto bg_idx = manage.offset() >> blockPagesShift;
 		auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
 		auto block = bgdt[bg_idx].blockBitmap;
@@ -166,11 +161,21 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageBlockBitmap(
 		assert(manage.length() == (1 << blockPagesShift)
 				&& "TODO: propery support multi-page blocks");
 
-		helix::Mapping out_map{memory, manage.offset(), manage.length()};
-		COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
-				out_map.get(), sectorsPerBlock);
-		HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-				manage.offset(), manage.length()));
+		if(manage.type() == kHelManageInitialize) {
+			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
+					bitmap_map.get(), sectorsPerBlock);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+					manage.offset(), manage.length()));
+		}else{
+			assert(manage.type() == kHelManageWriteback);
+
+			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			COFIBER_AWAIT device->writeSectors(block * sectorsPerBlock,
+					bitmap_map.get(), sectorsPerBlock);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+					manage.offset(), manage.length()));
+		}
 	}
 }))
 
@@ -183,10 +188,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInodeTable(
 		COFIBER_AWAIT(submit_manage.async_wait());
 		HEL_CHECK(manage.error());
 
-		// FIXME: Support writeback of the block bitmap.
-		if(manage.type() == kHelManageWriteback)
-			continue;
-		assert(manage.type() == kHelManageInitialize);
+		// TODO: Make sure that we do not read/write past the end of the table.
+		assert(!((inodesPerGroup * inodeSize) & (blockSize - 1)));
 
 		// TODO: Use shifts instead of division.
 		auto bg_idx = manage.offset() / (inodesPerGroup * inodeSize);
@@ -195,11 +198,21 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInodeTable(
 		auto block = bgdt[bg_idx].inodeTable;
 		assert(block);
 
-		helix::Mapping out_map{memory, manage.offset(), manage.length()};
-		COFIBER_AWAIT device->readSectors(block * sectorsPerBlock + bg_offset / 512,
-				out_map.get(), manage.length() / 512);
-		HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-				manage.offset(), manage.length()));
+		if(manage.type() == kHelManageInitialize) {
+			helix::Mapping table_map{memory, manage.offset(), manage.length()};
+			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock + bg_offset / 512,
+					table_map.get(), manage.length() / 512);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+					manage.offset(), manage.length()));
+		}else{
+			assert(manage.type() == kHelManageWriteback);
+
+			helix::Mapping table_map{memory, manage.offset(), manage.length()};
+			COFIBER_AWAIT device->writeSectors(block * sectorsPerBlock + bg_offset / 512,
+					table_map.get(), manage.length() / 512);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+					manage.offset(), manage.length()));
+		}
 	}
 }))
 
@@ -235,6 +248,14 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t of
 		HEL_CHECK(helResizeMemory(inode->backingMemory,
 				(offset + length + 0xFFF) & ~size_t(0xFFF)));
 		inode->setFileSize(offset + length);
+
+		// Notify the kernel that the inode might have changed.
+		// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
+		auto inode_address = (inode->number - 1) * inodeSize;
+
+		inode->diskMapping = helix::Mapping{inodeTable,
+				inode_address, inodeSize,
+				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 	}
 
 	auto map_offset = offset & ~size_t(0xFFF);
@@ -493,6 +514,14 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::assignDataBlocks(Inode *inode,
 			assert(!"TODO: Implement allocation in double/tripple indirect blocks");
 		}
 	}
+
+	// Notify the kernel that the inode might have changed.
+	// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
+	auto inode_address = (inode->number - 1) * inodeSize;
+
+	inode->diskMapping = helix::Mapping{inodeTable,
+			inode_address, inodeSize,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 }))
 
 COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
