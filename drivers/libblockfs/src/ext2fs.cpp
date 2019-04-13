@@ -36,7 +36,7 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	COFIBER_AWAIT readyJump.async_wait();
 
 	helix::LockMemoryView lock_memory;
-	auto map_size = (fileSize + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
 			0, map_size, helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
@@ -49,7 +49,7 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 
 	// Read the directory structure.
 	uintptr_t offset = 0;
-	while(offset < fileSize) {
+	while(offset < fileSize()) {
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(file_map.get()) + offset);
 		// TODO: use memcmp?
@@ -74,7 +74,7 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 
 		offset += disk_entry->recordLength;
 	}
-	assert(offset == fileSize);
+	assert(offset == fileSize());
 
 	COFIBER_RETURN(std::experimental::nullopt);
 }))
@@ -227,10 +227,10 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t of
 	COFIBER_AWAIT assignDataBlocks(inode, block_offset, block_count);
 
 	// Resize the file if necessary.
-	if(offset + length > inode->fileSize) {
+	if(offset + length > inode->fileSize()) {
 		HEL_CHECK(helResizeMemory(inode->backingMemory,
 				(offset + length + 0xFFF) & ~size_t(0xFFF)));
-		inode->fileSize = offset + length;
+		inode->setFileSize(offset + length);
 	}
 
 	auto map_offset = offset & ~size_t(0xFFF);
@@ -266,7 +266,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 
 	inode->diskMapping = helix::Mapping{inodeTable,
 			inode_address, inodeSize,
-			kHelMapProtRead | kHelMapDontRequireBacking};
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 	auto disk_inode = inode->diskInode();
 //	printf("Inode %u: file size: %u\n", inode->number, disk_inode.size);
 
@@ -283,7 +283,6 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 	}
 
 	// TODO: support large files
-	inode->fileSize = disk_inode->size;
 	inode->fileData = disk_inode->data;
 
 	// filter out the file type from the mode
@@ -302,7 +301,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 	inode->anyChangeTime.tv_nsec = 0;
 
 	// Allocate a page cache for the file.
-	auto cache_size = (inode->fileSize + 0xFFF) & ~size_t(0xFFF);
+	auto cache_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
 	HEL_CHECK(helCreateManagedMemory(cache_size, kHelAllocBacked,
 			&inode->backingMemory, &inode->frontalMemory));
 
@@ -331,14 +330,14 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 				&manage, helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(manage.error());
-		assert(manage.offset() + manage.length() <= ((inode->fileSize + 0xFFF) & ~size_t(0xFFF)));
+		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
 		if(manage.type() == kHelManageInitialize) {
 			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
 					manage.offset(), manage.length(), kHelMapProtWrite};
 
 			assert(!(manage.offset() % inode->fs.blockSize));
-			size_t backed_size = std::min(manage.length(), inode->fileSize - manage.offset());
+			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
 			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
@@ -354,7 +353,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 					manage.offset(), manage.length(), kHelMapProtRead};
 
 			assert(!(manage.offset() % inode->fs.blockSize));
-			size_t backed_size = std::min(manage.length(), inode->fileSize - manage.offset());
+			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
 			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
@@ -675,11 +674,11 @@ COFIBER_ROUTINE(async::result<std::optional<std::string>>,
 OpenFile::readEntries(), ([=] {
 	COFIBER_AWAIT inode->readyJump.async_wait();
 
-	assert(offset <= inode->fileSize);
-	if(offset == inode->fileSize)
+	assert(offset <= inode->fileSize());
+	if(offset == inode->fileSize())
 		COFIBER_RETURN(std::nullopt);
 
-	auto map_size = (inode->fileSize + 0xFFF) & ~size_t(0xFFF);
+	auto map_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
 
 	helix::LockMemoryView lock_memory;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
@@ -695,8 +694,8 @@ OpenFile::readEntries(), ([=] {
 	// Read the directory structure.
 	auto disk_entry = reinterpret_cast<DiskDirEntry *>(
 			reinterpret_cast<char *>(file_map.get()) + offset);
-	assert(offset + sizeof(DiskDirEntry) <= inode->fileSize);
-	assert(offset + disk_entry->recordLength <= inode->fileSize);
+	assert(offset + sizeof(DiskDirEntry) <= inode->fileSize());
+	assert(offset + disk_entry->recordLength <= inode->fileSize());
 	offset += disk_entry->recordLength;
 //	std::cout << "libblockfs: Returning entry "
 //			<< std::string(disk_entry->name, disk_entry->nameLength) << std::endl;

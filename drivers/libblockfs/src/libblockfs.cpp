@@ -42,8 +42,8 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, con
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
 
-	assert(self->offset <= self->inode->fileSize);
-	auto remaining = self->inode->fileSize - self->offset;
+	assert(self->offset <= self->inode->fileSize());
+	auto remaining = self->inode->fileSize() - self->offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
 		COFIBER_RETURN(0); // TODO: Return an explicit end-of-file error?
@@ -82,7 +82,7 @@ COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
 		accessMemory(void *object, uint64_t offset, size_t size), ([=] {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
-	assert(offset + size <= self->inode->fileSize);
+	assert(offset + size <= self->inode->fileSize());
 	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, offset));
 }))
 
@@ -147,7 +147,7 @@ getStats(std::shared_ptr<void> object), ([=] {
 
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->numLinks;
-	stats.fileSize = self->fileSize;
+	stats.fileSize = self->fileSize();
 	stats.mode = self->mode;
 	stats.uid = self->uid;
 	stats.gid = self->gid;
@@ -176,8 +176,8 @@ COFIBER_ROUTINE(async::result<std::string>, readSymlink(std::shared_ptr<void> ob
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	COFIBER_AWAIT self->readyJump.async_wait();
 
-	assert(self->fileSize <= 60);
-	std::string link(self->fileData.embedded, self->fileData.embedded + self->fileSize);
+	assert(self->fileSize() <= 60);
+	std::string link(self->fileData.embedded, self->fileData.embedded + self->fileSize());
 	COFIBER_RETURN(link);
 }))
 

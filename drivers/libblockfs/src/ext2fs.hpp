@@ -172,6 +172,16 @@ struct Inode : std::enable_shared_from_this<Inode> {
 		return reinterpret_cast<DiskInode *>(diskMapping.get());
 	}
 
+	// Returns the size of the file in bytes.
+	uint64_t fileSize() {
+		return diskInode()->size;
+	}
+
+	void setFileSize(uint64_t size) {
+		assert(!(size & ~uint64_t(0xFFFFFFFF)));
+		diskInode()->size = size;
+	}
+
 	async::result<std::experimental::optional<DirEntry>> findEntry(std::string name);
 
 	//FIXME: void onLoadRequest(HelError error, uintptr_t offset, size_t length);
@@ -210,7 +220,6 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	// NOTE: The following fields are only meaningful if the isReady is true
 
 	FileType fileType;
-	uint64_t fileSize; // file size in bytes
 	FileData fileData; // block references / small symlink data
 
 	int numLinks; // number of links to this file
