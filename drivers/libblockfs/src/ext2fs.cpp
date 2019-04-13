@@ -104,11 +104,15 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	inodesPerGroup = sb.inodesPerGroup;
 
 	if(logSuperblock) {
+		std::cout << "ext2fs: Revision is: " << sb.revLevel << std::endl;
 		std::cout << "ext2fs: Block size is: " << blockSize << std::endl;
+		std::cout << "ext2fs: Inode size is: " << inodeSize << std::endl;
+		std::cout << "ext2fs:     First available inode is: " << sb.firstIno << std::endl;
 		std::cout << "ext2fs: Optional features: " << sb.featureCompat
 				<< ", w-required features: " << sb.featureRoCompat
 				<< ", r/w-required features: " << sb.featureIncompat << std::endl;
 		std::cout << "ext2fs: There are " << numBlockGroups << " block groups" << std::endl;
+		std::cout << "ext2fs:     Inodes per group: " << inodesPerGroup << std::endl;
 	}
 
 	auto bgdt_size = (numBlockGroups * sizeof(DiskGroupDesc) + 511) & ~size_t(511);
@@ -438,16 +442,17 @@ COFIBER_ROUTINE(async::result<uint64_t>, FileSystem::allocateBlock(), ([=] {
 			bg_idx << blockPagesShift, 1 << blockPagesShift,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-	auto bits = reinterpret_cast<uint32_t *>(bitmap_map.get());
+	// TODO: Handle the correct number of blocks per block group.
+	auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
 	for(int i = 0; i < 1024 / 4; i++) {
-		if(bits[i] == 0xFFFFFFFF)
+		if(words[i] == 0xFFFFFFFF)
 			continue;
 		for(int j = 0; j < 32; j++) {
-			if(!(bits[i] & (static_cast<uint32_t>(1) << j)))
+			if(!(words[i] & (static_cast<uint32_t>(1) << j)))
 				continue;
 			// TODO: Make sure we never return reserved blocks.
 			assert(i * 32 + j != 0);
-			bits[i] |= static_cast<uint32_t>(1) << j;
+			words[i] |= static_cast<uint32_t>(1) << j;
 			COFIBER_RETURN(i * 32 + j);
 		}
 		assert(!"Failed to find zero-bit");
@@ -472,10 +477,13 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::assignDataBlocks(Inode *inode,
 		if(block_offset + prg < i_range) {
 			auto disk_inode = inode->diskInode();
 
-			while(block_offset + prg < i_range) {
+			while(prg < num_blocks
+					&& block_offset + prg < i_range) {
 				auto idx = block_offset + prg;
-				if(disk_inode->data.blocks.direct[idx])
+				if(disk_inode->data.blocks.direct[idx]) {
+					prg++;
 					continue;
+				}
 				auto block = COFIBER_AWAIT allocateBlock();
 				assert(block && "Out of disk space"); // TODO: Fix this.
 				disk_inode->data.blocks.direct[idx] = block;

@@ -184,8 +184,6 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	async::result<std::experimental::optional<DirEntry>> findEntry(std::string name);
 
-	//FIXME: void onLoadRequest(HelError error, uintptr_t offset, size_t length);
-
 	FileSystem &fs;
 
 	// ext2fs on-disk inode number
