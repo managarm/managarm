@@ -168,6 +168,10 @@ struct FileSystem;
 struct Inode : std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
+	DiskInode *diskInode() {
+		return reinterpret_cast<DiskInode *>(diskMapping.get());
+	}
+
 	async::result<std::experimental::optional<DirEntry>> findEntry(std::string name);
 
 	//FIXME: void onLoadRequest(HelError error, uintptr_t offset, size_t length);
@@ -179,6 +183,9 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	// true if this inode has already been loaded from disk
 	bool isReady;
+
+	helix::UniqueDescriptor diskLock;
+	helix::Mapping diskMapping;
 
 	// called when the inode becomes ready
 	async::jump readyJump;

@@ -253,50 +253,52 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t of
 
 COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<Inode> inode),
 		([=] {
-	uint32_t block_group = (inode->number - 1) / inodesPerGroup;
-	uint32_t index = (inode->number - 1) % inodesPerGroup;
-	uint32_t offset = index * inodeSize;
+	// TODO: Use a shift instead of a division.
+	auto inode_address = (inode->number - 1) * inodeSize;
 
-	auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
-	uint32_t inode_table_block = bgdt[block_group].inodeTable;
+	helix::LockMemoryView lock_inode;
+	auto &&submit = helix::submitLockMemoryView(inodeTable,
+			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			helix::Dispatcher::global());
+	COFIBER_AWAIT submit.async_wait();
+	HEL_CHECK(lock_inode.error());
+	inode->diskLock = std::move(lock_inode.descriptor());
 
-	std::vector<uint8_t> buffer(512);
-	uint32_t sector = inode_table_block * sectorsPerBlock + (offset / 512);
-	COFIBER_AWAIT device->readSectors(sector, buffer.data(), 1);
-
-	DiskInode disk_inode;
-	memcpy(&disk_inode, buffer.data() + (offset % 512), sizeof(DiskInode));
+	inode->diskMapping = helix::Mapping{inodeTable,
+			inode_address, inodeSize,
+			kHelMapProtRead | kHelMapDontRequireBacking};
+	auto disk_inode = inode->diskInode();
 //	printf("Inode %u: file size: %u\n", inode->number, disk_inode.size);
 
-	if((disk_inode.mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
+	if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
 		inode->fileType = kTypeRegular;
-	}else if((disk_inode.mode & EXT2_S_IFMT) == EXT2_S_IFLNK) {
+	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFLNK) {
 		inode->fileType = kTypeSymlink;
-	}else if((disk_inode.mode & EXT2_S_IFMT) == EXT2_S_IFDIR) {
+	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFDIR) {
 		inode->fileType = kTypeDirectory;
 	}else{
-		std::cerr << "ext2fs: Unexpected inode type " << (disk_inode.mode & EXT2_S_IFMT)
+		std::cerr << "ext2fs: Unexpected inode type " << (disk_inode->mode & EXT2_S_IFMT)
 				<< " for inode " << inode->number << std::endl;
 		abort();
 	}
 
 	// TODO: support large files
-	inode->fileSize = disk_inode.size;
-	inode->fileData = disk_inode.data;
+	inode->fileSize = disk_inode->size;
+	inode->fileData = disk_inode->data;
 
 	// filter out the file type from the mode
 	// TODO: ext2fs stores a 32-bit mode
-	inode->mode = disk_inode.mode & 0x0FFF;
+	inode->mode = disk_inode->mode & 0x0FFF;
 
-	inode->numLinks = disk_inode.linksCount;
+	inode->numLinks = disk_inode->linksCount;
 	// TODO: support large uid / gids
-	inode->uid = disk_inode.uid;
-	inode->gid = disk_inode.gid;
-	inode->accessTime.tv_sec = disk_inode.atime;
+	inode->uid = disk_inode->uid;
+	inode->gid = disk_inode->gid;
+	inode->accessTime.tv_sec = disk_inode->atime;
 	inode->accessTime.tv_nsec = 0;
-	inode->dataModifyTime.tv_sec = disk_inode.mtime;
+	inode->dataModifyTime.tv_sec = disk_inode->mtime;
 	inode->dataModifyTime.tv_nsec = 0;
-	inode->anyChangeTime.tv_sec = disk_inode.ctime;
+	inode->anyChangeTime.tv_sec = disk_inode->ctime;
 	inode->anyChangeTime.tv_nsec = 0;
 
 	// Allocate a page cache for the file.
@@ -379,26 +381,12 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 
 		uint32_t block;
 		if(order == 1) {
-			// TODO: Use a shift instead of a division.
-			auto inode_address = (inode->number - 1) * inodeSize;
-			auto inode_idx_in_page = (inode_address & (pageSize - 1)) / inodeSize;
-
-			helix::LockMemoryView lock_inode;
-			auto &&submit = helix::submitLockMemoryView(inodeTable,
-					&lock_inode, inode_address & ~(pageSize - 1), pageSize,
-					helix::Dispatcher::global());
-			COFIBER_AWAIT submit.async_wait();
-			HEL_CHECK(lock_inode.error());
-
-			helix::Mapping inode_map{inodeTable,
-					inode_address & ~(pageSize - 1), pageSize,
-					kHelMapProtRead | kHelMapDontRequireBacking};
-			auto disk_inodes = reinterpret_cast<DiskInode *>(inode_map.get());
+			auto disk_inode = inode->diskInode();
 
 			switch(element) {
-			case 0: block = disk_inodes[inode_idx_in_page].data.blocks.singleIndirect; break;
-			case 1: block = disk_inodes[inode_idx_in_page].data.blocks.doubleIndirect; break;
-			case 2: block = disk_inodes[inode_idx_in_page].data.blocks.tripleIndirect; break;
+			case 0: block = disk_inode->data.blocks.singleIndirect; break;
+			case 1: block = disk_inode->data.blocks.doubleIndirect; break;
+			case 2: block = disk_inode->data.blocks.tripleIndirect; break;
 			default:
 				assert(!"unexpected offset");
 				abort();
@@ -483,29 +471,15 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::assignDataBlocks(Inode *inode,
 	size_t prg = 0;
 	while(prg < num_blocks) {
 		if(block_offset + prg < i_range) {
-			// TODO: Use a shift instead of a division.
-			auto inode_address = (inode->number - 1) * inodeSize;
-			auto inode_idx_in_page = (inode_address & (pageSize - 1)) / inodeSize;
-
-			helix::LockMemoryView lock_inode;
-			auto &&submit = helix::submitLockMemoryView(inodeTable,
-					&lock_inode, inode_address & ~(pageSize - 1), pageSize,
-					helix::Dispatcher::global());
-			COFIBER_AWAIT submit.async_wait();
-			HEL_CHECK(lock_inode.error());
-
-			helix::Mapping inode_map{inodeTable,
-					inode_address & ~(pageSize - 1), pageSize,
-					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-			auto disk_inodes = reinterpret_cast<DiskInode *>(inode_map.get());
+			auto disk_inode = inode->diskInode();
 
 			while(block_offset + prg < i_range) {
 				auto idx = block_offset + prg;
-				if(disk_inodes[inode_idx_in_page].data.blocks.direct[idx])
+				if(disk_inode->data.blocks.direct[idx])
 					continue;
 				auto block = COFIBER_AWAIT allocateBlock();
 				assert(block && "Out of disk space"); // TODO: Fix this.
-				disk_inodes[inode_idx_in_page].data.blocks.direct[idx] = block;
+				disk_inode->data.blocks.direct[idx] = block;
 				prg++;
 			}
 		}else{
@@ -584,23 +558,10 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<
 			issue = fuse(index - i_range, num_blocks - progress,
 					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
 		}else{
-			// TODO: Use a shift instead of a division.
-			auto inode_address = (inode->number - 1) * inodeSize;
-			auto inode_idx_in_page = (inode_address & (pageSize - 1)) / inodeSize;
+			auto disk_inode = inode->diskInode();
 
-			helix::LockMemoryView lock_inode;
-			auto &&submit = helix::submitLockMemoryView(inodeTable,
-					&lock_inode, inode_address & ~(pageSize - 1), pageSize,
-					helix::Dispatcher::global());
-			COFIBER_AWAIT submit.async_wait();
-			HEL_CHECK(lock_inode.error());
-
-			helix::Mapping inode_map{inodeTable,
-					inode_address & ~(pageSize - 1), pageSize,
-					kHelMapProtRead | kHelMapDontRequireBacking};
-			auto disk_inodes = reinterpret_cast<DiskInode *>(inode_map.get());
 			issue = fuse(index, num_blocks - progress,
-					disk_inodes[inode_idx_in_page].data.blocks.direct, 12);
+					disk_inode->data.blocks.direct, 12);
 		}
 
 //		std::cout << "Issuing read of " << issue.second
@@ -686,23 +647,10 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::writeDataBlocks(std::shared_ptr
 			issue = fuse(index - i_range, num_blocks - progress,
 					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
 		}else{
-			// TODO: Use a shift instead of a division.
-			auto inode_address = (inode->number - 1) * inodeSize;
-			auto inode_idx_in_page = (inode_address & (pageSize - 1)) / inodeSize;
+			auto disk_inode = inode->diskInode();
 
-			helix::LockMemoryView lock_inode;
-			auto &&submit = helix::submitLockMemoryView(inodeTable,
-					&lock_inode, inode_address & ~(pageSize - 1), pageSize,
-					helix::Dispatcher::global());
-			COFIBER_AWAIT submit.async_wait();
-			HEL_CHECK(lock_inode.error());
-
-			helix::Mapping inode_map{inodeTable,
-					inode_address & ~(pageSize - 1), pageSize,
-					kHelMapProtRead | kHelMapDontRequireBacking};
-			auto disk_inodes = reinterpret_cast<DiskInode *>(inode_map.get());
 			issue = fuse(index, num_blocks - progress,
-					disk_inodes[inode_idx_in_page].data.blocks.direct, 12);
+					disk_inode->data.blocks.direct, 12);
 		}
 
 //		std::cout << "Issuing write of " << issue.second
