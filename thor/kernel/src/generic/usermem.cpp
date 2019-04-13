@@ -1029,12 +1029,16 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			size_t index = (offset + pg) / kPageSize;
 			auto pit = _managed->pages.find(index);
 			assert(pit);
-			// TODO: Handle kStateAnotherWriteback here by entering kStateWantWriteback again
-			//       and by re-inserting the page into the _writebackList.
-			assert(pit->loadState == ManagedSpace::kStateWriteback);
-			pit->loadState = ManagedSpace::kStatePresent;
-			if(!pit->lockCount)
-				globalReclaimer->addPage(&pit->cachePage);
+
+			if(pit->loadState == ManagedSpace::kStateWriteback) {
+				pit->loadState = ManagedSpace::kStatePresent;
+				if(!pit->lockCount)
+					globalReclaimer->addPage(&pit->cachePage);
+			}else{
+				assert(pit->loadState == ManagedSpace::kStateAnotherWriteback);
+				pit->loadState = ManagedSpace::kStateWantWriteback;
+				_managed->_writebackList.push_back(&pit->cachePage);
+			}
 		}
 	}
 
