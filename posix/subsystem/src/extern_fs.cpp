@@ -8,6 +8,31 @@ namespace extern_fs {
 
 namespace {
 
+struct Node;
+struct DirectoryNode;
+
+struct Superblock : FsSuperblock {
+	Superblock(helix::UniqueLane lane);
+
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular() override;
+	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
+
+	async::result<std::shared_ptr<FsLink>> rename(FsLink *source,
+			FsNode *directory, std::string name) override;
+
+	std::shared_ptr<Node> internalizeStructural(int64_t id, helix::UniqueLane lane);
+	std::shared_ptr<Node> internalizeStructural(Node *owner, int64_t id, helix::UniqueLane lane);
+	std::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
+	std::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
+			std::shared_ptr<Node> target);
+
+private:
+	helix::UniqueLane _lane;
+	std::map<int64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
+	std::map<int64_t, std::weak_ptr<Node>> _activePeripheralNodes;
+	std::map<std::pair<Node *, std::string>, std::weak_ptr<FsLink>> _activePeripheralLinks;
+};
+
 struct Node : FsNode {
 	COFIBER_ROUTINE(async::result<FileStats>, getStats() override, ([=] {
 		helix::Offer offer;
@@ -49,8 +74,8 @@ struct Node : FsNode {
 	}))
 
 public:
-	Node(uint64_t inode, helix::UniqueLane lane)
-	: _inode{inode}, _lane{std::move(lane)} { }
+	Node(uint64_t inode, helix::UniqueLane lane, Superblock *sb = nullptr)
+	: FsNode{sb}, _inode{inode}, _lane{std::move(lane)} { }
 
 	uint64_t getInode() {
 		return _inode;
@@ -72,21 +97,6 @@ private:
 	std::weak_ptr<Node> _self;
 	uint64_t _inode;
 	helix::UniqueLane _lane;
-};
-
-struct DirectoryNode;
-
-struct Context {
-	std::shared_ptr<Node> internalizeStructural(int64_t id, helix::UniqueLane lane);
-	std::shared_ptr<Node> internalizeStructural(Node *owner, int64_t id, helix::UniqueLane lane);
-	std::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
-	std::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
-			std::shared_ptr<Node> target);
-
-private:
-	std::map<int64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
-	std::map<int64_t, std::weak_ptr<Node>> _activePeripheralNodes;
-	std::map<std::pair<Node *, std::string>, std::weak_ptr<FsLink>> _activePeripheralLinks;
 };
 
 struct OpenFile : File {
@@ -341,13 +351,13 @@ private:
 			HEL_CHECK(pull_node.error());
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto child = _context->internalizeStructural(this,
+				auto child = _sb->internalizeStructural(this,
 						resp.id(), pull_node.descriptor());
 				COFIBER_RETURN(child->treeLink());
 			}else{
-				auto child = _context->internalizePeripheralNode(resp.file_type(), resp.id(),
+				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
 						pull_node.descriptor());
-				COFIBER_RETURN(_context->internalizePeripheralLink(this, name, std::move(child)));
+				COFIBER_RETURN(_sb->internalizePeripheralLink(this, name, std::move(child)));
 			}
 		}else{
 			COFIBER_RETURN(nullptr);
@@ -391,15 +401,15 @@ private:
 	}))
 
 public:
-	DirectoryNode(Context *context, int64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane)}, _context{context}, _treeLink{this} { }
+	DirectoryNode(Superblock *sb, int64_t inode, helix::UniqueLane lane)
+	: Node{inode, std::move(lane), sb}, _sb{sb}, _treeLink{this} { }
 
-	DirectoryNode(Context *context, std::shared_ptr<Node> owner,
+	DirectoryNode(Superblock *sb, std::shared_ptr<Node> owner,
 			int64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane)}, _context{context}, _treeLink{std::move(owner), this} { }
+	: Node{inode, std::move(lane), sb}, _sb{sb}, _treeLink{std::move(owner), this} { }
 
 private:
-	Context *_context;
+	Superblock *_sb;
 	StructuralLink _treeLink;
 };
 
@@ -407,7 +417,51 @@ std::shared_ptr<FsNode> StructuralLink::getTarget() {
 	return std::shared_ptr<Node>{_target->weakNode()};
 }
 
-std::shared_ptr<Node> Context::internalizeStructural(int64_t id, helix::UniqueLane lane) {
+Superblock::Superblock(helix::UniqueLane lane)
+: _lane{std::move(lane)} { }
+
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, Superblock::createRegular(), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+	helix::PullDescriptor pull_node;
+
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_node));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	if(resp.error() == managarm::fs::Errors::SUCCESS) {
+		HEL_CHECK(pull_node.error());
+
+		COFIBER_RETURN(internalizePeripheralNode(resp.file_type(), resp.id(),
+				pull_node.descriptor()));
+	}else{
+		COFIBER_RETURN(nullptr);
+	}
+}))
+
+FutureMaybe<std::shared_ptr<FsNode>> Superblock::createSocket() {
+	throw std::runtime_error("extern_fs: createSocket() is not supported");
+}
+
+async::result<std::shared_ptr<FsLink>> Superblock::rename(FsLink *source,
+		FsNode *directory, std::string name) {
+	throw std::runtime_error("extern_fs: rename() is not supported");
+}
+
+std::shared_ptr<Node> Superblock::internalizeStructural(int64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)
@@ -419,7 +473,7 @@ std::shared_ptr<Node> Context::internalizeStructural(int64_t id, helix::UniqueLa
 	return std::move(node);
 }
 
-std::shared_ptr<Node> Context::internalizeStructural(Node *parent,
+std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent,
 		int64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
@@ -433,7 +487,7 @@ std::shared_ptr<Node> Context::internalizeStructural(Node *parent,
 	return std::move(node);
 }
 
-std::shared_ptr<Node> Context::internalizePeripheralNode(int64_t type,
+std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 		int id, helix::UniqueLane lane) {
 	auto entry = &_activePeripheralNodes[id];
 	auto intern = entry->lock();
@@ -456,7 +510,7 @@ std::shared_ptr<Node> Context::internalizePeripheralNode(int64_t type,
 	return std::move(node);
 }
 
-std::shared_ptr<FsLink> Context::internalizePeripheralLink(Node *parent, std::string name,
+std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std::string name,
 		std::shared_ptr<Node> target) {
 	auto entry = &_activePeripheralLinks[{parent, name}];
 	auto intern = entry->lock();
@@ -471,10 +525,10 @@ std::shared_ptr<FsLink> Context::internalizePeripheralLink(Node *parent, std::st
 
 } // anonymous namespace
 
-std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
-	auto context = new Context{};
+std::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane lane) {
+	auto sb = new Superblock{std::move(sb_lane)};
 	// FIXME: 2 is the ext2fs root inode.
-	auto node = context->internalizeStructural(2, std::move(lane));
+	auto node = sb->internalizeStructural(2, std::move(lane));
 	return node->treeLink();
 }
 

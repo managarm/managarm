@@ -266,6 +266,6 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mountExternalDevice(helix:
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	COFIBER_RETURN(extern_fs::createRoot(pull_node.descriptor()));
+	COFIBER_RETURN(extern_fs::createRoot(lane.dup(), pull_node.descriptor()));
 }))
 

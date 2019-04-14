@@ -40,6 +40,8 @@ enum CntReqType {
 	DEV_MOUNT = 11;
 	DEV_OPEN = 14;
 
+	SB_CREATE_REGULAR = 27;
+
 	// File node API.
 	NODE_GET_STATS = 5;
 	NODE_GET_LINK = 12;
@@ -113,11 +115,11 @@ message CntRequest {
 
 	// drm
 	optional uint64 drm_capability = 18;
-	
+
 	optional uint32 drm_connector_id = 19;
-	
+
 	optional uint32 drm_encoder_id = 20;
-	
+
 	optional uint32 drm_height = 21;
 	optional uint32 drm_width = 22;
 	optional uint32 drm_bpp = 23;
@@ -129,7 +131,7 @@ message CntRequest {
 	optional uint32 drm_handle = 27;
 
 	optional uint32 drm_crtc_id = 28;
-	
+
 	repeated uint32 drm_connector_ids = 29;
 	optional uint32 drm_x = 30;
 	optional uint32 drm_y = 31;
@@ -147,30 +149,30 @@ message CntRequest {
 
 message SvrResponse {
 	optional int32 error = 3;
-	
+
 	// used by PT_READ_ENTRIES
 	optional string path = 19;
-	
+
 	// returned by FSTAT and OPEN
 	optional FileType file_type = 5;
-	
+
 	// returned by NODE_GET_LINK
 	optional int64 id = 18;
 
 	// returned by FSTAT
 	optional uint64 file_size = 4;
-	
+
 	// returned by FSTAT
 	optional int32 mode = 13;
-	
+
 	optional uint32 caps = 64;
-	
+
 	// returned by FSTAT
 	optional uint64 inode_num = 14;
-	
+
 	// returned by FSTAT
 	optional uint64 num_links = 17;
-	
+
 	// returned by FSTAT
 	optional int64 uid = 15;
 	optional int64 gid = 16;
@@ -188,17 +190,17 @@ message SvrResponse {
 
 	// returned by SEEK_ABS, SEEK_REL and SEEK_EOF
 	optional uint64 offset = 6;
-	
+
 	// returned by PT_IOCTL
 	optional uint64 result = 20;
-	
+
 	// Sequence number for FILE_POLL.
 	optional uint64 sequence = 60;
 
 	// Event edges and current events for FILE_POLL.
 	optional int32 edges = 61;
 	optional int32 status = 62;
-	
+
 	optional int64 pid = 71;
 
 	optional int32 pts_index = 63;
@@ -241,7 +243,7 @@ message SvrResponse {
 	optional uint32 drm_y = 49;
 	optional uint32 drm_gamma_size = 50;
 	optional uint32 drm_mode_valid = 51;
-	
+
 	optional uint32 drm_num_modes = 53;
 
 	optional uint32 drm_version_major = 54;
@@ -250,7 +252,7 @@ message SvrResponse {
 	optional string drm_driver_name = 57;
 	optional string drm_driver_date = 58;
 	optional string drm_driver_desc = 59;
-	
+
 	optional int32 input_value = 65;
 	optional int32 input_min = 66;
 	optional int32 input_max = 67;
