@@ -123,12 +123,20 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	COFIBER_AWAIT device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer, bgdt_size / 512);
 
-	HelHandle block_bitmap_frontal;
-	HelHandle block_bitmap_backing;
-	HEL_CHECK(helCreateManagedMemory(3 << blockPagesShift,
+	// Create memory bundles to manage the block and inode bitmaps.
+	HelHandle block_bitmap_frontal, inode_bitmap_frontal;
+	HelHandle block_bitmap_backing, inode_bitmap_backing;
+	HEL_CHECK(helCreateManagedMemory(numBlockGroups << blockPagesShift,
 			kHelAllocBacked, &block_bitmap_backing, &block_bitmap_frontal));
+	HEL_CHECK(helCreateManagedMemory(numBlockGroups << blockPagesShift,
+			kHelAllocBacked, &inode_bitmap_backing, &inode_bitmap_frontal));
 	blockBitmap = helix::UniqueDescriptor{block_bitmap_frontal};
+	inodeBitmap = helix::UniqueDescriptor{inode_bitmap_frontal};
 
+	manageBlockBitmap(helix::UniqueDescriptor{block_bitmap_backing});
+	manageInodeBitmap(helix::UniqueDescriptor{inode_bitmap_backing});
+
+	// Create a memory bundle to manage the inode table.
 	assert(!((inodesPerGroup * inodeSize) & 0xFFF));
 	HelHandle inode_table_frontal;
 	HelHandle inode_table_backing;
@@ -136,7 +144,6 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 			kHelAllocBacked, &inode_table_backing, &inode_table_frontal));
 	inodeTable = helix::UniqueDescriptor{inode_table_frontal};
 
-	manageBlockBitmap(helix::UniqueDescriptor{block_bitmap_backing});
 	manageInodeTable(helix::UniqueDescriptor{inode_table_backing});
 
 	COFIBER_RETURN();
@@ -154,6 +161,43 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageBlockBitmap(
 		auto bg_idx = manage.offset() >> blockPagesShift;
 		auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
 		auto block = bgdt[bg_idx].blockBitmap;
+		assert(block);
+
+		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
+				&& "TODO: propery support multi-page blocks");
+		assert(manage.length() == (1 << blockPagesShift)
+				&& "TODO: propery support multi-page blocks");
+
+		if(manage.type() == kHelManageInitialize) {
+			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
+					bitmap_map.get(), sectorsPerBlock);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+					manage.offset(), manage.length()));
+		}else{
+			assert(manage.type() == kHelManageWriteback);
+
+			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			COFIBER_AWAIT device->writeSectors(block * sectorsPerBlock,
+					bitmap_map.get(), sectorsPerBlock);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+					manage.offset(), manage.length()));
+		}
+	}
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInodeBitmap(
+		helix::UniqueDescriptor the_memory), ([=, memory = std::move(the_memory)] {
+	while(true) {
+		helix::ManageMemory manage;
+		auto &&submit_manage = helix::submitManageMemory(memory,
+				&manage, helix::Dispatcher::global());
+		COFIBER_AWAIT(submit_manage.async_wait());
+		HEL_CHECK(manage.error());
+
+		auto bg_idx = manage.offset() >> blockPagesShift;
+		auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
+		auto block = bgdt[bg_idx].inodeBitmap;
 		assert(block);
 
 		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
@@ -233,6 +277,22 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 
 	return std::move(new_inode);
 }
+
+COFIBER_ROUTINE(async::result<std::shared_ptr<Inode>>, FileSystem::createRegular(), ([=] {
+	auto ino = COFIBER_AWAIT allocateInode();
+	assert(ino);
+
+	auto inode_address = (ino - 1) * inodeSize;
+	helix::Mapping inode_map{inodeTable,
+				inode_address, inodeSize,
+				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
+	// TODO: Set the UID, GID, timestamps.
+	// TODO: Increment the generation number instead of resetting it to zero.
+	memset(inode_map.get(), 0, inodeSize);
+
+	COFIBER_RETURN(accessInode(ino));
+}))
 
 COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t offset,
 		const void *buffer, size_t length), ([=] {
@@ -448,7 +508,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 	}
 }))
 
-COFIBER_ROUTINE(async::result<uint64_t>, FileSystem::allocateBlock(), ([=] {
+COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateBlock(), ([=] {
 	uint64_t bg_idx = 0;
 
 	helix::LockMemoryView lock_bitmap;
@@ -472,11 +532,48 @@ COFIBER_ROUTINE(async::result<uint64_t>, FileSystem::allocateBlock(), ([=] {
 			if(!(words[i] & (static_cast<uint32_t>(1) << j)))
 				continue;
 			// TODO: Make sure we never return reserved blocks.
-			assert(i * 32 + j != 0);
+			auto ino = bg_idx * inodesPerGroup + i * 32 + j;
+			assert(ino != 0);
 			words[i] |= static_cast<uint32_t>(1) << j;
-			COFIBER_RETURN(i * 32 + j);
+			COFIBER_RETURN(ino);
 		}
 		assert(!"Failed to find zero-bit");
+	}
+
+	COFIBER_RETURN(0);
+}))
+
+COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateInode(), ([=] {
+	// TODO: Do not start at block group zero.
+	for(uint32_t bg_idx = 0; bg_idx < numBlockGroups; bg_idx++) {
+		helix::LockMemoryView lock_bitmap;
+		auto &&submit_bitmap = helix::submitLockMemoryView(inodeBitmap,
+				&lock_bitmap,
+				bg_idx << blockPagesShift, 1 << blockPagesShift,
+				helix::Dispatcher::global());
+		COFIBER_AWAIT submit_bitmap.async_wait();
+		HEL_CHECK(lock_bitmap.error());
+
+		helix::Mapping bitmap_map{inodeBitmap,
+				bg_idx << blockPagesShift, 1 << blockPagesShift,
+				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+		// TODO: Handle the correct number of inodes per block group.
+		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+		for(int i = 0; i < 1024 / 4; i++) {
+			if(words[i] == 0xFFFFFFFF)
+				continue;
+			for(int j = 0; j < 32; j++) {
+				if(!(words[i] & (static_cast<uint32_t>(1) << j)))
+					continue;
+				// TODO: Make sure we never return reserved inodes.
+				auto ino = bg_idx * inodesPerGroup + i * 32 + j + 1;
+				assert(ino != 0);
+				words[i] |= static_cast<uint32_t>(1) << j;
+				COFIBER_RETURN(ino);
+			}
+			assert(!"Failed to find zero-bit");
+		}
 	}
 
 	COFIBER_RETURN(0);

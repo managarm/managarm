@@ -154,7 +154,7 @@ getStats(std::shared_ptr<void> object), ([=] {
 	stats.accessTime = self->accessTime;
 	stats.dataModifyTime = self->dataModifyTime;
 	stats.anyChangeTime = self->anyChangeTime;
-	
+
 	COFIBER_RETURN(stats);
 }))
 
@@ -162,7 +162,7 @@ COFIBER_ROUTINE(async::result<protocols::fs::OpenResult>,
 open(std::shared_ptr<void> object), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto file = smarter::make_shared<ext2fs::OpenFile>(self);
-	
+
 	helix::UniqueLane local_ctrl, remote_ctrl;
 	helix::UniqueLane local_pt, remote_pt;
 	std::tie(local_ctrl, remote_ctrl) = helix::createStream();
@@ -207,7 +207,7 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 
 		managarm::fs::CntRequest req;
@@ -215,10 +215,30 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
-			
+
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
+					&nodeOperations);
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&push_node, remote_lane));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_node.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_node;
+
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			protocols::fs::serveNode(std::move(local_lane),
+					COFIBER_AWAIT fs->createRegular(),
 					&nodeOperations);
 
 			managarm::fs::SvrResponse resp;
@@ -250,14 +270,14 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 		if(type != gpt::type_guids::windowsData)
 			continue;
 		printf("It's a Windows data partition!\n");
-		
+
 		fs = new ext2fs::FileSystem(&table->getPartition(i));
 		COFIBER_AWAIT fs->init();
 		printf("ext2fs is ready!\n");
 
 		// Create an mbus object for the partition.
 		auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
-		
+
 		mbus::Properties descriptor{
 			{"unix.devtype", mbus::StringItem{"block"}},
 			{"unix.devname", mbus::StringItem{"sda0"}}
