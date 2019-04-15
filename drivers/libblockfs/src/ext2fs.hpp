@@ -271,6 +271,7 @@ struct FileSystem {
 	uint32_t blockPagesShift;
 	uint32_t sectorsPerBlock;
 	uint32_t numBlockGroups;
+	uint32_t blocksPerGroup;
 	uint32_t inodesPerGroup;
 	void *blockGroupDescriptorBuffer;
 

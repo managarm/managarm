@@ -101,6 +101,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	blockPagesShift = blockShift < pageShift ? pageShift : blockShift;
 	sectorsPerBlock = blockSize / 512;
 	numBlockGroups = sb.blocksCount / sb.blocksPerGroup;
+	blocksPerGroup = sb.blocksPerGroup;
 	inodesPerGroup = sb.inodesPerGroup;
 
 	if(logSuperblock) {
@@ -112,6 +113,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 				<< ", w-required features: " << sb.featureRoCompat
 				<< ", r/w-required features: " << sb.featureIncompat << std::endl;
 		std::cout << "ext2fs: There are " << numBlockGroups << " block groups" << std::endl;
+		std::cout << "ext2fs:     Blocks per group: " << blocksPerGroup << std::endl;
 		std::cout << "ext2fs:     Inodes per group: " << inodesPerGroup << std::endl;
 	}
 
@@ -529,13 +531,13 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateBlock(), ([=] {
 		if(words[i] == 0xFFFFFFFF)
 			continue;
 		for(int j = 0; j < 32; j++) {
-			if(!(words[i] & (static_cast<uint32_t>(1) << j)))
+			if(words[i] & (static_cast<uint32_t>(1) << j))
 				continue;
 			// TODO: Make sure we never return reserved blocks.
-			auto ino = bg_idx * inodesPerGroup + i * 32 + j;
-			assert(ino != 0);
+			auto block = bg_idx * blocksPerGroup + i * 32 + j;
+			assert(block != 0);
 			words[i] |= static_cast<uint32_t>(1) << j;
-			COFIBER_RETURN(ino);
+			COFIBER_RETURN(block);
 		}
 		assert(!"Failed to find zero-bit");
 	}
@@ -564,7 +566,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateInode(), ([=] {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
-				if(!(words[i] & (static_cast<uint32_t>(1) << j)))
+				if(words[i] & (static_cast<uint32_t>(1) << j))
 					continue;
 				// TODO: Make sure we never return reserved inodes.
 				auto ino = bg_idx * inodesPerGroup + i * 32 + j + 1;
