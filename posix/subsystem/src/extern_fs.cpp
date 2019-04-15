@@ -364,6 +364,48 @@ private:
 		}
 	}))
 
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, link(std::string name,
+			std::shared_ptr<FsNode> target) override, ([=] {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_node;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_LINK);
+		req.set_path(name);
+		req.set_fd(static_cast<Node *>(target.get())->getInode());
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&pull_node));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		if(resp.error() == managarm::fs::Errors::SUCCESS) {
+			HEL_CHECK(pull_node.error());
+
+			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
+				auto child = _sb->internalizeStructural(this,
+						resp.id(), pull_node.descriptor());
+				COFIBER_RETURN(child->treeLink());
+			}else{
+				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
+						pull_node.descriptor());
+				COFIBER_RETURN(_sb->internalizePeripheralLink(this, name, std::move(child)));
+			}
+		}else{
+			COFIBER_RETURN(nullptr);
+		}
+	}))
+
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);

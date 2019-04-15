@@ -45,6 +45,7 @@ enum CntReqType {
 	// File node API.
 	NODE_GET_STATS = 5;
 	NODE_GET_LINK = 12;
+	NODE_LINK = 28;
 	NODE_OPEN = 13;
 	NODE_READ_SYMLINK = 15;
 

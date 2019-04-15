@@ -103,9 +103,36 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared_ptr<void> object,
 		std::string name), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto entry = COFIBER_AWAIT(self->findEntry(name));
+	auto entry = COFIBER_AWAIT self->findEntry(name);
 	if(!entry)
-		COFIBER_RETURN((protocols::fs::GetLinkResult{nullptr, -1, protocols::fs::FileType::unknown}));
+		COFIBER_RETURN((protocols::fs::GetLinkResult{nullptr, -1,
+				protocols::fs::FileType::unknown}));
+
+	protocols::fs::FileType type;
+	switch(entry->fileType) {
+	case kTypeDirectory:
+		type = protocols::fs::FileType::directory;
+		break;
+	case kTypeRegular:
+		type = protocols::fs::FileType::regular;
+		break;
+	case kTypeSymlink:
+		type = protocols::fs::FileType::symlink;
+		break;
+	default:
+		throw std::runtime_error("Unexpected file type");
+	}
+
+	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type}));
+}))
+
+COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, link(std::shared_ptr<void> object,
+		std::string name, int64_t ino), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto entry = COFIBER_AWAIT self->link(std::move(name), ino);
+	if(!entry)
+		COFIBER_RETURN((protocols::fs::GetLinkResult{nullptr, -1,
+				protocols::fs::FileType::unknown}));
 
 	protocols::fs::FileType type;
 	switch(entry->fileType) {
@@ -184,6 +211,7 @@ COFIBER_ROUTINE(async::result<std::string>, readSymlink(std::shared_ptr<void> ob
 constexpr protocols::fs::NodeOperations nodeOperations{
 	&getStats,
 	&getLink,
+	&link,
 	&open,
 	&readSymlink
 };
@@ -235,14 +263,17 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
 
+			auto inode = COFIBER_AWAIT fs->createRegular();
+
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane),
-					COFIBER_AWAIT fs->createRegular(),
-					&nodeOperations);
+					inode, &nodeOperations);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_id(inode->number);
+			resp.set_file_type(managarm::fs::FileType::REGULAR);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

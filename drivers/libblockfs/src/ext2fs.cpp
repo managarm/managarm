@@ -37,7 +37,8 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 
 	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
+			&lock_memory,
 			0, map_size, helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(lock_memory.error());
@@ -50,6 +51,7 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	// Read the directory structure.
 	uintptr_t offset = 0;
 	while(offset < fileSize()) {
+		assert(!(offset & 3));
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(file_map.get()) + offset);
 		// TODO: use memcmp?
@@ -77,6 +79,68 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	assert(offset == fileSize());
 
 	COFIBER_RETURN(std::experimental::nullopt);
+}))
+
+COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
+		Inode::link(std::string name, int64_t ino), ([=] {
+	assert(!name.empty() && name != "." && name != "..");
+
+	COFIBER_AWAIT readyJump.async_wait();
+
+	helix::LockMemoryView lock_memory;
+	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
+			&lock_memory,
+			0, map_size, helix::Dispatcher::global());
+	COFIBER_AWAIT submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{frontalMemory},
+			0, map_size,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+	// Space required for the new directory entry.
+	auto required = (sizeof(DiskDirEntry) + name.size() + 3) & ~size_t(3);
+
+	// Walk the directory structure.
+	uintptr_t offset = 0;
+	while(offset < fileSize()) {
+		assert(!(offset & 3));
+		auto previous_entry = reinterpret_cast<DiskDirEntry *>(
+				reinterpret_cast<char *>(file_map.get()) + offset);
+
+		// Calculate available space after we contract previous_entry.
+		auto contracted = (sizeof(DiskDirEntry) + previous_entry->nameLength + 3) & ~size_t(3);
+		assert(previous_entry->recordLength >= contracted);
+		auto available = previous_entry->recordLength - contracted;
+
+		// Check whether we can shrink previous_entry and insert a new entry after it.
+		if(available >= required) {
+			// Create the new dentry.
+			auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+					reinterpret_cast<char *>(file_map.get()) + offset + contracted);
+			memset(disk_entry, 0, sizeof(DiskDirEntry));
+			disk_entry->inode = ino;
+			disk_entry->recordLength = available;
+			disk_entry->nameLength = name.length();
+			disk_entry->fileType = EXT2_FT_REG_FILE;
+			memcpy(disk_entry->name, name.data(), name.length());
+
+			// Update the existing dentry.
+			previous_entry->recordLength = contracted;
+
+			DirEntry entry;
+			entry.inode = ino;
+			entry.fileType = kTypeRegular;
+			COFIBER_RETURN(entry);
+		}
+
+		offset += previous_entry->recordLength;
+	}
+	assert(offset == fileSize());
+
+	throw std::runtime_error("Not enough space for ext2fs directory entry");
 }))
 
 // --------------------------------------------------------
@@ -291,7 +355,9 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Inode>>, FileSystem::createRegular
 
 	// TODO: Set the UID, GID, timestamps.
 	// TODO: Increment the generation number instead of resetting it to zero.
-	memset(inode_map.get(), 0, inodeSize);
+	auto disk_inode = reinterpret_cast<DiskInode *>(inode_map.get());
+	memset(disk_inode, 0, inodeSize);
+	disk_inode->mode = EXT2_S_IFREG;
 
 	COFIBER_RETURN(accessInode(ino));
 }))
