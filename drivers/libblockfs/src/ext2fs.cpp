@@ -130,6 +130,17 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 			// Update the existing dentry.
 			previous_entry->recordLength = contracted;
 
+			// Update the inode.
+			auto target = fs.accessInode(ino);
+			COFIBER_AWAIT target->readyJump.async_wait();
+			target->diskInode()->linksCount++;
+
+			// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
+			auto inode_address = (target->number - 1) * fs.inodeSize;
+			target->diskMapping = helix::Mapping{fs.inodeTable,
+					inode_address, fs.inodeSize,
+					kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
 			DirEntry entry;
 			entry.inode = ino;
 			entry.fileType = kTypeRegular;
@@ -354,10 +365,11 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Inode>>, FileSystem::createRegular
 				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 
 	// TODO: Set the UID, GID, timestamps.
-	// TODO: Increment the generation number instead of resetting it to zero.
 	auto disk_inode = reinterpret_cast<DiskInode *>(inode_map.get());
+	auto generation = disk_inode->generation;
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFREG;
+	disk_inode->generation = generation + 1;
 
 	COFIBER_RETURN(accessInode(ino));
 }))
