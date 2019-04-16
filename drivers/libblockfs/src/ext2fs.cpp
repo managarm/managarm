@@ -603,9 +603,10 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateBlock(), ([=] {
 			bg_idx << blockPagesShift, 1 << blockPagesShift,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-	// TODO: Handle the correct number of blocks per block group.
+	// TODO: Update the block group descriptor table.
+
 	auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
-	for(int i = 0; i < 1024 / 4; i++) {
+	for(int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 		if(words[i] == 0xFFFFFFFF)
 			continue;
 		for(int j = 0; j < 32; j++) {
@@ -614,6 +615,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateBlock(), ([=] {
 			// TODO: Make sure we never return reserved blocks.
 			auto block = bg_idx * blocksPerGroup + i * 32 + j;
 			assert(block != 0);
+			assert(block < blocksPerGroup);
 			words[i] |= static_cast<uint32_t>(1) << j;
 			COFIBER_RETURN(block);
 		}
@@ -638,9 +640,10 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateInode(), ([=] {
 				bg_idx << blockPagesShift, 1 << blockPagesShift,
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-		// TODO: Handle the correct number of inodes per block group.
+		// TODO: Update the block group descriptor table.
+
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
-		for(int i = 0; i < 1024 / 4; i++) {
+		for(int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
@@ -649,6 +652,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateInode(), ([=] {
 				// TODO: Make sure we never return reserved inodes.
 				auto ino = bg_idx * inodesPerGroup + i * 32 + j + 1;
 				assert(ino != 0);
+				assert(ino < inodesPerGroup);
 				words[i] |= static_cast<uint32_t>(1) << j;
 				COFIBER_RETURN(ino);
 			}
