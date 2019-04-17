@@ -52,11 +52,13 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	uintptr_t offset = 0;
 	while(offset < fileSize()) {
 		assert(!(offset & 3));
+		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(file_map.get()) + offset);
-		// TODO: use memcmp?
-		if(name.length() == disk_entry->nameLength
-				&& strncmp(disk_entry->name, name.c_str(), disk_entry->nameLength) == 0) {
+
+		if(disk_entry->inode
+				&& name.length() == disk_entry->nameLength
+				&& !memcmp(disk_entry->name, name.data(), name.length())) {
 			DirEntry entry;
 			entry.inode = disk_entry->inode;
 
@@ -107,6 +109,7 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	uintptr_t offset = 0;
 	while(offset < fileSize()) {
 		assert(!(offset & 3));
+		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto previous_entry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(file_map.get()) + offset);
 
@@ -892,10 +895,6 @@ COFIBER_ROUTINE(async::result<std::optional<std::string>>,
 OpenFile::readEntries(), ([=] {
 	COFIBER_AWAIT inode->readyJump.async_wait();
 
-	assert(offset <= inode->fileSize());
-	if(offset == inode->fileSize())
-		COFIBER_RETURN(std::nullopt);
-
 	auto map_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
 
 	helix::LockMemoryView lock_memory;
@@ -910,14 +909,25 @@ OpenFile::readEntries(), ([=] {
 			kHelMapProtRead | kHelMapDontRequireBacking};
 
 	// Read the directory structure.
-	auto disk_entry = reinterpret_cast<DiskDirEntry *>(
-			reinterpret_cast<char *>(file_map.get()) + offset);
-	assert(offset + sizeof(DiskDirEntry) <= inode->fileSize());
-	assert(offset + disk_entry->recordLength <= inode->fileSize());
-	offset += disk_entry->recordLength;
-//	std::cout << "libblockfs: Returning entry "
-//			<< std::string(disk_entry->name, disk_entry->nameLength) << std::endl;
-	COFIBER_RETURN(std::string(disk_entry->name, disk_entry->nameLength));
+	assert(offset <= inode->fileSize());
+	while(offset < inode->fileSize()) {
+		assert(!(offset & 3));
+		assert(offset + sizeof(DiskDirEntry) <= inode->fileSize());
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+				reinterpret_cast<char *>(file_map.get()) + offset);
+		assert(offset + disk_entry->recordLength <= inode->fileSize());
+
+		offset += disk_entry->recordLength;
+
+		if(disk_entry->inode) {
+		//	std::cout << "libblockfs: Returning entry "
+		//			<< std::string(disk_entry->name, disk_entry->nameLength) << std::endl;
+			COFIBER_RETURN(std::string(disk_entry->name, disk_entry->nameLength));
+		}
+	}
+	assert(offset == inode->fileSize());
+
+	COFIBER_RETURN(std::nullopt);
 }))
 
 } } // namespace blockfs::ext2fs
