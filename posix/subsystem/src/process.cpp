@@ -692,7 +692,7 @@ COFIBER_ROUTINE(async::result<Error>, Process::exec(std::shared_ptr<Process> pro
 	HEL_CHECK(helKillThread(previous->threadDescriptor.getHandle()));
 	serve(process, std::move(generation));
 
-	COFIBER_RETURN();
+	COFIBER_RETURN(Error::success);
 }))
 
 void Process::retire(Process *process) {

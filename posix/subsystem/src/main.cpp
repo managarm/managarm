@@ -188,8 +188,16 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 				k = d + 1;
 			}
 
-			async::detach(Process::exec(self,
-					path, std::move(args), std::move(env)));
+			auto error = COFIBER_AWAIT Process::exec(self,
+					path, std::move(args), std::move(env));
+			if(error == Error::noSuchFile) {
+				gprs[4] = kHelErrNone;
+				gprs[5] = ENOENT;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+				HEL_CHECK(helResume(thread.getHandle()));
+			}else
+				assert(error == Error::success);
 		}else if(observe.observation() == kHelObserveSuperCall + 4) {
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
