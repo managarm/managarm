@@ -1612,10 +1612,14 @@ CowChain::CowChain(frigg::SharedPtr<CowChain> chain)
 }
 
 CowChain::~CowChain() {
-	// TODO: Iterate over _pages and free the physical memory (as in ~CowMapping()).
-	assert(!"Fix destruction of CowChain");
 	if(logCleanup)
 		frigg::infoLogger() << "thor: Releasing CowChain" << frigg::endLog;
+
+	for(auto it = _pages.begin(); it != _pages.end(); ++it) {
+		auto physical = it->load(std::memory_order_relaxed);
+		assert(physical != PhysicalAddr(-1));
+		physicalAllocator->free(physical, kPageSize);
+	}
 }
 
 // --------------------------------------------------------
