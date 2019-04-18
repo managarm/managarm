@@ -86,7 +86,7 @@ public:
 
 	void attachFile(int fd, smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
 
-	FileDescriptor getDescriptor(int fd);
+	std::optional<FileDescriptor> getDescriptor(int fd);
 
 	smarter::shared_ptr<File, FileHandle> getFile(int fd);
 

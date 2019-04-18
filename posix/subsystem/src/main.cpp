@@ -1129,9 +1129,20 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			auto descriptor = self->fileContext()->getDescriptor(req.fd());
+			if(!descriptor) {
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
 
 			int flags = 0;
-			if(descriptor.closeOnExec)
+			if(descriptor->closeOnExec)
 				flags |= O_CLOEXEC;
 
 			managarm::posix::SvrResponse resp;

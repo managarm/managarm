@@ -265,9 +265,10 @@ void FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
 	_fileTableWindow[fd] = handle;
 }
 
-FileDescriptor FileContext::getDescriptor(int fd) {
+std::optional<FileDescriptor> FileContext::getDescriptor(int fd) {
 	auto file = _fileTable.find(fd);
-	assert(file != _fileTable.end());
+	if(file == _fileTable.end())
+		return std::nullopt;
 	return file->second;
 }
 
