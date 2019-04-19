@@ -123,6 +123,7 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 		throw std::runtime_error("Unexpected file type");
 	}
 
+	assert(entry->inode);
 	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type}));
 }))
 
@@ -149,7 +150,14 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, link(std::shared_pt
 		throw std::runtime_error("Unexpected file type");
 	}
 
+	assert(entry->inode);
 	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type}));
+}))
+
+COFIBER_ROUTINE(async::result<void>, unlink(std::shared_ptr<void> object,
+		std::string name), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	COFIBER_AWAIT self->unlink(std::move(name));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, serve(smarter::shared_ptr<ext2fs::OpenFile> file,
@@ -212,6 +220,7 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 	&getStats,
 	&getLink,
 	&link,
+	&unlink,
 	&open,
 	&readSymlink
 };

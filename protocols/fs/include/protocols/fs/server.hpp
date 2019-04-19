@@ -184,6 +184,9 @@ struct NodeOperations {
 	async::result<GetLinkResult> (*link)(std::shared_ptr<void> object,
 			std::string name, int64_t ino);
 
+	async::result<void> (*unlink)(std::shared_ptr<void> object,
+			std::string name);
+
 	async::result<OpenResult> (*open)(std::shared_ptr<void> object);
 
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);

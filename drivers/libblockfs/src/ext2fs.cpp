@@ -86,6 +86,7 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 		Inode::link(std::string name, int64_t ino), ([=] {
 	assert(!name.empty() && name != "." && name != "..");
+	assert(ino);
 
 	COFIBER_AWAIT readyJump.async_wait();
 
@@ -155,6 +156,51 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	assert(offset == fileSize());
 
 	throw std::runtime_error("Not enough space for ext2fs directory entry");
+}))
+
+COFIBER_ROUTINE(async::result<void>, Inode::unlink(std::string name), ([=] {
+	assert(!name.empty() && name != "." && name != "..");
+
+	COFIBER_AWAIT readyJump.async_wait();
+
+	helix::LockMemoryView lock_memory;
+	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
+			&lock_memory,
+			0, map_size, helix::Dispatcher::global());
+	COFIBER_AWAIT submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{frontalMemory},
+			0, map_size,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+	// Read the directory structure.
+	DiskDirEntry *previous_entry = nullptr;
+	uintptr_t offset = 0;
+	while(offset < fileSize()) {
+		assert(!(offset & 3));
+		assert(offset + sizeof(DiskDirEntry) <= fileSize());
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+				reinterpret_cast<char *>(file_map.get()) + offset);
+
+		if(disk_entry->inode
+				&& name.length() == disk_entry->nameLength
+				&& !memcmp(disk_entry->name, name.data(), name.length())) {
+			// The directory should start with "." and "..". As those entries are never deleted,
+			// we can assume that a previous entry exists.
+			assert(previous_entry);
+			previous_entry->recordLength += disk_entry->recordLength;
+			COFIBER_RETURN();
+		}
+
+		offset += disk_entry->recordLength;
+		previous_entry = disk_entry;
+	}
+	assert(offset == fileSize());
+
+	throw std::runtime_error("Given link does not exist");
 }))
 
 // --------------------------------------------------------

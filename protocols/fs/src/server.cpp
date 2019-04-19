@@ -547,6 +547,19 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UNLINK) {
+			helix::SendBuffer send_resp;
+
+			COFIBER_AWAIT node_ops->unlink(node, req.path());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_file;

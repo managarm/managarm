@@ -184,6 +184,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	async::result<std::experimental::optional<DirEntry>> findEntry(std::string name);
 	async::result<std::experimental::optional<DirEntry>> link(std::string name, int64_t ino);
+	async::result<void> unlink(std::string name);
 
 	FileSystem &fs;
 

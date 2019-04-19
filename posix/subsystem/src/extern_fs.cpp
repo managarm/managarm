@@ -413,6 +413,30 @@ private:
 		}
 	}))
 
+	COFIBER_ROUTINE(FutureMaybe<void>, unlink(std::string name) override, ([=] {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_UNLINK);
+		req.set_path(name);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	}))
+
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
