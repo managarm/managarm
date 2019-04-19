@@ -256,7 +256,7 @@ public:
 	// While a lock is active, results of peekRange() and fetchRange() stay consistent.
 	// Locks do *not* force all pages to be available, but once a page is available
 	// (e.g. due to fetchRange()), it cannot be evicted until the lock is released.
-	virtual void lockRange(uintptr_t offset, size_t size) = 0;
+	virtual Error lockRange(uintptr_t offset, size_t size) = 0;
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
@@ -395,7 +395,7 @@ struct HardwareMemory : Memory {
 
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
-	void lockRange(uintptr_t offset, size_t size) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
@@ -424,7 +424,7 @@ struct AllocatedMemory : Memory {
 
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
-	void lockRange(uintptr_t offset, size_t size) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
@@ -474,7 +474,7 @@ struct ManagedSpace : CacheBundle {
 
 	void retirePage(CachePage *page) override;
 
-	void lockPages(uintptr_t offset, size_t size);
+	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
 
 	void submitManagement(ManageNode *node);
@@ -534,7 +534,7 @@ public:
 
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
-	void lockRange(uintptr_t offset, size_t size) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
@@ -560,7 +560,7 @@ public:
 
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
-	void lockRange(uintptr_t offset, size_t size) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
@@ -1055,6 +1055,10 @@ struct MemoryViewLockHandle {
 	MemoryViewLockHandle &operator= (MemoryViewLockHandle other) {
 		swap(*this, other);
 		return *this;
+	}
+
+	explicit operator bool () {
+		return _active;
 	}
 
 private:

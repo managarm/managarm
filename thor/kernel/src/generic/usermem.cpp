@@ -191,8 +191,10 @@ Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) 
 bool Memory::transfer(TransferNode *node) {
 	node->_progress = 0;
 
-	node->_srcBundle->lockRange(node->_srcOffset, node->_size);
-	node->_destBundle->lockRange(node->_destOffset, node->_size);
+	if(auto e = node->_srcBundle->lockRange(node->_srcOffset, node->_size); e)
+		assert(!"lockRange() failed");
+	if(auto e = node->_destBundle->lockRange(node->_destOffset, node->_size); e)
+		assert(!"lockRange() failed");
 
 	struct Ops {
 		static bool process(TransferNode *node) {
@@ -337,7 +339,8 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 
-	view->lockRange(offset, size);
+	if(auto e = view->lockRange(offset, size); e)
+		assert(!"lockRange() failed");
 
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
@@ -450,7 +453,8 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t siz
 	node->_complete = complete;
 
 	node->_progress = 0;
-	view->lockRange(offset, size);
+	if(auto e = view->lockRange(offset, size); e)
+		assert(!"lockRange() failed");
 
 	return Ops::process(node);
 }
@@ -477,8 +481,9 @@ void HardwareMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver>) {
 	// As we never evict memory, there is no need to handle observers.
 }
 
-void HardwareMemory::lockRange(uintptr_t offset, size_t size) {
+Error HardwareMemory::lockRange(uintptr_t offset, size_t size) {
 	// Hardware memory is "always locked".
+	return kErrSuccess;
 }
 
 void HardwareMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -590,8 +595,9 @@ void AllocatedMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> obser
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
-void AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
+Error AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
+	return kErrSuccess;
 }
 
 void AllocatedMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -753,10 +759,11 @@ void ManagedSpace::retirePage(CachePage *page) {
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
-void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
+Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
-	assert((offset + size) / kPageSize <= numPages);
+	if((offset + size) / kPageSize > numPages)
+		return kErrBufferTooSmall;
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
@@ -773,6 +780,7 @@ void ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 		}
 		assert(pit->loadState != kStateEvicting);
 	}
+	return kErrSuccess;
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
@@ -944,8 +952,8 @@ void BackingMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observe
 	observer.ctr()->decrement();
 }
 
-void BackingMemory::lockRange(uintptr_t offset, size_t size) {
-	_managed->lockPages(offset, size);
+Error BackingMemory::lockRange(uintptr_t offset, size_t size) {
+	return _managed->lockPages(offset, size);
 }
 
 void BackingMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -1078,8 +1086,8 @@ void FrontalMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observe
 	observer.ctr()->decrement();
 }
 
-void FrontalMemory::lockRange(uintptr_t offset, size_t size) {
-	_managed->lockPages(offset, size);
+Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
+	return _managed->lockPages(offset, size);
 }
 
 void FrontalMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -1412,7 +1420,8 @@ NormalMapping::~NormalMapping() {
 }
 
 bool NormalMapping::lockVirtualRange(LockVirtualNode *node) {
-	_view->lockRange(_viewOffset + node->offset(), node->size());
+	if(auto e = _view->lockRange(_viewOffset + node->offset(), node->size()); e)
+		assert(!"lockRange() failed");
 	return true;
 }
 
@@ -1450,8 +1459,9 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			if(self->flags() & MappingFlags::dontRequireBacking)
 				fetch_flags |= FetchNode::disallowBacking;
 
-			self->_view->lockRange((self->_viewOffset + closure->continuation->_offset)
-					& ~(kPageSize - 1), kPageSize);
+			if(auto e = self->_view->lockRange((self->_viewOffset + closure->continuation->_offset)
+					& ~(kPageSize - 1), kPageSize); e)
+				assert(!"lockRange() failed");
 
 			closure->fetch.setup(&closure->worklet, fetch_flags);
 			closure->worklet.setup([] (Worklet *base) {
@@ -1526,7 +1536,8 @@ void NormalMapping::install() {
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-	_view->lockRange(_viewOffset, length());
+	if(auto e = _view->lockRange(_viewOffset, length()); e)
+		assert(!"lockRange() failed");
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		auto range = _slice->translateRange(_viewOffset + progress, kPageSize);
@@ -2092,7 +2103,8 @@ void CowMapping::install() {
 	if(flags() & MappingFlags::protExecute)
 		page_flags |= page_access::execute;
 
-	_slice->getView()->lockRange(_viewOffset, length());
+	if(auto e = _slice->getView()->lockRange(_viewOffset, length()); e)
+		assert(!"lockRange() failed");
 
 	for(size_t pg = 0; pg < length(); pg += kPageSize) {
 		if(auto it = _ownedPages.find(pg >> kPageShift); it) {
@@ -2700,7 +2712,8 @@ void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 MemoryViewLockHandle::MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view,
 		uintptr_t offset, size_t size)
 : _view{std::move(view)}, _offset{offset}, _size{size} {
-	_view->lockRange(_offset, _size);
+	if(auto e = _view->lockRange(_offset, _size); e)
+		return;
 	_active = true;
 }
 

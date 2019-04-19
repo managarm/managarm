@@ -957,11 +957,19 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 		}
 	};
 
-	closure->weakUniverse = this_universe.toWeak();
 	closure->ipcQueue = frigg::move(queue);
-	closure->lock = frigg::makeShared<NamedMemoryViewLock>(*kernelAlloc,
-			MemoryViewLockHandle{memory, offset, size});
 	closure->setupContext(context);
+
+	MemoryViewLockHandle lock_handle{memory, offset, size};
+	if(!lock_handle) {
+		// TODO: Return a better error.
+		closure->helResult = HelHandleResult{kHelErrFault, 0, 0};
+		closure->ipcQueue->submit(closure);
+		return kHelErrNone;
+	}
+
+	closure->weakUniverse = this_universe.toWeak();
+	closure->lock = frigg::makeShared<NamedMemoryViewLock>(*kernelAlloc, std::move(lock_handle));
 
 	closure->worklet.setup(&Ops::initiated);
 	closure->initiate.setup(ManageRequest::initialize, offset, size, &closure->worklet);
