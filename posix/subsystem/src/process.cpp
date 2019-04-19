@@ -283,7 +283,11 @@ void FileContext::closeFile(int fd) {
 	if(logFileAttach)
 		std::cout << "posix: Closing FD " << fd << std::endl;
 	auto it = _fileTable.find(fd);
-	assert(it != _fileTable.end());
+	if(it == _fileTable.end()) {
+		std::cout << "\e[31m" "posix: Trying to close non-existant FD "
+				<< fd << "\e[39m" << std::endl;
+		return;
+	}
 
 	_fileTableWindow[fd] = 0;
 	_fileTable.erase(it);
