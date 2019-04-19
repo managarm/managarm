@@ -580,8 +580,9 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	globalPidMap.insert({1, process.get()});
 
 	// TODO: Do not pass an empty argument vector?
-	auto thread_or_error = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path,
-			std::vector<std::string>{}, std::vector<std::string>{},
+	auto thread_or_error = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
+			process->_fsContext->getWorkingDirectory(),
+			path, std::vector<std::string>{}, std::vector<std::string>{},
 			process->_vmContext,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
@@ -670,6 +671,7 @@ COFIBER_ROUTINE(async::result<Error>, Process::exec(std::shared_ptr<Process> pro
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
 	auto thread_or_error = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
+			process->_fsContext->getWorkingDirectory(),
 			path, std::move(args), std::move(env), exec_vm_context,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());

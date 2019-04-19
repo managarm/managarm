@@ -54,21 +54,21 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(SharedFilePtr file,
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
-		
+
 		if(phdr->p_type == PT_LOAD) {
 			assert(phdr->p_memsz > 0);
-			
+
 			size_t misalign = phdr->p_vaddr % kPageSize;
 			uintptr_t map_address = base + phdr->p_vaddr - misalign;
 			size_t map_length = phdr->p_memsz + misalign;
 			if((map_length % kPageSize) != 0)
 				map_length += kPageSize - (map_length % kPageSize);
-			
+
 			// check if we can share the segment.
 			if(!(phdr->p_flags & PF_W)) {
 				assert(misalign == 0);
 				assert(phdr->p_offset % kPageSize == 0);
-			
+
 				// map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 					HEL_CHECK(helLoadahead(file_memory.getHandle(), phdr->p_offset, map_length));
@@ -89,7 +89,7 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(SharedFilePtr file,
 				void *window;
 				HEL_CHECK(helMapMemory(segment_memory, kHelNullHandle, nullptr,
 						0, map_length, kHelMapProtRead | kHelMapProtWrite, &window));
-			
+
 				// map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 					void *map_pointer;
@@ -118,7 +118,7 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(SharedFilePtr file,
 			throw std::runtime_error("Unexpected PHDR type");
 		}
 	}
-	
+
 	COFIBER_RETURN(info);
 }))
 
@@ -132,21 +132,23 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, std::string path,
+COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, ViewPath workdir,
+		std::string path,
 		std::vector<std::string> args, std::vector<std::string> env,
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle), ([=] {
-	auto exec_file = COFIBER_AWAIT open(root, root, path);
+	auto exec_file = COFIBER_AWAIT open(root, workdir, path);
 	if(!exec_file)
 		COFIBER_RETURN(Error::noSuchFile);
 	auto exec_info = COFIBER_AWAIT load(exec_file, vm_context->getSpace(), 0);
-	
-	auto interp_file = COFIBER_AWAIT open(root, root, "/lib/ld-init.so");
+
+	// TODO: Should we really look up the dynamic linker in the current source dir?
+	auto interp_file = COFIBER_AWAIT open(root, workdir, "/lib/ld-init.so");
 	assert(interp_file);
 	auto interp_info = COFIBER_AWAIT load(interp_file, vm_context->getSpace(), 0x40000000);
-	
+
 	constexpr size_t stack_size = 0x10000;
-	
+
 	// allocate memory for the stack and map it into the remote space.
 	HelHandle stack_memory;
 	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
@@ -155,7 +157,7 @@ COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, std::s
 	HEL_CHECK(helMapMemory(stack_memory, vm_context->getSpace().getHandle(),
 			nullptr, 0, stack_size,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapCopyOnWriteAtFork, &stack_base));
-	
+
 	// map the stack into this process and set it up.
 	void *window;
 	HEL_CHECK(helMapMemory(stack_memory, kHelNullHandle, nullptr,
@@ -209,12 +211,12 @@ COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, std::s
 		AT_NULL,
 		0
 	});
-	
+
 	// Push the environment pointers and arguments.
 	pushWord(0); // End of environment.
 	for(auto it = env_ptrs.rbegin(); it != env_ptrs.rend(); ++it)
 		pushWord(*it);
-	
+
 	pushWord(0); // End of args.
 	for(auto it = args_ptrs.rbegin(); it != args_ptrs.rend(); ++it)
 		pushWord(*it);
@@ -229,7 +231,7 @@ COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, std::s
 	HEL_CHECK(helCreateThread(universe.getHandle(),
 			vm_context->getSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
-	
+
 	COFIBER_RETURN(helix::UniqueDescriptor{thread});
 }))
 
