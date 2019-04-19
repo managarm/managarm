@@ -391,7 +391,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t of
 	COFIBER_AWAIT inode->readyJump.async_wait();
 
 	// Make sure that data blocks are allocated.
-	auto block_offset = offset & ~(blockSize - 1);
+	auto block_offset = (offset & ~(blockSize - 1)) >> blockShift;
 	auto block_count = ((offset & (blockSize - 1)) + length + (blockSize - 1)) >> blockShift;
 	COFIBER_AWAIT assignDataBlocks(inode, block_offset, block_count);
 
@@ -686,11 +686,11 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::assignDataBlocks(Inode *inode,
 	size_t s_range = i_range + per_single; // Plus the first single indirect block.
 	size_t d_range = s_range + per_double; // Plus the first double indirect block.
 
+	auto disk_inode = inode->diskInode();
+
 	size_t prg = 0;
 	while(prg < num_blocks) {
 		if(block_offset + prg < i_range) {
-			auto disk_inode = inode->diskInode();
-
 			while(prg < num_blocks
 					&& block_offset + prg < i_range) {
 				auto idx = block_offset + prg;
@@ -703,8 +703,45 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::assignDataBlocks(Inode *inode,
 				disk_inode->data.blocks.direct[idx] = block;
 				prg++;
 			}
+		}else if(block_offset + prg < s_range) {
+			std::cout << "\e[33m" "ext2fs: Allocation in indirect blocks is untested"
+					"\e[39m" << std::endl;
+
+			// Allocate the single-indirect block itself.
+			if(!disk_inode->data.blocks.singleIndirect) {
+				auto block = COFIBER_AWAIT allocateBlock();
+				assert(block && "Out of disk space"); // TODO: Fix this.
+				disk_inode->data.blocks.singleIndirect = block;
+			}
+
+			helix::LockMemoryView lock_indirect;
+			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
+					&lock_indirect, 0, 1 << blockPagesShift,
+					helix::Dispatcher::global());
+			COFIBER_AWAIT submit.async_wait();
+			HEL_CHECK(lock_indirect.error());
+
+			helix::Mapping indirect_map{inode->indirectOrder1,
+					0, 1 << blockPagesShift,
+					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+			auto window = reinterpret_cast<uint32_t *>(indirect_map.get());
+
+			while(prg < num_blocks
+					&& block_offset + prg < s_range) {
+				auto idx = block_offset + prg - i_range;
+				if(window[idx]) {
+					prg++;
+					continue;
+				}
+				auto block = COFIBER_AWAIT allocateBlock();
+				assert(block && "Out of disk space"); // TODO: Fix this.
+				window[idx] = block;
+				prg++;
+			}
+		}else if(block_offset + prg < d_range) {
+			assert(!"TODO: Implement allocation in double indirect blocks");
 		}else{
-			assert(!"TODO: Implement allocation in double/tripple indirect blocks");
+			assert(!"TODO: Implement allocation in triple indirect blocks");
 		}
 	}
 
