@@ -185,6 +185,10 @@ struct FetchNode {
 		return _flags;
 	}
 
+	Error error() {
+		return _error;
+	}
+
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> range() {
 		return _range;
 	}
@@ -193,6 +197,7 @@ private:
 	Worklet *_fetched;
 	uint32_t _flags;
 
+	Error _error;
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
@@ -229,8 +234,9 @@ struct MemoryObserver {
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
-	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size,
-			CachingMode cm) {
+	static void completeFetch(FetchNode *node, Error error,
+			PhysicalAddr physical, size_t size, CachingMode cm) {
+		node->_error = error;
 		node->_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, cm};
 	}
 
@@ -630,11 +636,17 @@ struct TouchVirtualNode {
 		_worklet = worklet;
 	}
 
-	void setResult(frigg::Tuple<PhysicalAddr, size_t, CachingMode> range) {
+	void setResult(Error error, frigg::Tuple<PhysicalAddr, size_t, CachingMode> range) {
+		_error = error;
 		_range = range;
 	}
-	void setResult(PhysicalAddr physical, size_t size, CachingMode mode) {
+	void setResult(Error error, PhysicalAddr physical, size_t size, CachingMode mode) {
+		_error = error;
 		_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, mode};
+	}
+
+	Error error() {
+		return _error;
 	}
 
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> range() {
@@ -644,6 +656,8 @@ struct TouchVirtualNode {
 	uintptr_t _offset;
 	Worklet *_worklet;
 
+private:
+	Error _error;
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 

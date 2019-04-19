@@ -230,6 +230,9 @@ bool Memory::transfer(TransferNode *node) {
 		}
 
 		static bool doCopy(TransferNode *node) {
+			assert(!node->_destFetch.error());
+			assert(!node->_srcFetch.error());
+
 			auto dest_misalign = (node->_destOffset + node->_progress) % kPageSize;
 			auto src_misalign = (node->_srcOffset + node->_progress) % kPageSize;
 			size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
@@ -343,6 +346,7 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset - misalign, &node->_fetch))
 			assert(!"Handle the asynchronous case");
+		assert(!node->_fetch.error());
 
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
@@ -359,6 +363,7 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
+		assert(!node->_fetch.error());
 
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
@@ -375,6 +380,7 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_
 		node->_fetch.setup(&node->_worklet);
 		if(!view->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
+		assert(!node->_fetch.error());
 
 		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
@@ -423,6 +429,7 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t siz
 
 		static void doCopy(CopyFromBundleNode *node) {
 			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
+			assert(!node->_fetch.error());
 			assert(node->_fetch.range().get<1>() >= kPageSize);
 			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
 			size_t chunk = frigg::min(kPageSize - misalign, node->_size - node->_progress);
@@ -486,7 +493,7 @@ frigg::Tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offs
 bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(offset % kPageSize == 0);
 
-	completeFetch(node, _base + offset, _length - offset, _cacheMode);
+	completeFetch(node, kErrSuccess, _base + offset, _length - offset, _cacheMode);
 	return true;
 }
 
@@ -628,7 +635,8 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	completeFetch(node, _physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null);
+	completeFetch(node, kErrSuccess,
+			_physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null);
 	return true;
 }
 
@@ -977,7 +985,7 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		pit->physical = physical;
 	}
 
-	completeFetch(node, pit->physical + misalign, kPageSize - misalign,
+	completeFetch(node, kErrSuccess, pit->physical + misalign, kPageSize - misalign,
 			CachingMode::null);
 	return true;
 }
@@ -1122,7 +1130,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			globalReclaimer->addPage(&pit->cachePage);
 		}
 
-		completeFetch(node, physical + misalign, kPageSize - misalign, CachingMode::null);
+		completeFetch(node, kErrSuccess,
+				physical + misalign, kPageSize - misalign, CachingMode::null);
 		return true;
 	}else{
 		assert(pit->loadState == ManagedSpace::kStateMissing
@@ -1167,7 +1176,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			lock.unlock();
 			irq_lock.unlock();
 
-			completeFetch(closure->fetch, physical + misalign, kPageSize - misalign,
+			completeFetch(closure->fetch, kErrSuccess, physical + misalign, kPageSize - misalign,
 					CachingMode::null);
 			callbackFetch(closure->fetch);
 			frigg::destruct(*kernelAlloc, closure);
@@ -1343,6 +1352,7 @@ bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
 					&closure->worklet);
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
+				assert(!closure->touchNode.error());
 				closure->progress += closure->touchNode.range().get<1>();
 				if(!process(closure))
 					return;
@@ -1351,6 +1361,7 @@ bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
 			});
 			if(!self->touchVirtualPage(&closure->touchNode))
 				return false;
+			assert(!closure->touchNode.error());
 			closure->progress += closure->touchNode.range().get<1>();
 			return true;
 		}
@@ -1441,10 +1452,11 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			closure->worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
 				auto self = closure->self;
+				assert(!closure->fetch.error());
 				mapPage(closure);
 				self->_view->unlockRange((self->_viewOffset + closure->continuation->_offset)
 						& ~(kPageSize - 1), kPageSize);
-				closure->continuation->setResult(closure->fetch.range());
+				closure->continuation->setResult(kErrSuccess, closure->fetch.range());
 
 				// Tail of asynchronous path.
 				WorkQueue::post(closure->continuation->_worklet);
@@ -1454,10 +1466,11 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					&closure->fetch))
 				return false;
 
+			assert(!closure->fetch.error());
 			mapPage(closure);
 			self->_view->unlockRange((self->_viewOffset + closure->continuation->_offset)
 					& ~(kPageSize - 1), kPageSize);
-			closure->continuation->setResult(closure->fetch.range());
+			closure->continuation->setResult(kErrSuccess, closure->fetch.range());
 			return true;
 		}
 
@@ -1840,7 +1853,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					assert(closure->physical != PhysicalAddr(-1));
 
 					mapPage(closure);
-					closure->continuation->setResult(closure->physical + misalign,
+					closure->continuation->setResult(kErrSuccess, closure->physical + misalign,
 							kPageSize - misalign, CachingMode::null);
 					return true;
 				}
@@ -1922,7 +1935,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			auto self = closure->self;
 			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
-			closure->continuation->setResult(closure->physical + misalign,
+			closure->continuation->setResult(kErrSuccess, closure->physical + misalign,
 					kPageSize - misalign, CachingMode::null);
 			auto cow_it = self->_ownedPages.insert(closure->continuation->_offset >> kPageShift,
 					PhysicalAddr(-1));
@@ -2472,10 +2485,12 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 	node->_touchVirtual.setup(fault_page, &node->_worklet);
 	node->_worklet.setup([] (Worklet *base) {
 		auto node = frg::container_of(base, &FaultNode::_worklet);
+		assert(!node->_touchVirtual.error());
 		node->_resolved = true;
 		WorkQueue::post(node->_handled);
 	});
 	if(mapping->touchVirtualPage(&node->_touchVirtual)) {
+		assert(!node->_touchVirtual.error());
 		node->_resolved = true;
 		return true;
 	}else{
