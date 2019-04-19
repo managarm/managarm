@@ -224,14 +224,16 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	blockSize = 1024 << sb.logBlockSize;
 	blockPagesShift = blockShift < pageShift ? pageShift : blockShift;
 	sectorsPerBlock = blockSize / 512;
-	numBlockGroups = sb.blocksCount / sb.blocksPerGroup;
 	blocksPerGroup = sb.blocksPerGroup;
 	inodesPerGroup = sb.inodesPerGroup;
+	numBlockGroups = (sb.blocksCount + (sb.blocksPerGroup - 1)) / sb.blocksPerGroup;
 
 	if(logSuperblock) {
 		std::cout << "ext2fs: Revision is: " << sb.revLevel << std::endl;
 		std::cout << "ext2fs: Block size is: " << blockSize << std::endl;
+		std::cout << "ext2fs:     There are " << sb.blocksCount << " blocks" << std::endl;
 		std::cout << "ext2fs: Inode size is: " << inodeSize << std::endl;
+		std::cout << "ext2fs:     There are " << sb.inodesCount << " blocks" << std::endl;
 		std::cout << "ext2fs:     First available inode is: " << sb.firstIno << std::endl;
 		std::cout << "ext2fs: Optional features: " << sb.featureCompat
 				<< ", w-required features: " << sb.featureRoCompat
@@ -671,6 +673,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateBlock(), ([=] {
 			if(words[i] & (static_cast<uint32_t>(1) << j))
 				continue;
 			// TODO: Make sure we never return reserved blocks.
+			// TODO: Make sure we never return blocks higher than the max. block in the SB.
 			auto block = bg_idx * blocksPerGroup + i * 32 + j;
 			assert(block != 0);
 			assert(block < blocksPerGroup);
@@ -708,6 +711,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateInode(), ([=] {
 				if(words[i] & (static_cast<uint32_t>(1) << j))
 					continue;
 				// TODO: Make sure we never return reserved inodes.
+				// TODO: Make sure we never return inodes higher than the max. inode in the SB.
 				auto ino = bg_idx * inodesPerGroup + i * 32 + j + 1;
 				assert(ino != 0);
 				assert(ino < inodesPerGroup);
