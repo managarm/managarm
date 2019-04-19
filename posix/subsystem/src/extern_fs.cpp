@@ -21,7 +21,8 @@ struct Superblock : FsSuperblock {
 			FsNode *directory, std::string name) override;
 
 	std::shared_ptr<Node> internalizeStructural(int64_t id, helix::UniqueLane lane);
-	std::shared_ptr<Node> internalizeStructural(Node *owner, int64_t id, helix::UniqueLane lane);
+	std::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
+			int64_t id, helix::UniqueLane lane);
 	std::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
 	std::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
 			std::shared_ptr<Node> target);
@@ -243,17 +244,21 @@ private:
 	}
 
 	std::string getName() override {
-		assert(!"No associated name");
+		assert(_owner);
+		return _name;
 	}
 
 public:
 	Link() = default;
 
-	Link(std::shared_ptr<FsNode> owner)
-	: _owner{std::move(owner)} { }
+	Link(std::shared_ptr<FsNode> owner, std::string name)
+	: _owner{std::move(owner)}, _name{std::move(name)} {
+		assert(_owner);
+	}
 
 private:
 	std::shared_ptr<FsNode> _owner;
+	std::string _name;
 };
 
 // This class maintains a strong reference to the target.
@@ -264,10 +269,12 @@ private:
 	}
 
 public:
-	PeripheralLink(std::shared_ptr<FsNode> owner, std::shared_ptr<FsNode> target)
-	: Link{std::move(owner)}, _target{std::move(target)} { }
+	PeripheralLink(std::shared_ptr<FsNode> owner,
+			std::string name, std::shared_ptr<FsNode> target)
+	: Link{std::move(owner), std::move(name)}, _target{std::move(target)} { }
 
 private:
+	std::string _name;
 	std::shared_ptr<FsNode> _target;
 };
 
@@ -282,8 +289,8 @@ public:
 		assert(_target);
 	}
 
-	StructuralLink(std::shared_ptr<FsNode> owner, DirectoryNode *target)
-	: Link{std::move(owner)}, _target{std::move(target)} {
+	StructuralLink(std::shared_ptr<FsNode> owner, DirectoryNode *target, std::string name)
+	: Link{std::move(owner), std::move(name)}, _target{std::move(target)} {
 		assert(_target);
 	}
 
@@ -351,7 +358,7 @@ private:
 			HEL_CHECK(pull_node.error());
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto child = _sb->internalizeStructural(this,
+				auto child = _sb->internalizeStructural(this, name,
 						resp.id(), pull_node.descriptor());
 				COFIBER_RETURN(child->treeLink());
 			}else{
@@ -393,7 +400,7 @@ private:
 			HEL_CHECK(pull_node.error());
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto child = _sb->internalizeStructural(this,
+				auto child = _sb->internalizeStructural(this, name,
 						resp.id(), pull_node.descriptor());
 				COFIBER_RETURN(child->treeLink());
 			}else{
@@ -444,11 +451,13 @@ private:
 
 public:
 	DirectoryNode(Superblock *sb, int64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane), sb}, _sb{sb}, _treeLink{this} { }
+	: Node{inode, std::move(lane), sb}, _sb{sb},
+			_treeLink{this} { }
 
-	DirectoryNode(Superblock *sb, std::shared_ptr<Node> owner,
+	DirectoryNode(Superblock *sb, std::shared_ptr<Node> owner, std::string name,
 			int64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane), sb}, _sb{sb}, _treeLink{std::move(owner), this} { }
+	: Node{inode, std::move(lane), sb}, _sb{sb},
+			_treeLink{std::move(owner), this, std::move(name)} { }
 
 private:
 	Superblock *_sb;
@@ -515,7 +524,7 @@ std::shared_ptr<Node> Superblock::internalizeStructural(int64_t id, helix::Uniqu
 	return std::move(node);
 }
 
-std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent,
+std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::string name,
 		int64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
@@ -523,7 +532,7 @@ std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent,
 		return std::move(intern);
 
 	auto owner = std::shared_ptr<Node>{parent->weakNode()};
-	auto node = std::make_shared<DirectoryNode>(this, owner, id, std::move(lane));
+	auto node = std::make_shared<DirectoryNode>(this, owner, std::move(name), id, std::move(lane));
 	node->setupWeakNode(node);
 	*entry = node;
 	return std::move(node);
@@ -560,7 +569,8 @@ std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std:
 		return std::move(intern);
 
 	auto owner = std::shared_ptr<Node>{parent->weakNode()};
-	auto link = std::make_shared<PeripheralLink>(std::move(owner), std::move(target));
+	auto link = std::make_shared<PeripheralLink>(std::move(owner),
+			std::move(name), std::move(target));
 	*entry = link;
 	return link;
 }
