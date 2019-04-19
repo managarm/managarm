@@ -362,7 +362,16 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Inode>>, FileSystem::createRegular
 	auto ino = COFIBER_AWAIT allocateInode();
 	assert(ino);
 
+	// Lock and map the inode table.
 	auto inode_address = (ino - 1) * inodeSize;
+
+	helix::LockMemoryView lock_inode;
+	auto &&submit = helix::submitLockMemoryView(inodeTable,
+			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			helix::Dispatcher::global());
+	COFIBER_AWAIT submit.async_wait();
+	HEL_CHECK(lock_inode.error());
+
 	helix::Mapping inode_map{inodeTable,
 				inode_address, inodeSize,
 				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
