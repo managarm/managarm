@@ -234,6 +234,9 @@ struct MemoryObserver {
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
+	static void completeFetch(FetchNode *node, Error error) {
+		node->_error = error;
+	}
 	static void completeFetch(FetchNode *node, Error error,
 			PhysicalAddr physical, size_t size, CachingMode cm) {
 		node->_error = error;
@@ -636,6 +639,9 @@ struct TouchVirtualNode {
 		_worklet = worklet;
 	}
 
+	void setResult(Error error) {
+		_error = error;
+	}
 	void setResult(Error error, frigg::Tuple<PhysicalAddr, size_t, CachingMode> range) {
 		_error = error;
 		_range = range;

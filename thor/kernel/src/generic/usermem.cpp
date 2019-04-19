@@ -1139,7 +1139,12 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				|| pit->loadState == ManagedSpace::kStateInitialization);
 	}
 
-	assert(!(node->flags() & FetchNode::disallowBacking));
+	if(node->flags() & FetchNode::disallowBacking) {
+		frigg::infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
+				<< frigg::endLog;
+		completeFetch(node, kErrFault);
+		return true;
+	}
 
 	// We have to take the slow-path, i.e., perform the fetch asynchronously.
 	if(pit->loadState == ManagedSpace::kStateMissing) {
@@ -1466,7 +1471,10 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					&closure->fetch))
 				return false;
 
-			assert(!closure->fetch.error());
+			if(closure->fetch.error()) {
+				closure->continuation->setResult(closure->fetch.error());
+				return true;
+			}
 			mapPage(closure);
 			self->_view->unlockRange((self->_viewOffset + closure->continuation->_offset)
 					& ~(kPageSize - 1), kPageSize);
@@ -2490,9 +2498,13 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 		WorkQueue::post(node->_handled);
 	});
 	if(mapping->touchVirtualPage(&node->_touchVirtual)) {
-		assert(!node->_touchVirtual.error());
-		node->_resolved = true;
-		return true;
+		if(node->_touchVirtual.error()) {
+			node->_resolved = false;
+			return true;
+		}else{
+			node->_resolved = true;
+			return true;
+		}
 	}else{
 		return false;
 	}
