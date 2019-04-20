@@ -104,11 +104,7 @@ public:
 	};
 
 	enum Flags : uint32_t {
-		// disables preemption for this thread
-		kFlagExclusive = 1,
-
-		// traps kill the process instead of just halting it
-		kFlagTrapsAreFatal = 2
+		kFlagServer = 1
 	};
 
 	Thread(frigg::SharedPtr<Universe> universe,

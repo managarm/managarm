@@ -1015,8 +1015,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	if(flags & ~(kHelThreadExclusive | kHelThreadTrapsAreFatal
-			| kHelThreadStopped))
+	if(flags & ~(kHelThreadStopped))
 		return kHelErrIllegalArgs;
 
 	frigg::SharedPtr<Universe> universe;
@@ -1054,10 +1053,6 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 
 	auto new_thread = Thread::create(frigg::move(universe), frigg::move(space), params);
 	new_thread->self = new_thread;
-	if(flags & kHelThreadExclusive)
-		new_thread->flags |= Thread::kFlagExclusive;
-	if(flags & kHelThreadTrapsAreFatal)
-		new_thread->flags |= Thread::kFlagTrapsAreFatal;
 
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
 	auto cpu = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();

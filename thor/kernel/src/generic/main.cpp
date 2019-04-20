@@ -339,11 +339,9 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)*image.ip() << frigg::endLog;
 
-	if(!(*image.code() & kPfUser)
-			|| this_thread->flags & Thread::kFlagTrapsAreFatal) {
+	if(!(*image.code() & kPfUser)) {
 		auto msg = frigg::panicLogger();
-		msg << "Page fault"
-				<< " at " << (void *)address
+		msg << "\e[31m" "thor: Page fault in kernel, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
 		if(*image.code() & kPfUser) {
@@ -363,7 +361,32 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		}else{
 			msg << " (Read)";
 		}
-		msg << frigg::endLog;
+		msg << "\e[39m" << frigg::endLog;
+	}else if(this_thread->flags & Thread::kFlagServer) {
+		auto msg = frigg::infoLogger();
+		msg << "\e[31m" "thor: Page fault in server, at " << (void *)address
+				<< ", faulting ip: " << (void *)*image.ip() << "\n";
+		msg << "Errors:";
+		if(*image.code() & kPfUser) {
+			msg << " (User)";
+		}else{
+			msg << " (Supervisor)";
+		}
+		if(*image.code() & kPfAccess) {
+			msg << " (Access violation)";
+		}else{
+			msg << " (Page not present)";
+		}
+		if(*image.code() & kPfWrite) {
+			msg << " (Write)";
+		}else if(*image.code() & kPfInstruction) {
+			msg << " (Instruction fetch)";
+		}else{
+			msg << " (Read)";
+		}
+		msg << "\e[39m" << frigg::endLog;
+		// TODO: Trigger a more-specific interrupt.
+		Thread::interruptCurrent(Interrupt::kIntrPanic, image);
 	}else{
 		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
 	}
@@ -384,12 +407,10 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	frigg::infoLogger() << "thor: Unhandled " << name << " fault"
 			<< ", faulting ip: " << (void *)*image.ip() << frigg::endLog;
 
-	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
-		frigg::infoLogger() << "traps-are-fatal thread killed by "
-				<< name << " fault.\n"
-				<< "Last ip: " << (void *)*image.ip() << frigg::endLog;
-		
-		// TODO: We should kill the thread in this situation.
+	if(this_thread->flags & Thread::kFlagServer) {
+		frigg::infoLogger() << "\e[31m" "thor: " << name << " fault in server.\n"
+				<< "Last ip: " << (void *)*image.ip() << "\e[39m" << frigg::endLog;
+		// TODO: Trigger a more-specific interrupt.
 		Thread::interruptCurrent(kIntrPanic, image);
 	}else{
 		Thread::interruptCurrent(fault, image);
@@ -486,15 +507,7 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helLog((const char *)arg0, (size_t)arg1);
 	} break;
 	case kHelCallPanic: {
-		if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
-			frigg::infoLogger() << "thor: User space panic:" << frigg::endLog;
-			helLog((const char *)arg0, (size_t)arg1);
-
-			// TODO: We should kill the thread in this situation.
-			Thread::interruptCurrent(kIntrPanic, image);
-		}else{
-			Thread::interruptCurrent(kIntrPanic, image);
-		}
+		Thread::interruptCurrent(kIntrPanic, image);
 	} break;
 
 	case kHelCallCreateUniverse: {

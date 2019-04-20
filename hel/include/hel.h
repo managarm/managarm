@@ -197,9 +197,7 @@ enum HelMapFlags {
 };
 
 enum HelThreadFlags {
-	kHelThreadExclusive = 2,
-	kHelThreadTrapsAreFatal = 8,
-	kHelThreadStopped = 9
+	kHelThreadStopped = 1
 };
 
 enum HelObservation {

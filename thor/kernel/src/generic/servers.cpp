@@ -341,7 +341,7 @@ void executeModule(frigg::StringView name, MfsRegular *module,
 
 	auto thread = Thread::create(std::move(universe), frigg::move(space), params);
 	thread->self = thread;
-	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
+	thread->flags |= Thread::kFlagServer;
 	
 	// listen to POSIX calls from the thread.
 	runService(frg::string<KernelAlloc>{*kernelAlloc, name.data(), name.size()}, thread);
