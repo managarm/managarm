@@ -269,36 +269,52 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 				self->signalContext()->raiseContext(active, self.get(), generation.get());
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
-			printf("posix: Process %s was interrupted\n", self->path().c_str());
+			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
 				self->signalContext()->raiseContext(active, self.get(), generation.get());
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
-			printf("\e[35mUser space panic in process %s\n", self->path().c_str());
+			printf("\e[35mposix: User space panic in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
+
+			auto item = new SignalItem;
+			item->signalNumber = SIGABRT;
+			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else if(observe.observation() == kHelObserveBreakpoint) {
-			printf("\e[35mBreakpoint in process %s\n", self->path().c_str());
+			printf("\e[35mposix: Breakpoint in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
 		}else if(observe.observation() == kHelObservePageFault) {
-			printf("\e[31mPage fault in process %s\n", self->path().c_str());
+			printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
+
+			auto item = new SignalItem;
+			item->signalNumber = SIGSEGV;
+			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else if(observe.observation() == kHelObserveGeneralFault) {
-			printf("\e[31mGeneral fault in process %s\n", self->path().c_str());
+			printf("\e[31mposix: General fault in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
+
+			auto item = new SignalItem;
+			item->signalNumber = SIGSEGV;
+			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else if(observe.observation() == kHelObserveIllegalInstruction) {
-			printf("\e[31mIllegal instruction in process %s\n", self->path().c_str());
+			printf("\e[31mposix: Illegal instruction in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
+
+			auto item = new SignalItem;
+			item->signalNumber = SIGILL;
+			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else{
 			throw std::runtime_error("Unexpected observation");
 		}
