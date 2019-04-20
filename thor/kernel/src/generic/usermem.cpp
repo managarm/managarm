@@ -15,6 +15,9 @@ namespace {
 	constexpr bool logUsage = false;
 	constexpr bool logUncaching = false;
 
+	// This is a debugging option to debug CoW correctness.
+	constexpr bool disableCow = false;
+
 	void logRss(AddressSpace *space) {
 		if(!logUsage)
 			return;
@@ -2012,12 +2015,16 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 	for(size_t pg = 0; pg < length(); pg += kPageSize) {
 		auto os_it = _ownedPages.find(pg >> kPageShift);
 
-		// TODO: We only do the locked case here.
-		//       The non-locked one will be added in a future commit.
-		// The page is locked. We *need* to keep it in the old address space.
+		// Locked pages must always be present.
 		if(_lockCount[pg >> kPageShift]) {
-			// As the page is locked, it must exist.
 			assert(os_it);
+		}else{
+			if(!os_it)
+				continue;
+		}
+
+		// The page is locked. We *need* to keep it in the old address space.
+		if(_lockCount[pg >> kPageShift] || disableCow) {
 			auto locked_physical = os_it->load(std::memory_order_relaxed);
 			assert(locked_physical != PhysicalAddr(-1));
 
@@ -2031,14 +2038,10 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 			memcpy(copy_accessor.get(), locked_accessor.get(), kPageSize);
 
 			// Update the chains.
-			auto page_offset = _viewOffset + pg;
-			auto fs_it = forked->_ownedPages.insert(page_offset >> kPageShift,
+			auto fs_it = forked->_ownedPages.insert(pg >> kPageShift,
 					PhysicalAddr(-1));
 			fs_it->store(copy_physical, std::memory_order_relaxed);
 		}else{
-			if(!os_it)
-				continue;
-
 			auto physical = os_it->load(std::memory_order_relaxed);
 			assert(physical != PhysicalAddr(-1));
 
