@@ -402,10 +402,6 @@ void handleIrq(IrqImageAccessor image, int number) {
 	if(logEveryIrq)
 		frigg::infoLogger() << "thor: IRQ #" << number << frigg::endLog;
 
-	if(number == 1)
-		frigg::infoLogger() << "IRQ #1 from cs: 0x" << frigg::logHex(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
-
 	globalIrqSlots[number]->raise();
 
 	// TODO: Can this function actually be called from non-preemptible domains?
