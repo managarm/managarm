@@ -138,12 +138,10 @@ int main() {
 		sleep(1);
 	}
 
-/*
 	auto input_ps2 = fork();
 	if(!input_ps2) {
 		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/ps2-hid", nullptr);
 	}else assert(input_ps2 != -1);
-*/
 
 	auto input_hid = fork();
 	if(!input_hid) {
