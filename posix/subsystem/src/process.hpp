@@ -266,10 +266,10 @@ public:
 	void *clientFileTable() { return _clientFileTable; }
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
 
-	void terminate();
+	void terminate(int signo = -1);
 	void notify();
 
-	async::result<int> wait(int pid, bool non_blocking);
+	async::result<int> wait(int pid, bool non_blocking, int *signo);
 
 	ResourceUsage accumulatedUsage() {
 		return _childrenUsage;
@@ -295,6 +295,7 @@ private:
 
 	// The following intrusive queue stores notifications for wait(). 
 	NotifyType _notifyType;
+	int _terminationSignal;
 
 	boost::intrusive::list_member_hook<> _notifyHook;
 

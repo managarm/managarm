@@ -450,7 +450,7 @@ void SignalContext::raiseContext(SignalItem *item, Process *process, Generation 
 		}else{
 			std::cout << "posix: Thread killed as the result of a signal" << std::endl;
 			// TODO: Make sure that we are in the current generation?
-			process->terminate();
+			process->terminate(item->signalNumber);
 			return;
 		}
 	}
@@ -706,7 +706,7 @@ void Process::retire(Process *process) {
 	process->_parent->_childrenUsage.userTime += process->_generationUsage.userTime;
 }
 
-void Process::terminate() {
+void Process::terminate(int signo) {
 	auto parent = getParent();
 	assert(parent);
 
@@ -728,6 +728,7 @@ void Process::terminate() {
 	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);
 	_notifyType = NotifyType::terminated;
+	_terminationSignal = signo;
 	parent->_notifyQueue.push_back(*this);
 	parent->_notifyBell.ring();
 
@@ -737,22 +738,26 @@ void Process::terminate() {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking), ([=] {
+COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking, int *signo), ([=] {
 	assert(pid == -1 || pid > 0);
 
 	int result = 0;
+	int termination_signo = -1;
 	while(true) {
 		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
 			if(pid > 0 && pid != it->pid())
 				continue;
 			_notifyQueue.erase(it);
-			Process::retire(&(*it));
 			result = it->pid();
+			termination_signo = it->_terminationSignal;
+			Process::retire(&(*it));
 			break;
 		}
 
-		if(result > 0 || non_blocking)
+		if(result > 0 || non_blocking) {
+			*signo = termination_signo;
 			COFIBER_RETURN(result);
+		}
 		COFIBER_AWAIT _notifyBell.async_wait();
 	}
 }))

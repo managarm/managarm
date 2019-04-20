@@ -390,14 +390,19 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			assert(!(req.flags() & ~WNOHANG));
 
-			auto pid = COFIBER_AWAIT self->wait(req.pid(), req.flags() & WNOHANG);
+			int signo;
+			auto pid = COFIBER_AWAIT self->wait(req.pid(), req.flags() & WNOHANG, &signo);
 
 			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(pid);
-			resp.set_mode(0x200); // 0x200 means exited.
+
+			uint32_t mode = 0x200; // 0x200 means exited.
+			if(signo >= 0)
+				mode |= 0x400 | (signo << 24);
+			resp.set_mode(mode);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
