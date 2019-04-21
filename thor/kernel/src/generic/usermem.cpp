@@ -15,6 +15,10 @@ namespace {
 	constexpr bool logUsage = false;
 	constexpr bool logUncaching = false;
 
+	// Perform more rigorous checks on spurious page faults.
+	// Those checks should not be necessary if the code is correct but they help to catch bugs.
+	constexpr bool thoroughSpuriousAssertions = true;
+
 	// This is a debugging option to debug CoW correctness.
 	constexpr bool disableCow = false;
 
@@ -1759,6 +1763,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&self->_mutex);
 
+				mapPage(closure);
 				insertPage(closure);
 				return true;
 			}
@@ -1770,6 +1775,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 					auto irq_lock = frigg::guard(&irqMutex());
 					auto lock = frigg::guard(&closure->self->_mutex);
 
+					mapPage(closure);
 					insertPage(closure);
 				}
 
@@ -1793,6 +1799,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
 
+			mapPage(closure);
 			insertPage(closure);
 			return true;
 		}
@@ -1806,6 +1813,22 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			cow_it->store(closure->physical, std::memory_order_relaxed);
 			self->_lockCount[offset >> kPageShift]++;
 			closure->progress += kPageSize;
+		}
+
+		static void mapPage(Closure *closure) {
+			auto self = closure->self;
+			auto page_offset = self->address()
+					+ closure->continuation->offset() + closure->progress;
+
+			// TODO: Update RSS, handle dirty pages, etc.
+			// The page is a copy with default caching mode.
+			auto status = self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
+			assert(!(status & page_status::dirty));
+			self->owner()->_pageSpace.mapSingle4k(page_offset & ~(kPageSize - 1),
+					closure->physical,
+					true, self->compilePageFlags(), CachingMode::null);
+			self->owner()->_residuentSize += kPageSize;
+			logRss(self->owner());
 		}
 	};
 
@@ -1874,9 +1897,15 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					closure->physical = it->load(std::memory_order_relaxed);
 					assert(closure->physical != PhysicalAddr(-1));
 
-					mapPage(closure);
+					if(thoroughSpuriousAssertions) {
+						ClientPageSpace::Walk walk{&self->owner()->_pageSpace};
+						walk.walkTo(self->address() + closure->continuation->_offset);
+						assert(closure->physical == walk.peekPhysical());
+						assert(walk.peekFlags() & page_access::write);
+					}
+
 					closure->continuation->setResult(kErrSuccess, closure->physical + misalign,
-							kPageSize - misalign, CachingMode::null);
+							kPageSize - misalign, CachingMode::null, true);
 					return true;
 				}
 
@@ -1970,7 +1999,8 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 			// TODO: Update RSS, handle dirty pages, etc.
 			// The page is a copy with default caching mode.
-			self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
+			auto status = self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
+			assert(!(status & page_status::dirty));
 			self->owner()->_pageSpace.mapSingle4k(page_offset & ~(kPageSize - 1),
 					closure->physical,
 					true, self->compilePageFlags(), CachingMode::null);
@@ -2098,14 +2128,6 @@ void CowMapping::install() {
 		return _slice->getView()->peekRange(page_offset);
 	};
 
-	uint32_t page_flags = 0;
-	// TODO: Allow inaccessible mappings.
-	assert(flags() & MappingFlags::protRead);
-	if(flags() & MappingFlags::protWrite)
-		page_flags |= page_access::write;
-	if(flags() & MappingFlags::protExecute)
-		page_flags |= page_access::execute;
-
 	if(auto e = _slice->getView()->lockRange(_viewOffset, length()); e)
 		assert(!"lockRange() failed");
 
@@ -2116,7 +2138,7 @@ void CowMapping::install() {
 
 			// TODO: Update RSS.
 			owner()->_pageSpace.mapSingle4k(address() + pg,
-					physical, true, page_flags, CachingMode::null);
+					physical, true, compilePageFlags(), CachingMode::null);
 		}else{
 			auto range = findBorrowedPage(pg);
 			if(range.get<0>() == PhysicalAddr(-1))
@@ -2125,7 +2147,7 @@ void CowMapping::install() {
 			// Note that we have to mask the writeable flag here.
 			// TODO: Update RSS.
 			owner()->_pageSpace.mapSingle4k(address() + pg, range.get<0>(), true,
-					page_flags & ~page_access::write, range.get<1>());
+					compilePageFlags() & ~page_access::write, range.get<1>());
 		}
 	}
 
@@ -2179,11 +2201,14 @@ bool CowMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 	// TODO: Perform proper locking here!
 
 	// Unmap the memory range.
-	// TODO: This is only necessary if the page was not copied already.
-	for(size_t pg = 0; pg < shoot_size; pg += kPageSize)
+	for(size_t pg = 0; pg < shoot_size; pg += kPageSize) {
+		if(auto it = _ownedPages.find((shoot_offset + pg) >> kPageShift); it)
+			continue;
 		if(owner()->_pageSpace.isMapped(address() + shoot_offset + pg))
 			owner()->_residuentSize -= kPageSize;
-	owner()->_pageSpace.unmapRange(address() + shoot_offset, shoot_size, PageMode::remap);
+		auto status = owner()->_pageSpace.unmapSingle4k(address() + shoot_offset + pg);
+		assert(!(status & page_status::dirty));
+	}
 
 	// Perform shootdown.
 	struct Closure {
@@ -2517,6 +2542,11 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 			node->_resolved = false;
 			return true;
 		}else{
+			// Spurious page faults are the result of race conditions.
+			// They should be rare. If they happen too often, something is probably wrong!
+			if(node->_touchVirtual.spurious())
+				frigg::infoLogger() << "\e[33m" "thor: Spurious page fault"
+						<< "\e[39m" << frigg::endLog;
 			node->_resolved = true;
 			return true;
 		}

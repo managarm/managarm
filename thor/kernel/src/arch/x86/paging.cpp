@@ -780,7 +780,7 @@ void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode
 		if(mode == PageMode::remap && !(tbl1[index1].load() & kPagePresent))
 			continue;
 		assert(tbl1[index1].load() & kPagePresent);
-		tbl1[index1].store(tbl1[index1].load() & ~uint64_t{kPagePresent});
+		tbl1[index1].store(0);
 	}
 }
 
@@ -828,6 +828,80 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
 
 	return tbl1[index1].load() & kPagePresent;
+}
+
+ClientPageSpace::Walk::Walk(ClientPageSpace *space)
+: _space{space} {
+	irqMutex().lock();
+	_space->_mutex.lock();
+}
+
+ClientPageSpace::Walk::~Walk() {
+	_space->_mutex.unlock();
+	irqMutex().unlock();
+}
+
+void ClientPageSpace::Walk::walkTo(uintptr_t address) {
+	assert(!(_address & (kPageSize - 1)));
+
+	_address = address;
+	_accessor4 = PageAccessor{};
+	_accessor3 = PageAccessor{};
+	_accessor2 = PageAccessor{};
+	_accessor1 = PageAccessor{};
+}
+
+PageFlags ClientPageSpace::Walk::peekFlags() {
+	_update();
+	assert(_accessor1);
+
+	auto tbl = reinterpret_cast<arch::scalar_variable<uint64_t> *>(_accessor1.get());
+	auto ent = tbl[(_address >> 12) & 0x1FF].load();
+	assert(ent & kPagePresent);
+
+	PageFlags flags = 0;
+	if(ent & kPageWrite)
+		flags |= page_access::write;
+	if(!(ent & kPageXd))
+		flags |= page_access::execute;
+	return flags;
+}
+
+PhysicalAddr ClientPageSpace::Walk::peekPhysical() {
+	_update();
+	assert(_accessor1);
+
+	auto tbl = reinterpret_cast<arch::scalar_variable<uint64_t> *>(_accessor1.get());
+	auto ent = tbl[(_address >> 12) & 0x1FF].load();
+	assert(ent & kPagePresent);
+	return ent & 0x000FFFFFFFFFF000;
+}
+
+void ClientPageSpace::Walk::_update() {
+	auto index4 = (int)((_address >> 39) & 0x1FF);
+	auto index3 = (int)((_address >> 30) & 0x1FF);
+	auto index2 = (int)((_address >> 21) & 0x1FF);
+
+	// The PML4 does always exist.
+	_accessor4 = PageAccessor{_space->rootTable()};
+
+	// Make sure there is a PDPT.
+	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(_accessor4.get());
+	if(!(tbl4[index4].load() & kPagePresent))
+		return;
+	_accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
+
+	// Make sure there is a PD.
+	auto tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(_accessor3.get());
+	if(!(tbl3[index3].load() & kPagePresent))
+		return;
+	_accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
+
+	// Make sure there is a PT.
+	auto tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(_accessor2.get());
+	if(!(tbl2[index2].load() & kPagePresent))
+		return;
+	_accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
 }
 
 } // namespace thor

@@ -642,13 +642,17 @@ struct TouchVirtualNode {
 	void setResult(Error error) {
 		_error = error;
 	}
-	void setResult(Error error, frigg::Tuple<PhysicalAddr, size_t, CachingMode> range) {
+	void setResult(Error error, frigg::Tuple<PhysicalAddr, size_t, CachingMode> range,
+			bool spurious = false) {
 		_error = error;
 		_range = range;
+		_spurious = spurious;
 	}
-	void setResult(Error error, PhysicalAddr physical, size_t size, CachingMode mode) {
+	void setResult(Error error, PhysicalAddr physical, size_t size, CachingMode mode,
+			bool spurious = false) {
 		_error = error;
 		_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, mode};
+		_spurious = spurious;
 	}
 
 	Error error() {
@@ -659,12 +663,17 @@ struct TouchVirtualNode {
 		return _range;
 	}
 
+	bool spurious() {
+		return _spurious;
+	}
+
 	uintptr_t _offset;
 	Worklet *_worklet;
 
 private:
 	Error _error;
 	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
+	bool _spurious;
 };
 
 struct PopulateVirtualNode {

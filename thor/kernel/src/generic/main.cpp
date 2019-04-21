@@ -16,6 +16,7 @@
 namespace thor {
 
 static constexpr bool logInitialization = false;
+static constexpr bool logEveryPageFault = false;
 static constexpr bool logEveryIrq = false;
 static constexpr bool logPreemptionIrq = false;
 static constexpr bool logEverySyscall = false;
@@ -299,6 +300,31 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	const Word kPfBadTable = 8;
 	const Word kPfInstruction = 16;
 	assert(!(*image.code() & kPfBadTable));
+
+	if(logEveryPageFault) {
+		auto msg = frigg::infoLogger();
+		msg << "thor: Page fault at " << (void *)address
+				<< ", faulting ip: " << (void *)*image.ip() << "\n";
+		msg << "Errors:";
+		if(*image.code() & kPfUser) {
+			msg << " (User)";
+		}else{
+			msg << " (Supervisor)";
+		}
+		if(*image.code() & kPfAccess) {
+			msg << " (Access violation)";
+		}else{
+			msg << " (Page not present)";
+		}
+		if(*image.code() & kPfWrite) {
+			msg << " (Write)";
+		}else if(*image.code() & kPfInstruction) {
+			msg << " (Instruction fetch)";
+		}else{
+			msg << " (Read)";
+		}
+		msg << frigg::endLog;
+	}
 
 	uint32_t flags = 0;
 	if(*image.code() & kPfWrite)
