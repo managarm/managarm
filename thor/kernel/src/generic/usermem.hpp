@@ -821,6 +821,11 @@ struct CowMapping : Mapping, MemoryObserver {
 	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
+	struct CowPage {
+		PhysicalAddr physical = -1;
+		unsigned int lockCount = 0;
+	};
+
 	frigg::TicketLock _mutex;
 
 	frigg::SharedPtr<MemorySlice> _slice;
@@ -828,8 +833,7 @@ private:
 	frigg::SharedPtr<CowChain> _copyChain;
 
 	MappingState _state = MappingState::null;
-	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _ownedPages;
-	frigg::Vector<unsigned int, KernelAlloc> _lockCount;
+	frg::rcu_radixtree<CowPage, KernelAlloc> _ownedPages;
 };
 
 struct HoleLess {

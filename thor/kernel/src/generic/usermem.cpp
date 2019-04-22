@@ -1668,10 +1668,9 @@ CowMapping::CowMapping(size_t length, MappingFlags flags,
 		frigg::SharedPtr<CowChain> chain)
 : Mapping{length, flags},
 		_slice{std::move(slice)}, _viewOffset{view_offset}, _copyChain{std::move(chain)},
-		_ownedPages{kernelAlloc.get()}, _lockCount{*kernelAlloc} {
+		_ownedPages{kernelAlloc.get()} {
 	assert(!(length & (kPageSize - 1)));
 	assert(!(_viewOffset & (kPageSize - 1)));
-	_lockCount.resize(length >> kPageShift, 0);
 }
 
 CowMapping::~CowMapping() {
@@ -1680,9 +1679,8 @@ CowMapping::~CowMapping() {
 		frigg::infoLogger() << "\e[31mthor: CowMapping is destructed\e[39m" << frigg::endLog;
 
 	for(auto it = _ownedPages.begin(); it != _ownedPages.end(); ++it) {
-		auto physical = it->load(std::memory_order_relaxed);
-		assert(physical != PhysicalAddr(-1));
-		physicalAllocator->free(physical, kPageSize);
+		assert(it->physical != PhysicalAddr(-1));
+		physicalAllocator->free(it->physical, kPageSize);
 	}
 }
 
@@ -1722,10 +1720,9 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 				assert(self->_state == MappingState::active);
 
 				if(auto it = self->_ownedPages.find(offset >> kPageShift); it) {
-					auto physical = it->load(std::memory_order_relaxed);
-					assert(physical != PhysicalAddr(-1));
+					assert(it->physical != PhysicalAddr(-1));
 
-					self->_lockCount[offset >> kPageShift]++;
+					it->lockCount++;
 					closure->progress += kPageSize;
 					return true;
 				}
@@ -1809,9 +1806,9 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			auto self = closure->self;
 			auto offset = closure->continuation->offset() + closure->progress;
 
-			auto cow_it = self->_ownedPages.insert(offset >> kPageShift, PhysicalAddr(-1));
-			cow_it->store(closure->physical, std::memory_order_relaxed);
-			self->_lockCount[offset >> kPageShift]++;
+			auto cow_it = self->_ownedPages.insert(offset >> kPageShift);
+			cow_it->physical = closure->physical;
+			cow_it->lockCount++;
 			closure->progress += kPageSize;
 		}
 
@@ -1848,9 +1845,10 @@ void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 	assert(_state == MappingState::active);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
-		auto index = (offset + pg) >> kPageShift;
-		assert(_lockCount[index] > 0);
-		_lockCount[index]--;
+		auto it = _ownedPages.find((offset + pg) >> kPageShift);
+		assert(it);
+		assert(it->lockCount > 0);
+		it->lockCount--;
 	}
 }
 
@@ -1861,8 +1859,8 @@ CowMapping::resolveRange(ptrdiff_t offset) {
 	assert(_state == MappingState::active);
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
-		auto physical = it->load(std::memory_order_relaxed);
-		return frigg::Tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
+		// TODO: Once we add page states, make sure the page was already copied!
+		return frigg::Tuple<PhysicalAddr, CachingMode>{it->physical, CachingMode::null};
 	}
 
 	return frigg::Tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
@@ -1894,17 +1892,14 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 				if(auto it = self->_ownedPages.find(closure->continuation->_offset >> kPageShift);
 						it) {
-					closure->physical = it->load(std::memory_order_relaxed);
-					assert(closure->physical != PhysicalAddr(-1));
-
 					if(thoroughSpuriousAssertions) {
 						ClientPageSpace::Walk walk{&self->owner()->_pageSpace};
 						walk.walkTo(self->address() + closure->continuation->_offset);
-						assert(closure->physical == walk.peekPhysical());
+						assert(it->physical == walk.peekPhysical());
 						assert(walk.peekFlags() & page_access::write);
 					}
 
-					closure->continuation->setResult(kErrSuccess, closure->physical + misalign,
+					closure->continuation->setResult(kErrSuccess, it->physical + misalign,
 							kPageSize - misalign, CachingMode::null, true);
 					return true;
 				}
@@ -1988,9 +1983,8 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 			closure->continuation->setResult(kErrSuccess, closure->physical + misalign,
 					kPageSize - misalign, CachingMode::null);
-			auto cow_it = self->_ownedPages.insert(closure->continuation->_offset >> kPageShift,
-					PhysicalAddr(-1));
-			cow_it->store(closure->physical, std::memory_order_relaxed);
+			auto cow_it = self->_ownedPages.insert(closure->continuation->_offset >> kPageShift);
+			cow_it->physical = closure->physical;
 		}
 
 		static void mapPage(Closure *closure) {
@@ -2045,34 +2039,25 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 	for(size_t pg = 0; pg < length(); pg += kPageSize) {
 		auto os_it = _ownedPages.find(pg >> kPageShift);
 
-		// Locked pages must always be present.
-		if(_lockCount[pg >> kPageShift]) {
-			assert(os_it);
-		}else{
-			if(!os_it)
-				continue;
-		}
+		if(!os_it)
+			continue;
 
 		// The page is locked. We *need* to keep it in the old address space.
-		if(_lockCount[pg >> kPageShift] || disableCow) {
-			auto locked_physical = os_it->load(std::memory_order_relaxed);
-			assert(locked_physical != PhysicalAddr(-1));
-
+		if(os_it->lockCount || disableCow) {
 			// Allocate a new physical page for a copy.
 			auto copy_physical = physicalAllocator->allocate(kPageSize);
 			assert(copy_physical != PhysicalAddr(-1));
 
 			// As the page is locked anyway, we can just copy it synchronously.
-			PageAccessor locked_accessor{locked_physical};
+			PageAccessor locked_accessor{os_it->physical};
 			PageAccessor copy_accessor{copy_physical};
 			memcpy(copy_accessor.get(), locked_accessor.get(), kPageSize);
 
 			// Update the chains.
-			auto fs_it = forked->_ownedPages.insert(pg >> kPageShift,
-					PhysicalAddr(-1));
-			fs_it->store(copy_physical, std::memory_order_relaxed);
+			auto fs_it = forked->_ownedPages.insert(pg >> kPageShift);
+			fs_it->physical = copy_physical;
 		}else{
-			auto physical = os_it->load(std::memory_order_relaxed);
+			auto physical = os_it->physical;
 			assert(physical != PhysicalAddr(-1));
 
 			// Update the chains.
@@ -2133,12 +2118,10 @@ void CowMapping::install() {
 
 	for(size_t pg = 0; pg < length(); pg += kPageSize) {
 		if(auto it = _ownedPages.find(pg >> kPageShift); it) {
-			auto physical = it->load(std::memory_order_relaxed);
-			assert(physical != PhysicalAddr(-1));
-
 			// TODO: Update RSS.
+			assert(it->physical != PhysicalAddr(-1));
 			owner()->_pageSpace.mapSingle4k(address() + pg,
-					physical, true, compilePageFlags(), CachingMode::null);
+					it->physical, true, compilePageFlags(), CachingMode::null);
 		}else{
 			auto range = findBorrowedPage(pg);
 			if(range.get<0>() == PhysicalAddr(-1))
