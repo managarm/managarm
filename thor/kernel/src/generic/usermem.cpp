@@ -1679,6 +1679,7 @@ CowMapping::~CowMapping() {
 		frigg::infoLogger() << "\e[31mthor: CowMapping is destructed\e[39m" << frigg::endLog;
 
 	for(auto it = _ownedPages.begin(); it != _ownedPages.end(); ++it) {
+		assert(it->state == CowState::hasCopy);
 		assert(it->physical != PhysicalAddr(-1));
 		physicalAllocator->free(it->physical, kPageSize);
 	}
@@ -1710,16 +1711,18 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			auto self = closure->self;
 			auto offset = closure->continuation->offset() + closure->progress;
 
-			// If the page is present in our private chain, we just return it.
 			frigg::SharedPtr<CowChain> chain;
 			frigg::SharedPtr<MemoryView> view;
 			uintptr_t view_offset;
 			{
+				// If the page is present in our private chain, we just return it.
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&self->_mutex);
 				assert(self->_state == MappingState::active);
 
-				if(auto it = self->_ownedPages.find(offset >> kPageShift); it) {
+				if(auto it = self->_ownedPages.find(offset >> kPageShift);
+						it) {
+					assert(it->state == CowState::hasCopy);
 					assert(it->physical != PhysicalAddr(-1));
 
 					it->lockCount++;
@@ -1730,16 +1733,18 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 				chain = self->_copyChain;
 				view = self->_slice->getView();
 				view_offset = self->_viewOffset;
-			}
 
-			// Otherwise we need to copy from the chain or from the root view.
-			auto page_offset = view_offset + offset;
+				// Otherwise we need to copy from the chain or from the root view.
+				auto it = self->_ownedPages.insert(offset >> kPageShift);
+				it->state = CowState::inProgress;
+			}
 
 			closure->physical = physicalAllocator->allocate(kPageSize);
 			assert(closure->physical != PhysicalAddr(-1));
 			closure->accessor = PageAccessor{closure->physical};
 
 			// Try to copy from a descendant CoW chain.
+			auto page_offset = view_offset + offset;
 			while(chain) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&chain->_mutex);
@@ -1806,7 +1811,9 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			auto self = closure->self;
 			auto offset = closure->continuation->offset() + closure->progress;
 
-			auto cow_it = self->_ownedPages.insert(offset >> kPageShift);
+			auto cow_it = self->_ownedPages.find(offset >> kPageShift);
+			assert(cow_it->state == CowState::inProgress);
+			cow_it->state = CowState::hasCopy;
 			cow_it->physical = closure->physical;
 			cow_it->lockCount++;
 			closure->progress += kPageSize;
@@ -1847,6 +1854,7 @@ void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		auto it = _ownedPages.find((offset + pg) >> kPageShift);
 		assert(it);
+		assert(it->state == CowState::hasCopy);
 		assert(it->lockCount > 0);
 		it->lockCount--;
 	}
@@ -1859,7 +1867,7 @@ CowMapping::resolveRange(ptrdiff_t offset) {
 	assert(_state == MappingState::active);
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
-		// TODO: Once we add page states, make sure the page was already copied!
+		assert(it->state == CowState::hasCopy);
 		return frigg::Tuple<PhysicalAddr, CachingMode>{it->physical, CachingMode::null};
 	}
 
@@ -1881,17 +1889,18 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			auto self = closure->self;
 			auto misalign = closure->continuation->_offset & (kPageSize - 1);
 
-			// If the page is present in our private chain, we just return it.
 			frigg::SharedPtr<CowChain> chain;
 			frigg::SharedPtr<MemoryView> view;
 			uintptr_t view_offset;
 			{
+				// If the page is present in our private chain, we just return it.
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&self->_mutex);
 				assert(self->_state == MappingState::active);
 
 				if(auto it = self->_ownedPages.find(closure->continuation->_offset >> kPageShift);
 						it) {
+					assert(it->state == CowState::hasCopy);
 					if(thoroughSpuriousAssertions) {
 						ClientPageSpace::Walk walk{&self->owner()->_pageSpace};
 						walk.walkTo(self->address() + closure->continuation->_offset);
@@ -1907,16 +1916,18 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 				chain = self->_copyChain;
 				view = self->_slice->getView();
 				view_offset = self->_viewOffset;
-			}
 
-			// Otherwise we need to copy from the chain or from the root view.
-			auto page_offset = view_offset + closure->continuation->_offset;
+				// Otherwise we need to copy from the chain or from the root view.
+				auto it = self->_ownedPages.insert(closure->continuation->_offset >> kPageShift);
+				it->state = CowState::inProgress;
+			}
 
 			closure->physical = physicalAllocator->allocate(kPageSize);
 			assert(closure->physical != PhysicalAddr(-1));
 			closure->accessor = PageAccessor{closure->physical};
 
 			// Try to copy from a descendant CoW chain.
+			auto page_offset = view_offset + closure->continuation->_offset;
 			while(chain) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&chain->_mutex);
@@ -1983,7 +1994,9 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 			closure->continuation->setResult(kErrSuccess, closure->physical + misalign,
 					kPageSize - misalign, CachingMode::null);
-			auto cow_it = self->_ownedPages.insert(closure->continuation->_offset >> kPageShift);
+			auto cow_it = self->_ownedPages.find(closure->continuation->_offset >> kPageShift);
+			assert(cow_it->state == CowState::inProgress);
+			cow_it->state = CowState::hasCopy;
 			cow_it->physical = closure->physical;
 		}
 
@@ -2041,6 +2054,7 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 
 		if(!os_it)
 			continue;
+		assert(os_it->state == CowState::hasCopy);
 
 		// The page is locked. We *need* to keep it in the old address space.
 		if(os_it->lockCount || disableCow) {
@@ -2055,6 +2069,7 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 
 			// Update the chains.
 			auto fs_it = forked->_ownedPages.insert(pg >> kPageShift);
+			fs_it->state = CowState::hasCopy;
 			fs_it->physical = copy_physical;
 		}else{
 			auto physical = os_it->physical;
@@ -2119,6 +2134,7 @@ void CowMapping::install() {
 	for(size_t pg = 0; pg < length(); pg += kPageSize) {
 		if(auto it = _ownedPages.find(pg >> kPageShift); it) {
 			// TODO: Update RSS.
+			assert(it->state == CowState::hasCopy);
 			assert(it->physical != PhysicalAddr(-1));
 			owner()->_pageSpace.mapSingle4k(address() + pg,
 					it->physical, true, compilePageFlags(), CachingMode::null);

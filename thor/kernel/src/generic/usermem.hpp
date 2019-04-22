@@ -821,8 +821,15 @@ struct CowMapping : Mapping, MemoryObserver {
 	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
 
 private:
+	enum class CowState {
+		null,
+		inProgress,
+		hasCopy
+	};
+
 	struct CowPage {
 		PhysicalAddr physical = -1;
+		CowState state = CowState::null;
 		unsigned int lockCount = 0;
 	};
 
