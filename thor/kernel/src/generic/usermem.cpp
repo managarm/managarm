@@ -19,7 +19,8 @@ namespace {
 	// Those checks should not be necessary if the code is correct but they help to catch bugs.
 	constexpr bool thoroughSpuriousAssertions = true;
 
-	// This is a debugging option to debug CoW correctness.
+	// The following flags are debugging options to debug the correctness of various components.
+	constexpr bool disableUncaching = false;
 	constexpr bool disableCow = false;
 
 	void logRss(AddressSpace *space) {
@@ -101,6 +102,9 @@ struct MemoryReclaimer {
 
 	KernelFiber *createReclaimFiber() {
 		auto checkReclaim = [this] () -> bool {
+			if(disableUncaching)
+				return false;
+
 			// Take a single page out of the LRU list.
 			// TODO: We have to acquire a refcount here.
 			CachePage *page;
