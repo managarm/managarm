@@ -40,8 +40,28 @@ void invalidatePage(int pcid, const void *address) {
 	asm volatile ("invpcid %1, %0" : : "r"(type), "m"(descriptor) : "memory");
 }
 
+void invalidateFullTlb() {
+	uint64_t pml4;
+	asm volatile ("mov %%cr3, %0" : "=r"(pml4));
+	pml4 &= 0x000FFFFFFFFFF000; // Clear the first bit to invalidate the PCID.
+	asm volatile ("mov %0, %%cr3" : : "r"(pml4) : "memory");
+}
+
 void initializePhysicalAccess() {
 	// Nothing to do here.
+}
+
+void poisonPhysicalAccess(PhysicalAddr physical) {
+	auto address = 0xFFFF'8000'0000'0000 + physical;
+	KernelPageSpace::global().unmapSingle4k(address);
+	invalidatePage(reinterpret_cast<void *>(address));
+}
+
+void poisonPhysicalWriteAccess(PhysicalAddr physical) {
+	auto address = 0xFFFF'8000'0000'0000 + physical;
+	KernelPageSpace::global().unmapSingle4k(address);
+	KernelPageSpace::global().mapSingle4k(address, physical, 0, CachingMode::null);
+	invalidatePage(reinterpret_cast<void *>(address));
 }
 
 } // namespace thor
