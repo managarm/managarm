@@ -10,6 +10,11 @@
 
 namespace thor {
 
+namespace {
+	// For debugging 32-bit counters.
+	constexpr bool force32BitHpet = false;
+}
+
 arch::bit_register<uint64_t> genCapsAndId(0);
 arch::bit_register<uint64_t> genConfig(16);
 arch::scalar_register<uint64_t> mainCounter(240);
@@ -29,6 +34,7 @@ arch::field<uint64_t, bool> enableLegacyIrqs(1, 1);
 namespace timer_bits {
 	arch::field<uint64_t, bool> enableInt(2, 1);
 	arch::field<uint64_t, bool> has64BitComparator(5, 1);
+	arch::field<uint64_t, bool> forceTo32Bit(8, 1);
 	arch::field<uint64_t, unsigned int> activeIrq(9, 5);
 	arch::field<uint64_t, bool> fsbEnabled(14, 1);
 	arch::field<uint64_t, bool> fsbCapable(15, 1);
@@ -53,6 +59,8 @@ arch::field<uint8_t, int> operatingMode(1, 3);
 arch::field<uint8_t, int> accessMode(4, 2);
 
 struct HpetDevice : IrqSink, ClockSource, AlarmTracker {
+	friend void setupHpet(PhysicalAddr);
+
 private:
 	using Mutex = frigg::TicketLock;
 
@@ -79,6 +87,8 @@ public:
 
 public:
 	uint64_t currentNanos() override {
+		// TODO: Return a correct value even if the main counter overflows.
+		//       Use one of the comparators to track the number of overflows.
 		assert(hpetPeriod > kFemtosPerNano);
 		return hpetBase.load(mainCounter) * (hpetPeriod / kFemtosPerNano);
 	}
@@ -92,11 +102,22 @@ public:
 		}else{
 			ticks = hpetBase.load(mainCounter) + (nanos - now) / (hpetPeriod / kFemtosPerNano);
 		}
+		if(!_comparatorIs64Bit) {
+			// TODO: We could certainly do something better here.
+			//       - If the tick happens during the next main counter cycle (despite overflow),
+			//         everything works as expected; we do not need to warn.
+			//       - Adjust this code one we count the number of overflows.
+			if(ticks & ~uint64_t{0xFFFFFFFF})
+				frigg::infoLogger() << "\e[31m" "thor: HPET comparator overflow" "\e[39m"
+						<< frigg::endLog;
+			ticks &= ~uint64_t(0xFFFFFFFF);
+		}
 		hpetBase.store(timerComparator0, ticks);
 	}
 
 private:
 //	Mutex _mutex;
+	bool _comparatorIs64Bit = true;
 };
 
 frigg::LazyInitializer<HpetDevice> hpetDevice;
@@ -109,9 +130,9 @@ bool haveTimer() {
 
 void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
-	
+
 	hpetDevice.initialize();
-	
+
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
@@ -119,27 +140,30 @@ void setupHpet(PhysicalAddr address) {
 	hpetBase = arch::mem_space(register_ptr);
 
 	auto global_caps = hpetBase.load(genCapsAndId);
-	if(!(global_caps & has64BitCounter))
-		frigg::panicLogger() << "    Counter is only 32-bits!" << frigg::endLog;
-	
+	if(!(global_caps & has64BitCounter)) {
+		frigg::infoLogger() << "    Counter is only 32-bits!" << frigg::endLog;
+	}else if(force32BitHpet) {
+		frigg::infoLogger() << "    Forcing HPET to use 32-bit mode!" << frigg::endLog;
+	}
 	if(global_caps & supportsLegacyIrqs)
 		frigg::infoLogger() << "    Supports legacy replacement." << frigg::endLog;
 
 	hpetPeriod = global_caps & counterPeriod;
 	frigg::infoLogger() << "    Tick period: " << hpetPeriod
 			<< "fs" << frigg::endLog;
-	
+
 	auto timer_caps = hpetBase.load(timerConfig0);
 	frigg::infoLogger() << "    Possible IRQ mask: "
 			<< (timer_caps & timer_bits::possibleIrqs) << frigg::endLog;
 	if(timer_caps & timer_bits::fsbCapable)
 		frigg::infoLogger() << "    Timer 0 is capable of FSB interrupts." << frigg::endLog;
-	
+
 	// TODO: Disable all timers before programming the first one.
 	hpetBase.store(timerConfig0, timer_bits::enableInt(false));
 
 	// Enable the HPET counter.
-	assert(timer_caps & timer_bits::has64BitComparator);
+	if(!(timer_caps & timer_bits::has64BitComparator) || force32BitHpet)
+		hpetDevice->_comparatorIs64Bit = false;
 	if(global_caps & supportsLegacyIrqs) {
 		hpetBase.store(genConfig, enableCounter(true) | enableLegacyIrqs(true));
 	}else{
@@ -150,12 +174,14 @@ void setupHpet(PhysicalAddr address) {
 
 	// Program HPET timer 0 in one-shot mode.
 	if(global_caps & supportsLegacyIrqs) {
-		hpetBase.store(timerConfig0, timer_bits::enableInt(false));
+		hpetBase.store(timerConfig0, timer_bits::forceTo32Bit(!hpetDevice->_comparatorIs64Bit)
+				| timer_bits::enableInt(false));
 		hpetBase.store(timerComparator0, 0);
 		hpetBase.store(timerConfig0, timer_bits::enableInt(true));
 	}else{
 		assert((timer_caps & timer_bits::possibleIrqs) & (1 << 2));
-		hpetBase.store(timerConfig0, timer_bits::enableInt(false) | timer_bits::activeIrq(2));
+		hpetBase.store(timerConfig0, timer_bits::forceTo32Bit(!hpetDevice->_comparatorIs64Bit)
+				| timer_bits::enableInt(false) | timer_bits::activeIrq(2));
 		hpetBase.store(timerComparator0, 0);
 		hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
 	}
