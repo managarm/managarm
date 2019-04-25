@@ -12,12 +12,21 @@ extern "C" void earlyStubPage();
 extern "C" void faultStubDivideByZero();
 extern "C" void faultStubDebug();
 extern "C" void faultStubBreakpoint();
+extern "C" void faultStubOverflow();
+extern "C" void faultStubBound();
 extern "C" void faultStubOpcode();
 extern "C" void faultStubNoFpu();
 extern "C" void faultStubDouble();
+extern "C" void faultStub9();
+extern "C" void faultStubInvalidTss();
+extern "C" void faultStubSegment();
+extern "C" void faultStubStack();
 extern "C" void faultStubProtection();
 extern "C" void faultStubPage();
+extern "C" void faultStub15();
 extern "C" void faultStubFpuException();
+extern "C" void faultStubAlignment();
+extern "C" void faultStubMachineCheck();
 extern "C" void faultStubSimdException();
 
 extern "C" void thorRtIsrIrq0();
@@ -127,12 +136,21 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
 	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
 	makeIdt64IntUserGate(table, 3, fault_selector, (void *)&faultStubBreakpoint, 0);
+	makeIdt64IntUserGate(table, 4, fault_selector, (void *)&faultStubOverflow, 0);
+	makeIdt64IntUserGate(table, 5, fault_selector, (void *)&faultStubBound, 0);
 	makeIdt64IntSystemGate(table, 6, fault_selector, (void *)&faultStubOpcode, 0);
 	makeIdt64IntSystemGate(table, 7, fault_selector, (void *)&faultStubNoFpu, 0);
 	makeIdt64IntSystemGate(table, 8, fault_selector, (void *)&faultStubDouble, 0);
+	makeIdt64IntSystemGate(table, 9, fault_selector, (void *)&faultStub9, 0);
+	makeIdt64IntSystemGate(table, 10, fault_selector, (void *)&faultStubInvalidTss, 0);
+	makeIdt64IntSystemGate(table, 11, fault_selector, (void *)&faultStubSegment, 0);
+	makeIdt64IntSystemGate(table, 12, fault_selector, (void *)&faultStubStack, 0);
 	makeIdt64IntSystemGate(table, 13, fault_selector, (void *)&faultStubProtection, 0);
 	makeIdt64IntSystemGate(table, 14, fault_selector, (void *)&faultStubPage, 0);
+	makeIdt64IntSystemGate(table, 15, fault_selector, (void *)&faultStub15, 0);
 	makeIdt64IntSystemGate(table, 16, fault_selector, (void *)&faultStubFpuException, 0);
+	makeIdt64IntSystemGate(table, 17, fault_selector, (void *)&faultStubAlignment, 0);
+	makeIdt64IntSystemGate(table, 18, fault_selector, (void *)&faultStubMachineCheck, 0);
 	makeIdt64IntSystemGate(table, 19, fault_selector, (void *)&faultStubSimdException, 0);
 
 	int irq_selector = kSelSystemIrqCode;
@@ -202,7 +220,10 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 			&& cs != kSelExecutorFaultCode && cs != kSelExecutorSyscallCode)
 		frigg::panicLogger() << "Fault #" << number
 				<< ", from unexpected cs: 0x" << frigg::logHex(cs)
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+				<< ", ip: " << (void *)*image.ip() << "\n"
+				<< "Error code: 0x" << frigg::logHex(*image.code())
+				<< ", SS: 0x" << frigg::logHex(*image.ss())
+				<< ", RSP: " << (void *)*image.sp() << frigg::endLog;
 
 	disableUserAccess();
 
@@ -227,7 +248,10 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	default:
 		frigg::panicLogger() << "Unexpected fault number " << number
 				<< ", from cs: 0x" << frigg::logHex(cs)
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+				<< ", ip: " << (void *)*image.ip() << "\n"
+				<< "Error code: 0x" << frigg::logHex(*image.code())
+				<< ", SS: 0x" << frigg::logHex(*image.ss())
+				<< ", RSP: " << (void *)*image.sp() << frigg::endLog;
 	}
 }
 

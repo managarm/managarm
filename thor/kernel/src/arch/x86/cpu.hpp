@@ -123,8 +123,9 @@ struct FaultImageAccessor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 
 	Word *ip() { return &_frame()->rip; }
-
+	Word *sp() { return &_frame()->rsp; }
 	Word *cs() { return &_frame()->cs; }
+	Word *ss() { return &_frame()->ss; }
 	Word *rflags() { return &_frame()->rflags; }
 	Word *code() { return &_frame()->code; }
 	

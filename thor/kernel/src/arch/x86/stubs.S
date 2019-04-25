@@ -110,12 +110,21 @@
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDivideByZero, 0
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDebug, 1
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubBreakpoint, 3
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubOverflow, 4
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubBound, 5
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubOpcode, 6
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubNoFpu, 7
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubDouble, 8
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStub9, 9
+MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubInvalidTss, 10
+MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubSegment, 11
+MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubStack, 12
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubProtection, 13
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStub15, 15
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubFpuException, 16
+MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubAlignment, 17
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubMachineCheck, 18
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 
 # ---------------------------------------------------------
