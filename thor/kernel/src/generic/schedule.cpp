@@ -92,7 +92,8 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	self->_numWaiting++;
 
 	if(self == &getCpuData()->scheduler) {
-		self->_updatePreemption();
+		if(self->_updatePreemption())
+			sendPingIpi(self->_cpuContext->localApicId);
 	}else{
 		sendPingIpi(self->_cpuContext->localApicId);
 	}
@@ -141,14 +142,15 @@ void Scheduler::suspendWaiting(ScheduleEntity *entity) {
 	self->_numWaiting--;
 
 	if(self == &getCpuData()->scheduler) {
-		self->_updatePreemption();
+		if(self->_updatePreemption())
+			sendPingIpi(self->_cpuContext->localApicId);
 	}else{
 		sendPingIpi(self->_cpuContext->localApicId);
 	}
 }
 
 Scheduler::Scheduler(CpuData *cpu_context)
-: _cpuContext{cpu_context}, _scheduleFlag{false}, _current{nullptr},
+: _cpuContext{cpu_context}, _current{nullptr},
 		_numWaiting{0}, _refClock{0}, _systemProgress{0} { }
 
 Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
@@ -176,9 +178,7 @@ bool Scheduler::wantSchedule() {
 	auto lock = frigg::guard(&_mutex);
 
 	_updateSystemProgress();
-	_refreshFlag();
-	_updatePreemption();
-	return _scheduleFlag;
+	return _updatePreemption();
 }
 
 void Scheduler::reschedule() {
@@ -276,37 +276,41 @@ void Scheduler::_updateSystemProgress() {
 		_systemProgress += delta_time * fixedInverse(n);
 }
 
-// TODO: Integrate this function and the _refreshFlag() function.
-void Scheduler::_updatePreemption() {
+// Returns true if preemption should be done immediately.
+bool Scheduler::_updatePreemption() {
 	if(disablePreemption)
-		return;
+		return false;
 
-	// It does not make sense to preempt if there is no active thread.
-	if(!_current || _current->state != ScheduleState::active)
-		return; // Hope for thread switch.
-
+	// Disable preemption if there are no other threads.
 	if(_waitQueue.empty()) {
 		disarmPreemption();
-		return;
+		return false;
 	}
 
+	// If there is no active thread, switch threads immediately.
+	if(!_current || _current->state != ScheduleState::active)
+		return true;
+
 	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
-		return; // Hope for thread switch.
+		// There is a thread with higher priority. Switch threads immediately.
+		return true;
 	}else if(po < 0) {
 		// Disable preemption if we have higher priority.
 		disarmPreemption();
-		return;
+		return false;
 	}
 
+	// If the thread exhausted its time slice already, switch threads immediately.
 	auto diff = _liveUnfairness(_current) - _liveUnfairness(_waitQueue.top());
 	if(diff < 0)
-		return; // Hope for thread switch.
+		return true;
 
 	auto slice = frigg::max(diff / 256, sliceGranularity);
 	if(logTimeSlice)
 		frigg::infoLogger() << "Scheduling time slice: "
 				<< slice / 1000 << " us" << frigg::endLog;
 	armPreemption(slice);
+	return false;
 }
 
 void Scheduler::_updateCurrentEntity() {
@@ -340,31 +344,6 @@ void Scheduler::_updateEntityStats(ScheduleEntity *entity) {
 	if(entity == _current)
 		entity->_runTime += _refClock - entity->_refClock;
 	entity->_refClock = _refClock;
-}
-
-void Scheduler::_refreshFlag() {
-	if(_waitQueue.empty()) {
-		_scheduleFlag = false;
-		return;
-	}
-
-	if(_current && _current->state == ScheduleState::active) {
-		// Update the unfairness so that scheduleBefore() is correct.
-		_updateCurrentEntity();
-
-		if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po) {
-			_scheduleFlag = po > 0;
-			return;
-		}
-
-		if(disablePreemption || _refClock - _sliceClock < sliceGranularity
-				|| ScheduleEntity::scheduleBefore(_current, _waitQueue.top())) {
-			_scheduleFlag = false;
-			return;
-		}
-	}
-
-	_scheduleFlag = true;
 }
 
 Scheduler *localScheduler() {

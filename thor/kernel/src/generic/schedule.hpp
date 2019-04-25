@@ -97,7 +97,7 @@ private:
 
 private:
 	void _updateSystemProgress();
-	void _updatePreemption();
+	bool _updatePreemption();
 
 	void _updateCurrentEntity();
 	void _updateWaitingEntity(ScheduleEntity *entity);
@@ -107,12 +107,6 @@ private:
 	CpuData *_cpuContext;
 
 	frigg::TicketLock _mutex;
-
-	// Updates the current value of _scheduleFlag.
-	void _refreshFlag();
-
-	// This value is returned by wantSchedule().
-	bool _scheduleFlag;
 
 	ScheduleEntity *_current;
 	
