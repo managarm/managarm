@@ -589,6 +589,8 @@ enum LegacyPicFlags {
 	kIcw4BufMaster = 0x0C,
 	kIcw4Sfnm = 0x10,
 
+	kOcw3ReadIsr = 0x0B,
+
 	kPicEoi = 0x20
 };
 
@@ -630,6 +632,19 @@ void setupLegacyPic() {
 void maskLegacyPic() {
 	frigg::arch_x86::ioOutByte(kPic1Data, 0xFF);
 	frigg::arch_x86::ioOutByte(kPic2Data, 0xFF);
+}
+
+bool checkLegacyPicIsr(int irq) {
+	if(irq < 8) {
+		frigg::arch_x86::ioOutByte(kPic1Command, kOcw3ReadIsr);
+		auto isr = frigg::arch_x86::ioInByte(kPic1Command);
+		return isr & (1 << irq);
+	}else{
+		assert(irq < 16);
+		frigg::arch_x86::ioOutByte(kPic2Command, kOcw3ReadIsr);
+		auto isr = frigg::arch_x86::ioInByte(kPic2Command);
+		return isr & (1 << (irq - 8));
+	}
 }
 
 // --------------------------------------------------------

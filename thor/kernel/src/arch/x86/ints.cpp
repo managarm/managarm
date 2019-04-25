@@ -54,6 +54,9 @@ extern "C" void thorRtIsrIrq21();
 extern "C" void thorRtIsrIrq22();
 extern "C" void thorRtIsrIrq23();
 
+extern "C" void thorRtIsrLegacyIrq7();
+extern "C" void thorRtIsrLegacyIrq15();
+
 extern "C" void thorRtIpiShootdown();
 extern "C" void thorRtIpiPing();
 extern "C" void thorRtPreemption();
@@ -154,6 +157,9 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 19, fault_selector, (void *)&faultStubSimdException, 0);
 
 	int irq_selector = kSelSystemIrqCode;
+	makeIdt64IntSystemGate(table, 39, irq_selector, (void *)&thorRtIsrLegacyIrq7, 1);
+	makeIdt64IntSystemGate(table, 47, irq_selector, (void *)&thorRtIsrLegacyIrq15, 1);
+
 	makeIdt64IntSystemGate(table, 64, irq_selector, (void *)&thorRtIsrIrq0, 1);
 	makeIdt64IntSystemGate(table, 65, irq_selector, (void *)&thorRtIsrIrq1, 1);
 	makeIdt64IntSystemGate(table, 66, irq_selector, (void *)&thorRtIsrIrq2, 1);
@@ -269,6 +275,28 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	disableUserAccess();
 
 	handleIrq(image, number);
+}
+
+extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
+	if(inStub(*image.ip()))
+		frigg::panicLogger() << "IRQ " << number
+				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+
+	uint16_t cs = *image.cs();
+	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+
+	assert(!irqMutex().nesting());
+	disableUserAccess();
+
+	if(checkLegacyPicIsr(number)) {
+		frigg::infoLogger() << "\e[31m" "thor: Spurious IRQ " << number
+				<< " of legacy PIC" "\e[39m" << frigg::endLog;
+	}else{
+		frigg::infoLogger() << "\e[31m" "thor: Ignoring non-spurious IRQ " << number
+				<< " of legacy PIC" "\e[39m" << frigg::endLog;
+	}
 }
 
 extern "C" void onPlatformPreemption(IrqImageAccessor image) {

@@ -90,6 +90,8 @@ void setupLegacyPic();
 
 void maskLegacyPic();
 
+bool checkLegacyPicIsr(int irq);
+
 // --------------------------------------------------------
 // General functions
 // --------------------------------------------------------
