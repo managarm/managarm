@@ -1811,6 +1811,14 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
 			auto offset = closure->continuation->offset() + closure->progress;
+			auto address = self->address() + offset;
+
+			// Remap the copy as read-write.
+			auto status = self->owner()->_pageSpace.unmapSingle4k(address & ~(kPageSize - 1));
+			assert(!(status & page_status::dirty));
+			self->owner()->_pageSpace.mapSingle4k(address & ~(kPageSize - 1),
+					closure->physical,
+					true, self->compilePageFlags(), CachingMode::null);
 
 			auto cow_it = self->_ownedPages.find(offset >> kPageShift);
 			assert(cow_it->state == CowState::inProgress);
@@ -1825,13 +1833,17 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			auto address = self->address()
 					+ closure->continuation->offset() + closure->progress;
 
+			// To make CoW unobservable, we first need to map the copy as read-only,
+			// perform shootdown and finally map the copy as read-write.
+			// This guarantees that all observers see the copy before the first write is done.
+
 			// TODO: Update RSS, handle dirty pages, etc.
 			// The page is a copy with default caching mode.
 			auto status = self->owner()->_pageSpace.unmapSingle4k(address & ~(kPageSize - 1));
 			assert(!(status & page_status::dirty));
 			self->owner()->_pageSpace.mapSingle4k(address & ~(kPageSize - 1),
 					closure->physical,
-					true, self->compilePageFlags(), CachingMode::null);
+					true, self->compilePageFlags() & ~page_access::write, CachingMode::null);
 			self->owner()->_residuentSize += kPageSize;
 			logRss(self->owner());
 
@@ -2012,7 +2024,15 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 		static void insertPage(Closure *closure) {
 			// TODO: Assert that there is no overflow.
 			auto self = closure->self;
+			auto address = self->address() + closure->continuation->_offset;
 			auto misalign = closure->continuation->_offset & (kPageSize - 1);
+
+			// Remap the copy as read-write.
+			auto status = self->owner()->_pageSpace.unmapSingle4k(address & ~(kPageSize - 1));
+			assert(!(status & page_status::dirty));
+			self->owner()->_pageSpace.mapSingle4k(address & ~(kPageSize - 1),
+					closure->physical,
+					true, self->compilePageFlags(), CachingMode::null);
 
 			closure->continuation->setResult(kErrSuccess, closure->physical + misalign,
 					kPageSize - misalign, CachingMode::null);
@@ -2026,13 +2046,17 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			auto self = closure->self;
 			auto address = self->address() + closure->continuation->_offset;
 
+			// To make CoW unobservable, we first need to map the copy as read-only,
+			// perform shootdown and finally map the copy as read-write.
+			// This guarantees that all observers see the copy before the first write is done.
+
 			// TODO: Update RSS, handle dirty pages, etc.
 			// The page is a copy with default caching mode.
 			auto status = self->owner()->_pageSpace.unmapSingle4k(address & ~(kPageSize - 1));
 			assert(!(status & page_status::dirty));
 			self->owner()->_pageSpace.mapSingle4k(address & ~(kPageSize - 1),
 					closure->physical,
-					true, self->compilePageFlags(), CachingMode::null);
+					true, self->compilePageFlags() & ~page_access::write, CachingMode::null);
 			self->owner()->_residuentSize += kPageSize;
 			logRss(self->owner());
 
