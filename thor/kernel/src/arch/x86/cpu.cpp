@@ -693,12 +693,10 @@ void initializeThisProcessor() {
 	}
 
 	// Enable the PCID extension.
-	if(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 17)) {
+	bool pcid_bit = frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
+	bool invpcid_bit = frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
+	if(pcid_bit && invpcid_bit) {
 		frigg::infoLogger() << "\e[37mthor: CPU supports PCIDs\e[39m" << frigg::endLog;
-
-		if(!(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 10)))
-			frigg::panicLogger() << "\e[31mthor: However, INVPCID is not supported!\e[39m"
-					<< frigg::endLog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -706,6 +704,9 @@ void initializeThisProcessor() {
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
 		cpu_data->havePcids = true;
+	}else if(pcid_bit) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports PCIDs but no INVPCID;"
+				" will not use PCIDs!\e[39m" << frigg::endLog;
 	}else{
 		frigg::infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frigg::endLog;
 	}
