@@ -348,13 +348,14 @@ size_t computeBarLength(uintptr_t mask) {
 	return size_t(1) << length_bits;
 }
 
-//FIXME: std::queue<unsigned int> enumerationQueue;
+frigg::LazyInitializer<frg::vector<unsigned int, KernelAlloc>> enumerationQueue;
 
 IrqPin *resolveRoute(const RoutingInfo &info, unsigned int slot, IrqIndex index) {
 	auto entry = std::find_if(info.begin(), info.end(), [&] (const auto &ref) {
 		return ref.slot == slot && ref.index == index;
 	});
-	assert(entry != info.end());
+	if(entry == info.end())
+		return nullptr;
 	assert(entry->pin);
 	return entry->pin;
 }
@@ -372,7 +373,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 		uint8_t secondary = readPciByte(bus, slot, function, kPciBridgeSecondary);
 		frigg::infoLogger() << "        Function " << function
 				<< ": PCI-to-PCI bridge to bus " << (int)secondary;
-		//FIXME: enumerationQueue.push(secondary);
+		enumerationQueue->push_back(secondary);
 	}else{
 		frigg::infoLogger() << "        Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F);
@@ -532,10 +533,15 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 				kPciRegularInterruptPin));
 		if(irq_index != IrqIndex::null) {
 			auto irq_pin = resolveRoute(routing, slot, irq_index);
-			frigg::infoLogger() << "            Interrupt: "
-					<< nameOf(irq_index)
-					<< " (routed to " << irq_pin->name() << ")" << frigg::endLog;
-			device->interrupt = irq_pin;
+			if(irq_pin) {
+				frigg::infoLogger() << "            Interrupt: "
+						<< nameOf(irq_index)
+						<< " (routed to " << irq_pin->name() << ")" << frigg::endLog;
+				device->interrupt = irq_pin;
+			}else{
+				frigg::infoLogger() << "\e[31m" "            Interrupt routing not available!"
+					"\e[39m" << frigg::endLog;
+			}
 		}
 
 		allDevices->push(device);
@@ -576,14 +582,21 @@ void checkPciBus(uint32_t bus, const RoutingInfo &routing) {
 
 void pciDiscover(const RoutingInfo &routing) {
 	frigg::infoLogger() << "thor: Discovering PCI devices" << frigg::endLog;
+	enumerationQueue.initialize(*kernelAlloc);
 	allDevices.initialize(*kernelAlloc);
-	checkPciBus(0, routing);
-/*	enumerationQueue.push(0);
-	while(!enumerationQueue.empty()) {
-		auto bus = enumerationQueue.front();
-		enumerationQueue.pop();
-		checkPciBus(bus);
-	}*/
+
+	enumerationQueue->push_back(0);
+	// Note that elements are added to this queue while it is being traversed.
+	for(size_t i = 0; i < enumerationQueue->size(); i++) {
+		auto bus = (*enumerationQueue)[i];
+		if(!bus) {
+			checkPciBus(0, routing);
+		}else{
+			frigg::infoLogger() << "\e[31m" "thor: IRQ routing behind bridges is"
+					" not implemented correctly" "\e[39m" << frigg::endLog;
+			checkPciBus(bus, RoutingInfo{*kernelAlloc});
+		}
+	}
 }
 
 void runAllDevices() {
