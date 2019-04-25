@@ -75,6 +75,10 @@ struct ShootNode {
 private:
 	Worklet *_worklet;
 
+	// This CPU already performed synchronous shootdown,
+	// hence it can ignore this request during asynchronous shootdown.
+	void *_initiatorCpu;
+
 	uint64_t _sequence;
 
 	std::atomic<unsigned int> _bindingsToShoot;
@@ -125,6 +129,10 @@ struct PageBinding {
 	void setupPcid(int pcid) {
 		assert(!_pcid);
 		_pcid = pcid;
+	}
+
+	int getPcid() {
+		return _pcid;
 	}
 
 	uint64_t primaryStamp() {

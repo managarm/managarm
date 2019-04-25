@@ -162,10 +162,12 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 				auto predecessor = current->_queueNode.previous;
 
 				// Signal completion of the shootdown.
-				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-					auto it = unbound_space->_shootQueue.iterator_to(current);
-					unbound_space->_shootQueue.erase(it);
-					complete.push_front(current);
+				if(current->_initiatorCpu != getCpuData()) {
+					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+						auto it = unbound_space->_shootQueue.iterator_to(current);
+						unbound_space->_shootQueue.erase(it);
+						complete.push_front(current);
+					}
 				}
 
 				if(!predecessor)
@@ -222,14 +224,13 @@ void PageBinding::unbind() {
 				auto predecessor = current->_queueNode.previous;
 
 				// The actual shootdown was done above.
-				assert(!(current->address & (kPageSize - 1)));
-				assert(!(current->size & (kPageSize - 1)));
-
 				// Signal completion of the shootdown.
-				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-					auto it = _boundSpace->_shootQueue.iterator_to(current);
-					_boundSpace->_shootQueue.erase(it);
-					complete.push_front(current);
+				if(current->_initiatorCpu != getCpuData()) {
+					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+						auto it = _boundSpace->_shootQueue.iterator_to(current);
+						_boundSpace->_shootQueue.erase(it);
+						complete.push_front(current);
+					}
 				}
 
 				if(!predecessor)
@@ -284,24 +285,23 @@ void PageBinding::shootdown() {
 			while(current->_sequence > _alreadyShotSequence) {
 				auto predecessor = current->_queueNode.previous;
 
-				// Perform the actual shootdown.
-				assert(!(current->address & (kPageSize - 1)));
-				assert(!(current->size & (kPageSize - 1)));
+				if(current->_initiatorCpu != getCpuData()) {
+					// Perform the actual shootdown.
+					if(!getCpuData()->havePcids) {
+						assert(!_pcid);
+						for(size_t pg = 0; pg < current->size; pg += kPageSize)
+							invalidatePage(reinterpret_cast<void *>(current->address + pg));
+					}else{
+						for(size_t pg = 0; pg < current->size; pg += kPageSize)
+							invalidatePage(_pcid, reinterpret_cast<void *>(current->address + pg));
+					}
 
-				if(!getCpuData()->havePcids) {
-					assert(!_pcid);
-					for(size_t pg = 0; pg < current->size; pg += kPageSize)
-						invalidatePage(reinterpret_cast<void *>(current->address + pg));
-				}else{
-					for(size_t pg = 0; pg < current->size; pg += kPageSize)
-						invalidatePage(_pcid, reinterpret_cast<void *>(current->address + pg));
-				}
-
-				// Signal completion of the shootdown.
-				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-					auto it = _boundSpace->_shootQueue.iterator_to(current);
-					_boundSpace->_shootQueue.erase(it);
-					complete.push_front(current);
+					// Signal completion of the shootdown.
+					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+						auto it = _boundSpace->_shootQueue.iterator_to(current);
+						_boundSpace->_shootQueue.erase(it);
+						complete.push_front(current);
+					}
 				}
 
 				if(!predecessor)
@@ -377,21 +377,46 @@ void PageSpace::retire(RetireNode *node) {
 }
 
 bool PageSpace::submitShootdown(ShootNode *node) {
-	bool any_bindings;
+	assert(!(node->address & (kPageSize - 1)));
+	assert(!(node->size & (kPageSize - 1)));
+
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
-		any_bindings = _numBindings;
-		if(any_bindings) {
-			node->_sequence = ++_shootSequence;
-			node->_bindingsToShoot = _numBindings;
-			_shootQueue.push_back(node);
-		}
-	}
+		auto unshot_bindings = _numBindings;
 
-	if(!any_bindings)
-		return true;
+		// Perform synchronous shootdown.
+		auto bindings = getCpuData()->pcidBindings;
+		if(!getCpuData()->havePcids) {
+			if(bindings[0].boundSpace().get() == this) {
+				assert(unshot_bindings);
+
+				for(size_t pg = 0; pg < node->size; pg += kPageSize)
+					invalidatePage(reinterpret_cast<void *>(node->address + pg));
+				unshot_bindings--;
+			}
+		}else{
+			for(int i = 0; i < maxPcidCount; i++) {
+				if(bindings[i].boundSpace().get() != this)
+					continue;
+				assert(unshot_bindings);
+
+				for(size_t pg = 0; pg < node->size; pg += kPageSize)
+					invalidatePage(bindings[i].getPcid(),
+							reinterpret_cast<void *>(node->address + pg));
+				unshot_bindings--;
+			}
+		}
+
+		if(!unshot_bindings)
+			return true;
+
+		node->_initiatorCpu = getCpuData();
+		node->_sequence = ++_shootSequence;
+		node->_bindingsToShoot = unshot_bindings;
+		_shootQueue.push_back(node);
+	}
 
 	sendShootdownIpi();
 	return false;
