@@ -136,8 +136,8 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
 	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
 	makeIdt64IntUserGate(table, 3, fault_selector, (void *)&faultStubBreakpoint, 0);
-	makeIdt64IntUserGate(table, 4, fault_selector, (void *)&faultStubOverflow, 0);
-	makeIdt64IntUserGate(table, 5, fault_selector, (void *)&faultStubBound, 0);
+	makeIdt64IntSystemGate(table, 4, fault_selector, (void *)&faultStubOverflow, 0);
+	makeIdt64IntSystemGate(table, 5, fault_selector, (void *)&faultStubBound, 0);
 	makeIdt64IntSystemGate(table, 6, fault_selector, (void *)&faultStubOpcode, 0);
 	makeIdt64IntSystemGate(table, 7, fault_selector, (void *)&faultStubNoFpu, 0);
 	makeIdt64IntSystemGate(table, 8, fault_selector, (void *)&faultStubDouble, 0);
