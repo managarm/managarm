@@ -1699,6 +1699,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 		PhysicalAddr physical;
 		PageAccessor accessor;
 		CopyFromBundleNode copy;
+		ShootNode shoot;
 		Worklet worklet;
 		LockVirtualNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
@@ -1769,9 +1770,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&self->_mutex);
 
-				mapPage(closure);
-				insertPage(closure);
-				return true;
+				return mapPage(closure);
 			}
 
 			// Copy from the root view.
@@ -1781,8 +1780,8 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 					auto irq_lock = frigg::guard(&irqMutex());
 					auto lock = frigg::guard(&closure->self->_mutex);
 
-					mapPage(closure);
-					insertPage(closure);
+					if(!mapPage(closure))
+						return;
 				}
 
 				// Tail of asynchronous path.
@@ -1805,9 +1804,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
 
-			mapPage(closure);
-			insertPage(closure);
-			return true;
+			return mapPage(closure);
 		}
 
 		static void insertPage(Closure *closure) {
@@ -1823,20 +1820,44 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			closure->progress += kPageSize;
 		}
 
-		static void mapPage(Closure *closure) {
+		static bool mapPage(Closure *closure) {
 			auto self = closure->self;
-			auto page_offset = self->address()
+			auto address = self->address()
 					+ closure->continuation->offset() + closure->progress;
 
 			// TODO: Update RSS, handle dirty pages, etc.
 			// The page is a copy with default caching mode.
-			auto status = self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
+			auto status = self->owner()->_pageSpace.unmapSingle4k(address & ~(kPageSize - 1));
 			assert(!(status & page_status::dirty));
-			self->owner()->_pageSpace.mapSingle4k(page_offset & ~(kPageSize - 1),
+			self->owner()->_pageSpace.mapSingle4k(address & ~(kPageSize - 1),
 					closure->physical,
 					true, self->compilePageFlags(), CachingMode::null);
 			self->owner()->_residuentSize += kPageSize;
 			logRss(self->owner());
+
+			closure->worklet.setup([] (Worklet *base) {
+				auto closure = frg::container_of(base, &Closure::worklet);
+				{
+					auto irq_lock = frigg::guard(&irqMutex());
+					auto lock = frigg::guard(&closure->self->_mutex);
+
+					insertPage(closure);
+				}
+
+				// Tail of asynchronous path.
+				if(!process(closure))
+					return;
+				LockVirtualNode::post(closure->continuation);
+				frigg::destruct(*kernelAlloc, closure);
+			});
+			closure->shoot.address = address & ~(kPageSize - 1);
+			closure->shoot.size = kPageSize;
+			closure->shoot.setup(&closure->worklet);
+			if(!self->owner()->_pageSpace.submitShootdown(&closure->shoot))
+				return false;
+
+			insertPage(closure);
+			return true;
 		}
 	};
 
@@ -1884,6 +1905,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 		PhysicalAddr physical;
 		PageAccessor accessor;
 		CopyFromBundleNode copy;
+		ShootNode shoot;
 		Worklet worklet;
 		TouchVirtualNode *continuation;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
@@ -1952,9 +1974,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&self->_mutex);
 
-				mapPage(closure);
-				insertPage(closure);
-				return true;
+				return mapPage(closure);
 			}
 
 			// Copy from the root view.
@@ -1964,8 +1984,8 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 					auto irq_lock = frigg::guard(&irqMutex());
 					auto lock = frigg::guard(&closure->self->_mutex);
 
-					mapPage(closure);
-					insertPage(closure);
+					if(!mapPage(closure))
+						return;
 				}
 
 				// Tail of asynchronous path.
@@ -1986,9 +2006,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
 
-			mapPage(closure);
-			insertPage(closure);
-			return true;
+			return mapPage(closure);
 		}
 
 		static void insertPage(Closure *closure) {
@@ -2004,19 +2022,41 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			cow_it->physical = closure->physical;
 		}
 
-		static void mapPage(Closure *closure) {
+		static bool mapPage(Closure *closure) {
 			auto self = closure->self;
-			auto page_offset = self->address() + closure->continuation->_offset;
+			auto address = self->address() + closure->continuation->_offset;
 
 			// TODO: Update RSS, handle dirty pages, etc.
 			// The page is a copy with default caching mode.
-			auto status = self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
+			auto status = self->owner()->_pageSpace.unmapSingle4k(address & ~(kPageSize - 1));
 			assert(!(status & page_status::dirty));
-			self->owner()->_pageSpace.mapSingle4k(page_offset & ~(kPageSize - 1),
+			self->owner()->_pageSpace.mapSingle4k(address & ~(kPageSize - 1),
 					closure->physical,
 					true, self->compilePageFlags(), CachingMode::null);
 			self->owner()->_residuentSize += kPageSize;
 			logRss(self->owner());
+
+			closure->worklet.setup([] (Worklet *base) {
+				auto closure = frg::container_of(base, &Closure::worklet);
+				{
+					auto irq_lock = frigg::guard(&irqMutex());
+					auto lock = frigg::guard(&closure->self->_mutex);
+
+					insertPage(closure);
+				}
+
+				// Tail of asynchronous path.
+				WorkQueue::post(closure->continuation->_worklet);
+				frigg::destruct(*kernelAlloc, closure);
+			});
+			closure->shoot.address = address & ~(kPageSize - 1);
+			closure->shoot.size = kPageSize;
+			closure->shoot.setup(&closure->worklet);
+			if(!self->owner()->_pageSpace.submitShootdown(&closure->shoot))
+				return false;
+
+			insertPage(closure);
+			return true;
 		}
 	};
 
