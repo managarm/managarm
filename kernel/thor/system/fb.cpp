@@ -1,6 +1,7 @@
 
 #include <frigg/debug.hpp>
 #include <arch/io_space.hpp>
+#include <render-text.hpp>
 #include "../arch/x86/cpu.hpp"
 #include "../arch/x86/hpet.hpp"
 #include "../generic/fiber.hpp"
@@ -15,8 +16,6 @@
 #include <mbus.frigg_pb.hpp>
 #include <hw.frigg_pb.hpp>
 
-extern uint8_t fontBitmap[];
-
 namespace thor {
 
 // ------------------------------------------------------------------------
@@ -25,30 +24,6 @@ namespace thor {
 
 constexpr size_t fontHeight = 16;
 constexpr size_t fontWidth = 8;
-
-constexpr uint32_t rgb(int r, int g, int b) {
-	return (r << 16) | (g << 8) | b;
-}
-
-constexpr uint32_t rgbColor[16] = {
-	rgb(1, 1, 1),
-	rgb(222, 56, 43),
-	rgb(57, 181, 74),
-	rgb(255, 199, 6),
-	rgb(0, 111, 184),
-	rgb(118, 38, 113),
-	rgb(44, 181, 233),
-	rgb(204, 204, 204),
-	rgb(128, 128, 128),
-	rgb(255, 0, 0),
-	rgb(0, 255, 0),
-	rgb(255, 255, 0),
-	rgb(0, 0, 255),
-	rgb(255, 0, 255),
-	rgb(0, 255, 255),
-	rgb(255, 255, 255) 
-};
-constexpr uint32_t defaultBg = rgb(16, 16, 16);
 
 struct FbDisplay : TextDisplay {
 	FbDisplay(void *ptr, unsigned int width, unsigned int height, size_t pitch)
@@ -88,22 +63,9 @@ int FbDisplay::getHeight() {
 
 void FbDisplay::setChars(unsigned int x, unsigned int y,
 		const char *c, int count, int fg, int bg) {
-	auto fg_rgb = rgbColor[fg];
-	auto bg_rgb = (bg < 0) ? defaultBg : rgbColor[bg]; 
-
-	auto dest_line = _window + y * fontHeight * _pitch + x * fontWidth;
-	for(size_t i = 0; i < fontHeight; i++) {
-		auto dest = dest_line;
-		for(int k = 0; k < count; k++) {
-			auto dc = (c[k] >= 32 && c[k] <= 127) ? c[k] : 127;
-			auto fontbits = fontBitmap[(dc - 32) * fontHeight + i];
-			for(size_t j = 0; j < fontWidth; j++) {
-				int bit = (1 << ((fontWidth - 1) - j));
-				*dest++ = (fontbits & bit) ? fg_rgb : bg_rgb;
-			}
-		}
-		dest_line += _pitch;
-	}
+	renderChars((void *)_window, _pitch, x, y, c, count, fg, bg,
+			std::integral_constant<int, fontWidth>{},
+			std::integral_constant<int, fontHeight>{});
 }
 
 void FbDisplay::setBlanks(unsigned int x, unsigned int y, int count, int bg) {

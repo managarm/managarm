@@ -11,6 +11,7 @@
 #include <frigg/support.hpp>
 #include <frigg/physical_buddy.hpp>
 #include <eir/interface.hpp>
+#include <render-text.hpp>
 
 namespace arch = frigg::arch_x86;
 
@@ -146,6 +147,16 @@ void setupRegionStructs() {
 
 // ----------------------------------------------------------------------------
 
+constexpr int fontWidth = 8;
+constexpr int fontHeight = 16;
+
+void *displayFb;
+int displayWidth;
+int displayHeight;
+int displayPitch;
+int outputX;
+int outputY;
+
 class BochsSink {
 public:
 	void print(char c);
@@ -153,11 +164,32 @@ public:
 };
 
 void BochsSink::print(char c) {
+	auto display = [] (char c) {
+		renderChars(displayFb, displayPitch / sizeof(uint32_t),
+				outputX, outputY, &c, 1, 15, -1,
+				std::integral_constant<int, fontWidth>{},
+				std::integral_constant<int, fontHeight>{});
+	};
+
+	if(displayFb)
+		if(c == '\n') {
+			outputX = 0;
+			outputY++;
+		}else if(outputX >= displayWidth / fontWidth) {
+			outputX = 0;
+			outputY++;
+		}else if(outputY >= displayHeight / fontHeight) {
+			// TODO: Scroll.
+		}else{
+			display(c);
+			outputX++;
+		}
+
 	arch::ioOutByte(0xE9, c);
 }
 void BochsSink::print(const char *str) {
-	while(*str != 0)
-		arch::ioOutByte(0xE9, *str++);
+	while(*str)
+		print(*(str++));
 }
 
 BochsSink infoSink;
@@ -517,6 +549,22 @@ struct MbMemoryMap {
 
 extern "C" void eirMain(MbInfo *mb_info) {
 	frigg::infoLogger() << "" << frigg::endLog;
+
+	if(mb_info->flags & kMbInfoFramebuffer) {
+		if(mb_info->fbAddress + mb_info->fbWidth * mb_info->fbPitch >= UINTPTR_MAX) {
+			frigg::infoLogger() << "eir: Framebuffer outside of addressable memory!"
+					<< frigg::endLog;
+		}else if(mb_info->fbBpp != 32) {
+			frigg::infoLogger() << "eir: Framebuffer does not use 32 bpp!"
+					<< frigg::endLog;
+		}else{
+			displayFb = reinterpret_cast<void *>(mb_info->fbAddress);
+			displayWidth = mb_info->fbWidth;
+			displayHeight = mb_info->fbHeight;
+			displayPitch = mb_info->fbPitch;
+		}
+	}
+
 	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
 
 	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
@@ -658,7 +706,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info_ptr->numModules = mb_info->numModules - 1;
 	info_ptr->moduleInfo = mapBootstrapData(modules);
 	
-	if((mb_info->flags & kMbInfoFramebuffer) != 0) {
+	if(mb_info->flags & kMbInfoFramebuffer) {
 		auto framebuf = &info_ptr->frameBuffer;
 		framebuf->fbAddress = mb_info->fbAddress;
 		framebuf->fbPitch = mb_info->fbPitch;
