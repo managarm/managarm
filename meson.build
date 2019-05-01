@@ -15,8 +15,8 @@ if get_option('build_kernel')
 	frigg_dep = frigg.get_variable('frigg_dep')
 	libsmarter_dep = libsmarter.get_variable('libsmarter_dep')
 
-	subdir('eir')
-	subdir('thor/kernel')
+	subdir('kernel/eir')
+	subdir('kernel/thor')
 endif
 
 if get_option('build_drivers')
