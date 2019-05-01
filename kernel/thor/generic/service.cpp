@@ -129,7 +129,7 @@ namespace stdio {
 
 	struct RequestClosure {
 		RequestClosure(LaneHandle lane)
-		: _lane(frigg::move(lane)) { }
+		: _lane{frigg::move(lane)}, _errorBuffer{*kernelAlloc} { }
 
 		void operator() () {
 			serviceAccept(_lane,
@@ -157,15 +157,28 @@ namespace stdio {
 				auto closure = frigg::construct<WriteClosure>(*kernelAlloc,
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
+				(*this)();
 			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
 				auto closure = frigg::construct<SeekClosure>(*kernelAlloc,
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
+				(*this)();
 			}else{
-				frigg::panicLogger() << "Illegal request type " << req.req_type()
-						<< " for kernel provided stdio file" << frigg::endLog;
-			}
+				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << req.req_type()
+						<< " for kernel provided stdio file" "\e[39m" << frigg::endLog;
 
+				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+				resp.SerializeToString(&_errorBuffer);
+				serviceSend(_requestLane, _errorBuffer.data(), _errorBuffer.size(),
+						CALLBACK_MEMBER(this, &RequestClosure::onSendResp));
+			}
+		}
+
+		void onSendResp(Error error) {
+			assert(error == kErrSuccess || error == kErrTransmissionMismatch);
+			_requestLane = LaneHandle{};
 			(*this)();
 		}
 
@@ -173,6 +186,7 @@ namespace stdio {
 
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
+		frigg::String<KernelAlloc> _errorBuffer;
 	};
 } // namespace stdio
 
