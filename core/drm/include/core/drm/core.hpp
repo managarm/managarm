@@ -349,7 +349,9 @@ drm_mode_modeinfo makeModeInfo(const char *name, uint32_t type,
 void addDmtModes(std::vector<drm_mode_modeinfo> &supported_modes,
 		unsigned int max_width, unsigned max_height);
 
+// Copies 16-byte aligned buffers. Expected to be faster than plain memcpy().
+extern "C" void fastCopy16(void *, const void *, size_t);
+
 } //namespace drm_core
 
 #endif // CORE_DRM_CORE_HPP
-

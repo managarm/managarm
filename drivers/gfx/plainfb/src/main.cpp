@@ -1,5 +1,6 @@
 
 #include <assert.h>
+#include <immintrin.h>
 #include <stdio.h>
 #include <deque>
 #include <experimental/optional>
@@ -89,6 +90,19 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 // ----------------------------------------------------------------
 // GfxDevice.
 // ----------------------------------------------------------------
+
+GfxDevice::GfxDevice(protocols::hw::Device hw_device,
+		unsigned int screen_width, unsigned int screen_height,
+		size_t screen_pitch, helix::Mapping fb_mapping)
+: _hwDevice{std::move(hw_device)},
+		_screenWidth{screen_width}, _screenHeight{screen_height},
+		_screenPitch{screen_pitch},_fbMapping{std::move(fb_mapping)} {
+	if((reinterpret_cast<uintptr_t>(fb_mapping.get()) & 15)) {
+		std::cout << "\e[31m" "gfx/plainfb: Hardware framebuffer is not aligned;"
+				" expect perfomance degradation!" "\e[39m" << std::endl;
+		_hardwareFbIsAligned = false;
+	}
+}
 
 COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] { 
 	// Setup planes, encoders and CRTCs (i.e. the static entities).
@@ -261,10 +275,19 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 		assert(bo->getHeight() == _device->_screenHeight);
 		auto dest = reinterpret_cast<char *>(_device->_fbMapping.get());
 		auto src = reinterpret_cast<char *>(bo->accessMapping());
-		for(unsigned int k = 0; k < bo->getHeight(); k++) {
-			memcpy(dest, src, bo->getWidth() * 4);
-			dest += _device->_screenPitch;
-			src += _state->fb->getPitch();
+
+		if(_state->fb->fastScanout()) {
+			for(unsigned int k = 0; k < bo->getHeight(); k++) {
+				fastCopy16(dest, src, bo->getWidth() * 4);
+				dest += _device->_screenPitch;
+				src += _state->fb->getPitch();
+			}
+		}else{
+			for(unsigned int k = 0; k < bo->getHeight(); k++) {
+				memcpy(dest, src, bo->getWidth() * 4);
+				dest += _device->_screenPitch;
+				src += _state->fb->getPitch();
+			}
 		}
 	}else if(_state) {
 		assert(!_state->mode);
@@ -310,7 +333,15 @@ drm_core::Plane *GfxDevice::Crtc::primaryPlane() {
 GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device,
 		std::shared_ptr<GfxDevice::BufferObject> bo, size_t pitch)
 : drm_core::FrameBuffer{device->allocator.allocate()},
-		_device{device}, _bo{std::move(bo)}, _pitch{pitch} { }
+		_device{device}, _bo{std::move(bo)}, _pitch{pitch} {
+	if(!_device->_hardwareFbIsAligned) {
+		_fastScanout = false;
+	}else if((reinterpret_cast<uintptr_t>(_bo->accessMapping()) & 15)
+			|| ((_bo->getWidth() * 4) & 15)) {
+		std::cout << "\e[31m" "gfx/plainfb: Framebuffer is not aligned!" "\e[39m" << std::endl;
+		_fastScanout = false;
+	}
+}
 
 size_t GfxDevice::FrameBuffer::getPitch() {
 	return _pitch;

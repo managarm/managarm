@@ -89,6 +89,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 				size_t pitch);
 
 		size_t getPitch();
+		bool fastScanout() { return _fastScanout; }
 
 		GfxDevice::BufferObject *getBufferObject();
 		void notifyDirty() override;
@@ -97,16 +98,13 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		GfxDevice *_device;
 		std::shared_ptr<GfxDevice::BufferObject> _bo;
 		size_t _pitch;
+		bool _fastScanout = true;
 	};
 
 	GfxDevice(protocols::hw::Device hw_device,
 			unsigned int screen_width, unsigned int screen_height,
-			size_t screen_pitch, helix::Mapping fb_mapping)
-	: _hwDevice{std::move(hw_device)},
-			_screenWidth{screen_width}, _screenHeight{screen_height},
-			_screenPitch{screen_pitch},_fbMapping{std::move(fb_mapping)},
-			_claimedDevice{false} { }
-	
+			size_t screen_pitch, helix::Mapping fb_mapping);
+
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
 	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
@@ -129,7 +127,8 @@ private:
 	std::shared_ptr<Encoder> _theEncoder;
 	std::shared_ptr<Connector> _theConnector;
 
-	bool _claimedDevice;
+	bool _claimedDevice = false;
+	bool _hardwareFbIsAligned = true;
 };
 
 #endif // DRIVERS_GFX_PLAINFB_PLAINFB_HPP
