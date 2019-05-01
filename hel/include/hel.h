@@ -94,6 +94,7 @@ enum {
 	kHelErrNoDescriptor = 4,
 	kHelErrBadDescriptor = 2,
 	kHelErrThreadTerminated = 11,
+	kHelErrTransmissionMismatch = 13,
 	kHelErrLaneShutdown = 8,
 	kHelErrClosedLocally = 8, // Deprecated name.
 	kHelErrEndOfLane = 9,

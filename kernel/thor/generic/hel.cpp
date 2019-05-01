@@ -52,6 +52,7 @@ HelError translateError(Error error) {
 	switch(error) {
 	case kErrSuccess: return kHelErrNone;
 	case kErrThreadExited: return kHelErrThreadTerminated;
+	case kErrTransmissionMismatch: return kHelErrTransmissionMismatch;
 	case kErrLaneShutdown: return kHelErrLaneShutdown;
 	case kErrEndOfLane: return kHelErrEndOfLane;
 //		case kErrBufferTooSmall: return kHelErrBufferTooSmall;

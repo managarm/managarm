@@ -170,10 +170,11 @@ void Stream::Submitter::run() {
 				&& PullDescriptorBase::classOf(*v)) {
 			transfer(PushPull{}, u, v);
 		}else{
-			frigg::infoLogger() << u->tag()
-					<< " vs. " << v->tag() << frigg::endLog;
-			assert(!"Operations do not match");
-			__builtin_trap();
+			u->_error = kErrTransmissionMismatch;
+			u->complete();
+
+			v->_error = kErrTransmissionMismatch;
+			v->complete();
 		}
 	}
 }

@@ -10,6 +10,7 @@ enum Error {
 	kErrCancelled,
 	kErrBufferTooSmall,
 	kErrThreadExited,
+	kErrTransmissionMismatch,
 	kErrLaneShutdown,
 	kErrEndOfLane,
 	kErrFault
