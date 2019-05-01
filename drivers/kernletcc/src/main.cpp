@@ -98,6 +98,10 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 				helix::action(&recv_req, kHelItemChain),
 				helix::action(&recv_code));
 		COFIBER_AWAIT header.async_wait();
+		if(accept.error() == kHelErrEndOfLane) {
+			std::cout << "kernletcc: Client closed its connection" << std::endl;
+			COFIBER_RETURN();
+		}
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		HEL_CHECK(recv_code.error());
@@ -148,6 +152,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_kernlet, object));
 			COFIBER_AWAIT transmit.async_wait();
+			if(send_resp.error() == kHelErrEndOfLane) {
+				std::cout << "\e[31m" "kernletcc: Client unexpectedly closed its connection"
+						"\e[39m" << std::endl;
+				COFIBER_RETURN();
+			}
 			HEL_CHECK(send_resp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
