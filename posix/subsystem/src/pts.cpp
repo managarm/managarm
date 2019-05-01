@@ -64,6 +64,11 @@ struct Channel {
 
 	struct termios activeSettings;
 
+	int width = 80;
+	int height = 25;
+	int pixelWidth = 8 * 80;
+	int pixelHeight = 16 * 25;
+
 	// Status management for poll().
 	async::doorbell statusBell;
 	uint64_t currentSeq;
@@ -84,22 +89,22 @@ struct MasterDevice : UnixDevice {
 	: UnixDevice(VfsType::charDevice) {
 		assignId({5, 2});
 	}
-	
+
 	std::string nodePath() override {
 		return "ptmx";
 	}
-	
+
 	async::result<SharedFilePtr>
 	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override;
 };
 
 struct SlaveDevice : UnixDevice {
 	SlaveDevice(std::shared_ptr<Channel> channel);
-	
+
 	std::string nodePath() override {
 		return std::string{};
 	}
-	
+
 	async::result<SharedFilePtr>
 	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override;
 
@@ -119,7 +124,7 @@ public:
 	}
 
 	MasterFile(std::shared_ptr<FsLink> link);
-	
+
 	expected<size_t>
 	readSome(Process *, void *data, size_t max_length) override;
 
@@ -154,7 +159,7 @@ public:
 	}
 
 	SlaveFile(std::shared_ptr<FsLink> link, std::shared_ptr<Channel> channel);
-	
+
 	expected<size_t>
 	readSome(Process *, void *data, size_t max_length) override;
 
@@ -185,7 +190,7 @@ struct Link : FsLink {
 public:
 	explicit Link(RootNode *root, std::string name, std::shared_ptr<DeviceNode> device)
 	: _root{root}, _name{std::move(name)}, _device{std::move(device)} { }
-	
+
 	std::shared_ptr<FsNode> getOwner() override;
 
 	std::string getName() override;
@@ -200,7 +205,7 @@ private:
 
 struct RootLink : FsLink {
 	RootLink();
-	
+
 	RootNode *rootNode() {
 		return _root.get();
 	}
@@ -242,7 +247,7 @@ public:
 	VfsType getType() override {
 		return _type;
 	}
-	
+
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
 		std::cout << "\e[31mposix: Fix pts DeviceNode::getStats()\e[39m" << std::endl;
 		COFIBER_RETURN(FileStats{});
@@ -251,7 +256,7 @@ public:
 	DeviceId readDevice() override {
 		return _id;
 	}
-	
+
 	FutureMaybe<SharedFilePtr> open(std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(link), semantic_flags);
@@ -323,7 +328,7 @@ MasterFile::readSome(Process *, void *data, size_t max_length), ([=] {
 
 	while(_channel->masterQueue.empty())
 		COFIBER_AWAIT _channel->statusBell.async_wait();
-	
+
 	auto packet = &_channel->masterQueue.front();
 	size_t chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	assert(chunk);
@@ -376,17 +381,41 @@ COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::
 	if(req.command() == TIOCGPTN) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-	
+
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 		resp.set_pts_index(_channel->ptsIndex);
-		
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCSWINSZ) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		if(logAttrs)
+			std::cout << "posix: PTS window size is now "
+					<< req.pts_width() << "x" << req.pts_height()
+					<< " chars, "
+					<< req.pts_pixel_width() << "x" << req.pts_pixel_height()
+					<< " pixels (set by master)" << std::endl;
+
+		_channel->width = req.pts_width();
+		_channel->height = req.pts_height();
+		_channel->pixelWidth = req.pts_pixel_width();
+		_channel->pixelHeight = req.pts_pixel_height();
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{
-		throw std::runtime_error("posix: Unknown ioctl() with ID " + std::to_string(req.command()));
+		throw std::runtime_error("posix: Unknown PTS master ioctl() with ID "
+				+ std::to_string(req.command()));
 	}
 	COFIBER_RETURN();
 }))
@@ -421,7 +450,7 @@ SlaveFile::readSome(Process *, void *data, size_t max_length), ([=] {
 
 	while(_channel->slaveQueue.empty())
 		COFIBER_AWAIT _channel->statusBell.async_wait();
-	
+
 	auto packet = &_channel->slaveQueue.front();
 	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	assert(chunk);
@@ -494,8 +523,6 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		helix::SendBuffer send_attrs;
 		managarm::fs::SvrResponse resp;
 		struct termios attrs;
-		
-		std::cout << "posix: TCGETS request" << std::endl;
 
 		// Element-wise copy to avoid information leaks in padding.
 		memset(&attrs, 0, sizeof(struct termios));
@@ -507,7 +534,7 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 			attrs.c_cc[i] = _channel->activeSettings.c_cc[i];
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
@@ -542,14 +569,53 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		}
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		
+
 		auto ser = resp.SerializeAsString();
 		auto &&out_transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
 		COFIBER_AWAIT out_transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCGWINSZ) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_pts_width(_channel->width);
+		resp.set_pts_height(_channel->height);
+		resp.set_pts_pixel_width(_channel->pixelWidth);
+		resp.set_pts_pixel_height(_channel->pixelHeight);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCSWINSZ) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		if(logAttrs)
+			std::cout << "posix: PTS window size is now "
+					<< req.pts_width() << "x" << req.pts_height()
+					<< " chars, "
+					<< req.pts_pixel_width() << "x" << req.pts_pixel_height()
+					<< " pixels (set by slave)" << std::endl;
+
+		_channel->width = req.pts_width();
+		_channel->height = req.pts_height();
+		_channel->pixelWidth = req.pts_pixel_width();
+		_channel->pixelHeight = req.pts_pixel_height();
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
-		throw std::runtime_error("posix: Unknown ioctl() with ID " + std::to_string(req.command()));
+		throw std::runtime_error("posix: Unknown PTS slave ioctl() with ID "
+				+ std::to_string(req.command()));
 	}
 	COFIBER_RETURN();
 }))

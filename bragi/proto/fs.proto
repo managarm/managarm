@@ -115,7 +115,13 @@ message CntRequest {
 	// Sequence number for FILE_POLL.
 	optional uint64 sequence = 38;
 
-	// drm
+	// PTS and TTY ioctls.
+	optional int32 pts_width = 43;
+	optional int32 pts_height = 44;
+	optional int32 pts_pixel_width = 45;
+	optional int32 pts_pixel_height = 46;
+
+	// DRM ioctls.
 	optional uint64 drm_capability = 18;
 
 	optional uint32 drm_connector_id = 19;
@@ -205,9 +211,14 @@ message SvrResponse {
 
 	optional int64 pid = 71;
 
+	// PTS and TTY ioctls.
 	optional int32 pts_index = 63;
+	optional int32 pts_width = 72;
+	optional int32 pts_height = 73;
+	optional int32 pts_pixel_width = 74;
+	optional int32 pts_pixel_height = 75;
 
-	// drm
+	// DRM ioctls.
 	optional uint64 drm_value = 21;
 
 	repeated uint32 drm_fb_ids = 22;
