@@ -25,7 +25,7 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-COFIBER_ROUTINE(async::result<ImageInfo>, load(SharedFilePtr file,
+COFIBER_ROUTINE(expected<ImageInfo>, load(SharedFilePtr file,
 		helix::BorrowedDescriptor space, uintptr_t base), ([=] {
 	assert(base % kPageSize == 0);
 	ImageInfo info;
@@ -37,11 +37,13 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(SharedFilePtr file,
 	Elf64_Ehdr ehdr;
 	COFIBER_AWAIT file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr));
 
-	assert(ehdr.e_ident[0] == 0x7F
+	if(!(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
-			&& ehdr.e_ident[3] == 'F');
-	assert(ehdr.e_type == ET_EXEC || ehdr.e_type == ET_DYN);
+			&& ehdr.e_ident[3] == 'F'))
+		COFIBER_RETURN(Error::badExecutable);
+	if(ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN)
+		COFIBER_RETURN(Error::badExecutable);
 
 	info.entryIp = (char *)base + ehdr.e_entry;
 	info.phdrEntrySize = ehdr.e_phentsize;
@@ -140,12 +142,18 @@ COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, ViewPa
 	auto exec_file = COFIBER_AWAIT open(root, workdir, path);
 	if(!exec_file)
 		COFIBER_RETURN(Error::noSuchFile);
-	auto exec_info = COFIBER_AWAIT load(exec_file, vm_context->getSpace(), 0);
+	auto exec_result = COFIBER_AWAIT load(exec_file, vm_context->getSpace(), 0);
+	if(auto error = std::get_if<Error>(&exec_result); error)
+		COFIBER_RETURN(*error);
+	auto exec_info = std::get<ImageInfo>(exec_result);
 
 	// TODO: Should we really look up the dynamic linker in the current source dir?
 	auto interp_file = COFIBER_AWAIT open(root, workdir, "/lib/ld-init.so");
 	assert(interp_file);
-	auto interp_info = COFIBER_AWAIT load(interp_file, vm_context->getSpace(), 0x40000000);
+	auto interp_result = COFIBER_AWAIT load(interp_file, vm_context->getSpace(), 0x40000000);
+	if(auto error = std::get_if<Error>(&interp_result); error)
+		COFIBER_RETURN(*error);
+	auto interp_info = std::get<ImageInfo>(interp_result);
 
 	constexpr size_t stack_size = 0x10000;
 

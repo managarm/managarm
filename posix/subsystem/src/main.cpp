@@ -196,6 +196,12 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
+			}else if(error == Error::badExecutable) {
+				gprs[4] = kHelErrNone;
+				gprs[5] = ENOEXEC;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+				HEL_CHECK(helResume(thread.getHandle()));
 			}else
 				assert(error == Error::success);
 		}else if(observe.observation() == kHelObserveSuperCall + 4) {

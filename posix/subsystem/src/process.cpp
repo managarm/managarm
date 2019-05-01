@@ -676,7 +676,7 @@ COFIBER_ROUTINE(async::result<Error>, Process::exec(std::shared_ptr<Process> pro
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
 	auto error = std::get_if<Error>(&thread_or_error);
-	if(error && *error == Error::noSuchFile) {
+	if(error && (*error == Error::noSuchFile || *error == Error::badExecutable)) {
 		COFIBER_RETURN(*error);
 	}else if(error)
 		throw std::logic_error("Unexpected error from execute()");

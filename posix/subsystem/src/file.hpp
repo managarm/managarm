@@ -27,6 +27,9 @@ enum class Error {
 	eof,
 	fileClosed,
 
+	// Binary is corrupted or does not match a known binary format.
+	badExecutable,
+
 	// Indices that the given object does not support the operation
 	// (e.g. readSymlink() is called on a file that is not a link).
 	illegalOperationTarget,
