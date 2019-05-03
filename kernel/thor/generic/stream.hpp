@@ -102,6 +102,7 @@ public:
 	// ------------------------------------------------------------------------
 
 	frigg::Array<char, 16> _inCredentials;
+	size_t _maxLength;
 	frigg::UniqueMemory<KernelAlloc> _inBuffer;
 	AnyBufferAccessor _inAccessor;
 	AnyDescriptor _inDescriptor;
@@ -385,6 +386,7 @@ struct RecvInlineBase : StreamPacket, StreamNode {
 	}
 
 	explicit RecvInlineBase() {
+		_maxLength = SIZE_MAX;
 		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagRecvInline, this);

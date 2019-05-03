@@ -55,7 +55,7 @@ HelError translateError(Error error) {
 	case kErrTransmissionMismatch: return kHelErrTransmissionMismatch;
 	case kErrLaneShutdown: return kHelErrLaneShutdown;
 	case kErrEndOfLane: return kHelErrEndOfLane;
-//		case kErrBufferTooSmall: return kHelErrBufferTooSmall;
+	case kErrBufferTooSmall: return kHelErrBufferTooSmall;
 	case kErrFault: return kHelErrFault;
 	default:
 		assert(!"Unexpected error");
@@ -1663,8 +1663,10 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			closure->items[i].transmit._inBuffer = frigg::move(buffer);
 		} break;
 		case kHelActionRecvInline: {
+			// TODO: For now, we hardcode a size of 128 bytes.
 			auto space = this_thread->getAddressSpace().lock();
 			closure->items[i].transmit.setup(kTagRecvInline, &closure->packet);
+			closure->items[i].transmit._maxLength = 128;
 		} break;
 		case kHelActionRecvToBuffer: {
 			auto space = this_thread->getAddressSpace().lock();

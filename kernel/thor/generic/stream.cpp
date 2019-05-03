@@ -46,12 +46,20 @@ static void transfer(ImbueExtract, StreamNode *from, StreamNode *to) {
 static void transfer(SendRecvInline, StreamNode *from, StreamNode *to) {
 	auto buffer = std::move(from->_inBuffer);
 
-	from->_error = kErrSuccess;
-	from->complete();
+	if(buffer.size() <= to->_maxLength) {
+		from->_error = kErrSuccess;
+		from->complete();
 
-	to->_error = kErrSuccess;
-	to->_transmitBuffer = std::move(buffer);
-	to->complete();
+		to->_error = kErrSuccess;
+		to->_transmitBuffer = std::move(buffer);
+		to->complete();
+	}else{
+		from->_error = kErrBufferTooSmall;
+		from->complete();
+
+		to->_error = kErrBufferTooSmall;
+		to->complete();
+	}
 }
 
 static void transfer(SendRecvBuffer, StreamNode *from, StreamNode *to) {
