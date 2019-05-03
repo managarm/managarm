@@ -114,6 +114,8 @@ public:
 
 	IpcQueue &operator= (const IpcQueue &) = delete;
 
+	bool validSize(size_t size);
+
 	void setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
 
 	void submit(IpcNode *node);

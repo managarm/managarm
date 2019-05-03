@@ -90,6 +90,7 @@ enum {
 	kHelErrNone = 0,
 	kHelErrIllegalSyscall = 5,
 	kHelErrIllegalArgs = 7,
+	kHelErrQueueTooSmall = 14,
 	kHelErrCancelled = 12,
 	kHelErrNoDescriptor = 4,
 	kHelErrBadDescriptor = 2,

@@ -29,6 +29,11 @@ IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void
 	_chunks.resize(1 << _sizeShift);
 }
 
+bool IpcQueue::validSize(size_t size) {
+	// TODO: Note that the chunk size is currently hardcoded.
+	return sizeof(ElementStruct) + size <= 4096;
+}
+
 void IpcQueue::setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
@@ -79,6 +84,8 @@ void IpcQueue::_progress() {
 		size_t length = 0;
 		for(auto source = _nodeQueue.front()->_source; source; source = source->link)
 			length += (source->size + 7) & ~size_t(7);
+
+		assert(length <= _currentChunk->bufferSize);
 
 		if(_currentProgress + length > _currentChunk->bufferSize) {
 			_retireChunk();

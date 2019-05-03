@@ -47,6 +47,10 @@ void writeUserArray(T *pointer, const T *array, size_t count) {
 		writeUserObject(pointer + i, array[i]);
 }
 
+size_t ipcSourceSize(size_t size) {
+	return (size + 7) & ~size_t(7);
+}
+
 // TODO: one translate function per error source?
 HelError translateError(Error error) {
 	switch(error) {
@@ -803,6 +807,9 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
+	if(!queue->validSize(ipcSourceSize(sizeof(HelManageResult))))
+		return kHelErrQueueTooSmall;
+
 	struct Closure : IpcNode {
 		Closure()
 		: ipcSource{&helResult, sizeof(HelManageResult), nullptr} {
@@ -914,6 +921,9 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 			return kHelErrBadDescriptor;
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
+		return kHelErrQueueTooSmall;
 
 	struct Closure : IpcNode {
 		Closure()
@@ -1157,6 +1167,9 @@ HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
 			return kHelErrBadDescriptor;
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelObserveResult))))
+		return kHelErrQueueTooSmall;
 	
 	PostEvent<ObserveThreadWriter> functor{frigg::move(queue), context};
 	thread->submitObserve(in_seq, frigg::move(functor));
@@ -1415,6 +1428,9 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
 	Closure::issue(counter, frigg::move(queue), context, async_id);
 
 	return kHelErrNone;
@@ -1474,6 +1490,52 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			return kHelErrBadDescriptor;
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
+
+	size_t node_size = 0;
+	for(size_t i = 0; i < count; i++) {
+		HelAction action = readUserObject(actions + i);
+
+		switch(action.type) {
+		case kHelActionOffer:
+			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionAccept:
+			node_size += ipcSourceSize(sizeof(HelHandleResult));
+			break;
+		case kHelActionImbueCredentials:
+			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionExtractCredentials:
+			node_size += ipcSourceSize(sizeof(HelCredentialsResult));
+			break;
+		case kHelActionSendFromBuffer:
+			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionSendFromBufferSg:
+			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionRecvInline:
+			// TODO: For now, we hardcode a size of 128 bytes.
+			node_size += ipcSourceSize(sizeof(HelLengthResult));
+			node_size += ipcSourceSize(128);
+			break;
+		case kHelActionRecvToBuffer:
+			node_size += ipcSourceSize(sizeof(HelLengthResult));
+			break;
+		case kHelActionPushDescriptor:
+			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionPullDescriptor:
+			node_size += ipcSourceSize(sizeof(HelHandleResult));
+			break;
+		default:
+			// TODO: Turn this into an error return.
+			assert(!"Fix error handling here");
+		}
+	}
+
+	if(!queue->validSize(node_size))
+		return kHelErrQueueTooSmall;
 
 	struct Item {
 		StreamNode transmit;
@@ -2029,6 +2091,9 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 			return kHelErrBadDescriptor;
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelEventResult))))
+		return kHelErrQueueTooSmall;
 
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
