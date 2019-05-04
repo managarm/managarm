@@ -1127,6 +1127,51 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::GETCWD) {
+			if(logRequests)
+				std::cout << "posix: GETCWD" << std::endl;
+
+			auto dir = self->fsContext()->getWorkingDirectory();
+
+			std::string path = "/";
+			while(true) {
+				if(dir == self->fsContext()->getRoot())
+					break;
+
+				// If we are at the origin of a mount point, traverse that mount point.
+				ViewPath traversed;
+				if(dir.second == dir.first->getOrigin()) {
+					if(!dir.first->getParent())
+						break;
+					auto anchor = dir.first->getAnchor();
+					assert(anchor); // Non-root mounts must have anchors in their parents.
+					traversed = ViewPath{dir.first->getParent(), dir.second};
+				}else{
+					traversed = dir;
+				}
+
+				auto owner = traversed.second->getOwner();
+				assert(owner); // Otherwise, we would have been at the root.
+				path = "/" + traversed.second->getName() + path;
+
+				dir = ViewPath{traversed.first, owner->treeLink()};
+			}
+
+			helix::SendBuffer send_resp;
+			helix::SendBuffer send_path;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_size(path.size());
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_path, path.data(),
+							std::min(static_cast<size_t>(req.size()), path.size() + 1)));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_path.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::UNLINK) {
 			if(logRequests || logPaths)
 				std::cout << "posix: UNLINK path: " << req.path() << std::endl;

@@ -52,6 +52,7 @@ enum CntReqType {
 	DUP2 = 6;
 	IS_TTY = 22;
 	TTY_NAME = 18;
+	GETCWD = 59;
 	UNLINK = 40;
 	FD_GET_FLAGS = 44;
 	FD_SET_FLAGS = 45;
