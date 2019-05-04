@@ -128,6 +128,8 @@ message CntRequest {
 
 	optional uint32 drm_encoder_id = 20;
 
+	optional uint32 drm_max_modes = 47;
+
 	optional uint32 drm_height = 21;
 	optional uint32 drm_width = 22;
 	optional uint32 drm_bpp = 23;

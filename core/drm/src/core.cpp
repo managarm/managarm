@@ -626,7 +626,8 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&send_list, conn->modeList().data(),
-					conn->modeList().size() * sizeof(drm_mode_modeinfo)));
+					std::min(static_cast<size_t>(req.drm_max_modes()), conn->modeList().size())
+							* sizeof(drm_mode_modeinfo)));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_list.error());
