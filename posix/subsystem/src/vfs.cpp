@@ -219,7 +219,9 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 
 		// Resolve the link into the directory.
 		if(name == "..") {
-			if(_currentPath.second == _currentPath.first->getOrigin()) {
+			if(_currentPath == _rootPath) {
+				// We are at the root -- do not modify _currentPath at all.
+			}else if(_currentPath.second == _currentPath.first->getOrigin()) {
 				if(auto parent = _currentPath.first->getParent(); parent) {
 					auto anchor = _currentPath.first->getAnchor();
 					assert(anchor); // Non-root mounts must have anchors in their parents.
