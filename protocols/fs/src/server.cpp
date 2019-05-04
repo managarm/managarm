@@ -117,18 +117,21 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 			HEL_CHECK(send_data.error());
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+		std::vector<uint8_t> buffer;
+		buffer.resize(req.size());
+
 		helix::ExtractCredentials extract_creds;
-		helix::RecvInline recv_buffer;
+		helix::RecvBuffer recv_buffer;
 		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&extract_creds, kHelItemChain),
-				helix::action(&recv_buffer));
+				helix::action(&recv_buffer, buffer.data(), buffer.size()));
 		COFIBER_AWAIT buff.async_wait();
 		HEL_CHECK(extract_creds.error());
 		HEL_CHECK(recv_buffer.error());
 
 		assert(file_ops->write);
 		COFIBER_AWAIT(file_ops->write(file.get(), extract_creds.credentials(),
-				recv_buffer.data(), recv_buffer.length()));
+				buffer.data(), recv_buffer.actualLength()));
 
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
