@@ -1375,12 +1375,15 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SENDMSG" << std::endl;
 
-			helix::RecvInline recv_data;
+			std::vector<uint8_t> buffer;
+			buffer.resize(req.size());
+
+			helix::RecvBuffer recv_data;
 			helix::RecvInline recv_addr;
 			helix::SendBuffer send_resp;
 
 			auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&recv_data, kHelItemChain),
+					helix::action(&recv_data, buffer.data(), buffer.size(), kHelItemChain),
 					helix::action(&recv_addr));
 			COFIBER_AWAIT submit_data.async_wait();
 			HEL_CHECK(recv_data.error());
@@ -1413,7 +1416,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto result_or_error = COFIBER_AWAIT sockfile->sendMsg(self.get(), flags,
-					recv_data.data(), recv_data.length(),
+					buffer.data(), recv_data.actualLength(),
 					recv_addr.data(), recv_addr.length(),
 					std::move(files));
 
