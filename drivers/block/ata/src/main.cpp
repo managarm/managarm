@@ -188,12 +188,11 @@ COFIBER_ROUTINE(async::result<void>, Controller::_performRequest(Request *reques
 		}
 
 		// Read the data.
+		// TODO: Do we have to be careful with endianess here?
 		auto dest = reinterpret_cast<uint8_t *>(request->buffer) + k * 512;
-		for(int i = 0; i < 256; i++) {
-			// TODO: Be careful with endianess here.
-			uint16_t data = _ioSpace.load(regs::inData);
-			memcpy(dest + 2 * i, &data, sizeof(uint16_t));
-		}
+		// TODO: The following is a hack. Lock the page into memory instead!
+		*static_cast<volatile uint8_t *>(dest) = 0; // Fault in the page.
+		_ioSpace.load_iterative(regs::inData, reinterpret_cast<uint16_t *>(dest), 256);
 	}
 
 	if(logRequests)
