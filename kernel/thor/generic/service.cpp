@@ -720,11 +720,13 @@ namespace initrd {
 				accessor.write(0, &data, sizeof(ManagarmProcessData));
 
 				_thread->_executor.general()->rdi = kHelErrNone;
-				Thread::resumeOther(_thread);
+				if(auto e = Thread::resumeOther(_thread); e)
+					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = 0;
-				Thread::resumeOther(_thread);
+				if(auto e = Thread::resumeOther(_thread); e)
+					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else{
 				frigg::panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frigg::endLog;

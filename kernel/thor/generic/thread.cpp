@@ -290,11 +290,14 @@ void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
 	thread->_pendingSignal = kSigInterrupt;
 }
 
-void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
+Error Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&thread->_mutex);
 
-	assert(thread->_runState == kRunInterrupted);
+	if(thread->_runState == kRunTerminated)
+		return kErrThreadExited;
+	if(thread->_runState != kRunInterrupted)
+		return kErrIllegalState;
 	
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)thread.get()
@@ -302,6 +305,7 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 
 	thread->_runState = kRunSuspended;
 	Scheduler::resume(thread.get());
+	return kErrSuccess;
 }
 
 Thread::Thread(frigg::SharedPtr<Universe> universe,

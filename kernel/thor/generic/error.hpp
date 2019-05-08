@@ -7,6 +7,7 @@ enum Error {
 	kErrSuccess,
 	kErrIllegalArgs,
 	kErrIllegalObject,
+	kErrIllegalState,
 	kErrCancelled,
 	kErrBufferTooSmall,
 	kErrThreadExited,

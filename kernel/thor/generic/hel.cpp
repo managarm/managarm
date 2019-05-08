@@ -1238,7 +1238,12 @@ HelError helResume(HelHandle handle) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}	
 
-	Thread::resumeOther(thread);
+	if(auto e = Thread::resumeOther(thread); e) {
+		if(e == kErrThreadExited)
+			return kHelErrThreadTerminated;
+		assert(e == kErrIllegalState);
+		return kHelErrIllegalState;
+	}
 
 	return kHelErrNone;
 }

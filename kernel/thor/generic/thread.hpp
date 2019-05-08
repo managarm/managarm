@@ -93,7 +93,7 @@ public:
 	static void unblockOther(ThreadBlocker *blocker);
 	static void killOther(frigg::UnsafePtr<Thread> thread);
 	static void interruptOther(frigg::UnsafePtr<Thread> thread);
-	static void resumeOther(frigg::UnsafePtr<Thread> thread);
+	static Error resumeOther(frigg::UnsafePtr<Thread> thread);
 
 	// These signals let the thread change its RunState.
 	// Do not confuse them with POSIX signals!
