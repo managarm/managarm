@@ -7,7 +7,7 @@ fastCopy16:
         shrq    $4, %rdx
         movq    %rdx, %rax
         andl    $7, %eax
-        movl    (%rcx, %rax, 8), %eax
+        movl    (%rcx, %rax, 4), %eax
         addq    %rcx, %rax
         jmp     *%rax
 .L4:
