@@ -25,6 +25,8 @@ void initialize();
 
 void installDevice(std::shared_ptr<Device> device);
 
+uint32_t makeHotplugSeqnum();
+
 void emitHotplug(std::string buffer);
 
 } // namespace drvcore

@@ -145,9 +145,6 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		caps->directMkattr(device.get(), &relCapability);
 		caps->directMkattr(device.get(), &absCapability);
 
-		// TODO: This should be handled in drvcore.
-		static int seqnum = 1;
-
 		std::stringstream s;
 		s << "add@/devices/event" << index << '\0';
 		s << "ACTION=add" << '\0';
@@ -156,7 +153,7 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		s << "DEVNAME=input/event" << index << '\0';
 		s << "MAJOR=13" << '\0';
 		s << "MINOR=" << device->getId().second << '\0';
-		s << "SEQNUM=" << seqnum++ << '\0'; // TODO: This has to be an increasing number.
+		s << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
 		drvcore::emitHotplug(s.str());
 	});
 

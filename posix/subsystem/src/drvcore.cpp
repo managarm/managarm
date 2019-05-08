@@ -127,6 +127,13 @@ void installDevice(std::shared_ptr<Device> device) {
 	}
 }
 
+// TODO: There could be a race between makeHotplugSeqnum() and emitHotplug().
+//       Is it required that seqnums always appear in the correct order?
+uint32_t makeHotplugSeqnum() {
+	static uint32_t seqnum = 1;
+	return seqnum++;
+}
+
 void emitHotplug(std::string buffer) {
 	nl_socket::broadcast(NETLINK_KOBJECT_UEVENT, 1, std::move(buffer));
 }
