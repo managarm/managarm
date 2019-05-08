@@ -1,21 +1,24 @@
+
+.text
 .global fastCopy16
+.type fastCopy16, @function
 fastCopy16:
+        leaq    .L4(%rip), %rcx
         shrq    $4, %rdx
         movq    %rdx, %rax
         andl    $7, %eax
-        movq    .L4(%rip), %rcx
-        movq    %rax, (%rcx, %rax, 4)
+        movl    (%rcx, %rax, 8), %eax
         addq    %rcx, %rax
         jmp     *%rax
 .L4:
-        .quad .L13 - .L4
-        .quad .L10 - .L4
-        .quad .L9  - .L4
-        .quad .L8  - .L4
-        .quad .L7  - .L4
-        .quad .L6  - .L4
-        .quad .L5  - .L4
-        .quad .L3  - .L4
+        .long .L13 - .L4
+        .long .L10 - .L4
+        .long .L9  - .L4
+        .long .L8  - .L4
+        .long .L7  - .L4
+        .long .L6  - .L4
+        .long .L5  - .L4
+        .long .L3  - .L4
 .L10:
         movdqa  (%rsi), %xmm6
         movaps  %xmm6, (%rdi)

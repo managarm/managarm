@@ -278,7 +278,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 
 		if(_state->fb->fastScanout()) {
 			for(unsigned int k = 0; k < bo->getHeight(); k++) {
-				fastCopy16(dest, src, bo->getWidth() * 4);
+				drm_core::fastCopy16(dest, src, bo->getWidth() * 4);
 				dest += _device->_screenPitch;
 				src += _state->fb->getPitch();
 			}
