@@ -68,8 +68,11 @@ void createInitialRegion(uint64_t address, uint64_t size) {
 	// This ensures thor can allocate contiguous chunks of up to 2 MiB.
 	address = (address + 0x1FFFFF) & ~uint64_t(0x1FFFFF);
 
-	if(address >= limit)
+	if(address >= limit) {
+		frigg::infoLogger() << "eir: Discarding memory region at 0x"
+				<< frigg::logHex(address) << " (smaller than alignment)" << frigg::endLog;
 		return;
+	}
 	
 	// Trash the initial memory to find bugs in thor.
 	// TODO: This code fails for size > 2^32.
@@ -85,7 +88,11 @@ void createInitialRegion(uint64_t address, uint64_t size) {
 
 	// For now we ensure that the kernel has some memory to work with.
 	// TODO: Handle small memory regions.
-	assert(limit - address >= 32 * uint64_t(0x100000));
+	if(limit - address < 32 * uint64_t(0x100000)) {
+		frigg::infoLogger() << "eir: Discarding memory region at 0x"
+				<< frigg::logHex(address) << " (smaller than minimum size)" << frigg::endLog;
+		return;
+	}
 
 	assert(!(address % kPageSize));
 	assert(!(limit % kPageSize));
@@ -171,7 +178,7 @@ void BochsSink::print(char c) {
 				std::integral_constant<int, fontHeight>{});
 	};
 
-	if(displayFb)
+	if(displayFb) {
 		if(c == '\n') {
 			outputX = 0;
 			outputY++;
@@ -184,6 +191,7 @@ void BochsSink::print(char c) {
 			display(c);
 			outputX++;
 		}
+	}
 
 	arch::ioOutByte(0xE9, c);
 }
@@ -327,7 +335,7 @@ void mapPt(uint64_t address, uint64_t pt) {
 			((uint64_t*)pd)[i] = 0;
 		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite;
 	}
-	assert(!((uint64_t *)pd)[pd_index] & kPagePresent);
+	assert(!(((uint64_t *)pd)[pd_index] & kPagePresent));
 	((uint64_t *)pd)[pd_index] = pt | kPagePresent | kPageWrite;
 }
 
@@ -656,6 +664,18 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	mapRegionsAndStructs();
 
+	// Select the largest memory region as the "core region".
+	int core_idx = -1;
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType != RegionType::allocatable)
+			continue;
+		if(core_idx < 0 || regions[i].size > regions[core_idx].size)
+			core_idx = i;
+	}
+
+	if(core_idx < 0)
+		frigg::panicLogger() << "eir: Could not set up a useable memory region" << frigg::endLog;
+
 	// Setup the kernel image.
 	assert((mb_info->flags & kMbInfoModules) != 0);
 	assert(mb_info->numModules >= 2);
@@ -676,11 +696,11 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == 0x40000000);
 	info_ptr->signature = eirSignatureValue;
-	info_ptr->coreRegion.address = regions[0].address;
-	info_ptr->coreRegion.length = regions[0].size;
-	info_ptr->coreRegion.order = regions[0].order;
-	info_ptr->coreRegion.numRoots = regions[0].numRoots;
-	info_ptr->coreRegion.buddyTree = regions[0].buddyMap;
+	info_ptr->coreRegion.address = regions[core_idx].address;
+	info_ptr->coreRegion.length = regions[core_idx].size;
+	info_ptr->coreRegion.order = regions[core_idx].order;
+	info_ptr->coreRegion.numRoots = regions[core_idx].numRoots;
+	info_ptr->coreRegion.buddyTree = regions[core_idx].buddyMap;
 
 	assert(mb_info->flags & kMbInfoCommandLine);
 	auto cmd_length = strlen(mb_info->commandLine);
