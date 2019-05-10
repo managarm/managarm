@@ -232,47 +232,71 @@ namespace {
 
 	LaneHandle createObject(LaneHandle mbus_lane, frigg::SharedPtr<PciDevice> device) {
 		auto branch = fiberOffer(mbus_lane);
-		
+
+		managarm::mbus::Property<KernelAlloc> subsystem_prop(*kernelAlloc);
+		subsystem_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "unix.subsystem"));
+		auto &subsystem_item = subsystem_prop.mutable_item().mutable_string_item();
+		subsystem_item.set_value(frigg::String<KernelAlloc>(*kernelAlloc, "pci"));
+
+		managarm::mbus::Property<KernelAlloc> bus_prop(*kernelAlloc);
+		bus_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-bus"));
+		auto &bus_item = bus_prop.mutable_item().mutable_string_item();
+		bus_item.set_value(frigg::to_string(*kernelAlloc, device->bus, 16, 2));
+
+		managarm::mbus::Property<KernelAlloc> slot_prop(*kernelAlloc);
+		slot_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-slot"));
+		auto &slot_item = slot_prop.mutable_item().mutable_string_item();
+		slot_item.set_value(frigg::to_string(*kernelAlloc, device->slot, 16, 2));
+
+		managarm::mbus::Property<KernelAlloc> function_prop(*kernelAlloc);
+		function_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-function"));
+		auto &function_item = function_prop.mutable_item().mutable_string_item();
+		function_item.set_value(frigg::to_string(*kernelAlloc, device->function, 16, 1));
+
 		managarm::mbus::Property<KernelAlloc> vendor_prop(*kernelAlloc);
 		vendor_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-vendor"));
 		auto &vendor_item = vendor_prop.mutable_item().mutable_string_item();
 		vendor_item.set_value(frigg::to_string(*kernelAlloc, device->vendor, 16, 4));
-		
+
 		managarm::mbus::Property<KernelAlloc> dev_prop(*kernelAlloc);
 		dev_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-device"));
 		auto &dev_item = dev_prop.mutable_item().mutable_string_item();
 		dev_item.set_value(frigg::to_string(*kernelAlloc, device->deviceId, 16, 4));
-		
+
 		managarm::mbus::Property<KernelAlloc> rev_prop(*kernelAlloc);
 		rev_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-revision"));
 		auto &rev_item = rev_prop.mutable_item().mutable_string_item();
 		rev_item.set_value(frigg::to_string(*kernelAlloc, device->revision, 16, 2));
-		
+
 		managarm::mbus::Property<KernelAlloc> class_prop(*kernelAlloc);
 		class_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-class"));
 		auto &class_item = class_prop.mutable_item().mutable_string_item();
 		class_item.set_value(frigg::to_string(*kernelAlloc, device->classCode, 16, 2));
-		
+
 		managarm::mbus::Property<KernelAlloc> subclass_prop(*kernelAlloc);
 		subclass_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-subclass"));
 		auto &subclass_item = subclass_prop.mutable_item().mutable_string_item();
 		subclass_item.set_value(frigg::to_string(*kernelAlloc, device->subClass, 16, 2));
-		
+
 		managarm::mbus::Property<KernelAlloc> if_prop(*kernelAlloc);
 		if_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-interface"));
 		auto &if_item = if_prop.mutable_item().mutable_string_item();
 		if_item.set_value(frigg::to_string(*kernelAlloc, device->interface, 16, 2));
-		
+
 		managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 		req.set_parent_id(1);
+		req.add_properties(std::move(subsystem_prop));
+		req.add_properties(std::move(bus_prop));
+		req.add_properties(std::move(slot_prop));
+		req.add_properties(std::move(function_prop));
 		req.add_properties(std::move(vendor_prop));
 		req.add_properties(std::move(dev_prop));
 		req.add_properties(std::move(rev_prop));
 		req.add_properties(std::move(class_prop));
 		req.add_properties(std::move(subclass_prop));
 		req.add_properties(std::move(if_prop));
-	
+
 		if(device->associatedFrameBuffer) {
 			managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
 			cls_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "class"));
@@ -289,7 +313,7 @@ namespace {
 		managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.ParseFromArray(buffer.data(), buffer.size());
 		assert(resp.error() == managarm::mbus::Error::SUCCESS);
-		
+
 		auto descriptor = fiberPullDescriptor(branch);
 		assert(descriptor.is<LaneDescriptor>());
 		return descriptor.get<LaneDescriptor>().handle;

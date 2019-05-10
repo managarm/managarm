@@ -265,10 +265,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 		helix::Accept accept;
 		helix::RecvBuffer recv_req;
 
-		char buffer[256];
+		char buffer[1024];
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req, buffer, 256));
+				helix::action(&recv_req, buffer, 1024));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());

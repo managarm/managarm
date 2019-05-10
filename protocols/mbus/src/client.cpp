@@ -31,11 +31,11 @@ COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
 	req.set_req_type(managarm::mbus::CntReqType::GET_ROOT);
 
 	auto ser = req.SerializeAsString();
-	uint8_t buffer[128];
+	uint8_t buffer[1024];
 	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 128));
+			helix::action(&recv_resp, buffer, 1024));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -54,10 +54,10 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 		helix::Accept accept;
 		helix::RecvBuffer recv_req;
 
-		char buffer[256];
+		char buffer[1024];
 		auto &&header = helix::submitAsync(lane, *connection->dispatcher,
 				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req, buffer, 256));
+				helix::action(&recv_req, buffer, 1024));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -105,11 +105,11 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 	}
 
 	auto ser = req.SerializeAsString();
-	uint8_t buffer[128];
+	uint8_t buffer[1024];
 	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 128, kHelItemChain),
+			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
 			helix::action(&pull_lane));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
@@ -132,9 +132,9 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 	while(true) {
 		helix::RecvBuffer recv_req;
 
-		char buffer[256];
+		char buffer[1024];
 		auto &&header = helix::submitAsync(lane, *connection->dispatcher,
-				helix::action(&recv_req, buffer, 256));
+				helix::action(&recv_req, buffer, 1024));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(recv_req.error());
 
@@ -179,11 +179,11 @@ COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &f
 	encodeFilter(filter, req.mutable_filter());
 
 	auto ser = req.SerializeAsString();
-	uint8_t buffer[128];
+	uint8_t buffer[1024];
 	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 128, kHelItemChain),
+			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
 			helix::action(&pull_lane));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
@@ -211,11 +211,11 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Entity::bind() const, ([
 	req.set_id(_id);
 
 	auto ser = req.SerializeAsString();
-	uint8_t buffer[128];
+	uint8_t buffer[1024];
 	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 128, kHelItemChain),
+			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
 			helix::action(&pull_desc));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());

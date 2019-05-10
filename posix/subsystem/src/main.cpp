@@ -34,6 +34,7 @@
 #include "subsystem/block.hpp"
 #include "subsystem/drm.hpp"
 #include "subsystem/input.hpp"
+#include "subsystem/pci.hpp"
 #include "sysfs.hpp"
 #include "un-socket.hpp"
 #include "timerfd.hpp"
@@ -1854,6 +1855,7 @@ int main() {
 		block_subsystem::run();
 		drm_subsystem::run();
 		input_subsystem::run();
+		pci_subsystem::run();
 
 		runInit();
 	}
