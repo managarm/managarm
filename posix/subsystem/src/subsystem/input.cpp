@@ -18,6 +18,8 @@ namespace input_subsystem {
 
 namespace {
 
+drvcore::ClassSubsystem *sysfsSubsystem;
+
 id_allocator<uint32_t> evdevAllocator;
 
 struct Subsystem {
@@ -42,9 +44,9 @@ CapabilityAttribute keyCapability{"key", EV_KEY, KEY_MAX};
 CapabilityAttribute relCapability{"rel", EV_REL, REL_MAX};
 CapabilityAttribute absCapability{"abs", EV_ABS, ABS_MAX};
 
-struct Device : UnixDevice, drvcore::Device {
+struct Device : UnixDevice, drvcore::ClassDevice {
 	Device(VfsType type, int index, helix::UniqueLane lane)
-	: UnixDevice{type}, drvcore::Device{nullptr, "event" + std::to_string(index), this},
+	: UnixDevice{type}, drvcore::ClassDevice{sysfsSubsystem, "event" + std::to_string(index), this},
 			_index{index}, _lane{std::move(lane)} { }
 
 	std::string nodePath() override {
@@ -124,6 +126,8 @@ COFIBER_ROUTINE(async::result<std::string>, CapabilityAttribute::show(sysfs::Obj
 } // anonymous namepsace
 
 COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
+	sysfsSubsystem = new drvcore::ClassSubsystem{"input"};
+
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({

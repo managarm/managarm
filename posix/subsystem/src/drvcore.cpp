@@ -77,6 +77,29 @@ Device::Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *uni
 : sysfs::Object{parent ? parent : globalDevicesObject, std::move(name)},
 		_unixDevice{unix_device} { }
 
+void Device::linkToSubsystem() {
+	// Nothing to do for devices outside of a subsystem.
+}
+
+//-----------------------------------------------------------------------------
+// ClassSubsystem and ClassDevice implementation.
+//-----------------------------------------------------------------------------
+
+ClassSubsystem::ClassSubsystem(std::string name)
+: _object{std::make_shared<sysfs::Object>(globalClassObject, std::move(name))} {
+	_object->addObject();
+}
+
+ClassDevice::ClassDevice(ClassSubsystem *subsystem, std::string name,
+		UnixDevice *unix_device)
+: Device{nullptr, std::move(name), unix_device} { }
+
+void ClassDevice::linkToSubsystem() {
+	auto subsystem_object = _subsystem->object();
+	subsystem_object->createSymlink(name(), devicePtr());
+	createSymlink("subsystem", subsystem_object);
+}
+
 //-----------------------------------------------------------------------------
 // Free functions.
 //-----------------------------------------------------------------------------
@@ -97,7 +120,7 @@ void initialize() {
 	dev_object->addObject();
 	globalCharObject->addObject(); // TODO: Do this before dev_object is visible.
 	globalBlockObject->addObject();
-	
+
 	cardObject = std::make_shared<sysfs::Object>(globalDevicesObject, "card0");
 	cardObject->addObject();
 	cardObject->realizeAttribute(Card0UeventAttribute::singleton());
@@ -105,12 +128,10 @@ void initialize() {
 	auto drm_object = std::make_shared<sysfs::Object>(globalClassObject, "drm");
 	drm_object->addObject();
 	drm_object->createSymlink("card0", cardObject);
-
-	inputClassObject = std::make_shared<sysfs::Object>(globalClassObject, "input");
-	inputClassObject->addObject();
 }
 
 void installDevice(std::shared_ptr<Device> device) {
+	device->setupDevicePtr(device);
 	device->addObject();
 
 	std::string sysfs_path = device->name();
@@ -123,13 +144,11 @@ void installDevice(std::shared_ptr<Device> device) {
 		sysfs_path = link->getName() + '/' + sysfs_path;
 		link = owner->treeLink().get();
 	}
-	
+
 	// TODO: Do this before the object becomes visible in sysfs.
+	device->linkToSubsystem();
 	device->realizeAttribute(UeventAttribute::singleton());
-	device->createSymlink("subsystem", inputClassObject);
-	
-	inputClassObject->createSymlink(device->name(), device);
-	
+
 	if(auto unix_dev = device->unixDevice(); unix_dev) {
 		std::stringstream id_ss;
 		id_ss << unix_dev->getId().first << ":" << unix_dev->getId().second;
