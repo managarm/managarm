@@ -56,6 +56,12 @@ struct Device : UnixDevice, drvcore::Device {
 		return openExternalDevice(_lane, std::move(link), semantic_flags);
 	}
 
+	void composeUevent(std::stringstream &ss) override {
+		ss << "DEVNAME=input/event" << _index << '\0';
+		ss << "MAJOR=13" << '\0';
+		ss << "MINOR=" << getId().second << '\0';
+	}
+
 private:
 	int _index;
 	helix::UniqueLane _lane;
@@ -144,17 +150,6 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		caps->directMkattr(device.get(), &keyCapability);
 		caps->directMkattr(device.get(), &relCapability);
 		caps->directMkattr(device.get(), &absCapability);
-
-		std::stringstream s;
-		s << "add@/devices/event" << index << '\0';
-		s << "ACTION=add" << '\0';
-		s << "DEVPATH=/devices/event" << index << '\0';
-		s << "SUBSYSTEM=input" << '\0';
-		s << "DEVNAME=input/event" << index << '\0';
-		s << "MAJOR=13" << '\0';
-		s << "MINOR=" << device->getId().second << '\0';
-		s << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
-		drvcore::emitHotplug(s.str());
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));

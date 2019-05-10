@@ -2,6 +2,7 @@
 #define POSIX_SUBSYSTEM_DRVCORE_HPP
 
 #include <string>
+#include <sstream>
 
 #include "device.hpp"
 #include "sysfs.hpp"
@@ -13,9 +14,15 @@ namespace drvcore {
 struct Device : sysfs::Object {
 	Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *unix_device);
 
+protected:
+	~Device() = default;
+
+public:
 	UnixDevice *unixDevice() {
 		return _unixDevice;
 	}
+
+	virtual void composeUevent(std::stringstream &ss) = 0;
 
 private:
 	UnixDevice *_unixDevice;

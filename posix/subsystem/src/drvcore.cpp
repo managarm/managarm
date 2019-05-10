@@ -112,6 +112,17 @@ void initialize() {
 
 void installDevice(std::shared_ptr<Device> device) {
 	device->addObject();
+
+	std::string sysfs_path = device->name();
+	auto parent = device->directoryNode()->treeLink()->getOwner();
+	auto link = parent->treeLink().get();
+	while(true) {
+		auto owner = link->getOwner();
+		if(!owner)
+			break;
+		sysfs_path = link->getName() + '/' + sysfs_path;
+		link = owner->treeLink().get();
+	}
 	
 	// TODO: Do this before the object becomes visible in sysfs.
 	device->realizeAttribute(UeventAttribute::singleton());
@@ -125,6 +136,14 @@ void installDevice(std::shared_ptr<Device> device) {
 		assert(unix_dev->type() == VfsType::charDevice);
 		globalCharObject->createSymlink(id_ss.str(), device);
 	}
+
+	std::stringstream ss;
+	ss << "add@/" << sysfs_path << '\0';
+	ss << "ACTION=add" << '\0';
+	ss << "DEVPATH=" << sysfs_path << '\0';
+	device->composeUevent(ss);
+	ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
+	drvcore::emitHotplug(ss.str());
 }
 
 // TODO: There could be a race between makeHotplugSeqnum() and emitHotplug().

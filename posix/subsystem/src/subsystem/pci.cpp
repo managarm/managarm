@@ -14,7 +14,16 @@
 
 namespace pci_subsystem {
 
-std::vector<std::shared_ptr<drvcore::Device>> devices;
+struct Device : drvcore::Device {
+	Device(std::string sysfs_name)
+	: drvcore::Device{nullptr, std::move(sysfs_name), nullptr} { }
+
+	void composeUevent(std::stringstream &ss) override {
+		ss << "SUBSYSTEM=pci" << '\0';
+	}
+};
+
+std::vector<std::shared_ptr<Device>> devices;
 
 COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
@@ -32,17 +41,9 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		// TODO: Add bus/slot/function to this message.
 		std::cout << "POSIX: Installing PCI device " << sysfs_name << std::endl;
 
-		auto device = std::make_shared<drvcore::Device>(nullptr, sysfs_name, nullptr);
+		auto device = std::make_shared<Device>(sysfs_name);
 		drvcore::installDevice(device);
 		devices.push_back(std::move(device));
-
-		std::stringstream s;
-		s << "add@/devices/" << sysfs_name << '\0';
-		s << "ACTION=add" << '\0';
-		s << "DEVPATH=/devices/" << sysfs_name << '\0';
-		s << "SUBSYSTEM=pci" << '\0';
-		s << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
-		drvcore::emitHotplug(s.str());
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
