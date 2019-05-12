@@ -39,6 +39,29 @@ private:
 	UnixDevice *_unixDevice;
 };
 
+struct BusSubsystem {
+	BusSubsystem(std::string name);
+
+	std::shared_ptr<sysfs::Object> object() { return _object; }
+	std::shared_ptr<sysfs::Object> devicesObject() { return _devicesObject; }
+	std::shared_ptr<sysfs::Object> driversObject() { return _driversObject; }
+
+private:
+	std::shared_ptr<sysfs::Object> _object;
+	std::shared_ptr<sysfs::Object> _devicesObject;
+	std::shared_ptr<sysfs::Object> _driversObject;
+};
+
+struct BusDevice : Device {
+	BusDevice(BusSubsystem *subsystem, std::string name,
+			UnixDevice *unix_device);
+
+	void linkToSubsystem() override;
+
+private:
+	BusSubsystem *_subsystem;
+};
+
 struct ClassSubsystem {
 	ClassSubsystem(std::string name);
 

@@ -14,9 +14,11 @@
 
 namespace pci_subsystem {
 
-struct Device : drvcore::Device {
+drvcore::BusSubsystem *sysfsSubsystem;
+
+struct Device : drvcore::BusDevice {
 	Device(std::string sysfs_name)
-	: drvcore::Device{nullptr, std::move(sysfs_name), nullptr} { }
+	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr} { }
 
 	void composeUevent(std::stringstream &ss) override {
 		ss << "SUBSYSTEM=pci" << '\0';
@@ -26,6 +28,8 @@ struct Device : drvcore::Device {
 std::vector<std::shared_ptr<Device>> devices;
 
 COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
+	sysfsSubsystem = new drvcore::BusSubsystem{"pci"};
+
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({

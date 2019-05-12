@@ -8,17 +8,21 @@
 namespace drvcore {
 
 std::shared_ptr<sysfs::Object> globalDevicesObject;
+std::shared_ptr<sysfs::Object> globalBusObject;
 std::shared_ptr<sysfs::Object> globalClassObject;
 std::shared_ptr<sysfs::Object> globalCharObject;
 std::shared_ptr<sysfs::Object> globalBlockObject;
-
-std::shared_ptr<sysfs::Object> inputClassObject;
 
 std::shared_ptr<sysfs::Object> cardObject;
 
 sysfs::Object *devicesObject() {
 	assert(globalDevicesObject);
 	return globalDevicesObject.get();
+}
+
+sysfs::Object *busObject() {
+	assert(globalBusObject);
+	return globalBusObject.get();
 }
 
 sysfs::Object *classObject() {
@@ -82,6 +86,30 @@ void Device::linkToSubsystem() {
 }
 
 //-----------------------------------------------------------------------------
+// BusSubsystem and BusDevice implementation.
+//-----------------------------------------------------------------------------
+
+BusSubsystem::BusSubsystem(std::string name)
+: _object{std::make_shared<sysfs::Object>(globalBusObject, std::move(name))} {
+	_object->addObject();
+	_devicesObject = std::make_shared<sysfs::Object>(_object, "devices");
+	_devicesObject->addObject();
+	_driversObject = std::make_shared<sysfs::Object>(_object, "drivers");
+	_driversObject->addObject();
+}
+
+BusDevice::BusDevice(BusSubsystem *subsystem, std::string name,
+		UnixDevice *unix_device)
+: Device{nullptr, std::move(name), unix_device},
+		_subsystem{subsystem} { }
+
+void BusDevice::linkToSubsystem() {
+	auto subsystem_object = _subsystem->devicesObject();
+	subsystem_object->createSymlink(name(), devicePtr());
+	createSymlink("subsystem", subsystem_object);
+}
+
+//-----------------------------------------------------------------------------
 // ClassSubsystem and ClassDevice implementation.
 //-----------------------------------------------------------------------------
 
@@ -92,7 +120,8 @@ ClassSubsystem::ClassSubsystem(std::string name)
 
 ClassDevice::ClassDevice(ClassSubsystem *subsystem, std::string name,
 		UnixDevice *unix_device)
-: Device{nullptr, std::move(name), unix_device} { }
+: Device{nullptr, std::move(name), unix_device},
+		_subsystem{subsystem} { }
 
 void ClassDevice::linkToSubsystem() {
 	auto subsystem_object = _subsystem->object();
@@ -114,8 +143,10 @@ void initialize() {
 
 	// Create the global /sys/{devices,class,dev} directories.
 	globalDevicesObject = std::make_shared<sysfs::Object>(nullptr, "devices");
+	globalBusObject = std::make_shared<sysfs::Object>(nullptr, "bus");
 	globalClassObject = std::make_shared<sysfs::Object>(nullptr, "class");
 	globalDevicesObject->addObject();
+	globalBusObject->addObject();
 	globalClassObject->addObject();
 	dev_object->addObject();
 	globalCharObject->addObject(); // TODO: Do this before dev_object is visible.
