@@ -58,6 +58,9 @@ if get_option('build_drivers')
 	subdir('utils/runsvr/')
 
 	subdir('drivers/clocktracker')
+
+	install_data('drivers/gfx/90-managarm-vga.rules',
+		install_dir: 'lib/udev/rules.d')
 endif
 
 if get_option('build_tools')

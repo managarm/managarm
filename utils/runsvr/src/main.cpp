@@ -121,21 +121,21 @@ COFIBER_ROUTINE(async::result<void>, uploadFile(const char *name), ([=] {
 COFIBER_ROUTINE(cofiber::no_future, asyncMain(const char **args), ([=] {
 	COFIBER_AWAIT enumerateSvrctl();
 
-	if(!strcmp(args[0], "runsvr")) {
-		if(!args[1])
+	if(!strcmp(args[1], "runsvr")) {
+		if(!args[2])
 			throw std::runtime_error("Expected at least one argument");
 	
-		std::cout << "svrctl: Running " << args[1] << std::endl;
+		std::cout << "svrctl: Running " << args[2] << std::endl;
 
-		COFIBER_AWAIT runServer(args[1]);
+		COFIBER_AWAIT runServer(args[2]);
 		exit(0);
-	}else if(!strcmp(args[0], "upload")) {
-		if(!args[1])
+	}else if(!strcmp(args[1], "upload")) {
+		if(!args[2])
 			throw std::runtime_error("Expected at least one argument");
 		
-		std::cout << "svrctl: Uploading " << args[1] << std::endl;
+		std::cout << "svrctl: Uploading " << args[2] << std::endl;
 
-		COFIBER_AWAIT uploadFile(args[1]);
+		COFIBER_AWAIT uploadFile(args[2]);
 		exit(0);
 	}else{
 		throw std::runtime_error("Unexpected command for svrctl utility");
@@ -143,6 +143,11 @@ COFIBER_ROUTINE(cofiber::no_future, asyncMain(const char **args), ([=] {
 }))
 
 int main(int argc, const char **argv) {
+	int fd = open("/dev/helout", O_RDONLY);
+	dup2(fd, 0);
+	dup2(fd, 1);
+	dup2(fd, 2);
+
 	{
 		async::queue_scope scope{helix::globalQueue()};
 		asyncMain(argv);
