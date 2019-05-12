@@ -1,5 +1,6 @@
 
 #include <string.h>
+#include <sys/epoll.h>
 #include <iostream>
 
 #include <async/doorbell.hpp>
@@ -76,9 +77,25 @@ public:
 		COFIBER_RETURN(size);
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t,
-			async::cancellation_token) override, ([=] {
-		std::cout << "posix: Fix fifo readerFile::poll()" << std::endl;
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override, ([=] {
+		// TODO: Return Error::fileClosed as appropriate.
+
+		assert(past_seq <= _channel->currentSeq);
+		while(past_seq == _channel->currentSeq && !cancellation.is_cancellation_requested())
+			COFIBER_AWAIT _channel->statusBell.async_wait(cancellation);
+		if(cancellation.is_cancellation_requested())
+			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
+
+		int edges = 0;
+		if(_channel->inSeq > past_seq)
+			edges |= EPOLLIN;
+
+		int events = 0;
+		if(!_channel->packetQueue.empty())
+			events |= EPOLLIN;
+
+		COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
 	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
