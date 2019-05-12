@@ -25,6 +25,15 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 }
 
 // ----------------------------------------------------------------------------
+// Attribute implementation.
+// ----------------------------------------------------------------------------
+
+COFIBER_ROUTINE(async::result<void>, Attribute::store(Object *object, std::string data), ([=] {
+	// FIXME: Return an error to the caller.
+	throw std::runtime_error("Attribute does not support store()");
+}))
+
+// ----------------------------------------------------------------------------
 // AttributeFile implementation.
 // ----------------------------------------------------------------------------
 
@@ -66,6 +75,15 @@ AttributeFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	memcpy(data, _buffer.data() + _offset, chunk);
 	_offset += chunk;
 	COFIBER_RETURN(chunk);
+}))
+
+COFIBER_ROUTINE(FutureMaybe<void>,
+AttributeFile::writeAll(Process *, const void *data, size_t length), ([=] {
+	assert(length > 0);
+
+	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
+	COFIBER_AWAIT node->_attr->store(node->_object,
+			std::string{reinterpret_cast<const char *>(data), length});
 }))
 
 helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {

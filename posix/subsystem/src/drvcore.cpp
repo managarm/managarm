@@ -45,6 +45,11 @@ public:
 		assert(object == cardObject.get());
 		COFIBER_RETURN(std::string{"DEVNAME=dri/card0\n"});
 	}))
+
+	virtual COFIBER_ROUTINE(async::result<void>,
+	store(sysfs::Object *object, std::string data) override, ([=] {
+		std::cout << "posix: Stores to dri/card0 uevent file are not supported" << std::endl;
+	}))
 };
 
 struct UeventAttribute : sysfs::Attribute {
@@ -58,7 +63,8 @@ private:
 	: sysfs::Attribute("uevent", true) { }
 
 public:
-	virtual COFIBER_ROUTINE(async::result<std::string>, show(sysfs::Object *object) override, ([=] {
+	virtual COFIBER_ROUTINE(async::result<std::string>,
+	show(sysfs::Object *object) override, ([=] {
 		auto device = static_cast<Device *>(object);
 
 		std::stringstream ss;
@@ -71,6 +77,20 @@ public:
 		}
 		COFIBER_RETURN(ss.str());
 	}))
+
+	virtual COFIBER_ROUTINE(async::result<void>,
+	store(sysfs::Object *object, std::string data) override, ([=] {
+		auto device = static_cast<Device *>(object);
+
+		std::string sysfs_path = device->getSysfsPath();
+		std::stringstream ss;
+		ss << "add@/" << sysfs_path << '\0';
+		ss << "ACTION=add" << '\0';
+		ss << "DEVPATH=" << sysfs_path << '\0';
+		device->composeUevent(ss);
+		ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
+		drvcore::emitHotplug(ss.str());
+	}))
 };
 
 //-----------------------------------------------------------------------------
@@ -80,6 +100,21 @@ public:
 Device::Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *unix_device)
 : sysfs::Object{parent ? parent : globalDevicesObject, std::move(name)},
 		_unixDevice{unix_device} { }
+
+std::string Device::getSysfsPath() {
+	std::string path = name();
+	auto parent = directoryNode()->treeLink()->getOwner();
+	auto link = parent->treeLink().get();
+	while(true) {
+		auto owner = link->getOwner();
+		if(!owner)
+			break;
+		path = link->getName() + '/' + path;
+		link = owner->treeLink().get();
+	}
+
+	return path;
+}
 
 void Device::linkToSubsystem() {
 	// Nothing to do for devices outside of a subsystem.
@@ -165,17 +200,6 @@ void installDevice(std::shared_ptr<Device> device) {
 	device->setupDevicePtr(device);
 	device->addObject();
 
-	std::string sysfs_path = device->name();
-	auto parent = device->directoryNode()->treeLink()->getOwner();
-	auto link = parent->treeLink().get();
-	while(true) {
-		auto owner = link->getOwner();
-		if(!owner)
-			break;
-		sysfs_path = link->getName() + '/' + sysfs_path;
-		link = owner->treeLink().get();
-	}
-
 	// TODO: Do this before the object becomes visible in sysfs.
 	device->linkToSubsystem();
 	device->realizeAttribute(UeventAttribute::singleton());
@@ -187,6 +211,7 @@ void installDevice(std::shared_ptr<Device> device) {
 		globalCharObject->createSymlink(id_ss.str(), device);
 	}
 
+	std::string sysfs_path = device->getSysfsPath();
 	std::stringstream ss;
 	ss << "add@/" << sysfs_path << '\0';
 	ss << "ACTION=add" << '\0';

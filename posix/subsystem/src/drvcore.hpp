@@ -30,6 +30,9 @@ public:
 		return _unixDevice;
 	}
 
+	// Returns the path of this device under /sys/devices.
+	std::string getSysfsPath();
+
 	virtual void linkToSubsystem();
 
 	virtual void composeUevent(std::stringstream &ss) = 0;
