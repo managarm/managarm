@@ -86,7 +86,7 @@ public:
 		std::stringstream ss;
 		ss << "add@/" << sysfs_path << '\0';
 		ss << "ACTION=add" << '\0';
-		ss << "DEVPATH=" << sysfs_path << '\0';
+		ss << "DEVPATH=/" << sysfs_path << '\0';
 		device->composeUevent(ss);
 		ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
 		drvcore::emitHotplug(ss.str());
@@ -215,7 +215,7 @@ void installDevice(std::shared_ptr<Device> device) {
 	std::stringstream ss;
 	ss << "add@/" << sysfs_path << '\0';
 	ss << "ACTION=add" << '\0';
-	ss << "DEVPATH=" << sysfs_path << '\0';
+	ss << "DEVPATH=/" << sysfs_path << '\0';
 	device->composeUevent(ss);
 	ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
 	drvcore::emitHotplug(ss.str());

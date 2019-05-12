@@ -59,6 +59,7 @@ struct Device : UnixDevice, drvcore::ClassDevice {
 	}
 
 	void composeUevent(std::stringstream &ss) override {
+		ss << "SUBSYSTEM=input" << '\0';
 		ss << "DEVNAME=input/event" << _index << '\0';
 		ss << "MAJOR=13" << '\0';
 		ss << "MINOR=" << getId().second << '\0';
