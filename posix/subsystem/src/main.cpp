@@ -1309,11 +1309,19 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: PIPE_CREATE" << std::endl;
 
+			assert(!(req.flags() & ~(O_CLOEXEC | O_NONBLOCK)));
+
+			if(req.flags() & O_NONBLOCK)
+				std::cout << "\e[31mposix: pipe2(O_NONBLOCK)"
+						" is not implemented correctly\e[39m" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto pair = fifo::createPair();
-			auto r_fd = self->fileContext()->attachFile(std::get<0>(pair));
-			auto w_fd = self->fileContext()->attachFile(std::get<1>(pair));
+			auto r_fd = self->fileContext()->attachFile(std::get<0>(pair),
+					req.flags() & O_CLOEXEC);
+			auto w_fd = self->fileContext()->attachFile(std::get<1>(pair),
+					req.flags() & O_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
