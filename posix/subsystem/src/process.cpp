@@ -602,6 +602,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 
 std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	auto process = std::make_shared<Process>(original.get());
+	process->_path = original->path();
 	process->_vmContext = VmContext::clone(original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
