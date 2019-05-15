@@ -103,6 +103,28 @@ drm_core::Device::Device()
 		};
 	};
 	_modeIdProperty = std::make_shared<ModeIdProperty>();
+
+	struct CrtcXProperty : drm_core::Property {
+		CrtcXProperty()
+		: drm_core::Property{drm_core::IntPropertyType{}} { }
+
+		bool validate(const Assignment& assignment) override {
+			return true;
+		};
+	};
+	_crtcXProperty = std::make_shared<CrtcXProperty>();
+	
+	struct CrtcYProperty : drm_core::Property {
+		CrtcYProperty()
+		: drm_core::Property{drm_core::IntPropertyType{}} { }
+
+		bool validate(const Assignment& assignment) override {
+			return true;
+		};
+	};
+	_crtcYProperty = std::make_shared<CrtcYProperty>();
+
+
 }
 
 void drm_core::Device::setupCrtc(drm_core::Crtc *crtc) {
@@ -197,6 +219,14 @@ drm_core::Property *drm_core::Device::fbIdProperty() {
 
 drm_core::Property *drm_core::Device::modeIdProperty() {
 	return _modeIdProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcXProperty() {
+	return _crtcXProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcYProperty() {
+	return _crtcYProperty.get();
 }
 	
 // ----------------------------------------------------------------
@@ -326,6 +356,10 @@ std::shared_ptr<drm_core::Blob> drm_core::Crtc::currentMode() {
 	
 void drm_core::Crtc::setCurrentMode(std::shared_ptr<drm_core::Blob> mode) {
 	_curMode = mode;
+}
+
+drm_core::Plane *drm_core::Crtc::cursorPlane() {
+	return nullptr;
 }
 
 // ----------------------------------------------------------------
@@ -871,6 +905,105 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_CURSOR) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+	
+		auto crtc_obj = self->_device->findObject(req.drm_crtc_id());
+		assert(crtc_obj);
+		auto crtc = crtc_obj->asCrtc();
+
+		auto cursor_plane = crtc->cursorPlane();
+
+		if (cursor_plane == nullptr) {
+			resp.set_result(ENXIO);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			COFIBER_RETURN();
+		}
+
+		std::vector<Assignment> assignments;
+		if (req.drm_flags() == DRM_MODE_CURSOR_BO) {
+			auto bo = self->resolveHandle(req.drm_handle());
+			auto width = req.drm_width();
+			auto height = req.drm_height();
+			
+			assignments.push_back(Assignment{ 
+				cursor_plane->sharedModeObject(),
+				self->_device->srcWProperty(),
+				width,
+				nullptr,
+				nullptr
+			});
+
+			assignments.push_back(Assignment{
+				cursor_plane->sharedModeObject(),
+				self->_device->srcHProperty(),
+				height,
+				nullptr,
+				nullptr
+			});
+
+			if (bo) {	
+				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
+				assert(fb);
+				assignments.push_back(Assignment{ 
+					cursor_plane->sharedModeObject(),
+					self->_device->fbIdProperty(),
+					0,
+					fb,
+					nullptr
+				});
+			} else {
+				assignments.push_back(Assignment{ 
+					cursor_plane->sharedModeObject(),
+					self->_device->fbIdProperty(),
+					0,
+					nullptr,
+					nullptr
+				});
+			}
+		}else if (req.drm_flags() == DRM_MODE_CURSOR_MOVE) {
+			auto x = req.drm_x();
+			auto y = req.drm_y();
+
+			assignments.push_back(Assignment{
+				cursor_plane->sharedModeObject(),
+				self->_device->crtcXProperty(),
+				x,
+				nullptr,
+				nullptr
+			});
+
+			assignments.push_back(Assignment{
+				cursor_plane->sharedModeObject(),
+				self->_device->crtcYProperty(),
+				y,
+				nullptr,
+				nullptr
+			});
+		}else{
+			printf("\e[35mcore/drm: invalid request whilst handling DRM_IOCTL_MODE_CURSOR\e[39m\n");
+			resp.set_result(EINVAL);
+		}
+
+		auto config = self->_device->createConfiguration();
+		auto valid = config->capture(assignments);
+		assert(valid);
+		config->commit();
+
+		COFIBER_AWAIT config->waitForCompletion();
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+		helix::action(&send_resp, ser.data(), ser.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{

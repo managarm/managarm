@@ -147,6 +147,8 @@ private:
 	std::shared_ptr<Property> _srcHProperty;
 	std::shared_ptr<Property> _fbIdProperty;
 	std::shared_ptr<Property> _modeIdProperty;
+	std::shared_ptr<Property> _crtcXProperty;
+	std::shared_ptr<Property> _crtcYProperty;
 
 public:
 	id_allocator<uint32_t> allocator;
@@ -154,6 +156,8 @@ public:
 	Property *srcHProperty();
 	Property *fbIdProperty();
 	Property *modeIdProperty();
+	Property *crtcXProperty();
+	Property *crtcYProperty();
 };
 
 struct File {
@@ -246,7 +250,8 @@ private:
 struct Crtc : ModeObject {
 	Crtc(uint32_t id);
 	virtual Plane *primaryPlane() = 0;
-	
+	virtual Plane *cursorPlane();
+
 	std::shared_ptr<Blob> currentMode();
 	void setCurrentMode(std::shared_ptr<Blob> mode);
 
