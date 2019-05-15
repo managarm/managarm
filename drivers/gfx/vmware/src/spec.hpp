@@ -71,4 +71,94 @@ enum class register_index : uint32_t {
 	top = 48,
 };
 
+enum class command_index : uint32_t {
+	invalid_cmd           = 0,
+	update                = 1,
+	rect_copy             = 3,
+	define_cursor         = 19,
+	define_alpha_cursor   = 22,
+	update_verbose        = 25,
+	front_rop_fill        = 29,
+	fence                 = 30,
+	escape                = 33,
+	define_screen         = 34,
+	destroy_screen        = 35,
+	define_gmrfb          = 36,
+	blit_gmrfb_to_screen  = 37,
+	blit_screen_to_gmrfb  = 38,
+	annotation_fill       = 39,
+	annotation_copy       = 40,
+	define_gmr2           = 41,
+	remap_gmr2            = 42,
+	max
+};
+
+enum class fifo_index : uint32_t {
+	min = 0,
+	max,
+	next_cmd,
+	stop,
+
+	capabilities = 4,
+	flags,
+	fence,
+
+	_3d_hwversion,
+	pitchlock,
+
+	cursor_on,
+	cursor_x,
+	cursor_y,
+	cursor_count,
+	cursor_last_updated,
+
+	reserved,
+
+	cursor_screen_id,
+
+	dead,
+
+	_3d_hwversion_revised,
+
+	_3d_caps      = 32,
+	_3d_caps_last = 32 + 255,
+
+	guest_3d_hwversion,
+	fence_goal,
+	busy,
+
+	num_regs
+};
+
+// only necessary commands are implemented
+namespace commands {
+	struct define_alpha_cursor {
+		uint32_t id;				// must be 0
+		uint32_t hotspot_x;
+		uint32_t hotspot_y;
+		uint32_t width;
+		uint32_t height;
+		uint8_t pixel_data[];
+	};
+
+	struct define_cursor {
+		uint32_t id;				// must be 0
+		uint32_t hotspot_x;
+		uint32_t hotspot_y;
+		uint32_t width;
+		uint32_t height;
+		uint32_t _unknown;
+		uint32_t bpp;
+		uint8_t pixel_data[];
+	};
+}
+
+enum class caps : uint32_t {
+	cursor = 0x00000020,
+	fifo_extended = 0x00008000,
+	irqmask = 0x00040000,
+	fifo_reserve = (1<<6),
+	fifo_cursor_bypass_3 = (1<<4),
+};
+
 #endif
