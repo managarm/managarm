@@ -232,7 +232,7 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::waitIrq(uint32_t irq_mask), ([=](){
+COFIBER_ROUTINE(async::result<void>, GfxDevice::waitIrq(uint32_t irq_mask), ([=](){
 
 	static uint64_t irq_sequence;
 	
@@ -304,8 +304,8 @@ bool GfxDevice::DeviceFifo::hasCapability(caps capability) {
 	return (readRegister(fifo_index::capabilities) & (uint32_t)capability) != 0;
 }
 
-void *GfxDevice::DeviceFifo::reserve(size_t bytes) {
-	bytes *= 4;
+COFIBER_ROUTINE(async::result<void *>, GfxDevice::DeviceFifo::reserve(size_t size), ([=](){
+	size_t bytes = size * 4;
 	uint32_t min = readRegister(fifo_index::min);
 	uint32_t max = readRegister(fifo_index::max);
 	uint32_t next_cmd = readRegister(fifo_index::next_cmd);
@@ -329,13 +329,13 @@ void *GfxDevice::DeviceFifo::reserve(size_t bytes) {
 				(next_cmd + bytes == max && stop > min)) in_place = true;
 
 			else if ((max - next_cmd) + (stop - min) <= bytes) {
-				_device->waitIrq(2); // TODO: add a definiton for the mask
+				COFIBER_AWAIT _device->waitIrq(2); // TODO: add a definiton for the mask
 			} else {
 				_usingBounceBuf = true;
 			}
 		} else {
 			if (next_cmd + bytes < stop) in_place = true;
-			else _device->waitIrq(2); // TODO: add a definiton for the mask
+			else COFIBER_AWAIT _device->waitIrq(2); // TODO: add a definiton for the mask
 		}
 
 		if (in_place) {
@@ -344,16 +344,16 @@ void *GfxDevice::DeviceFifo::reserve(size_t bytes) {
 				auto mem = static_cast<uint8_t *>(_fifoMapping.get());
 				auto ptr = mem + next_cmd;
 
-				return ptr;
+				COFIBER_RETURN(ptr);
 			}
 		}
 
 		_usingBounceBuf = true;
-		return _bounceBuf;
+		COFIBER_RETURN(_bounceBuf);
 	}
 
-	return nullptr;
-}
+	COFIBER_RETURN(nullptr);
+}))
 
 void GfxDevice::DeviceFifo::commit(size_t bytes) {
 	uint32_t min = readRegister(fifo_index::min);
@@ -407,16 +407,15 @@ void GfxDevice::DeviceFifo::commitAll() {
 #define SVGA_BITMAP_SIZE(w, h)      ((((w) + 31) >> 5) * (h))
 #define SVGA_PIXMAP_SIZE(w, h, bpp) (((((w) * (bpp)) + 31) >> 5) * (h))
 
-void GfxDevice::DeviceFifo::defineCursor(int width, int height,
-	GfxDevice::BufferObject *bo) {
+COFIBER_ROUTINE(async::result<void>, GfxDevice::DeviceFifo::defineCursor(int width, int height, GfxDevice::BufferObject *bo), ([=](){
 
 	if (!_device->hasCapability(caps::cursor))
-		return;
+		COFIBER_RETURN();
 
 	// size in dwords
 	size_t size = sizeof(commands::define_alpha_cursor) / 4 + 3 + SVGA_BITMAP_SIZE(width, height) + SVGA_PIXMAP_SIZE(width, height, 32);
 
-	auto ptr = static_cast<uint32_t *>(reserve(size));
+	auto ptr = static_cast<uint32_t *>(COFIBER_AWAIT reserve(size));
 
 	ptr[0] = (uint32_t)command_index::define_cursor;
 	auto cmd = reinterpret_cast<commands::define_cursor *>(ptr + 1);
@@ -448,10 +447,9 @@ void GfxDevice::DeviceFifo::defineCursor(int width, int height,
 		memcpy(cmd->pixel_data + SVGA_BITMAP_SIZE(width, height) * 4, pixels, width * height * 4);
 	}
 	commitAll();
-}
+}))
 
 void GfxDevice::DeviceFifo::moveCursor(int x, int y) {
-
 	if (!_device->hasCapability(caps::cursor))
 		return;
 
@@ -489,12 +487,11 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 
 	_width = current_mode.hdisplay;
 	_height = current_mode.vdisplay;
-	_mode = _device->_crtc->currentMode();
 
 	for (auto &assign : assignment) {
 		if (assign.property == _device->srcWProperty()) {
 			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane) {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
 				_cursorWidth = assign.intValue;
 				_cursorUpdate = true;
 			} else if (assign.object == _device->_primaryPlane) {
@@ -502,7 +499,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 			}
 		} else if (assign.property == _device->srcHProperty()) {
 			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane) {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
 				_cursorHeight = assign.intValue;
 				_cursorUpdate = true;
 			} else if (assign.object == _device->_primaryPlane) {
@@ -510,13 +507,13 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 			}
 		} else if (assign.property == _device->crtcXProperty()) {
 			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane) {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
 				_cursorX = assign.intValue;
 				_cursorMove = true;
 			}
 		} else if (assign.property == _device->crtcYProperty()) {
 			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane) {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
 				_cursorY = assign.intValue;
 				_cursorMove = true;
 			}
@@ -524,7 +521,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 			assert(assign.property->validate(assign));
 			if (assign.objectValue) {
 			auto fb = assign.objectValue->asFrameBuffer();
-				if (assign.object == _device->_cursorPlane) {
+				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
 					_cursorFb = static_cast<GfxDevice::FrameBuffer *>(fb);
 					_cursorUpdate = true;
 				} else if (assign.object == _device->_primaryPlane) {	
@@ -592,7 +589,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::commitConfiguratio
 	if (_cursorUpdate) {
 		if (_cursorWidth != 0 && _cursorHeight != 0) {
 			_device->_fifo.setCursorState(true);
-			_device->_fifo.defineCursor(_cursorWidth, _cursorHeight, _cursorFb->getBufferObject());
+			COFIBER_AWAIT _device->_fifo.defineCursor(_cursorWidth, _cursorHeight, _cursorFb->getBufferObject());
 			_device->_fifo.setCursorState(true);
 		} else {
 			_device->_fifo.setCursorState(false);

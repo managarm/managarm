@@ -95,13 +95,13 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		DeviceFifo(GfxDevice *device, helix::Mapping fifoMapping);
 
 		void initialize();
-		void defineCursor(int width, int height, GfxDevice::BufferObject *bo);
+		async::result<void> defineCursor(int width, int height, GfxDevice::BufferObject *bo);
 		void moveCursor(int x, int y);
 		void setCursorState(bool enabled);
 		bool hasCapability(caps capability);
 
 	private:
-		void *reserve(size_t bytes);
+		async::result<void *> reserve(size_t size);
 		void commit(size_t);
 		void commitAll();
 		void writeRegister(fifo_index idx, uint32_t value);
@@ -144,7 +144,7 @@ private:
 	void writeRegister(register_index reg, uint32_t value);
 	bool hasCapability(caps capability);
 
-	cofiber::no_future waitIrq(uint32_t irq_mask);
+	async::result<void> waitIrq(uint32_t irq_mask);
 
 	protocols::hw::Device _hwDev;
 	DeviceFifo _fifo;
