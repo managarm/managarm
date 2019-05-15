@@ -925,87 +925,87 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else{
-			std::vector<Assignment> assignments;
-			if (req.drm_flags() == DRM_MODE_CURSOR_BO) {
-				auto bo = self->resolveHandle(req.drm_handle());
-				auto width = req.drm_width();
-				auto height = req.drm_height();
-				printf("core/drm: cursor set\n");
+			COFIBER_RETURN();
+		}
+
+		std::vector<Assignment> assignments;
+		if (req.drm_flags() == DRM_MODE_CURSOR_BO) {
+			auto bo = self->resolveHandle(req.drm_handle());
+			auto width = req.drm_width();
+			auto height = req.drm_height();
 			
+			assignments.push_back(Assignment{ 
+				cursor_plane->sharedModeObject(),
+				self->_device->srcWProperty(),
+				width,
+				nullptr,
+				nullptr
+			});
+
+			assignments.push_back(Assignment{
+				cursor_plane->sharedModeObject(),
+				self->_device->srcHProperty(),
+				height,
+				nullptr,
+				nullptr
+			});
+
+			if (bo) {	
+				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
+				assert(fb);
 				assignments.push_back(Assignment{ 
 					cursor_plane->sharedModeObject(),
-					self->_device->srcWProperty(),
-					width,
-					nullptr,
+					self->_device->fbIdProperty(),
+					0,
+					fb,
 					nullptr
 				});
-
-				assignments.push_back(Assignment{
+			} else {
+				assignments.push_back(Assignment{ 
 					cursor_plane->sharedModeObject(),
-					self->_device->srcHProperty(),
-					height,
+					self->_device->fbIdProperty(),
+					0,
 					nullptr,
 					nullptr
 				});
-
-				if (bo) {	
-					auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
-					assert(fb);
-					assignments.push_back(Assignment{ 
-						cursor_plane->sharedModeObject(),
-						self->_device->fbIdProperty(),
-						0,
-						fb,
-						nullptr
-					});
-				} else {
-					assignments.push_back(Assignment{ 
-						cursor_plane->sharedModeObject(),
-						self->_device->fbIdProperty(),
-						0,
-						nullptr,
-						nullptr
-					});
-				}
-			}else if (req.drm_flags() == DRM_MODE_CURSOR_MOVE) {
-				auto x = req.drm_x();
-				auto y = req.drm_y();
-
-				assignments.push_back(Assignment{
-					cursor_plane->sharedModeObject(),
-					self->_device->crtcXProperty(),
-					x,
-					nullptr,
-					nullptr
-				});
-
-				assignments.push_back(Assignment{
-					cursor_plane->sharedModeObject(),
-					self->_device->crtcYProperty(),
-					y,
-					nullptr,
-					nullptr
-				});
-			}else{
-				printf("\e[35mcore/drm: invalid request whilst handling DRM_IOCTL_MODE_CURSOR\e[39m\n");
-				resp.set_result(EINVAL);
 			}
+		}else if (req.drm_flags() == DRM_MODE_CURSOR_MOVE) {
+			auto x = req.drm_x();
+			auto y = req.drm_y();
 
-			auto config = self->_device->createConfiguration();
-			auto valid = config->capture(assignments);
-			assert(valid);
-			config->commit();
+			assignments.push_back(Assignment{
+				cursor_plane->sharedModeObject(),
+				self->_device->crtcXProperty(),
+				x,
+				nullptr,
+				nullptr
+			});
 
-			COFIBER_AWAIT config->waitForCompletion();
-
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			assignments.push_back(Assignment{
+				cursor_plane->sharedModeObject(),
+				self->_device->crtcYProperty(),
+				y,
+				nullptr,
+				nullptr
+			});
+		}else{
+			printf("\e[35mcore/drm: invalid request whilst handling DRM_IOCTL_MODE_CURSOR\e[39m\n");
+			resp.set_result(EINVAL);
 		}
+
+		auto config = self->_device->createConfiguration();
+		auto valid = config->capture(assignments);
+		assert(valid);
+		config->commit();
+
+		COFIBER_AWAIT config->waitForCompletion();
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+		helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
 	}
