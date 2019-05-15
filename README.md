@@ -25,7 +25,7 @@ Currently, Weston (the Wayland reference compositor) and GNU Bash run on managar
 
 ## Supported Hardware
 **General** USB (UHCI, EHCI)\
-**Graphics** Generic VBE graphics, Intel G45, virtio GPU, Bochs VBE interface\
+**Graphics** Generic VBE graphics, Intel G45, virtio GPU, Bochs VBE interface, VMWare SVGA\
 **Input** USB human interface devices, PS/2 keyboard and mouse\
 **Storage** USB mass storage devices, ATA, virtio block
 
