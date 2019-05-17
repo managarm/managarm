@@ -1,6 +1,7 @@
 
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/signalfd.h>
 #include <iostream>
 
 #include <async/doorbell.hpp>
@@ -26,16 +27,24 @@ public:
 	: File{StructName::get("signalfd")}, _mask{mask} { }
 
 	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
-		throw std::runtime_error("read() from signalfd is not implemented");
+	readSome(Process *process, void *data, size_t max_length) override, ([=] {
+		// TODO: Return an error otherwise.
+		assert(max_length >= sizeof(struct signalfd_siginfo));
+
+		auto active = process->signalContext()->fetchSignal(_mask);
+		assert(active); // TODO: Implement blocking for signals.
+
+		struct signalfd_siginfo si = {};
+		si.ssi_signo = active->signalNumber;
+
+		memcpy(data, &si, sizeof(struct signalfd_siginfo));
+		COFIBER_RETURN(sizeof(struct signalfd_siginfo));
 	}))
 	
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *process, uint64_t in_seq,
 			async::cancellation_token cancellation) override, ([=] {
-		std::cout << "posix: signalfd poll() with mask " << _mask << std::endl;
 		auto sequence = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq, _mask,
 				cancellation);
-		std::cout << "posix: signalfd poll() returns" << std::endl;
 		COFIBER_RETURN(PollResult(sequence, EPOLLIN, EPOLLIN));
 	}))
 
