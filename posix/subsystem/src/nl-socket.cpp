@@ -18,7 +18,7 @@ namespace nl_socket {
 struct OpenFile;
 struct Group;
 
-bool logSockets = true;
+bool logSockets = false;
 
 std::map<std::pair<int, int>, std::unique_ptr<Group>> globalGroupMap;
 
