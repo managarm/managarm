@@ -23,12 +23,13 @@ struct Packet {
 
 struct Channel {
 	Channel()
-	: currentSeq{1}, inSeq{0}, writerCount{0} { }
+	: writerCount{0} { }
 
 	// Status management for poll().
 	async::doorbell statusBell;
-	uint64_t currentSeq;
-	uint64_t inSeq;
+	uint64_t currentSeq = 0;
+	uint64_t hupSeq = 0;
+	uint64_t inSeq = 1;
 	int writerCount;
 
 	// The actual queue of this pipe.
@@ -61,7 +62,7 @@ public:
 
 		while(_channel->packetQueue.empty() && _channel->writerCount)
 			COFIBER_AWAIT _channel->statusBell.async_wait();
-		
+
 		if(_channel->packetQueue.empty()) {
 			assert(!_channel->writerCount);
 			COFIBER_RETURN(0);
@@ -76,22 +77,28 @@ public:
 		_channel->packetQueue.pop_front();
 		COFIBER_RETURN(size);
 	}))
-	
+
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
 			async::cancellation_token cancellation) override, ([=] {
 		// TODO: Return Error::fileClosed as appropriate.
-
 		assert(past_seq <= _channel->currentSeq);
-		while(past_seq == _channel->currentSeq && !cancellation.is_cancellation_requested())
+		while(past_seq == _channel->currentSeq
+				&& !cancellation.is_cancellation_requested())
 			COFIBER_AWAIT _channel->statusBell.async_wait(cancellation);
+
 		if(cancellation.is_cancellation_requested())
 			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
 
 		int edges = 0;
+		if(_channel->hupSeq > past_seq)
+			edges |= EPOLLHUP;
 		if(_channel->inSeq > past_seq)
 			edges |= EPOLLIN;
 
 		int events = 0;
+		if(!_channel->writerCount) {
+			events |= EPOLLHUP;
+		}
 		if(!_channel->packetQueue.empty())
 			events |= EPOLLIN;
 
@@ -132,12 +139,12 @@ public:
 		std::cout << "\e[35mposix: Cancel passthrough on fifo WriterFile::handleClose()\e[39m"
 				<< std::endl;
 		if(_channel->writerCount-- == 1) {
-			_channel->currentSeq++;
+			_channel->hupSeq = ++_channel->currentSeq;
 			_channel->statusBell.ring();
 		}
 		_channel = nullptr;
 	}
-	
+
 	COFIBER_ROUTINE(FutureMaybe<void>,
 	writeAll(Process *process, const void *data, size_t max_length) override, ([=] {
 
@@ -152,7 +159,7 @@ public:
 
 		COFIBER_RETURN();
 	}))
-	
+
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t,
 			async::cancellation_token) override, ([=] {
 		std::cout << "posix: Fix fifo WriterFile::poll()" << std::endl;
