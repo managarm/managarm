@@ -343,7 +343,11 @@ struct Superblock : FsSuperblock {
 		auto src_dir = static_cast<DirectoryNode *>(src_link->getOwner().get());
 		auto it = src_dir->_entries.find(src_link->getName());
 		assert(it != src_dir->_entries.end() && it->get() == src_link);
-		assert(dest_dir->_entries.find(dest_name) == dest_dir->_entries.end());
+
+		// Unlink an existing link if such a link exists.
+		if(auto dest_it = dest_dir->_entries.find(dest_name);
+				dest_it != dest_dir->_entries.end())
+			dest_dir->_entries.erase(dest_it);
 
 		auto new_link = std::make_shared<Link>(dest_dir->shared_from_this(),
 				std::move(dest_name), src_link->getTarget());
