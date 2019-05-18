@@ -82,13 +82,12 @@ private:
 			COFIBER_AWAIT submit.async_wait();
 		}
 
-		_promise.set_value();
-
-		if(await.error() == kHelErrCancelled) {
-			_function();
-		}else{
+		if(await.error() != kHelErrCancelled) {
 			HEL_CHECK(await.error());
+			_function();
 		}
+		
+		_promise.set_value();
 	}))
 
 	F _function;
