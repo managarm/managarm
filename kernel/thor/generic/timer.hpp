@@ -57,6 +57,10 @@ struct PrecisionTimerNode {
 
 	void cancelTimer();
 
+	bool wasCancelled() {
+		return _wasCancelled;
+	}
+
 	frg::pairing_heap_hook<PrecisionTimerNode> hook;
 
 private:
@@ -67,6 +71,7 @@ private:
 	PrecisionTimerEngine *_engine;
 
 	bool _inQueue;
+	bool _wasCancelled = false;
 };
 
 struct CompareTimer {

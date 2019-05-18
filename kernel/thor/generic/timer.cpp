@@ -16,10 +16,11 @@ void PrecisionTimerNode::cancelTimer() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_engine->_mutex);
 
-	if(_inQueue)
+	if(!_inQueue)
 		return;
 	_engine->_timerQueue.remove(this);
 	_inQueue = false;
+	_wasCancelled = true;
 	_engine->_activeTimers--;
 	WorkQueue::post(_elapsed);
 }

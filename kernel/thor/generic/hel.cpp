@@ -1387,6 +1387,8 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 
 		static void elapsed(Worklet *worklet) {
 			auto closure = frg::container_of(worklet, &Closure::worklet);
+			if(closure->wasCancelled())
+				closure->result.error = kHelErrCancelled;
 			closure->finalizeCancel();
 			closure->queue->submit(closure);
 		}
