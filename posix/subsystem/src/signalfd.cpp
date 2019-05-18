@@ -43,9 +43,16 @@ public:
 	
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *process, uint64_t in_seq,
 			async::cancellation_token cancellation) override, ([=] {
-		auto sequence = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq, _mask,
-				cancellation);
-		COFIBER_RETURN(PollResult(sequence, EPOLLIN, EPOLLIN));
+		auto result = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq,
+				_mask, cancellation);
+		COFIBER_RETURN(PollResult(std::get<0>(result), EPOLLIN, EPOLLIN));
+	}))
+
+	COFIBER_ROUTINE(expected<PollResult>, checkStatus(Process *process) override, ([=] {
+		auto result = process->signalContext()->checkSignal(_mask);
+		COFIBER_RETURN(PollResult(std::get<0>(result),
+					(std::get<1>(result) & _mask) ? EPOLLIN : 0,
+					(std::get<2>(result) & _mask) ? EPOLLIN : 0));
 	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() override {

@@ -367,13 +367,13 @@ void SignalContext::issueSignal(int sn, SignalInfo info) {
 	item->signalNumber = sn;
 	item->info = info;
 
+	_slots[sn].raiseSeq = ++_currentSeq;
 	_slots[sn].asyncQueue.push_back(*item);
 	_activeSet |= (UINT64_C(1) << sn);
-	++_currentSeq;
 	_signalBell.ring();
 }
 
-COFIBER_ROUTINE(async::result<uint64_t>,
+COFIBER_ROUTINE(async::result<PollSignalResult>,
 SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 		async::cancellation_token cancellation), ([=] {
 	assert(in_seq <= _currentSeq);
@@ -397,8 +397,22 @@ SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 		COFIBER_AWAIT std::move(future);
 	}
 
-	COFIBER_RETURN(_currentSeq);
+	uint64_t edges = 0;
+	for(int sn = 0; sn < 64; sn++)
+		if(_slots[sn].raiseSeq > in_seq)
+			edges |= UINT64_C(1) << sn;
+
+	COFIBER_RETURN(PollSignalResult(_currentSeq, edges, _activeSet));
 }));
+
+PollSignalResult SignalContext::checkSignal(uint64_t mask) {
+	uint64_t edges = 0;
+	for(int sn = 0; sn < 64; sn++)
+		if(_slots[sn].raiseSeq > 0)
+			edges |= UINT64_C(1) << sn;
+
+	return PollSignalResult(_currentSeq, edges, _activeSet);
+}
 
 SignalItem *SignalContext::fetchSignal(uint64_t mask) {
 	int sn;

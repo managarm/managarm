@@ -146,9 +146,13 @@ struct SignalItem {
 	boost::intrusive::list_member_hook<> queueHook;
 };
 
+using PollSignalResult = std::tuple<uint64_t, uint64_t, uint64_t>;
+
 struct SignalContext {
 private:
 	struct SignalSlot {
+		uint64_t raiseSeq = 0;
+
 		boost::intrusive::list<
 			SignalItem,
 			boost::intrusive::member_hook<
@@ -171,8 +175,10 @@ public:
 
 	void issueSignal(int sn, SignalInfo info);
 
-	async::result<uint64_t> pollSignal(uint64_t in_seq, uint64_t mask,
+	async::result<PollSignalResult> pollSignal(uint64_t in_seq, uint64_t mask,
 			async::cancellation_token cancellation = {});
+
+	PollSignalResult checkSignal(uint64_t mask);
 
 	SignalItem *fetchSignal(uint64_t mask);
 
