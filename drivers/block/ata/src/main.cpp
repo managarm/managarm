@@ -173,12 +173,14 @@ COFIBER_ROUTINE(async::result<void>, Controller::_performRequest(Request *reques
 				HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, _irqSequence));
 				continue;
 			}
-			assert(!(alt_status & (kStatusErr | kStatusDf)));
+			assert(!(alt_status & kStatusErr));
+			assert(!(alt_status & kStatusDf));
 
 			// Clear and acknowledge the IRQ.
 			auto status = _ioSpace.load(regs::inStatus);
 			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, _irqSequence));
-			assert(!(status & (kStatusErr | kStatusDf)));
+			assert(!(status & kStatusErr));
+			assert(!(status & kStatusDf));
 			if(!(status & kStatusRdy))
 				std::cout << "\e[31m" "block/ata: RDY is not set after IRQ" "\e[39m" << std::endl;
 			if(!(status & kStatusDrq))
