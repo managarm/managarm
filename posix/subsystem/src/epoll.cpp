@@ -181,18 +181,29 @@ public:
 
 				// Discard non-alive items without returning them.
 				if(!(item->state & stateActive)) {
+					if(logEpoll)
+						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
+								" inactive item \e[1;34m" << item->file->structName() << "\e[0m"
+								<< std::endl;
 					item->state &= ~statePending;
 					if(!item->state)
 						delete item;
 					continue;
 				}
 
+				if(logEpoll)
+					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Checking item "
+							<< "\e[1;34m" << item->file->structName() << "\e[0m" << std::endl;
 				auto result_or_error = COFIBER_AWAIT item->file->checkStatus(item->process);	
 		
 				// Discard closed items.
 				auto error = std::get_if<Error>(&result_or_error);
 				if(error) {
 					assert(*error == Error::fileClosed);
+					if(logEpoll)
+						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
+								" closed item \e[1;34m" << item->file->structName() << "\e[0m"
+								<< std::endl;
 					item->state &= ~statePending;
 					if(!item->state)
 						delete item;
@@ -201,9 +212,9 @@ public:
 
 				auto result = std::get<PollResult>(result_or_error);
 				if(logEpoll)
-					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Checking item "
-							<< "\e[1;34m" << item->file->structName() << "\e[0m."
-							" Mask is " << item->eventMask << ", while " << std::get<2>(result)
+					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m:"
+							" Item \e[1;34m" << item->file->structName() << "\e[0m"
+							" mask is " << item->eventMask << ", while " << std::get<2>(result)
 							<< " is active" << std::endl;
 
 				// Abort early (i.e before requeuing) if the item is not pending.
