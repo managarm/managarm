@@ -48,6 +48,54 @@ namespace {
 	constexpr bool logCleanup = false;
 }
 
+template<typename F>
+struct TimeoutCallback {
+	TimeoutCallback(uint64_t duration, F function)
+	: _function{std::move(function)} {
+		_runTimer(duration);
+	}
+
+	TimeoutCallback(const TimeoutCallback &other) = delete;
+
+	TimeoutCallback &operator= (const TimeoutCallback &other) = delete;
+
+	async::result<void> retire() {
+		_cancelTimer.cancel();
+		return _promise.async_get();
+	}
+
+private:
+	COFIBER_ROUTINE(cofiber::no_future, _runTimer(uint64_t duration), ([=] {
+		uint64_t tick;
+		HEL_CHECK(helGetClock(&tick));
+
+		helix::AwaitClock await;
+		auto &&submit = helix::submitAwaitClock(&await, tick + duration,
+				helix::Dispatcher::global());
+		auto async_id = await.asyncId();
+
+		{
+			async::cancellation_callback cb{_cancelTimer, [&] {
+				HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(),
+						async_id));
+			}};
+			COFIBER_AWAIT submit.async_wait();
+		}
+
+		_promise.set_value();
+
+		if(await.error() == kHelErrCancelled) {
+			_function();
+		}else{
+			HEL_CHECK(await.error());
+		}
+	}))
+
+	F _function;
+	async::cancellation_event _cancelTimer;
+	async::promise<void> _promise;
+};
+
 std::map<
 	std::array<char, 16>,
 	std::shared_ptr<Process>
@@ -1570,20 +1618,24 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 						req.events(i), i);
 			}
 
-			if(req.timeout() > 0)
-				std::cout << "posix: Ignoring non-zero EPOLL_WAIT timeout" << std::endl;
-
 			struct epoll_event events[16];
 			size_t k;
-			if(req.timeout() == -1 || req.timeout() > 0) {
+			if(req.timeout() == -1) {
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16);
-			}else if(req.timeout() == 0) {
+			}else if(!req.timeout()) {
 				// Do not bother to set up a timer for zero timeouts.
 				async::cancellation_event cancel_wait;
 				cancel_wait.cancel();
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
+			}else if(req.timeout() > 0) {
+				async::cancellation_event cancel_wait;
+				TimeoutCallback timer{req.timeout(), [&] {
+					cancel_wait.cancel();
+				}};
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
+				COFIBER_AWAIT timer.retire();
 			}else{
-				assert(!"posix: Implement real epoll timeouts");
+				assert(!"posix: Illegal timeout for EPOLL_CALL");
 				__builtin_unreachable();
 			}
 
@@ -1697,22 +1749,26 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto epfile = self->fileContext()->getFile(req.fd());
 			assert(epfile && "Illegal FD for EPOLL_WAIT");
 
-			if(req.timeout() > 0)
-				std::cout << "posix: Ignoring non-zero EPOLL_WAIT timeout" << std::endl;
-
 			struct epoll_event events[16];
 			size_t k;
-			if(req.timeout() == -1 || req.timeout() > 0) {
+			if(req.timeout() == -1) {
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
 						std::min(req.size(), uint32_t(16)));
-			}else if(req.timeout() == 0) {
+			}else if(!req.timeout()) {
 				// Do not bother to set up a timer for zero timeouts.
 				async::cancellation_event cancel_wait;
 				cancel_wait.cancel();
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
 						std::min(req.size(), uint32_t(16)), cancel_wait);
+			}else if(req.timeout() > 0) {
+				async::cancellation_event cancel_wait;
+				TimeoutCallback timer{req.timeout(), [&] {
+					cancel_wait.cancel();
+				}};
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
+				COFIBER_AWAIT timer.retire();
 			}else{
-				assert(!"posix: Implement real epoll timeouts");
+				assert(!"posix: Illegal timeout for EPOLL_WAIT");
 				__builtin_unreachable();
 			}
 
