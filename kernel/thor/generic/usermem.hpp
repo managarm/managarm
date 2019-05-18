@@ -292,8 +292,6 @@ struct MemorySlice {
 	uintptr_t offset() { return _viewOffset; }
 	size_t length() { return _viewSize; }
 
-	SliceRange translateRange(ptrdiff_t offset, size_t size);
-
 private:
 	frigg::SharedPtr<MemoryView> _view;
 	ptrdiff_t _viewOffset;

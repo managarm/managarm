@@ -1280,15 +1280,8 @@ void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
 MemorySlice::MemorySlice(frigg::SharedPtr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size)
 : _view{frigg:move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
-	assert(!_viewOffset);
 	assert(!(_viewOffset & (kPageSize - 1)));
 	assert(!(_viewSize & (kPageSize - 1)));
-}
-
-SliceRange MemorySlice::translateRange(ptrdiff_t offset, size_t size) {
-	assert(offset + size <= _viewSize);
-	return SliceRange{_view.get(), _viewOffset + offset,
-			frigg::min(size, _viewSize - offset)};
 }
 
 // --------------------------------------------------------
@@ -1421,7 +1414,8 @@ NormalMapping::NormalMapping(size_t length, MappingFlags flags,
 		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset)
 : Mapping{length, flags},
 		_slice{frigg::move(slice)}, _viewOffset{view_offset} {
-	assert(_viewOffset + NormalMapping::length() <= _slice->length());
+	assert(_viewOffset >= _slice->offset());
+	assert(_viewOffset + NormalMapping::length() <= _slice->offset() + _slice->length());
 	_view = _slice->getView();
 }
 
@@ -1446,9 +1440,7 @@ NormalMapping::resolveRange(ptrdiff_t offset) {
 
 	// TODO: This function should be rewritten.
 	assert((size_t)offset + kPageSize <= length());
-	auto range = _slice->translateRange(_viewOffset + offset,
-			frigg::min((size_t)kPageSize, length() - (size_t)offset));
-	auto bundle_range = range.view->peekRange(range.displacement);
+	auto bundle_range = _view->peekRange(_viewOffset + offset);
 	return frigg::Tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
@@ -1551,9 +1543,7 @@ void NormalMapping::install() {
 		assert(!"lockRange() failed");
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		auto range = _slice->translateRange(_viewOffset + progress, kPageSize);
-		assert(range.size >= kPageSize);
-		auto bundle_range = range.view->peekRange(range.displacement);
+		auto bundle_range = _view->peekRange(_viewOffset + progress);
 
 		VirtualAddr vaddr = address() + progress;
 		assert(!owner()->_pageSpace.isMapped(vaddr));
@@ -2441,13 +2431,13 @@ Error AddressSpace::map(Guard &guard,
 	if(flags & kMapCopyOnWrite) {
 		mapping = smarter::allocate_shared<CowMapping>(Allocator{},
 				length, static_cast<MappingFlags>(mapping_flags),
-				slice.toShared(), offset, nullptr);
+				slice.toShared(), slice->offset() + offset, nullptr);
 		mapping->selfPtr = mapping;
 	}else{
 		assert(!(mapping_flags & MappingFlags::copyOnWriteAtFork));
 		mapping = smarter::allocate_shared<NormalMapping>(Allocator{},
 				length, static_cast<MappingFlags>(mapping_flags),
-				slice.toShared(), offset);
+				slice.toShared(), slice->offset() + offset);
 		mapping->selfPtr = mapping;
 	}
 
