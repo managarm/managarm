@@ -19,6 +19,15 @@ that allow efficient implementations of common user space functionality (like PO
 While the managarm user space API supports many Linux APIs (e.g. epoll, timerfd, signalfd or tmpfs),
 managarm does not share any source code (or binaries) with the Linux kernel.
 
+## Trying out managarm
+
+We provide [nightly builds](https://ci.managarm.org/job/managarm-nightly/)
+of managarm. If you want to try out managarm without building the whole OS, you can download a
+xz-compressed [nightly image](https://ci.managarm.org/job/managarm-nightly/lastSuccessfulBuild/artifact/build/image.xz).
+To run the (uncompressed) image using qemu, we recommend the following flags:
+
+`qemu-system-x86_64 -enable-kvm -m 1024 -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -debugcon stdio`
+
 ## Supported Software
 
 Currently, Weston (the Wayland reference compositor) and GNU Bash run on managarm.
