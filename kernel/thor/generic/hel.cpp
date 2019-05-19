@@ -1378,18 +1378,18 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	struct Closure : CancelNode, PrecisionTimerNode, IpcNode {
 		static void issue(uint64_t nanos, frigg::SharedPtr<IpcQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
-			auto node = frigg::construct<Closure>(*kernelAlloc, nanos,
+			auto closure = frigg::construct<Closure>(*kernelAlloc, nanos,
 					frigg::move(queue), context);
-			node->queue->issue(node);
-			*async_id = node->asyncId();
-			generalTimerEngine()->installTimer(node);
+			closure->queue->registerNode(closure);
+			*async_id = closure->asyncId();
+			generalTimerEngine()->installTimer(closure);
 		}
 
 		static void elapsed(Worklet *worklet) {
 			auto closure = frg::container_of(worklet, &Closure::worklet);
 			if(closure->wasCancelled())
 				closure->result.error = kHelErrCancelled;
-			closure->finalizeCancel();
+			closure->queue->unregisterNode(closure);
 			closure->queue->submit(closure);
 		}
 
@@ -1405,7 +1405,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			PrecisionTimerNode::setup(nanos, &worklet);
 		}
 
-		void handleCancel() override {
+		void handleCancellation() override {
 			cancelTimer();
 		}
 
