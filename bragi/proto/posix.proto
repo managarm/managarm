@@ -240,6 +240,9 @@ message SvrResponse {
 	repeated int32 fds = 20;
 	repeated int32 events = 25;
 	
+	// Returned by INOTIFY_ADD.
+	optional int32 wd = 30;
+
 	// Signal-specific stuff.
 	optional uint64 sig_mask = 26;
 	optional uint64 sig_handler = 27;

@@ -55,6 +55,18 @@ struct FsSuperblock {
 };
 
 // ----------------------------------------------------------------------------
+// FsObserver class.
+// ----------------------------------------------------------------------------
+
+struct FsObserver {
+protected:
+	~FsObserver() = default;
+
+public:
+	virtual void observeNotification() = 0;
+};
+
+// ----------------------------------------------------------------------------
 // FsNode class.
 // ----------------------------------------------------------------------------
 
@@ -63,12 +75,15 @@ inline constexpr SemanticFlags semanticNonBlock = 1;
 
 // Represents an inode on an actual file system (i.e. not in the VFS).
 struct FsNode {
+	using DefaultOps = uint32_t;
+	static inline constexpr DefaultOps defaultSupportsObservers = 1 << 1;
+
 	// TODO: Remove this constructor once every FS has a superblock.
-	FsNode()
-	: _superblock{nullptr} { }
-	
-	FsNode(FsSuperblock *superblock)
-	: _superblock{superblock} { }
+	FsNode(DefaultOps default_ops = 0)
+	: _superblock{nullptr}, _defaultOps{default_ops} { }
+
+	FsNode(FsSuperblock *superblock, DefaultOps default_ops = 0)
+	: _superblock{superblock}, _defaultOps{default_ops} { }
 
 	FsSuperblock *superblock() {
 		return _superblock;
@@ -82,6 +97,10 @@ struct FsNode {
 	// For directories only: Returns a pointer to the link
 	// that links this directory from its parent.
 	virtual std::shared_ptr<FsLink> treeLink();
+
+	virtual void addObserver(std::shared_ptr<FsObserver> observer);
+
+	virtual void removeObserver(FsObserver *observer);
 
 	//! Resolves a file in a directory (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name);
@@ -114,8 +133,15 @@ struct FsNode {
 	//! Read the major/minor device number (devices only).
 	virtual DeviceId readDevice();
 
+protected:
+	void notifyObservers();
+
 private:
 	FsSuperblock *_superblock;
+	DefaultOps _defaultOps;
+
+	// Observers, for example for inotify.
+	std::unordered_map<FsObserver *, std::shared_ptr<FsObserver>> _observers;
 };
 
 #endif // POSIX_SUBSYSTEM_FS_HPP

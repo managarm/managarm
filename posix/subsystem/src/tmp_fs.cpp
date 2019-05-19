@@ -22,7 +22,7 @@ namespace {
 struct Superblock;
 
 struct Node : FsNode {
-	Node(Superblock *superblock);
+	Node(Superblock *superblock, FsNode::DefaultOps default_ops = 0);
 
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
@@ -205,6 +205,9 @@ private:
 		auto it = _entries.find(name);
 		assert(it != _entries.end());
 		_entries.erase(it);
+
+		notifyObservers();
+
 		COFIBER_RETURN();
 	}))
 
@@ -491,8 +494,8 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 // Node implementation.
 // ----------------------------------------------------------------------------
 
-Node::Node(Superblock *superblock)
-: FsNode{superblock} {
+Node::Node(Superblock *superblock, FsNode::DefaultOps default_ops)
+: FsNode{superblock, default_ops} {
 	_inodeNumber = superblock->allocateInode();
 }
 
@@ -532,7 +535,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock)
 }
 
 DirectoryNode::DirectoryNode(Superblock *superblock)
-: Node{superblock} { }
+: Node{superblock, FsNode::defaultSupportsObservers} { }
 
 COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>,
 DirectoryNode::mkdir(std::string name), ([=] {

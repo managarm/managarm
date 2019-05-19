@@ -24,6 +24,23 @@ std::shared_ptr<FsLink> FsNode::treeLink() {
 	throw std::runtime_error("treeLink() is not implemented for this FsNode");
 }
 
+void FsNode::addObserver(std::shared_ptr<FsObserver> observer) {
+	if(!(_defaultOps & defaultSupportsObservers))
+		std::cout << "\e[31m" "posix: FsNode does not support observers" "\e[39m" << std::endl;
+
+	// TODO: For increased efficiency, Observers could be stored in an intrusive list.
+	auto borrowed = observer.get();
+	auto [it, inserted] = _observers.insert({borrowed, std::move(observer)});
+	(void)it;
+	assert(inserted); // Registering observers twice is an error.
+}
+
+void FsNode::removeObserver(FsObserver *observer) {
+	auto it = _observers.find(observer);
+	assert(it != _observers.end());
+	_observers.erase(it);
+}
+
 FutureMaybe<std::shared_ptr<FsLink>> FsNode::getLink(std::string) {
 	throw std::runtime_error("getLink() is not implemented for this FsNode");
 }
@@ -61,5 +78,13 @@ expected<std::string> FsNode::readSymlink(FsLink *link) {
 
 DeviceId FsNode::readDevice() {
 	throw std::runtime_error("readDevice() is not implemented for this FsNode");
+}
+
+void FsNode::notifyObservers() {
+	assert(_defaultOps & defaultSupportsObservers);
+	for(const auto &[borrowed, observer] : _observers) {
+		borrowed->observeNotification();
+		(void)observer;
+	}
 }
 

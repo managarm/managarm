@@ -1862,6 +1862,32 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::INOTIFY_ADD) {
+			if(logRequests)
+				std::cout << "posix: INOTIFY_ADD" << std::endl;
+
+			auto ifile = self->fileContext()->getFile(req.fd());
+			assert(ifile);
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
+			COFIBER_AWAIT resolver.resolve();
+			assert(resolver.currentLink());
+
+			auto wd = inotify::addWatch(ifile.get(), resolver.currentLink()->getTarget());
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_wd(wd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;
