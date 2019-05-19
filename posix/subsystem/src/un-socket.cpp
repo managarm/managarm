@@ -53,8 +53,8 @@ public:
 		b->_remote = a;
 		a->_currentState = State::connected;
 		b->_currentState = State::connected;
-		a->_stateBell.ring();
-		b->_stateBell.ring();
+		a->_statusBell.ring();
+		b->_statusBell.ring();
 	}
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -78,14 +78,13 @@ public:
 		if(_currentState == State::connected) {
 			auto rf = _remote;
 			rf->_currentState = State::remoteShutDown;
-			rf->_stateSeq = ++rf->_currentSeq;
-			rf->_stateBell.ring();
+			rf->_hupSeq = ++rf->_currentSeq;
+			rf->_statusBell.ring();
 			rf->_remote = nullptr;
 			_remote = nullptr;
 		}
 		_currentState = State::closed;
-		_stateSeq = ++_currentSeq;
-		_stateBell.ring();
+		_statusBell.ring();
 		_cancelServe.cancel();
 	}
 
@@ -255,9 +254,8 @@ public:
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
-		if(_stateSeq > past_seq)
-			if(_currentState == State::remoteShutDown)
-				edges |= EPOLLHUP;
+		if(_hupSeq > past_seq)
+			edges |= EPOLLHUP;
 		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
 
@@ -283,7 +281,8 @@ public:
 
 		std::string path{sa.sun_path, strnlen(sa.sun_path,
 				addr_length - offsetof(sockaddr_un, sun_path))};
-		std::cout << "posix: Bind to " << path << std::endl;
+		if(logSockets)
+			std::cout << "posix: Bind to " << path << std::endl;
 
 		PathResolver resolver;
 		resolver.setup(process->fsContext()->getRoot(),
@@ -311,7 +310,8 @@ public:
 
 		std::string path{sa.sun_path, strnlen(sa.sun_path,
 				addr_length - offsetof(sockaddr_un, sun_path))};
-		std::cout << "posix: Connect to " << path << std::endl;
+		if(logSockets)
+			std::cout << "posix: Connect to " << path << std::endl;
 
 		PathResolver resolver;
 		resolver.setup(process->fsContext()->getRoot(),
@@ -330,10 +330,8 @@ public:
 		server->_statusBell.ring();
 
 		while(_currentState == State::null)
-			COFIBER_AWAIT _stateBell.async_wait();
+			COFIBER_AWAIT _statusBell.async_wait();
 		assert(_currentState == State::connected);
-		std::cout << "posix: Connect returns" << std::endl;
-		COFIBER_RETURN();
 	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -344,13 +342,12 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
-	async::doorbell _stateBell;
 	State _currentState;
 
 	// Status management for poll().
 	async::doorbell _statusBell;
 	uint64_t _currentSeq;
-	uint64_t _stateSeq;
+	uint64_t _hupSeq = 0;
 	uint64_t _inSeq;
 
 	// TODO: Use weak_ptrs here!
