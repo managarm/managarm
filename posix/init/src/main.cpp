@@ -109,10 +109,23 @@ int main() {
 		sleep(1);
 	}
 
+	std::cout << "init: Running udev-trigger" << std::endl;
 	auto udev_trigger_devs = fork();
 	if(!udev_trigger_devs) {
 		execl("/usr/bin/udevadm", "udevadm", "trigger", "--action=add", nullptr);
 	}else assert(udev_trigger_devs != -1);
+
+	waitpid(udev_trigger_devs, nullptr, 0);
+
+	std::cout << "init: Running udev-settle" << std::endl;
+	auto udev_settle = fork();
+	if(!udev_settle) {
+		execl("/usr/bin/udevadm", "udevadm", "settle", nullptr);
+	}else assert(udev_settle != -1);
+
+	waitpid(udev_settle, nullptr, 0);
+
+	std::cout << "init: udev initialization is done" << std::endl;
 
 	// Start some drivers that are not integrated into udev rules yet.
 	auto input_ps2 = fork();
