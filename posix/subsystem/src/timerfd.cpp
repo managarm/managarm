@@ -34,7 +34,7 @@ private:
 			timer->asyncId = await_initial.asyncId();
 			COFIBER_AWAIT submit.async_wait();
 			timer->asyncId = 0;
-			HEL_CHECK(await_initial.error());
+			assert(!await_initial.error() || await_initial.error() == kHelErrCancelled);
 			tick += timer->initial;
 
 			if(_activeTimer == timer) {
@@ -61,7 +61,7 @@ private:
 			timer->asyncId = await_interval.asyncId();
 			COFIBER_AWAIT submit.async_wait();
 			timer->asyncId = 0;
-			HEL_CHECK(await_interval.error());
+			assert(!await_interval.error() || await_interval.error() == kHelErrCancelled);
 			tick += timer->interval;
 
 			if(_activeTimer == timer) {
