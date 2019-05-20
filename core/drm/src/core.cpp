@@ -918,8 +918,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto cursor_plane = crtc->cursorPlane();
 
 		if (cursor_plane == nullptr) {
-			resp.set_result(ENXIO);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -930,6 +929,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		std::vector<Assignment> assignments;
 		if (req.drm_flags() == DRM_MODE_CURSOR_BO) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
 			auto bo = self->resolveHandle(req.drm_handle());
 			auto width = req.drm_width();
 			auto height = req.drm_height();
@@ -970,6 +970,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 				});
 			}
 		}else if (req.drm_flags() == DRM_MODE_CURSOR_MOVE) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
 			auto x = req.drm_x();
 			auto y = req.drm_y();
 
@@ -990,7 +991,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			});
 		}else{
 			printf("\e[35mcore/drm: invalid request whilst handling DRM_IOCTL_MODE_CURSOR\e[39m\n");
-			resp.set_result(EINVAL);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
 
 		auto config = self->_device->createConfiguration();
@@ -1000,7 +1001,6 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		COFIBER_AWAIT config->waitForCompletion();
 
-		resp.set_error(managarm::fs::Errors::SUCCESS);
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 		helix::action(&send_resp, ser.data(), ser.size()));
