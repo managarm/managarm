@@ -26,7 +26,7 @@ of managarm. If you want to try out managarm without building the whole OS, you 
 xz-compressed [nightly image](https://ci.managarm.org/job/managarm-nightly/lastSuccessfulBuild/artifact/build/image.xz).
 To run the (uncompressed) image using qemu, we recommend the following flags:
 
-`qemu-system-x86_64 -enable-kvm -m 1024 -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -debugcon stdio`
+`qemu-system-x86_64 -enable-kvm -m 1024 -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga virtio -debugcon stdio`
 
 ## Supported Software
 
