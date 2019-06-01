@@ -28,30 +28,6 @@ sysfs::Object *classObject() {
 	return globalClassObject.get();
 }
 
-/*
-struct Card0UeventAttribute : sysfs::Attribute {
-	static auto singleton() {
-		static Card0UeventAttribute attr;
-		return &attr;
-	}
-
-private:
-	Card0UeventAttribute()
-	: sysfs::Attribute("uevent", true) { }
-
-public:
-	virtual COFIBER_ROUTINE(async::result<std::string>, show(sysfs::Object *object) override, ([=] {
-		assert(object == cardObject.get());
-		COFIBER_RETURN(std::string{"DEVNAME=dri/card0\n"});
-	}))
-
-	virtual COFIBER_ROUTINE(async::result<void>,
-	store(sysfs::Object *object, std::string data) override, ([=] {
-		std::cout << "posix: Stores to dri/card0 uevent file are not supported" << std::endl;
-	}))
-};
-*/
-
 struct UeventAttribute : sysfs::Attribute {
 	static auto singleton() {
 		static UeventAttribute attr;
