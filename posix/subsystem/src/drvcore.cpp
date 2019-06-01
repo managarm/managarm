@@ -75,7 +75,7 @@ public:
 
 Device::Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *unix_device)
 : sysfs::Object{parent ? parent : globalDevicesObject, std::move(name)},
-		_unixDevice{unix_device} { }
+		_unixDevice{unix_device}, _parentDevice{std::move(parent)} { }
 
 std::string Device::getSysfsPath() {
 	std::string path = name();
@@ -129,14 +129,16 @@ ClassSubsystem::ClassSubsystem(std::string name)
 	_object->addObject();
 }
 
-ClassDevice::ClassDevice(ClassSubsystem *subsystem, std::string name,
-		UnixDevice *unix_device)
-: Device{nullptr, std::move(name), unix_device},
+ClassDevice::ClassDevice(ClassSubsystem *subsystem, std::shared_ptr<Device> parent,
+		std::string name, UnixDevice *unix_device)
+: Device{std::move(parent), std::move(name), unix_device},
 		_subsystem{subsystem} { }
 
 void ClassDevice::linkToSubsystem() {
 	auto subsystem_object = _subsystem->object();
 	subsystem_object->createSymlink(name(), devicePtr());
+	if(auto parent = parentDevice(); parent)
+		createSymlink("device", std::move(parent));
 	createSymlink("subsystem", subsystem_object);
 }
 

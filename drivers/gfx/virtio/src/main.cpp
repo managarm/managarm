@@ -636,6 +636,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
 	mbus::Properties descriptor{
+		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
 		{"unix.subsystem", mbus::StringItem{"drm"}},
 		{"unix.devname", mbus::StringItem{"dri/card0"}}
 	};

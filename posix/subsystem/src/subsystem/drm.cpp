@@ -10,6 +10,7 @@
 #include "../drvcore.hpp"
 #include "../util.hpp"
 #include "../vfs.hpp"
+#include "pci.hpp"
 
 namespace drm_subsystem {
 
@@ -26,8 +27,9 @@ struct Subsystem {
 } subsystem;
 
 struct Device : UnixDevice, drvcore::ClassDevice {
-	Device(int index, helix::UniqueLane lane)
-	: UnixDevice{VfsType::charDevice}, drvcore::ClassDevice{sysfsSubsystem, "card" + std::to_string(index), this},
+	Device(int index, helix::UniqueLane lane, std::shared_ptr<drvcore::Device> parent)
+	: UnixDevice{VfsType::charDevice},
+			drvcore::ClassDevice{sysfsSubsystem, std::move(parent), "card" + std::to_string(index), this},
 			_index{index}, _lane{std::move(lane)} { }
 
 	std::string nodePath() override {
@@ -67,9 +69,12 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		int index = minorAllocator.allocate();
 		std::cout << "POSIX: Installing DRM device "
 				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
+		auto parent_property = std::get<mbus::StringItem>(properties.at("drvcore.mbus-parent"));
+		auto mbus_parent = std::stoi(parent_property.value);
 
 		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
-		auto device = std::make_shared<Device>(index, std::move(lane));
+		auto device = std::make_shared<Device>(index, std::move(lane),
+				pci_subsystem::getDeviceByMbus(mbus_parent));
 		// The minor is only correct for card* devices but not for control* and render*.
 		device->assignId({226, index});
 

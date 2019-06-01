@@ -16,6 +16,8 @@ namespace pci_subsystem {
 
 drvcore::BusSubsystem *sysfsSubsystem;
 
+std::unordered_map<int, std::shared_ptr<drvcore::Device>> mbusMap;
+
 struct VendorAttribute : sysfs::Attribute {
 	VendorAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
@@ -76,8 +78,6 @@ COFIBER_ROUTINE(async::result<std::string>, PlainfbAttribute::show(sysfs::Object
 	COFIBER_RETURN(device->ownsPlainfb ? "1" : "0");
 }))
 
-std::vector<std::shared_ptr<Device>> devices;
-
 COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 	sysfsSubsystem = new drvcore::BusSubsystem{"pci"};
 
@@ -94,7 +94,8 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 				+ "." + std::get<mbus::StringItem>(properties["pci-function"]).value;
 
 		// TODO: Add bus/slot/function to this message.
-		std::cout << "POSIX: Installing PCI device " << sysfs_name << std::endl;
+		std::cout << "POSIX: Installing PCI device " << sysfs_name
+				<< " (mbus ID: " << entity.getId() << ")" << std::endl;
 
 		auto device = std::make_shared<Device>(sysfs_name);
 		device->vendorId = std::stoi(std::get<mbus::StringItem>(
@@ -110,11 +111,18 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		device->realizeAttribute(&vendorAttr);
 		device->realizeAttribute(&deviceAttr);
 		device->realizeAttribute(&plainfbAttr);
-		devices.push_back(std::move(device));
+
+		mbusMap.insert(std::make_pair(entity.getId(), device));
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
+
+std::shared_ptr<drvcore::Device> getDeviceByMbus(int id) {
+	auto it = mbusMap.find(id);
+	assert(it != mbusMap.end());
+	return it->second;
+}
 
 } // namespace pci_subsystem
 

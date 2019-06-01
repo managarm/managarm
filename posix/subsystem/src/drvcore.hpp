@@ -26,6 +26,10 @@ public:
 		return std::shared_ptr<Device>(_devicePtr);
 	}
 
+	std::shared_ptr<Device> parentDevice() {
+		return _parentDevice;
+	}
+
 	UnixDevice *unixDevice() {
 		return _unixDevice;
 	}
@@ -40,6 +44,7 @@ public:
 private:
 	std::weak_ptr<Device> _devicePtr;
 	UnixDevice *_unixDevice;
+	std::shared_ptr<Device> _parentDevice;
 };
 
 struct BusSubsystem {
@@ -77,8 +82,8 @@ private:
 };
 
 struct ClassDevice : Device {
-	ClassDevice(ClassSubsystem *subsystem, std::string name,
-			UnixDevice *unix_device);
+	ClassDevice(ClassSubsystem *subsystem, std::shared_ptr<Device> parent,
+			std::string name, UnixDevice *unix_device);
 
 	void linkToSubsystem() override;
 

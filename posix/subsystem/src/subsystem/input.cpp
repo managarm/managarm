@@ -46,7 +46,8 @@ CapabilityAttribute absCapability{"abs", EV_ABS, ABS_MAX};
 
 struct Device : UnixDevice, drvcore::ClassDevice {
 	Device(VfsType type, int index, helix::UniqueLane lane)
-	: UnixDevice{type}, drvcore::ClassDevice{sysfsSubsystem, "event" + std::to_string(index), this},
+	: UnixDevice{type},
+			drvcore::ClassDevice{sysfsSubsystem, nullptr, "event" + std::to_string(index), this},
 			_index{index}, _lane{std::move(lane)} { }
 
 	std::string nodePath() override {

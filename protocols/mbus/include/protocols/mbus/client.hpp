@@ -137,6 +137,10 @@ namespace _detail {
 		explicit Entity(std::shared_ptr<Connection> connection, EntityId id)
 		: _connection(std::move(connection)), _id(id) { }
 
+		EntityId getId() const {
+			return _id;
+		}
+
 		// creates a child group.
 		async::result<Entity> createGroup(std::string name) const;
 
