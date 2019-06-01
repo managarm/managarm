@@ -13,8 +13,6 @@ std::shared_ptr<sysfs::Object> globalClassObject;
 std::shared_ptr<sysfs::Object> globalCharObject;
 std::shared_ptr<sysfs::Object> globalBlockObject;
 
-std::shared_ptr<sysfs::Object> cardObject;
-
 sysfs::Object *devicesObject() {
 	assert(globalDevicesObject);
 	return globalDevicesObject.get();
@@ -30,6 +28,7 @@ sysfs::Object *classObject() {
 	return globalClassObject.get();
 }
 
+/*
 struct Card0UeventAttribute : sysfs::Attribute {
 	static auto singleton() {
 		static Card0UeventAttribute attr;
@@ -51,6 +50,7 @@ public:
 		std::cout << "posix: Stores to dri/card0 uevent file are not supported" << std::endl;
 	}))
 };
+*/
 
 struct UeventAttribute : sysfs::Attribute {
 	static auto singleton() {
@@ -186,14 +186,6 @@ void initialize() {
 	dev_object->addObject();
 	globalCharObject->addObject(); // TODO: Do this before dev_object is visible.
 	globalBlockObject->addObject();
-
-	cardObject = std::make_shared<sysfs::Object>(globalDevicesObject, "card0");
-	cardObject->addObject();
-	cardObject->realizeAttribute(Card0UeventAttribute::singleton());
-
-	auto drm_object = std::make_shared<sysfs::Object>(globalClassObject, "drm");
-	drm_object->addObject();
-	drm_object->createSymlink("card0", cardObject);
 }
 
 void installDevice(std::shared_ptr<Device> device) {
