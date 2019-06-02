@@ -49,7 +49,7 @@ struct Device : drvcore::BusDevice {
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char slot[13]; // The format is 1234:56:78:9\0.
-		sprintf(slot, "0000:%.2x:%.2x:%.1x", pciBus, pciSlot, pciFunction);
+		sprintf(slot, "0000:%.2x:%.2x.%.1x", pciBus, pciSlot, pciFunction);
 
 		ue.set("SUBSYSTEM", "pci");
 		ue.set("PCI_SLOT_NAME", slot);
