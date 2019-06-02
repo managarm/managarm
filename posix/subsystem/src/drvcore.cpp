@@ -43,7 +43,11 @@ public:
 	show(sysfs::Object *object) override, ([=] {
 		auto device = static_cast<Device *>(object);
 
+		UeventProperties ue;
+		device->composeUevent(ue);
+
 		std::stringstream ss;
+
 		if(auto unix_dev = device->unixDevice(); unix_dev) {
 			auto node_path = unix_dev->nodePath();
 			if(!node_path.empty())
@@ -51,6 +55,10 @@ public:
 			ss << "MAJOR=" << unix_dev->getId().first << '\n';
 			ss << "MINOR=" << unix_dev->getId().second << '\n';
 		}
+
+		for(const auto &[name, value] : ue)
+			ss << name << '=' << value << '\n';
+
 		COFIBER_RETURN(ss.str());
 	}))
 
