@@ -43,9 +43,6 @@ struct Device : UnixDevice, drvcore::ClassDevice {
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		ue.set("SUBSYSTEM", "drm");
-		ue.set("DEVNAME", "dri/card" + std::to_string(_index));
-		ue.set("MAJOR", "226");
-		ue.set("MINOR", std::to_string(getId().second));
 	}
 
 private:

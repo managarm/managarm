@@ -54,6 +54,8 @@ public:
 	// Returns the path of this device under /sys/devices.
 	std::string getSysfsPath();
 
+	void composeStandardUevent(UeventProperties &);
+
 	virtual void linkToSubsystem();
 
 	virtual void composeUevent(UeventProperties &) = 0;

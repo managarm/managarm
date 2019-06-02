@@ -44,18 +44,10 @@ public:
 		auto device = static_cast<Device *>(object);
 
 		UeventProperties ue;
+		device->composeStandardUevent(ue);
 		device->composeUevent(ue);
 
 		std::stringstream ss;
-
-		if(auto unix_dev = device->unixDevice(); unix_dev) {
-			auto node_path = unix_dev->nodePath();
-			if(!node_path.empty())
-				ss << "DEVNAME=" << node_path << '\n';
-			ss << "MAJOR=" << unix_dev->getId().first << '\n';
-			ss << "MINOR=" << unix_dev->getId().second << '\n';
-		}
-
 		for(const auto &[name, value] : ue)
 			ss << name << '=' << value << '\n';
 
@@ -67,6 +59,7 @@ public:
 		auto device = static_cast<Device *>(object);
 
 		UeventProperties ue;
+		device->composeStandardUevent(ue);
 		device->composeUevent(ue);
 
 		std::string sysfs_path = device->getSysfsPath();
@@ -102,6 +95,16 @@ std::string Device::getSysfsPath() {
 	}
 
 	return path;
+}
+
+void Device::composeStandardUevent(UeventProperties &ue) {
+	if(auto unix_dev = unixDevice(); unix_dev) {
+		auto node_path = unix_dev->nodePath();
+		if(!node_path.empty())
+			ue.set("DEVNAME", node_path);
+		ue.set("MAJOR", std::to_string(unix_dev->getId().first));
+		ue.set("MINOR", std::to_string(unix_dev->getId().second));
+	}
 }
 
 void Device::linkToSubsystem() {
@@ -194,6 +197,7 @@ void installDevice(std::shared_ptr<Device> device) {
 	}
 
 	UeventProperties ue;
+	device->composeStandardUevent(ue);
 	device->composeUevent(ue);
 
 	std::string sysfs_path = device->getSysfsPath();
