@@ -115,9 +115,9 @@ BusDevice::BusDevice(BusSubsystem *subsystem, std::string name,
 		_subsystem{subsystem} { }
 
 void BusDevice::linkToSubsystem() {
-	auto subsystem_object = _subsystem->devicesObject();
-	subsystem_object->createSymlink(name(), devicePtr());
-	createSymlink("subsystem", subsystem_object);
+	auto devices_object = _subsystem->devicesObject();
+	devices_object->createSymlink(name(), devicePtr());
+	createSymlink("subsystem", _subsystem->object());
 }
 
 //-----------------------------------------------------------------------------
