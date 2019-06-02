@@ -48,9 +48,16 @@ struct Device : drvcore::BusDevice {
 	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr} { }
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
+		char slot[13]; // The format is 1234:56:78:9\0.
+		sprintf(slot, "0000:%.2x:%.2x:%.1x", pciBus, pciSlot, pciFunction);
+
 		ue.set("SUBSYSTEM", "pci");
+		ue.set("PCI_SLOT_NAME", slot);
 	}
 
+	uint32_t pciBus;
+	uint32_t pciSlot;
+	uint32_t pciFunction;
 	uint32_t vendorId;
 	uint32_t deviceId;
 	bool ownsPlainfb = false;
@@ -98,6 +105,12 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 				<< " (mbus ID: " << entity.getId() << ")" << std::endl;
 
 		auto device = std::make_shared<Device>(sysfs_name);
+		device->pciBus = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-bus"]).value, 0, 16);
+		device->pciSlot = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-slot"]).value, 0, 16);
+		device->pciFunction = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-function"]).value, 0, 16);
 		device->vendorId = std::stoi(std::get<mbus::StringItem>(
 				properties["pci-vendor"]).value, 0, 16);
 		device->deviceId = std::stoi(std::get<mbus::StringItem>(
