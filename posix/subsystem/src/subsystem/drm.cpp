@@ -41,11 +41,11 @@ struct Device : UnixDevice, drvcore::ClassDevice {
 		return openExternalDevice(_lane, std::move(link), semantic_flags);
 	}
 
-	void composeUevent(std::stringstream &ss) override {
-		ss << "SUBSYSTEM=drm" << '\0';
-		ss << "DEVNAME=dri/card" << _index << '\0';
-		ss << "MAJOR=226" << '\0';
-		ss << "MINOR=" << getId().second << '\0';
+	void composeUevent(drvcore::UeventProperties &ue) override {
+		ue.set("SUBSYSTEM", "drm");
+		ue.set("DEVNAME", "dri/card" + std::to_string(_index));
+		ue.set("MAJOR", "226");
+		ue.set("MINOR", std::to_string(getId().second));
 	}
 
 private:

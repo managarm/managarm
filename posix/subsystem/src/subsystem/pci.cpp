@@ -47,8 +47,8 @@ struct Device : drvcore::BusDevice {
 	Device(std::string sysfs_name)
 	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr} { }
 
-	void composeUevent(std::stringstream &ss) override {
-		ss << "SUBSYSTEM=pci" << '\0';
+	void composeUevent(drvcore::UeventProperties &ue) override {
+		ue.set("SUBSYSTEM", "pci");
 	}
 
 	uint32_t vendorId;

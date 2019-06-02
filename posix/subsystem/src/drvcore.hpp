@@ -2,12 +2,29 @@
 #define POSIX_SUBSYSTEM_DRVCORE_HPP
 
 #include <string>
-#include <sstream>
+#include <unordered_map>
 
 #include "device.hpp"
 #include "sysfs.hpp"
 
 namespace drvcore {
+
+struct UeventProperties {
+	auto begin() {
+		return map.begin();
+	}
+
+	auto end() {
+		return map.end();
+	}
+
+	void set(std::string name, std::string value) {
+		map[name] = value;
+	}
+
+private:
+	std::unordered_map<std::string, std::string> map;
+};
 
 // This struct corresponds to Linux' struct Device (i.e. a device that is part of sysfs).
 // TODO: Make the sysfs::Object private?
@@ -39,7 +56,7 @@ public:
 
 	virtual void linkToSubsystem();
 
-	virtual void composeUevent(std::stringstream &ss) = 0;
+	virtual void composeUevent(UeventProperties &) = 0;
 
 private:
 	std::weak_ptr<Device> _devicePtr;

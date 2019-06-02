@@ -58,13 +58,17 @@ public:
 	store(sysfs::Object *object, std::string data) override, ([=] {
 		auto device = static_cast<Device *>(object);
 
+		UeventProperties ue;
+		device->composeUevent(ue);
+
 		std::string sysfs_path = device->getSysfsPath();
 		std::stringstream ss;
 		ss << "add@/" << sysfs_path << '\0';
 		ss << "ACTION=add" << '\0';
 		ss << "DEVPATH=/" << sysfs_path << '\0';
-		device->composeUevent(ss);
 		ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
+		for(const auto &[name, value] : ue)
+			ss << name << '=' << value << '\0';
 		drvcore::emitHotplug(ss.str());
 	}))
 };
@@ -181,13 +185,17 @@ void installDevice(std::shared_ptr<Device> device) {
 		globalCharObject->createSymlink(id_ss.str(), device);
 	}
 
+	UeventProperties ue;
+	device->composeUevent(ue);
+
 	std::string sysfs_path = device->getSysfsPath();
 	std::stringstream ss;
 	ss << "add@/" << sysfs_path << '\0';
 	ss << "ACTION=add" << '\0';
 	ss << "DEVPATH=/" << sysfs_path << '\0';
-	device->composeUevent(ss);
 	ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
+	for(const auto &[name, value] : ue)
+		ss << name << '=' << value << '\0';
 	drvcore::emitHotplug(ss.str());
 }
 
