@@ -253,5 +253,6 @@ executable('thor', pb_sources, thor_sources, acpica_sources, embed_trampoline,
 		'-Wall', '-Wno-non-virtual-dtor'],
 	link_args: ['-nostdlib', '-z', 'max-page-size=0x1000',
 		'-T', meson.current_source_dir() + '/arch/x86/link.x'],
-	link_depends: files('arch/x86/link.x'))
+	link_depends: files('arch/x86/link.x'),
+	install: true)
 
