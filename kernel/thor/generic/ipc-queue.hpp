@@ -123,7 +123,6 @@ private:
 	void _progress();
 	bool _advanceChunk();
 	bool _waitHeadFutex();
-	void _retireChunk();
 	void _wakeProgressFutex(bool done);
 
 private:	

@@ -73,15 +73,21 @@ void IpcQueue::_progress() {
 				return;
 		}
 
-		// Check if we have to retire the current chunk.
+		// Check if there is enough space in the current chunk.
 		size_t length = 0;
 		for(auto source = _nodeQueue.front()->_source; source; source = source->link)
 			length += (source->size + 7) & ~size_t(7);
 
 		assert(length <= _currentChunk->bufferSize);
 
+		// Check if we need to retire the current chunk.
 		if(_currentProgress + length > _currentChunk->bufferSize) {
-			_retireChunk();
+			_wakeProgressFutex(true);
+
+			_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{};
+			_chunkPin = AddressSpaceLockHandle{};
+			_currentChunk = nullptr;
+			_currentProgress = 0;
 			continue;
 		}
 
@@ -148,17 +154,6 @@ bool IpcQueue::_advanceChunk() {
 	assert(acq_chunk);
 	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{_chunkPin, 0};
 	return true;
-}
-
-void IpcQueue::_retireChunk() {
-	assert(_currentChunk);
-
-	_wakeProgressFutex(true);
-
-	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{};
-	_chunkPin = AddressSpaceLockHandle{};
-	_currentChunk = nullptr;
-	_currentProgress = 0;
 }
 
 // Returns true if the operation was done synchronously.
