@@ -14,7 +14,6 @@ namespace thor {
 
 IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer)
 : _space{frigg::move(space)}, _pointer{pointer},
-		_waitInFutex{false},
 		_currentChunk{nullptr}, _currentProgress{0}, _nextIndex{0},
 		_chunks{*kernelAlloc} {
 	_queuePin = AddressSpaceLockHandle{_space, _pointer, sizeof(QueueStruct)};
@@ -47,36 +46,30 @@ void IpcQueue::submit(IpcNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	struct Ops {
-		static void ready(Worklet *worklet) {
-			auto node = frg::container_of(worklet, &IpcNode::_worklet);
-			auto self = node->_queue;
+	assert(!node->_queueNode.in_list);
+	node->_queue = this;
+	_nodeQueue.push_back(node);
+
+	if(!_inProgressLoop) {
+		_worklet.setup([] (Worklet *worklet) {
+			auto self = frg::container_of(worklet, &IpcQueue::_worklet);
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
 
 			self->_progress();
-		}
-	};
-
-	assert(!node->_queueNode.in_list);
-	node->_queue = this;
-	node->_worklet.setup(&Ops::ready);
-
-	auto was_empty = _nodeQueue.empty();
-	_nodeQueue.push_back(node);
-	if(was_empty)
-		_progress();
+		});
+		_inProgressLoop = true;
+		WorkQueue::post(&_worklet);
+	}
 }
 
 void IpcQueue::_progress() {
-	while(true) {
-		assert(!_waitInFutex);
-		assert(!_nodeQueue.empty());
+	while(!_nodeQueue.empty()) {
+		assert(_inProgressLoop);
 
 		// Advance the queue if necessary.
 		if(!_currentChunk) {
-			_advanceChunk();
-			if(_waitInFutex)
+			if(!_advanceChunk())
 				return;
 		}
 
@@ -123,18 +116,17 @@ void IpcQueue::_progress() {
 		// Update the chunk progress futex.
 		_currentProgress += sizeof(ElementStruct) + length;
 		_wakeProgressFutex(false);
-
-		if(!_nodeQueue.empty())
-			WorkQueue::post(&_nodeQueue.front()->_worklet);
-		return;
 	}
+
+	_inProgressLoop = false;
 }
 
-void IpcQueue::_advanceChunk() {
+// Returns true if the operation was done synchronously.
+bool IpcQueue::_advanceChunk() {
 	assert(!_currentChunk);
 
-	if(_waitHeadFutex())
-		return;
+	if(!_waitHeadFutex())
+		return false;
 
 	auto source = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, indexQueue)
 			+ (_nextIndex & ((1 << _sizeShift) - 1)) * sizeof(int);
@@ -155,6 +147,7 @@ void IpcQueue::_advanceChunk() {
 	auto acq_chunk = _chunkPin.acquire(&_acquireNode);
 	assert(acq_chunk);
 	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{_chunkPin, 0};
+	return true;
 }
 
 void IpcQueue::_retireChunk() {
@@ -168,6 +161,7 @@ void IpcQueue::_retireChunk() {
 	_currentProgress = 0;
 }
 
+// Returns true if the operation was done synchronously.
 bool IpcQueue::_waitHeadFutex() {
 	struct Ops {
 		static void woken(Worklet *worklet) {
@@ -175,18 +169,15 @@ bool IpcQueue::_waitHeadFutex() {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
 
-			self->_waitInFutex = false;
 			self->_progress();
 		}
 	};
 	
-	auto node = _nodeQueue.front();
-
 	while(true) {
 		auto futex = __atomic_load_n(&_queueAccessor.get()->headFutex, __ATOMIC_ACQUIRE);
 		do {
 			if(_nextIndex != (futex & kHeadMask))
-				return false;
+				return true;
 
 			// TODO: Contract violation errors should be reported to user-space.
 			assert(futex == _nextIndex);
@@ -196,13 +187,13 @@ bool IpcQueue::_waitHeadFutex() {
 		auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
 		_worklet.setup(&Ops::woken);
 		_futex.setup(&_worklet);
-		_waitInFutex = _space->futexSpace.checkSubmitWait(fa, [&] {
+		auto wait_in_futex = _space->futexSpace.checkSubmitWait(fa, [&] {
 			return __atomic_load_n(&_queueAccessor.get()->headFutex, __ATOMIC_RELAXED)
 					== (_nextIndex | kHeadWaiters);
 		}, &_futex);
 
-		if(_waitInFutex)
-			return true;
+		if(wait_in_futex)
+			return false;
 	}
 }
 

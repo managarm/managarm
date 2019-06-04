@@ -73,7 +73,6 @@ private:
 	const QueueSource *_source;
 
 	IpcQueue *_queue;
-	Worklet _worklet;
 	frg::default_list_hook<IpcNode> _queueNode;
 };
 
@@ -122,9 +121,9 @@ public:
 
 private:
 	void _progress();
-	void _advanceChunk();
-	void _retireChunk();
+	bool _advanceChunk();
 	bool _waitHeadFutex();
+	void _retireChunk();
 	void _wakeProgressFutex(bool done);
 
 private:	
@@ -144,7 +143,7 @@ private:
 	AddressSpaceLockHandle _queuePin;
 	DirectSpaceAccessor<QueueStruct> _queueAccessor;
 
-	bool _waitInFutex;
+	bool _inProgressLoop = false;
 
 	// Points to the chunk that we're currently writing.
 	Chunk *_currentChunk;
