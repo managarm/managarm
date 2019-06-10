@@ -274,7 +274,7 @@ public:
 
 	FutureMaybe<void> allocate(int64_t offset, size_t size) override;
 
-	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t);
+	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;

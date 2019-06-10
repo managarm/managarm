@@ -135,7 +135,7 @@ public:
 	poll(Process *, uint64_t sequence, async::cancellation_token cancellation) override;
 
 	async::result<void>
-	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation);
+	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
@@ -170,7 +170,7 @@ public:
 	poll(Process *, uint64_t sequence, async::cancellation_token cancellation) override;
 
 	async::result<void>
-	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation);
+	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;

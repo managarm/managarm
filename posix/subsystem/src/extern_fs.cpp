@@ -311,7 +311,7 @@ private:
 		return VfsType::directory;
 	}
 
-	std::shared_ptr<FsLink> treeLink() {
+	std::shared_ptr<FsLink> treeLink() override {
 		auto self = std::shared_ptr<FsNode>{weakNode()};
 		return std::shared_ptr<FsLink>{std::move(self), &_treeLink};
 	}

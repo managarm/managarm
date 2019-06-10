@@ -36,7 +36,7 @@ struct Device final : UnixDevice {
 		return openExternalDevice(_lane, std::move(link), semantic_flags);
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> mount() {
+	FutureMaybe<std::shared_ptr<FsLink>> mount() override {
 		return mountExternalDevice(_lane);
 	}
 

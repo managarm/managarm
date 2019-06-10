@@ -93,7 +93,7 @@ public:
 		// Nothing to do here.
 	}
 
-	void handleClose() {
+	void handleClose() override {
 		_seqBell.ring();
 		_cancelServe.cancel();
 	}
