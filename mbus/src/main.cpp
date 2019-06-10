@@ -191,7 +191,7 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> r
 	while(!entities.empty()) {
 		std::shared_ptr<Entity> entity = entities.front();
 		entities.pop();
-		if(typeid(*entity) == typeid(Group)) {
+		if(const Entity &er = *entity; typeid(er) == typeid(Group)) {
 			auto group = std::static_pointer_cast<Group>(entity);
 			for(auto child : group->getChildren())
 				entities.push(std::move(child));
@@ -294,7 +294,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			helix::PushDescriptor send_lane;
 
 			auto parent = allEntities.at(req.parent_id());
-			if(typeid(*parent) != typeid(Group))
+			if(const Entity &pr = *parent; typeid(pr) != typeid(Group))
 				throw std::runtime_error("Objects can only be created inside groups");
 			auto group = std::static_pointer_cast<Group>(parent);
 
@@ -335,7 +335,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			helix::PushDescriptor send_lane;
 
 			auto parent = allEntities.at(req.id());
-			if(typeid(*parent) != typeid(Group))
+			if(const Entity &pr = *parent; typeid(pr) != typeid(Group))
 				throw std::runtime_error("Observers can only be attached to groups");
 			auto group = std::static_pointer_cast<Group>(parent);
 
@@ -362,7 +362,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			helix::PushDescriptor send_desc;
 
 			auto entity = allEntities.at(req.id());
-			if(typeid(*entity) != typeid(Object))
+			if(const Entity &er = *entity; typeid(er) != typeid(Object))
 				throw std::runtime_error("Bind can only be invoked on objects");
 			auto object = std::static_pointer_cast<Object>(entity);
 
