@@ -142,6 +142,8 @@ struct QueueInfo {
 struct Transport {
 	DeviceSpace space();
 
+	virtual ~Transport() = default;
+
 	virtual protocols::hw::Device &hwDevice() = 0;
 
 	virtual uint32_t loadConfig(arch::scalar_register<uint32_t> offset) = 0;
@@ -271,7 +273,10 @@ struct Queue {
 
 	Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *table,
 			spec::AvailableRing *available, spec::UsedRing *used);
+protected:
+	~Queue() = default;
 
+public:
 	unsigned int queueIndex() {
 		return _queueIndex;
 	}

@@ -10,7 +10,7 @@
 
 #include "spec.hpp"
 
-struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
+struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	struct FrameBuffer;
 
 	struct Configuration : drm_core::Configuration {
@@ -35,7 +35,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		Plane(GfxDevice *device);
 	};
 	
-	struct BufferObject : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
+	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
 		BufferObject(GfxDevice *device, size_t alignment, size_t size,
 				uintptr_t offset, ptrdiff_t displacement);
 		
@@ -66,7 +66,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		Encoder(GfxDevice *device);
 	};
 	
-	struct Crtc : drm_core::Crtc {
+	struct Crtc final : drm_core::Crtc {
 		Crtc(GfxDevice *device);
 		
 		drm_core::Plane *primaryPlane() override;
@@ -75,7 +75,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		GfxDevice *_device;
 	};
 
-	struct FrameBuffer : drm_core::FrameBuffer {
+	struct FrameBuffer final : drm_core::FrameBuffer {
 		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
 				uint32_t pixel_pitch);
 

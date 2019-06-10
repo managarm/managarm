@@ -103,7 +103,7 @@ private:
 	std::vector<std::unique_ptr<LegacyPciQueue>> _queues;
 };
 
-struct LegacyPciQueue : Queue {
+struct LegacyPciQueue final : Queue {
 	LegacyPciQueue(LegacyPciTransport *transport,
 			unsigned int queue_index, size_t queue_size,
 			spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used);
@@ -290,7 +290,7 @@ private:
 	std::vector<std::unique_ptr<StandardPciQueue>> _queues;
 };
 
-struct StandardPciQueue : Queue {
+struct StandardPciQueue final : Queue {
 	StandardPciQueue(StandardPciTransport *transport,
 			unsigned int queue_index, size_t queue_size,
 			spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used,

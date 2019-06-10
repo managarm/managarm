@@ -24,6 +24,10 @@ struct Superblock;
 struct Node : FsNode {
 	Node(Superblock *superblock, FsNode::DefaultOps default_ops = 0);
 
+protected:
+	~Node() = default;
+
+public:
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
 		FileStats stats{};
@@ -35,7 +39,7 @@ private:
 	int64_t _inodeNumber;
 };
 
-struct SymlinkNode : Node {
+struct SymlinkNode final : Node {
 private:
 	VfsType getType() override {
 		return VfsType::symlink;
@@ -52,7 +56,7 @@ private:
 	std::string _link;
 };
 
-struct DeviceNode : Node {
+struct DeviceNode final : Node {
 private:
 	VfsType getType() override {
 		return _type;
@@ -75,7 +79,7 @@ private:
 	DeviceId _id;
 };
 
-struct SocketNode : Node {
+struct SocketNode final : Node {
 	SocketNode(Superblock *superblock);
 
 	VfsType getType() override {
@@ -83,7 +87,7 @@ struct SocketNode : Node {
 	}
 };
 
-struct Link : FsLink {
+struct Link final : FsLink {
 public:
 	explicit Link(std::shared_ptr<FsNode> target)
 	: _target(std::move(target)) { }
@@ -131,7 +135,7 @@ bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b)
 
 struct DirectoryNode;
 
-struct DirectoryFile : File {
+struct DirectoryFile final : File {
 public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
@@ -152,7 +156,7 @@ private:
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
-struct DirectoryNode : Node, std::enable_shared_from_this<DirectoryNode> {
+struct DirectoryNode final : Node, std::enable_shared_from_this<DirectoryNode> {
 	friend struct Superblock;
 	friend struct DirectoryFile;
 
@@ -221,7 +225,7 @@ private:
 };
 
 // TODO: Remove this class in favor of MemoryNode.
-struct InheritedNode : Node {
+struct InheritedNode final : Node {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
@@ -244,7 +248,7 @@ private:
 	std::string _path;
 };
 
-struct MemoryFile : File {
+struct MemoryFile final : File {
 public:
 	static void serve(smarter::shared_ptr<MemoryFile> file) {
 //TODO:		assert(!file->_passthrough);
@@ -283,7 +287,7 @@ private:
 	uint64_t _offset;
 };
 
-struct MemoryNode : Node {
+struct MemoryNode final : Node {
 	friend struct MemoryFile;
 
 	MemoryNode(Superblock *superblock);
@@ -327,7 +331,7 @@ private:
 	size_t _fileSize;
 };
 
-struct Superblock : FsSuperblock {
+struct Superblock final : FsSuperblock {
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, createRegular() override, ([=] {
 		auto node = std::make_shared<MemoryNode>(this);
 		COFIBER_RETURN(std::move(node));

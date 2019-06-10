@@ -11,6 +11,8 @@ namespace arch {
 // ----------------------------------------------------------------------------
 
 struct dma_pool {
+	virtual ~dma_pool() = default;
+
 	virtual void *allocate(size_t size, size_t count, size_t align) = 0;
 	virtual void deallocate(void *pointer, size_t size, size_t count, size_t align) = 0;
 };

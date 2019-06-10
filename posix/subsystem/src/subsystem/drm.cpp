@@ -26,7 +26,7 @@ struct Subsystem {
 	}
 } subsystem;
 
-struct Device : UnixDevice, drvcore::ClassDevice {
+struct Device final : UnixDevice, drvcore::ClassDevice {
 	Device(int index, helix::UniqueLane lane, std::shared_ptr<drvcore::Device> parent)
 	: UnixDevice{VfsType::charDevice},
 			drvcore::ClassDevice{sysfsSubsystem, std::move(parent), "card" + std::to_string(index), this},

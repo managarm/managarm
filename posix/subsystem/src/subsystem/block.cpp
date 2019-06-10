@@ -22,7 +22,7 @@ struct Subsystem {
 	}
 } subsystem;
 
-struct Device : UnixDevice {
+struct Device final : UnixDevice {
 	Device(VfsType type, std::string name, helix::UniqueLane lane)
 	: UnixDevice{type},
 			_name{std::move(name)}, _lane{std::move(lane)} { }

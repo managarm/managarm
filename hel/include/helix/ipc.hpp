@@ -220,6 +220,8 @@ private:
 };
 
 struct Context {
+	virtual ~Context() = default;
+
 	virtual void complete(ElementHandle element) = 0;
 };
 

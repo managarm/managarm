@@ -56,6 +56,10 @@ enum class PipeType {
 // ----------------------------------------------------------------------------
 
 struct EndpointData {
+protected:
+	~EndpointData() = default;
+
+public:
 	virtual async::result<void> transfer(ControlTransfer info) = 0;
 	virtual async::result<size_t> transfer(InterruptTransfer info) = 0;
 	virtual async::result<size_t> transfer(BulkTransfer info) = 0;
@@ -78,6 +82,10 @@ private:
 // ----------------------------------------------------------------------------
 
 struct InterfaceData {
+protected:
+	~InterfaceData() = default;
+
+public:
 	virtual async::result<Endpoint> getEndpoint(PipeType type, int number) = 0;
 };
 
@@ -96,6 +104,10 @@ private:
 // ----------------------------------------------------------------------------
 
 struct ConfigurationData {
+protected:
+	~ConfigurationData() = default;
+
+public:
 	virtual async::result<Interface> useInterface(int number, int alternative) = 0;
 };
 
@@ -113,6 +125,10 @@ private:
 // ----------------------------------------------------------------------------
 
 struct DeviceData {
+protected:
+	~DeviceData() = default;
+
+public:
 	virtual arch::dma_pool *setupPool() = 0;
 	virtual arch::dma_pool *bufferPool() = 0;
 

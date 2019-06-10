@@ -175,7 +175,7 @@ private:
 // DeviceState
 // ----------------------------------------------------------------------------
 
-struct DeviceState : DeviceData {
+struct DeviceState final : DeviceData {
 	explicit DeviceState(std::shared_ptr<Controller> controller, int device);
 
 	arch::dma_pool *setupPool() override;
@@ -194,7 +194,7 @@ private:
 // ConfigurationState
 // ----------------------------------------------------------------------------
 
-struct ConfigurationState : ConfigurationData {
+struct ConfigurationState final : ConfigurationData {
 	explicit ConfigurationState(std::shared_ptr<Controller> controller,
 			int device, int configuration);
 
@@ -210,7 +210,7 @@ private:
 // InterfaceState
 // ----------------------------------------------------------------------------
 
-struct InterfaceState : InterfaceData {
+struct InterfaceState final : InterfaceData {
 	explicit InterfaceState(std::shared_ptr<Controller> controller,
 			int device, int configuration);
 
@@ -226,7 +226,7 @@ private:
 // EndpointState
 // ----------------------------------------------------------------------------
 
-struct EndpointState : EndpointData {
+struct EndpointState final : EndpointData {
 	explicit EndpointState(std::shared_ptr<Controller> controller,
 			int device, PipeType type, int endpoint);
 

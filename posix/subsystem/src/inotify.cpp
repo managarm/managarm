@@ -21,7 +21,7 @@ public:
 		// TODO: Keep track of the event mask and file name.
 	};
 
-	struct Watch : FsObserver {
+	struct Watch final : FsObserver {
 		Watch(OpenFile *file_)
 		: file{file_} { }
 

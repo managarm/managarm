@@ -66,7 +66,9 @@ struct Event {
 struct Property {
 	Property(PropertyType property_type)
 	: _propertyType(property_type) { }
-	
+
+	virtual ~Property() = default;
+
 	virtual bool validate(const Assignment& assignment);
 	PropertyType propertyType();
 
@@ -77,6 +79,11 @@ private:
 struct BufferObject {
 	BufferObject()
 	: _mapping(-1) { }
+
+protected:
+	~BufferObject() = default;
+
+public:
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
 	virtual size_t getSize() = 0;
 	virtual std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() = 0;
@@ -102,6 +109,10 @@ private:
 struct Device {
 	Device();
 
+protected:
+	~Device() = default;
+
+public:
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) = 0;
@@ -209,6 +220,8 @@ private:
 };
 
 struct Configuration {
+	virtual ~Configuration() = default;
+
 	virtual bool capture(std::vector<Assignment> assignment) = 0;
 	virtual void dispose() = 0;
 	virtual void commit() = 0;
@@ -249,6 +262,11 @@ private:
 
 struct Crtc : ModeObject {
 	Crtc(uint32_t id);
+
+protected:
+	~Crtc() = default;
+
+public:
 	virtual Plane *primaryPlane() = 0;
 	virtual Plane *cursorPlane();
 
@@ -318,6 +336,10 @@ private:
 struct FrameBuffer : ModeObject {
 	FrameBuffer(uint32_t id);
 
+protected:
+	~FrameBuffer() = default;
+
+public:
 	virtual void notifyDirty() = 0;
 };
 

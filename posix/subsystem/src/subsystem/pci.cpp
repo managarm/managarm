@@ -43,7 +43,7 @@ VendorAttribute vendorAttr{"vendor"};
 DeviceAttribute deviceAttr{"device"};
 PlainfbAttribute plainfbAttr{"owns_plainfb"};
 
-struct Device : drvcore::BusDevice {
+struct Device final : drvcore::BusDevice {
 	Device(std::string sysfs_name)
 	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr} { }
 

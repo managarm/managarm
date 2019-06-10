@@ -13,6 +13,10 @@ struct UnixDevice {
 	UnixDevice(VfsType type)
 	: _type{type}, _id{0, 0} { }
 
+protected:
+	~UnixDevice() = default;
+
+public:
 	VfsType type() {
 		return _type;
 	}

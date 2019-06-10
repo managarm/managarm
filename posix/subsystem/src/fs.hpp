@@ -41,12 +41,20 @@ struct FsNode;
 
 // Represents a directory entry on an actual file system (i.e. not in the VFS).
 struct FsLink {
+protected:
+	~FsLink() = default;
+
+public:
 	virtual std::shared_ptr<FsNode> getOwner() = 0;
 	virtual std::string getName() = 0;
 	virtual std::shared_ptr<FsNode> getTarget() = 0;
 };
 
 struct FsSuperblock {
+protected:
+	~FsSuperblock() = default;
+
+public:
 	virtual FutureMaybe<std::shared_ptr<FsNode>> createRegular() = 0;
 	virtual FutureMaybe<std::shared_ptr<FsNode>> createSocket() = 0;
 
@@ -89,6 +97,10 @@ struct FsNode {
 		return _superblock;
 	}
 
+protected:
+	~FsNode() = default;
+
+public:
 	virtual VfsType getType();
 
 	// TODO: This should be async.

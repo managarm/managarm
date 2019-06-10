@@ -83,6 +83,10 @@ struct BusDevice : Device {
 	BusDevice(BusSubsystem *subsystem, std::string name,
 			UnixDevice *unix_device);
 
+protected:
+	~BusDevice() = default;
+
+public:
 	void linkToSubsystem() override;
 
 private:
@@ -104,6 +108,10 @@ struct ClassDevice : Device {
 	ClassDevice(ClassSubsystem *subsystem, std::shared_ptr<Device> parent,
 			std::string name, UnixDevice *unix_device);
 
+protected:
+	~ClassDevice() = default;
+
+public:
 	void linkToSubsystem() override;
 
 private:

@@ -8,7 +8,7 @@ HelHandle __mlibc_getPassthrough(int fd);
 
 namespace {
 
-struct HeloutFile : File {
+struct HeloutFile final : File {
 private:
 	COFIBER_ROUTINE(expected<size_t>,
 	readSome(Process *, void *data, size_t max_length) override, ([=] {
@@ -36,7 +36,7 @@ public:
 	: File{StructName::get("helout"), std::move(link), File::defaultIsTerminal} { }
 };
 
-struct HeloutDevice : UnixDevice {
+struct HeloutDevice final : UnixDevice {
 	HeloutDevice()
 	: UnixDevice(VfsType::charDevice) {
 		assignId({1, 255}); // This minor is not used by Linux.

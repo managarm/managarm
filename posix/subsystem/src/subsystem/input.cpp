@@ -44,7 +44,7 @@ CapabilityAttribute keyCapability{"key", EV_KEY, KEY_MAX};
 CapabilityAttribute relCapability{"rel", EV_REL, REL_MAX};
 CapabilityAttribute absCapability{"abs", EV_ABS, ABS_MAX};
 
-struct Device : UnixDevice, drvcore::ClassDevice {
+struct Device final : UnixDevice, drvcore::ClassDevice {
 	Device(VfsType type, int index, helix::UniqueLane lane)
 	: UnixDevice{type},
 			drvcore::ClassDevice{sysfsSubsystem, nullptr, "event" + std::to_string(index), this},

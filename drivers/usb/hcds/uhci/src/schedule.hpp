@@ -16,6 +16,10 @@ struct EndpointState;
 // ----------------------------------------------------------------------------
 
 struct BaseController {
+protected:
+	~BaseController() = default;
+
+public:
 	virtual async::result<void> enumerateDevice(bool low_speed) = 0;
 };
 
@@ -31,6 +35,10 @@ struct PortState {
 };
 
 struct Hub {
+protected:
+	~Hub() = default;
+
+public:
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
 	virtual async::result<bool> issueReset(int port, bool *low_speed) = 0;
@@ -54,10 +62,10 @@ private:
 // Controller.
 // ----------------------------------------------------------------
 
-struct Controller : std::enable_shared_from_this<Controller>, BaseController {
+struct Controller final : std::enable_shared_from_this<Controller>, BaseController {
 	friend struct ConfigurationState;
 
-	struct RootHub : Hub {
+	struct RootHub final : Hub {
 		RootHub(Controller *controller)
 		: _controller{controller} { }
 
@@ -219,7 +227,7 @@ private:
 // DeviceState
 // ----------------------------------------------------------------------------
 
-struct DeviceState : DeviceData {
+struct DeviceState final : DeviceData {
 	explicit DeviceState(std::shared_ptr<Controller> controller, int device);
 
 	arch::dma_pool *setupPool() override;
@@ -238,7 +246,7 @@ private:
 // ConfigurationState
 // ----------------------------------------------------------------------------
 
-struct ConfigurationState : ConfigurationData {
+struct ConfigurationState final : ConfigurationData {
 	explicit ConfigurationState(std::shared_ptr<Controller> controller,
 			int device, int configuration);
 
@@ -254,7 +262,7 @@ private:
 // InterfaceState
 // ----------------------------------------------------------------------------
 
-struct InterfaceState : InterfaceData {
+struct InterfaceState final : InterfaceData {
 	explicit InterfaceState(std::shared_ptr<Controller> controller,
 			int device, int configuration);
 
@@ -270,7 +278,7 @@ private:
 // EndpointState
 // ----------------------------------------------------------------------------
 
-struct EndpointState : EndpointData {
+struct EndpointState final : EndpointData {
 	explicit EndpointState(std::shared_ptr<Controller> controller,
 			int device, PipeType type, int endpoint);
 

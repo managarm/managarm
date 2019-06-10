@@ -84,7 +84,7 @@ struct Channel {
 // Device and file structs.
 //-----------------------------------------------------------------------------
 
-struct MasterDevice : UnixDevice {
+struct MasterDevice final : UnixDevice {
 	MasterDevice()
 	: UnixDevice(VfsType::charDevice) {
 		assignId({5, 2});
@@ -98,7 +98,7 @@ struct MasterDevice : UnixDevice {
 	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override;
 };
 
-struct SlaveDevice : UnixDevice {
+struct SlaveDevice final : UnixDevice {
 	SlaveDevice(std::shared_ptr<Channel> channel);
 
 	std::string nodePath() override {
@@ -112,7 +112,7 @@ private:
 	std::shared_ptr<Channel> _channel;
 };
 
-struct MasterFile : File {
+struct MasterFile final : File {
 public:
 	static void serve(smarter::shared_ptr<MasterFile> file) {
 		assert(!file->_passthrough);
@@ -147,7 +147,7 @@ private:
 	std::shared_ptr<Channel> _channel;
 };
 
-struct SlaveFile : File {
+struct SlaveFile final : File {
 public:
 	static void serve(smarter::shared_ptr<SlaveFile> file) {
 		assert(!file->_passthrough);
@@ -186,7 +186,7 @@ private:
 // File system structs.
 //-----------------------------------------------------------------------------
 
-struct Link : FsLink {
+struct Link final : FsLink {
 public:
 	explicit Link(RootNode *root, std::string name, std::shared_ptr<DeviceNode> device)
 	: _root{root}, _name{std::move(name)}, _device{std::move(device)} { }
@@ -203,7 +203,7 @@ private:
 	std::shared_ptr<DeviceNode> _device;
 };
 
-struct RootLink : FsLink {
+struct RootLink final : FsLink {
 	RootLink();
 
 	RootNode *rootNode() {
@@ -239,7 +239,7 @@ struct LinkCompare {
 	}
 };
 
-struct DeviceNode : FsNode {
+struct DeviceNode final : FsNode {
 public:
 	DeviceNode(DeviceId id)
 	: _type{VfsType::charDevice}, _id{id} { }
@@ -267,7 +267,7 @@ private:
 	DeviceId _id;
 };
 
-struct RootNode : FsNode, std::enable_shared_from_this<RootNode> {
+struct RootNode final : FsNode, std::enable_shared_from_this<RootNode> {
 	friend struct Superblock;
 	friend struct DirectoryFile;
 

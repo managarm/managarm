@@ -28,7 +28,7 @@ struct LinkCompare {
 	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const;
 };
 
-struct AttributeFile : File {
+struct AttributeFile final : File {
 public:
 	static void serve(smarter::shared_ptr<AttributeFile> file);
 
@@ -50,7 +50,7 @@ private:
 	size_t _offset;
 };
 
-struct DirectoryFile : File {
+struct DirectoryFile final : File {
 public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
@@ -71,7 +71,7 @@ private:
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
-struct Link : FsLink, std::enable_shared_from_this<Link> {
+struct Link final : FsLink, std::enable_shared_from_this<Link> {
 	explicit Link(std::shared_ptr<FsNode> target);
 
 	explicit Link(std::shared_ptr<FsNode> owner,
@@ -87,7 +87,7 @@ private:
 	std::shared_ptr<FsNode> _target;
 };
 
-struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
+struct AttributeNode final : FsNode, std::enable_shared_from_this<AttributeNode> {
 	friend struct AttributeFile;
 
 	AttributeNode(Object *object, Attribute *attr);
@@ -102,7 +102,7 @@ private:
 	Attribute *_attr;
 };
 
-struct SymlinkNode : FsNode, std::enable_shared_from_this<SymlinkNode> {
+struct SymlinkNode final : FsNode, std::enable_shared_from_this<SymlinkNode> {
 	SymlinkNode(std::weak_ptr<Object> target);
 
 	VfsType getType() override;
@@ -113,7 +113,7 @@ private:
 	std::weak_ptr<Object> _target;
 };
 
-struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
+struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	friend struct DirectoryFile;
 
 	static std::shared_ptr<Link> createRootDirectory();
@@ -145,6 +145,9 @@ private:
 struct Attribute {
 	Attribute(std::string name, bool writable);
 
+	virtual ~Attribute() = default;
+
+public:
 	const std::string &name() {
 		return _name;
 	}

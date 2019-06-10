@@ -10,6 +10,8 @@ namespace blockfs {
 struct BlockDevice {
 	BlockDevice(size_t sector_size);
 
+	virtual ~BlockDevice() = default;
+
 	virtual async::result<void> readSectors(uint64_t sector, void *buffer,
 			size_t num_sectors) = 0;
 

@@ -17,7 +17,7 @@ namespace usb {
 
 namespace {
 
-struct DeviceState : DeviceData {
+struct DeviceState final : DeviceData {
 	DeviceState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
@@ -32,7 +32,7 @@ private:
 	helix::UniqueLane _lane;
 };
 
-struct ConfigurationState : ConfigurationData {
+struct ConfigurationState final : ConfigurationData {
 	ConfigurationState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
@@ -42,7 +42,7 @@ private:
 	helix::UniqueLane _lane;
 };
 
-struct InterfaceState : InterfaceData {
+struct InterfaceState final : InterfaceData {
 	InterfaceState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
@@ -53,7 +53,7 @@ private:
 };
 
 
-struct EndpointState : EndpointData {
+struct EndpointState final : EndpointData {
 	EndpointState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 	

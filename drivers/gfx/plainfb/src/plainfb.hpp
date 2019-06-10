@@ -13,7 +13,7 @@
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 
-struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
+struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	struct FrameBuffer;
 
 	struct ScanoutState {
@@ -45,7 +45,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		Plane(GfxDevice *device);
 	};
 	
-	struct BufferObject : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
+	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
 		BufferObject(GfxDevice *device, size_t size, helix::UniqueDescriptor memory,
 			uint32_t width, uint32_t height);
 		
@@ -73,7 +73,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		Encoder(GfxDevice *device);
 	};
 	
-	struct Crtc : drm_core::Crtc {
+	struct Crtc final : drm_core::Crtc {
 		Crtc(GfxDevice *device, std::shared_ptr<Plane> plane);
 		
 		drm_core::Plane *primaryPlane() override;
@@ -84,7 +84,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		std::shared_ptr<Plane> _primaryPlane;
 	};
 
-	struct FrameBuffer : drm_core::FrameBuffer {
+	struct FrameBuffer final : drm_core::FrameBuffer {
 		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
 				size_t pitch);
 

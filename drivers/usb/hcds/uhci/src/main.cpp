@@ -225,7 +225,7 @@ namespace port_features {
 	static constexpr uint16_t resetChange = 20;
 }
 
-struct StandardHub : Hub {
+struct StandardHub final : Hub {
 	StandardHub(Device device)
 	: _device{std::move(device)}, _endpoint{nullptr} { }
 

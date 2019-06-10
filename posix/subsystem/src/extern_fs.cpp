@@ -11,7 +11,7 @@ namespace {
 struct Node;
 struct DirectoryNode;
 
-struct Superblock : FsSuperblock {
+struct Superblock final : FsSuperblock {
 	Superblock(helix::UniqueLane lane);
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular() override;
@@ -78,6 +78,10 @@ public:
 	Node(uint64_t inode, helix::UniqueLane lane, Superblock *sb = nullptr)
 	: FsNode{sb}, _inode{inode}, _lane{std::move(lane)} { }
 
+protected:
+	~Node() = default;
+
+public:
 	uint64_t getInode() {
 		return _inode;
 	}
@@ -100,7 +104,7 @@ private:
 	helix::UniqueLane _lane;
 };
 
-struct OpenFile : File {
+struct OpenFile final : File {
 private:
 	COFIBER_ROUTINE(expected<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
 		assert(whence == VfsSeek::absolute);
@@ -151,7 +155,7 @@ private:
 	protocols::fs::File _file;
 };
 
-struct RegularNode : Node {
+struct RegularNode final : Node {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
@@ -198,7 +202,7 @@ public:
 	: Node{inode, std::move(lane)} { }
 };
 
-struct SymlinkNode : Node {
+struct SymlinkNode final : Node {
 private:
 	VfsType getType() override {
 		return VfsType::symlink;
@@ -256,13 +260,16 @@ public:
 		assert(_owner);
 	}
 
+protected:
+	~Link() = default;
+
 private:
 	std::shared_ptr<FsNode> _owner;
 	std::string _name;
 };
 
 // This class maintains a strong reference to the target.
-struct PeripheralLink : Link {
+struct PeripheralLink final : Link {
 private:
 	std::shared_ptr<FsNode> getTarget() override {
 		return _target;
@@ -279,7 +286,7 @@ private:
 };
 
 // This class is embedded in a DirectoryNode and share its lifetime.
-struct StructuralLink : Link {
+struct StructuralLink final : Link {
 private:
 	std::shared_ptr<FsNode> getTarget() override;
 
@@ -298,7 +305,7 @@ private:
 	DirectoryNode *_target;
 };
 
-struct DirectoryNode : Node {
+struct DirectoryNode final : Node {
 private:
 	VfsType getType() override {
 		return VfsType::directory;
