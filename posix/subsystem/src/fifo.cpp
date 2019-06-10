@@ -50,7 +50,7 @@ public:
 	ReaderFile()
 	: File{StructName::get("fifo.read"), File::defaultPipeLikeSeek} { }
 
-	void connect(std::shared_ptr<Channel> channel) {
+	void connectChannel(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
 		_channel = std::move(channel);
 	}
@@ -129,7 +129,7 @@ public:
 	WriterFile()
 	: File{StructName::get("fifo.write"), File::defaultPipeLikeSeek} { }
 
-	void connect(std::shared_ptr<Channel> channel) {
+	void connectChannel(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
 		_channel = std::move(channel);
 		_channel->writerCount++;
@@ -183,8 +183,8 @@ std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair() {
 	auto w_file = smarter::make_shared<WriterFile>();
 	r_file->setupWeakFile(r_file);
 	w_file->setupWeakFile(w_file);
-	r_file->connect(channel);
-	w_file->connect(channel);
+	r_file->connectChannel(channel);
+	w_file->connectChannel(channel);
 	ReaderFile::serve(r_file);
 	WriterFile::serve(w_file);
 	return {File::constructHandle(std::move(r_file)),
