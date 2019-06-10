@@ -397,13 +397,13 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 	std::weak_ptr<Inode> &inode_slot = activeInodes[number];
 	std::shared_ptr<Inode> active_inode = inode_slot.lock();
 	if(active_inode)
-		return std::move(active_inode);
+		return active_inode;
 
 	auto new_inode = std::make_shared<Inode>(*this, number);
 	inode_slot = std::weak_ptr<Inode>(new_inode);
 	initiateInode(new_inode);
 
-	return std::move(new_inode);
+	return new_inode;
 }
 
 COFIBER_ROUTINE(async::result<std::shared_ptr<Inode>>, FileSystem::createRegular(), ([=] {
@@ -487,7 +487,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 			helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(lock_inode.error());
-	inode->diskLock = std::move(lock_inode.descriptor());
+	inode->diskLock = lock_inode.descriptor();
 
 	inode->diskMapping = helix::Mapping{inodeTable,
 			inode_address, inodeSize,

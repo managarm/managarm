@@ -79,7 +79,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, 
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 	std::cout << "kernletcc: Upload success" << std::endl;
 
-	COFIBER_RETURN(std::move(pull_kernlet.descriptor()));
+	COFIBER_RETURN(pull_kernlet.descriptor());
 }))
 
 // ----------------------------------------------------------------------------

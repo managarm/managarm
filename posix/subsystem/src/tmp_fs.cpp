@@ -535,7 +535,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock)
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(std::move(node));
 	the_node->_treeLink = link;
-	return std::move(link);
+	return link;
 }
 
 DirectoryNode::DirectoryNode(Superblock *superblock)

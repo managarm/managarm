@@ -547,12 +547,12 @@ std::shared_ptr<Node> Superblock::internalizeStructural(int64_t id, helix::Uniqu
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)
-		return std::move(intern);
+		return intern;
 
 	auto node = std::make_shared<DirectoryNode>(this, id, std::move(lane));
 	node->setupWeakNode(node);
 	*entry = node;
-	return std::move(node);
+	return node;
 }
 
 std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::string name,
@@ -560,13 +560,13 @@ std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::strin
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)
-		return std::move(intern);
+		return intern;
 
 	auto owner = std::shared_ptr<Node>{parent->weakNode()};
 	auto node = std::make_shared<DirectoryNode>(this, owner, std::move(name), id, std::move(lane));
 	node->setupWeakNode(node);
 	*entry = node;
-	return std::move(node);
+	return node;
 }
 
 std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
@@ -574,7 +574,7 @@ std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 	auto entry = &_activePeripheralNodes[id];
 	auto intern = entry->lock();
 	if(intern)
-		return std::move(intern);
+		return intern;
 
 	std::shared_ptr<Node> node;
 	switch(type) {
@@ -589,7 +589,7 @@ std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 	}
 	node->setupWeakNode(node);
 	*entry = node;
-	return std::move(node);
+	return node;
 }
 
 std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std::string name,
@@ -597,7 +597,7 @@ std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std:
 	auto entry = &_activePeripheralLinks[{parent, name}];
 	auto intern = entry->lock();
 	if(intern)
-		return std::move(intern);
+		return intern;
 
 	auto owner = std::shared_ptr<Node>{parent->weakNode()};
 	auto link = std::make_shared<PeripheralLink>(std::move(owner),

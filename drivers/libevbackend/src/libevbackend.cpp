@@ -252,7 +252,7 @@ helix::UniqueLane File::serve(smarter::shared_ptr<File> file) {
 	std::tie(local_lane, remote_lane) = helix::createStream();
 	async::detach(protocols::fs::servePassthrough(
 			std::move(local_lane), file, &fileOperations));
-	return std::move(remote_lane);
+	return remote_lane;
 }
 
 File::File(EventDevice *device, bool non_block)
