@@ -495,7 +495,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
 			if(logRequests)
-				std::cout << "posix: VM_MAP size: " << (void *)req.size() << std::endl;
+				std::cout << "posix: VM_MAP size: " << (void *)(size_t)req.size() << std::endl;
 
 			helix::SendBuffer send_resp;
 
@@ -566,7 +566,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_UNMAP) {
 			if(logRequests)
 				std::cout << "posix: VM_UNMAP address: " << (void *)req.address()
-						<< ", size: " << (void *)req.size() << std::endl;
+						<< ", size: " << (void *)(size_t)req.size() << std::endl;
 
 			helix::SendBuffer send_resp;
 
