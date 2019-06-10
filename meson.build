@@ -4,6 +4,11 @@ add_project_arguments('--std=c++17', language: ['cpp'])
 c_compiler = meson.get_compiler('cpp')
 cpp_compiler = meson.get_compiler('cpp')
 
+# clang needs an additional flag to enable sized allocation/deallocation.
+if cpp_compiler.get_id() == 'clang'
+	add_project_arguments('-fsized-deallocation', language: 'cpp')
+endif
+
 if get_option('build_kernel')
 	protoc = find_program('protoc')
 	frigg_pb = find_program('frigg_pb')
