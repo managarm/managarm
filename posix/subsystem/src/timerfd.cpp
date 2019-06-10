@@ -177,13 +177,16 @@ void setTime(File *file, struct timespec initial, struct timespec interval) {
 		std::cout << "setTime() initial: " << initial.tv_sec << " + " << initial.tv_nsec
 				<< ", interval: " << interval.tv_sec << " + " << interval.tv_nsec << std::endl;
 
+	// Note: __builtin_mul_overflow() with signed arguments requires a call to a
+	// compiler-rt function for clang. Cast to unsigned to avoid this issue.
+
 	uint64_t initial_nanos;
-	if(__builtin_mul_overflow(initial.tv_sec, 1000000000, &initial_nanos)
+	if(__builtin_mul_overflow(static_cast<uint64_t>(initial.tv_sec), 1000000000, &initial_nanos)
 			|| __builtin_add_overflow(initial.tv_nsec, initial_nanos, &initial_nanos))
 		throw std::runtime_error("Overflow in timerfd setup");
 
 	uint64_t interval_nanos;
-	if(__builtin_mul_overflow(interval.tv_sec, 1000000000, &interval_nanos)
+	if(__builtin_mul_overflow(static_cast<uint64_t>(interval.tv_sec), 1000000000, &interval_nanos)
 			|| __builtin_add_overflow(interval.tv_nsec, interval_nanos, &interval_nanos))
 		throw std::runtime_error("Overflow in timerfd setup");
 
