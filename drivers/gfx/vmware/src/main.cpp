@@ -679,7 +679,8 @@ GfxDevice::Plane::Plane(GfxDevice *dev)
 // ----------------------------------------------------------------
 
 GfxDevice::BufferObject::BufferObject(GfxDevice *dev, size_t size, helix::UniqueDescriptor mem)
-	: _device{dev}, _size{size}, _mem{std::move(mem)} {
+: _size{size}, _mem{std::move(mem)} {
+	(void)dev;
 }
 
 std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {

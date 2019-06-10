@@ -130,7 +130,9 @@ async::result<void> DeviceState::transfer(ControlTransfer info) {
 
 ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
 		int device, int configuration)
-: _controller{std::move(controller)}, _device(device), _configuration(configuration) { }
+: _controller{std::move(controller)}, _device(device), _configuration(configuration) {
+	(void)_configuration;
+}
 
 COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int number,
 		int alternative), ([=] {
@@ -144,7 +146,9 @@ COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int n
 
 InterfaceState::InterfaceState(std::shared_ptr<Controller> controller,
 		int device, int interface)
-: _controller{std::move(controller)}, _device(device), _interface(interface) { }
+: _controller{std::move(controller)}, _device(device), _interface(interface) {
+	(void)_interface;
+}
 
 COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type,
 		int number), ([=] {

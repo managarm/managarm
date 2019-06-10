@@ -52,7 +52,6 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
 	private:
-		GfxDevice *_device;
 		size_t _size;
 		helix::UniqueDescriptor _mem;
 	};

@@ -164,7 +164,6 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	header.padding = 0;
 	
 	spec::DisplayInfo info;
-	virtio_core::Request request;
 	
 	virtio_core::Chain chain;
 	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, chain, _controlQ,
@@ -344,7 +343,6 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 			scanout.header.type = spec::cmd::setScanout;
 
 			spec::Header scanout_result;
-			virtio_core::Request scanout_request;	
 			virtio_core::Chain scanout_chain;
 			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
 					scanout_chain, _device->_controlQ,
@@ -493,7 +491,6 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::FrameBuffer::_xferAndFlush(), ([=
 	xfer.resourceId = _bo->hardwareId();
 
 	spec::Header xfer_result;
-	virtio_core::Request xfer_request;	
 	virtio_core::Chain xfer_chain;
 	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, _device->_controlQ,
 		arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
@@ -511,7 +508,6 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::FrameBuffer::_xferAndFlush(), ([=
 	flush.resourceId = _bo->hardwareId();
 
 	spec::Header flush_result;
-	virtio_core::Request flush_request;	
 	virtio_core::Chain flush_chain;
 	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, _device->_controlQ,
 		arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
@@ -579,7 +575,6 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::BufferObject::_initHw(), ([=] {
 	buffer.height = getHeight();
 	spec::Header result;
 	
-	virtio_core::Request request;	
 	virtio_core::Chain chain;
 	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, chain, _device->_controlQ,
 			arch::dma_buffer_view{nullptr, &buffer, sizeof(spec::Create2d)});

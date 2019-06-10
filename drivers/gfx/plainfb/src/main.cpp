@@ -319,8 +319,10 @@ GfxDevice::Encoder::Encoder(GfxDevice *device)
 // ----------------------------------------------------------------
 
 GfxDevice::Crtc::Crtc(GfxDevice *device, std::shared_ptr<Plane> plane)
-: drm_core::Crtc{device->allocator.allocate()}, _device{device},
-		_primaryPlane{std::move(plane)} { }
+: drm_core::Crtc{device->allocator.allocate()},
+		_primaryPlane{std::move(plane)} {
+	(void)device;
+}
 
 drm_core::Plane *GfxDevice::Crtc::primaryPlane() {
 	return _primaryPlane.get();
@@ -370,8 +372,9 @@ GfxDevice::Plane::Plane(GfxDevice *device)
 GfxDevice::BufferObject::BufferObject(GfxDevice *device,
 		size_t size, helix::UniqueDescriptor memory,
 		uint32_t width, uint32_t height)
-: _device{device}, _size{size}, _memory{std::move(memory)},
+: _size{size}, _memory{std::move(memory)},
 		_width{width}, _height{height} {
+	(void)device;
 	_bufferMapping = helix::Mapping{_memory, 0, getSize()};
 }
 

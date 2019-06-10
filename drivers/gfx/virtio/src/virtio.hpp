@@ -31,7 +31,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 
 	struct Configuration : drm_core::Configuration {
 		Configuration(GfxDevice *device)
-		: _device(device), _width(0), _height(0), _fb(nullptr) { };
+		: _device(device) { };
 		
 		bool capture(std::vector<drm_core::Assignment> assignment) override;
 		void dispose() override;
@@ -42,9 +42,6 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	
 		std::array<std::optional<ScanoutState>, 16> _state; 	
 		GfxDevice *_device;
-		int _width;
-		int _height;
-		GfxDevice::FrameBuffer *_fb;
 		std::shared_ptr<drm_core::Blob> _mode;
 	};
 
@@ -60,7 +57,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
 		BufferObject(GfxDevice *device, uint32_t id, size_t size, helix::UniqueDescriptor memory,
 			uint32_t width, uint32_t height)
-		: _device{device}, _size{size}, _hardwareId{id}, _memory{std::move(memory)},
+		: _device{device}, _hardwareId{id}, _size{size}, _memory{std::move(memory)},
 			_width{width}, _height{height} { };
 		
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
@@ -139,7 +136,6 @@ private:
 	virtio_core::Queue *_controlQ;
 	virtio_core::Queue *_cursorQ;
 	bool _claimedDevice;
-	uint32_t _numScanouts;
 	id_allocator<uint32_t> _hwAllocator;
 };
 

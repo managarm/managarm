@@ -118,7 +118,6 @@ private:
 	protocols::hw::Device _hwDevice;
 	range_allocator _vramAllocator;
 	arch::io_space _operational;
-	void* _frameBuffer;
 	bool _claimedDevice;
 };
 

@@ -87,7 +87,9 @@ public:
 
 	OpenFile(bool non_block)
 	: File{StructName::get("timerfd")}, _nonBlock{non_block},
-			_activeTimer{nullptr}, _expirations{0}, _theSeq{1} { }
+			_activeTimer{nullptr}, _expirations{0}, _theSeq{1} {
+		(void)_nonBlock;
+	}
 
 	~OpenFile() {
 		// Nothing to do here.

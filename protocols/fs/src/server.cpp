@@ -344,6 +344,8 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 COFIBER_ROUTINE(async::result<void>,
 serveFile(helix::UniqueLane p, void *file,
 		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] {
+	(void)file;
+	(void)file_ops;
 	while(true) {
 		helix::Accept accept;
 

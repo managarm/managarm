@@ -98,7 +98,9 @@ async::result<void> DeviceState::transfer(ControlTransfer info) {
 
 ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
 		int device, int configuration)
-: _controller{std::move(controller)}, _device(device), _configuration(configuration) { }
+: _controller{std::move(controller)}, _device(device), _configuration(configuration) {
+	(void)_configuration;
+}
 
 COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int number,
 		int alternative), ([=] {
@@ -112,7 +114,9 @@ COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int n
 
 InterfaceState::InterfaceState(std::shared_ptr<Controller> controller,
 		int device, int interface)
-: _controller{std::move(controller)}, _device(device), _interface(interface) { }
+: _controller{std::move(controller)}, _device(device), _interface(interface) {
+	(void)_interface;
+}
 
 COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type,
 		int number), ([=] {
@@ -220,8 +224,8 @@ namespace port_bits {
 }
 
 namespace port_features {
-	static constexpr uint16_t connect = 0;
-	static constexpr uint16_t enable = 1;
+	//static constexpr uint16_t connect = 0;
+	//static constexpr uint16_t enable = 1;
 	static constexpr uint16_t reset = 4;
 	static constexpr uint16_t connectChange = 16;
 	static constexpr uint16_t enableChange = 17;
@@ -1142,7 +1146,6 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	auto front = &entity->transactions.front();
 
 	auto handleError = [&] () {
-		auto status = front->transfers[front->numComplete].status.load();
 		// TODO: This could also mean that the TD is not retired because of SPD.
 		// TODO: Unify this case with the transaction success case above.
 		std::cout << "\e[31muhci: Transfer error!\e[39m" << std::endl;

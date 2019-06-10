@@ -97,9 +97,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 
 GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 		helix::UniqueDescriptor video_ram, void* frame_buffer)
-: _hwDevice{std::move(hw_device)}, _videoRam{std::move(video_ram)},
-		_vramAllocator{24, 12}, _frameBuffer{frame_buffer},
-		_claimedDevice{false} {
+: _videoRam{std::move(video_ram)}, _hwDevice{std::move(hw_device)},
+		_vramAllocator{24, 12}, _claimedDevice{false} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));

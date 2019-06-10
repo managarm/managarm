@@ -57,7 +57,6 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		void *accessMapping();
 	
 	private:
-		GfxDevice *_device;
 		size_t _size;
 		helix::UniqueDescriptor _memory;
 		uint32_t _width;
@@ -80,7 +79,6 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		// cursorPlane
 	
 	private:	
-		GfxDevice *_device;
 		std::shared_ptr<Plane> _primaryPlane;
 	};
 
