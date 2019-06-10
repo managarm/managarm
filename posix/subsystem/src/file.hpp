@@ -79,6 +79,9 @@ struct DisposeFileHandle { };
 
 struct File : private smarter::crtp_counter<File, DisposeFileHandle> {
 	friend struct smarter::crtp_counter<File, DisposeFileHandle>;
+
+	using smarter::crtp_counter<File, DisposeFileHandle>::dispose;
+
 public:
 	using DefaultOps = uint32_t;
 	static inline constexpr DefaultOps defaultIsTerminal = 1 << 1;
