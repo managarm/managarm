@@ -473,8 +473,7 @@ void drm_core::File::attachFrameBuffer(std::shared_ptr<drm_core::FrameBuffer> fr
 void drm_core::File::detachFrameBuffer(drm_core::FrameBuffer *frame_buffer) {
 	auto it = std::find_if(_frameBuffers.begin(), _frameBuffers.end(),
 			([&](std::shared_ptr<drm_core::FrameBuffer> fb) {
-				if(fb.get() == frame_buffer)
-					return true;
+				return fb.get() == frame_buffer;
 			}));
 	assert(it != _frameBuffers.end());
 	_frameBuffers.erase(it);
