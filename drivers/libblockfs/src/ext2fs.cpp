@@ -297,7 +297,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageBlockBitmap(
 				&& "TODO: propery support multi-page blocks");
 
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			helix::Mapping bitmap_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
 					bitmap_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
@@ -305,7 +306,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageBlockBitmap(
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			helix::Mapping bitmap_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			COFIBER_AWAIT device->writeSectors(block * sectorsPerBlock,
 					bitmap_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
@@ -334,7 +336,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInodeBitmap(
 				&& "TODO: propery support multi-page blocks");
 
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			helix::Mapping bitmap_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
 					bitmap_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
@@ -342,7 +345,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInodeBitmap(
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping bitmap_map{memory, manage.offset(), manage.length()};
+			helix::Mapping bitmap_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			COFIBER_AWAIT device->writeSectors(block * sectorsPerBlock,
 					bitmap_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
@@ -371,7 +375,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInodeTable(
 		assert(block);
 
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping table_map{memory, manage.offset(), manage.length()};
+			helix::Mapping table_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock + bg_offset / 512,
 					table_map.get(), manage.length() / 512);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
@@ -379,7 +384,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInodeTable(
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping table_map{memory, manage.offset(), manage.length()};
+			helix::Mapping table_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			COFIBER_AWAIT device->writeSectors(block * sectorsPerBlock + bg_offset / 512,
 					table_map.get(), manage.length() / 512);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
@@ -469,7 +475,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::write(Inode *inode, uint64_t of
 
 	// Map the page cache into the address space.
 	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
-			map_offset, map_size,
+			static_cast<ptrdiff_t>(map_offset), map_size,
 			kHelMapProtWrite | kHelMapDontRequireBacking};
 
 	memcpy(reinterpret_cast<char *>(file_map.get()) + (offset - map_offset),
@@ -559,7 +565,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 
 		if(manage.type() == kHelManageInitialize) {
 			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
-					manage.offset(), manage.length(), kHelMapProtWrite};
+					static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtWrite};
 
 			assert(!(manage.offset() % inode->fs.blockSize));
 			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
@@ -575,7 +581,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageFileData(std::shared_ptr<I
 			assert(manage.type() == kHelManageWriteback);
 
 			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
-					manage.offset(), manage.length(), kHelMapProtRead};
+					static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtRead};
 
 			assert(!(manage.offset() % inode->fs.blockSize));
 			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
@@ -630,7 +636,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 			HEL_CHECK(lock_indirect.error());
 
 			helix::Mapping indirect_map{inode->indirectOrder1,
-					(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
+					(1 + indirect_frame) << blockPagesShift, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapDontRequireBacking};
 			block = reinterpret_cast<uint32_t *>(indirect_map.get())[indirect_index];
 		}
@@ -640,7 +646,8 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 		assert(manage.length() == (1 << blockPagesShift)
 				&& "TODO: propery support multi-page blocks");
 
-		helix::Mapping out_map{memory, manage.offset(), manage.length()};
+		helix::Mapping out_map{memory,
+				static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 		COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
 				out_map.get(), sectorsPerBlock);
 		HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
@@ -649,7 +656,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageIndirect(std::shared_ptr<I
 }))
 
 COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateBlock(), ([=] {
-	uint64_t bg_idx = 0;
+	int64_t bg_idx = 0;
 
 	helix::LockMemoryView lock_bitmap;
 	auto &&submit_bitmap = helix::submitLockMemoryView(blockBitmap,
@@ -660,7 +667,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateBlock(), ([=] {
 	HEL_CHECK(lock_bitmap.error());
 
 	helix::Mapping bitmap_map{blockBitmap,
-			bg_idx << blockPagesShift, 1 << blockPagesShift,
+			bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
 	// TODO: Update the block group descriptor table.
@@ -698,7 +705,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, FileSystem::allocateInode(), ([=] {
 		HEL_CHECK(lock_bitmap.error());
 
 		helix::Mapping bitmap_map{inodeBitmap,
-				bg_idx << blockPagesShift, 1 << blockPagesShift,
+				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
 		// TODO: Update the block group descriptor table.
@@ -772,7 +779,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::assignDataBlocks(Inode *inode,
 			HEL_CHECK(lock_indirect.error());
 
 			helix::Mapping indirect_map{inode->indirectOrder1,
-					0, 1 << blockPagesShift,
+					0, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 			auto window = reinterpret_cast<uint32_t *>(indirect_map.get());
 
@@ -844,8 +851,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<
 			assert(!"Fix triple indirect blocks");
 		}else if(index >= s_range) { // Use the double indirect block.
 			// TODO: Use shift/and instead of div/mod.
-			auto indirect_frame = (index - s_range) >> (blockShift - 2);
-			auto indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
+			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
+			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
 
 			helix::LockMemoryView lock_indirect;
 			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
@@ -855,7 +862,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<
 			HEL_CHECK(lock_indirect.error());
 
 			helix::Mapping indirect_map{inode->indirectOrder2,
-					indirect_frame << blockPagesShift, 1 << blockPagesShift,
+					indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapDontRequireBacking};
 
 			issue = fuse(indirect_index, num_blocks - progress,
@@ -869,7 +876,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readDataBlocks(std::shared_ptr<
 			HEL_CHECK(lock_indirect.error());
 
 			helix::Mapping indirect_map{inode->indirectOrder1,
-					0, 1 << blockPagesShift,
+					0, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapDontRequireBacking};
 			issue = fuse(index - i_range, num_blocks - progress,
 					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
@@ -933,8 +940,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::writeDataBlocks(std::shared_ptr
 			assert(!"Fix triple indirect blocks");
 		}else if(index >= s_range) { // Use the double indirect block.
 			// TODO: Use shift/and instead of div/mod.
-			auto indirect_frame = (index - s_range) >> (blockShift - 2);
-			auto indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
+			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
+			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
 
 			helix::LockMemoryView lock_indirect;
 			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
@@ -944,7 +951,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::writeDataBlocks(std::shared_ptr
 			HEL_CHECK(lock_indirect.error());
 
 			helix::Mapping indirect_map{inode->indirectOrder2,
-					indirect_frame << blockPagesShift, 1 << blockPagesShift,
+					indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapDontRequireBacking};
 
 			issue = fuse(indirect_index, num_blocks - progress,
@@ -958,7 +965,7 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::writeDataBlocks(std::shared_ptr
 			HEL_CHECK(lock_indirect.error());
 
 			helix::Mapping indirect_map{inode->indirectOrder1,
-					0, 1 << blockPagesShift,
+					0, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapDontRequireBacking};
 			issue = fuse(index - i_range, num_blocks - progress,
 					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);

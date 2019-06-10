@@ -61,7 +61,7 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, con
 
 	// Map the page cache into the address space.
 	helix::Mapping file_map{helix::BorrowedDescriptor{self->inode->frontalMemory},
-			map_offset, map_size,
+			static_cast<ptrdiff_t>(map_offset), map_size,
 			kHelMapProtRead | kHelMapDontRequireBacking};
 
 	memcpy(buffer, reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
