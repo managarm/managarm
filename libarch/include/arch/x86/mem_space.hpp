@@ -97,8 +97,8 @@ namespace _detail {
 		constexpr mem_space()
 		: _base(0) { }
 		
-		constexpr mem_space(void *base)
-		: _base(uintptr_t(base)) { }
+		mem_space(void *base)
+		: _base(reinterpret_cast<uintptr_t>(base)) { }
 
 		mem_space subspace(ptrdiff_t offset) const {
 			return mem_space(reinterpret_cast<void *>(_base + offset));
@@ -126,7 +126,7 @@ namespace _detail {
 using _detail::mem_ops;
 using _detail::mem_space;
 
-static constexpr mem_space global_mem(nullptr);
+static constexpr mem_space global_mem{};
 
 } // namespace arch
 
