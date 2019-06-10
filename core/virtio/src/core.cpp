@@ -75,7 +75,7 @@ namespace {
 struct LegacyPciQueue;
 
 struct LegacyPciTransport : Transport {
-	friend class LegacyPciQueue;
+	friend struct LegacyPciQueue;
 
 	LegacyPciTransport(protocols::hw::Device hw_device,
 			arch::io_space legacy_space, helix::UniqueDescriptor irq);

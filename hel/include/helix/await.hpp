@@ -17,7 +17,7 @@ struct AwaitMechanism {
 	struct Completer;
 
 	struct Future {
-		friend class AwaitMechanism;
+		friend struct AwaitMechanism;
 
 		bool await_ready() {
 			// TODO: this could be optimized.
@@ -44,7 +44,7 @@ struct AwaitMechanism {
 	};
 
 	struct Completer {
-		friend class AwaitMechanism;
+		friend struct AwaitMechanism;
 
 		Completer()
 		: _status(0) { }

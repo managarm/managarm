@@ -16,7 +16,7 @@
 #include <smarter.hpp>
 
 namespace managarm::fs {
-	struct CntRequest;
+	class CntRequest;
 }
 
 namespace protocols {

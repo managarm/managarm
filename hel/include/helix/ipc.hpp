@@ -182,7 +182,7 @@ private:
 };
 
 struct OperationBase {
-	friend class Dispatcher;
+	friend struct Dispatcher;
 
 	OperationBase()
 	: _asyncId(0), _element(nullptr) { }
