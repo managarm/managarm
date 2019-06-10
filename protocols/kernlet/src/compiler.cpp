@@ -50,6 +50,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size
 		case BindType::bitsetEvent: proto = managarm::kernlet::BITSET_EVENT; break;
 		default:
 			assert(!"Unexpected binding type");
+			__builtin_unreachable();
 		}
 		req.add_bind_types(proto);
 	}

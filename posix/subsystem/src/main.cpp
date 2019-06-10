@@ -841,9 +841,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				DeviceId devnum;
 				switch(resolver.currentLink()->getTarget()->getType()) {
 				case VfsType::regular:
-					resp.set_file_type(managarm::posix::FT_REGULAR); break;
+					resp.set_file_type(managarm::posix::FT_REGULAR);
+					break;
 				case VfsType::directory:
-					resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
+					resp.set_file_type(managarm::posix::FT_DIRECTORY);
+					break;
 				case VfsType::charDevice:
 					resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
 					devnum = resolver.currentLink()->getTarget()->readDevice();
@@ -853,6 +855,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
 					devnum = resolver.currentLink()->getTarget()->readDevice();
 					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+					break;
+				default:
 					break;
 				}
 
@@ -1109,9 +1113,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			DeviceId devnum;
 			switch(file->associatedLink()->getTarget()->getType()) {
 			case VfsType::regular:
-				resp.set_file_type(managarm::posix::FT_REGULAR); break;
+				resp.set_file_type(managarm::posix::FT_REGULAR);
+				break;
 			case VfsType::directory:
-				resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
+				resp.set_file_type(managarm::posix::FT_DIRECTORY);
+				break;
 			case VfsType::charDevice:
 				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
 				devnum = file->associatedLink()->getTarget()->readDevice();
@@ -1121,6 +1127,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
 				devnum = file->associatedLink()->getTarget()->readDevice();
 				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+				break;
+			default:
 				break;
 			}
 
