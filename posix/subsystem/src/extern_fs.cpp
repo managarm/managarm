@@ -20,17 +20,17 @@ struct Superblock final : FsSuperblock {
 	async::result<std::shared_ptr<FsLink>> rename(FsLink *source,
 			FsNode *directory, std::string name) override;
 
-	std::shared_ptr<Node> internalizeStructural(int64_t id, helix::UniqueLane lane);
+	std::shared_ptr<Node> internalizeStructural(uint64_t id, helix::UniqueLane lane);
 	std::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
-			int64_t id, helix::UniqueLane lane);
+			uint64_t id, helix::UniqueLane lane);
 	std::shared_ptr<Node> internalizePeripheralNode(int64_t type, int id, helix::UniqueLane lane);
 	std::shared_ptr<FsLink> internalizePeripheralLink(Node *parent, std::string name,
 			std::shared_ptr<Node> target);
 
 private:
 	helix::UniqueLane _lane;
-	std::map<int64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
-	std::map<int64_t, std::weak_ptr<Node>> _activePeripheralNodes;
+	std::map<uint64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
+	std::map<uint64_t, std::weak_ptr<Node>> _activePeripheralNodes;
 	std::map<std::pair<Node *, std::string>, std::weak_ptr<FsLink>> _activePeripheralLinks;
 };
 
@@ -237,7 +237,7 @@ private:
 	}))
 
 public:
-	SymlinkNode(int64_t inode, helix::UniqueLane lane)
+	SymlinkNode(uint64_t inode, helix::UniqueLane lane)
 	: Node{inode, std::move(lane)} { }
 };
 
@@ -481,12 +481,12 @@ private:
 	}))
 
 public:
-	DirectoryNode(Superblock *sb, int64_t inode, helix::UniqueLane lane)
+	DirectoryNode(Superblock *sb, uint64_t inode, helix::UniqueLane lane)
 	: Node{inode, std::move(lane), sb}, _sb{sb},
 			_treeLink{this} { }
 
 	DirectoryNode(Superblock *sb, std::shared_ptr<Node> owner, std::string name,
-			int64_t inode, helix::UniqueLane lane)
+			uint64_t inode, helix::UniqueLane lane)
 	: Node{inode, std::move(lane), sb}, _sb{sb},
 			_treeLink{std::move(owner), this, std::move(name)} { }
 
@@ -543,7 +543,7 @@ async::result<std::shared_ptr<FsLink>> Superblock::rename(FsLink *source,
 	throw std::runtime_error("extern_fs: rename() is not supported");
 }
 
-std::shared_ptr<Node> Superblock::internalizeStructural(int64_t id, helix::UniqueLane lane) {
+std::shared_ptr<Node> Superblock::internalizeStructural(uint64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)
@@ -556,7 +556,7 @@ std::shared_ptr<Node> Superblock::internalizeStructural(int64_t id, helix::Uniqu
 }
 
 std::shared_ptr<Node> Superblock::internalizeStructural(Node *parent, std::string name,
-		int64_t id, helix::UniqueLane lane) {
+		uint64_t id, helix::UniqueLane lane) {
 	auto entry = &_activeStructural[id];
 	auto intern = entry->lock();
 	if(intern)

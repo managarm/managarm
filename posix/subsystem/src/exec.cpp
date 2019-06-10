@@ -215,7 +215,7 @@ COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, ViewPa
 		AT_PHNUM,
 		exec_info.phdrCount,
 		AT_MBUS_SERVER,
-		mbus_handle,
+		static_cast<uintptr_t>(mbus_handle),
 		AT_NULL,
 		0
 	});

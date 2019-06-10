@@ -35,7 +35,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			helix::SendBuffer send_data;
 
 			// FIXME: Fill in the correct DMA pool.
-			arch::dma_buffer buffer{nullptr, req.length()};
+			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
 			InterruptTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
 			transfer.lazyNotification = req.lazy_notification();
@@ -56,7 +56,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			helix::SendBuffer send_resp;
 		
 			// FIXME: Fill in the correct DMA pool.
-			arch::dma_buffer buffer{nullptr, req.length()};
+			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
 			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&recv_buffer, buffer.data(), buffer.size()));
 			COFIBER_AWAIT payload.async_wait();
@@ -80,7 +80,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			helix::SendBuffer send_data;
 
 			// FIXME: Fill in the correct DMA pool.
-			arch::dma_buffer buffer{nullptr, req.length()};
+			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
 			BulkTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
 			transfer.lazyNotification = req.lazy_notification();
@@ -272,7 +272,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 					helix::action(&recv_buffer, setup.data(), sizeof(SetupPacket)));
 			COFIBER_AWAIT payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
-			arch::dma_buffer buffer{nullptr, req.length()};
+			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
 			COFIBER_AWAIT device.transfer(ControlTransfer{XferFlags::kXferToHost, setup, buffer});	
 
 			managarm::usb::SvrResponse resp;

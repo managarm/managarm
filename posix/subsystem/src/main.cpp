@@ -1637,7 +1637,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
 			}else if(req.timeout() > 0) {
 				async::cancellation_event cancel_wait;
-				TimeoutCallback timer{req.timeout(), [&] {
+				TimeoutCallback timer{static_cast<uint64_t>(req.timeout()), [&] {
 					cancel_wait.cancel();
 				}};
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
@@ -1770,7 +1770,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 						std::min(req.size(), uint32_t(16)), cancel_wait);
 			}else if(req.timeout() > 0) {
 				async::cancellation_event cancel_wait;
-				TimeoutCallback timer{req.timeout(), [&] {
+				TimeoutCallback timer{static_cast<uint64_t>(req.timeout()), [&] {
 					cancel_wait.cancel();
 				}};
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
@@ -1817,8 +1817,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			auto file = self->fileContext()->getFile(req.fd());
 			assert(file && "Illegal FD for TIMERFD_SETTIME");
-			timerfd::setTime(file.get(), {req.time_secs(), req.time_nanos()},
-					{req.interval_secs(), req.interval_nanos()});
+			timerfd::setTime(file.get(),
+					{static_cast<time_t>(req.time_secs()), static_cast<long>(req.time_nanos())},
+					{static_cast<time_t>(req.interval_secs()), static_cast<long>(req.interval_nanos())});
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

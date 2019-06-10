@@ -121,7 +121,7 @@ struct FrameListPointer {
 		HEL_CHECK(helPointerPhysical(item, &physical));
 		assert(physical % sizeof(*item) == 0);
 		assert((physical & 0xFFFFFFFF) == physical);
-		return FrameListPointer{physical, true};
+		return FrameListPointer{static_cast<uint32_t>(physical), true};
 	}
 	
 	FrameListPointer()
