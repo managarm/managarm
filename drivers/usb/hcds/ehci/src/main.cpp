@@ -1,6 +1,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <deque>
 #include <experimental/optional>
 #include <functional>

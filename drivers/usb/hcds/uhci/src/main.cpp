@@ -1,6 +1,8 @@
 
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <deque>
 #include <experimental/optional>
 #include <functional>
@@ -10,6 +12,7 @@
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
+#include <arch/dma_pool.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
