@@ -7,7 +7,9 @@ gen = generator(protoc,
 hw_pb = gen.process('../../protocols/hw/hw.proto')
 hw_proto_inc = include_directories('include/')
 libhw_protocol = shared_library('hw_protocol', ['src/client.cpp', hw_pb],
-	dependencies: [lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
+	dependencies: [
+		clang_coroutine_dep,
+		lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
 	include_directories: hw_proto_inc,
 	install: true)
 

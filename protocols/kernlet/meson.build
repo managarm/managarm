@@ -7,7 +7,9 @@ gen = generator(protoc,
 kernlet_pb = gen.process('kernlet.proto')
 kernlet_proto_inc = include_directories('include/')
 libkernlet_protocol = shared_library('kernlet_protocol', ['src/compiler.cpp', kernlet_pb],
-	dependencies: [lib_helix_dep, lib_cofiber_dep, proto_lite_dep, libmbus_protocol_dep],
+	dependencies: [
+		clang_coroutine_dep,
+		lib_helix_dep, lib_cofiber_dep, proto_lite_dep, libmbus_protocol_dep],
 	include_directories: kernlet_proto_inc,
 	install: true)
 

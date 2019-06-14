@@ -1,5 +1,6 @@
 
 helix = shared_library('helix', 'src/globals.cpp',
+	dependencies: [clang_coroutine_dep],
 	include_directories: include_directories('include/'),
 	cpp_args: ['-std=c++17', '-Wall'],
 	install: true)

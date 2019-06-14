@@ -1,6 +1,6 @@
 
 project('managarm', 'c', 'cpp')
-add_project_arguments('--std=c++17', language: ['cpp'])
+add_project_arguments('--std=c++17', language: 'cpp')
 c_compiler = meson.get_compiler('cpp')
 cpp_compiler = meson.get_compiler('cpp')
 
@@ -25,7 +25,12 @@ if get_option('build_kernel')
 endif
 
 if get_option('build_drivers')
+	add_project_arguments('-fcoroutines-ts', language: 'cpp')
+
 	protoc = find_program('protoc')
+
+	cxxshim = subproject('cxxshim')
+	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
 
 	proto_lite_dep = dependency('protobuf-lite')
 	lib_cofiber_dep = cpp_compiler.find_library('cofiber')

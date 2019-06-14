@@ -7,7 +7,9 @@ gen = generator(protoc,
 fs_pb = gen.process('../../bragi/proto/fs.proto')
 fs_proto_inc = include_directories('include/')
 libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', fs_pb],
-	dependencies: [lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
+	dependencies: [
+		clang_coroutine_dep,
+		lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
 	include_directories: fs_proto_inc,
 	install: true)
 

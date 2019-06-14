@@ -12,7 +12,9 @@ drm_core = shared_library('drm_core', [
 		'x86_64-src/copy-sse.S',
 	],
 	cpp_args: ['-DFRIGG_HAVE_LIBC'],
-	dependencies: [libarch_dep, lib_helix_dep, lib_cofiber_dep, libfs_protocol_dep,
+	dependencies: [
+		clang_coroutine_dep,
+		libarch_dep, lib_helix_dep, lib_cofiber_dep, libfs_protocol_dep,
 		hw_protocol_dep, libmbus_protocol_dep, proto_lite_dep],
 	include_directories: drm_core_inc,
 	install: true)

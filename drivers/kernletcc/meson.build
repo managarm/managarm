@@ -11,6 +11,7 @@ kernlet_pb = gen.process('../../protocols/kernlet/kernlet.proto')
 
 executable('kernletcc', ['src/main.cpp', 'src/fafnir.cpp', kernlet_pb],
 	dependencies: [
+		clang_coroutine_dep,
 		lewis_dep,
 		lib_cofiber_dep,
 		lib_helix_dep,

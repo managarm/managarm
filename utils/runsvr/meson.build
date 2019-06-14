@@ -8,6 +8,7 @@ svrctl_pb = gen.process('../../protocols/svrctl/svrctl.proto')
 
 executable('runsvr', ['src/main.cpp', svrctl_pb],
 	dependencies: [
+		clang_coroutine_dep,
 		lib_cofiber_dep,
 		lib_helix_dep,
 		proto_lite_dep,
