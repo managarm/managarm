@@ -262,13 +262,15 @@ HelError helCloseDescriptor(HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle) {
+HelError helCreateQueue(HelQueue *head, uint32_t flags,
+		unsigned int size_shift, size_t element_limit, HelHandle *handle) {
 	assert(!flags);
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
 	auto queue = frigg::makeShared<IpcQueue>(*kernelAlloc,
-			this_thread->getAddressSpace().lock(), head);
+			this_thread->getAddressSpace().lock(), head,
+			size_shift, element_limit);
 	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());

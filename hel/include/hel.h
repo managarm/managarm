@@ -258,13 +258,6 @@ struct HelQueue {
 	//! Futex for kernel/user-space head synchronization.
 	int headFutex;
 
-	//! Maximum size of a single element in bytes.
-	//! Constant. Does not include the per-element HelElement header.
-	unsigned int elementLimit;
-
-	//! Size of the indexQueue array.
-	unsigned int sizeShift;
-
 	//! Ensures that the buffer is 8-byte aligned.
 	char padding[4];
 
@@ -387,7 +380,11 @@ HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
 		char *credentials);
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
-HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle);
+//! size_shift:    Size of the indexQueue array.
+//! element_limit: Maximum size of a single element in bytes.
+//!                Does not include the per-element HelElement header.
+HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags,
+		unsigned int size_shift, size_t element_limit, HelHandle *handle);
 HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, HelChunk *chunk, uint32_t flags);
 HEL_C_LINKAGE HelError helCancelAsync(HelHandle queue, uint64_t async_id);
 

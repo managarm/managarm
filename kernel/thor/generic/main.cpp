@@ -560,7 +560,8 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	case kHelCallCreateQueue: {
 		HelHandle handle;
-		*image.error() = helCreateQueue((HelQueue *)arg0, (uint32_t)arg1, &handle);
+		*image.error() = helCreateQueue((HelQueue *)arg0, (uint32_t)arg1,
+				(unsigned int)arg2, (size_t)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallSetupChunk: {

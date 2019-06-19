@@ -19,8 +19,6 @@ static const int kHeadWaiters = (1 << 24);
 
 struct QueueStruct {
 	int headFutex;
-	unsigned int elementLimit;
-	unsigned int sizeShift;
 	char padding[4];
 	int indexQueue[];
 };
@@ -107,7 +105,8 @@ private:
 	};
 
 public:
-	IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
+	IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer,
+			unsigned int size_shift, size_t element_limit);
 
 	IpcQueue(const IpcQueue &) = delete;
 
@@ -132,15 +131,14 @@ private:
 	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
 	void *_pointer;
 	
-	int _sizeShift;
+	unsigned int _sizeShift;
 
 	Worklet _worklet;
 	AcquireNode _acquireNode;
 	FutexNode _futex;
 
 	// Accessors for the queue header.
-	AddressSpaceLockHandle _queuePin;
-	DirectSpaceAccessor<QueueStruct> _queueAccessor;
+	AddressSpaceLockHandle _queueLock;
 
 	bool _inProgressLoop = false;
 

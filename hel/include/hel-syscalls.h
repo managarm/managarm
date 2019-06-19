@@ -47,9 +47,10 @@ extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(HelH
 };
 
 extern inline __attribute__ (( always_inline )) HelError helCreateQueue(HelQueue *head,
-		uint32_t flags, HelHandle *handle) {
+		uint32_t flags, unsigned int size_shift, size_t element_limit, HelHandle *handle) {
 	HelWord hel_handle;
-	HelError error = helSyscall2_1(kHelCallCreateQueue, (HelWord)head, (HelWord)flags, &hel_handle);
+	HelError error = helSyscall4_1(kHelCallCreateQueue, (HelWord)head, (HelWord)flags,
+			(HelWord)size_shift, (HelWord)element_limit, &hel_handle);
 	*handle = (HelHandle)hel_handle;
 	return error;
 };

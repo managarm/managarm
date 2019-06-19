@@ -260,9 +260,7 @@ public:
 			_queue = reinterpret_cast<HelQueue *>(operator new(sizeof(HelQueue)
 					+ (1 << sizeShift) * sizeof(int)));
 			_queue->headFutex = 0;
-			_queue->elementLimit = 128;
-			_queue->sizeShift = sizeShift;
-			HEL_CHECK(helCreateQueue(_queue, 0, &_handle));
+			HEL_CHECK(helCreateQueue(_queue, 0, sizeShift, 128, &_handle));
 		}
 
 		return _handle;

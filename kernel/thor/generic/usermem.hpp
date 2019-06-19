@@ -1138,6 +1138,10 @@ public:
 		return *this;
 	}
 
+	explicit operator bool () {
+		return _active;
+	}
+
 	smarter::borrowed_ptr<AddressSpace, BindableHandle> space() {
 		return _space;
 	}
