@@ -11,7 +11,7 @@ namespace fs {
 File::File(helix::UniqueDescriptor lane)
 : _lane(std::move(lane)) { }
 
-COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
+async::result<void> File::seekAbsolute(int64_t offset) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -26,7 +26,7 @@ COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 128));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -34,10 +34,9 @@ COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	COFIBER_RETURN();
-}))
+}
 
-COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_length), ([=] {
+async::result<size_t> File::readSome(void *data, size_t max_length) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::ImbueCredentials imbue_creds;
@@ -56,7 +55,7 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 			helix::action(&imbue_creds, kHelItemChain),
 			helix::action(&recv_resp, buffer, 128, kHelItemChain),
 			helix::action(&recv_data, data, max_length));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(imbue_creds.error());
@@ -66,14 +65,14 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	if(resp.error() == managarm::fs::Errors::END_OF_FILE) {
-		COFIBER_RETURN(0);
+		co_return 0;
 	}
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	COFIBER_RETURN(recv_data.actualLength());
-}))	
+	co_return recv_data.actualLength();
+}
 
-COFIBER_ROUTINE(async::result<PollResult>, File::poll(uint64_t sequence,
-		async::cancellation_token cancellation), ([=] {
+async::result<PollResult> File::poll(uint64_t sequence,
+		async::cancellation_token cancellation) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::PushDescriptor push_cancel;
@@ -99,7 +98,7 @@ COFIBER_ROUTINE(async::result<PollResult>, File::poll(uint64_t sequence,
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&push_cancel, cancel_event, kHelItemChain),
 			helix::action(&recv_resp, buffer, 128));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(push_cancel.error());
@@ -110,10 +109,10 @@ COFIBER_ROUTINE(async::result<PollResult>, File::poll(uint64_t sequence,
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 	PollResult result{resp.sequence(), resp.edges(), resp.status()};
-	COFIBER_RETURN(result);
-}))
+	co_return result;
+}
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(off_t offset), ([=] {
+async::result<helix::UniqueDescriptor> File::accessMemory(off_t offset) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -130,7 +129,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(off_t
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 128, kHelItemChain),
 			helix::action(&recv_memory));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -139,8 +138,8 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(off_t
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	COFIBER_RETURN(recv_memory.descriptor());
-}))
+	co_return recv_memory.descriptor();
+}
 
 } } // namespace protocol::fs
 
