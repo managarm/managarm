@@ -94,7 +94,7 @@ struct LegacyPciTransport : Transport {
 	void runDevice() override;
 
 private:
-	cofiber::no_future _processIrqs();
+	async::detached _processIrqs();
 
 	protocols::hw::Device _hwDevice;
 	arch::io_space _legacySpace;
@@ -194,8 +194,8 @@ void LegacyPciTransport::runDevice() {
 	_processIrqs();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
-	COFIBER_AWAIT _hwDevice.enableBusIrq();
+async::detached LegacyPciTransport::_processIrqs() {
+	co_await _hwDevice.enableBusIrq();
 
 	// TODO: The kick here should not be required.
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
@@ -205,7 +205,7 @@ COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
 		helix::AwaitEvent await;
 		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
 				helix::Dispatcher::global());
-		COFIBER_AWAIT(submit.async_wait());
+		co_await submit.async_wait();
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
@@ -227,7 +227,7 @@ COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
 			for(auto &queue : _queues)
 				queue->processInterrupt();
 	}
-}))
+}
 
 LegacyPciQueue::LegacyPciQueue(LegacyPciTransport *transport,
 		unsigned int queue_index, size_t queue_size,
@@ -277,7 +277,7 @@ private:
 	arch::mem_space _isrSpace() { return arch::mem_space{_isrMapping.get()}; }
 	arch::mem_space _deviceSpace() { return arch::mem_space{_deviceMapping.get()}; }
 
-	cofiber::no_future _processIrqs();
+	async::detached _processIrqs();
 
 	protocols::hw::Device _hwDevice;
 	Mapping _commonMapping;
@@ -407,8 +407,8 @@ void StandardPciTransport::runDevice() {
 	_processIrqs();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
-	COFIBER_AWAIT connectKernletCompiler();
+async::detached StandardPciTransport::_processIrqs() {
+	co_await connectKernletCompiler();
 
 	std::vector<uint8_t> kernlet_program;
 	fnr::emit_to(std::back_inserter(kernlet_program),
@@ -435,7 +435,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 		fnr::end{}
 	);
 
-	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
+	auto kernlet_object = co_await compile(kernlet_program.data(),
 			kernlet_program.size(), {BindType::memoryView, BindType::offset,
 			BindType::bitsetEvent});
 
@@ -451,7 +451,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 3, &bound_handle));
 	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
 
-	COFIBER_AWAIT _hwDevice.enableBusIrq();
+	co_await _hwDevice.enableBusIrq();
 
 	// TODO: The kick here should not be required.
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
@@ -462,7 +462,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 		helix::AwaitEvent await;
 		auto &&submit = helix::submitAwaitEvent(event, &await, sequence,
 				helix::Dispatcher::global());
-		COFIBER_AWAIT(submit.async_wait());
+		co_await submit.async_wait();
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 		assert(await.bitset() & 3);
@@ -478,7 +478,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 			for(auto &queue : _queues)
 				queue->processInterrupt();
 	}
-}))
+}
 
 StandardPciQueue::StandardPciQueue(StandardPciTransport *transport,
 		unsigned int queue_index, size_t queue_size,
@@ -497,11 +497,10 @@ void StandardPciQueue::notifyTransport() {
 // The discover() function.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<std::unique_ptr<Transport>>,
-discover(protocols::hw::Device hw_device, DiscoverMode mode),
-		([hw_device = std::move(hw_device), mode] () mutable {
-	auto info = COFIBER_AWAIT hw_device.getPciInfo();
-	auto irq = COFIBER_AWAIT hw_device.accessIrq();
+async::result<std::unique_ptr<Transport>>
+discover(protocols::hw::Device hw_device, DiscoverMode mode) {
+	auto info = co_await hw_device.getPciInfo();
+	auto irq = co_await hw_device.accessIrq();
 
 	if(mode == DiscoverMode::transitional || mode == DiscoverMode::modernOnly) {
 		std::optional<Mapping> common_mapping;
@@ -514,25 +513,25 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 			if(info.caps[i].type != 0x09)
 				continue;
 
-			auto subtype = COFIBER_AWAIT hw_device.loadPciCapability(i, 3, 1);
+			auto subtype = co_await hw_device.loadPciCapability(i, 3, 1);
 			if(subtype != 1 && subtype != 2 && subtype != 3 && subtype != 4)
 				continue;
 
-			auto bir = COFIBER_AWAIT hw_device.loadPciCapability(i, 4, 1);
-			auto offset = COFIBER_AWAIT hw_device.loadPciCapability(i, 8, 4);
-			auto length = COFIBER_AWAIT hw_device.loadPciCapability(i, 12, 4);
+			auto bir = co_await hw_device.loadPciCapability(i, 4, 1);
+			auto offset = co_await hw_device.loadPciCapability(i, 8, 4);
+			auto length = co_await hw_device.loadPciCapability(i, 12, 4);
 			std::cout << "virtio: Subtype: " << subtype << ", BAR index: " << bir
 					<< ", offset: " << offset << ", length: " << length << std::endl;
 		
 			assert(info.barInfo[bir].ioType == protocols::hw::IoType::kIoTypeMemory);
-			auto bar = COFIBER_AWAIT hw_device.accessBar(bir);
+			auto bar = co_await hw_device.accessBar(bir);
 			Mapping mapping{std::move(bar), info.barInfo[bir].offset + offset, length};
 
 			if(subtype == 1) {
 				common_mapping = std::move(mapping);
 			}else if(subtype == 2) {
 				notify_mapping = std::move(mapping);
-				notify_multiplier = COFIBER_AWAIT hw_device.loadPciCapability(i, 16, 4);
+				notify_multiplier = co_await hw_device.loadPciCapability(i, 16, 4);
 			}else if(subtype == 3) {
 				isr_mapping = std::move(mapping);
 			}else if(subtype == 4) {
@@ -554,16 +553,16 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 					common_space.load(PCI_DEVICE_STATUS) | DRIVER);
 
 			std::cout << "virtio: Using standard PCI transport" << std::endl;
-			COFIBER_RETURN(std::make_unique<StandardPciTransport>(std::move(hw_device),
+			co_return std::make_unique<StandardPciTransport>(std::move(hw_device),
 					std::move(*common_mapping), std::move(*notify_mapping),
 					std::move(*isr_mapping), std::move(*device_mapping),
-					notify_multiplier, std::move(irq)));
+					notify_multiplier, std::move(irq));
 		}
 	}
 
 	if(mode == DiscoverMode::legacyOnly || mode == DiscoverMode::transitional) {
 		if(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort) {
-			auto bar = COFIBER_AWAIT hw_device.accessBar(0);
+			auto bar = co_await hw_device.accessBar(0);
 			HEL_CHECK(helEnableIo(bar.getHandle()));
 			
 			// Reset the device.
@@ -579,13 +578,13 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 					legacy_space.load(PCI_L_DEVICE_STATUS) | DRIVER);
 
 			std::cout << "virtio: Using legacy PCI transport" << std::endl;
-			COFIBER_RETURN(std::make_unique<LegacyPciTransport>(std::move(hw_device),
-					legacy_space, std::move(irq)));
+			co_return std::make_unique<LegacyPciTransport>(std::move(hw_device),
+					legacy_space, std::move(irq));
 		}
 	}
 
 	throw std::runtime_error("Cannot construct a suitable virtio::Transport");
-}))
+}
 
 // --------------------------------------------------------
 // Handle
@@ -623,33 +622,31 @@ void Handle::setupLink(Handle other) {
 	descriptor->flags.store(descriptor->flags.load() | VIRTQ_DESC_F_NEXT);
 }
 
-COFIBER_ROUTINE(async::result<void>, scatterGather(HostToDeviceType, Chain &chain, Queue *queue,
-		arch::dma_buffer_view view), ([chain = &chain, queue, view] {
+async::result<void> scatterGather(HostToDeviceType, Chain &chain, Queue *queue,
+		arch::dma_buffer_view view) {
 	constexpr size_t page_size = 0x1000;
 	size_t offset = 0;
 	while(offset < view.size()) {
 		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
 		auto chunk = std::min(view.size() - offset, page_size - (address & (page_size - 1)));
-		chain->append(COFIBER_AWAIT queue->obtainDescriptor());
-		chain->setupBuffer(hostToDevice, view.subview(offset, chunk));
+		chain.append(co_await queue->obtainDescriptor());
+		chain.setupBuffer(hostToDevice, view.subview(offset, chunk));
 		offset += chunk;
 	}
-	COFIBER_RETURN();
-}))
+}
 
-COFIBER_ROUTINE(async::result<void>, scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
-		arch::dma_buffer_view view), ([chain = &chain, queue, view] {
+async::result<void> scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
+		arch::dma_buffer_view view) {
 	constexpr size_t page_size = 0x1000;
 	size_t offset = 0;
 	while(offset < view.size()) {
 		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
 		auto chunk = std::min(view.size() - offset, page_size - (address & (page_size - 1)));
-		chain->append(COFIBER_AWAIT queue->obtainDescriptor());
-		chain->setupBuffer(deviceToHost, view.subview(offset, chunk));
+		chain.append(co_await queue->obtainDescriptor());
+		chain.setupBuffer(deviceToHost, view.subview(offset, chunk));
 		offset += chunk;
 	}
-	COFIBER_RETURN();
-}))
+}
 
 // --------------------------------------------------------
 // Queue
@@ -686,10 +683,10 @@ Queue::Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *tabl
 	_activeRequests.resize(_queueSize);
 }
 
-COFIBER_ROUTINE(async::result<Handle>, Queue::obtainDescriptor(), ([=] {
+async::result<Handle> Queue::obtainDescriptor() {
 	while(true) {
 		if(_descriptorStack.empty()) {
-			COFIBER_AWAIT _descriptorDoorbell.async_wait();
+			co_await _descriptorDoorbell.async_wait();
 			continue;
 		}
 
@@ -701,9 +698,9 @@ COFIBER_ROUTINE(async::result<Handle>, Queue::obtainDescriptor(), ([=] {
 		descriptor->length.store(0);
 		descriptor->flags.store(0);
 
-		COFIBER_RETURN((Handle{this, table_index}));
+		co_return Handle{this, table_index};
 	}
-}))
+}
 
 void Queue::postDescriptor(Handle handle, Request *request,
 		void (*complete)(Request *)) {
