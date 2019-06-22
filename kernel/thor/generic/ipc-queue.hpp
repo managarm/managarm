@@ -65,7 +65,7 @@ struct IpcNode {
 	}
 
 	virtual void complete() = 0;
-	
+
 private:
 	uintptr_t _context;
 	const QueueSource *_source;
@@ -124,36 +124,36 @@ private:
 	bool _waitHeadFutex();
 	void _wakeProgressFutex(bool done);
 
-private:	
+private:
 	Mutex _mutex;
 
 	// Pointer (+ address space) to queue head struct.
 	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
 	void *_pointer;
-	
+
 	unsigned int _sizeShift;
 
 	Worklet _worklet;
 	AcquireNode _acquireNode;
 	FutexNode _futex;
 
-	// Accessors for the queue header.
+	// Accessor for the queue header.
 	AddressSpaceLockHandle _queueLock;
+
+	// Index into the queue that we're currently processing.
+	int _nextIndex;
 
 	bool _inProgressLoop = false;
 
 	// Points to the chunk that we're currently writing.
 	Chunk *_currentChunk;
-
-	// Accessors for the current chunk.
-	AddressSpaceLockHandle _chunkPin;
-	DirectSpaceAccessor<ChunkStruct> _chunkAccessor;
-
+	// Accessor for the current chunk.
+	AddressSpaceLockHandle _chunkLock;
 	// Progress into the current chunk.
 	int _currentProgress;
 
-	// Index into the queue that we're currently processing.
-	int _nextIndex;
+	// Accessor for the current element.
+	AddressSpaceLockHandle _elementLock;
 
 	frigg::Vector<Chunk, KernelAlloc> _chunks;
 

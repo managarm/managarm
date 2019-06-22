@@ -17,6 +17,14 @@ namespace thor {
 namespace posix = managarm::posix;
 namespace fs = managarm::fs;
 
+namespace {
+	struct ManagarmProcessData {
+		HelHandle posixLane;
+		HelHandle *fileTable;
+		void *clockTrackerPage;
+	};
+}
+
 void serviceAccept(LaneHandle handle,
 		frigg::CallbackPtr<void(Error, LaneHandle)> callback) {
 	submitAccept(handle, callback);
@@ -689,6 +697,7 @@ namespace initrd {
 	private:
 		void onObserve(Error error, uint64_t sequence, Interrupt interrupt) {
 			assert(error == kErrSuccess);
+			_observedSeq = sequence;
 			
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.
@@ -697,49 +706,55 @@ namespace initrd {
 						<< _process->name().data() << "\e[39m" << frigg::endLog;
 				return;
 			}else if(interrupt == kIntrSuperCall + 1) {
-				struct ManagarmProcessData {
-					HelHandle posixLane;
-					HelHandle *fileTable;
-					void *clockTrackerPage;
-				};
-
-				ManagarmProcessData data = {
-					kHelThisThread,
-					reinterpret_cast<HelHandle *>(_process->clientFileTable),
-					nullptr
-				};
-
 				AcquireNode node;
 
-				auto accessor = AddressSpaceLockHandle{_thread->getAddressSpace().lock(),
+				_spaceLock = AddressSpaceLockHandle{_thread->getAddressSpace().lock(),
 						reinterpret_cast<void *>(_thread->_executor.general()->rsi),
 						sizeof(ManagarmProcessData)};
-				node.setup(nullptr);
-				auto acq = accessor.acquire(&node);
-				assert(acq);
-				accessor.write(0, &data, sizeof(ManagarmProcessData));
-
-				_thread->_executor.general()->rdi = kHelErrNone;
-				if(auto e = Thread::resumeOther(_thread); e)
-					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+				_worklet.setup(&ObserveClosure::onAcquire);
+				_acquire.setup(&_worklet);
+				auto acq = _spaceLock.acquire(&_acquire);
+				if(acq)
+					WorkQueue::post(&_worklet);
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = 0;
 				if(auto e = Thread::resumeOther(_thread); e)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+
+				(*this)();
 			}else{
 				frigg::panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frigg::endLog;
 			}
+		}
 
-			_observedSeq = sequence;
-			(*this)();
+		static void onAcquire(Worklet *base) {
+			auto self = frg::container_of(base, &ObserveClosure::_worklet);
+
+			ManagarmProcessData data = {
+				kHelThisThread,
+				reinterpret_cast<HelHandle *>(self->_process->clientFileTable),
+				nullptr
+			};
+
+			self->_spaceLock.write(0, &data, sizeof(ManagarmProcessData));
+			self->_spaceLock = {};
+
+			self->_thread->_executor.general()->rdi = kHelErrNone;
+			if(auto e = Thread::resumeOther(self->_thread); e)
+				frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+
+			(*self)();
 		}
 		
 		Process *_process;
 		frigg::SharedPtr<Thread> _thread;
 
 		uint64_t _observedSeq;
+		Worklet _worklet;
+		AddressSpaceLockHandle _spaceLock;
+		AcquireNode _acquire;
 	};
 }
 

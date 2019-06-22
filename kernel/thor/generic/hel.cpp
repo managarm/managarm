@@ -88,7 +88,7 @@ public:
 
 	PostEvent(frigg::SharedPtr<IpcQueue> queue, uintptr_t context)
 	: _queue(frigg::move(queue)), _context(context) { }
-	
+
 	template<typename... Args>
 	void operator() (Args &&... args) {
 		auto wrapper = frigg::construct<Wrapper>(*kernelAlloc,
@@ -157,7 +157,7 @@ HelError helCreateUniverse(HelHandle *handle) {
 	auto this_universe = this_thread->getUniverse();
 
 	auto new_universe = frigg::makeShared<Universe>(*kernelAlloc);
-	
+
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -173,7 +173,7 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 		HelHandle *out_handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	AnyDescriptor descriptor;
 	frigg::SharedPtr<Universe> universe;
 	{
@@ -184,7 +184,7 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 		if(!descriptor_it)
 			return kHelErrNoDescriptor;
 		descriptor = *descriptor_it;
-		
+
 		if(universe_handle == kHelThisUniverse) {
 			universe = this_universe.toShared();
 		}else{
@@ -196,7 +196,7 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 			universe = universe_it->get<UniverseDescriptor>().universe;
 		}
 	}
-	
+
 	// TODO: make sure the descriptor is copyable.
 
 	{
@@ -211,7 +211,7 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *info) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	auto irq_lock = frigg::guard(&irqMutex());
 	Universe::Guard universe_guard(&this_universe->lock);
 
@@ -230,7 +230,7 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	assert(!flags);
-	
+
 	frigg::SharedPtr<Thread> thread;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -292,7 +292,7 @@ HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint3
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
-		
+
 		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
 		if(!queue_wrapper)
 			return kHelErrNoDescriptor;
@@ -314,7 +314,7 @@ HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
-		
+
 		auto queue_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!queue_wrapper)
 			return kHelErrNoDescriptor;
@@ -348,7 +348,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 		// TODO: 
 		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
 	}
-	
+
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -363,7 +363,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 HelError helResizeMemory(HelHandle handle, size_t new_size) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Memory> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -393,7 +393,7 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto managed = frigg::makeShared<ManagedSpace>(*kernelAlloc, size);
 	auto backing_memory = frigg::makeShared<BackingMemory>(*kernelAlloc, managed);
 	auto frontal_memory = frigg::makeShared<FrontalMemory>(*kernelAlloc, frigg::move(managed));
-	
+
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -435,7 +435,7 @@ HelError helCreateSliceView(HelHandle bundle_handle,
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Memory> bundle;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -468,7 +468,7 @@ HelError helCreateSpace(HelHandle *handle) {
 
 	auto space = AddressSpace::create();
 	space->setupDefaultMappings();
-	
+
 	auto irq_lock = frigg::guard(&irqMutex());
 	Universe::Guard universe_guard(&this_universe->lock);
 
@@ -481,7 +481,7 @@ HelError helCreateSpace(HelHandle *handle) {
 HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -498,7 +498,7 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 			space = space_wrapper->get<AddressSpaceDescriptor>().space;
 		}
 	}
-	
+
 	struct Closure {
 		ThreadBlocker blocker;
 		Worklet worklet;
@@ -538,7 +538,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<MemorySlice> slice;
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
@@ -558,7 +558,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		}else{
 			return kHelErrBadDescriptor;
 		}
-		
+
 		if(space_handle == kHelNullHandle) {
 			space = this_thread->getAddressSpace().lock();
 		}else{
@@ -586,7 +586,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		map_flags |= AddressSpace::kMapProtWrite;
 	if(flags & kHelMapProtExecute)
 		map_flags |= AddressSpace::kMapProtExecute;
-	
+
 	if(flags & kHelMapCopyOnWrite) {
 		map_flags |= AddressSpace::kMapCopyOnWrite;
 	}else if(flags & kHelMapShareAtFork) {
@@ -624,7 +624,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -663,7 +663,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 
 HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	auto this_thread = getCurrentThread();
-	
+
 	auto space = this_thread->getAddressSpace().lock();
 
 	// FIXME: The physical page can change after we destruct the accessor!
@@ -675,7 +675,7 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 			reinterpret_cast<char *>(pointer) - disp, kPageSize};
 	node.setup(nullptr);
 	auto acq = accessor.acquire(&node);
-	assert(acq);
+	assert(acq && "helPointerPhysical can only operate on locked memory");
 
 	auto page_physical = accessor.getPhysical(0);
 
@@ -688,7 +688,7 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		size_t length, void *buffer) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -707,15 +707,26 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		}
 	}
 
-	AcquireNode node;
-
-	// TODO: This enableUserAccess() should be replaced by a writeUserMemory().
 	auto accessor = AddressSpaceLockHandle{frigg::move(space),
 			(void *)address, length};
-	node.setup(nullptr);
-	auto acq = accessor.acquire(&node);
-	assert(acq);
 
+	// TODO: Instead of blocking, this function should be asynchronous.
+	struct Closure {
+		ThreadBlocker blocker;
+		Worklet worklet;
+		AcquireNode acquire;
+	} closure;
+
+	closure.worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		Thread::unblockOther(&closure->blocker);
+	});
+	closure.acquire.setup(&closure.worklet);
+	closure.blocker.setup();
+	if(!accessor.acquire(&closure.acquire))
+		Thread::blockCurrent(&closure.blocker);
+
+	// TODO: This enableUserAccess() should be replaced by a writeUserMemory().
 	enableUserAccess();
 	accessor.load(0, buffer, length);
 	disableUserAccess();
@@ -727,7 +738,7 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		size_t length, const void *buffer) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -746,15 +757,26 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		}
 	}
 
-	AcquireNode node;
-
-	// TODO: This enableUserAccess() should be replaced by a readUserMemory().
 	auto accessor = AddressSpaceLockHandle{frigg::move(space),
 			(void *)address, length};
-	node.setup(nullptr);
-	auto acq = accessor.acquire(&node);
-	assert(acq);
 
+	// TODO: Instead of blocking, this function should be asynchronous.
+	struct Closure {
+		ThreadBlocker blocker;
+		Worklet worklet;
+		AcquireNode acquire;
+	} closure;
+
+	closure.worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		Thread::unblockOther(&closure->blocker);
+	});
+	closure.acquire.setup(&closure.worklet);
+	closure.blocker.setup();
+	if(!accessor.acquire(&closure.acquire))
+		Thread::blockCurrent(&closure.blocker);
+
+	// TODO: This enableUserAccess() should be replaced by a readUserMemory().
 	enableUserAccess();
 	auto error = accessor.write(0, buffer, length);
 	assert(!error);
@@ -766,7 +788,7 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Memory> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -800,7 +822,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 		if(!memory_wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
 		memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
-		
+
 		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
 		if(!queue_wrapper)
 			return kHelErrNoDescriptor;
@@ -865,7 +887,7 @@ HelError helUpdateMemory(HelHandle handle, int type,
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Memory> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -996,7 +1018,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Memory> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -1016,7 +1038,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		// TODO: protect memory object with a guard
 		memory->submitInitiateLoad(frigg::move(handle_load));
 	}*/
-	
+
 	return kHelErrNone;
 }
 
@@ -1036,7 +1058,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
-		
+
 		if(universe_handle == kHelNullHandle) {
 			universe = this_thread->getUniverse().toShared();
 		}else{
@@ -1059,7 +1081,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 			space = space_wrapper->get<AddressSpaceDescriptor>().space;
 		}
 	}
-	
+
 	AbiParameters params;
 	params.ip = (uintptr_t)ip;
 	params.sp = (uintptr_t)sp;
@@ -1172,7 +1194,7 @@ HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelObserveResult))))
 		return kHelErrQueueTooSmall;
-	
+
 	PostEvent<ObserveThreadWriter> functor{frigg::move(queue), context};
 	thread->submitObserve(in_seq, frigg::move(functor));
 
@@ -1194,7 +1216,7 @@ HelError helKillThread(HelHandle handle) {
 		if(!thread_wrapper->is<ThreadDescriptor>())
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
-	}	
+	}
 
 	Thread::killOther(thread);
 
@@ -1216,7 +1238,7 @@ HelError helInterruptThread(HelHandle handle) {
 		if(!thread_wrapper->is<ThreadDescriptor>())
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
-	}	
+	}
 
 	Thread::interruptOther(thread);
 
@@ -1238,7 +1260,7 @@ HelError helResume(HelHandle handle) {
 		if(!thread_wrapper->is<ThreadDescriptor>())
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
-	}	
+	}
 
 	if(auto e = Thread::resumeOther(thread); e) {
 		if(e == kErrThreadExited)
@@ -1323,7 +1345,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
-	
+
 	// TODO: Make sure that the thread is actually suspenend!
 
 	if(set == kHelRegsProgram) {
@@ -1402,7 +1424,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 				result{translateError(kErrSuccess), 0} {
 			setupContext(context);
 			setupSource(&source);
-			
+
 			worklet.setup(&Closure::elapsed);
 			PrecisionTimerNode::setup(nanos, &worklet);
 		}
@@ -1448,7 +1470,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	auto lanes = createStream();
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -1566,7 +1588,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			frigg::destructN(*kernelAlloc, items, count);
 			frigg::destruct(*kernelAlloc, this);
 		}
-		
+
 		size_t count;
 		frigg::WeakPtr<Universe> weakUniverse;
 		frigg::SharedPtr<IpcQueue> ipcQueue;
@@ -1606,7 +1628,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 						handle = universe->attachDescriptor(lock,
 								LaneDescriptor{item->transmit.lane()});
 					}
-					
+
 					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
 					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
@@ -1655,7 +1677,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 						handle = universe->attachDescriptor(lock, item->transmit.descriptor());
 					}
-					
+
 					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
 					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
@@ -1669,11 +1691,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			closure->ipcQueue->submit(closure);
 		}
 	};
-	
+
 	closure->count = count;
 	closure->weakUniverse = this_universe.toWeak();
 	closure->ipcQueue = frigg::move(queue);
-	
+
 	closure->worklet.setup(&Ops::transmitted);
 	closure->packet.setup(count, &closure->worklet);
 	closure->setupContext(context);
@@ -1741,12 +1763,24 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		} break;
 		case kHelActionRecvToBuffer: {
 			auto space = this_thread->getAddressSpace().lock();
-			AcquireNode node;
 			auto accessor = AddressSpaceLockHandle{frigg::move(space),
 					action.buffer, action.length};
-			node.setup(nullptr);
-			auto acq = accessor.acquire(&node);
-			assert(acq);
+
+			// TODO: Instead of blocking here, the stream should acquire this asynchronously.
+			struct AcqClosure {
+				ThreadBlocker blocker;
+				Worklet worklet;
+				AcquireNode acquire;
+			} acq_closure;
+
+			acq_closure.worklet.setup([] (Worklet *base) {
+				auto acq_closure = frg::container_of(base, &AcqClosure::worklet);
+				Thread::unblockOther(&acq_closure->blocker);
+			});
+			acq_closure.acquire.setup(&acq_closure.worklet);
+			acq_closure.blocker.setup();
+			if(!accessor.acquire(&acq_closure.acquire))
+				Thread::blockCurrent(&acq_closure.blocker);
 
 			closure->items[i].transmit.setup(kTagRecvToBuffer, &closure->packet);
 			closure->items[i].transmit._inAccessor = frigg::move(accessor);
@@ -1800,7 +1834,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 HelError helShutdownLane(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	LaneHandle lane;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -1855,7 +1889,7 @@ HelError helFutexWait(int *pointer, int expected) {
 			<< " " << this_thread->credentials()[14] << " " << this_thread->credentials()[15]
 			<< " Thread blocked on futex" << frigg::endLog;
 */
-	
+
 	Thread::blockCurrent(&closure.blocker);
 
 	return kHelErrNone;
@@ -1935,7 +1969,7 @@ HelError helRaiseEvent(HelHandle handle) {
 HelError helAccessIrq(int number, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	auto irq = frigg::makeShared<IrqObject>(*kernelAlloc,
 			frigg::String<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
 	IrqPin::attachSink(getGlobalSystemIrq(number), irq.get());
@@ -1956,11 +1990,11 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	auto mode = flags & (kHelAckAcknowledge | kHelAckNack | kHelAckKick);
 	if(mode != kHelAckAcknowledge && mode != kHelAckNack && mode != kHelAckKick)
 		return kHelErrIllegalArgs;
-	
+
 	frigg::SharedPtr<IrqObject> irq;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -2001,7 +2035,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 					frigg::move(queue), context);
 			irq->submitAwait(&closure->irqNode, sequence);
 		}
-		
+
 		static void awaited(Worklet *worklet) {
 			auto closure = frg::container_of(worklet, &IrqClosure::worklet);
 			closure->result.error = translateError(closure->irqNode.error());
@@ -2159,7 +2193,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	// TODO: check userspace page access rights
 	auto io_space = frigg::makeShared<IoSpace>(*kernelAlloc);
 	for(size_t i = 0; i < num_ports; i++)
@@ -2179,7 +2213,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 HelError helEnableIo(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<IoSpace> io_space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
