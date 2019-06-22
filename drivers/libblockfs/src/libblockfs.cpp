@@ -21,32 +21,30 @@ ext2fs::FileSystem *fs;
 
 namespace {
 
-COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>, seekAbs(void *object,
-		int64_t offset), ([=] {
+async::result<protocols::fs::SeekResult> seekAbs(void *object, int64_t offset) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset = offset;
-	COFIBER_RETURN(self->offset);
-}))
+	co_return self->offset;
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>, seekRel(void *object,
-		int64_t offset), ([=] {
+async::result<protocols::fs::SeekResult> seekRel(void *object, int64_t offset) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset += offset;
-	COFIBER_RETURN(self->offset);
-}))
+	co_return self->offset;
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, const char *,
-		void *buffer, size_t length), ([=] {
+async::result<protocols::fs::ReadResult> read(void *object, const char *,
+		void *buffer, size_t length) {
 	assert(length);
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	COFIBER_AWAIT self->inode->readyJump.async_wait();
+	co_await self->inode->readyJump.async_wait();
 
 	assert(self->offset <= self->inode->fileSize());
 	auto remaining = self->inode->fileSize() - self->offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
-		COFIBER_RETURN(0); // TODO: Return an explicit end-of-file error?
+		co_return 0; // TODO: Return an explicit end-of-file error?
 
 	auto chunk_offset = self->offset;
 	auto map_offset = chunk_offset & ~size_t(0xFFF);
@@ -56,7 +54,7 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, con
 	helix::LockMemoryView lock_memory;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
 			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
-	COFIBER_AWAIT(submit.async_wait());
+	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
 	// Map the page cache into the address space.
@@ -66,31 +64,31 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, con
 
 	memcpy(buffer, reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
 			chunk_size);
-	COFIBER_RETURN(chunk_size);
-}))
+	co_return chunk_size;
+}
 
-COFIBER_ROUTINE(async::result<void>, write(void *object, const char *,
-		const void *buffer, size_t length), ([=] {
+async::result<void> write(void *object, const char *,
+		const void *buffer, size_t length) {
 	assert(length);
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	COFIBER_AWAIT self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
+	co_await self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
 	self->offset += length;
-}))
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
-		accessMemory(void *object, uint64_t offset, size_t size), ([=] {
+async::result<protocols::fs::AccessMemoryResult>
+accessMemory(void *object, uint64_t offset, size_t size) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	COFIBER_AWAIT self->inode->readyJump.async_wait();
+	co_await self->inode->readyJump.async_wait();
 	assert(offset + size <= self->inode->fileSize());
-	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, offset));
-}))
+	co_return std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, offset);
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadEntriesResult>,
-readEntries(void *object), ([=] {
+async::result<protocols::fs::ReadEntriesResult>
+readEntries(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	COFIBER_RETURN(COFIBER_AWAIT self->readEntries());
-}))
+	co_return co_await self->readEntries();
+}
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withSeekAbs(&seekAbs)
@@ -100,13 +98,13 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withReadEntries(&readEntries)
 	.withAccessMemory(&accessMemory);
 
-COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared_ptr<void> object,
-		std::string name), ([=] {
+async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object,
+		std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto entry = COFIBER_AWAIT self->findEntry(name);
+	auto entry = co_await self->findEntry(name);
 	if(!entry)
-		COFIBER_RETURN((protocols::fs::GetLinkResult{nullptr, -1,
-				protocols::fs::FileType::unknown}));
+		co_return protocols::fs::GetLinkResult{nullptr, -1,
+				protocols::fs::FileType::unknown};
 
 	protocols::fs::FileType type;
 	switch(entry->fileType) {
@@ -124,16 +122,16 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 	}
 
 	assert(entry->inode);
-	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type}));
-}))
+	co_return protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type};
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, link(std::shared_ptr<void> object,
-		std::string name, int64_t ino), ([=] {
+async::result<protocols::fs::GetLinkResult> link(std::shared_ptr<void> object,
+		std::string name, int64_t ino) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto entry = COFIBER_AWAIT self->link(std::move(name), ino);
+	auto entry = co_await self->link(std::move(name), ino);
 	if(!entry)
-		COFIBER_RETURN((protocols::fs::GetLinkResult{nullptr, -1,
-				protocols::fs::FileType::unknown}));
+		co_return protocols::fs::GetLinkResult{nullptr, -1,
+				protocols::fs::FileType::unknown};
 
 	protocols::fs::FileType type;
 	switch(entry->fileType) {
@@ -151,18 +149,16 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, link(std::shared_pt
 	}
 
 	assert(entry->inode);
-	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type}));
-}))
+	co_return protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type};
+}
 
-COFIBER_ROUTINE(async::result<void>, unlink(std::shared_ptr<void> object,
-		std::string name), ([=] {
+async::result<void> unlink(std::shared_ptr<void> object, std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	COFIBER_AWAIT self->unlink(std::move(name));
-}))
+	co_await self->unlink(std::move(name));
+}
 
-COFIBER_ROUTINE(cofiber::no_future, serve(smarter::shared_ptr<ext2fs::OpenFile> file,
-		helix::UniqueLane local_ctrl_, helix::UniqueLane local_pt_),
-		([file, local_ctrl = std::move(local_ctrl_), local_pt = std::move(local_pt_)] () mutable {
+async::detached serve(smarter::shared_ptr<ext2fs::OpenFile> file,
+		helix::UniqueLane local_ctrl, helix::UniqueLane local_pt) {
 	async::cancellation_event cancel_pt;
 
 	// Cancel the passthrough lane once the file line is closed.
@@ -171,14 +167,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(smarter::shared_ptr<ext2fs::OpenFile> 
 		cancel_pt.cancel();
 	});
 
-	COFIBER_AWAIT protocols::fs::servePassthrough(std::move(local_pt),
+	co_await protocols::fs::servePassthrough(std::move(local_pt),
 			file, &fileOperations, cancel_pt);
-}))
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::FileStats>,
-getStats(std::shared_ptr<void> object), ([=] {
+async::result<protocols::fs::FileStats>
+getStats(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	COFIBER_AWAIT self->readyJump.async_wait();
+	co_await self->readyJump.async_wait();
 
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->numLinks;
@@ -190,11 +186,11 @@ getStats(std::shared_ptr<void> object), ([=] {
 	stats.dataModifyTime = self->dataModifyTime;
 	stats.anyChangeTime = self->anyChangeTime;
 
-	COFIBER_RETURN(stats);
-}))
+	co_return stats;
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::OpenResult>,
-open(std::shared_ptr<void> object), ([=] {
+async::result<protocols::fs::OpenResult>
+open(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto file = smarter::make_shared<ext2fs::OpenFile>(self);
 
@@ -204,17 +200,17 @@ open(std::shared_ptr<void> object), ([=] {
 	std::tie(local_pt, remote_pt) = helix::createStream();
 	serve(file, std::move(local_ctrl), std::move(local_pt));
 
-	COFIBER_RETURN(protocols::fs::OpenResult(std::move(remote_ctrl), std::move(remote_pt)));
-}))
+	co_return protocols::fs::OpenResult{std::move(remote_ctrl), std::move(remote_pt)};
+}
 
-COFIBER_ROUTINE(async::result<std::string>, readSymlink(std::shared_ptr<void> object), ([=] {
+async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	COFIBER_AWAIT self->readyJump.async_wait();
+	co_await self->readyJump.async_wait();
 
 	assert(self->fileSize() <= 60);
 	std::string link(self->fileData.embedded, self->fileData.embedded + self->fileSize());
-	COFIBER_RETURN(link);
-}))
+	co_return link;
+}
 
 constexpr protocols::fs::NodeOperations nodeOperations{
 	&getStats,
@@ -230,8 +226,7 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 BlockDevice::BlockDevice(size_t sector_size)
 : sectorSize(sector_size) { }
 
-COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
-		([lane = std::move(p)] {
+async::detached servePartition(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
@@ -241,7 +236,7 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 
@@ -265,14 +260,14 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_node, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
 
-			auto inode = COFIBER_AWAIT fs->createRegular();
+			auto inode = co_await fs->createRegular();
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -288,18 +283,18 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_node, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
+async::detached runDevice(BlockDevice *device) {
 	table = new gpt::Table(device);
-	COFIBER_AWAIT table->parse();
+	co_await table->parse();
 
 	for(size_t i = 0; i < table->numPartitions(); ++i) {
 		auto type = table->getPartition(i).type();
@@ -312,11 +307,11 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 		printf("It's a Windows data partition!\n");
 
 		fs = new ext2fs::FileSystem(&table->getPartition(i));
-		COFIBER_AWAIT fs->init();
+		co_await fs->init();
 		printf("ext2fs is ready!\n");
 
 		// Create an mbus object for the partition.
-		auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+		auto root = co_await mbus::Instance::global().getRoot();
 
 		mbus::Properties descriptor{
 			{"unix.devtype", mbus::StringItem{"block"}},
@@ -334,9 +329,8 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 			return promise.async_get();
 		});
 
-		COFIBER_AWAIT root.createObject("partition", descriptor, std::move(handler));
+		co_await root.createObject("partition", descriptor, std::move(handler));
 	}
-}))
+}
 
 } // namespace blockfs
-

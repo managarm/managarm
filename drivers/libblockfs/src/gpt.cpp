@@ -14,12 +14,12 @@ namespace gpt {
 Table::Table(BlockDevice *device)
 : device(device) { }
 
-COFIBER_ROUTINE(async::result<void>, Table::parse(), ([=] {
+async::result<void> Table::parse() {
 	assert(getDevice()->sectorSize == 512);
 
 	auto header_buffer = malloc(512);
 	assert(header_buffer);
-	COFIBER_AWAIT getDevice()->readSectors(1, header_buffer, 1);
+	co_await getDevice()->readSectors(1, header_buffer, 1);
 	
 	DiskHeader *header = (DiskHeader *)header_buffer;
 	assert(header->signature == 0x5452415020494645); // TODO: handle this error
@@ -31,7 +31,7 @@ COFIBER_ROUTINE(async::result<void>, Table::parse(), ([=] {
 
 	auto table_buffer = malloc(table_sectors * 512);
 	assert(table_buffer);
-	COFIBER_AWAIT getDevice()->readSectors(2, table_buffer, table_sectors);
+	co_await getDevice()->readSectors(2, table_buffer, table_sectors);
 	
 	for(uint32_t i = 0; i < header->numEntries; i++) {
 		DiskEntry *entry = (DiskEntry *)((char *)table_buffer + i * header->entrySize);
@@ -45,8 +45,7 @@ COFIBER_ROUTINE(async::result<void>, Table::parse(), ([=] {
 
 	free(header_buffer);
 	free(table_buffer);
-	COFIBER_RETURN();
-}))
+}
 
 BlockDevice *Table::getDevice() {
 	return device;

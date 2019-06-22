@@ -239,9 +239,9 @@ struct FileSystem {
 
 	async::result<void> init();
 
-	cofiber::no_future manageBlockBitmap(helix::UniqueDescriptor memory);
-	cofiber::no_future manageInodeBitmap(helix::UniqueDescriptor memory);
-	cofiber::no_future manageInodeTable(helix::UniqueDescriptor memory);
+	async::detached manageBlockBitmap(helix::UniqueDescriptor memory);
+	async::detached manageInodeBitmap(helix::UniqueDescriptor memory);
+	async::detached manageInodeTable(helix::UniqueDescriptor memory);
 
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
@@ -250,9 +250,9 @@ struct FileSystem {
 	async::result<void> write(Inode *inode, uint64_t offset,
 			const void *buffer, size_t length);
 
-	cofiber::no_future initiateInode(std::shared_ptr<Inode> inode);
-	cofiber::no_future manageFileData(std::shared_ptr<Inode> inode);
-	cofiber::no_future manageIndirect(std::shared_ptr<Inode> inode, int order,
+	async::detached initiateInode(std::shared_ptr<Inode> inode);
+	async::detached manageFileData(std::shared_ptr<Inode> inode);
+	async::detached manageIndirect(std::shared_ptr<Inode> inode, int order,
 			helix::UniqueDescriptor memory);
 
 	async::result<uint32_t> allocateBlock();
