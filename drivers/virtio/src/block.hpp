@@ -63,7 +63,7 @@ struct Device : blockfs::BlockDevice {
 
 private:
 	// Submits requests from _pendingQueue to the device.
-	cofiber::no_future _processRequests();
+	async::detached _processRequests();
 	
 	std::unique_ptr<virtio_core::Transport> _transport;
 

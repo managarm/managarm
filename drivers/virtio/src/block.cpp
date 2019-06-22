@@ -49,8 +49,8 @@ void Device::runDevice() {
 	blockfs::runDevice(this);
 }
 
-COFIBER_ROUTINE(async::result<void>, Device::readSectors(uint64_t sector,
-		void *buffer, size_t num_sectors), ([=] {
+async::result<void> Device::readSectors(uint64_t sector,
+		void *buffer, size_t num_sectors) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)buffer % 512));
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
@@ -65,15 +65,13 @@ COFIBER_ROUTINE(async::result<void>, Device::readSectors(uint64_t sector,
 				std::min(num_sectors - progress, max_sectors));
 		_pendingQueue.push(request);
 		_pendingDoorbell.ring();
-		COFIBER_AWAIT request->promise.async_get();
+		co_await request->promise.async_get();
 		delete request;
 	}
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(async::result<void>, Device::writeSectors(uint64_t sector,
-		const void *buffer, size_t num_sectors), ([=] {
+async::result<void> Device::writeSectors(uint64_t sector,
+		const void *buffer, size_t num_sectors) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
 	assert(!((uintptr_t)buffer % 512));
 //	printf("writeSectors(%lu, %lu)\n", sector, num_sectors);
@@ -88,17 +86,15 @@ COFIBER_ROUTINE(async::result<void>, Device::writeSectors(uint64_t sector,
 				std::min(num_sectors - progress, max_sectors));
 		_pendingQueue.push(request);
 		_pendingDoorbell.ring();
-		COFIBER_AWAIT request->promise.async_get();
+		co_await request->promise.async_get();
 		delete request;
 	}
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
+async::detached Device::_processRequests() {
 	while(true) {
 		if(_pendingQueue.empty()) {
-			COFIBER_AWAIT _pendingDoorbell.async_wait();
+			co_await _pendingDoorbell.async_wait();
 			continue;
 		}
 
@@ -108,7 +104,7 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 
 		// Setup the descriptor for the request header.
 		virtio_core::Chain chain;
-		chain.append(COFIBER_AWAIT _requestQueue->obtainDescriptor());
+		chain.append(co_await _requestQueue->obtainDescriptor());
 
 		VirtRequest *header = &virtRequestBuffer[chain.front().tableIndex()];
 		if(request->write) {
@@ -124,7 +120,7 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 		
 		// Setup descriptors for the transfered data.
 		for(size_t i = 0; i < request->numSectors; i++) {
-			chain.append(COFIBER_AWAIT _requestQueue->obtainDescriptor());
+			chain.append(co_await _requestQueue->obtainDescriptor());
 			if(request->write) {
 				chain.setupBuffer(virtio_core::hostToDevice, arch::dma_buffer_view{nullptr,
 						(char *)request->buffer + 512 * i, 512});
@@ -139,7 +135,7 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 					<< " data descriptors" << std::endl;
 
 		// Setup a descriptor for the status byte.
-		chain.append(COFIBER_AWAIT _requestQueue->obtainDescriptor());
+		chain.append(co_await _requestQueue->obtainDescriptor());
 		chain.setupBuffer(virtio_core::deviceToHost, arch::dma_buffer_view{nullptr,
 				&statusBuffer[chain.front().tableIndex()], 1});
 
@@ -154,6 +150,6 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 		});
 		_requestQueue->notify();
 	}
-}))
+}
 
 } } // namespace block::virtio
