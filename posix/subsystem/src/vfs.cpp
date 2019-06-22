@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
+#include <experimental/coroutine>
 #include <future>
 
 #include <cofiber.hpp>
@@ -57,14 +58,14 @@ std::shared_ptr<MountView> rootView;
 
 } // anonymous namespace
 
-COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
+async::result<void> populateRootView() {
 	// Create a tmpfs instance for the initrd.
 	auto tree = tmp_fs::createRoot();
 	rootView = MountView::createRoot(tree);
 
-	COFIBER_AWAIT tree->getTarget()->mkdir("realfs");
+	co_await tree->getTarget()->mkdir("realfs");
 	
-	auto dev = COFIBER_AWAIT tree->getTarget()->mkdir("dev");
+	auto dev = co_await tree->getTarget()->mkdir("dev");
 	rootView->mount(std::move(dev), getDevtmpfs());
 
 	// Populate the tmpfs from the fs we are running on.
@@ -99,7 +100,7 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 					helix::action(&offer, kHelItemAncillary),
 					helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&recv_resp));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(offer.error());
 			HEL_CHECK(send_req.error());
 			HEL_CHECK(recv_resp.error());
@@ -113,20 +114,18 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 			//std::cout << "posix: Importing " << item.second + "/" + resp.path() << std::endl;
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto link = COFIBER_AWAIT item.first->mkdir(resp.path());
+				auto link = co_await item.first->mkdir(resp.path());
 				stack.push_back({link->getTarget(), item.second + "/" + resp.path()});
 			}else{
 				assert(resp.file_type() == managarm::fs::FileType::REGULAR);
 
 				auto file_path = "/" + item.second + "/" + resp.path();
 				auto node = tmp_fs::createMemoryNode(std::move(file_path));
-				COFIBER_AWAIT item.first->link(resp.path(), node);
+				co_await item.first->link(resp.path(), node);
 			}
 		}
 	}
-
-	COFIBER_RETURN();
-}))
+}
 
 #include <algorithm>
 
@@ -198,7 +197,7 @@ void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string) {
 	}
 }
 
-COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), ([=] {
+async::result<void> PathResolver::resolve(ResolveFlags flags) {
 	auto sn = StructName::get("path-resolve");
 	if(debugResolve) {
 		std::cout << "posix " << sn << ": Path resolution for '";
@@ -239,12 +238,12 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
 			}
 		}else{
-			auto child = COFIBER_AWAIT _currentPath.second->getTarget()->getLink(std::move(name));
+			auto child = co_await _currentPath.second->getTarget()->getLink(std::move(name));
 
 			if(!child) {
 				// TODO: Return an error code.
 				_currentPath = ViewPath{_currentPath.first, nullptr};
-				COFIBER_RETURN();
+				co_return;
 			}
 
 			// Next, we might need to traverse mount boundaries.
@@ -260,7 +259,7 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 			// Finally, we might need to follow symlinks.
 			if(next.second->getTarget()->getType() == VfsType::symlink
 					&& !(_components.empty() && (flags & resolveDontFollow))) {
-				auto result = COFIBER_AWAIT next.second->getTarget()->readSymlink(next.second.get());
+				auto result = co_await next.second->getTarget()->readSymlink(next.second.get());
 				auto link = Path::decompose(std::get<std::string>(result));
 
 				if(debugResolve) {
@@ -282,30 +281,28 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 			}
 		}
 	}
-
-	COFIBER_RETURN();
-}))
+}
 
 ViewPath rootPath() {
 	return ViewPath{rootView, rootView->getOrigin()};
 }
 
-COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, ViewPath workdir,
-		std::string name, ResolveFlags flags), ([=] {
+FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
+		std::string name, ResolveFlags flags) {
 	PathResolver resolver;
 	resolver.setup(std::move(root), std::move(workdir), std::move(name));
-	COFIBER_AWAIT resolver.resolve(flags);
-	COFIBER_RETURN(ViewPath(resolver.currentView(), resolver.currentLink()));
-}))
+	co_await resolver.resolve(flags);
+	co_return ViewPath(resolver.currentView(), resolver.currentLink());
+}
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>, open(ViewPath root, ViewPath workdir,
-		std::string name, ResolveFlags resolve_flags, SemanticFlags semantic_flags), ([=] {
-	ViewPath current = COFIBER_AWAIT resolve(std::move(root), std::move(workdir),
+FutureMaybe<SharedFilePtr> open(ViewPath root, ViewPath workdir,
+		std::string name, ResolveFlags resolve_flags, SemanticFlags semantic_flags) {
+	ViewPath current = co_await resolve(std::move(root), std::move(workdir),
 			std::move(name), resolve_flags);
 	if(!current.second)
-		COFIBER_RETURN(nullptr); // TODO: Return an error code.
+		co_return nullptr; // TODO: Return an error code.
 
-	auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
-	COFIBER_RETURN(std::move(file));
-}))
+	auto file = co_await current.second->getTarget()->open(current.second, semantic_flags);
+	co_return std::move(file);
+}
 

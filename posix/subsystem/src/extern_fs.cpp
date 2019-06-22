@@ -35,7 +35,7 @@ private:
 };
 
 struct Node : FsNode {
-	COFIBER_ROUTINE(async::result<FileStats>, getStats() override, ([=] {
+	async::result<FileStats> getStats() override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -48,7 +48,7 @@ struct Node : FsNode {
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -71,8 +71,8 @@ struct Node : FsNode {
 		stats.ctimeSecs = resp.ctime_secs();
 		stats.atimeNanos = resp.ctime_nanos();
 
-		COFIBER_RETURN(stats);
-	}))
+		co_return stats;
+	}
 
 public:
 	Node(uint64_t inode, helix::UniqueLane lane, Superblock *sb = nullptr)
@@ -106,31 +106,31 @@ private:
 
 struct OpenFile final : File {
 private:
-	COFIBER_ROUTINE(expected<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
+	expected<off_t> seek(off_t offset, VfsSeek whence) override {
 		assert(whence == VfsSeek::absolute);
-		COFIBER_AWAIT _file.seekAbsolute(offset);
-		COFIBER_RETURN(offset);
-	}))
+		co_await _file.seekAbsolute(offset);
+		co_return offset;
+	}
 
 	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
-		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
-		COFIBER_RETURN(length);
-	}))
+	expected<size_t>
+	readSome(Process *, void *data, size_t max_length) override {
+		size_t length = co_await _file.readSome(data, max_length);
+		co_return length;
+	}
 
 	// TODO: For extern_fs, we can simply return POLLIN | POLLOUT here.
 	// Move device code out of this file.
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence,
-			async::cancellation_token cancellation) override, ([=] {
-		auto result = COFIBER_AWAIT _file.poll(sequence, cancellation);
-		COFIBER_RETURN(result);
-	}))
+	expected<PollResult> poll(Process *, uint64_t sequence,
+			async::cancellation_token cancellation) override {
+		auto result = co_await _file.poll(sequence, cancellation);
+		co_return result;
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(off_t offset) override, ([=] {
-		auto memory = COFIBER_AWAIT _file.accessMemory(offset);
-		COFIBER_RETURN(std::move(memory));
-	}))
+	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t offset) override {
+		auto memory = co_await _file.accessMemory(offset);
+		co_return std::move(memory);
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _file.getLane();
@@ -161,8 +161,8 @@ private:
 		return VfsType::regular;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+	FutureMaybe<SharedFilePtr>
+			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -180,7 +180,7 @@ private:
 				helix::action(&recv_resp, kHelItemChain),
 				helix::action(&pull_ctrl, kHelItemChain),
 				helix::action(&pull_passthrough));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -194,8 +194,8 @@ private:
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(link));
 		file->setupWeakFile(file);
-		COFIBER_RETURN(File::constructHandle(std::move(file)));
-	}))
+		co_return File::constructHandle(std::move(file));
+	}
 
 public:
 	RegularNode(uint64_t inode, helix::UniqueLane lane)
@@ -208,7 +208,7 @@ private:
 		return VfsType::symlink;
 	}
 
-	COFIBER_ROUTINE(expected<std::string>, readSymlink(FsLink *) override, ([=] {
+	expected<std::string> readSymlink(FsLink *) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -223,7 +223,7 @@ private:
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
 				helix::action(&recv_target));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -233,8 +233,8 @@ private:
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-		COFIBER_RETURN((std::string{static_cast<char *>(recv_target.data()), recv_target.length()}));
-	}))
+		co_return std::string{static_cast<char *>(recv_target.data()), recv_target.length()};
+	}
 
 public:
 	SymlinkNode(uint64_t inode, helix::UniqueLane lane)
@@ -337,8 +337,8 @@ private:
 		assert(!"mkdev is not implemented for extern_fs");
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-			getLink(std::string name) override, ([=] {
+	FutureMaybe<std::shared_ptr<FsLink>>
+			getLink(std::string name) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -354,7 +354,7 @@ private:
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
 				helix::action(&pull_node));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -367,19 +367,19 @@ private:
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
 				auto child = _sb->internalizeStructural(this, name,
 						resp.id(), pull_node.descriptor());
-				COFIBER_RETURN(child->treeLink());
+				co_return child->treeLink();
 			}else{
 				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
 						pull_node.descriptor());
-				COFIBER_RETURN(_sb->internalizePeripheralLink(this, name, std::move(child)));
+				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
 		}else{
-			COFIBER_RETURN(nullptr);
+			co_return nullptr;
 		}
-	}))
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, link(std::string name,
-			std::shared_ptr<FsNode> target) override, ([=] {
+	FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+			std::shared_ptr<FsNode> target) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -396,7 +396,7 @@ private:
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
 				helix::action(&pull_node));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -409,18 +409,18 @@ private:
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
 				auto child = _sb->internalizeStructural(this, name,
 						resp.id(), pull_node.descriptor());
-				COFIBER_RETURN(child->treeLink());
+				co_return child->treeLink();
 			}else{
 				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
 						pull_node.descriptor());
-				COFIBER_RETURN(_sb->internalizePeripheralLink(this, name, std::move(child)));
+				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
 		}else{
-			COFIBER_RETURN(nullptr);
+			co_return nullptr;
 		}
-	}))
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<void>, unlink(std::string name) override, ([=] {
+	FutureMaybe<void> unlink(std::string name) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -434,7 +434,7 @@ private:
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -442,10 +442,10 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	}))
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+	FutureMaybe<SharedFilePtr>
+	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -463,7 +463,7 @@ private:
 				helix::action(&recv_resp, kHelItemChain),
 				helix::action(&pull_ctrl, kHelItemChain),
 				helix::action(&pull_passthrough));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -477,8 +477,8 @@ private:
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(link));
 		file->setupWeakFile(file);
-		COFIBER_RETURN(File::constructHandle(std::move(file)));
-	}))
+		co_return File::constructHandle(std::move(file));
+	}
 
 public:
 	DirectoryNode(Superblock *sb, uint64_t inode, helix::UniqueLane lane)
@@ -502,7 +502,7 @@ std::shared_ptr<FsNode> StructuralLink::getTarget() {
 Superblock::Superblock(helix::UniqueLane lane)
 : _lane{std::move(lane)} { }
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, Superblock::createRegular(), ([=] {
+FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -517,7 +517,7 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, Superblock::createRegular(
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_node));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -527,12 +527,12 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, Superblock::createRegular(
 	if(resp.error() == managarm::fs::Errors::SUCCESS) {
 		HEL_CHECK(pull_node.error());
 
-		COFIBER_RETURN(internalizePeripheralNode(resp.file_type(), resp.id(),
-				pull_node.descriptor()));
+		co_return internalizePeripheralNode(resp.file_type(), resp.id(),
+				pull_node.descriptor());
 	}else{
-		COFIBER_RETURN(nullptr);
+		co_return nullptr;
 	}
-}))
+}
 
 FutureMaybe<std::shared_ptr<FsNode>> Superblock::createSocket() {
 	throw std::runtime_error("extern_fs: createSocket() is not supported");

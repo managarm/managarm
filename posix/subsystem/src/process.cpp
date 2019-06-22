@@ -39,12 +39,12 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 	return context;
 }
 
-COFIBER_ROUTINE(async::result<void *>,
+async::result<void *>
 VmContext::mapFile(smarter::shared_ptr<File, FileHandle> file,
-		intptr_t offset, size_t size, uint32_t native_flags), ([=] {
+		intptr_t offset, size_t size, uint32_t native_flags) {
 	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
 
-	auto memory = COFIBER_AWAIT file->accessMemory(offset);
+	auto memory = co_await file->accessMemory(offset);
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
@@ -69,11 +69,11 @@ VmContext::mapFile(smarter::shared_ptr<File, FileHandle> file,
 	area.offset = offset;
 	_areaTree.insert({address, std::move(area)});
 
-	COFIBER_RETURN(pointer);
-}))
+	co_return pointer;
+}
 
-COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
-		size_t old_size, size_t new_size), ([=] {
+async::result<void *> VmContext::remapFile(void *old_pointer,
+		size_t old_size, size_t new_size) {
 	size_t aligned_old_size = (old_size + 0xFFF) & ~size_t(0xFFF);
 	size_t aligned_new_size = (new_size + 0xFFF) & ~size_t(0xFFF);
 
@@ -82,7 +82,7 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
 	assert(it != _areaTree.end());
 	assert(it->second.areaSize == aligned_old_size);
 
-	auto memory = COFIBER_AWAIT it->second.file->accessMemory(it->second.offset);
+	auto memory = co_await it->second.file->accessMemory(it->second.offset);
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
@@ -112,8 +112,8 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
 
 	_areaTree.insert({address, std::move(area)});
 
-	COFIBER_RETURN(pointer);
-}))
+	co_return pointer;
+}
 
 void VmContext::unmapFile(void *pointer, size_t size) {
 	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
@@ -373,9 +373,9 @@ void SignalContext::issueSignal(int sn, SignalInfo info) {
 	_signalBell.ring();
 }
 
-COFIBER_ROUTINE(async::result<PollSignalResult>,
+async::result<PollSignalResult>
 SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
-		async::cancellation_token cancellation), ([=] {
+		async::cancellation_token cancellation) {
 	assert(in_seq <= _currentSeq);
 
 	while(in_seq == _currentSeq && !cancellation.is_cancellation_requested()) {
@@ -384,7 +384,7 @@ SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 		async::cancellation_callback cancel_callback{cancellation, [&] {
 			_signalBell.cancel_async_wait(ref);
 		}};
-		COFIBER_AWAIT std::move(future);
+		co_await std::move(future);
 	}
 
 	// Wait until one of the requested signals becomes active.
@@ -394,7 +394,7 @@ SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 		async::cancellation_callback cancel_callback{cancellation, [&] {
 			_signalBell.cancel_async_wait(ref);
 		}};
-		COFIBER_AWAIT std::move(future);
+		co_await std::move(future);
 	}
 
 	uint64_t edges = 0;
@@ -402,8 +402,8 @@ SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 		if(_slots[sn].raiseSeq > in_seq)
 			edges |= UINT64_C(1) << sn;
 
-	COFIBER_RETURN(PollSignalResult(_currentSeq, edges, _activeSet));
-}));
+	co_return PollSignalResult{_currentSeq, edges, _activeSet};
+}
 
 PollSignalResult SignalContext::checkSignal(uint64_t mask) {
 	uint64_t edges = 0;
@@ -563,8 +563,7 @@ Process::~Process() {
 	std::cout << "\e[33mposix: Process is destructed\e[39m" << std::endl;
 }
 
-COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
-		([=] {
+async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	auto process = std::make_shared<Process>(nullptr);
 	process->_path = path;
 	process->_vmContext = VmContext::create();
@@ -594,7 +593,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	globalPidMap.insert({1, process.get()});
 
 	// TODO: Do not pass an empty argument vector?
-	auto thread_or_error = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
+	auto thread_or_error = co_await execute(process->_fsContext->getRoot(),
 			process->_fsContext->getWorkingDirectory(),
 			path, std::vector<std::string>{}, std::vector<std::string>{},
 			process->_vmContext,
@@ -611,8 +610,8 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	process->_currentGeneration = generation;
 	serve(process, std::move(generation));
 
-	COFIBER_RETURN(process);
-}))
+	co_return process;
+}
 
 std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	auto process = std::make_shared<Process>(original.get());
@@ -659,8 +658,8 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	return process;
 }
 
-COFIBER_ROUTINE(async::result<Error>, Process::exec(std::shared_ptr<Process> process,
-		std::string path, std::vector<std::string> args, std::vector<std::string> env), ([=] {
+async::result<Error> Process::exec(std::shared_ptr<Process> process,
+		std::string path, std::vector<std::string> args, std::vector<std::string> env) {
 	auto exec_vm_context = VmContext::create();
 
 	HelHandle exec_posix_lane;
@@ -685,14 +684,14 @@ COFIBER_ROUTINE(async::result<Error>, Process::exec(std::shared_ptr<Process> pro
 
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
-	auto thread_or_error = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
+	auto thread_or_error = co_await execute(process->_fsContext->getRoot(),
 			process->_fsContext->getWorkingDirectory(),
 			path, std::move(args), std::move(env), exec_vm_context,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
 	auto error = std::get_if<Error>(&thread_or_error);
 	if(error && (*error == Error::noSuchFile || *error == Error::badExecutable)) {
-		COFIBER_RETURN(*error);
+		co_return *error;
 	}else if(error)
 		throw std::logic_error("Unexpected error from execute()");
 
@@ -713,8 +712,8 @@ COFIBER_ROUTINE(async::result<Error>, Process::exec(std::shared_ptr<Process> pro
 	HEL_CHECK(helKillThread(previous->threadDescriptor.getHandle()));
 	serve(process, std::move(generation));
 
-	COFIBER_RETURN(Error::success);
-}))
+	co_return Error::success;
+}
 
 void Process::retire(Process *process) {
 	assert(process->_parent);
@@ -753,7 +752,7 @@ void Process::terminate(int signo) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking, int *signo), ([=] {
+async::result<int> Process::wait(int pid, bool non_blocking, int *signo) {
 	assert(pid == -1 || pid > 0);
 
 	int result = 0;
@@ -771,9 +770,9 @@ COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking, in
 
 		if(result > 0 || non_blocking) {
 			*signo = termination_signo;
-			COFIBER_RETURN(result);
+			co_return result;
 		}
-		COFIBER_AWAIT _notifyBell.async_wait();
+		co_await _notifyBell.async_wait();
 	}
-}))
+}
 

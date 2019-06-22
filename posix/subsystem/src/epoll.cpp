@@ -72,7 +72,7 @@ private:
 				delete item;
 			return;
 		}
-		
+
 		// TODO: Ignore items that are already pending.
 		// This will happen once we implement modifyItem().
 		assert(!(item->state & statePending));
@@ -136,7 +136,7 @@ public:
 
 		_fileMap.insert({item->file.get(), item});
 	}
-	
+
 	void modifyItem(File *file, int mask, uint64_t cookie) {
 		std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
 				<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
@@ -157,9 +157,9 @@ public:
 			delete item;
 	}
 
-	COFIBER_ROUTINE(async::result<size_t>,
+	async::result<size_t>
 	waitForEvents(struct epoll_event *events, size_t max_events,
-			async::cancellation_token cancellation), ([=] {
+			async::cancellation_token cancellation) {
 		assert(max_events);
 		if(logEpoll) {
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
@@ -194,8 +194,8 @@ public:
 				if(logEpoll)
 					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Checking item "
 							<< "\e[1;34m" << item->file->structName() << "\e[0m" << std::endl;
-				auto result_or_error = COFIBER_AWAIT item->file->checkStatus(item->process);	
-		
+				auto result_or_error = co_await item->file->checkStatus(item->process);
+
 				// Discard closed items.
 				auto error = std::get_if<Error>(&result_or_error);
 				if(error) {
@@ -237,7 +237,7 @@ public:
 
 					continue;
 				}
-				
+
 				// We have to increment the sequence again as concurrent waiters
 				// might have seen an empty _pendingQueue.
 				// TODO: Edge-triggered watches should not be requeued here.
@@ -265,7 +265,7 @@ public:
 			async::cancellation_callback cancel_callback{cancellation, [&] {
 				_statusBell.cancel_async_wait(ref);
 			}};
-			COFIBER_AWAIT std::move(future);
+			co_await std::move(future);
 		}
 
 		// Before returning, we have to reinsert the level-triggered events that we report.
@@ -274,13 +274,13 @@ public:
 			_currentSeq++;
 			_statusBell.ring();
 		}
-		
+
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Return from wait"
 					" with " << k << " items" << std::endl;
 
-		COFIBER_RETURN(k);
-	}))
+		co_return k;
+	}
 
 	// ------------------------------------------------------------------------
 	// File implementation.
@@ -312,19 +312,19 @@ public:
 		_cancelServe.cancel();
 	}
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
-			async::cancellation_token cancellation) override, ([=] {
+	expected<PollResult> poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override {
 		assert(past_seq <= _currentSeq);
 		while(_currentSeq == past_seq && !cancellation.is_cancellation_requested()) {
 			assert(isOpen()); // TODO: Return a poll error here.
-			COFIBER_AWAIT _statusBell.async_wait(cancellation);
+			co_await _statusBell.async_wait(cancellation);
 		}
 		if(cancellation.is_cancellation_requested())
 			std::cout << "\e[33mposix: epoll::poll() cancellation is untested\e[39m" << std::endl;
 
-		COFIBER_RETURN(PollResult(_currentSeq, EPOLLIN, _pendingQueue.empty() ? 0 : EPOLLIN));
-	}))
-	
+		co_return PollResult{_currentSeq, EPOLLIN, _pendingQueue.empty() ? 0 : EPOLLIN};
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}

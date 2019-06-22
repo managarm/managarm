@@ -20,46 +20,46 @@ constexpr bool logDestruction = false;
 // File implementation.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>,
-File::ptSeekAbs(void *object, int64_t offset), ([=] {
+async::result<protocols::fs::SeekResult>
+File::ptSeekAbs(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
-	auto result = COFIBER_AWAIT self->seek(offset, VfsSeek::absolute);
+	auto result = co_await self->seek(offset, VfsSeek::absolute);
 	auto error = std::get_if<Error>(&result);
 	if(error && *error == Error::seekOnPipe) {
-		COFIBER_RETURN(protocols::fs::Error::seekOnPipe);
+		co_return protocols::fs::Error::seekOnPipe;
 	}else{
 		assert(!error);
-		COFIBER_RETURN(std::get<off_t>(result));
+		co_return std::get<off_t>(result);
 	}
-}))
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>,
-File::ptSeekRel(void *object, int64_t offset), ([=] {
+async::result<protocols::fs::SeekResult>
+File::ptSeekRel(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
-	auto result = COFIBER_AWAIT self->seek(offset, VfsSeek::relative);
+	auto result = co_await self->seek(offset, VfsSeek::relative);
 	auto error = std::get_if<Error>(&result);
 	if(error && *error == Error::seekOnPipe) {
-		COFIBER_RETURN(protocols::fs::Error::seekOnPipe);
+		co_return protocols::fs::Error::seekOnPipe;
 	}else{
 		assert(!error);
-		COFIBER_RETURN(std::get<off_t>(result));
+		co_return std::get<off_t>(result);
 	}
-}))
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
+async::result<protocols::fs::ReadResult>
 File::ptRead(void *object, const char *credentials,
-		void *buffer, size_t length), ([=] {
+		void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
-	auto result = COFIBER_AWAIT self->readSome(process.get(), buffer, length);
+	auto result = co_await self->readSome(process.get(), buffer, length);
 	auto error = std::get_if<Error>(&result);
 	if(error && *error == Error::illegalOperationTarget) {
-		COFIBER_RETURN(protocols::fs::Error::illegalArguments);
+		co_return protocols::fs::Error::illegalArguments;
 	}else{
 		assert(!error);
-		COFIBER_RETURN(std::get<size_t>(result));
+		co_return std::get<size_t>(result);
 	}
-}))
+}
 
 async::result<void> File::ptWrite(void *object, const char *credentials,
 		const void *buffer, size_t length) {
@@ -130,23 +130,21 @@ bool File::isTerminal() {
 	return _defaultOps & defaultIsTerminal;
 }
 
-COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(Process *process,
-		void *data, size_t length), ([=] {
+FutureMaybe<void> File::readExactly(Process *process,
+		void *data, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
-		auto result = COFIBER_AWAIT readSome(process, (char *)data + offset, length - offset);
+		auto result = co_await readSome(process, (char *)data + offset, length - offset);
 		assert(std::get<size_t>(result) > 0);
 		offset += std::get<size_t>(result);
 	}
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(expected<size_t>, File::readSome(Process *, void *, size_t), ([=] {
+expected<size_t> File::readSome(Process *, void *, size_t) {
 	std::cout << "\e[35mposix \e[1;34m" << structName()
 			<< "\e[0m\e[35m: File does not support read()\e[39m" << std::endl;
-	COFIBER_RETURN(Error::illegalOperationTarget);
-}))
+	co_return Error::illegalOperationTarget;
+}
 
 void File::handleClose() {
 	std::cout << "posix \e[1;34m" << structName()

@@ -248,10 +248,10 @@ public:
 		return _type;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+	FutureMaybe<FileStats> getStats() override {
 		std::cout << "\e[31mposix: Fix pts DeviceNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
-	}))
+		co_return FileStats{};
+	}
 
 	DeviceId readDevice() override {
 		return _id;
@@ -281,18 +281,18 @@ public:
 		_entries.insert(std::move(link));
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+	FutureMaybe<FileStats> getStats() override {
 		std::cout << "\e[31mposix: Fix pts RootNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
-	}))
+		co_return FileStats{};
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-			getLink(std::string name) override, ([=] {
+	FutureMaybe<std::shared_ptr<FsLink>>
+	getLink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
-			COFIBER_RETURN(*it);
-		COFIBER_RETURN(nullptr); // TODO: Return an error code.
-	}))
+			co_return *it;
+		co_return nullptr; // TODO: Return an error code.
+	}
 
 private:
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
@@ -302,14 +302,14 @@ private:
 // MasterDevice implementation.
 //-----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-MasterDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+FutureMaybe<SharedFilePtr>
+MasterDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	assert(!semantic_flags);
 	auto file = smarter::make_shared<MasterFile>(std::move(link));
 	file->setupWeakFile(file);
 	MasterFile::serve(file);
-	COFIBER_RETURN(File::constructHandle(std::move(file)));
-}))
+	co_return File::constructHandle(std::move(file));
+}
 
 MasterFile::MasterFile(std::shared_ptr<FsLink> link)
 : File{StructName::get("pts.master"), std::move(link), File::defaultPipeLikeSeek},
@@ -321,13 +321,13 @@ MasterFile::MasterFile(std::shared_ptr<FsLink> link)
 			std::make_shared<DeviceNode>(DeviceId{136, _channel->ptsIndex}));
 }
 
-COFIBER_ROUTINE(expected<size_t>,
-MasterFile::readSome(Process *, void *data, size_t max_length), ([=] {
+expected<size_t>
+MasterFile::readSome(Process *, void *data, size_t max_length) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
 
 	while(_channel->masterQueue.empty())
-		COFIBER_AWAIT _channel->statusBell.async_wait();
+		co_await _channel->statusBell.async_wait();
 
 	auto packet = &_channel->masterQueue.front();
 	size_t chunk = std::min(packet->buffer.size() - packet->offset, max_length);
@@ -336,11 +336,11 @@ MasterFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
 		_channel->masterQueue.pop_front();
-	COFIBER_RETURN(chunk);
-}))
+	co_return chunk;
+}
 
-COFIBER_ROUTINE(FutureMaybe<void>,
-MasterFile::writeAll(Process *, const void *data, size_t length), ([=] {
+FutureMaybe<void>
+MasterFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
 		std::cout << "posix: Write to tty " << structName() << std::endl;
 
@@ -352,16 +352,15 @@ MasterFile::writeAll(Process *, const void *data, size_t length), ([=] {
 	_channel->slaveQueue.push_back(std::move(packet));
 	_channel->slaveInSeq = ++_channel->currentSeq;
 	_channel->statusBell.ring();
+	co_return;
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(Process *, uint64_t past_seq,
-		async::cancellation_token cancellation), ([=] {
+expected<PollResult> MasterFile::poll(Process *, uint64_t past_seq,
+		async::cancellation_token cancellation) {
 	assert(past_seq <= _channel->currentSeq);
 	while(past_seq == _channel->currentSeq
 			&& !cancellation.is_cancellation_requested())
-		COFIBER_AWAIT _channel->statusBell.async_wait(cancellation);
+		co_await _channel->statusBell.async_wait(cancellation);
 
 	// For now making pts files always writable is sufficient.
 	int edges = EPOLLOUT;
@@ -372,12 +371,11 @@ COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(Process *, uint64_t past_
 	if(!_channel->masterQueue.empty())
 		events |= EPOLLIN;
 
-	COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
-}))
+	co_return PollResult{_channel->currentSeq, edges, events};
+}
 
-COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
-		helix::UniqueLane conversation), ([this, req = std::move(req),
-			conversation = std::move(conversation)] {
+async::result<void> MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation) {
 	if(req.command() == TIOCGPTN) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
@@ -388,7 +386,7 @@ COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == TIOCSWINSZ) {
 		helix::SendBuffer send_resp;
@@ -411,14 +409,13 @@ COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("posix: Unknown PTS master ioctl() with ID "
 				+ std::to_string(req.command()));
 	}
-	COFIBER_RETURN();
-}))
+}
 
 //-----------------------------------------------------------------------------
 // SlaveDevice implementation.
@@ -429,27 +426,27 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 	assignId({136, _channel->ptsIndex});
 }
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-SlaveDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+FutureMaybe<SharedFilePtr>
+SlaveDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	assert(!semantic_flags);
 	auto file = smarter::make_shared<SlaveFile>(std::move(link), _channel);
 	file->setupWeakFile(file);
 	SlaveFile::serve(file);
-	COFIBER_RETURN(File::constructHandle(std::move(file)));
-}))
+	co_return File::constructHandle(std::move(file));
+}
 
 SlaveFile::SlaveFile(std::shared_ptr<FsLink> link, std::shared_ptr<Channel> channel)
 : File{StructName::get("pts.slave"), std::move(link),
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
 		_channel{std::move(channel)} { }
 
-COFIBER_ROUTINE(expected<size_t>,
-SlaveFile::readSome(Process *, void *data, size_t max_length), ([=] {
+expected<size_t>
+SlaveFile::readSome(Process *, void *data, size_t max_length) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
 
 	while(_channel->slaveQueue.empty())
-		COFIBER_AWAIT _channel->statusBell.async_wait();
+		co_await _channel->statusBell.async_wait();
 
 	auto packet = &_channel->slaveQueue.front();
 	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
@@ -458,12 +455,12 @@ SlaveFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
 		_channel->slaveQueue.pop_front();
-	COFIBER_RETURN(chunk);
-}))
+	co_return chunk;
+}
 
 
-COFIBER_ROUTINE(FutureMaybe<void>,
-SlaveFile::writeAll(Process *, const void *data, size_t length), ([=] {
+FutureMaybe<void>
+SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
 		std::cout << "posix: Write to tty " << structName() << std::endl;
 
@@ -492,16 +489,15 @@ SlaveFile::writeAll(Process *, const void *data, size_t length), ([=] {
 	_channel->masterQueue.push_back(std::move(packet));
 	_channel->masterInSeq = ++_channel->currentSeq;
 	_channel->statusBell.ring();
+	co_return;
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(Process *, uint64_t past_seq,
-		async::cancellation_token cancellation), ([=] {
+expected<PollResult> SlaveFile::poll(Process *, uint64_t past_seq,
+		async::cancellation_token cancellation) {
 	assert(past_seq <= _channel->currentSeq);
 	while(past_seq == _channel->currentSeq
 			&& !cancellation.is_cancellation_requested())
-		COFIBER_AWAIT _channel->statusBell.async_wait(cancellation);
+		co_await _channel->statusBell.async_wait(cancellation);
 
 	// For now making pts files always writable is sufficient.
 	int edges = EPOLLOUT;
@@ -512,12 +508,11 @@ COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(Process *, uint64_t past_s
 	if(!_channel->slaveQueue.empty())
 		events |= EPOLLIN;
 
-	COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
-}))
+	co_return PollResult{_channel->currentSeq, edges, events};
+}
 
-COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
-		helix::UniqueLane conversation), ([this, req = std::move(req),
-			conversation = std::move(conversation)] {
+async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation) {
 	if(req.command() == TCGETS) {
 		helix::SendBuffer send_resp;
 		helix::SendBuffer send_attrs;
@@ -539,7 +534,7 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&send_attrs, &attrs, sizeof(struct termios)));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_attrs.error());
 	}else if(req.command() == TCSETS) {
@@ -550,7 +545,7 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 
 		auto &&in_transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&recv_attrs, &attrs, sizeof(struct termios)));
-		COFIBER_AWAIT in_transmit.async_wait();
+		co_await in_transmit.async_wait();
 		HEL_CHECK(recv_attrs.error());
 
 		if(logAttrs) {
@@ -573,7 +568,7 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		auto ser = resp.SerializeAsString();
 		auto &&out_transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT out_transmit.async_wait();
+		co_await out_transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == TIOCGWINSZ) {
 		helix::SendBuffer send_resp;
@@ -588,7 +583,7 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == TIOCSWINSZ) {
 		helix::SendBuffer send_resp;
@@ -611,14 +606,13 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("posix: Unknown PTS slave ioctl() with ID "
 				+ std::to_string(req.command()));
 	}
-	COFIBER_RETURN();
-}))
+}
 
 //-----------------------------------------------------------------------------
 // Link and RootLink implementation.

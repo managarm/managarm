@@ -65,7 +65,7 @@ struct TimeoutCallback {
 	}
 
 private:
-	COFIBER_ROUTINE(cofiber::no_future, _runTimer(uint64_t duration), ([=] {
+	async::detached _runTimer(uint64_t duration) {
 		uint64_t tick;
 		HEL_CHECK(helGetClock(&tick));
 
@@ -79,7 +79,7 @@ private:
 				HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(),
 						async_id));
 			}};
-			COFIBER_AWAIT submit.async_wait();
+			co_await submit.async_wait();
 		}
 
 		if(await.error() != kHelErrCancelled) {
@@ -88,7 +88,7 @@ private:
 		}
 		
 		_promise.set_value();
-	}))
+	}
 
 	F _function;
 	async::cancellation_event _cancelTimer;
@@ -121,8 +121,8 @@ void dumpRegisters(helix::BorrowedDescriptor thread) {
 	printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
-		std::shared_ptr<Generation> generation), ([=] {
+async::detached observeThread(std::shared_ptr<Process> self,
+		std::shared_ptr<Generation> generation) {
 	helix::BorrowedDescriptor thread = generation->threadDescriptor;
 
 	uint64_t sequence = 1;
@@ -130,13 +130,13 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 		helix::Observe observe;
 		auto &&submit = helix::submitObserve(thread, &observe,
 				sequence, helix::Dispatcher::global());
-		COFIBER_AWAIT(submit.async_wait());
+		co_await submit.async_wait();
 
 		if(observe.error() == kHelErrThreadTerminated) {
 			if(logCleanup)
 				std::cout << "\e[33mposix: Thread was killed\e[39m" << std::endl;
 			generation->cancelServe.cancel();
-			COFIBER_RETURN();
+			co_return;
 		}
 
 		HEL_CHECK(observe.error());
@@ -236,7 +236,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 				k = d + 1;
 			}
 
-			auto error = COFIBER_AWAIT Process::exec(self,
+			auto error = co_await Process::exec(self,
 					path, std::move(args), std::move(env));
 			if(error == Error::noSuchFile) {
 				gprs[4] = kHelErrNone;
@@ -373,10 +373,10 @@ COFIBER_ROUTINE(cofiber::no_future, observeThread(std::shared_ptr<Process> self,
 			throw std::runtime_error("Unexpected observation");
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, serveSignals(std::shared_ptr<Process> self,
-		std::shared_ptr<Generation> generation), ([=] {
+async::detached serveSignals(std::shared_ptr<Process> self,
+		std::shared_ptr<Generation> generation) {
 	helix::BorrowedDescriptor thread = generation->threadDescriptor;
 	async::cancellation_token cancellation = generation->cancelServe;
 
@@ -385,7 +385,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveSignals(std::shared_ptr<Process> self,
 		if(cancellation.is_cancellation_requested())
 			break;
 		//std::cout << "Waiting for raise in " << self->pid() << std::endl;
-		auto result = COFIBER_AWAIT self->signalContext()->pollSignal(sequence,
+		auto result = co_await self->signalContext()->pollSignal(sequence,
 				UINT64_C(-1), cancellation);
 		sequence = std::get<0>(result);
 		//std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
@@ -394,10 +394,10 @@ COFIBER_ROUTINE(cofiber::no_future, serveSignals(std::shared_ptr<Process> self,
 
 	if(logCleanup)
 		std::cout << "\e[33mposix: Exiting serveSignals()\e[39m" << std::endl;
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
-		std::shared_ptr<Generation> generation), ([=] {
+async::result<void> serveRequests(std::shared_ptr<Process> self,
+		std::shared_ptr<Generation> generation) {
 	async::cancellation_token cancellation = generation->cancelServe;
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
@@ -410,7 +410,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 		auto &&header = helix::submitAsync(generation->posixLane, helix::Dispatcher::global(),
 				helix::action(&accept));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 
 		if(accept.error() == kHelErrLaneShutdown)
 			break;
@@ -419,7 +419,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 		auto &&initiate = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_req));
-		COFIBER_AWAIT initiate.async_wait();
+		co_await initiate.async_wait();
 		HEL_CHECK(recv_req.error());
 
 		managarm::posix::CntRequest req;
@@ -437,7 +437,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
 			if(logRequests)
@@ -446,7 +446,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			assert(!(req.flags() & ~WNOHANG));
 
 			int signo;
-			auto pid = COFIBER_AWAIT self->wait(req.pid(), req.flags() & WNOHANG, &signo);
+			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &signo);
 
 			helix::SendBuffer send_resp;
 
@@ -462,7 +462,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::GET_RESOURCE_USAGE) {
 			if(logRequests)
@@ -491,7 +491,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
 			if(logRequests)
@@ -532,7 +532,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			}else{
 				auto file = self->fileContext()->getFile(req.fd());
 				assert(file && "Illegal FD for VM_MAP");
-				address = COFIBER_AWAIT self->vmContext()->mapFile(std::move(file),
+				address = co_await self->vmContext()->mapFile(std::move(file),
 						req.rel_offset(), req.size(), native_flags);
 			}
 
@@ -543,7 +543,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_REMAP) {
 			if(logRequests)
@@ -551,7 +551,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto address = COFIBER_AWAIT self->vmContext()->remapFile(
+			auto address = co_await self->vmContext()->remapFile(
 					reinterpret_cast<void *>(req.address()), req.size(), req.new_size());
 
 			managarm::posix::SvrResponse resp;
@@ -561,7 +561,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_UNMAP) {
 			if(logRequests)
@@ -578,7 +578,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
 			if(logRequests)
@@ -587,7 +587,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+			auto target = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.target_path());
 			if(!target.second) {
 				managarm::posix::SvrResponse resp;
@@ -596,7 +596,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
@@ -611,12 +611,12 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				target.first->mount(target.second, pts::getFsRoot());	
 			}else{
 				assert(req.fs_type() == "ext2");
-				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+				auto source = co_await resolve(self->fsContext()->getRoot(),
 						self->fsContext()->getWorkingDirectory(), req.path());
 				assert(source.second);
 				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
-				auto link = COFIBER_AWAIT device->mount();
+				auto link = co_await device->mount();
 				target.first->mount(target.second, std::move(link));	
 			}
 
@@ -629,7 +629,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CHROOT) {
 			if(logRequests)
@@ -637,7 +637,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+			auto path = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				self->fsContext()->changeRoot(path);
@@ -648,7 +648,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				managarm::posix::SvrResponse resp;
@@ -657,7 +657,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::CHDIR) {
@@ -666,7 +666,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+			auto path = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				self->fsContext()->changeWorkingDirectory(path);
@@ -677,7 +677,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				managarm::posix::SvrResponse resp;
@@ -686,7 +686,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
@@ -695,7 +695,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+			auto path = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				managarm::posix::SvrResponse resp;
@@ -704,7 +704,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				managarm::posix::SvrResponse resp;
@@ -713,7 +713,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::MKDIR) {
@@ -726,29 +726,29 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
-			COFIBER_AWAIT resolver.resolve(resolvePrefix);
+			co_await resolver.resolve(resolvePrefix);
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
-			if(COFIBER_AWAIT parent->getLink(resolver.nextComponent())) {
+			if(co_await parent->getLink(resolver.nextComponent())) {
 				resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
 
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
 
-			COFIBER_AWAIT parent->mkdir(resolver.nextComponent());
+			co_await parent->mkdir(resolver.nextComponent());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINK) {
 			if(logRequests || logPaths)
@@ -759,11 +759,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
-			COFIBER_AWAIT resolver.resolve(resolvePrefix);
+			co_await resolver.resolve(resolvePrefix);
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
-			COFIBER_AWAIT parent->symlink(resolver.nextComponent(), req.target_path());
+			co_await parent->symlink(resolver.nextComponent(), req.target_path());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -771,7 +771,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::RENAME) {
 			if(logRequests || logPaths)
@@ -784,14 +784,14 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
-			COFIBER_AWAIT resolver.resolve();
+			co_await resolver.resolve();
 			if(!resolver.currentLink()) {
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
@@ -799,13 +799,13 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.target_path());
-			COFIBER_AWAIT new_resolver.resolve(resolvePrefix);
+			co_await new_resolver.resolve(resolvePrefix);
 			assert(new_resolver.currentLink());
 
 			auto superblock = resolver.currentLink()->getTarget()->superblock();
 			auto directory = new_resolver.currentLink()->getTarget();
 			assert(superblock == directory->superblock());
-			COFIBER_AWAIT superblock->rename(resolver.currentLink().get(),
+			co_await superblock->rename(resolver.currentLink().get(),
 					directory.get(), new_resolver.nextComponent());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -813,7 +813,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::STAT
 				|| req.request_type() == managarm::posix::CntReqType::LSTAT) {	
@@ -826,14 +826,14 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(req.request_type() == managarm::posix::STAT) {
-				COFIBER_AWAIT resolver.resolve();
+				co_await resolver.resolve();
 			}else{
 				assert(req.request_type() == managarm::posix::LSTAT);
-				COFIBER_AWAIT resolver.resolve(resolveDontFollow);
+				co_await resolver.resolve(resolveDontFollow);
 			}
 
 			if(resolver.currentLink()) {
-				auto stats = COFIBER_AWAIT resolver.currentLink()->getTarget()->getStats();
+				auto stats = co_await resolver.currentLink()->getTarget()->getStats();
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -876,7 +876,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				managarm::posix::SvrResponse resp;
@@ -885,7 +885,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
@@ -895,7 +895,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+			auto path = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path(), resolveDontFollow);
 			if(!path.second) {
 				managarm::posix::SvrResponse resp;
@@ -905,12 +905,12 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 						helix::action(&send_data, nullptr, 0));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
 
-			auto result = COFIBER_AWAIT path.second->getTarget()->readSymlink(path.second.get());
+			auto result = co_await path.second->getTarget()->readSymlink(path.second.get());
 			if(auto error = std::get_if<Error>(&result); error) {
 				assert(*error == Error::illegalOperationTarget);
 
@@ -921,7 +921,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 						helix::action(&send_data, nullptr, 0));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				auto &target = std::get<std::string>(result);
@@ -933,7 +933,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 						helix::action(&send_data, target.data(), target.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {	
@@ -958,14 +958,14 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(req.flags() & managarm::posix::OF_CREATE) {
-				COFIBER_AWAIT resolver.resolve(resolvePrefix);
+				co_await resolver.resolve(resolvePrefix);
 				if(!resolver.currentLink()) {
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 					auto ser = resp.SerializeAsString();
 					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 							helix::action(&send_resp, ser.data(), ser.size()));
-					COFIBER_AWAIT transmit.async_wait();
+					co_await transmit.async_wait();
 					HEL_CHECK(send_resp.error());
 					continue;
 				}
@@ -974,7 +974,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
-				auto tail = COFIBER_AWAIT directory->getLink(resolver.nextComponent());
+				auto tail = co_await directory->getLink(resolver.nextComponent());
 				if(tail) {
 					if(req.flags() & managarm::posix::OF_EXCLUSIVE) {
 						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
@@ -983,30 +983,30 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 						auto &&transmit = helix::submitAsync(conversation,
 								helix::Dispatcher::global(),
 								helix::action(&send_resp, ser.data(), ser.size()));
-						COFIBER_AWAIT transmit.async_wait();
+						co_await transmit.async_wait();
 						HEL_CHECK(send_resp.error());
 						continue;
 					}else{
-						file = COFIBER_AWAIT tail->getTarget()->open(std::move(tail),
+						file = co_await tail->getTarget()->open(std::move(tail),
 								semantic_flags);
 						assert(file);
 					}
 				}else{
 					assert(directory->superblock());
-					auto node = COFIBER_AWAIT directory->superblock()->createRegular();
+					auto node = co_await directory->superblock()->createRegular();
 					// Due to races, link() can fail here.
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
-					auto link = COFIBER_AWAIT directory->link(resolver.nextComponent(), node);
-					file = COFIBER_AWAIT node->open(std::move(link), semantic_flags);
+					auto link = co_await directory->link(resolver.nextComponent(), node);
+					file = co_await node->open(std::move(link), semantic_flags);
 					assert(file);
 				}
 			}else{
-				COFIBER_AWAIT resolver.resolve();
+				co_await resolver.resolve();
 
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
-					file = COFIBER_AWAIT target->open(resolver.currentLink(), semantic_flags);
+					file = co_await target->open(resolver.currentLink(), semantic_flags);
 				}
 			}
 
@@ -1020,7 +1020,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				if(logRequests)
@@ -1030,7 +1030,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
@@ -1047,7 +1047,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
 			if(logRequests)
@@ -1070,7 +1070,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			if(logRequests)
@@ -1095,7 +1095,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
 			if(logRequests)
@@ -1103,7 +1103,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			auto file = self->fileContext()->getFile(req.fd());
 			assert(file && "Illegal FD for FSTAT");
-			auto stats = COFIBER_AWAIT file->associatedLink()->getTarget()->getStats();
+			auto stats = co_await file->associatedLink()->getTarget()->getStats();
 
 			helix::SendBuffer send_resp;
 
@@ -1148,7 +1148,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::IS_TTY) {
 			if(logRequests)
@@ -1166,7 +1166,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
 			if(logRequests)
@@ -1182,7 +1182,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::GETCWD) {
 			if(logRequests)
@@ -1226,7 +1226,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_path, path.data(),
 							std::min(static_cast<size_t>(req.size()), path.size() + 1)));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_path.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::UNLINK) {
@@ -1235,11 +1235,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+			auto path = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				auto owner = path.second->getOwner();
-				COFIBER_AWAIT owner->unlink(path.second->getName());
+				co_await owner->unlink(path.second->getName());
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -1247,7 +1247,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				managarm::posix::SvrResponse resp;
@@ -1256,7 +1256,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
@@ -1273,7 +1273,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
@@ -1289,7 +1289,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
 			if(logRequests)
@@ -1359,7 +1359,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::PIPE_CREATE) {
 			if(logRequests)
@@ -1387,7 +1387,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
 			if(logRequests)
@@ -1425,7 +1425,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
 			if(logRequests)
@@ -1458,7 +1458,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCEPT) {
 			if(logRequests)
@@ -1469,7 +1469,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for ACCEPT");
 
-			auto newfile = COFIBER_AWAIT sockfile->accept(self.get());
+			auto newfile = co_await sockfile->accept(self.get());
 			auto fd = self->fileContext()->attachFile(std::move(newfile));
 
 			managarm::posix::SvrResponse resp;
@@ -1479,7 +1479,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SENDMSG) {
 			if(logRequests)
@@ -1495,7 +1495,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&recv_data, buffer.data(), buffer.size(), kHelItemChain),
 					helix::action(&recv_addr));
-			COFIBER_AWAIT submit_data.async_wait();
+			co_await submit_data.async_wait();
 			HEL_CHECK(recv_data.error());
 
 			auto sockfile = self->fileContext()->getFile(req.fd());
@@ -1525,7 +1525,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				files.push_back(std::move(file));
 			}
 
-			auto result_or_error = COFIBER_AWAIT sockfile->sendMsg(self.get(), flags,
+			auto result_or_error = co_await sockfile->sendMsg(self.get(), flags,
 					buffer.data(), recv_data.actualLength(),
 					recv_addr.data(), recv_addr.length(),
 					std::move(files));
@@ -1539,7 +1539,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
@@ -1550,7 +1550,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::RECVMSG) {
 			if(logRequests)
@@ -1579,7 +1579,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			std::vector<char> address;
 			buffer.resize(req.size());
 			address.resize(req.addr_size());
-			auto result_or_error = COFIBER_AWAIT sockfile->recvMsg(self.get(), flags,
+			auto result_or_error = co_await sockfile->recvMsg(self.get(), flags,
 					buffer.data(), req.size(),
 					address.data(), req.addr_size(), req.ctrl_size());
 
@@ -1592,7 +1592,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size()));
-				COFIBER_AWAIT transmit.async_wait();
+				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
@@ -1607,7 +1607,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_data, buffer.data(), std::get<0>(result), kHelItemChain),
 					helix::action(&send_ctrl, std::get<2>(result).data(),
 							std::get<2>(result).size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CALL) {
 			if(logRequests)
@@ -1629,19 +1629,19 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			struct epoll_event events[16];
 			size_t k;
 			if(req.timeout() == -1) {
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16);
+				k = co_await epoll::wait(epfile.get(), events, 16);
 			}else if(!req.timeout()) {
 				// Do not bother to set up a timer for zero timeouts.
 				async::cancellation_event cancel_wait;
 				cancel_wait.cancel();
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
+				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 			}else if(req.timeout() > 0) {
 				async::cancellation_event cancel_wait;
 				TimeoutCallback timer{static_cast<uint64_t>(req.timeout()), [&] {
 					cancel_wait.cancel();
 				}};
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
-				COFIBER_AWAIT timer.retire();
+				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
+				co_await timer.retire();
 			}else{
 				assert(!"posix: Illegal timeout for EPOLL_CALL");
 				__builtin_unreachable();
@@ -1658,7 +1658,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
 			if(logRequests)
@@ -1679,7 +1679,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_ADD) {
 			if(logRequests)
@@ -1703,7 +1703,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_MODIFY) {
 			if(logRequests)
@@ -1724,7 +1724,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_DELETE) {
 			if(logRequests)
@@ -1745,7 +1745,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_WAIT) {
 			if(logRequests)
@@ -1760,21 +1760,21 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			struct epoll_event events[16];
 			size_t k;
 			if(req.timeout() == -1) {
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
+				k = co_await epoll::wait(epfile.get(), events,
 						std::min(req.size(), uint32_t(16)));
 			}else if(!req.timeout()) {
 				// Do not bother to set up a timer for zero timeouts.
 				async::cancellation_event cancel_wait;
 				cancel_wait.cancel();
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
+				k = co_await epoll::wait(epfile.get(), events,
 						std::min(req.size(), uint32_t(16)), cancel_wait);
 			}else if(req.timeout() > 0) {
 				async::cancellation_event cancel_wait;
 				TimeoutCallback timer{static_cast<uint64_t>(req.timeout()), [&] {
 					cancel_wait.cancel();
 				}};
-				k = COFIBER_AWAIT epoll::wait(epfile.get(), events, 16, cancel_wait);
-				COFIBER_AWAIT timer.retire();
+				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
+				co_await timer.retire();
 			}else{
 				assert(!"posix: Illegal timeout for EPOLL_WAIT");
 				__builtin_unreachable();
@@ -1787,7 +1787,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_data, events, k * sizeof(struct epoll_event)));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_CREATE) {
 			if(logRequests)
@@ -1807,7 +1807,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_SETTIME) {
 			if(logRequests)
@@ -1827,7 +1827,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
 			if(logRequests)
@@ -1848,7 +1848,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::INOTIFY_CREATE) {
 			if(logRequests)
@@ -1869,7 +1869,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::INOTIFY_ADD) {
 			if(logRequests)
@@ -1881,7 +1881,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
-			COFIBER_AWAIT resolver.resolve();
+			co_await resolver.resolve();
 			assert(resolver.currentLink());
 
 			auto wd = inotify::addWatch(ifile.get(), resolver.currentLink()->getTarget());
@@ -1895,7 +1895,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
@@ -1907,14 +1907,14 @@ COFIBER_ROUTINE(cofiber::no_future, serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
 	}
 
 	if(logCleanup)
 		std::cout << "\e[33mposix: Existing serveRequests()\e[39m" << std::endl;
-}))
+}
 
 void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {
 	helix::BorrowedDescriptor thread = generation->threadDescriptor;
@@ -1926,18 +1926,18 @@ void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation
 
 	observeThread(self, generation);
 	serveSignals(self, generation);
-	serveRequests(self, generation);
+	async::detach(serveRequests(self, generation));
 }
 
 // --------------------------------------------------------
 // main() function
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
-	COFIBER_AWAIT clk::enumerateTracker();
-	COFIBER_AWAIT populateRootView();
-	COFIBER_AWAIT Process::init("sbin/posix-init");
-}))
+async::detached runInit() {
+	co_await clk::enumerateTracker();
+	co_await populateRootView();
+	co_await Process::init("sbin/posix-init");
+}
 
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;

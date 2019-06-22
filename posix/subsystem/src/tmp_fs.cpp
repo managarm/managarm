@@ -28,12 +28,12 @@ protected:
 	~Node() = default;
 
 public:
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+	FutureMaybe<FileStats> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = _inodeNumber;
-		COFIBER_RETURN(stats);
-	}))
+		co_return stats;
+	}
 
 private:
 	int64_t _inodeNumber;
@@ -45,9 +45,9 @@ private:
 		return VfsType::symlink;
 	}
 
-	COFIBER_ROUTINE(expected<std::string>, readSymlink(FsLink *) override, ([=] {
-		COFIBER_RETURN(_link);
-	}))
+	expected<std::string> readSymlink(FsLink *) override {
+		co_return _link;
+	}
 
 public:
 	SymlinkNode(Superblock *superblock, std::string link);
@@ -171,32 +171,31 @@ private:
 		return _treeLink;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+	FutureMaybe<SharedFilePtr>
+	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
 
 		auto file = smarter::make_shared<DirectoryFile>(std::move(link));
 		file->setupWeakFile(file);
 		DirectoryFile::serve(file);
-		COFIBER_RETURN(File::constructHandle(std::move(file)));
-	}))
+		co_return File::constructHandle(std::move(file));
+	}
 
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-			getLink(std::string name) override, ([=] {
+	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
-			COFIBER_RETURN(*it);
-		COFIBER_RETURN(nullptr); // TODO: Return an error code.
-	}))
+			co_return *it;
+		co_return nullptr; // TODO: Return an error code.
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, link(std::string name,
-			std::shared_ptr<FsNode> target) override, ([=] {
+	FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+			std::shared_ptr<FsNode> target) override {
 		assert(_entries.find(name) == _entries.end());
 		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(target));
 		_entries.insert(link);
-		COFIBER_RETURN(link);
-	}))
+		co_return link;
+	}
 
 	async::result<std::shared_ptr<FsLink>> mkdir(std::string name) override;
 
@@ -205,15 +204,14 @@ private:
 	async::result<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id) override;
 
-	COFIBER_ROUTINE(FutureMaybe<void>, unlink(std::string name) override, ([=] {
+	FutureMaybe<void> unlink(std::string name) override {
 		auto it = _entries.find(name);
 		assert(it != _entries.end());
 		_entries.erase(it);
 
 		notifyObservers();
-
-		COFIBER_RETURN();
-	}))
+		co_return;
+	}
 
 public:
 	DirectoryNode(Superblock *superblock);
@@ -231,15 +229,15 @@ private:
 		return VfsType::regular;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+	FutureMaybe<SharedFilePtr>
+	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
 		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(fd));
-		COFIBER_RETURN(extern_fs::createFile(std::move(passthrough), std::move(link)));
-	}))
+		co_return extern_fs::createFile(std::move(passthrough), std::move(link));
+	}
 
 public:
 	InheritedNode(Superblock *superblock, std::string path);
@@ -296,14 +294,14 @@ struct MemoryNode final : Node {
 		return VfsType::regular;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+	FutureMaybe<SharedFilePtr>
+	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
 		auto file = smarter::make_shared<MemoryFile>(std::move(link));
 		file->setupWeakFile(file);
 		MemoryFile::serve(file);
-		COFIBER_RETURN(File::constructHandle(std::move(file)));
-	}))
+		co_return File::constructHandle(std::move(file));
+	}
 
 private:
 	void _resizeFile(size_t new_size) {
@@ -332,18 +330,18 @@ private:
 };
 
 struct Superblock final : FsSuperblock {
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, createRegular() override, ([=] {
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular() override {
 		auto node = std::make_shared<MemoryNode>(this);
-		COFIBER_RETURN(std::move(node));
-	}))
+		co_return std::move(node);
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, createSocket() override, ([=] {
+	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
 		auto node = std::make_shared<SocketNode>(this);
-		COFIBER_RETURN(std::move(node));
-	}))
+		co_return std::move(node);
+	}
 
-	COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>, rename(FsLink *src_fs_link,
-			FsNode *dest_fs_dir, std::string dest_name), ([=] {
+	async::result<std::shared_ptr<FsLink>> rename(FsLink *src_fs_link,
+			FsNode *dest_fs_dir, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
 		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir);
 
@@ -360,8 +358,8 @@ struct Superblock final : FsSuperblock {
 				std::move(dest_name), src_link->getTarget());
 		src_dir->_entries.erase(it);
 		dest_dir->_entries.insert(new_link);
-		COFIBER_RETURN(new_link);
-	}))
+		co_return new_link;
+	}
 
 	int64_t allocateInode() {
 		return _inodeCounter++;
@@ -382,19 +380,19 @@ void MemoryFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-COFIBER_ROUTINE(expected<off_t>,
-MemoryFile::seek(off_t delta, VfsSeek whence), ([=] {
+expected<off_t>
+MemoryFile::seek(off_t delta, VfsSeek whence) {
 	if(whence == VfsSeek::absolute) {
 		_offset = delta;
 	}else{
 		assert(whence == VfsSeek::relative);
 		_offset += delta;
 	}
-	COFIBER_RETURN(_offset);
-}))
+	co_return _offset;
+}
 
-COFIBER_ROUTINE(expected<size_t>,
-MemoryFile::readSome(Process *, void *buffer, size_t max_length), ([=] {
+expected<size_t>
+MemoryFile::readSome(Process *, void *buffer, size_t max_length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	// TODO: Return end-of-file otherwise.
@@ -404,11 +402,11 @@ MemoryFile::readSome(Process *, void *buffer, size_t max_length), ([=] {
 	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + _offset, chunk);
 	_offset += chunk;
 
-	COFIBER_RETURN(chunk);
-}))
+	co_return chunk;
+}
 
-COFIBER_ROUTINE(async::result<void>,
-MemoryFile::writeAll(Process *, const void *buffer, size_t length), ([=] {
+async::result<void>
+MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(_offset + length > node->_fileSize)
@@ -416,40 +414,35 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length), ([=] {
 
 	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
 	_offset += length;
+	co_return;
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(async::result<void>,
-MemoryFile::truncate(size_t size), ([=] {
+async::result<void>
+MemoryFile::truncate(size_t size) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	node->_resizeFile(size);
+	co_return;
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(async::result<void>,
-MemoryFile::allocate(int64_t offset, size_t size), ([=] {
+async::result<void>
+MemoryFile::allocate(int64_t offset, size_t size) {
 	assert(!offset);
 
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	// TODO: Careful about overflow.
 	if(offset + size <= node->_fileSize)
-		COFIBER_RETURN();
+		co_return;
 	node->_resizeFile(offset + size);
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>,
-MemoryFile::accessMemory(off_t offset),
-		([=] {
+FutureMaybe<helix::UniqueDescriptor>
+MemoryFile::accessMemory(off_t offset) {
 	assert(!offset);
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
-	COFIBER_RETURN(node->_memory.dup());
-}))
+	co_return node->_memory.dup();
+}
 
 // ----------------------------------------------------------------------------
 
@@ -479,16 +472,16 @@ DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
 		_iter{_node->_entries.begin()} { }
 
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
-COFIBER_ROUTINE(async::result<ReadEntriesResult>,
-DirectoryFile::readEntries(), ([=] {
+async::result<ReadEntriesResult>
+DirectoryFile::readEntries() {
 	if(_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
 		_iter++;
-		COFIBER_RETURN(name);
+		co_return name;
 	}else{
-		COFIBER_RETURN(std::nullopt);
+		co_return std::nullopt;
 	}
-}))
+}
 
 helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 	return _passthrough;
@@ -541,36 +534,36 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock)
 DirectoryNode::DirectoryNode(Superblock *superblock)
 : Node{superblock, FsNode::defaultSupportsObservers} { }
 
-COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>,
-DirectoryNode::mkdir(std::string name), ([=] {
+async::result<std::shared_ptr<FsLink>>
+DirectoryNode::mkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
-	COFIBER_RETURN(link);
-}))
+	co_return link;
+}
 
-COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>,
-DirectoryNode::symlink(std::string name, std::string path), ([=] {
+async::result<std::shared_ptr<FsLink>>
+DirectoryNode::symlink(std::string name, std::string path) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<SymlinkNode>(static_cast<Superblock *>(superblock()),
 			std::move(path));
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
-	COFIBER_RETURN(link);
-}))
+	co_return link;
+}
 
-COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>,
-DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id), ([=] {
+async::result<std::shared_ptr<FsLink>>
+DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<DeviceNode>(static_cast<Superblock *>(superblock()),
 			type, id);
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
-	COFIBER_RETURN(link);
-}))
+	co_return link;
+}
 
 // TODO: File system should not have global superblocks.
 static Superblock globalSuperblock;

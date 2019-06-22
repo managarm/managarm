@@ -25,25 +25,25 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-COFIBER_ROUTINE(expected<ImageInfo>, load(SharedFilePtr file,
-		helix::BorrowedDescriptor space, uintptr_t base), ([=] {
+expected<ImageInfo> load(SharedFilePtr file,
+		helix::BorrowedDescriptor space, uintptr_t base) {
 	assert(base % kPageSize == 0);
 	ImageInfo info;
 
 	// get a handle to the file's memory.
-	auto file_memory = COFIBER_AWAIT file->accessMemory();
+	auto file_memory = co_await file->accessMemory();
 
 	// read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
-	COFIBER_AWAIT file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr));
+	co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr));
 
 	if(!(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
 			&& ehdr.e_ident[3] == 'F'))
-		COFIBER_RETURN(Error::badExecutable);
+		co_return Error::badExecutable;
 	if(ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN)
-		COFIBER_RETURN(Error::badExecutable);
+		co_return Error::badExecutable;
 
 	info.entryIp = (char *)base + ehdr.e_entry;
 	info.phdrEntrySize = ehdr.e_phentsize;
@@ -51,8 +51,8 @@ COFIBER_ROUTINE(expected<ImageInfo>, load(SharedFilePtr file,
 
 	// read the elf program headers and load them into the address space.
 	auto phdr_buffer = (char *)malloc(ehdr.e_phnum * ehdr.e_phentsize);
-	COFIBER_AWAIT file->seek(ehdr.e_phoff, VfsSeek::absolute);
-	COFIBER_AWAIT file->readExactly(nullptr, phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
+	co_await file->seek(ehdr.e_phoff, VfsSeek::absolute);
+	co_await file->readExactly(nullptr, phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
@@ -106,8 +106,8 @@ COFIBER_ROUTINE(expected<ImageInfo>, load(SharedFilePtr file,
 
 				// read the segment contents from the file.
 				memset(window, 0, map_length);
-				COFIBER_AWAIT file->seek(phdr->p_offset, VfsSeek::absolute);
-				COFIBER_AWAIT file->readExactly(nullptr, (char *)window + misalign, phdr->p_filesz);
+				co_await file->seek(phdr->p_offset, VfsSeek::absolute);
+				co_await file->readExactly(nullptr, (char *)window + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, map_length));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
@@ -121,8 +121,8 @@ COFIBER_ROUTINE(expected<ImageInfo>, load(SharedFilePtr file,
 		}
 	}
 
-	COFIBER_RETURN(info);
-}))
+	co_return info;
+}
 
 template<typename T, size_t N>
 void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
@@ -134,25 +134,25 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, ViewPath workdir,
+expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 		std::string path,
 		std::vector<std::string> args, std::vector<std::string> env,
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
-		HelHandle mbus_handle), ([=] {
-	auto exec_file = COFIBER_AWAIT open(root, workdir, path);
+		HelHandle mbus_handle) {
+	auto exec_file = co_await open(root, workdir, path);
 	if(!exec_file)
-		COFIBER_RETURN(Error::noSuchFile);
-	auto exec_result = COFIBER_AWAIT load(exec_file, vm_context->getSpace(), 0);
+		co_return Error::noSuchFile;
+	auto exec_result = co_await load(exec_file, vm_context->getSpace(), 0);
 	if(auto error = std::get_if<Error>(&exec_result); error)
-		COFIBER_RETURN(*error);
+		co_return *error;
 	auto exec_info = std::get<ImageInfo>(exec_result);
 
 	// TODO: Should we really look up the dynamic linker in the current source dir?
-	auto interp_file = COFIBER_AWAIT open(root, workdir, "/lib/ld-init.so");
+	auto interp_file = co_await open(root, workdir, "/lib/ld-init.so");
 	assert(interp_file);
-	auto interp_result = COFIBER_AWAIT load(interp_file, vm_context->getSpace(), 0x40000000);
+	auto interp_result = co_await load(interp_file, vm_context->getSpace(), 0x40000000);
 	if(auto error = std::get_if<Error>(&interp_result); error)
-		COFIBER_RETURN(*error);
+		co_return *error;
 	auto interp_info = std::get<ImageInfo>(interp_result);
 
 	constexpr size_t stack_size = 0x10000;
@@ -240,6 +240,6 @@ COFIBER_ROUTINE(expected<helix::UniqueDescriptor>, execute(ViewPath root, ViewPa
 			vm_context->getSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 
-	COFIBER_RETURN(helix::UniqueDescriptor{thread});
-}))
+	co_return helix::UniqueDescriptor{thread};
+}
 
