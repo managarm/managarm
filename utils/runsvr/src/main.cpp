@@ -16,27 +16,26 @@
 helix::UniqueLane svrctlLane;
 async::jump foundSvrctl;
 
-COFIBER_ROUTINE(async::result<void>, enumerateSvrctl(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::result<void> enumerateSvrctl() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "svrctl")
 	});
 	
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 //		std::cout << "runsvr: Found svrctl" << std::endl;
 
-		svrctlLane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		svrctlLane = helix::UniqueLane(co_await entity.bind());
 		foundSvrctl.trigger();
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-	COFIBER_AWAIT foundSvrctl.async_wait();
-	COFIBER_RETURN();
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await foundSvrctl.async_wait();
+}
 
-COFIBER_ROUTINE(async::result<void>, runServer(const char *name), ([=] {
+async::result<void> runServer(const char *name) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -50,7 +49,7 @@ COFIBER_ROUTINE(async::result<void>, runServer(const char *name), ([=] {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -58,11 +57,9 @@ COFIBER_ROUTINE(async::result<void>, runServer(const char *name), ([=] {
 	managarm::svrctl::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::svrctl::Error::SUCCESS);
-	
-	COFIBER_RETURN();
-}))
+}
 
-COFIBER_ROUTINE(async::result<void>, uploadFile(const char *name), ([=] {
+async::result<void> uploadFile(const char *name) {
 	// First, load the whole file into a buffer.
 	// TODO: stat() + read() introduces a TOCTTOU race.
 	struct stat st;
@@ -101,7 +98,7 @@ COFIBER_ROUTINE(async::result<void>, uploadFile(const char *name), ([=] {
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&send_data, buffer, progress, kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -111,16 +108,14 @@ COFIBER_ROUTINE(async::result<void>, uploadFile(const char *name), ([=] {
 	managarm::svrctl::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::svrctl::Error::SUCCESS);
-
-	COFIBER_RETURN();
-}))
+}
 
 // ----------------------------------------------------------------
 // Freestanding mbus functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, asyncMain(const char **args), ([=] {
-	COFIBER_AWAIT enumerateSvrctl();
+async::detached asyncMain(const char **args) {
+	co_await enumerateSvrctl();
 
 	if(!strcmp(args[1], "runsvr")) {
 		if(!args[2])
@@ -128,7 +123,7 @@ COFIBER_ROUTINE(cofiber::no_future, asyncMain(const char **args), ([=] {
 	
 		std::cout << "svrctl: Running " << args[2] << std::endl;
 
-		COFIBER_AWAIT runServer(args[2]);
+		co_await runServer(args[2]);
 		exit(0);
 	}else if(!strcmp(args[1], "upload")) {
 		if(!args[2])
@@ -136,12 +131,12 @@ COFIBER_ROUTINE(cofiber::no_future, asyncMain(const char **args), ([=] {
 		
 		std::cout << "svrctl: Uploading " << args[2] << std::endl;
 
-		COFIBER_AWAIT uploadFile(args[2]);
+		co_await uploadFile(args[2]);
 		exit(0);
 	}else{
 		throw std::runtime_error("Unexpected command for svrctl utility");
 	}
-}))
+}
 
 int main(int argc, const char **argv) {
 	int fd = open("/dev/helout", O_RDONLY);
@@ -158,5 +153,4 @@ int main(int argc, const char **argv) {
 	
 	return 0;
 }
-
 
