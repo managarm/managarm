@@ -114,7 +114,8 @@ expected<ImageInfo> load(SharedFilePtr file,
 			info.phdrPtr = (char *)base + phdr->p_vaddr;
 		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_INTERP
 				|| phdr->p_type == PT_TLS
-				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK) {
+				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
+				|| phdr->p_type == PT_GNU_RELRO) {
 			// ignore this PHDR here.
 		}else{
 			throw std::runtime_error("Unexpected PHDR type");
