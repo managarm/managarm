@@ -13,7 +13,6 @@
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
@@ -36,8 +35,8 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withIoctl(&drm_core::File::ioctl)
 	.withPoll(&drm_core::File::poll);
 
-COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device> device,
-		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
+async::detached serveDevice(std::shared_ptr<drm_core::Device> device,
+		helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
@@ -47,10 +46,10 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
@@ -60,7 +59,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_pt;
 			helix::PushDescriptor push_page;
-			
+
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto file = smarter::make_shared<drm_core::File>(device);
@@ -76,7 +75,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_pt, remote_lane, kHelItemChain),
 					helix::action(&push_page, file->statusPageMemory()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
@@ -84,7 +83,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 			throw std::runtime_error("Invalid request in serveDevice()");
 		}
 	}
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice.
@@ -103,7 +102,7 @@ struct AwaitableRequest : virtio_core::Request {
 		return false;
 	}
 
-	void await_suspend(cofiber::coroutine_handle<> handle) {
+	void await_suspend(std::experimental::coroutine_handle<> handle) {
 		_handle = handle;
 
 		_queue->postDescriptor(_descriptor, this, &AwaitableRequest::complete);
@@ -116,13 +115,13 @@ struct AwaitableRequest : virtio_core::Request {
 private:
 	virtio_core::Queue *_queue;
 	virtio_core::Handle _descriptor;
-	cofiber::coroutine_handle<> _handle;
+	std::experimental::coroutine_handle<> _handle;
 };
 
 GfxDevice::GfxDevice(std::unique_ptr<virtio_core::Transport> transport)
 : _transport{std::move(transport)}, _claimedDevice{false} { }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] { 
+async::detached GfxDevice::initialize() { 
 	_transport->finalizeFeatures();
 	_transport->claimQueues(2);
 
@@ -136,11 +135,11 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 		auto plane = std::make_shared<Plane>(this, i);
 		auto crtc = std::make_shared<Crtc>(this, i, plane);
 		auto encoder = std::make_shared<Encoder>(this);
-		
+
 		plane->setupWeakPtr(plane);
 		crtc->setupWeakPtr(crtc);
 		encoder->setupWeakPtr(encoder);
-	
+
 		encoder->setupPossibleCrtcs({crtc.get()});
 		encoder->setupPossibleClones({encoder.get()});
 		encoder->setCurrentCrtc(crtc.get());
@@ -155,23 +154,23 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 		_theCrtcs[i] = crtc;
 		_theEncoders[i] = encoder;
 	}
-	
+
 	spec::Header header;
 	header.type = spec::cmd::getDisplayInfo;
 	header.flags = 0;
 	header.fenceId = 0;
 	header.contextId = 0;
 	header.padding = 0;
-	
+
 	spec::DisplayInfo info;
-	
+
 	virtio_core::Chain chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, chain, _controlQ,
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, chain, _controlQ,
 			arch::dma_buffer_view{nullptr, &header, sizeof(spec::Header)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, chain, _controlQ,
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, chain, _controlQ,
 			arch::dma_buffer_view{nullptr, &info, sizeof(spec::DisplayInfo)});
 
-	COFIBER_AWAIT AwaitableRequest{_controlQ, chain.front()};
+	co_await AwaitableRequest{_controlQ, chain.front()};
 	for(size_t i = 0; i < 16; i++) {
 		if(info.modes[i].enabled) {
 			auto connector = std::make_shared<Connector>(this);
@@ -180,10 +179,10 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 			connector->setupPossibleEncoders({_theEncoders[i].get()});
 			connector->setCurrentEncoder(_theEncoders[i].get());
 			connector->setCurrentStatus(1);
-			
+
 			registerObject(connector.get());
 			attachConnector(connector.get());
-			
+
 			std::vector<drm_mode_modeinfo> supported_modes;
 			drm_core::addDmtModes(supported_modes, info.modes[i].rect.width,
 					info.modes[i].rect.height);
@@ -196,8 +195,8 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 			_activeConnectors[i] = connector;
 		}
 	}
-}))
-	
+}
+
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
@@ -205,9 +204,9 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
 		uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
-		
+
 	assert(pitch % 4 == 0);
-	
+
 	assert(pitch / 4 >= width);
 	assert(bo->getSize() >= pitch * height);
 
@@ -234,10 +233,10 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	auto bo = std::make_shared<BufferObject>(this, _hwAllocator.allocate(), size,
 			helix::UniqueDescriptor(handle), width, height);
 	uint32_t pitch = width * bpp / 8;
-	
+
 	auto mapping = installMapping(bo.get());
 	bo->setupMapping(mapping);
-	
+
 	bo->_initHw();
 	return std::make_pair(bo, pitch);
 }
@@ -260,7 +259,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 		if(assign.property == _device->srcWProperty()) {
 			//TODO: check this outside of capure
 			assert(assign.property->validate(assign));
-			
+
 			auto plane = static_cast<Plane *>(assign.object.get());
 			captureScanout(plane->scanoutId());
 			_state[plane->scanoutId()]->width = assign.intValue;
@@ -282,7 +281,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 		}else if(assign.property == _device->modeIdProperty()) {
 			//TODO: check this outside of capture.
 			assert(assign.property->validate(assign));
-		
+
 			auto crtc = static_cast<Crtc *>(assign.object.get());
 			captureScanout(crtc->scanoutId());
 			_state[crtc->scanoutId()]->mode = assign.blobValue;
@@ -301,7 +300,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 			memcpy(&mode_info, _state[i]->mode->data(), sizeof(drm_mode_modeinfo));
 			_state[i]->height = mode_info.vdisplay;
 			_state[i]->width = mode_info.hdisplay;
-			
+
 			// TODO: Check max dimensions: _state[i]->width > 1024 || _state[i]->height > 768
 			if(_state[i]->width <= 0 || _state[i]->height <= 0)
 				return false;
@@ -326,13 +325,13 @@ void GfxDevice::Configuration::commit() {
 	_dispatch();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] {
+async::detached GfxDevice::Configuration::_dispatch() {
 	for(size_t i = 0; i < _state.size(); i++) {
 		if(!_state[i])
 			continue;
 
 		if(!_device->_claimedDevice) {
-			COFIBER_AWAIT _device->_transport->hwDevice().claimDevice();
+			co_await _device->_transport->hwDevice().claimDevice();
 			_device->_claimedDevice = true;
 		}
 
@@ -344,18 +343,18 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 
 			spec::Header scanout_result;
 			virtio_core::Chain scanout_chain;
-			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+			co_await virtio_core::scatterGather(virtio_core::hostToDevice,
 					scanout_chain, _device->_controlQ,
 					arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
-			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+			co_await virtio_core::scatterGather(virtio_core::deviceToHost,
 					scanout_chain, _device->_controlQ,
 					arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
-			COFIBER_AWAIT AwaitableRequest{_device->_controlQ, scanout_chain.front()};
-			
+			co_await AwaitableRequest{_device->_controlQ, scanout_chain.front()};
+
 			continue;
 		}
 
-		COFIBER_AWAIT _state[i]->fb->getBufferObject()->wait();
+		co_await _state[i]->fb->getBufferObject()->wait();
 
 //		std::cout << "Swap to framebuffer " << _state[i]->fb->id()
 //				<< " " << _state[i]->width << "x" << _state[i]->height << std::endl;
@@ -371,13 +370,13 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 
 		spec::Header xfer_result;
 		virtio_core::Chain xfer_chain;
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+		co_await virtio_core::scatterGather(virtio_core::hostToDevice,
 				xfer_chain, _device->_controlQ,
 				arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+		co_await virtio_core::scatterGather(virtio_core::deviceToHost,
 				xfer_chain, _device->_controlQ,
 				arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
-		COFIBER_AWAIT AwaitableRequest{_device->_controlQ, xfer_chain.front()};
+		co_await AwaitableRequest{_device->_controlQ, xfer_chain.front()};
 		assert(xfer_result.type == spec::resp::noData);
 
 		spec::SetScanout scanout;
@@ -392,13 +391,13 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 
 		spec::Header scanout_result;
 		virtio_core::Chain scanout_chain;
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+		co_await virtio_core::scatterGather(virtio_core::hostToDevice,
 				scanout_chain, _device->_controlQ,
 				arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+		co_await virtio_core::scatterGather(virtio_core::deviceToHost,
 				scanout_chain, _device->_controlQ,
 				arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
-		COFIBER_AWAIT AwaitableRequest{_device->_controlQ, scanout_chain.front()};
+		co_await AwaitableRequest{_device->_controlQ, scanout_chain.front()};
 		assert(scanout_result.type == spec::resp::noData);
 
 		spec::ResourceFlush flush;
@@ -412,18 +411,18 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 
 		spec::Header flush_result;
 		virtio_core::Chain flush_chain;
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+		co_await virtio_core::scatterGather(virtio_core::hostToDevice,
 				flush_chain, _device->_controlQ,
 				arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+		co_await virtio_core::scatterGather(virtio_core::deviceToHost,
 				flush_chain, _device->_controlQ,
 				arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
-		COFIBER_AWAIT AwaitableRequest{_device->_controlQ, flush_chain.front()};
+		co_await AwaitableRequest{_device->_controlQ, flush_chain.front()};
 		assert(flush_result.type == spec::resp::noData);
 	}
 
 	complete();
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice::Connector.
@@ -480,7 +479,7 @@ void GfxDevice::FrameBuffer::notifyDirty() {
 	_xferAndFlush();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::FrameBuffer::_xferAndFlush(), ([=] {
+async::detached GfxDevice::FrameBuffer::_xferAndFlush() {
 	spec::XferToHost2d xfer;
 	memset(&xfer, 0, sizeof(spec::XferToHost2d));
 	xfer.header.type = spec::cmd::xferToHost2d;
@@ -492,12 +491,12 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::FrameBuffer::_xferAndFlush(), ([=
 
 	spec::Header xfer_result;
 	virtio_core::Chain xfer_chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, _device->_controlQ,
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, _device->_controlQ,
 		arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, xfer_chain, _device->_controlQ,
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, xfer_chain, _device->_controlQ,
 		arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
-	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, xfer_chain.front()};
-		
+	co_await AwaitableRequest{_device->_controlQ, xfer_chain.front()};
+
 	spec::ResourceFlush flush;
 	memset(&flush, 0, sizeof(spec::ResourceFlush));
 	flush.header.type = spec::cmd::resourceFlush;
@@ -509,12 +508,12 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::FrameBuffer::_xferAndFlush(), ([=
 
 	spec::Header flush_result;
 	virtio_core::Chain flush_chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, _device->_controlQ,
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, _device->_controlQ,
 		arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, _device->_controlQ,
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, _device->_controlQ,
 		arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
-	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, flush_chain.front()};
-}));
+	co_await AwaitableRequest{_device->_controlQ, flush_chain.front()};
+}
 
 // ----------------------------------------------------------------
 // GfxDevice: Plane.
@@ -561,7 +560,7 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 	return std::make_pair(helix::BorrowedDescriptor(_memory), 0);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::BufferObject::_initHw(), ([=] { 
+async::detached GfxDevice::BufferObject::_initHw() { 
 	void *ptr;
 	HEL_CHECK(helMapMemory(_memory.getHandle(), kHelNullHandle,
 		nullptr, 0, getSize(), kHelMapProtRead, &ptr));
@@ -574,62 +573,61 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::BufferObject::_initHw(), ([=] {
 	buffer.width = getWidth();
 	buffer.height = getHeight();
 	spec::Header result;
-	
-	virtio_core::Chain chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, chain, _device->_controlQ,
-			arch::dma_buffer_view{nullptr, &buffer, sizeof(spec::Create2d)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, chain, _device->_controlQ,
-			arch::dma_buffer_view{nullptr, &result, sizeof(spec::Header)});
-	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, chain.front()};
 
-	
+	virtio_core::Chain chain;
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, chain, _device->_controlQ,
+			arch::dma_buffer_view{nullptr, &buffer, sizeof(spec::Create2d)});
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, chain, _device->_controlQ,
+			arch::dma_buffer_view{nullptr, &result, sizeof(spec::Header)});
+	co_await AwaitableRequest{_device->_controlQ, chain.front()};
+
 	std::vector<spec::MemEntry> entries;
 	for(size_t page = 0; page < getSize(); page += 4096) {
 		spec::MemEntry entry;
 		memset(&entry, 0, sizeof(spec::MemEntry));
 		uintptr_t physical;
-		
+
 		HEL_CHECK(helPointerPhysical((reinterpret_cast<char *>(ptr) + page), &physical));
 		entry.address = physical;
 		entry.length = 4096;
 		entries.push_back(entry);
 	}
-	
+
 	spec::AttachBacking attachment;
 	memset(&attachment, 0, sizeof(spec::AttachBacking));
 	attachment.header.type = spec::cmd::attachBacking;
 	attachment.resourceId = _hardwareId;
 	attachment.numEntries = entries.size();
-	
+
 	spec::Header attach_result;
 	virtio_core::Chain attach_chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, _device->_controlQ,
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, _device->_controlQ,
 			arch::dma_buffer_view{nullptr, &attachment, sizeof(spec::AttachBacking)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, _device->_controlQ,
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, _device->_controlQ,
 			arch::dma_buffer_view{nullptr, entries.data(), entries.size() * sizeof(spec::MemEntry)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, attach_chain, _device->_controlQ,
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, attach_chain, _device->_controlQ,
 			arch::dma_buffer_view{nullptr, &attach_result, sizeof(spec::Header)});
-	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, attach_chain.front()};
+	co_await AwaitableRequest{_device->_controlQ, attach_chain.front()};
 	assert(attach_result.type == spec::resp::noData);
 
 	_jump.trigger();
-}));
+}
 
 // ----------------------------------------------------------------
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
-	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
-	auto transport = COFIBER_AWAIT virtio_core::discover(std::move(hw_device),
+async::detached bindController(mbus::Entity entity) {
+	protocols::hw::Device hw_device(co_await entity.bind());
+	auto transport = co_await virtio_core::discover(std::move(hw_device),
 			virtio_core::DiscoverMode::modernOnly);
 
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(transport));
 	gfx_device->initialize();
 
 	// Create an mbus object for the device.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
-	
+	auto root = co_await mbus::Instance::global().getRoot();
+
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
 		{"unix.subsystem", mbus::StringItem{"drm"}},
@@ -647,11 +645,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("gfx_virtio", descriptor, std::move(handler));
-}))
+	co_await root.createObject("gfx_virtio", descriptor, std::move(handler));
+}
 
-COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached observeControllers() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-vendor", "1af4"),
@@ -664,8 +662,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		bindController(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 int main() {
 	std::cout << "gfx/virtio: Starting driver" << std::endl;
@@ -676,7 +674,7 @@ int main() {
 	}
 
 	helix::globalQueue()->run();
-	
+
 	return 0;
 }
 
