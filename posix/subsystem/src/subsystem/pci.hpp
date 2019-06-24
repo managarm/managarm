@@ -5,7 +5,7 @@
 
 namespace pci_subsystem {
 
-cofiber::no_future run();
+async::detached run();
 
 std::shared_ptr<drvcore::Device> getDeviceByMbus(int id);
 
