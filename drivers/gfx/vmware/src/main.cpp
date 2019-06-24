@@ -13,7 +13,6 @@
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
@@ -38,8 +37,8 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withIoctl(&drm_core::File::ioctl)
 	.withPoll(&drm_core::File::poll);
 
-COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device> device,
-		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
+async::detached serveDevice(std::shared_ptr<drm_core::Device> device,
+		helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
@@ -49,7 +48,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 
@@ -78,7 +77,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_pt, remote_lane, kHelItemChain),
 					helix::action(&push_page, file->statusPageMemory()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
@@ -86,7 +85,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 			throw std::runtime_error("Invalid request in serveDevice()");
 		}
 	}
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice
@@ -111,8 +110,8 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_dev,
 	_operational = arch::io_space{io_base};
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
-	auto pci_info = COFIBER_AWAIT _hwDev.getPciInfo();
+async::detached GfxDevice::initialize() {
+	auto pci_info = co_await _hwDev.getPciInfo();
 
 	// negotiate version
 	_deviceVersion = versions::id_2;
@@ -190,7 +189,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 
 	_connector->setupPhysicalDimensions(306, 230);
 	_connector->setupSubpixel(0);
-}))
+}
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
 		uint32_t w, uint32_t h, uint32_t fmt, uint32_t pitch) {
@@ -232,7 +231,7 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
 
-COFIBER_ROUTINE(async::result<void>, GfxDevice::waitIrq(uint32_t irq_mask), ([=](){
+async::result<void> GfxDevice::waitIrq(uint32_t irq_mask) {
 
 	static uint64_t irq_sequence;
 
@@ -240,13 +239,13 @@ COFIBER_ROUTINE(async::result<void>, GfxDevice::waitIrq(uint32_t irq_mask), ([=]
 		writeRegister(register_index::irqmask, irq_mask);
 		writeRegister(register_index::sync, 1);
 
-		auto irq = COFIBER_AWAIT _hwDev.accessIrq();
+		auto irq = co_await _hwDev.accessIrq();
 
 		while (true) {
 			helix::AwaitEvent await_irq;
 			auto &&submit = helix::submitAwaitEvent(irq, &await_irq, irq_sequence,
 						helix::Dispatcher::global());
-			COFIBER_AWAIT submit.async_wait();
+			co_await submit.async_wait();
 			HEL_CHECK(await_irq.error());
 			irq_sequence = await_irq.sequence();
 
@@ -266,7 +265,7 @@ COFIBER_ROUTINE(async::result<void>, GfxDevice::waitIrq(uint32_t irq_mask), ([=]
 		readRegister(register_index::busy);
 	}
 
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice::DeviceFifo
@@ -304,7 +303,7 @@ bool GfxDevice::DeviceFifo::hasCapability(caps capability) {
 	return (readRegister(fifo_index::capabilities) & (uint32_t)capability) != 0;
 }
 
-COFIBER_ROUTINE(async::result<void *>, GfxDevice::DeviceFifo::reserve(size_t size), ([=](){
+async::result<void *> GfxDevice::DeviceFifo::reserve(size_t size) {
 	size_t bytes = size * 4;
 	uint32_t min = readRegister(fifo_index::min);
 	uint32_t max = readRegister(fifo_index::max);
@@ -329,13 +328,13 @@ COFIBER_ROUTINE(async::result<void *>, GfxDevice::DeviceFifo::reserve(size_t siz
 				(next_cmd + bytes == max && stop > min)) in_place = true;
 
 			else if ((max - next_cmd) + (stop - min) <= bytes) {
-				COFIBER_AWAIT _device->waitIrq(2); // TODO: add a definiton for the mask
+				co_await _device->waitIrq(2); // TODO: add a definiton for the mask
 			} else {
 				_usingBounceBuf = true;
 			}
 		} else {
 			if (next_cmd + bytes < stop) in_place = true;
-			else COFIBER_AWAIT _device->waitIrq(2); // TODO: add a definiton for the mask
+			else co_await _device->waitIrq(2); // TODO: add a definiton for the mask
 		}
 
 		if (in_place) {
@@ -344,16 +343,16 @@ COFIBER_ROUTINE(async::result<void *>, GfxDevice::DeviceFifo::reserve(size_t siz
 				auto mem = static_cast<uint8_t *>(_fifoMapping.get());
 				auto ptr = mem + next_cmd;
 
-				COFIBER_RETURN(ptr);
+				co_return ptr;
 			}
 		}
 
 		_usingBounceBuf = true;
-		COFIBER_RETURN(_bounceBuf);
+		co_return _bounceBuf;
 	}
 
-	COFIBER_RETURN(nullptr);
-}))
+	co_return nullptr;
+}
 
 void GfxDevice::DeviceFifo::commit(size_t bytes) {
 	uint32_t min = readRegister(fifo_index::min);
@@ -407,15 +406,15 @@ void GfxDevice::DeviceFifo::commitAll() {
 #define SVGA_BITMAP_SIZE(w, h)      ((((w) + 31) >> 5) * (h))
 #define SVGA_PIXMAP_SIZE(w, h, bpp) (((((w) * (bpp)) + 31) >> 5) * (h))
 
-COFIBER_ROUTINE(async::result<void>, GfxDevice::DeviceFifo::defineCursor(int width, int height, GfxDevice::BufferObject *bo), ([=](){
+async::result<void> GfxDevice::DeviceFifo::defineCursor(int width, int height, GfxDevice::BufferObject *bo) {
 
 	if (!_device->hasCapability(caps::cursor))
-		COFIBER_RETURN();
+		co_return;
 
 	// size in dwords
 	size_t size = sizeof(commands::define_alpha_cursor) / 4 + 3 + SVGA_BITMAP_SIZE(width, height) + SVGA_PIXMAP_SIZE(width, height, 32);
 
-	auto ptr = static_cast<uint32_t *>(COFIBER_AWAIT reserve(size));
+	auto ptr = static_cast<uint32_t *>(co_await reserve(size));
 
 	ptr[0] = (uint32_t)command_index::define_cursor;
 	auto cmd = reinterpret_cast<commands::define_cursor *>(ptr + 1);
@@ -447,7 +446,7 @@ COFIBER_ROUTINE(async::result<void>, GfxDevice::DeviceFifo::defineCursor(int wid
 		memcpy(cmd->pixel_data + SVGA_BITMAP_SIZE(width, height) * 4, pixels, width * height * 4);
 	}
 	commitAll();
-}))
+}
 
 void GfxDevice::DeviceFifo::moveCursor(int x, int y) {
 	if (!_device->hasCapability(caps::cursor))
@@ -560,7 +559,7 @@ void GfxDevice::Configuration::commit() {
 	commitConfiguration();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::commitConfiguration(), ([&] {
+async::detached GfxDevice::Configuration::commitConfiguration() {
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
 	if (_device->_crtc->currentMode())
@@ -572,7 +571,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::commitConfiguratio
 
 	if (_mode) {
 		if (!_device->_isClaimed) {
-			COFIBER_AWAIT _device->_hwDev.claimDevice();
+			co_await _device->_hwDev.claimDevice();
 			_device->_isClaimed = true;
 			_device->writeRegister(register_index::enable, 1); // lazy init
 		}
@@ -589,7 +588,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::commitConfiguratio
 	if (_cursorUpdate) {
 		if (_cursorWidth != 0 && _cursorHeight != 0) {
 			_device->_fifo.setCursorState(true);
-			COFIBER_AWAIT _device->_fifo.defineCursor(_cursorWidth, _cursorHeight, _cursorFb->getBufferObject());
+			co_await _device->_fifo.defineCursor(_cursorWidth, _cursorHeight, _cursorFb->getBufferObject());
 			_device->_fifo.setCursorState(true);
 		} else {
 			_device->_fifo.setCursorState(false);
@@ -607,7 +606,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::commitConfiguratio
 	}
 
 	complete();
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice::Connector
@@ -697,19 +696,19 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, setupDevice(mbus::Entity entity), ([=] {
+async::detached setupDevice(mbus::Entity entity) {
 	std::cout << "gfx/vmware: setting up the device" << std::endl;
 
-	protocols::hw::Device pci_device(COFIBER_AWAIT entity.bind());
-	auto info = COFIBER_AWAIT pci_device.getPciInfo();
+	protocols::hw::Device pci_device(co_await entity.bind());
+	auto info = co_await pci_device.getPciInfo();
 
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
 	assert(info.barInfo[1].ioType == protocols::hw::IoType::kIoTypeMemory);
 	assert(info.barInfo[2].ioType == protocols::hw::IoType::kIoTypeMemory);
 
-	auto io_bar = COFIBER_AWAIT pci_device.accessBar(0);
-	auto fb_bar = COFIBER_AWAIT pci_device.accessBar(1);
-	auto fifo_bar = COFIBER_AWAIT pci_device.accessBar(2);
+	auto io_bar = co_await pci_device.accessBar(0);
+	auto fb_bar = co_await pci_device.accessBar(1);
+	auto fifo_bar = co_await pci_device.accessBar(2);
 
 	auto io_bar_info = info.barInfo[0];
 	auto fb_bar_info = info.barInfo[1];
@@ -722,7 +721,7 @@ COFIBER_ROUTINE(cofiber::no_future, setupDevice(mbus::Entity entity), ([=] {
 
 	gfx_device->initialize();
 
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
@@ -740,12 +739,12 @@ COFIBER_ROUTINE(cofiber::no_future, setupDevice(mbus::Entity entity), ([=] {
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
 	});
-	COFIBER_AWAIT root.createObject("gfx_vmware", descriptor, std::move(handler));
+	co_await root.createObject("gfx_vmware", descriptor, std::move(handler));
 
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, findDevice(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached findDevice() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-vendor", "15ad"),
@@ -758,8 +757,8 @@ COFIBER_ROUTINE(cofiber::no_future, findDevice(), ([] {
 		setupDevice(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 int main() {
 	printf("gfx/vmware: starting driver\n");
