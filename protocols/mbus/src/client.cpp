@@ -22,7 +22,7 @@ Instance Instance::global() {
 	return instance;
 }
 
-COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
+async::result<Entity> Instance::getRoot() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -36,7 +36,7 @@ COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -45,11 +45,11 @@ COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
-	COFIBER_RETURN(Entity(_connection, resp.id()));
-}))
+	co_return Entity{_connection, resp.id()};
+}
 
-COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> connection,
-		ObjectHandler handler, helix::UniqueLane p), ([connection, handler, lane = std::move(p)] {
+async::detached handleObject(std::shared_ptr<Connection> connection,
+		ObjectHandler handler, helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvBuffer recv_req;
@@ -58,7 +58,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 		auto &&header = helix::submitAsync(lane, *connection->dispatcher,
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req, buffer, 1024));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 
@@ -70,7 +70,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_desc;
 
-			auto descriptor = COFIBER_AWAIT handler.bind();
+			auto descriptor = co_await handler.bind();
 			
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -79,17 +79,17 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 			auto &&transmit = helix::submitAsync(conversation, *connection->dispatcher,
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_desc, descriptor));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_desc.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
-		const Properties &properties, ObjectHandler handler) const, ([=] {
+async::result<Entity> Entity::createObject(std::string name,
+		const Properties &properties, ObjectHandler handler) const {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -111,7 +111,7 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
 			helix::action(&pull_lane));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -123,19 +123,18 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 	
 	handleObject(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
 
-	COFIBER_RETURN(Entity(_connection, resp.id()));
-}))
+	co_return Entity{_connection, resp.id()};
+}
 
-COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> connection,
-		ObserverHandler handler, helix::UniqueLane p),
-		([connection, handler, lane = std::move(p)] {
+async::detached handleObserver(std::shared_ptr<Connection> connection,
+		ObserverHandler handler, helix::UniqueLane lane) {
 	while(true) {
 		helix::RecvBuffer recv_req;
 
 		char buffer[1024];
 		auto &&header = helix::submitAsync(lane, *connection->dispatcher,
 				helix::action(&recv_req, buffer, 1024));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(recv_req.error());
 
 		managarm::mbus::SvrRequest req;
@@ -150,7 +149,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
-}))
+}
 
 static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any_msg) {
 	if(auto alt = std::get_if<EqualsFilter>(&filter); alt) {
@@ -166,8 +165,8 @@ static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any
 	}
 }
 
-COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &filter,
-		ObserverHandler handler) const, ([=] {
+async::result<Observer> Entity::linkObserver(const AnyFilter &filter,
+		ObserverHandler handler) const {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -185,7 +184,7 @@ COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &f
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
 			helix::action(&pull_lane));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -197,10 +196,10 @@ COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &f
 	
 	handleObserver(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
 
-	COFIBER_RETURN(Observer());
-}))
+	co_return Observer();
+}
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Entity::bind() const, ([=] {
+async::result<helix::UniqueDescriptor> Entity::bind() const {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -217,7 +216,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Entity::bind() const, ([
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
 			helix::action(&pull_desc));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -227,8 +226,8 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Entity::bind() const, ([
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	COFIBER_RETURN(pull_desc.descriptor());
-}))
+	co_return pull_desc.descriptor();
+}
 
 } } // namespace mbus::_detail
 
