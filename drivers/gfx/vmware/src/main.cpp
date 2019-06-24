@@ -153,7 +153,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	_connector->setupWeakPtr(_connector);
 	_primaryPlane = std::make_shared<Plane>(this);
 	_primaryPlane->setupWeakPtr(_primaryPlane);
-	
+
 	if (hasCapability(caps::cursor)) {
 		_cursorPlane = std::make_shared<Plane>(this);
 		_cursorPlane->setupWeakPtr(_cursorPlane);
@@ -164,7 +164,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	registerObject(_connector.get());
 	registerObject(_primaryPlane.get());
 
-    if (hasCapability(caps::cursor))
+	if (hasCapability(caps::cursor))
 		registerObject(_cursorPlane.get());
 
 	_encoder->setCurrentCrtc(_crtc.get());
@@ -235,7 +235,7 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 COFIBER_ROUTINE(async::result<void>, GfxDevice::waitIrq(uint32_t irq_mask), ([=](){
 
 	static uint64_t irq_sequence;
-	
+
 	if (_deviceCaps & (uint32_t)caps::irqmask) {
 		writeRegister(register_index::irqmask, irq_mask);
 		writeRegister(register_index::sync, 1);
@@ -245,7 +245,7 @@ COFIBER_ROUTINE(async::result<void>, GfxDevice::waitIrq(uint32_t irq_mask), ([=]
 		while (true) {
 			helix::AwaitEvent await_irq;
 			auto &&submit = helix::submitAwaitEvent(irq, &await_irq, irq_sequence,
-			    helix::Dispatcher::global());
+						helix::Dispatcher::global());
 			COFIBER_AWAIT submit.async_wait();
 			HEL_CHECK(await_irq.error());
 			irq_sequence = await_irq.sequence();
@@ -325,7 +325,7 @@ COFIBER_ROUTINE(async::result<void *>, GfxDevice::DeviceFifo::reserve(size_t siz
 		bool in_place = false;
 
 		if (next_cmd >= stop) {
-			if (next_cmd + bytes < max || 
+			if (next_cmd + bytes < max ||
 				(next_cmd + bytes == max && stop > min)) in_place = true;
 
 			else if ((max - next_cmd) + (stop - min) <= bytes) {
@@ -369,7 +369,7 @@ void GfxDevice::DeviceFifo::commit(size_t bytes) {
 	if (_usingBounceBuf) {
 		if (reserveable) {
 			auto fifo = static_cast<uint8_t *>(_fifoMapping.get());
-			
+
 			auto chunk_size = std::min(bytes, (size_t)(max - next_cmd));
 			writeRegister(fifo_index::reserved, bytes);
 			memcpy(fifo + next_cmd, _bounceBuf, chunk_size);
@@ -385,7 +385,7 @@ void GfxDevice::DeviceFifo::commit(size_t bytes) {
 				}
 				writeRegister(fifo_index::next_cmd, next_cmd);
 				bytes -= 4;
-			}	
+			}
 		}
 
 	} else {
@@ -419,7 +419,7 @@ COFIBER_ROUTINE(async::result<void>, GfxDevice::DeviceFifo::defineCursor(int wid
 
 	ptr[0] = (uint32_t)command_index::define_cursor;
 	auto cmd = reinterpret_cast<commands::define_cursor *>(ptr + 1);
-	
+
 	cmd->width = width;
 	cmd->height = height;
 	cmd->id = 0;
@@ -470,7 +470,7 @@ void GfxDevice::DeviceFifo::setCursorState(bool enabled) {
 
 	if (hasCapability(caps::fifo_cursor_bypass_3)) {
 		writeRegister(fifo_index::cursor_on, enabled ? 1 : 0);
-	} else {	
+	} else {
 		_device->writeRegister(register_index::cursor_on, enabled ? 1 : 0);
 	}
 }
@@ -524,7 +524,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
 					_cursorFb = static_cast<GfxDevice::FrameBuffer *>(fb);
 					_cursorUpdate = true;
-				} else if (assign.object == _device->_primaryPlane) {	
+				} else if (assign.object == _device->_primaryPlane) {
 					_fb = static_cast<GfxDevice::FrameBuffer *>(fb);
 				}
 			}

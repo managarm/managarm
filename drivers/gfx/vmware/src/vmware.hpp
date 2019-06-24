@@ -18,11 +18,11 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		: _device(device), _width(0), _height(0), _fb(nullptr),
 		_cursorWidth(0), _cursorHeight(0), _cursorX(0), _cursorY(0),
 		_cursorFb(nullptr), _cursorUpdate(false), _cursorMove(false) { };
-		
+
 		bool capture(std::vector<drm_core::Assignment> assignment) override;
 		void dispose() override;
 		void commit() override;
-		
+
 	private:
 		cofiber::no_future commitConfiguration();
 
@@ -31,7 +31,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		int _height;
 		GfxDevice::FrameBuffer *_fb;
 		std::shared_ptr<drm_core::Blob> _mode;
-		
+
 		int _cursorWidth;
 		int _cursorHeight;
 		uint64_t _cursorX;
@@ -44,7 +44,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	struct Plane : drm_core::Plane {
 		Plane(GfxDevice *device);
 	};
-	
+
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
 		BufferObject(GfxDevice *device, size_t size, helix::UniqueDescriptor mem);
 
@@ -66,14 +66,14 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	struct Encoder : drm_core::Encoder {
 		Encoder(GfxDevice *device);
 	};
-	
+
 	struct Crtc final : drm_core::Crtc {
 		Crtc(GfxDevice *device);
-		
+
 		drm_core::Plane *primaryPlane() override;
 		drm_core::Plane *cursorPlane() override;
-	
-	private:	
+
+	private:
 		GfxDevice *_device;
 	};
 
@@ -111,7 +111,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 
 		size_t _reservedSize;
 		size_t _fifoSize;
-	
+
 		uint8_t _bounceBuf[1024 * 1024];
 		bool _usingBounceBuf;
 	};
@@ -125,13 +125,13 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
 	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) override;
-	std::shared_ptr<drm_core::FrameBuffer> 
+	std::shared_ptr<drm_core::FrameBuffer>
 			createFrameBuffer(std::shared_ptr<drm_core::BufferObject> bo,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
-	
+
 	std::tuple<int, int, int> driverVersion() override;
 	std::tuple<std::string, std::string, std::string> driverInfo() override;
-	
+
 private:
 	std::shared_ptr<Crtc> _crtc;
 	std::shared_ptr<Encoder> _encoder;
@@ -150,7 +150,7 @@ private:
 
 	arch::io_space _operational;
 	helix::Mapping _fbMapping;
-	
+
 	bool _isClaimed;
 	uint32_t _deviceVersion;
 	uint32_t _deviceCaps;
