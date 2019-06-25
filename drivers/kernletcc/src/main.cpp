@@ -18,28 +18,27 @@ static bool dumpHex = false;
 helix::UniqueLane kernletCtlLane;
 async::jump foundKernletCtl;
 
-COFIBER_ROUTINE(async::result<void>, enumerateCtl(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::result<void> enumerateCtl() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "kernletctl")
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		std::cout << "kernletcc: Found kernletctl" << std::endl;
 
-		kernletCtlLane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		kernletCtlLane = helix::UniqueLane(co_await entity.bind());
 		foundKernletCtl.trigger();
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-	COFIBER_AWAIT foundKernletCtl.async_wait();
-	COFIBER_RETURN();
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await foundKernletCtl.async_wait();
+}
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, size_t size,
-		std::vector<BindType> bind_types), ([=] {
+async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
+		std::vector<BindType> bind_types) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::SendBuffer send_data;
@@ -69,7 +68,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, 
 			helix::action(&send_data, elf, size, kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_kernlet));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -80,15 +79,14 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, 
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 	std::cout << "kernletcc: Upload success" << std::endl;
 
-	COFIBER_RETURN(pull_kernlet.descriptor());
-}))
+	co_return pull_kernlet.descriptor();
+}
 
 // ----------------------------------------------------------------------------
 // kernletcc mbus interface.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
-		([lane = std::move(lane)] () {
+async::detached serveCompiler(helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -98,10 +96,10 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req, kHelItemChain),
 				helix::action(&recv_code));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		if(accept.error() == kHelErrEndOfLane) {
 			std::cout << "kernletcc: Client closed its connection" << std::endl;
-			COFIBER_RETURN();
+			co_return;
 		}
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -143,7 +141,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 				putchar('\n');
 			}
 
-			auto object = COFIBER_AWAIT upload(elf.data(), elf.size(), bind_types);
+			auto object = co_await upload(elf.data(), elf.size(), bind_types);
 
 			managarm::kernlet::SvrResponse resp;
 			resp.set_error(managarm::kernlet::Error::SUCCESS);
@@ -152,22 +150,22 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_kernlet, object));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			if(send_resp.error() == kHelErrEndOfLane) {
 				std::cout << "\e[31m" "kernletcc: Client unexpectedly closed its connection"
 						"\e[39m" << std::endl;
-				COFIBER_RETURN();
+				co_return;
 			}
 			HEL_CHECK(send_resp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(async::result<void>, createCompilerObject(), ([] {
+async::result<void> createCompilerObject() {
 	// Create an mbus object for the device.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	mbus::Properties descriptor{
 		{"class", mbus::StringItem{"kernletcc"}},
@@ -184,17 +182,17 @@ COFIBER_ROUTINE(async::result<void>, createCompilerObject(), ([] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("kernletcc", descriptor, std::move(handler));
-}))
+	co_await root.createObject("kernletcc", descriptor, std::move(handler));
+}
 
 // ----------------------------------------------------------------
 // Freestanding mbus functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, asyncMain(const char **args), ([=] {
-	COFIBER_AWAIT enumerateCtl();
-	COFIBER_AWAIT createCompilerObject();
-}))
+async::detached asyncMain(const char **args) {
+	co_await enumerateCtl();
+	co_await createCompilerObject();
+}
 
 int main(int argc, const char **argv) {
 	std::cout << "kernletcc: Starting up" << std::endl;
