@@ -11,27 +11,27 @@
 helix::UniqueLane kernletCompilerLane;
 async::jump foundKernletCompiler;
 
-COFIBER_ROUTINE(async::result<void>, connectKernletCompiler(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::result<void> connectKernletCompiler() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "kernletcc")
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		std::cout << "kernlet: Found kernletcc" << std::endl;
 
-		kernletCompilerLane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		kernletCompilerLane = helix::UniqueLane(co_await entity.bind());
 		foundKernletCompiler.trigger();
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-	COFIBER_AWAIT foundKernletCompiler.async_wait();
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await foundKernletCompiler.async_wait();
+}
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size_t size,
-		std::vector<BindType> bind_types), ([=] {
+async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
+		std::vector<BindType> bind_types) {
 	// Compile the kernlet object.
 	helix::Offer offer;
 	helix::SendBuffer send_req;
@@ -62,7 +62,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size
 			helix::action(&send_code, code, size, kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_kernlet));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(send_code.error());
@@ -73,6 +73,6 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 
-	COFIBER_RETURN(pull_kernlet.descriptor());
-}))
+	co_return pull_kernlet.descriptor();
+}
 
