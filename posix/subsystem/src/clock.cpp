@@ -17,7 +17,7 @@ helix::UniqueLane trackerLane;
 helix::UniqueDescriptor globalTrackerPageMemory;
 helix::Mapping trackerPageMapping;
 
-COFIBER_ROUTINE(cofiber::no_future, fetchTrackerPage(), ([=] {
+async::detached fetchTrackerPage() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -32,7 +32,7 @@ COFIBER_ROUTINE(cofiber::no_future, fetchTrackerPage(), ([=] {
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_memory));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -46,7 +46,7 @@ COFIBER_ROUTINE(cofiber::no_future, fetchTrackerPage(), ([=] {
 	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000};
 	
 	foundTracker.trigger();
-}))
+}
 
 } // anonymous namespace
 
@@ -54,25 +54,24 @@ helix::BorrowedDescriptor trackerPageMemory() {
 	return globalTrackerPageMemory;
 }
 
-COFIBER_ROUTINE(async::result<void>, enumerateTracker(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::result<void> enumerateTracker() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "clocktracker")
 	});
 	
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		std::cout << "POSIX: Found clocktracker" << std::endl;
 
-		trackerLane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		trackerLane = helix::UniqueLane(co_await entity.bind());
 		fetchTrackerPage();
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-	COFIBER_AWAIT foundTracker.async_wait();
-	COFIBER_RETURN();
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await foundTracker.async_wait();
+}
 
 struct timespec getRealtime() {
 	auto page = reinterpret_cast<TrackerPage *>(trackerPageMapping.get());
