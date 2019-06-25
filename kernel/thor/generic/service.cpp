@@ -705,6 +705,12 @@ namespace initrd {
 				frigg::infoLogger() << "\e[31m" "thor: Panic in server "
 						<< _process->name().data() << "\e[39m" << frigg::endLog;
 				return;
+			}else if(interrupt == kIntrPageFault) {
+				// Do nothing and stop observing.
+				// TODO: Make sure the server is destructed here.
+				frigg::infoLogger() << "\e[31m" "thor: Fault in server "
+						<< _process->name().data() << "\e[39m" << frigg::endLog;
+				return;
 			}else if(interrupt == kIntrSuperCall + 1) {
 				AcquireNode node;
 
