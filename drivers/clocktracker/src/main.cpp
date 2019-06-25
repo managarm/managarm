@@ -17,27 +17,26 @@ using RtcTime = std::pair<int64_t, int64_t>;
 helix::UniqueLane rtcLane;
 async::jump foundRtc;
 
-COFIBER_ROUTINE(async::result<void>, enumerateRtc(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::result<void> enumerateRtc() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "rtc")
 	});
 	
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		std::cout << "drivers/clocktracker: Found RTC" << std::endl;
 
-		rtcLane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		rtcLane = helix::UniqueLane(co_await entity.bind());
 		foundRtc.trigger();
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-	COFIBER_AWAIT foundRtc.async_wait();
-	COFIBER_RETURN();
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await foundRtc.async_wait();
+}
 
-COFIBER_ROUTINE(async::result<RtcTime>, getRtcTime(), ([=] {
+async::result<RtcTime> getRtcTime() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -50,7 +49,7 @@ COFIBER_ROUTINE(async::result<RtcTime>, getRtcTime(), ([=] {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -59,8 +58,8 @@ COFIBER_ROUTINE(async::result<RtcTime>, getRtcTime(), ([=] {
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::clock::Error::SUCCESS);
 	
-	COFIBER_RETURN(RtcTime(resp.ref_nanos(), resp.time_nanos()));
-}))
+	co_return RtcTime{resp.ref_nanos(), resp.time_nanos()};
+}
 
 // ----------------------------------------------------------------------------
 // Tracker page handling.
@@ -77,8 +76,7 @@ TrackerPage *accessPage() {
 // clocktracker mbus interface.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane lane),
-		([lane = std::move(lane)] () {
+async::detached serve(helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -86,7 +84,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane lane),
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -105,21 +103,21 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane lane),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_memory, trackerPageMemory));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
-}))
+}
 
 // ----------------------------------------------------------------
 // Freestanding mbus functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, initializeDriver(), ([] {
+async::detached initializeDriver() {
 	// Find an RTC on the mbus.
-	COFIBER_AWAIT enumerateRtc();
+	co_await enumerateRtc();
 
 	// Allocate and map our tracker page.
 	size_t page_size = 4096;
@@ -133,14 +131,14 @@ COFIBER_ROUTINE(cofiber::no_future, initializeDriver(), ([] {
 	memset(page, 0, page_size);
 
 	// Read the RTC to initialize the realtime clock.
-	auto result = COFIBER_AWAIT getRtcTime(); // TODO: Use the seqlock.
+	auto result = co_await getRtcTime(); // TODO: Use the seqlock.
 	std::cout << "drivers/clocktracker: Initializing time to "
 			<< std::get<1>(result) << std::endl;
 	accessPage()->refClock = std::get<0>(result);
 	accessPage()->baseRealtime = std::get<1>(result);
 
 	// Create an mbus object for the device.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 	
 	mbus::Properties descriptor{
 		{"class", mbus::StringItem{"clocktracker"}},
@@ -157,8 +155,8 @@ COFIBER_ROUTINE(cofiber::no_future, initializeDriver(), ([] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("clocktracker", descriptor, std::move(handler));
-}))
+	co_await root.createObject("clocktracker", descriptor, std::move(handler));
+}
 
 int main() {
 	std::cout << "drivers/clocktracker: Starting driver" << std::endl;
