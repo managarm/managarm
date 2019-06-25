@@ -68,9 +68,9 @@ private:
 	helix::UniqueLane _lane;
 };
 
-COFIBER_ROUTINE(async::result<std::string>, CapabilityAttribute::show(sysfs::Object *object), ([=] {
+async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
-	auto file = COFIBER_AWAIT device->open(nullptr, 0);
+	auto file = co_await device->open(nullptr, 0);
 	auto lane = file->getPassthroughLane();
 
 	std::vector<uint64_t> buffer;
@@ -97,7 +97,7 @@ COFIBER_ROUTINE(async::result<std::string>, CapabilityAttribute::show(sysfs::Obj
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&recv_data, buffer.data(), buffer.size() * sizeof(uint64_t)));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -119,26 +119,26 @@ COFIBER_ROUTINE(async::result<std::string>, CapabilityAttribute::show(sysfs::Obj
 		suffix = true;
 	}
 
-	COFIBER_RETURN(ss.str());
-}))
+	co_return ss.str();
+}
 
 } // anonymous namepsace
 
-COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
+async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"input"};
 
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("unix.subsystem", "input")
 	});
 	
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		int index = evdevAllocator.allocate();
 		std::cout << "POSIX: Installing input device input/event" << index << std::endl;
 
-		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		auto lane = helix::UniqueLane(co_await entity.bind());
 		auto device = std::make_shared<Device>(VfsType::charDevice,
 				index, std::move(lane));
 		device->assignId({13, 64 + index}); // evdev devices start at minor 64.
@@ -155,8 +155,7 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		caps->directMkattr(device.get(), &absCapability);
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 } // namespace input_subsystem
-

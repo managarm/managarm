@@ -47,19 +47,19 @@ private:
 
 } // anonymous namepsace
 
-COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached run() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("unix.devtype", "block")
 	});
 	
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		std::cout << "POSIX: Installing block device "
 				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
 
-		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		auto lane = helix::UniqueLane(co_await entity.bind());
 		auto device = std::make_shared<Device>(VfsType::blockDevice,
 				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
 				std::move(lane));
@@ -70,8 +70,7 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		blockRegistry.install(device);
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 } // namespace block_subsystem
-

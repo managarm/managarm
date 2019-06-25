@@ -5,7 +5,7 @@
 
 namespace drm_subsystem {
 
-cofiber::no_future run();
+async::detached run();
 
 } // namespace drm_subsystem
 

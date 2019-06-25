@@ -5,7 +5,7 @@
 
 namespace input_subsystem {
 
-cofiber::no_future run();
+async::detached run();
 
 } // namespace input_subsystem
 

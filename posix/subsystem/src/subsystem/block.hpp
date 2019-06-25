@@ -5,7 +5,7 @@
 
 namespace block_subsystem {
 
-cofiber::no_future run();
+async::detached run();
 
 } // namespace block_subsystem
 
