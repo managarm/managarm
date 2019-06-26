@@ -89,7 +89,7 @@ private:
 	helix::UniqueLane _lane;
 };
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Object::bind(), ([=] {
+async::result<helix::UniqueDescriptor> Object::bind() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -105,7 +105,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Object::bind(), ([=] {
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 128, kHelItemChain),
 			helix::action(&pull_desc));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -115,8 +115,8 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Object::bind(), ([=] {
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	COFIBER_RETURN(pull_desc.descriptor());
-}))
+	co_return pull_desc.descriptor();
+}
 
 struct EqualsFilter;
 struct Conjunction;
@@ -154,9 +154,9 @@ struct Observer {
 	explicit Observer(AnyFilter filter, helix::UniqueLane lane)
 	: _filter(std::move(filter)), _lane(std::move(lane)) { }
 
-	cofiber::no_future traverse(std::shared_ptr<Entity> root);
+	async::detached traverse(std::shared_ptr<Entity> root);
 
-	cofiber::no_future onAttach(std::shared_ptr<Entity> entity);
+	async::detached onAttach(std::shared_ptr<Entity> entity);
 
 private:
 	AnyFilter _filter;
@@ -185,7 +185,7 @@ void Group::processAttach(std::shared_ptr<Entity> entity) {
 		observer_ptr->onAttach(entity);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> root), ([=] {
+async::detached Observer::traverse(std::shared_ptr<Entity> root) {
 	std::queue<std::shared_ptr<Entity>> entities;
 	entities.push(root);
 	while(!entities.empty()) {
@@ -214,14 +214,14 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> r
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&send_req, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_req.error());
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> entity), ([=] {
+async::detached Observer::onAttach(std::shared_ptr<Entity> entity) {
 	if(!matchesFilter(entity.get(), _filter)) 
-		return;
+		co_return;
 	
 	helix::SendBuffer send_req;
 
@@ -238,9 +238,9 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> e
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 			helix::action(&send_req, ser.data(), ser.size()));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(send_req.error());
-}))
+}
 
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
 int64_t nextEntityId = 1;
@@ -259,8 +259,7 @@ static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
 	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
-		([lane = std::move(p)] () {
+async::detached serve(helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvBuffer recv_req;
@@ -269,7 +268,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req, buffer, 1024));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -287,7 +286,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
 			helix::SendBuffer send_resp;
@@ -327,7 +326,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_lane, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
@@ -354,7 +353,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_lane, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
@@ -366,7 +365,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 				throw std::runtime_error("Bind can only be invoked on objects");
 			auto object = std::static_pointer_cast<Object>(entity);
 
-			auto descriptor = COFIBER_AWAIT object->bind();
+			auto descriptor = co_await object->bind();
 			
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -375,14 +374,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_desc, descriptor));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_desc.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
-}))
+}
 
 // --------------------------------------------------------
 // main() function
