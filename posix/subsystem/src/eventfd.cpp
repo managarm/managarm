@@ -54,7 +54,7 @@ struct OpenFile : File {
 		assert(length >= 8); // TODO: return Error::illegalArguments to user instead
 
 		uint64_t num;
-		memcpy(&num, data, 8)
+		memcpy(&num, data, 8);
 
 		assert(num != 0xFFFFFFFFFFFFFFFF); // TODO: return Error::wouldBlock to user instead
 
