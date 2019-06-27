@@ -411,8 +411,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 			msg << " (Read)";
 		}
 		msg << "\e[39m" << frigg::endLog;
-		// TODO: Trigger a more-specific interrupt.
-		Thread::interruptCurrent(Interrupt::kIntrPanic, image);
+		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
 	}else{
 		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
 	}
