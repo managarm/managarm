@@ -21,6 +21,7 @@
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
+#include <protocols/svrctl/server.hpp>
 #include <core/drm/core.hpp>
 
 #include <libdrm/drm.h>
@@ -34,6 +35,9 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withAccessMemory(&drm_core::File::accessMemory)
 	.withIoctl(&drm_core::File::ioctl)
 	.withPoll(&drm_core::File::poll);
+
+// Maps mbus IDs to device objects
+std::unordered_map<int64_t, std::shared_ptr<GfxDevice>> baseDeviceMap;
 
 async::detached serveDevice(std::shared_ptr<drm_core::Device> device,
 		helix::UniqueLane lane) {
@@ -617,8 +621,8 @@ async::detached GfxDevice::BufferObject::_initHw() {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-async::detached bindController(mbus::Entity entity) {
-	protocols::hw::Device hw_device(co_await entity.bind());
+async::result<void> doBind(mbus::Entity base_entity) {
+	protocols::hw::Device hw_device(co_await base_entity.bind());
 	auto transport = co_await virtio_core::discover(std::move(hw_device),
 			virtio_core::DiscoverMode::modernOnly);
 
@@ -629,7 +633,7 @@ async::detached bindController(mbus::Entity entity) {
 	auto root = co_await mbus::Instance::global().getRoot();
 
 	mbus::Properties descriptor{
-		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
+		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(base_entity.getId())}},
 		{"unix.subsystem", mbus::StringItem{"drm"}},
 		{"unix.devname", mbus::StringItem{"dri/card0"}}
 	};
@@ -646,31 +650,40 @@ async::detached bindController(mbus::Entity entity) {
 	});
 
 	co_await root.createObject("gfx_virtio", descriptor, std::move(handler));
+	baseDeviceMap.insert({base_entity.getId(), gfx_device});
 }
 
-async::detached observeControllers() {
-	auto root = co_await mbus::Instance::global().getRoot();
+async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
+	std::cout << "gfx/virtio: Binding to device " << base_id << std::endl;
+	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-vendor", "1af4"),
-		mbus::EqualsFilter("pci-device", "1050")
-	});
+	// Do not bind to devices that are already bound to this driver.
+	if(baseDeviceMap.find(base_entity.getId()) != baseDeviceMap.end())
+		co_return protocols::svrctl::Error::success;
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
-		std::cout << "gfx/virtio: Detected device" << std::endl;
-		bindController(std::move(entity));
-	});
+	// Make sure that we only bind to supported devices.
+	auto properties = co_await base_entity.getProperties();
+	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+			!vendor_str || vendor_str->value != "1af4")
+		co_return protocols::svrctl::Error::deviceNotSupported;
+	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+			!device_str || device_str->value != "1050")
+		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await doBind(base_entity);
+	co_return protocols::svrctl::Error::success;
 }
+
+static constexpr protocols::svrctl::ControlOperations controlOps = {
+	.bind = bindDevice
+};
 
 int main() {
 	std::cout << "gfx/virtio: Starting driver" << std::endl;
 
 	{
 		async::queue_scope scope{helix::globalQueue()};
-		observeControllers();
+		async::detach(protocols::svrctl::serveControl(&controlOps));
 	}
 
 	helix::globalQueue()->run();
