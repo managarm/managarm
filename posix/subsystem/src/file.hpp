@@ -38,7 +38,9 @@ enum class Error {
 
 	wouldBlock,
 
-	brokenPipe
+	brokenPipe,
+
+	illegalArguments
 };
 
 // TODO: Rename this enum as is not part of the VFS.

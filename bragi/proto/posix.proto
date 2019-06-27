@@ -92,6 +92,9 @@ enum CntReqType {
 
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
+
+	// eventfd()-specific calls
+	EVENTFD_CREATE = 60;
 };
 
 enum OpenMode {
@@ -186,6 +189,9 @@ message CntRequest {
 	optional uint64 interval_nanos = 21;
 
 	optional uint64 sigset = 33;
+
+	// used by EVENTFD
+	optional uint32 initval = 39;
 }
 
 message SvrResponse {

@@ -38,6 +38,7 @@
 #include "sysfs.hpp"
 #include "un-socket.hpp"
 #include "timerfd.hpp"
+#include "eventfd.hpp"
 #include "tmp_fs.hpp"
 #include <posix.pb.h>
 
@@ -1891,6 +1892,32 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_wd(wd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::EVENTFD_CREATE) {
+			if(logRequests)
+				std::cout << "posix: EVENTFD_CREATE" << std::endl;
+
+			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+
+			if (req.flags() & ~(managarm::posix::OF_CLOEXEC | managarm::posix::OF_NONBLOCK)) {
+				std::cout << "posix: invalid flag specified (EFD_SEMAPHORE?)" << std::endl;
+				std::cout << "posix: flags specified: " << req.flags() << std::endl;
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			} else {
+
+				auto file = eventfd::createFile(req.initval(), req.flags() & managarm::posix::OF_NONBLOCK);
+				auto fd = self->fileContext()->attachFile(file,
+						req.flags() & managarm::posix::OF_CLOEXEC);
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
