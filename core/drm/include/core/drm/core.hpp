@@ -200,7 +200,7 @@ struct File {
 	}
 
 private:
-	cofiber::no_future _retirePageFlip(std::unique_ptr<Configuration> config,
+	async::detached _retirePageFlip(std::unique_ptr<Configuration> config,
 			uint64_t cookie);
 
 	std::shared_ptr<Device> _device;

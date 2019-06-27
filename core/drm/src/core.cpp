@@ -15,7 +15,6 @@
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
@@ -507,13 +506,13 @@ void drm_core::File::postEvent(drm_core::Event event) {
 	_eventBell.ring();
 }
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
+async::result<protocols::fs::ReadResult>
 drm_core::File::read(void *object, const char *,
-		void *buffer, size_t length), ([=] {
+		void *buffer, size_t length) {
 	auto self = static_cast<drm_core::File *>(object);
 
 	while(self->_pendingEvents.empty())
-		COFIBER_AWAIT self->_eventBell.async_wait();
+		co_await self->_eventBell.async_wait();
 
 	auto ev = &self->_pendingEvents.front();
 
@@ -533,24 +532,26 @@ drm_core::File::read(void *object, const char *,
 	if(self->_pendingEvents.empty())
 		self->_statusPage.update(self->_eventSequence, 0);
 
-	COFIBER_RETURN(sizeof(drm_event_vblank));
-}))
+	co_return sizeof(drm_event_vblank);
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
+async::result<protocols::fs::AccessMemoryResult>
 drm_core::File::accessMemory(void *object,
-		uint64_t offset, size_t), ([=] {
+		uint64_t offset, size_t) {
 	auto self = static_cast<drm_core::File *>(object);
 	auto mapping = self->_device->findMapping(offset);
 	assert(mapping.first == offset); // TODO: We can remove this assert once we fix VM_MAP.
 	auto mem = mapping.second->getMemory();
 	assert(!mem.second);
-	COFIBER_RETURN(std::make_pair(mem.first, mem.second + (offset - mapping.first)));
-}))
+	co_return protocols::fs::AccessMemoryResult{
+		mem.first,
+		mem.second + (offset - mapping.first)
+	};
+}
 
-COFIBER_ROUTINE(async::result<void>,
+async::result<void>
 drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
-		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
-		conversation = std::move(conversation)] {
+		helix::UniqueLane conversation) {
 	auto self = static_cast<drm_core::File *>(object);
 	if(req.command() == DRM_IOCTL_VERSION) {
 		helix::SendBuffer send_resp;
@@ -572,7 +573,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_GET_CAP) {
 		helix::SendBuffer send_resp;
@@ -593,7 +594,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_GETRESOURCES) {
 		helix::SendBuffer send_resp;
@@ -628,7 +629,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_GETCONNECTOR) {
 		helix::SendBuffer send_resp;
@@ -661,7 +662,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			helix::action(&send_list, conn->modeList().data(),
 					std::min(static_cast<size_t>(req.drm_max_modes()), conn->modeList().size())
 							* sizeof(drm_mode_modeinfo)));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_list.error());
 	}else if(req.command() == DRM_IOCTL_MODE_GETENCODER) {
@@ -693,7 +694,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_CREATE_DUMB) {
 		helix::SendBuffer send_resp;
@@ -710,7 +711,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_ADDFB) {
 		helix::SendBuffer send_resp;
@@ -730,7 +731,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_RMFB) {
 		helix::SendBuffer send_resp;
@@ -746,7 +747,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_MAP_DUMB) {
 		helix::SendBuffer send_resp;
@@ -762,7 +763,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_GETCRTC) {
 		helix::SendBuffer send_resp;
@@ -790,7 +791,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&send_mode, &mode_info, sizeof(drm_mode_modeinfo)));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_mode.error());
 	}else if(req.command() == DRM_IOCTL_MODE_SETCRTC) {
@@ -800,7 +801,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::RecvBuffer recv_buffer;
 		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_buffer, mode_buffer.data(), sizeof(drm_mode_modeinfo)));
-		COFIBER_AWAIT buff.async_wait();
+		co_await buff.async_wait();
 		HEL_CHECK(recv_buffer.error());
 		
 		helix::SendBuffer send_resp;
@@ -846,14 +847,14 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		assert(valid);
 		config->commit();
 
-		COFIBER_AWAIT config->waitForCompletion();
+		co_await config->waitForCompletion();
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_PAGE_FLIP) {
 		helix::SendBuffer send_resp;
@@ -888,7 +889,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_DIRTYFB) {
 		helix::SendBuffer send_resp;
@@ -904,7 +905,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_CURSOR) {
 		helix::SendBuffer send_resp;
@@ -921,9 +922,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-			COFIBER_RETURN();
+			co_return;
 		}
 
 		std::vector<Assignment> assignments;
@@ -998,12 +999,12 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		assert(valid);
 		config->commit();
 
-		COFIBER_AWAIT config->waitForCompletion();
+		co_await config->waitForCompletion();
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 		helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{
 		helix::SendBuffer send_resp;
@@ -1017,15 +1018,13 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}
-	COFIBER_RETURN();
-}))
+}
 
-COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
-drm_core::File::poll(void *object, uint64_t sequence, async::cancellation_token cancellation),
-		([object = std::move(object), sequence] {
+async::result<protocols::fs::PollResult>
+drm_core::File::poll(void *object, uint64_t sequence, async::cancellation_token cancellation) {
 	auto self = static_cast<drm_core::File *>(object);
 
 	if(sequence > self->_eventSequence)
@@ -1033,26 +1032,25 @@ drm_core::File::poll(void *object, uint64_t sequence, async::cancellation_token 
 
 	// Wait until we surpass the input sequence.
 	while(sequence == self->_eventSequence)
-		COFIBER_AWAIT self->_eventBell.async_wait();
+		co_await self->_eventBell.async_wait();
 
 	int s = 0;
 	if(!self->_pendingEvents.empty())
 		s |= EPOLLIN;
 	
 	protocols::fs::PollResult result{self->_eventSequence, EPOLLIN, s};
-	COFIBER_RETURN(result);
-}))
+	co_return result;
+}
 
-COFIBER_ROUTINE(cofiber::no_future,
-		drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
-			uint64_t cookie),
-		([this, config = std::move(config), cookie] {
-	COFIBER_AWAIT config->waitForCompletion();
+async::detached
+drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
+			uint64_t cookie) {
+	co_await config->waitForCompletion();
 
 	Event event;
 	event.cookie = cookie;
 	postEvent(event);
-}))
+}
 
 // ----------------------------------------------------------------
 // Functions
