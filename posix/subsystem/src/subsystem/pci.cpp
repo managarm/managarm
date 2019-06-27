@@ -44,8 +44,9 @@ DeviceAttribute deviceAttr{"device"};
 PlainfbAttribute plainfbAttr{"owns_plainfb"};
 
 struct Device final : drvcore::BusDevice {
-	Device(std::string sysfs_name)
-	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr} { }
+	Device(std::string sysfs_name, int64_t mbus_id)
+	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr},
+			mbusId{mbus_id} { }
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char slot[13]; // The format is 1234:56:78:9\0.
@@ -53,8 +54,10 @@ struct Device final : drvcore::BusDevice {
 
 		ue.set("SUBSYSTEM", "pci");
 		ue.set("PCI_SLOT_NAME", slot);
+		ue.set("MBUS_ID", std::to_string(mbusId));
 	}
 
+	int64_t mbusId;
 	uint32_t pciBus;
 	uint32_t pciSlot;
 	uint32_t pciFunction;
@@ -101,7 +104,7 @@ async::detached run() {
 		std::cout << "POSIX: Installing PCI device " << sysfs_name
 				<< " (mbus ID: " << entity.getId() << ")" << std::endl;
 
-		auto device = std::make_shared<Device>(sysfs_name);
+		auto device = std::make_shared<Device>(sysfs_name, entity.getId());
 		device->pciBus = std::stoi(std::get<mbus::StringItem>(
 				properties["pci-bus"]).value, 0, 16);
 		device->pciSlot = std::stoi(std::get<mbus::StringItem>(
