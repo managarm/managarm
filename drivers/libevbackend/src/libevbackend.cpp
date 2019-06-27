@@ -35,21 +35,21 @@ namespace {
 async::jump pmFound;
 helix::UniqueLane pmLane;
 
-COFIBER_ROUTINE(cofiber::no_future, issueReset(), ([=] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached issueReset() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "pm-interface")
 	});
 	
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
-		pmLane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+		pmLane = helix::UniqueLane(co_await entity.bind());
 		pmFound.trigger();
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-	COFIBER_AWAIT pmFound.async_wait();
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await pmFound.async_wait();
 	
 	// Send the actual request.
 	helix::Offer offer;
@@ -64,7 +64,7 @@ COFIBER_ROUTINE(cofiber::no_future, issueReset(), ([=] {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -73,7 +73,7 @@ COFIBER_ROUTINE(cofiber::no_future, issueReset(), ([=] {
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	throw std::runtime_error("Return from PM_RESET request");
-}))
+}
 
 } // anonymous namespace
 
@@ -81,15 +81,15 @@ COFIBER_ROUTINE(cofiber::no_future, issueReset(), ([=] {
 // File implementation.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-File::read(void *object, const char *, void *buffer, size_t max_size), ([=] {
+async::result<protocols::fs::ReadResult>
+File::read(void *object, const char *, void *buffer, size_t max_size) {
 	auto self = static_cast<File *>(object);
 
 	if(self->_nonBlock && self->_device->_events.empty())
-		COFIBER_RETURN(protocols::fs::Error::wouldBlock);
+		co_return protocols::fs::Error::wouldBlock;
 
 	while(self->_device->_events.empty())
-		COFIBER_AWAIT self->_device->_statusBell.async_wait();
+		co_await self->_device->_statusBell.async_wait();
 	
 	size_t written = 0;
 	while(!self->_device->_events.empty()
@@ -118,29 +118,31 @@ File::read(void *object, const char *, void *buffer, size_t max_size), ([=] {
 	}
 	
 	assert(written);
-	COFIBER_RETURN(written);
-}))
+	co_return written;
+}
 
 async::result<void> File::write(void *, const char *, const void *, size_t) {
 	throw std::runtime_error("write not yet implemented");
 }
 
-COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
-File::poll(void *object, uint64_t past_seq, async::cancellation_token cancellation), ([=] {
+async::result<protocols::fs::PollResult>
+File::poll(void *object, uint64_t past_seq, async::cancellation_token cancellation) {
 	auto self = static_cast<File *>(object);
 
 	assert(past_seq <= self->_device->_currentSeq);
 	while(self->_device->_currentSeq == past_seq)
-		COFIBER_AWAIT self->_device->_statusBell.async_wait();
+		co_await self->_device->_statusBell.async_wait();
 	
-	COFIBER_RETURN(protocols::fs::PollResult(self->_device->_currentSeq, EPOLLIN,
-			self->_device->_events.empty() ? 0 : EPOLLIN));
-}))
+	co_return protocols::fs::PollResult{
+		self->_device->_currentSeq,
+		EPOLLIN,
+		self->_device->_events.empty() ? 0 : EPOLLIN
+	};
+}
 
-COFIBER_ROUTINE(async::result<void>,
+async::result<void>
 File::ioctl(void *object, managarm::fs::CntRequest req,
-		helix::UniqueLane conversation), ([object = std::move(object),
-		req = std::move(req), conversation = std::move(conversation)] {
+		helix::UniqueLane conversation) {
 	auto self = static_cast<File *>(object);
 	if(req.command() == EVIOCGBIT(0, 0)) {
 		assert(req.size());
@@ -158,7 +160,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&send_data, self->_device->_typeBits.data(), chunk));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
 	}else if(req.command() == EVIOCGBIT(1, 0)) {
@@ -190,7 +192,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&send_data, p.first, chunk));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
 	}else if(req.command() == EVIOSCLOCKID) {
@@ -211,7 +213,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == EVIOCGABS(0)) {
 		helix::SendBuffer send_resp;
@@ -232,13 +234,12 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
-		COFIBER_AWAIT transmit.async_wait();
+		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
 	}
-	COFIBER_RETURN();
-}))
+}
 
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
@@ -262,8 +263,8 @@ File::File(EventDevice *device, bool non_block)
 // EventDevice implementation.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> device,
-		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
+async::detached serveDevice(std::shared_ptr<EventDevice> device,
+		helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
@@ -273,7 +274,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -298,7 +299,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_pt, remote_lane, kHelItemChain),
 					helix::action(&push_page, device->statusPageMemory()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
@@ -306,7 +307,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 			throw std::runtime_error("Invalid serveDevice request!");
 		}
 	}
-}))
+}
 
 EventDevice::EventDevice()
 : _currentSeq{1} {

@@ -132,7 +132,7 @@ private:
 // Functions
 // --------------------------------------------
 
-cofiber::no_future serveDevice(std::shared_ptr<EventDevice> device,
+async::detached serveDevice(std::shared_ptr<EventDevice> device,
 		helix::UniqueLane p);
 
 } // namespace libevbackend
