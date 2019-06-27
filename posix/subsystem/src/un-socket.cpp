@@ -89,14 +89,14 @@ public:
 	}
 
 public:
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
+	expected<size_t>
+	readSome(Process *, void *data, size_t max_length) override {
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
 
 		while(_recvQueue.empty())
-			COFIBER_AWAIT _statusBell.async_wait();
+			co_await _statusBell.async_wait();
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
@@ -106,11 +106,11 @@ public:
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
 		_recvQueue.pop_front();
-		COFIBER_RETURN(size);
-	}))
+		co_return size;
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<void>,
-	writeAll(Process *process, const void *data, size_t length) override, ([=] {
+	FutureMaybe<void>
+	writeAll(Process *process, const void *data, size_t length) override {
 		assert(process);
 		assert(_currentState == State::connected);
 		if(logSockets)
@@ -125,17 +125,16 @@ public:
 		_remote->_recvQueue.push_back(std::move(packet));
 		_remote->_inSeq = ++_remote->_currentSeq;
 		_remote->_statusBell.ring();
+		co_return;
+	}
 
-		COFIBER_RETURN();
-	}))
-
-	COFIBER_ROUTINE(expected<RecvResult>,
+	expected<RecvResult>
 	recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
-			void *, size_t, size_t max_ctrl_length) override, ([=] {
+			void *, size_t, size_t max_ctrl_length) override {
 		assert(!(flags & ~(msgNoWait | msgCloseOnExec)));
 
 		if(_currentState == State::remoteShutDown)
-			COFIBER_RETURN(RecvResult(0, 0, {}));
+			co_return RecvResult{0, 0, {}};
 
 		assert(_currentState == State::connected);
 		if(logSockets)
@@ -144,11 +143,11 @@ public:
 		if(_recvQueue.empty() && (flags & msgNoWait)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
-			COFIBER_RETURN(Error::wouldBlock);
+			co_return Error::wouldBlock;
 		}
 
 		while(_recvQueue.empty())
-			COFIBER_AWAIT _statusBell.async_wait();
+			co_await _statusBell.async_wait();
 
 		auto packet = &_recvQueue.front();
 
@@ -183,17 +182,17 @@ public:
 
 		if(packet->offset == packet->buffer.size())
 			_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(chunk, 0, ctrl.buffer()));
-	}))
+		co_return RecvResult{chunk, 0, ctrl.buffer()};
+	}
 
-	COFIBER_ROUTINE(expected<size_t>,
+	expected<size_t>
 	sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
 			const void *, size_t,
-			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
+			std::vector<smarter::shared_ptr<File, FileHandle>> files) override {
 		assert(!(flags & ~(msgNoWait)));
 
 		if(_currentState == State::remoteShutDown)
-			COFIBER_RETURN(Error::brokenPipe);
+			co_return Error::brokenPipe;
 
 		assert(_currentState == State::connected);
 		if(logSockets)
@@ -212,22 +211,22 @@ public:
 		_remote->_inSeq = ++_remote->_currentSeq;
 		_remote->_statusBell.ring();
 
-		COFIBER_RETURN(max_length);
-	}))
+		co_return max_length;
+	}
 
-	COFIBER_ROUTINE(async::result<int>, getOption(int option) override, ([=] {
+	async::result<int> getOption(int option) override {
 		assert(option == SO_PEERCRED);
 		assert(_currentState == State::connected);
-		COFIBER_RETURN(_remote->_ownerPid);
-	}));
+		co_return _remote->_ownerPid;
+	}
 
-	COFIBER_ROUTINE(async::result<void>, setOption(int option, int value) override, ([=] {
+	async::result<void> setOption(int option, int value) override {
 		assert(option == SO_PASSCRED);
 		_passCreds = value;
-		COFIBER_RETURN();
-	}));
+		co_return;
+	}
 
-	COFIBER_ROUTINE(async::result<AcceptResult>, accept(Process *process) override, ([=] {
+	async::result<AcceptResult> accept(Process *process) override {
 		assert(!_acceptQueue.empty());
 
 		auto remote = std::move(_acceptQueue.front());
@@ -238,17 +237,17 @@ public:
 		local->setupWeakFile(local);
 		OpenFile::serve(local);
 		connectPair(remote, local.get());
-		COFIBER_RETURN(File::constructHandle(std::move(local)));
-	}))
+		co_return File::constructHandle(std::move(local));
+	}
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
-			async::cancellation_token cancellation) override, ([=] {
+	expected<PollResult> poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override {
 		if(_currentState == State::closed)
-			COFIBER_RETURN(Error::fileClosed);
+			co_return Error::fileClosed;
 
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
-			COFIBER_AWAIT _statusBell.async_wait(cancellation);
+			co_await _statusBell.async_wait(cancellation);
 		if(cancellation.is_cancellation_requested())
 			std::cout << "\e[33mposix: un_socket::poll() cancellation is untested\e[39m" << std::endl;
 
@@ -269,11 +268,11 @@ public:
 //				<< " returns (" << _currentSeq
 //				<< ", " << edges << ", " << events << ")" << std::endl;
 
-		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
-	}))
+		co_return PollResult{_currentSeq, edges, events};
+	}
 
-	COFIBER_ROUTINE(async::result<void>,
-	bind(Process *process, const void *addr_ptr, size_t addr_length) override, ([=] {
+	async::result<void>
+	bind(Process *process, const void *addr_ptr, size_t addr_length) override {
 		// Create a new socket node in the FS.
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
@@ -287,22 +286,20 @@ public:
 		PathResolver resolver;
 		resolver.setup(process->fsContext()->getRoot(),
 				process->fsContext()->getWorkingDirectory(), std::move(path));
-		COFIBER_AWAIT resolver.resolve(resolvePrefix);
+		co_await resolver.resolve(resolvePrefix);
 		assert(resolver.currentLink());
 
 		auto superblock = resolver.currentLink()->getTarget()->superblock();
-		auto node = COFIBER_AWAIT superblock->createSocket();
-		COFIBER_AWAIT resolver.currentLink()->getTarget()->link(resolver.nextComponent(), node);
+		auto node = co_await superblock->createSocket();
+		co_await resolver.currentLink()->getTarget()->link(resolver.nextComponent(), node);
 
 		// Associate the current socket with the node.
 		auto res = globalBindMap.insert({std::weak_ptr<FsNode>{node}, this});
 		assert(res.second);
+	}
 
-		COFIBER_RETURN();
-	}))
-
-	COFIBER_ROUTINE(async::result<void>,
-	connect(Process *process, const void *addr_ptr, size_t addr_length) override, ([=] {
+	async::result<void>
+	connect(Process *process, const void *addr_ptr, size_t addr_length) override {
 		// Resolve the socket node in the FS.
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
@@ -316,7 +313,7 @@ public:
 		PathResolver resolver;
 		resolver.setup(process->fsContext()->getRoot(),
 				process->fsContext()->getWorkingDirectory(), std::move(path));
-		COFIBER_AWAIT resolver.resolve();
+		co_await resolver.resolve();
 		assert(resolver.currentLink());
 
 		assert(!_ownerPid);
@@ -330,9 +327,9 @@ public:
 		server->_statusBell.ring();
 
 		while(_currentState == State::null)
-			COFIBER_AWAIT _statusBell.async_wait();
+			co_await _statusBell.async_wait();
 		assert(_currentState == State::connected);
-	}))
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
