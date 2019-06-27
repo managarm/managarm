@@ -119,6 +119,16 @@ async::result<void> File::ptIoctl(void *object, managarm::fs::CntRequest req,
 	return self->ioctl(nullptr, std::move(req), std::move(conversation));
 }
 
+async::result<int> File::ptGetFileFlags(void *object) {
+	auto self = static_cast<File *>(object);
+	return self->getFileFlags();
+}
+
+async::result<void> File::ptSetFileFlags(void *object, int flags) {
+	auto self = static_cast<File *>(object);
+	return self->setFileFlags(flags);
+}
+
 File::~File() {
 	// Nothing to do here.
 	if(logDestruction)
@@ -250,5 +260,17 @@ async::result<void> File::ioctl(Process *, managarm::fs::CntRequest,
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement ioctl()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::ioctl()");
+}
+
+async::result<int> File::getFileFlags() {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement getFileFlags()" << std::endl;
+	co_return 0;
+}
+
+async::result<void> File::setFileFlags(int flags) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement setFileFlags()" << std::endl;
+	co_return;
 }
 

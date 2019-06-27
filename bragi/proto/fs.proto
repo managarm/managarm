@@ -63,6 +63,8 @@ enum CntReqType {
 	PT_LISTEN = 23;
 	PT_CONNECT = 22;
 	PT_SOCKNAME = 24;
+	PT_GET_FILE_FLAGS = 30;
+	PT_SET_FILE_FLAGS = 31;
 
 	WRITE = 3;
 	SEEK_ABS = 6;
@@ -78,6 +80,7 @@ enum CntReqType {
 	CONNECT = 10;
 	MMAP = 9;
 	CLOSE = 4;
+
 }
 
 message Rect {
@@ -274,4 +277,6 @@ message SvrResponse {
 	optional int32 input_fuzz = 68;
 	optional int32 input_flat = 69;
 	optional int32 input_resolution = 70;
+
+	optional int32 flags = 77;
 }

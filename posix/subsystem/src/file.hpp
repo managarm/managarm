@@ -135,20 +135,28 @@ public:
 	ptIoctl(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 
-	static constexpr auto fileOperations = protocols::fs::FileOperations{}
-			.withSeekAbs(&ptSeekAbs)
-			.withSeekRel(&ptSeekRel)
-			.withRead(&ptRead)
-			.withWrite(&ptWrite)
-			.withReadEntries(&ptReadEntries)
-			.withTruncate(&ptTruncate)
-			.withFallocate(&ptAllocate)
-			.withGetOption(&ptGetOption)
-			.withSetOption(&ptSetOption)
-			.withBind(&ptBind)
-			.withConnect(&ptConnect)
-			.withSockname(&ptSockname)
-			.withIoctl(&ptIoctl);
+	static async::result<int>
+	ptGetFileFlags(void *object);
+
+	static async::result<void>
+	ptSetFileFlags(void *object, int flags);
+
+	static constexpr auto fileOperations = protocols::fs::FileOperations{
+		.seekAbs = &ptSeekAbs,
+		.seekRel = &ptSeekRel,
+		.read = &ptRead,
+		.write = &ptWrite,
+		.readEntries = &ptReadEntries,
+		.truncate = &ptTruncate,
+		.fallocate = &ptAllocate,
+		.getOption = &ptGetOption,
+		.setOption = &ptSetOption,
+		.bind = &ptBind,
+		.connect = &ptConnect,
+		.sockname = &ptSockname,
+		.getFileFlags = &ptGetFileFlags,
+		.setFileFlags = &ptSetFileFlags,
+	};
 
 	// ------------------------------------------------------------------------
 	// Public File API.
@@ -258,6 +266,9 @@ public:
 
 	virtual async::result<void> ioctl(Process *process, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
+
+	virtual async::result<int> getFileFlags();
+	virtual async::result<void> setFileFlags(int flags);
 
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 

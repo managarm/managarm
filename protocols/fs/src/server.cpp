@@ -332,6 +332,33 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
+		helix::SendBuffer send_resp;
+
+		auto flags = co_await file_ops->getFileFlags(file.get());
+
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_flags(flags);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size(), 0));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_FILE_FLAGS) {
+		helix::SendBuffer send_resp;
+
+		co_await file_ops->setFileFlags(file.get(), req.flags());
+
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size(), 0));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("libfs_protocol: Unexpected"
 				" request type in servePassthrough()");

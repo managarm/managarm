@@ -48,13 +48,6 @@ using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 using OpenResult = std::pair<helix::UniqueLane, helix::UniqueLane>;
 
 struct FileOperations {
-	constexpr FileOperations()
-	: seekAbs{nullptr}, seekRel{nullptr}, seekEof{nullptr},
-			read{nullptr}, write{nullptr}, readEntries{nullptr},
-			accessMemory{nullptr}, truncate{nullptr}, fallocate{nullptr},
-			ioctl{nullptr}, getOption{nullptr}, setOption{nullptr}, poll{nullptr},
-			bind{nullptr}, listen{nullptr}, connect{nullptr}, sockname{nullptr} { }
-
 	constexpr FileOperations &withSeekAbs(async::result<SeekResult> (*f)(void *object,
 			int64_t offset)) {
 		seekAbs = f;
@@ -159,6 +152,8 @@ struct FileOperations {
 	async::result<void> (*connect)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length);
+	async::result<int> (*getFileFlags)(void *object);
+	async::result<void> (*setFileFlags)(void *object, int flags);
 };
 
 struct StatusPageProvider {
