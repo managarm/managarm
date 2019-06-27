@@ -228,7 +228,6 @@ async::detached Observer::onAttach(std::shared_ptr<Entity> entity) {
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
 	req.set_id(entity->getId());
-	req.set_id(entity->getId());
 	for(auto kv : entity->getProperties()) {
 		auto entry = req.add_properties();
 		entry->set_name(kv.first);
@@ -282,6 +281,24 @@ async::detached serve(helix::UniqueLane lane) {
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(1);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::mbus::CntReqType::GET_PROPERTIES) {
+			helix::SendBuffer send_resp;
+
+			auto entity = allEntities.at(req.id());
+
+			managarm::mbus::SvrResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+			for(auto kv : entity->getProperties()) {
+				auto entry = resp.add_properties();
+				entry->set_name(kv.first);
+				entry->mutable_item()->mutable_string_item()->set_value(kv.second);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

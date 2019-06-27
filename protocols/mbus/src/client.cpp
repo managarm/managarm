@@ -48,6 +48,10 @@ async::result<Entity> Instance::getRoot() {
 	co_return Entity{_connection, resp.id()};
 }
 
+async::result<Entity> Instance::getEntity(int64_t id) {
+	co_return Entity{_connection, id};
+}
+
 async::detached handleObject(std::shared_ptr<Connection> connection,
 		ObjectHandler handler, helix::UniqueLane lane) {
 	while(true) {
@@ -71,7 +75,7 @@ async::detached handleObject(std::shared_ptr<Connection> connection,
 			helix::PushDescriptor push_desc;
 
 			auto descriptor = co_await handler.bind();
-			
+
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
@@ -86,6 +90,36 @@ async::detached handleObject(std::shared_ptr<Connection> connection,
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
+}
+
+async::result<Properties> Entity::getProperties() const {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+
+	managarm::mbus::CntRequest req;
+	req.set_req_type(managarm::mbus::CntReqType::GET_PROPERTIES);
+	req.set_id(_id);
+
+	auto ser = req.SerializeAsString();
+	uint8_t buffer[1024];
+	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, buffer, 1024));
+	co_await transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::mbus::SvrResponse resp;
+	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+
+	Properties properties;
+	for(auto &kv : resp.properties())
+		properties.insert({ kv.name(), StringItem{kv.item().string_item().value()} });
+	co_return properties;
 }
 
 async::result<Entity> Entity::createObject(std::string name,
@@ -120,7 +154,7 @@ async::result<Entity> Entity::createObject(std::string name,
 	managarm::mbus::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-	
+
 	handleObject(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
 
 	co_return Entity{_connection, resp.id()};
@@ -193,7 +227,7 @@ async::result<Observer> Entity::linkObserver(const AnyFilter &filter,
 	managarm::mbus::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-	
+
 	handleObserver(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
 
 	co_return Observer();
@@ -225,7 +259,7 @@ async::result<helix::UniqueDescriptor> Entity::bind() const {
 	managarm::mbus::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-	
+
 	co_return pull_desc.descriptor();
 }
 

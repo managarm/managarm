@@ -101,8 +101,11 @@ namespace _detail {
 		Instance(helix::Dispatcher *dispatcher, helix::UniqueLane lane)
 		: _connection(std::make_shared<Connection>(dispatcher, std::move(lane))) { }
 
-		// attaches a root to the mbus.
+		// Returns the mbus root entity.
 		async::result<Entity> getRoot();
+
+		// Returns an mbus entity given its ID.
+		async::result<Entity> getEntity(int64_t id);
 
 	private:
 		std::shared_ptr<Connection> _connection;
@@ -140,6 +143,8 @@ namespace _detail {
 		EntityId getId() const {
 			return _id;
 		}
+
+		async::result<Properties> getProperties() const;
 
 		// creates a child group.
 		async::result<Entity> createGroup(std::string name) const;

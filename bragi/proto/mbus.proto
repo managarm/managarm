@@ -10,6 +10,7 @@ enum Error {
 
 enum CntReqType {
 	GET_ROOT = 1;
+	GET_PROPERTIES = 5;
 	CREATE_OBJECT = 2;
 	LINK_OBSERVER = 3;
 	BIND2 = 4;
@@ -62,6 +63,7 @@ message CntRequest {
 message SvrResponse {
 	optional int32 error = 1;
 	optional int64 id = 2;
+	repeated Property properties = 3;
 }
 
 enum SvrReqType {
@@ -78,6 +80,5 @@ message SvrRequest {
 
 message CntResponse {
 	optional int32 error = 1;
-
 }
 
