@@ -1823,8 +1823,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			ancillary_stack.push(&closure->items[i].transmit);
 	}
 
-	// TODO: Turn this into an error return.
-	assert(ancillary_stack.empty() && "ancillary stack must be empty after submission");
+	if(!ancillary_stack.empty())
+		return kHelErrIllegalArgs;
 
 	Stream::transmit(lane, root_chain);
 
