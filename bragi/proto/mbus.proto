@@ -6,6 +6,7 @@ package managarm.mbus;
 
 enum Error {
 	SUCCESS = 0;
+	NO_SUCH_ENTITY = 1;
 }
 
 enum CntReqType {

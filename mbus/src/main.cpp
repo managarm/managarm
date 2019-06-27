@@ -244,6 +244,13 @@ async::detached Observer::onAttach(std::shared_ptr<Entity> entity) {
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
 int64_t nextEntityId = 1;
 
+std::shared_ptr<Entity> getEntityById(int64_t id) {
+	auto it = allEntities.find(id);
+	if(it == allEntities.end())
+		return nullptr;
+	return it->second;
+}
+
 static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
 	if(proto_filter.type_case() == managarm::mbus::AnyFilter::kEqualsFilter) {
 		return EqualsFilter(proto_filter.equals_filter().path(),
@@ -290,7 +297,18 @@ async::detached serve(helix::UniqueLane lane) {
 		}else if(req.req_type() == managarm::mbus::CntReqType::GET_PROPERTIES) {
 			helix::SendBuffer send_resp;
 
-			auto entity = allEntities.at(req.id());
+			auto entity = getEntityById(req.id());
+			if(!entity) {
+				managarm::mbus::SvrResponse resp;
+				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -309,7 +327,19 @@ async::detached serve(helix::UniqueLane lane) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto parent = allEntities.at(req.parent_id());
+			auto parent = getEntityById(req.parent_id());
+			if(!parent) {
+				managarm::mbus::SvrResponse resp;
+				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			if(const Entity &pr = *parent; typeid(pr) != typeid(Group))
 				throw std::runtime_error("Objects can only be created inside groups");
 			auto group = std::static_pointer_cast<Group>(parent);
@@ -350,7 +380,19 @@ async::detached serve(helix::UniqueLane lane) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto parent = allEntities.at(req.id());
+			auto parent = getEntityById(req.id());
+			if(!parent) {
+				managarm::mbus::SvrResponse resp;
+				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			if(const Entity &pr = *parent; typeid(pr) != typeid(Group))
 				throw std::runtime_error("Observers can only be attached to groups");
 			auto group = std::static_pointer_cast<Group>(parent);
@@ -377,7 +419,19 @@ async::detached serve(helix::UniqueLane lane) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_desc;
 
-			auto entity = allEntities.at(req.id());
+			auto entity = getEntityById(req.id());
+			if(!entity) {
+				managarm::mbus::SvrResponse resp;
+				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			if(const Entity &er = *entity; typeid(er) != typeid(Object))
 				throw std::runtime_error("Bind can only be invoked on objects");
 			auto object = std::static_pointer_cast<Object>(entity);
