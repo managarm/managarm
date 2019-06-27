@@ -6,17 +6,27 @@ option optimize_for = LITE_RUNTIME;
 enum Error {
 	SUCCESS = 0;
 	ILLEGAL_REQUEST = 1;
+	// For CTL_BIND: The driver cannot bind to this device.
+	DEVICE_NOT_SUPPORTED = 2;
 }
 
 enum CntReqType {
+	option allow_alias = true;
+
 	NONE = 0;
+
 	FILE_UPLOAD = 1;
 	SVR_RUN = 2;
+
+	CTL_BIND = 1;
 }
 
 message CntRequest {
 	optional CntReqType req_type = 1;
 	optional string name = 2;
+
+	// For CTL_BIND: mbus ID of the base device that should be bound.
+	optional int64 mbus_id = 3;
 }
 
 message SvrResponse {
