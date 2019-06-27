@@ -154,6 +154,7 @@ public:
 		.bind = &ptBind,
 		.connect = &ptConnect,
 		.sockname = &ptSockname,
+		.ioctl = &ptIoctl,
 		.getFileFlags = &ptGetFileFlags,
 		.setFileFlags = &ptSetFileFlags,
 	};

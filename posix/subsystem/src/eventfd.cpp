@@ -36,7 +36,7 @@ struct OpenFile : File {
 
 		while (1) {
 			if (_counter) {
-				*reinterpret_cast<uint64_t *>(data) = _counter;
+				memcpy(data, &_counter, 8);
 				_counter = 0;
 				_writeableSeq = ++_currentSeq;
 				_doorbell.ring();
@@ -53,7 +53,8 @@ struct OpenFile : File {
 	virtual FutureMaybe<void> writeAll(Process *process, const void *data, size_t length) override {
 		assert(length >= 8); // TODO: return Error::illegalArguments to user instead
 
-		auto num = *reinterpret_cast<const uint64_t *>(data);
+		uint64_t num;
+		memcpy(&num, data, 8)
 
 		assert(num != 0xFFFFFFFFFFFFFFFF); // TODO: return Error::wouldBlock to user instead
 
