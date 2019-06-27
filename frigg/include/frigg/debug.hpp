@@ -206,6 +206,8 @@ public:
 		
 		inline void finish() {
 			friggPrintCritical('\n');
+			friggEndLog();
+			_valid = false;
 		}
 	
 	private:
@@ -264,6 +266,8 @@ public:
 
 		inline void finish() {
 			friggPrintCritical('\n');
+			friggEndLog();
+			_valid = false;
 		}
 	
 	private:
