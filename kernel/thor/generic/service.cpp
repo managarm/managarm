@@ -23,6 +23,10 @@ namespace {
 		HelHandle *fileTable;
 		void *clockTrackerPage;
 	};
+
+	struct ManagarmServerData {
+		HelHandle controlLane;
+	};
 }
 
 void serviceAccept(LaneHandle handle,
@@ -50,7 +54,7 @@ void serviceSend(LaneHandle handle, const void *buffer, size_t length,
 		frigg::CallbackPtr<void(Error)> callback) {
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.data(), buffer, length);
-	
+
 	submitSendBuffer(handle, frigg::move(kernel_buffer), callback);
 }
 
@@ -86,7 +90,7 @@ namespace stdio {
 
 		void onRecvData(Error error, frigg::UniqueMemory<KernelAlloc> data) {
 			assert(error == kErrSuccess);
-			
+
 			{
 				auto p = frigg::infoLogger();
 				for(size_t i = 0; i < data.size(); i++)
@@ -100,7 +104,7 @@ namespace stdio {
 			serviceSend(_lane, _buffer.data(), _buffer.size(),
 					CALLBACK_MEMBER(this, &WriteClosure::onSendResp));
 		}
-		
+
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
 		}
@@ -110,7 +114,7 @@ namespace stdio {
 
 		frigg::String<KernelAlloc> _buffer;
 	};
-	
+
 	struct SeekClosure {
 		SeekClosure(LaneHandle lane, fs::CntRequest<KernelAlloc> req)
 		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
@@ -239,7 +243,7 @@ namespace initrd {
 
 		frigg::String<KernelAlloc> _buffer;
 	};
-	
+
 	struct ReadClosure {
 		ReadClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
 		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
@@ -276,11 +280,11 @@ namespace initrd {
 
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
-			
+
 			serviceSend(_lane, _payload.data(), _payload.size(),
 					CALLBACK_MEMBER(this, &ReadClosure::onSendData));
 		}
-		
+
 		void onSendData(Error error) {
 			assert(error == kErrSuccess);
 		}
@@ -293,7 +297,7 @@ namespace initrd {
 		frigg::String<KernelAlloc> _payload;
 		CopyFromBundleNode _copyNode;
 	};
-	
+
 	struct MapClosure {
 		MapClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
 		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
@@ -315,7 +319,7 @@ namespace initrd {
 			submitPushDescriptor(_lane, MemoryViewDescriptor(_file->module->getMemory()),
 					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
-		
+
 		void onSendHandle(Error error) {
 			assert(error == kErrSuccess);
 		}
@@ -383,7 +387,7 @@ namespace initrd {
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
 	};
-	
+
 	struct OpenDirectory : OpenFile {
 		OpenDirectory(MfsDirectory *node)
 		: node{node}, index(0) { }
@@ -391,7 +395,7 @@ namespace initrd {
 		MfsDirectory *node;
 		size_t index;
 	};
-	
+
 	bool handleDirectoryReq(LaneHandle lane, OpenDirectory *file) {
 		auto branch = fiberAccept(lane);
 		if(!branch)
@@ -400,7 +404,7 @@ namespace initrd {
 		auto buffer = fiberRecv(branch);
 		managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.ParseFromArray(buffer.data(), buffer.size());
-	
+
 		if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
 			if(file->index < file->node->numEntries()) {
 				auto entry = file->node->getEntry(file->index);
@@ -414,7 +418,7 @@ namespace initrd {
 					assert(entry.node->type == MfsType::regular);
 					resp.set_file_type(managarm::fs::FileType::REGULAR);
 				}
-				
+
 				file->index++;
 
 				frigg::String<KernelAlloc> ser(*kernelAlloc);
@@ -431,7 +435,7 @@ namespace initrd {
 		}else{
 			managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
-			
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -465,6 +469,14 @@ namespace initrd {
 			return _name;
 		}
 
+		void attachControl(LaneHandle lane) {
+			auto irq_lock = frigg::guard(&irqMutex());
+			Universe::Guard universe_guard(&_thread->getUniverse()->lock);
+
+			controlHandle = _thread->getUniverse()->attachDescriptor(universe_guard,
+					LaneDescriptor{lane});
+		}
+
 		int attachFile(OpenFile *file) {
 			Handle handle;
 			{
@@ -496,6 +508,7 @@ namespace initrd {
 		frg::string<KernelAlloc> _name;
 		frigg::SharedPtr<Thread> _thread;
 
+		Handle controlHandle;
 		frigg::Vector<OpenFile *, KernelAlloc> openFiles;
 		frigg::SharedPtr<Memory> fileTableMemory;
 		VirtualAddr clientFileTable;
@@ -532,7 +545,7 @@ namespace initrd {
 							break;
 					}
 				});
-				
+
 				auto fd = _process->attachFile(file);
 
 				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -544,7 +557,7 @@ namespace initrd {
 						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
 			}else{
 				assert(module->type == MfsType::regular);
-				
+
 				auto stream = createStream();
 				auto file = frigg::construct<ModuleFile>(*kernelAlloc,
 						static_cast<MfsRegular *>(module));
@@ -650,7 +663,7 @@ namespace initrd {
 			serviceRecv(_requestLane, _buffer, 128,
 					CALLBACK_MEMBER(this, &ServerRequestClosure::onReceive));
 		}
-		
+
 		void onReceive(Error error, size_t length) {
 			assert(error == kErrSuccess);
 
@@ -683,7 +696,7 @@ namespace initrd {
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
 	};
-	
+
 	struct ObserveClosure {
 		ObserveClosure(Process *process, frigg::SharedPtr<Thread> thread)
 		: _process(process), _thread(frigg::move(thread)),
@@ -698,7 +711,7 @@ namespace initrd {
 		void onObserve(Error error, uint64_t sequence, Interrupt interrupt) {
 			assert(error == kErrSuccess);
 			_observedSeq = sequence;
-			
+
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
@@ -717,7 +730,18 @@ namespace initrd {
 				_spaceLock = AddressSpaceLockHandle{_thread->getAddressSpace().lock(),
 						reinterpret_cast<void *>(_thread->_executor.general()->rsi),
 						sizeof(ManagarmProcessData)};
-				_worklet.setup(&ObserveClosure::onAcquire);
+				_worklet.setup(&ObserveClosure::onProcessDataAcquire);
+				_acquire.setup(&_worklet);
+				auto acq = _spaceLock.acquire(&_acquire);
+				if(acq)
+					WorkQueue::post(&_worklet);
+			}else if(interrupt == kIntrSuperCall + 64) {
+				AcquireNode node;
+
+				_spaceLock = AddressSpaceLockHandle{_thread->getAddressSpace().lock(),
+						reinterpret_cast<void *>(_thread->_executor.general()->rsi),
+						sizeof(ManagarmServerData)};
+				_worklet.setup(&ObserveClosure::onServerDataAcquire);
 				_acquire.setup(&_worklet);
 				auto acq = _spaceLock.acquire(&_acquire);
 				if(acq)
@@ -735,7 +759,7 @@ namespace initrd {
 			}
 		}
 
-		static void onAcquire(Worklet *base) {
+		static void onProcessDataAcquire(Worklet *base) {
 			auto self = frg::container_of(base, &ObserveClosure::_worklet);
 
 			ManagarmProcessData data = {
@@ -753,7 +777,24 @@ namespace initrd {
 
 			(*self)();
 		}
-		
+
+		static void onServerDataAcquire(Worklet *base) {
+			auto self = frg::container_of(base, &ObserveClosure::_worklet);
+
+			ManagarmServerData data = {
+				self->_process->controlHandle
+			};
+
+			self->_spaceLock.write(0, &data, sizeof(ManagarmServerData));
+			self->_spaceLock = {};
+
+			self->_thread->_executor.general()->rdi = kHelErrNone;
+			if(auto e = Thread::resumeOther(self->_thread); e)
+				frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+
+			(*self)();
+		}
+
 		Process *_process;
 		frigg::SharedPtr<Thread> _thread;
 
@@ -764,21 +805,23 @@ namespace initrd {
 	};
 }
 
-void runService(frg::string<KernelAlloc> name, frigg::SharedPtr<Thread> thread) {
-	KernelFiber::run([=] {
+void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
+		frigg::SharedPtr<Thread> thread) {
+	KernelFiber::run([name, thread, control_lane = std::move(control_lane)] () mutable {
 		auto stdio_stream = createStream();
 		auto stdio_file = frigg::construct<StdioFile>(*kernelAlloc);
 		stdio_file->clientLane = frigg::move(stdio_stream.get<1>());
-		
+
 		auto stdio_closure = frigg::construct<stdio::RequestClosure>(*kernelAlloc,
 				frigg::move(stdio_stream.get<0>()));
 		(*stdio_closure)();
 
 		auto process = frigg::construct<initrd::Process>(*kernelAlloc, std::move(name), thread);
+		process->attachControl(std::move(control_lane));
 		process->attachFile(stdio_file);
 		process->attachFile(stdio_file);
 		process->attachFile(stdio_file);
-		
+
 		auto observe_closure = frigg::construct<initrd::ObserveClosure>(*kernelAlloc,
 				process, thread);
 		(*observe_closure)();

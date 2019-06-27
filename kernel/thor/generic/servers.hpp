@@ -5,7 +5,7 @@ namespace thor {
 
 void initializeSvrctl();
 void runMbus();
-void runServer(frigg::StringView name);
+LaneHandle runServer(frigg::StringView name);
 
 } // namespace thor
 

@@ -14,6 +14,8 @@
 
 namespace thor {
 
+static bool debugLaunch = true;
+
 frigg::LazyInitializer<LaneHandle> mbusClient;
 
 frigg::TicketLock globalMfsMutex;
@@ -21,7 +23,8 @@ frigg::TicketLock globalMfsMutex;
 extern MfsDirectory *mfsRoot;
 
 // TODO: move this declaration to a header file
-void runService(frg::string<KernelAlloc> desc, frigg::SharedPtr<Thread> thread);
+void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
+		frigg::SharedPtr<Thread> thread);
 
 // ------------------------------------------------------------------------
 // File management.
@@ -234,6 +237,7 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 }
 
 void executeModule(frigg::StringView name, MfsRegular *module,
+		LaneHandle control_lane,
 		LaneHandle xpipe_lane, LaneHandle mbus_lane,
 		Scheduler *scheduler) {
 	auto space = AddressSpace::create();
@@ -344,7 +348,9 @@ void executeModule(frigg::StringView name, MfsRegular *module,
 	thread->flags |= Thread::kFlagServer;
 	
 	// listen to POSIX calls from the thread.
-	runService(frg::string<KernelAlloc>{*kernelAlloc, name.data(), name.size()}, thread);
+	runService(frg::string<KernelAlloc>{*kernelAlloc, name.data(), name.size()},
+			control_lane,
+			thread);
 
 	// see helCreateThread for the reasoning here
 	thread.control().increment();
@@ -355,20 +361,34 @@ void executeModule(frigg::StringView name, MfsRegular *module,
 }
 
 void runMbus() {
+	if(debugLaunch)
+		frigg::infoLogger() << "thor: Launching mbus" << frigg::endLog;
+
 	auto stream = createStream();
 	mbusClient.initialize(stream.get<1>());
 
 	auto module = resolveModule("sbin/mbus");
 	assert(module && module->type == MfsType::regular);
 	executeModule("sbin/mbus", static_cast<MfsRegular *>(module),
+			LaneHandle{},
 			stream.get<0>(), LaneHandle{}, localScheduler());
 }
 
-void runServer(frigg::StringView name) {
+LaneHandle runServer(frigg::StringView name) {
+	if(debugLaunch)
+		frigg::infoLogger() << "thor: Launching server " << name << frigg::endLog;
+
+	auto control_stream = createStream();
+
 	auto module = resolveModule(name);
-	assert(module && module->type == MfsType::regular);
+	if(!module)
+		frigg::panicLogger() << "thor: Could not find module " << name << frigg::endLog;
+	assert(module->type == MfsType::regular);
 	executeModule(name, static_cast<MfsRegular *>(module),
+			control_stream.get<0>(),
 			LaneHandle{}, *mbusClient, localScheduler());
+
+	return control_stream.get<1>();
 }
 
 // ------------------------------------------------------------------------
@@ -397,14 +417,15 @@ bool handleReq(LaneHandle lane) {
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
-		runServer(req.name());
-		
+		auto control_lane = runServer(req.name());
+
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::SUCCESS);
-	
+
 		frigg::String<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
+		fiberPushDescriptor(branch, LaneDescriptor{control_lane});
 	}else{
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
