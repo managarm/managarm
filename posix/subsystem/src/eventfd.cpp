@@ -16,9 +16,9 @@ namespace eventfd {
 namespace {
 
 struct OpenFile : File {
-	OpenFile(unsigned int initval, bool non_block)
+	OpenFile(unsigned int initval, bool nonBlock)
 	: File{StructName::get("eventfd")}, _currentSeq{1}, _readableSeq{0},
-		_writeableSeq{0}, _counter{initval}, _non_block{non_block} { }
+		_writeableSeq{0}, _counter{initval}, _nonBlock{nonBlock} { }
 
 	~OpenFile() {
 	}
@@ -43,7 +43,7 @@ struct OpenFile : File {
 				co_return 8;
 			}
 
-			if (_non_block)
+			if (_nonBlock)
 				co_return Error::wouldBlock;
 			else
 				co_await _doorbell.async_wait();
@@ -59,7 +59,7 @@ struct OpenFile : File {
 		assert(num != 0xFFFFFFFFFFFFFFFF); // TODO: return Error::wouldBlock to user instead
 
 		if (num && num + _counter <= _counter) {
-			if (_non_block)
+			if (_nonBlock)
 				assert(!"return Error::wouldBlock from eventfd::OpenFile::writeAll");
 			else
 				co_await _doorbell.async_wait(); // wait for read
@@ -107,13 +107,13 @@ private:
 	uint64_t _writeableSeq;
 
 	uint64_t _counter;
-	bool _non_block;
+	bool _nonBlock;
 };
 
 }
 
-smarter::shared_ptr<File, FileHandle> createFile(unsigned int initval, bool non_block) {
-	auto file = smarter::make_shared<OpenFile>(initval, non_block);
+smarter::shared_ptr<File, FileHandle> createFile(unsigned int initval, bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(initval, nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));

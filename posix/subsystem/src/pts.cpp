@@ -123,7 +123,7 @@ public:
 				file, &File::fileOperations));
 	}
 
-	MasterFile(std::shared_ptr<FsLink> link, bool non_blocking);
+	MasterFile(std::shared_ptr<FsLink> link, bool nonBlocking);
 
 	expected<size_t>
 	readSome(Process *, void *data, size_t max_length) override;
@@ -146,7 +146,7 @@ private:
 
 	std::shared_ptr<Channel> _channel;
 
-	bool _non_blocking;
+	bool _nonBlocking;
 };
 
 struct SlaveFile final : File {
@@ -313,9 +313,9 @@ MasterDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	co_return File::constructHandle(std::move(file));
 }
 
-MasterFile::MasterFile(std::shared_ptr<FsLink> link, bool non_blocking)
+MasterFile::MasterFile(std::shared_ptr<FsLink> link, bool nonBlocking)
 : File{StructName::get("pts.master"), std::move(link), File::defaultPipeLikeSeek},
-		_channel{std::make_shared<Channel>(nextPtsIndex++)}, _non_blocking{non_blocking} {
+		_channel{std::make_shared<Channel>(nextPtsIndex++)}, _nonBlocking{nonBlocking} {
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
 
@@ -328,7 +328,7 @@ MasterFile::readSome(Process *, void *data, size_t max_length) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
 
-	if (_channel->masterQueue.empty() && _non_blocking)
+	if (_channel->masterQueue.empty() && _nonBlocking)
 		co_return Error::wouldBlock;
 
 	while(_channel->masterQueue.empty())
