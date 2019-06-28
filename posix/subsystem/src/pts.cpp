@@ -123,7 +123,7 @@ public:
 				file, &File::fileOperations));
 	}
 
-	MasterFile(std::shared_ptr<FsLink> link);
+	MasterFile(std::shared_ptr<FsLink> link, bool non_blocking);
 
 	expected<size_t>
 	readSome(Process *, void *data, size_t max_length) override;
@@ -145,6 +145,8 @@ private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
+
+	bool _non_blocking;
 };
 
 struct SlaveFile final : File {
@@ -304,16 +306,16 @@ private:
 
 FutureMaybe<SharedFilePtr>
 MasterDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
-	assert(!semantic_flags);
-	auto file = smarter::make_shared<MasterFile>(std::move(link));
+	assert(!(semantic_flags & ~semanticNonBlock));
+	auto file = smarter::make_shared<MasterFile>(std::move(link), semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
 	MasterFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
-MasterFile::MasterFile(std::shared_ptr<FsLink> link)
+MasterFile::MasterFile(std::shared_ptr<FsLink> link, bool non_blocking)
 : File{StructName::get("pts.master"), std::move(link), File::defaultPipeLikeSeek},
-		_channel{std::make_shared<Channel>(nextPtsIndex++)} {
+		_channel{std::make_shared<Channel>(nextPtsIndex++)}, _non_blocking{non_blocking} {
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
 
@@ -325,6 +327,9 @@ expected<size_t>
 MasterFile::readSome(Process *, void *data, size_t max_length) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
+
+	if (_channel->masterQueue.empty() && _non_blocking)
+		co_return Error::wouldBlock;
 
 	while(_channel->masterQueue.empty())
 		co_await _channel->statusBell.async_wait();
@@ -358,6 +363,7 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 expected<PollResult> MasterFile::poll(Process *, uint64_t past_seq,
 		async::cancellation_token cancellation) {
 	assert(past_seq <= _channel->currentSeq);
+
 	while(past_seq == _channel->currentSeq
 			&& !cancellation.is_cancellation_requested())
 		co_await _channel->statusBell.async_wait(cancellation);

@@ -55,6 +55,8 @@ File::ptRead(void *object, const char *credentials,
 	auto error = std::get_if<Error>(&result);
 	if(error && *error == Error::illegalOperationTarget) {
 		co_return protocols::fs::Error::illegalArguments;
+	}else if(error && *error == Error::wouldBlock) {
+		co_return protocols::fs::Error::wouldBlock;
 	}else{
 		assert(!error);
 		co_return std::get<size_t>(result);
