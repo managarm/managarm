@@ -1066,7 +1066,7 @@ static constexpr auto defaultFileOperations = protocols::fs::FileOperations{}
 	.withIoctl(&File::ioctl)
 	.withPoll(&File::poll);
 
-async::detached serverDrmDevice(std::shared_ptr<drm_core::Device> device,
+async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 		helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;

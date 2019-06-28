@@ -586,7 +586,7 @@ async::result<void> doBind(mbus::Entity base_entity) {
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		drm_core::serverDrmDevice(gfx_device, std::move(local_lane));
+		drm_core::serveDrmDevice(gfx_device, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
