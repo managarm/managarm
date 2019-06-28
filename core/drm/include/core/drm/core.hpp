@@ -186,6 +186,8 @@ struct File {
 	static async::result<protocols::fs::PollResult>
 	poll(void *object, uint64_t sequence, async::cancellation_token cancellation);
 
+	void setBlocking(bool blocking);
+
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
 	void detachFrameBuffer(FrameBuffer *frame_buffer);
 	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
@@ -212,6 +214,7 @@ private:
 	id_allocator<uint32_t> _allocator;
 
 	// Event queuing structures.
+	bool _isBlocking = true;
 	std::deque<Event> _pendingEvents;
 	uint64_t _eventSequence;
 	async::doorbell _eventBell;

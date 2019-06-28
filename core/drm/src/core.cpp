@@ -465,6 +465,10 @@ drm_core::File::File(std::shared_ptr<Device> device)
 	_statusPage.update(_eventSequence, 0);
 };
 
+void drm_core::File::setBlocking(bool blocking) {
+	_isBlocking = blocking;
+}
+
 void drm_core::File::attachFrameBuffer(std::shared_ptr<drm_core::FrameBuffer> frame_buffer) {
 	_frameBuffers.push_back(frame_buffer);
 }
@@ -511,6 +515,8 @@ drm_core::File::read(void *object, const char *,
 		void *buffer, size_t length) {
 	auto self = static_cast<drm_core::File *>(object);
 
+	if(!self->_isBlocking && self->_pendingEvents.empty())
+		co_return protocols::fs::Error::wouldBlock;
 	while(self->_pendingEvents.empty())
 		co_await self->_eventBell.async_wait();
 
@@ -1077,7 +1083,21 @@ async::detached serverDrmDevice(std::shared_ptr<drm_core::Device> device,
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
-			assert(!req.flags());
+			if(req.flags() & ~(managarm::fs::OpenFlags::OF_NONBLOCK)) {
+				helix::SendBuffer send_resp;
+
+				std::cout << "\e[31m" "core/drm: Illegal flags " << req.flags()
+						<< " for DEV_OPEN" "\e[39m" << std::endl;
+
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
 
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_pt;
@@ -1086,6 +1106,10 @@ async::detached serverDrmDevice(std::shared_ptr<drm_core::Device> device,
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto file = smarter::make_shared<drm_core::File>(device);
+
+			if(req.flags() & managarm::fs::OpenFlags::OF_NONBLOCK)
+				file->setBlocking(false);
+
 			async::detach(protocols::fs::servePassthrough(
 					std::move(local_lane), file, &defaultFileOperations));
 
