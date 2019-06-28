@@ -209,11 +209,17 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 			std::cout << "ehci: Extended capability: " << (header & 0xFF) << std::endl;
 
 		assert((header & 0xFF) == 1);
+
+		// TODO: We need a timeout here.
+		if(!(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 3, 1))) {
+			COFIBER_AWAIT _hwDevice.storePciSpace(ext_pointer + 3, 1, 1);
+		}else{
+			std::cout << "ehci: OS access to the EHCI is already requested" << std::endl;
+		}
+
 		if(logControllerEnumeration && (COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1)))
 			std::cout << "ehci: Controller is owned by the BIOS" << std::endl;
 
-		// TODO: We need a timeout here.
-		assert(!(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 3, 1)));
 		COFIBER_AWAIT _hwDevice.storePciSpace(ext_pointer + 3, 1, 1);
 		while(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1)) {
 			// Do nothing while we wait for BIOS to release the EHCI.
