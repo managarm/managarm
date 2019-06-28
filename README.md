@@ -30,7 +30,7 @@ To run the (uncompressed) image using qemu, we recommend the following flags:
 
 ## Supported Software
 
-Currently, Weston (the Wayland reference compositor) and GNU Bash run on managarm.
+Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/wayland/weston/) (the Wayland reference compositor), [kmscon](https://www.freedesktop.org/wiki/Software/kmscon/) (a system console), GNU Coreutils, Bash, nano and others.
 
 ## Supported Hardware
 **General** USB (UHCI, EHCI)\
