@@ -355,6 +355,9 @@ struct Assignment {
 	std::shared_ptr<Blob> blobValue;
 };
 
+async::detached serverDrmDevice(std::shared_ptr<drm_core::Device> device,
+		helix::UniqueLane lane);
+
 // ---------------------------------------------
 // Formats
 // ---------------------------------------------

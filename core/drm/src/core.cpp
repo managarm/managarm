@@ -1052,6 +1052,64 @@ drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
 	postEvent(event);
 }
 
+namespace drm_core {
+
+static constexpr auto defaultFileOperations = protocols::fs::FileOperations{}
+	.withRead(&File::read)
+	.withAccessMemory(&File::accessMemory)
+	.withIoctl(&File::ioctl)
+	.withPoll(&File::poll);
+
+async::detached serverDrmDevice(std::shared_ptr<drm_core::Device> device,
+		helix::UniqueLane lane) {
+	while(true) {
+		helix::Accept accept;
+		helix::RecvInline recv_req;
+
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
+		co_await header.async_wait();
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());
+
+		auto conversation = accept.descriptor();
+		managarm::fs::CntRequest req;
+		req.ParseFromArray(recv_req.data(), recv_req.length());
+		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			assert(!req.flags());
+
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_pt;
+			helix::PushDescriptor push_page;
+
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			auto file = smarter::make_shared<drm_core::File>(device);
+			async::detach(protocols::fs::servePassthrough(
+					std::move(local_lane), file, &defaultFileOperations));
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&push_pt, remote_lane, kHelItemChain),
+					helix::action(&push_page, file->statusPageMemory()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_pt.error());
+			HEL_CHECK(push_page.error());
+		}else{
+			throw std::runtime_error("Invalid request in serveDevice()");
+		}
+	}
+}
+
+} // namespace core_drm
+
 // ----------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------

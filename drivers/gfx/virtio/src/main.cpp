@@ -30,64 +30,8 @@
 #include "virtio.hpp"
 #include <fs.pb.h>
 
-constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withRead(&drm_core::File::read)
-	.withAccessMemory(&drm_core::File::accessMemory)
-	.withIoctl(&drm_core::File::ioctl)
-	.withPoll(&drm_core::File::poll);
-
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<GfxDevice>> baseDeviceMap;
-
-async::detached serveDevice(std::shared_ptr<drm_core::Device> device,
-		helix::UniqueLane lane) {
-	std::cout << "unix device: Connection" << std::endl;
-
-	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-
-		auto conversation = accept.descriptor();
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
-			assert(!req.flags());
-
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_pt;
-			helix::PushDescriptor push_page;
-
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			auto file = smarter::make_shared<drm_core::File>(device);
-			async::detach(protocols::fs::servePassthrough(
-					std::move(local_lane), file, &fileOperations));
-
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_pt, remote_lane, kHelItemChain),
-					helix::action(&push_page, file->statusPageMemory()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_pt.error());
-			HEL_CHECK(push_page.error());
-		}else{
-			throw std::runtime_error("Invalid request in serveDevice()");
-		}
-	}
-}
 
 // ----------------------------------------------------------------
 // GfxDevice.
@@ -642,7 +586,7 @@ async::result<void> doBind(mbus::Entity base_entity) {
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveDevice(gfx_device, std::move(local_lane));
+		drm_core::serverDrmDevice(gfx_device, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
