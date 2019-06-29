@@ -33,3 +33,9 @@ message SvrResponse {
 	optional Error error = 1;
 }
 
+message Description {
+	optional string name = 1;
+	optional string exec = 2;
+	repeated string files = 3;
+}
+

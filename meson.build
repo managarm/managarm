@@ -4,13 +4,14 @@ add_project_arguments('--std=c++17', language: 'cpp')
 c_compiler = meson.get_compiler('cpp')
 cpp_compiler = meson.get_compiler('cpp')
 
+protoc = find_program('protoc')
+
 # clang needs an additional flag to enable sized allocation/deallocation.
 if cpp_compiler.get_id() == 'clang'
 	add_project_arguments('-fsized-deallocation', language: 'cpp')
 endif
 
 if get_option('build_kernel')
-	protoc = find_program('protoc')
 	frigg_pb = find_program('frigg_pb')
 
 	cxxshim = subproject('cxxshim')
@@ -26,8 +27,6 @@ endif
 
 if get_option('build_drivers')
 	add_project_arguments('-fcoroutines-ts', language: 'cpp')
-
-	protoc = find_program('protoc')
 
 	cxxshim = subproject('cxxshim')
 	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
@@ -76,6 +75,7 @@ if get_option('build_drivers')
 endif
 
 if get_option('build_tools')
+	subdir('tools/bakesvr')
 	subdir('tools/frigg_pb')
 endif
 

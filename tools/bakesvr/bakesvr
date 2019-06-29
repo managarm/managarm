@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+
+import argparse
+import os.path
+import sys
+import yaml
+
+# Since the svrctl_pb2 module is auto-generated, we cannot directly import it.
+sys.path.append(os.path.join(sys.path[0], '../share/bakesvr'))
+
+import svrctl_pb2
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-o', type=str, required=True, dest='output')
+parser.add_argument('input')
+
+args = parser.parse_args()
+
+with open(args.input, 'r') as f:
+	yml = yaml.load(f, Loader=yaml.SafeLoader)
+
+desc = svrctl_pb2.Description()
+desc.name = yml['name']
+desc.exec = yml['exec']
+desc.files.extend(yml['files'])
+
+with open(args.output, 'wb') as f:
+	f.write(desc.SerializeToString())
+
