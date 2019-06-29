@@ -33,6 +33,7 @@ if get_option('build_drivers')
 	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
 
 	proto_lite_dep = dependency('protobuf-lite')
+	libudev_dep = dependency('libudev')
 	lib_cofiber_dep = cpp_compiler.find_library('cofiber')
 
 	subdir('hel')

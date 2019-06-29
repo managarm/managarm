@@ -1,9 +1,12 @@
 
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <iostream>
+
+#include <libudev.h>
 
 // This second stages assumes that:
 // - stdin, stdout and stderr are already set up correctly
@@ -43,6 +46,25 @@ int main() {
 		sleep(1);
 	}
 
+	// Create a udev monitor to watch for new devices.
+	// Do this before we run 'udevadm trigger' so that the monitor will see all devices.
+	auto init_udev = udev_new();
+	if(!init_udev) {
+		std::cerr << "\e[31m" "init: udev_new() failed" "\e[39m" << std::endl;
+		abort();
+	}
+
+	auto init_udev_mon = udev_monitor_new_from_netlink(init_udev, "udev");
+	if(!init_udev_mon) {
+		std::cerr << "\e[31m" "init: udev_monitor_new_from_netlink() failed" "\e[39m" << std::endl;
+		abort();
+	}
+	if(udev_monitor_enable_receiving(init_udev_mon) < 0) {
+		std::cerr << "\e[31m" "init: udev_monitor_new_from_netlink() failed" "\e[39m" << std::endl;
+		abort();
+	}
+
+	// Now run 'udevadm trigger' to make sure that udev initializes every device.
 	std::cout << "init: Running udev-trigger" << std::endl;
 	auto udev_trigger_devs = fork();
 	if(!udev_trigger_devs) {
@@ -72,19 +94,41 @@ int main() {
 		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/hid", nullptr);
 	}else assert(input_hid != -1);
 
-	// TODO: Wait until udev finishes its job.
-	// For now, we use stupid heuristics here:
-	while(access("/dev/dri/card0", F_OK)) {
-		assert(errno == ENOENT);
-		sleep(1);
-	}
+	// Wait until we have the devices required for weston.
+	bool have_drm = false;
+	bool have_kbd = false;
+	bool have_mouse = false;
 
-	while(access("/dev/input/event0", F_OK)) {
-		assert(errno == ENOENT);
-		sleep(1);
-	}
+	std::cout << "init: Waiting for devices to show up" << std::endl;
+	while(!have_drm || !have_kbd || !have_mouse) {
+		auto dev = udev_monitor_receive_device(init_udev_mon);
+		if(!dev) {
+			std::cerr << "\e[31m" "init: udev_monitor_receive_device() failed"
+					"\e[39m" << std::endl;
+			abort();
+		}
+		auto syspath = udev_device_get_syspath(dev);
+		assert(syspath);
+		auto subsystem = udev_device_get_subsystem(dev);
+		assert(subsystem);
 
-	sleep(1);
+		if(!strcmp(subsystem, "drm")) {
+			std::cout << "init: Found DRM device " << syspath << std::endl;
+			have_drm = true;
+		}
+		if(!strcmp(subsystem, "input")) {
+			if(udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD")) {
+				std::cout << "init: Found keyboard " << syspath << std::endl;
+				have_kbd = true;
+			}
+			if(udev_device_get_property_value(dev, "ID_INPUT_MOUSE")) {
+				std::cout << "init: Found mouse " << syspath << std::endl;
+				have_mouse = true;
+			}
+		}
+
+		udev_device_unref(dev);
+	}
 
 	// Finally, launch into Weston.
 	auto modeset = fork();
