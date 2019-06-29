@@ -9,7 +9,7 @@ executable('gfx_vmware', ['src/main.cpp', fs_pb],
 	dependencies: [
 		clang_coroutine_dep,
 		libarch_dep, lib_helix_dep, lib_cofiber_dep, drm_core_dep, libfs_protocol_dep,
-		hw_protocol_dep, libmbus_protocol_dep, proto_lite_dep],
+		hw_protocol_dep, libmbus_protocol_dep, proto_lite_dep, libsvrctl_protocol_dep],
 	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	install: true)
 

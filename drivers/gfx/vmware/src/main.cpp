@@ -22,6 +22,7 @@
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
+#include <protocols/svrctl/server.hpp>
 #include <core/drm/core.hpp>
 
 #include <libdrm/drm.h>
@@ -30,6 +31,8 @@
 #include "vmware.hpp"
 
 #include <fs.pb.h>
+
+std::unordered_map<int64_t, std::shared_ptr<GfxDevice>> baseDeviceMap;
 
 // ----------------------------------------------------------------
 // GfxDevice
@@ -640,7 +643,7 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 
 // ----------------------------------------------------------------
 
-async::detached setupDevice(mbus::Entity entity) {
+async::result<void> setupDevice(mbus::Entity entity) {
 	std::cout << "gfx/vmware: setting up the device" << std::endl;
 
 	protocols::hw::Device pci_device(co_await entity.bind());
@@ -684,32 +687,39 @@ async::detached setupDevice(mbus::Entity entity) {
 		return promise.async_get();
 	});
 	co_await root.createObject("gfx_vmware", descriptor, std::move(handler));
-
 }
 
-async::detached findDevice() {
-	auto root = co_await mbus::Instance::global().getRoot();
+async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
+	std::cout << "gfx/vmware: Binding to device " << base_id << std::endl;
+	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-vendor", "15ad"),
-		mbus::EqualsFilter("pci-device", "0405")
-	});
+	// Do not bind to devices that are already bound to this driver.
+	if(baseDeviceMap.find(base_entity.getId()) != baseDeviceMap.end())
+		co_return protocols::svrctl::Error::success;
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		printf("gfx/vmware: found a vmware svga device\n");
-		setupDevice(std::move(entity));
-	});
+	// Make sure that we only bind to supported devices.
+	auto properties = co_await base_entity.getProperties();
+	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+			!vendor_str || vendor_str->value != "15ad")
+		co_return protocols::svrctl::Error::deviceNotSupported;
+	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+			!device_str || device_str->value != "0405")
+		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await setupDevice(base_entity);
+	co_return protocols::svrctl::Error::success;
 }
+
+static constexpr protocols::svrctl::ControlOperations controlOps = {
+	.bind = bindDevice
+};
 
 int main() {
 	printf("gfx/vmware: starting driver\n");
 
 	{
 		async::queue_scope scope{helix::globalQueue()};
-		findDevice();
+		async::detach(protocols::svrctl::serveControl(&controlOps));
 	}
 
 	helix::globalQueue()->run();
