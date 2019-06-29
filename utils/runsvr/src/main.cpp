@@ -187,6 +187,9 @@ async::detached asyncMain(const char **args) {
 
 		std::cout << "svrctl: Running " << desc.name() << std::endl;
 
+		for(const auto &file : desc.files())
+			co_await uploadFile(file.path().c_str());
+
 		co_await runServer(desc.exec().c_str());
 		exit(0);
 	}else if(!strcmp(args[1], "bind")) {
@@ -200,6 +203,9 @@ async::detached asyncMain(const char **args) {
 		auto id_str = getenv("MBUS_ID");
 		std::cout << "svrctl: Binding driver " << desc.name()
 				<< " to mbus ID " << id_str << std::endl;
+
+		for(const auto &file : desc.files())
+			co_await uploadFile(file.path().c_str());
 
 		auto lane = co_await runServer(desc.exec().c_str());
 
