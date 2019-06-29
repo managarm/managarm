@@ -10,3 +10,9 @@ executable('hid', ['src/main.cpp'],
 	include_directories: hid_driver_inc,
 	install: true)
 
+custom_target('input-usbhid-server',
+	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output: 'input-usbhid.bin',
+	input: 'input-usbhid.yml',
+	install: true,
+	install_dir: get_option('libdir') / 'managarm/server')

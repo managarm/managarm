@@ -1,0 +1,7 @@
+
+name: input-atkbd
+exec: /usr/bin/ps2-hid
+files:
+  - /usr/bin/ps2-hid
+  - /usr/lib/libevbackend.so
+

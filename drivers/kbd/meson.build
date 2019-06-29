@@ -10,3 +10,9 @@ executable('ps2-hid', ['src/main.cpp'],
 	include_directories: ps2_driver_inc,
 	install: true)
 
+custom_target('input-atkbd-server',
+	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output: 'input-atkbd.bin',
+	input: 'input-atkbd.yml',
+	install: true,
+	install_dir: get_option('libdir') / 'managarm/server')

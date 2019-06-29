@@ -1,0 +1,7 @@
+
+name: input-usbhid
+exec: /usr/bin/hid
+files:
+  - /usr/bin/hid
+  - /usr/lib/libevbackend.so
+

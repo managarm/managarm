@@ -15,25 +15,6 @@
 int main() {
 	std::cout << "init: Entering stage2" << std::endl;
 
-	auto upload = [] (const char *name) {
-		auto svrctl = fork();
-		if(!svrctl) {
-			execl("/usr/bin/runsvr", "/usr/bin/runsvr", "upload", name, nullptr);
-		}else assert(svrctl != -1);
-
-		// TODO: Ensure the status is termination.
-		waitpid(svrctl, nullptr, 0);
-	};
-
-	upload("/usr/bin/gfx_bochs");
-	upload("/usr/bin/gfx_plainfb");
-	upload("/usr/bin/gfx_virtio");
-	upload("/usr/bin/gfx_vmware");
-	upload("/usr/bin/ps2-hid");
-	upload("/usr/bin/hid");
-	upload("/usr/lib/libevbackend.so");
-	upload("/usr/lib/libdrm_core.so");
-
 	// Start udev which loads the remaining drivers.
 	auto udev = fork();
 	if(!udev) {
@@ -64,6 +45,19 @@ int main() {
 		abort();
 	}
 
+	// Start some drivers that are not integrated into udev rules yet.
+	auto input_ps2 = fork();
+	if(!input_ps2) {
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
+				"/usr/lib/managarm/server/input-atkbd.bin", nullptr);
+	}else assert(input_ps2 != -1);
+
+	auto input_hid = fork();
+	if(!input_hid) {
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
+				"/usr/lib/managarm/server/input-usbhid.bin", nullptr);
+	}else assert(input_hid != -1);
+
 	// Now run 'udevadm trigger' to make sure that udev initializes every device.
 	std::cout << "init: Running udev-trigger" << std::endl;
 	auto udev_trigger_devs = fork();
@@ -82,17 +76,6 @@ int main() {
 	waitpid(udev_settle, nullptr, 0);
 
 	std::cout << "init: udev initialization is done" << std::endl;
-
-	// Start some drivers that are not integrated into udev rules yet.
-	auto input_ps2 = fork();
-	if(!input_ps2) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/ps2-hid", nullptr);
-	}else assert(input_ps2 != -1);
-
-	auto input_hid = fork();
-	if(!input_hid) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/hid", nullptr);
-	}else assert(input_hid != -1);
 
 	// Wait until we have the devices required for weston.
 	bool have_drm = false;
