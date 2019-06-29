@@ -56,15 +56,22 @@ private:
 };
 
 struct MfsRegular : MfsNode {
-	MfsRegular(frigg::SharedPtr<Memory> memory)
-	: MfsNode{MfsType::regular}, _memory{frigg::move(memory)} { }
+	MfsRegular(frigg::SharedPtr<Memory> memory, size_t size)
+	: MfsNode{MfsType::regular}, _memory{frigg::move(memory)}, _size{size} {
+		assert(_size <= _memory->getLength());
+	}
 
 	frigg::SharedPtr<Memory> getMemory() {
 		return _memory;
 	}
 
+	size_t size() {
+		return _size;
+	}
+
 private:
 	frigg::SharedPtr<Memory> _memory;
+	size_t _size;
 };
 
 extern MfsDirectory *mfsRoot;

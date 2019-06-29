@@ -90,7 +90,7 @@ void createMfsFile(frigg::StringView path, const void *buffer, size_t size) {
 	fiberCopyToBundle(memory.get(), 0, buffer, size);
 
 	auto name = path.subString(it - begin, end - it);
-	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory));
+	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
 	directory->link(frigg::String<KernelAlloc>{*kernelAlloc, name}, file);
 }
 

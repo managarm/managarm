@@ -224,7 +224,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 					auto name = frigg::String<KernelAlloc>{*kernelAlloc,
 							path.subString(it - path.data(), end - it)};
 					dir->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
-							std::move(memory)));
+							std::move(memory), file_size));
 				}
 
 				p = data + ((file_size + 3) & ~uint32_t{3});

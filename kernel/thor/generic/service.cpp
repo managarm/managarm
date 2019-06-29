@@ -257,9 +257,9 @@ namespace initrd {
 		void onExtractCreds(Error error, frigg::Array<char, 16>) {
 			assert(error == kErrSuccess);
 
-			assert(_file->offset <= _file->module->getMemory()->getLength());
+			assert(_file->offset <= _file->module->size());
 			_payload.resize(frigg::min(size_t(_req.size()),
-					_file->module->getMemory()->getLength() - _file->offset));
+					_file->module->size() - _file->offset));
 
 			auto complete = [] (CopyFromBundleNode *ctx) {
 				auto self = frg::container_of(ctx, &ReadClosure::_copyNode);
