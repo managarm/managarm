@@ -1,6 +1,7 @@
 
 #include <algorithm>
 
+#include <frg/hash_map.hpp>
 #include <frg/string.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/elf.hpp>
@@ -21,6 +22,15 @@ frigg::LazyInitializer<LaneHandle> mbusClient;
 frigg::TicketLock globalMfsMutex;
 
 extern MfsDirectory *mfsRoot;
+
+static frigg::LazyInitializer<
+	frg::hash_map<
+		frg::string<KernelAlloc>,
+		LaneHandle,
+		frg::hash<frg::string<KernelAlloc>>,
+		KernelAlloc
+	>
+> allServers;
 
 // TODO: move this declaration to a header file
 void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
@@ -364,26 +374,42 @@ void runMbus() {
 	if(debugLaunch)
 		frigg::infoLogger() << "thor: Launching mbus" << frigg::endLog;
 
-	auto stream = createStream();
-	mbusClient.initialize(stream.get<1>());
+	frg::string<KernelAlloc> name_str{*kernelAlloc, "/sbin/mbus"};
+	assert(!allServers->get(name_str));
 
-	auto module = resolveModule("sbin/mbus");
+	auto mbus_stream = createStream();
+	mbusClient.initialize(mbus_stream.get<1>());
+
+	auto control_stream = createStream();
+	allServers->insert(name_str, control_stream.get<1>());
+
+	auto module = resolveModule("/sbin/mbus");
 	assert(module && module->type == MfsType::regular);
-	executeModule("sbin/mbus", static_cast<MfsRegular *>(module),
-			LaneHandle{},
-			stream.get<0>(), LaneHandle{}, localScheduler());
+	executeModule("/sbin/mbus", static_cast<MfsRegular *>(module),
+			control_stream.get<0>(),
+			mbus_stream.get<0>(), LaneHandle{}, localScheduler());
 }
 
 LaneHandle runServer(frigg::StringView name) {
 	if(debugLaunch)
 		frigg::infoLogger() << "thor: Launching server " << name << frigg::endLog;
 
-	auto control_stream = createStream();
+	frg::string<KernelAlloc> name_str{*kernelAlloc, name.data(), name.size()};
+	if(auto server = allServers->get(name_str); server) {
+		if(debugLaunch)
+			frigg::infoLogger() << "thor: Server " << name
+					<< " is already running" << frigg::endLog;
+		return *server;
+	}
 
 	auto module = resolveModule(name);
 	if(!module)
 		frigg::panicLogger() << "thor: Could not find module " << name << frigg::endLog;
 	assert(module->type == MfsType::regular);
+
+	auto control_stream = createStream();
+	allServers->insert(name_str, control_stream.get<1>());
+
 	executeModule(name, static_cast<MfsRegular *>(module),
 			control_stream.get<0>(),
 			LaneHandle{}, *mbusClient, localScheduler());
@@ -504,6 +530,8 @@ void handleBind(LaneHandle object_lane) {
 } // anonymous namespace
 
 void initializeSvrctl() {
+	allServers.initialize(frg::hash<frg::string<KernelAlloc>>{}, *kernelAlloc);
+
 	// Create a fiber to manage requests to the svrctl mbus object.
 	KernelFiber::run([=] {
 		auto object_lane = createObject(*mbusClient);
