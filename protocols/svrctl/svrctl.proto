@@ -3,9 +3,15 @@ syntax = "proto2";
 package managarm.svrctl;
 option optimize_for = LITE_RUNTIME;
 
+// --------------------------------------------------------------------------------------
+// Kernel <-> userspace protocol.
+// --------------------------------------------------------------------------------------
+
 enum Error {
 	SUCCESS = 0;
 	ILLEGAL_REQUEST = 1;
+	// For the first response to FILE_UPLOAD: Client needs to send data.
+	DATA_REQUIRED = 3;
 	// For CTL_BIND: The driver cannot bind to this device.
 	DEVICE_NOT_SUPPORTED = 2;
 }
@@ -16,6 +22,7 @@ enum CntReqType {
 	NONE = 0;
 
 	FILE_UPLOAD = 1;
+	FILE_UPLOAD_DATA = 3;
 	SVR_RUN = 2;
 
 	CTL_BIND = 1;
@@ -32,6 +39,10 @@ message CntRequest {
 message SvrResponse {
 	optional Error error = 1;
 }
+
+// --------------------------------------------------------------------------------------
+// Server description files.
+// --------------------------------------------------------------------------------------
 
 message Description {
 	optional string name = 1;

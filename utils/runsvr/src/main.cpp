@@ -97,33 +97,68 @@ async::result<helix::UniqueLane> runServer(const char *name) {
 }
 
 async::result<void> uploadFile(const char *name) {
-	// First, load the whole file into a buffer.
-	auto buffer = readEntireFile(name);
+	std::vector<std::byte> buffer;
 
-	// Now, send the file to the kernel.
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::SendBuffer send_data;
-	helix::RecvInline recv_resp;
+	auto optimisticUpload = [&] () -> async::result<bool> {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
 
-	managarm::svrctl::CntRequest req;
-	req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD);
-	req.set_name(name);
+		managarm::svrctl::CntRequest req;
+		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD);
+		req.set_name(name);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(svrctlLane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, buffer.data(), buffer.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
-	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(svrctlLane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		co_await transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
 
-	managarm::svrctl::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-	assert(resp.error() == managarm::svrctl::Error::SUCCESS);
+		managarm::svrctl::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		if(resp.error() == managarm::svrctl::Error::DATA_REQUIRED)
+			co_return false;
+		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
+		co_return true;
+	};
+
+	auto uploadWithData = [&] () -> async::result<void> {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::SendBuffer send_data;
+		helix::RecvInline recv_resp;
+
+		managarm::svrctl::CntRequest req;
+		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD_DATA);
+		req.set_name(name);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(svrctlLane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_data, buffer.data(), buffer.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		co_await transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::svrctl::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
+	};
+
+	// Try to avoid reading the file at first.
+	if(co_await optimisticUpload())
+		co_return;
+
+	// The kernel does not know the file; we have to read the entire contents.
+	buffer = readEntireFile(name);
+	co_await uploadWithData();
 }
 
 // ----------------------------------------------------------------

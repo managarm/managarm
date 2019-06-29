@@ -40,7 +40,7 @@ void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
 // File management.
 // ------------------------------------------------------------------------
 
-void createMfsFile(frigg::StringView path, const void *buffer, size_t size) {
+bool createMfsFile(frigg::StringView path, const void *buffer, size_t size, MfsRegular **out) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&globalMfsMutex);
 
@@ -84,14 +84,21 @@ void createMfsFile(frigg::StringView path, const void *buffer, size_t size) {
 
 	// Now, insert the file into its parent directory.
 	auto directory = static_cast<MfsDirectory *>(node);
+	auto name = path.subString(it - begin, end - it);
+	if(auto file = directory->getTarget(name); file) {
+		assert(file->type == MfsType::regular);
+		*out = static_cast<MfsRegular *>(file);
+		return false;
+	}
 
 	auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 	fiberCopyToBundle(memory.get(), 0, buffer, size);
 
-	auto name = path.subString(it - begin, end - it);
 	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
 	directory->link(frigg::String<KernelAlloc>{*kernelAlloc, name}, file);
+	*out = file;
+	return true;
 }
 
 MfsNode *resolveModule(frigg::StringView path) {
@@ -433,12 +440,45 @@ bool handleReq(LaneHandle lane) {
 	req.ParseFromArray(buffer.data(), buffer.size());
 
 	if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD) {
+		auto file = resolveModule(req.name());
+		if(file) {
+			// The file data is already known to us.
+			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::svrctl::Error::SUCCESS);
+
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+		}else{
+			// Ask user space for the file data.
+			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::svrctl::Error::DATA_REQUIRED);
+
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+		}
+	}else if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD_DATA) {
 		auto buffer = fiberRecv(branch);
-		createMfsFile(req.name(), buffer.data(), buffer.size());
+		MfsRegular *file;
+		if(!createMfsFile(req.name(), buffer.data(), buffer.size(), &file)) {
+			// TODO: Verify that the file data matches. This is somewhat expensive because
+			//       we would have to map the file's memory. Hence, we do not implement
+			//       it for now.
+			if(file->size() != buffer.size()) {
+				managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::svrctl::Error::SUCCESS);
+
+				frigg::String<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				fiberSend(branch, ser.data(), ser.size());
+				return true;
+			}
+		}
 
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::SUCCESS);
-	
+
 		frigg::String<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
