@@ -5,7 +5,7 @@ ATTR{owns_plainfb}!="1", GOTO="managarm_vga_end"
 
 ATTR{vendor}=="0x1234", ATTR{device}=="0x1111", RUN+="/usr/bin/runsvr runsvr /usr/bin/gfx_bochs", GOTO="managarm_vga_end"
 ATTR{vendor}=="0x1af4", ATTR{device}=="0x1050", RUN+="/usr/bin/runsvr bind /usr/lib/managarm/server/gfx-virtio.bin", GOTO="managarm_vga_end"
-ATTR{vendor}=="0x15ad", ATTR{device}=="0x0405", RUN+="/usr/bin/runsvr runsvr /usr/bin/gfx_vmware", GOTO="managarm_vga_end"
+ATTR{vendor}=="0x15ad", ATTR{device}=="0x0405", RUN+="/usr/bin/runsvr run /usr/lib/managarm/server/gfx-vmware.bin", GOTO="managarm_vga_end"
 RUN += "/usr/bin/runsvr runsvr /usr/bin/gfx_plainfb"
 
 LABEL="managarm_vga_end"

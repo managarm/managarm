@@ -1,0 +1,6 @@
+
+name: gfx-vmware
+exec: /usr/bin/gfx_vmware
+files:
+  - /usr/bin/gfx_vmware
+  - /usr/lib/libdrm_core.so

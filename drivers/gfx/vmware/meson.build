@@ -13,3 +13,9 @@ executable('gfx_vmware', ['src/main.cpp', fs_pb],
 	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	install: true)
 
+custom_target('gfx-vmware-server',
+	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output: 'gfx-vmware.bin',
+	input: 'gfx-vmware.yml',
+	install: true,
+	install_dir: get_option('libdir') / 'managarm/server')
