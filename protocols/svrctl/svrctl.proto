@@ -36,6 +36,10 @@ message SvrResponse {
 message Description {
 	optional string name = 1;
 	optional string exec = 2;
-	repeated string files = 3;
+	repeated File files = 3;
+}
+
+message File {
+	optional string path = 1;
 }
 

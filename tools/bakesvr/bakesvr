@@ -22,7 +22,10 @@ with open(args.input, 'r') as f:
 desc = svrctl_pb2.Description()
 desc.name = yml['name']
 desc.exec = yml['exec']
-desc.files.extend(yml['files'])
+for path in yml['files']:
+	file_desc = svrctl_pb2.File()
+	file_desc.path = path
+	desc.files.append(file_desc)
 
 with open(args.output, 'wb') as f:
 	f.write(desc.SerializeToString())
