@@ -267,6 +267,7 @@ public:
 		inline void finish() {
 			friggPrintCritical('\n');
 			friggEndLog();
+			friggPanic();
 			_valid = false;
 		}
 	
