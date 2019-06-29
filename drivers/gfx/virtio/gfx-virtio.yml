@@ -1,0 +1,7 @@
+
+name: gfx-virtio
+exec: /usr/bin/gfx_virtio
+files:
+  - /usr/bin/gfx_virtio
+  - /usr/lib/libdrm_core.so
+

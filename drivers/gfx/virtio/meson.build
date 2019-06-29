@@ -21,3 +21,10 @@ executable('gfx_virtio', ['src/main.cpp', fs_pb],
 	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	install: true)
 
+custom_target('gfx-virtio-server',
+	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output: 'gfx-virtio.bin',
+	input: 'gfx-virtio.yml',
+	install: true,
+	install_dir: get_option('libdir') / 'managarm/server')
+

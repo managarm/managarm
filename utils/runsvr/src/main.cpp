@@ -9,6 +9,39 @@
 #include <protocols/mbus/client.hpp>
 #include <svrctl.pb.h>
 
+static std::vector<std::byte> readEntireFile(const char *path) {
+	constexpr size_t bytesPerChunk = 8192;
+
+	auto fd = open(path, O_RDONLY);
+	if(fd < 0)
+		throw std::runtime_error("Could not open file");
+
+	std::vector<std::byte> buffer;
+
+	struct stat st;
+	if(!fstat(fd, &st)) {
+		buffer.reserve(st.st_size);
+	}else{
+		std::cout << "runsvr: fstat() failed on " << path << std::endl;
+	}
+
+	off_t progress = 0;
+	while(true) {
+		buffer.resize(progress + bytesPerChunk);
+		auto chunk = read(fd, buffer.data() + progress, bytesPerChunk);
+		if(!chunk)
+			break;
+		if(chunk < 0)
+			throw std::runtime_error("Error while reading file");
+		progress += chunk;
+	}
+
+	close(fd);
+
+	buffer.resize(progress);
+	return buffer;
+}
+
 // ----------------------------------------------------------------------------
 // svrctl handling.
 // ----------------------------------------------------------------------------
@@ -65,26 +98,7 @@ async::result<helix::UniqueLane> runServer(const char *name) {
 
 async::result<void> uploadFile(const char *name) {
 	// First, load the whole file into a buffer.
-	// TODO: stat() + read() introduces a TOCTTOU race.
-	struct stat st;
-	if(stat(name, &st))
-		throw std::runtime_error("Could not stat file");
-
-	auto fd = open(name, O_RDONLY);
-
-	auto buffer = malloc(st.st_size);
-	if(!buffer)
-		throw std::runtime_error("Could not allocate buffer for file");
-
-	off_t progress = 0;
-	while(progress < st.st_size) {
-		auto chunk = read(fd, buffer, st.st_size - progress);
-		if(chunk <= 0)
-			throw std::runtime_error("Error while reading file");
-		progress += chunk;
-	}
-
-	close(fd);
+	auto buffer = readEntireFile(name);
 
 	// Now, send the file to the kernel.
 	helix::Offer offer;
@@ -100,14 +114,12 @@ async::result<void> uploadFile(const char *name) {
 	auto &&transmit = helix::submitAsync(svrctlLane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, buffer, progress, kHelItemChain),
+			helix::action(&send_data, buffer.data(), buffer.size(), kHelItemChain),
 			helix::action(&recv_resp));
 	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
-
-	free(buffer);
 
 	managarm::svrctl::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
@@ -125,20 +137,36 @@ async::detached asyncMain(const char **args) {
 		if(!args[2])
 			throw std::runtime_error("Expected at least one argument");
 
-		// TODO: Eventually remove the runsvr command in favor of bind.
+		// TODO: Eventually remove the runsvr command in favor of run + bind.
 		std::cout << "svrctl: Running " << args[2] << std::endl;
 
 		co_await runServer(args[2]);
 		exit(0);
+	}else if(!strcmp(args[1], "run")) {
+		if(!args[2])
+			throw std::runtime_error("Expected at least one argument");
+		auto buffer = readEntireFile(args[2]);
+
+		managarm::svrctl::Description desc;
+		desc.ParseFromArray(buffer.data(), buffer.size());
+
+		std::cout << "svrctl: Running " << desc.name() << std::endl;
+
+		co_await runServer(desc.exec().c_str());
+		exit(0);
 	}else if(!strcmp(args[1], "bind")) {
 		if(!args[2])
 			throw std::runtime_error("Expected at least one argument");
+		auto buffer = readEntireFile(args[2]);
+
+		managarm::svrctl::Description desc;
+		desc.ParseFromArray(buffer.data(), buffer.size());
 
 		auto id_str = getenv("MBUS_ID");
-		std::cout << "svrctl: Binding driver " << args[2]
+		std::cout << "svrctl: Binding driver " << desc.name()
 				<< " to mbus ID " << id_str << std::endl;
 
-		auto lane = co_await runServer(args[2]);
+		auto lane = co_await runServer(desc.exec().c_str());
 
 		helix::Offer offer;
 		helix::SendBuffer send_req;

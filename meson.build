@@ -26,6 +26,8 @@ if get_option('build_kernel')
 endif
 
 if get_option('build_drivers')
+	bakesvr = find_program('bakesvr')
+
 	add_project_arguments('-fcoroutines-ts', language: 'cpp')
 
 	cxxshim = subproject('cxxshim')
