@@ -96,14 +96,14 @@ void sendBurst() {
 	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
+async::detached handleIrqs() {
 	uint64_t sequence = 0;
 	while(true) {
 		std::cout << "uart: Awaiting IRQ." << std::endl;
 		helix::AwaitEvent await_irq;
 		auto &&submit = helix::submitAwaitEvent(irq, &await_irq, sequence,
 				helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
+		co_await submit.async_wait();
 		HEL_CHECK(await_irq.error());
 		sequence = await_irq.sequence();
 		std::cout << "uart: IRQ fired." << std::endl;
@@ -128,17 +128,16 @@ COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 			printf("Modem detected!\n");
 		}
 	}
-}))
+}
 	
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-read(void *, const char *, void *buffer, size_t length), ([=] {
+async::result<protocols::fs::ReadResult>
+read(void *, const char *, void *buffer, size_t length) {
 	auto req = new ReadRequest(buffer, length);
 	recvRequests.push_back(*req);
 	auto future = req->promise.async_get();
 	processRecv();
-	auto value = COFIBER_AWAIT std::move(future);
-	COFIBER_RETURN(value);
-}))
+	co_return co_await std::move(future);
+}
 
 async::result<void> write(void *, const char *, const void *buffer, size_t length) {
 	auto req = new WriteRequest(buffer, length);
@@ -159,8 +158,7 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withWrite(&write)
 	.withAccessMemory(&accessMemory);
 
-COFIBER_ROUTINE(cofiber::no_future, serveTerminal(helix::UniqueLane p),
-		([lane = std::move(p)] {
+async::detached serveTerminal(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
@@ -170,7 +168,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveTerminal(helix::UniqueLane p),
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -194,19 +192,18 @@ COFIBER_ROUTINE(cofiber::no_future, serveTerminal(helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_node, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else{
 			throw std::runtime_error("Invalid serveTerminal request!");
 		}
 	}
-}))
+}
 	
-
-COFIBER_ROUTINE(cofiber::no_future, runTerminal(), ([=] {
+async::detached runTerminal() {
 	// Create an mbus object for the partition.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 	
 	mbus::Properties descriptor{
 		{"unix.devtype", mbus::StringItem{"block"}},
@@ -224,8 +221,8 @@ COFIBER_ROUTINE(cofiber::no_future, runTerminal(), ([=] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("uart0", descriptor, std::move(handler));
-}))
+	co_await root.createObject("uart0", descriptor, std::move(handler));
+}
 
 int main() {
 	printf("Starting UART driver\n");

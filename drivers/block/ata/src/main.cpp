@@ -46,7 +46,7 @@ public:
 	void run();
 
 private:
-	cofiber::no_future _doRequestLoop();
+	async::detached _doRequestLoop();
 
 public:
 	async::result<void> readSectors(uint64_t sector, void *buffer,
@@ -105,19 +105,19 @@ void Controller::run() {
 	blockfs::runDevice(this);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, Controller::_doRequestLoop(), ([=] {
+async::detached Controller::_doRequestLoop() {
 	while(true) {
 		if(_requestQueue.empty()) {
-			COFIBER_AWAIT _doorbell.async_wait();
+			co_await _doorbell.async_wait();
 			continue;
 		}
 
 		auto request = _requestQueue.front().get();
-		COFIBER_AWAIT _performRequest(request);
+		co_await _performRequest(request);
 		request->promise.set_value();
 		_requestQueue.pop();
 	}
-}))
+}
 
 async::result<void> Controller::readSectors(uint64_t sector, void *buffer, size_t num_sectors) {
 	auto request = std::make_unique<Request>();
@@ -132,7 +132,7 @@ async::result<void> Controller::readSectors(uint64_t sector, void *buffer, size_
 	return future;
 }
 
-COFIBER_ROUTINE(async::result<void>, Controller::_performRequest(Request *request), ([=] {
+async::result<void> Controller::_performRequest(Request *request) {
 	if(logRequests)
 		std::cout << "block/ata: Reading " << request->numSectors
 				<< " sectors from " << request->sector << std::endl;
@@ -161,7 +161,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::_performRequest(Request *reques
 			helix::AwaitEvent await_irq;
 			auto &&submit = helix::submitAwaitEvent(_irq, &await_irq, _irqSequence,
 					helix::Dispatcher::global());
-			COFIBER_AWAIT submit.async_wait();
+			co_await submit.async_wait();
 			HEL_CHECK(await_irq.error());
 			_irqSequence = await_irq.sequence();
 			if(logIrqs)
@@ -200,7 +200,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::_performRequest(Request *reques
 	if(logRequests)
 		std::cout << "block/ata: Reading from " << request->sector
 				<< " complete" << std::endl;
-}))
+}
 
 Controller globalController;
 

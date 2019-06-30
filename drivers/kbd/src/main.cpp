@@ -184,7 +184,7 @@ void handleKeyboardData(uint8_t data) {
 		escapeStatus = kStatusNormal;
 	}else{
 		assert(escapeStatus == kStatusNormal);
-	
+
 		if(data == 0xE0) {
 			escapeStatus = kStatusE0;
 			return;
@@ -192,7 +192,7 @@ void handleKeyboardData(uint8_t data) {
 			escapeStatus = kStatusE1First;
 			return;
 		}
-		
+
 		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
 		kbdEvntDev->notify();
 	}
@@ -238,7 +238,7 @@ void handleMouseData(uint8_t data) {
 		}else{
 			assert(mouseByte == kMouseByte2);
 			unsigned int byte2 = data;
-			
+
 			int movement_x = (int)byte1 - (int)((byte0 << 4) & 0x100);
 			int movement_y = (int)byte2 - (int)((byte0 << 3) & 0x100);
 
@@ -250,7 +250,7 @@ void handleMouseData(uint8_t data) {
 						<< " " << byte1 << " " << byte2 << std::dec << std::endl;
 				std::cout << "ps2-hid: Movement: " << movement_x << ", " << movement_y << std::endl;
 			}
-	
+
 			mouseEvntDev->emitEvent(EV_REL, REL_X, byte1 ? movement_x : 0);
 			mouseEvntDev->emitEvent(EV_REL, REL_Y, byte2 ? -movement_y : 0);
 			mouseEvntDev->emitEvent(EV_KEY, BTN_LEFT, byte0 & 1);
@@ -258,7 +258,7 @@ void handleMouseData(uint8_t data) {
 			mouseEvntDev->emitEvent(EV_KEY, BTN_MIDDLE, byte0 & 4);
 			mouseEvntDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 			mouseEvntDev->notify();
-			
+
 			mouseByte = kMouseByte0;
 		}
 	}
@@ -297,44 +297,44 @@ bool readDeviceData() {
 	return avail;
 }
 
-COFIBER_ROUTINE(cofiber::no_future, handleKbdIrqs(), ([=] {	
+async::detached handleKbdIrqs() {
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await_irq;
 		auto &&submit = helix::submitAwaitEvent(kbdIrq, &await_irq,
 				sequence, helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
+		co_await submit.async_wait();
 		HEL_CHECK(await_irq.error());
 		sequence = await_irq.sequence();
 		//std::cout << "ps2-hid: Keyboard IRQ" << std::endl;
-		
+
 		readDeviceData();
-		
+
 		// TODO: Only ack if the IRQ was from the PS/2 controller.
 		HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckAcknowledge, sequence));
 		//HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckNack, sequence));
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, handleMouseIrqs(), ([=] {	
+async::detached handleMouseIrqs() {
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await_irq;
 		auto &&submit = helix::submitAwaitEvent(mouseIrq, &await_irq,
 				sequence, helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
+		co_await submit.async_wait();
 		HEL_CHECK(await_irq.error());
 		sequence = await_irq.sequence();
 		//std::cout << "ps2-hid: Mouse IRQ" << std::endl;
-		
+
 		readDeviceData();
-		
+
 		// TODO: Only ack if the IRQ was from the PS/2 controller.
 		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), kHelAckAcknowledge, sequence));
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
+async::detached runKbd() {
 	kbdEvntDev->enableEvent(EV_KEY, KEY_A);
 	kbdEvntDev->enableEvent(EV_KEY, KEY_B);
 	kbdEvntDev->enableEvent(EV_KEY, KEY_C);
@@ -404,12 +404,12 @@ COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
 	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTMETA);
 
 	// Create an mbus object for the partition.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
-	
+	auto root = co_await mbus::Instance::global().getRoot();
+
 	mbus::Properties descriptor{
 		{"unix.subsystem", mbus::StringItem{"input"}}
 	};
-	
+
 	auto handler = mbus::ObjectHandler{}
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
@@ -421,10 +421,10 @@ COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("ps2kbd", descriptor, std::move(handler));
-}))
+	co_await root.createObject("ps2kbd", descriptor, std::move(handler));
+}
 
-COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
+async::detached runMouse() {
 	mouseEvntDev->enableEvent(EV_REL, REL_X);
 	mouseEvntDev->enableEvent(EV_REL, REL_Y);
 	mouseEvntDev->enableEvent(EV_KEY, BTN_LEFT);
@@ -432,12 +432,12 @@ COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
 	mouseEvntDev->enableEvent(EV_KEY, BTN_MIDDLE);
 
 	// Create an mbus object for the partition.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
-	
+	auto root = co_await mbus::Instance::global().getRoot();
+
 	mbus::Properties descriptor{
 		{"unix.subsystem", mbus::StringItem{"input"}}
 	};
-	
+
 	auto handler = mbus::ObjectHandler{}
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
@@ -449,35 +449,35 @@ COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("ps2mouse", descriptor, std::move(handler));
-}))
+	co_await root.createObject("ps2mouse", descriptor, std::move(handler));
+}
 
-COFIBER_ROUTINE(cofiber::no_future, pollController(), ([=] {
+async::detached pollController() {
 	while(true) {
 		readDeviceData();
-		
+
 		uint64_t tick;
 		HEL_CHECK(helGetClock(&tick));
 
 		helix::AwaitClock await_clock;
 		auto &&submit = helix::submitAwaitClock(&await_clock, tick + 1'000'000,
 				helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
+		co_await submit.async_wait();
 		HEL_CHECK(await_clock.error());
 	}
-}))
+}
 
 int main() {
 	std::cout << "ps2-hid: Starting driver" << std::endl;
-	
+
 	HelHandle kbd_handle;
 	HEL_CHECK(helAccessIrq(1, &kbd_handle));
 	kbdIrq = helix::UniqueIrq(kbd_handle);
-	
+
 	HelHandle mouse_handle;
 	HEL_CHECK(helAccessIrq(12, &mouse_handle));
 	mouseIrq = helix::UniqueIrq(mouse_handle);
-	
+
 	uintptr_t ports[] = { DATA, STATUS };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 2, &handle));
@@ -519,9 +519,8 @@ int main() {
 		handleMouseIrqs();
 	//	pollController();
 	}
-	
+
 	helix::globalQueue()->run();
 
 	return 0;
 }
-
