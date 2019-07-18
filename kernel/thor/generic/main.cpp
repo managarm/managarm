@@ -241,7 +241,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 
 		// Launch initial user space programs.
-		initializeKerninfo();
+		initializeKerncfg();
 		initializeSvrctl();
 		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
 		runMbus();

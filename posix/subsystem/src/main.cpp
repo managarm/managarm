@@ -1964,7 +1964,7 @@ void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation
 // --------------------------------------------------------
 
 namespace {
-	async::jump foundKerninfo;
+	async::jump foundKerncfg;
 	helix::UniqueLane kerncfgLane;
 };
 
@@ -2001,7 +2001,7 @@ struct CmdlineNode final : public procfs::RegularNode {
 	}
 };
 
-async::result<void> enumerateKerninfo() {
+async::result<void> enumerateKerncfg() {
 	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
@@ -2013,11 +2013,11 @@ async::result<void> enumerateKerninfo() {
 		std::cout << "POSIX: Found kerncfg" << std::endl;
 
 		kerncfgLane = helix::UniqueLane(co_await entity.bind());
-		foundKerninfo.trigger();
+		foundKerncfg.trigger();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundKerninfo.async_wait();
+	co_await foundKerncfg.async_wait();
 
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	procfs_root->directMkregular("cmdline", std::make_shared<CmdlineNode>());
@@ -2028,7 +2028,7 @@ async::result<void> enumerateKerninfo() {
 // --------------------------------------------------------
 
 async::detached runInit() {
-	co_await enumerateKerninfo();
+	co_await enumerateKerncfg();
 	co_await clk::enumerateTracker();
 	co_await populateRootView();
 	co_await Process::init("sbin/posix-init");

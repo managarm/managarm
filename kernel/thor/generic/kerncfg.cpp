@@ -110,7 +110,7 @@ void handleBind(LaneHandle object_lane) {
 
 } // anonymous namespace
 
-void initializeKerninfo() {
+void initializeKerncfg() {
 	// Create a fiber to manage requests to the kerncfg mbus object.
 	KernelFiber::run([=] {
 		auto object_lane = createObject(*mbusClient);
