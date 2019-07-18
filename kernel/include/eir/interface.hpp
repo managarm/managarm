@@ -1,6 +1,9 @@
 
 static const uint64_t eirSignatureValue = 0x68692C2074686F72;
 
+static const uint32_t eirDebugSerial = 1;
+static const uint32_t eirDebugBochs = 2;
+
 typedef uint64_t EirPtr;
 typedef uint64_t EirSize;
 
@@ -32,6 +35,8 @@ struct EirFramebuffer {
 struct EirInfo {
 	uint64_t signature;
 	EirPtr commandLine;
+	uint32_t debugFlags;
+	uint32_t padding;
 
 	EirRegion coreRegion;
 

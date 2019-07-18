@@ -8,6 +8,7 @@
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/libc.hpp>
+#include <frigg/string.hpp>
 #include <frigg/support.hpp>
 #include <frigg/physical_buddy.hpp>
 #include <eir/interface.hpp>
@@ -702,7 +703,28 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info_ptr->coreRegion.numRoots = regions[core_idx].numRoots;
 	info_ptr->coreRegion.buddyTree = regions[core_idx].buddyMap;
 
+	// Parse the kernel command line.
 	assert(mb_info->flags & kMbInfoCommandLine);
+	const char *l = mb_info->commandLine;
+	while(true) {
+		while(*l && *l == ' ')
+			l++;
+		if(!(*l))
+			break;
+
+		const char *s = l;
+		while(*s && *s != ' ')
+			s++;
+
+		frigg::StringView token{l, s - l};
+		if(token == "serial") {
+			info_ptr->debugFlags |= eirDebugSerial;
+		}else if(token == "bochs") {
+			info_ptr->debugFlags |= eirDebugBochs;
+		}
+		l = s;
+	}
+
 	auto cmd_length = strlen(mb_info->commandLine);
 	assert(cmd_length <= kPageSize);
 	auto cmd_buffer = bootAllocN<char>(cmd_length);

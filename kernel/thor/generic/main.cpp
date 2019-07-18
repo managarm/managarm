@@ -46,14 +46,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	earlyInitializeBootProcessor();
 
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
-	auto cmd_line = frigg::StringView{reinterpret_cast<char *>(info->commandLine)};
-	if(cmd_line == "vga") {
-		debugToVga = true;
-	}else if(cmd_line == "serial") {
+	if(info->debugFlags & eirDebugSerial)
 		debugToSerial = true;
-	}else if(cmd_line == "bochs") {
+	if(info->debugFlags & eirDebugBochs)
 		debugToBochs = true;
-	}
 	setupDebugging();
 
 	initializeBootFb(info->frameBuffer.fbAddress, info->frameBuffer.fbPitch,
