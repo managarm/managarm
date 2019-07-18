@@ -1,9 +1,9 @@
-
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fstream>
 #include <iostream>
 
 #include <libudev.h>
@@ -113,23 +113,37 @@ int main() {
 		udev_device_unref(dev);
 	}
 
-	// Finally, launch into Weston.
-	auto modeset = fork();
-	if(!modeset) {
+	std::string launch = "kmscon";
+
+	std::string token;
+	std::ifstream cmdline("/proc/cmdline");
+	while(cmdline >> token) {
+		if(token.compare(0, 12, "init.launch="))
+			continue;
+		launch = token.substr(12);
+	}
+
+	// Finally, launch into kmscon/Weston.
+	auto desktop = fork();
+	if(!desktop) {
 //		putenv("MLIBC_DEBUG_MALLOC=1");
 		putenv("PATH=/usr/local/bin:/usr/bin:/bin");
 		putenv("XDG_RUNTIME_DIR=/run");
 		putenv("MESA_GLSL_CACHE_DISABLE=1");
 //		putenv("MESA_DEBUG=1");
 
-		//execl("/usr/bin/weston", "weston", nullptr);
-		//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
-		execl("/usr/bin/kmscon", "kmscon", nullptr);
-		//execl("/usr/bin/kmscon", "kmscon", "--debug", "--verbose", nullptr);
+		if(launch == "kmscon") {
+			execl("/usr/bin/kmscon", "kmscon", nullptr);
+			//execl("/usr/bin/kmscon", "kmscon", "--debug", "--verbose", nullptr);
+		}else if(launch == "weston") {
+			execl("/usr/bin/weston", "weston", nullptr);
+			//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
+		}else{
+			std::cout << "init: init does not know how to launch " << launch << std::endl;
+		}
 		//execl("/usr/bin/kmscube", "kmscube", nullptr);
-	}else assert(modeset != -1);
+	}else assert(desktop != -1);
 
 	while(true)
 		sleep(60);
 }
-
