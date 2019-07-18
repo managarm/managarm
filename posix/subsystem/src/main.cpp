@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <iostream>
 
+#include <async/jump.hpp>
 #include <cofiber.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -29,6 +30,7 @@
 #include "devices/helout.hpp"
 #include "fifo.hpp"
 #include "inotify.hpp"
+#include "procfs.hpp"
 #include "pts.hpp"
 #include "signalfd.hpp"
 #include "subsystem/block.hpp"
@@ -40,6 +42,7 @@
 #include "timerfd.hpp"
 #include "eventfd.hpp"
 #include "tmp_fs.hpp"
+#include <kerncfg.pb.h>
 #include <posix.pb.h>
 
 namespace {
@@ -87,7 +90,7 @@ private:
 			HEL_CHECK(await.error());
 			_function();
 		}
-		
+
 		_promise.set_value();
 	}
 
@@ -602,14 +605,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			if(req.fs_type() == "sysfs") {
-				target.first->mount(target.second, getSysfs());	
+			if(req.fs_type() == "procfs") {
+				target.first->mount(target.second, getProcfs());
+			}else if(req.fs_type() == "sysfs") {
+				target.first->mount(target.second, getSysfs());
 			}else if(req.fs_type() == "devtmpfs") {
-				target.first->mount(target.second, getDevtmpfs());	
+				target.first->mount(target.second, getDevtmpfs());
 			}else if(req.fs_type() == "tmpfs") {
-				target.first->mount(target.second, tmp_fs::createRoot());	
+				target.first->mount(target.second, tmp_fs::createRoot());
 			}else if(req.fs_type() == "devpts") {
-				target.first->mount(target.second, pts::getFsRoot());	
+				target.first->mount(target.second, pts::getFsRoot());
 			}else{
 				assert(req.fs_type() == "ext2");
 				auto source = co_await resolve(self->fsContext()->getRoot(),
@@ -618,7 +623,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 				auto link = co_await device->mount();
-				target.first->mount(target.second, std::move(link));	
+				target.first->mount(target.second, std::move(link));
 			}
 
 			if(logRequests)
@@ -817,7 +822,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::STAT
-				|| req.request_type() == managarm::posix::CntReqType::LSTAT) {	
+				|| req.request_type() == managarm::posix::CntReqType::LSTAT) {
 			if(logRequests || logPaths)
 				std::cout << "posix: STAT path: " << req.path() << std::endl;
 
@@ -937,7 +942,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {	
+		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			if(logRequests || logPaths)
 				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
 
@@ -1957,10 +1962,73 @@ void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation
 }
 
 // --------------------------------------------------------
+
+namespace {
+	async::jump foundKerninfo;
+	helix::UniqueLane kerncfgLane;
+};
+
+struct CmdlineNode final : public procfs::RegularNode {
+	async::result<std::string> show() override {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::RecvInline recv_cmdline;
+
+		managarm::kerncfg::CntRequest req;
+		req.set_req_type(managarm::kerncfg::CntReqType::GET_CMDLINE);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(kerncfgLane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&recv_cmdline));
+		co_await transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(recv_cmdline.error());
+
+		managarm::kerncfg::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
+		co_return std::string{(const char *)recv_cmdline.data(), recv_cmdline.length()} + '\n';
+	}
+
+	async::result<void> store(std::string buffer) override {
+		throw std::runtime_error("Cannot store to /proc/cmdline");
+	}
+};
+
+async::result<void> enumerateKerninfo() {
+	auto root = co_await mbus::Instance::global().getRoot();
+
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("class", "kerncfg")
+	});
+
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+		std::cout << "POSIX: Found kerncfg" << std::endl;
+
+		kerncfgLane = helix::UniqueLane(co_await entity.bind());
+		foundKerninfo.trigger();
+	});
+
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+	co_await foundKerninfo.async_wait();
+
+	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	procfs_root->directMkregular("cmdline", std::make_shared<CmdlineNode>());
+}
+
+// --------------------------------------------------------
 // main() function
 // --------------------------------------------------------
 
 async::detached runInit() {
+	co_await enumerateKerninfo();
 	co_await clk::enumerateTracker();
 	co_await populateRootView();
 	co_await Process::init("sbin/posix-init");

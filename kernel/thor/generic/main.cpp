@@ -5,9 +5,11 @@
 #include "module.hpp"
 #include "irq.hpp"
 #include "fiber.hpp"
+#include "kerncfg.hpp"
 #include "kernlet.hpp"
 #include "servers.hpp"
 #include "service_helpers.hpp"
+#include <frg/string.hpp>
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
 #include "../system/pci/pci.hpp"
@@ -30,6 +32,7 @@ bool debugToBochs = false;
 frigg::LazyInitializer<IrqSlot> globalIrqSlots[24];
 
 MfsDirectory *mfsRoot;
+frigg::LazyInitializer<frg::string<KernelAlloc>> kernelCommandLine;
 
 void setupDebugging();
 
@@ -87,6 +90,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
 
+	kernelCommandLine.initialize(*kernelAlloc, reinterpret_cast<const char *>(info->commandLine));
 	earlyFibers.initialize(*kernelAlloc);
 
 	initializeReclaim();
@@ -237,6 +241,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 
 		// Launch initial user space programs.
+		initializeKerninfo();
 		initializeSvrctl();
 		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
 		runMbus();

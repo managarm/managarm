@@ -1,18 +1,26 @@
 
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../bragi/proto', 
-				'@INPUT@']) 
+		arguments: ['--cpp_out=@BUILD_DIR@',
+			'--proto_path=@CURRENT_SOURCE_DIR@../../bragi/proto',
+			'@INPUT@'])
 
 fs_pb = gen.process('../../bragi/proto/fs.proto')
 posix_pb = gen.process('../../bragi/proto/posix.proto')
 
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/clock', 
-				'@INPUT@']) 
-
+		arguments: ['--cpp_out=@BUILD_DIR@',
+			'--proto_path=@CURRENT_SOURCE_DIR@../../protocols/clock',
+			'@INPUT@'])
 clock_pb = gen.process('../../protocols/clock/clock.proto')
+
+gen = generator(protoc,
+		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
+		arguments: ['--cpp_out=@BUILD_DIR@',
+			'--proto_path=@CURRENT_SOURCE_DIR@../../protocols/kerncfg',
+			'@INPUT@'])
+kerncfg_pb = gen.process('../../protocols/kerncfg/kerncfg.proto')
 
 posix_subsystem_inc = include_directories('../../frigg/include')
 
@@ -31,6 +39,7 @@ executable('posix-subsystem',
 		'src/main.cpp',
 		'src/nl-socket.cpp',
 		'src/process.cpp',
+		'src/procfs.cpp',
 		'src/pts.cpp',
 		'src/signalfd.cpp',
 		'src/subsystem/block.cpp',
@@ -45,6 +54,7 @@ executable('posix-subsystem',
 		'src/vfs.cpp',
 		clock_pb,
 		fs_pb,
+		kerncfg_pb,
 		posix_pb],
 	dependencies: [
 		clang_coroutine_dep,

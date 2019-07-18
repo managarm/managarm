@@ -57,6 +57,8 @@ int main() {
 	if(mount("/dev/sda0", "/realfs", "ext2", 0, ""))
 		throw std::runtime_error("mount() failed");
 
+	if(mount("", "/realfs/proc", "procfs", 0, ""))
+		throw std::runtime_error("mount() failed");
 	if(mount("", "/realfs/sys", "sysfs", 0, ""))
 		throw std::runtime_error("mount() failed");
 	if(mount("", "/realfs/dev", "devtmpfs", 0, ""))

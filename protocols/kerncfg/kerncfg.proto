@@ -1,0 +1,24 @@
+
+syntax = "proto2";
+package managarm.kerncfg;
+option optimize_for = LITE_RUNTIME;
+
+enum Error {
+	SUCCESS = 0;
+	ILLEGAL_REQUEST = 1;
+}
+
+enum CntReqType {
+	NONE = 0;
+	GET_CMDLINE = 1;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+}
+
+message SvrResponse {
+	optional Error error = 1;
+	optional uint64 size = 2;
+}
+

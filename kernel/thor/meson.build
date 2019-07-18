@@ -20,6 +20,9 @@ pb_sources = [
 			meson.current_source_dir() + '/../../protocols/hw/hw.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/hw']),
 	gen.process(
+			meson.current_source_dir() + '/../../protocols/kerncfg/kerncfg.proto',
+		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kerncfg']),
+	gen.process(
 			meson.current_source_dir() + '/../../protocols/kernlet/kernlet.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kernlet']),
 	gen.process(
@@ -61,6 +64,7 @@ thor_sources = files(
 	'generic/event.cpp',
 	'generic/irq.cpp',
 	'generic/io.cpp',
+	'generic/kerncfg.cpp',
 	'generic/kernlet.cpp',
 	'generic/servers.cpp',
 	'generic/service_helpers.cpp',
