@@ -1,5 +1,9 @@
 
-executable('virtio-block', ['src/main-block.cpp', 'src/block.cpp'],
+executable('virtio-block',
+	[
+		'src/main.cpp',
+		'src/block.cpp'
+	],
 	dependencies: [
 		clang_coroutine_dep,
 		lib_helix_dep, lib_cofiber_dep, hw_protocol_dep, libmbus_protocol_dep,
