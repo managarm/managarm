@@ -62,6 +62,7 @@ if get_option('build_drivers')
 	subdir('drivers/gfx/plainfb/')
 	subdir('drivers/gfx/vmware/')
 	subdir('drivers/kbd/')
+	subdir('drivers/nic/virtio/')
 	subdir('drivers/uart/')
 	subdir('drivers/usb/hcds/uhci/')
 	subdir('drivers/usb/hcds/ehci/')
@@ -72,7 +73,11 @@ if get_option('build_drivers')
 
 	subdir('drivers/clocktracker')
 
-	install_data('drivers/gfx/90-managarm-vga.rules',
+	install_data(
+		[
+			'drivers/gfx/90-managarm-vga.rules',
+			'drivers/nic/90-managarm-nic.rules',
+		],
 		install_dir: 'lib/udev/rules.d')
 endif
 
