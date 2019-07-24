@@ -495,8 +495,12 @@ async::detached StandardPciTransport::_processIrqs() {
 		co_await submit.async_wait();
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
-		assert(await.bitset() & 3);
-//		std::cout << "core-virtio " << getpid() << ": Got IRQ #" << sequence << std::endl;
+
+		if(!(await.bitset() & 3)) {
+			std::cout << "core-virtio: IRQ #" << await.sequence()
+					<< " reports non-relevant flags " << await.bitset() << std::endl;
+			continue;
+		}
 
 		if(await.bitset() & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;
