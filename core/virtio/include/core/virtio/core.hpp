@@ -312,6 +312,21 @@ public:
 	// Notifies the device that new descriptors have been posted.
 	void notify();
 
+	async::result<void> submitDescriptor(Handle descriptor) {
+		struct PromiseRequest : Request {
+			async::promise<void> promise;
+		} promise_req;
+
+		postDescriptor(descriptor, &promise_req,
+				[] (virtio_core::Request *base_request) {
+			auto request = static_cast<PromiseRequest *>(base_request);
+			request->promise.set_value();
+		});
+		notify();
+
+		co_await promise_req.promise.async_get();
+	}
+
 	// Processes interrupts for this virtq.
 	// Calls retrieveDescriptor() to complete individual requests.
 	void processInterrupt();
