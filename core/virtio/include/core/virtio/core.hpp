@@ -147,7 +147,9 @@ struct Transport {
 
 	virtual protocols::hw::Device &hwDevice() = 0;
 
-	virtual uint32_t loadConfig(arch::scalar_register<uint32_t> offset) = 0;
+	virtual uint8_t loadConfig8(size_t offset) = 0;
+	virtual uint16_t loadConfig16(size_t offset) = 0;
+	virtual uint32_t loadConfig32(size_t offset) = 0;
 
 	virtual bool checkDeviceFeature(unsigned int feature) = 0;
 	virtual void acknowledgeDriverFeature(unsigned int feature) = 0;
@@ -163,11 +165,21 @@ struct Transport {
 struct DeviceSpace {
 	DeviceSpace(Transport *transport)
 	: _transport{transport} { }
-	
-	template<typename RT, typename = std::enable_if_t<sizeof(typename RT::rep_type) == 4>>
+
+	template<typename RT>
 	typename RT::rep_type load(RT r) const {
-		auto v = _transport->loadConfig(arch::scalar_register<uint32_t>{r.offset()});
-		return static_cast<typename RT::rep_type>(v);
+		if constexpr (sizeof(typename RT::rep_type) == 1) {
+			auto v = _transport->loadConfig8(r.offset());
+			return static_cast<typename RT::rep_type>(v);
+		} else if constexpr (sizeof(typename RT::rep_type) == 2) {
+			auto v = _transport->loadConfig16(r.offset());
+			return static_cast<typename RT::rep_type>(v);
+		} else {
+			static_assert(sizeof(typename RT::rep_type) == 4,
+					"Unsupported size for DeviceSpace::load()");
+			auto v = _transport->loadConfig16(r.offset());
+			return static_cast<typename RT::rep_type>(v);
+		}
 	}
 
 private:

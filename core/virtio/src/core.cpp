@@ -84,7 +84,9 @@ struct LegacyPciTransport : Transport {
 		return _hwDevice;
 	}
 
-	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
+	uint8_t loadConfig8(size_t offset) override;
+	uint16_t loadConfig16(size_t offset) override;
+	uint32_t loadConfig32(size_t offset) override;
 
 	bool checkDeviceFeature(unsigned int feature) override;
 	void acknowledgeDriverFeature(unsigned int feature) override;
@@ -122,8 +124,16 @@ LegacyPciTransport::LegacyPciTransport(protocols::hw::Device hw_device,
 : _hwDevice{std::move(hw_device)}, _legacySpace{legacy_space},
 		_irq{std::move(irq)} { }
 
-uint32_t LegacyPciTransport::loadConfig(arch::scalar_register<uint32_t> r) {
-	return _legacySpace.subspace(20).load(r);
+uint8_t LegacyPciTransport::loadConfig8(size_t offset) {
+	return _legacySpace.subspace(20).load(arch::scalar_register<uint8_t>(offset));
+}
+
+uint16_t LegacyPciTransport::loadConfig16(size_t offset) {
+	return _legacySpace.subspace(20).load(arch::scalar_register<uint16_t>(offset));
+}
+
+uint32_t LegacyPciTransport::loadConfig32(size_t offset) {
+	return _legacySpace.subspace(20).load(arch::scalar_register<uint32_t>(offset));
 }
 
 bool LegacyPciTransport::checkDeviceFeature(unsigned int feature) {
@@ -270,7 +280,9 @@ struct StandardPciTransport : Transport {
 		return _hwDevice;
 	}
 	
-	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
+	uint8_t loadConfig8(size_t offset) override;
+	uint16_t loadConfig16(size_t offset) override;
+	uint32_t loadConfig32(size_t offset) override;
 
 	bool checkDeviceFeature(unsigned int feature) override;
 	void acknowledgeDriverFeature(unsigned int feature) override;
@@ -323,8 +335,16 @@ StandardPciTransport::StandardPciTransport(protocols::hw::Device hw_device,
 		_isrMapping{std::move(isr_mapping)}, _deviceMapping{std::move(device_mapping)},
 		_notifyMultiplier{notify_multiplier}, _irq{std::move(irq)} { }
 
-uint32_t StandardPciTransport::loadConfig(arch::scalar_register<uint32_t> r) {
-	return _deviceSpace().load(r);
+uint8_t StandardPciTransport::loadConfig8(size_t offset) {
+	return _deviceSpace().load(arch::scalar_register<uint8_t>(offset));
+}
+
+uint16_t StandardPciTransport::loadConfig16(size_t offset) {
+	return _deviceSpace().load(arch::scalar_register<uint16_t>(offset));
+}
+
+uint32_t StandardPciTransport::loadConfig32(size_t offset) {
+	return _deviceSpace().load(arch::scalar_register<uint32_t>(offset));
 }
 
 bool StandardPciTransport::checkDeviceFeature(unsigned int feature) {
