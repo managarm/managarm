@@ -83,7 +83,7 @@ namespace spec {
 	struct AvailableRing {
 		arch::scalar_variable<uint16_t> flags;
 		arch::scalar_variable<uint16_t> headIndex;
-		
+
 		struct Element {
 			arch::scalar_variable<uint16_t> tableIndex;
 		} elements[];
@@ -101,7 +101,7 @@ namespace spec {
 	struct UsedRing {
 		arch::scalar_variable<uint16_t> flags;
 		arch::scalar_variable<uint16_t> headIndex;
-	
+
 		struct Element {
 			arch::scalar_variable<uint32_t> tableIndex;
 			arch::scalar_variable<uint32_t> written;
@@ -134,6 +134,7 @@ struct QueueInfo {
  * 
  * Usual initialization works as follows:
  * - Call discover() to obtain a transport.
+ * - Negotiate features via Transport::checkDeviceFeature() / acknowledgeDriverFeature().
  * - Call Transport::finalizeFeatures().
  * - Call Transport::claimQueues().
  * - Call Transport::setupQueue() for each virtq.
@@ -148,12 +149,14 @@ struct Transport {
 
 	virtual uint32_t loadConfig(arch::scalar_register<uint32_t> offset) = 0;
 
+	virtual bool checkDeviceFeature(unsigned int feature) = 0;
+	virtual void acknowledgeDriverFeature(unsigned int feature) = 0;
 	virtual void finalizeFeatures() = 0;
 
 	virtual void claimQueues(unsigned int max_index) = 0;
 
 	virtual Queue *setupQueue(unsigned int index) = 0;
-	
+
 	virtual void runDevice() = 0;
 };
 
@@ -201,7 +204,7 @@ struct Handle {
 	: _queue{nullptr}, _tableIndex{0} { }
 
 	Handle(Queue *queue, size_t table_index);
-	
+
 	explicit operator bool() {
 		return _queue;
 	}

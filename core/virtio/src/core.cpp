@@ -86,6 +86,8 @@ struct LegacyPciTransport : Transport {
 
 	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
 
+	bool checkDeviceFeature(unsigned int feature) override;
+	void acknowledgeDriverFeature(unsigned int feature) override;
 	void finalizeFeatures() override;
 
 	void claimQueues(unsigned int max_index) override;
@@ -122,6 +124,21 @@ LegacyPciTransport::LegacyPciTransport(protocols::hw::Device hw_device,
 
 uint32_t LegacyPciTransport::loadConfig(arch::scalar_register<uint32_t> r) {
 	return _legacySpace.subspace(20).load(r);
+}
+
+bool LegacyPciTransport::checkDeviceFeature(unsigned int feature) {
+	if(feature >= 32) {
+		std::cout << "core-virtio: Feature index " << feature << " cannot be queried"
+				" on legacy device" << std::endl;
+		return false;
+	}
+	return _legacySpace.load(PCI_L_DEVICE_FEATURES) & (1 << feature);
+}
+
+void LegacyPciTransport::acknowledgeDriverFeature(unsigned int feature) {
+	assert(feature < 32);
+	auto current = _legacySpace.load(PCI_L_DRIVER_FEATURES);
+	_legacySpace.store(PCI_L_DRIVER_FEATURES, current | (1 << feature));
 }
 
 void LegacyPciTransport::finalizeFeatures() {
@@ -181,14 +198,7 @@ Queue *LegacyPciTransport::setupQueue(unsigned int queue_index) {
 }
 
 void LegacyPciTransport::runDevice() {
-	// Negotiate features that we want to use.
-	uint32_t negotiated = 0;
-	uint32_t offered = _legacySpace.load(PCI_L_DEVICE_FEATURES);
-	printf("Features %x\n", offered);
-
-	_legacySpace.store(PCI_L_DRIVER_FEATURES, negotiated);
-
-	// Finally set the DRIVER_OK bit to finish the configuration.
+	// Set the DRIVER_OK bit to finish the configuration.
 	_legacySpace.store(PCI_L_DEVICE_STATUS, _legacySpace.load(PCI_L_DEVICE_STATUS) | DRIVER_OK);
 
 	_processIrqs();
@@ -262,8 +272,8 @@ struct StandardPciTransport : Transport {
 	
 	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
 
-	bool checkDeviceFeature(unsigned int feature);
-	void acknowledgeDriverFeature(unsigned int feature);
+	bool checkDeviceFeature(unsigned int feature) override;
+	void acknowledgeDriverFeature(unsigned int feature) override;
 	void finalizeFeatures() override;
 
 	void claimQueues(unsigned int max_index) override;
