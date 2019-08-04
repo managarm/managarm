@@ -695,6 +695,36 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.request_type() == managarm::posix::CntReqType::FCHDIR) {
+			if(logRequests)
+				std::cout << "posix: CHDIR" << std::endl;
+
+			managarm::posix::SvrResponse resp;
+			helix::SendBuffer send_resp;
+
+			auto file = self->fileContext()->getFile(req.fd());
+
+			if(!file) {
+				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			self->fsContext()->changeWorkingDirectory({file->associatedMount(),
+					file->associatedLink()});
+
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
 			if(logRequests)
 				std::cout << "posix: ACCESS" << std::endl;
@@ -993,7 +1023,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						HEL_CHECK(send_resp.error());
 						continue;
 					}else{
-						file = co_await tail->getTarget()->open(std::move(tail),
+						file = co_await tail->getTarget()->open(
+								resolver.currentView(), std::move(tail),
 								semantic_flags);
 						assert(file);
 					}
@@ -1004,7 +1035,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
 					auto link = co_await directory->link(resolver.nextComponent(), node);
-					file = co_await node->open(std::move(link), semantic_flags);
+					file = co_await node->open(resolver.currentView(), std::move(link),
+							semantic_flags);
 					assert(file);
 				}
 			}else{
@@ -1012,7 +1044,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
-					file = co_await target->open(resolver.currentLink(), semantic_flags);
+					file = co_await target->open(resolver.currentView(), resolver.currentLink(),
+							semantic_flags);
 				}
 			}
 

@@ -31,7 +31,8 @@ public:
 
 	virtual std::string nodePath() = 0;
 
-	virtual FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(std::shared_ptr<FsLink> link,
+	virtual FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) = 0;
 
 	virtual FutureMaybe<std::shared_ptr<FsLink>> mount();
@@ -73,7 +74,8 @@ extern UnixDeviceRegistry charRegistry;
 extern UnixDeviceRegistry blockRegistry;
 
 FutureMaybe<smarter::shared_ptr<File, FileHandle>> openDevice(VfsType type, DeviceId id,
-		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags);
+		std::shared_ptr<MountView> mont, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags);
 
 // --------------------------------------------------------
 // devtmpfs functions.
@@ -88,7 +90,8 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 // --------------------------------------------------------
 
 FutureMaybe<smarter::shared_ptr<File, FileHandle>> openExternalDevice(helix::BorrowedLane lane,
-		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags);
+		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags);
 
 FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane);
 

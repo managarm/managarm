@@ -47,14 +47,17 @@ std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 openDevice(VfsType type, DeviceId id,
-		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags), ([=] {
 	if(type == VfsType::charDevice) {
 		auto device = charRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(link), semantic_flags));
+		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(mount), std::move(link),
+				semantic_flags));
 	}else{
 		assert(type == VfsType::blockDevice);
 		auto device = blockRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(link), semantic_flags));
+		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(mount), std::move(link),
+				semantic_flags));
 	}
 }))
 
@@ -166,9 +169,10 @@ private:
 	}
 
 public:
-	DeviceFile(helix::UniqueLane control, helix::UniqueLane lane, std::shared_ptr<FsLink> link,
+	DeviceFile(helix::UniqueLane control, helix::UniqueLane lane,
+			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			helix::Mapping status_mapping)
-	: File{StructName::get("devicefile"), std::move(link)},
+	: File{StructName::get("devicefile"), std::move(mount), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)},
 			_statusMapping{std::move(status_mapping)} { }
 
@@ -195,7 +199,8 @@ private:
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 openExternalDevice(helix::BorrowedLane lane,
-		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags), ([=] {
 	assert(!(semantic_flags & ~(semanticNonBlock)));
 
 	uint32_t open_flags = 0;
@@ -236,7 +241,7 @@ openExternalDevice(helix::BorrowedLane lane,
 	}
 
 	auto file = smarter::make_shared<DeviceFile>(helix::UniqueLane{},
-			pull_pt.descriptor(), std::move(link), std::move(status_mapping));
+			pull_pt.descriptor(), std::move(mount), std::move(link), std::move(status_mapping));
 	file->setupWeakFile(file);
 	COFIBER_RETURN(File::constructHandle(std::move(file)));
 }))

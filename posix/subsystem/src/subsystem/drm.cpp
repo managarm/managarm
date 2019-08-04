@@ -37,9 +37,10 @@ struct Device final : UnixDevice, drvcore::ClassDevice {
 		return "dri/card" + std::to_string(_index);
 	}
 
-	FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		return openExternalDevice(_lane, std::move(link), semantic_flags);
+		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
 	}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {

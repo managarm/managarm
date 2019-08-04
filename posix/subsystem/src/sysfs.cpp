@@ -46,8 +46,9 @@ void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("sysfs.attr"), std::move(link)}, _cached{false}, _offset{0} { }
+AttributeFile::AttributeFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+: File{StructName::get("sysfs.attr"), std::move(mount), std::move(link)},
+		_cached{false}, _offset{0} { }
 
 void AttributeFile::handleClose() {
 	_cancelServe.cancel();
@@ -103,8 +104,8 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("sysfs.dir"), std::move(link)},
+DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+: File{StructName::get("sysfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 
@@ -187,10 +188,11 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 }))
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-AttributeNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+AttributeNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags), ([=] {
 	assert(!semantic_flags);
 
-	auto file = smarter::make_shared<AttributeFile>(std::move(link));
+	auto file = smarter::make_shared<AttributeFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	AttributeFile::serve(file);
 	COFIBER_RETURN(File::constructHandle(std::move(file)));
@@ -297,10 +299,11 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 }
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-		DirectoryNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags), ([=] {
 	assert(!semantic_flags);
 
-	auto file = smarter::make_shared<DirectoryFile>(std::move(link));
+	auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	DirectoryFile::serve(file);
 	COFIBER_RETURN(File::constructHandle(std::move(file)));

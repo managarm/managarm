@@ -66,7 +66,7 @@ FutureMaybe<void> FsNode::unlink(std::string) {
 }
 
 FutureMaybe<smarter::shared_ptr<File, FileHandle>>
-FsNode::open(std::shared_ptr<FsLink>, SemanticFlags) {
+FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }
 

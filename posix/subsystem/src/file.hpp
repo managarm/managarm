@@ -13,6 +13,7 @@
 #include "common.hpp"
 
 struct File;
+struct MountView;
 struct FsLink;
 struct Process;
 
@@ -170,10 +171,12 @@ public:
 	}
 
 	File(StructName struct_name, DefaultOps default_ops = 0)
-	: _structName{struct_name}, _link{nullptr}, _defaultOps{default_ops}, _isOpen{true} { }
+	: _structName{struct_name}, _defaultOps{default_ops}, _isOpen{true} { }
 
-	File(StructName struct_name, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
-	: _structName{struct_name}, _link{std::move(link)}, _defaultOps{default_ops}, _isOpen{true} { }
+	File(StructName struct_name, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			DefaultOps default_ops = 0)
+	: _structName{struct_name}, _mount{std::move(mount)}, _link{std::move(link)},
+			_defaultOps{default_ops}, _isOpen{true} { }
 
 	virtual ~File();
 
@@ -204,6 +207,12 @@ private:
 	}
 
 public:
+	// MountView that was used to open the file.
+	// See associatedLink().
+	std::shared_ptr<MountView> associatedMount() {
+		return _mount;
+	}
+
 	// This is the link that was used to open the file.
 	// Note that this might not be the only link that can be used
 	// to reach the file's inode.
@@ -276,6 +285,7 @@ public:
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;
+	const std::shared_ptr<MountView> _mount;
 	const std::shared_ptr<FsLink> _link;
 
 	DefaultOps _defaultOps;

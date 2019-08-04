@@ -66,9 +66,9 @@ private:
 		return _id;
 	}
 
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		return openDevice(_type, _id, std::move(link), semantic_flags);
+		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
 
 public:
@@ -139,7 +139,7 @@ struct DirectoryFile final : File {
 public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
-	explicit DirectoryFile(std::shared_ptr<FsLink> link);
+	explicit DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
 
 	void handleClose() override;
 
@@ -172,10 +172,11 @@ private:
 	}
 
 	FutureMaybe<SharedFilePtr>
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
 
-		auto file = smarter::make_shared<DirectoryFile>(std::move(link));
+		auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		DirectoryFile::serve(file);
 		co_return File::constructHandle(std::move(file));
@@ -230,13 +231,14 @@ private:
 	}
 
 	FutureMaybe<SharedFilePtr>
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
 		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(fd));
-		co_return extern_fs::createFile(std::move(passthrough), std::move(link));
+		co_return extern_fs::createFile(std::move(passthrough), std::move(mount), std::move(link));
 	}
 
 public:
@@ -257,8 +259,8 @@ public:
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	MemoryFile(std::shared_ptr<FsLink> link)
-	: File{StructName::get("tmpfs.regular"), std::move(link)}, _offset{0} { }
+	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{StructName::get("tmpfs.regular"), std::move(mount), std::move(link)}, _offset{0} { }
 
 	void handleClose() override;
 
@@ -295,9 +297,10 @@ struct MemoryNode final : Node {
 	}
 
 	FutureMaybe<SharedFilePtr>
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override {
 		assert(!semantic_flags);
-		auto file = smarter::make_shared<MemoryFile>(std::move(link));
+		auto file = smarter::make_shared<MemoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		MemoryFile::serve(file);
 		co_return File::constructHandle(std::move(file));
@@ -466,8 +469,8 @@ void DirectoryFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("tmpfs.dir"), std::move(link)},
+DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+: File{StructName::get("tmpfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 

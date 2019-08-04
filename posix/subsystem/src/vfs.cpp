@@ -302,7 +302,8 @@ FutureMaybe<SharedFilePtr> open(ViewPath root, ViewPath workdir,
 	if(!current.second)
 		co_return nullptr; // TODO: Return an error code.
 
-	auto file = co_await current.second->getTarget()->open(current.second, semantic_flags);
+	auto file = co_await current.second->getTarget()->open(current.first, current.second,
+			semantic_flags);
 	co_return std::move(file);
 }
 

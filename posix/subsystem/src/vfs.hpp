@@ -18,14 +18,6 @@ using ResolveFlags = uint32_t;
 inline constexpr ResolveFlags resolvePrefix = (1 << 4);
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
 
-namespace _vfs_view {
-	struct MountView;
-};
-
-using _vfs_view::MountView;
-
-namespace _vfs_view {
-
 //! Represents a virtual view of the file system.
 //! We handle all mount point related logic in this class.
 struct MountView : std::enable_shared_from_this<MountView> {
@@ -69,8 +61,6 @@ private:
 	std::shared_ptr<FsLink> _origin;
 	std::set<std::shared_ptr<MountView>, Compare> _mounts;
 };
-
-} // namespace _vfs_view
 
 using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
 

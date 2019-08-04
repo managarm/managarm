@@ -32,8 +32,9 @@ private:
 	}
 
 public:
-	HeloutFile(std::shared_ptr<FsLink> link)
-	: File{StructName::get("helout"), std::move(link), File::defaultIsTerminal} { }
+	HeloutFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{StructName::get("helout"), std::move(mount), std::move(link),
+			File::defaultIsTerminal} { }
 };
 
 struct HeloutDevice final : UnixDevice {
@@ -47,9 +48,10 @@ struct HeloutDevice final : UnixDevice {
 	}
 	
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
-		auto file = smarter::make_shared<HeloutFile>(std::move(link));
+		auto file = smarter::make_shared<HeloutFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))

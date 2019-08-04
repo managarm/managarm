@@ -32,6 +32,7 @@ enum CntReqType {
 	MOUNT = 21;
 	CHROOT = 24;
 	CHDIR = 58;
+	FCHDIR = 61;
 	ACCESS = 20;
 	MKDIR = 46;
 	SYMLINK = 47;

@@ -36,8 +36,9 @@ void RegularFile::serve(smarter::shared_ptr<RegularFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-RegularFile::RegularFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("procfs.attr"), std::move(link)}, _cached{false}, _offset{0} { }
+RegularFile::RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+: File{StructName::get("procfs.attr"), std::move(mount), std::move(link)},
+		_cached{false}, _offset{0} { }
 
 void RegularFile::handleClose() {
 	_cancelServe.cancel();
@@ -89,8 +90,8 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("procfs.dir"), std::move(link)},
+DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+: File{StructName::get("procfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 
@@ -171,10 +172,11 @@ FutureMaybe<FileStats> RegularNode::getStats() {
 }
 
 FutureMaybe<SharedFilePtr>
-RegularNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
+RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
 	assert(!semantic_flags);
 
-	auto file = smarter::make_shared<RegularFile>(std::move(link));
+	auto file = smarter::make_shared<RegularFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	RegularFile::serve(file);
 	co_return File::constructHandle(std::move(file));
@@ -228,10 +230,11 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 }
 
 FutureMaybe<SharedFilePtr>
-DirectoryNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
+DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
 	assert(!semantic_flags);
 
-	auto file = smarter::make_shared<DirectoryFile>(std::move(link));
+	auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	DirectoryFile::serve(file);
 	co_return File::constructHandle(std::move(file));

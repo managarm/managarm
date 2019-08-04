@@ -95,7 +95,8 @@ struct MasterDevice final : UnixDevice {
 	}
 
 	async::result<SharedFilePtr>
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override;
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override;
 };
 
 struct SlaveDevice final : UnixDevice {
@@ -106,7 +107,8 @@ struct SlaveDevice final : UnixDevice {
 	}
 
 	async::result<SharedFilePtr>
-	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override;
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override;
 
 private:
 	std::shared_ptr<Channel> _channel;
@@ -123,7 +125,8 @@ public:
 				file, &File::fileOperations));
 	}
 
-	MasterFile(std::shared_ptr<FsLink> link, bool nonBlocking);
+	MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			bool nonBlocking);
 
 	expected<size_t>
 	readSome(Process *, void *data, size_t max_length) override;
@@ -160,7 +163,8 @@ public:
 				file, &File::fileOperations));
 	}
 
-	SlaveFile(std::shared_ptr<FsLink> link, std::shared_ptr<Channel> channel);
+	SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			std::shared_ptr<Channel> channel);
 
 	expected<size_t>
 	readSome(Process *, void *data, size_t max_length) override;
@@ -259,9 +263,9 @@ public:
 		return _id;
 	}
 
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		return openDevice(_type, _id, std::move(link), semantic_flags);
+		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
 
 private:
@@ -305,16 +309,19 @@ private:
 //-----------------------------------------------------------------------------
 
 FutureMaybe<SharedFilePtr>
-MasterDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
+MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~semanticNonBlock));
-	auto file = smarter::make_shared<MasterFile>(std::move(link), semantic_flags & semanticNonBlock);
+	auto file = smarter::make_shared<MasterFile>(std::move(mount), std::move(link),
+			semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
 	MasterFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
-MasterFile::MasterFile(std::shared_ptr<FsLink> link, bool nonBlocking)
-: File{StructName::get("pts.master"), std::move(link), File::defaultPipeLikeSeek},
+MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		bool nonBlocking)
+: File{StructName::get("pts.master"), std::move(mount), std::move(link), File::defaultPipeLikeSeek},
 		_channel{std::make_shared<Channel>(nextPtsIndex++)}, _nonBlocking{nonBlocking} {
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
@@ -433,16 +440,18 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 }
 
 FutureMaybe<SharedFilePtr>
-SlaveDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
+SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
 	assert(!semantic_flags);
-	auto file = smarter::make_shared<SlaveFile>(std::move(link), _channel);
+	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel);
 	file->setupWeakFile(file);
 	SlaveFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
-SlaveFile::SlaveFile(std::shared_ptr<FsLink> link, std::shared_ptr<Channel> channel)
-: File{StructName::get("pts.slave"), std::move(link),
+SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		std::shared_ptr<Channel> channel)
+: File{StructName::get("pts.slave"), std::move(mount), std::move(link),
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
 		_channel{std::move(channel)} { }
 

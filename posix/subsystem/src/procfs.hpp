@@ -28,7 +28,7 @@ struct RegularFile final : File {
 public:
 	static void serve(smarter::shared_ptr<RegularFile> file);
 
-	explicit RegularFile(std::shared_ptr<FsLink> link);
+	explicit RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
 
 	void handleClose() override;
 
@@ -50,7 +50,7 @@ struct DirectoryFile final : File {
 public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
-	explicit DirectoryFile(std::shared_ptr<FsLink> link);
+	explicit DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
 
 	void handleClose() override;
 
@@ -91,7 +91,8 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
-	FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 
 protected:
@@ -114,7 +115,8 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	FutureMaybe<FileStats> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
-	FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override;
 
