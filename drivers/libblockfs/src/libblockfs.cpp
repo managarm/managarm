@@ -33,6 +33,12 @@ async::result<protocols::fs::SeekResult> seekRel(void *object, int64_t offset) {
 	co_return self->offset;
 }
 
+async::result<protocols::fs::SeekResult> seekEof(void *object, int64_t offset) {
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	self->offset += offset + self->inode->fileSize();
+	co_return self->offset;
+}
+
 async::result<protocols::fs::ReadResult> read(void *object, const char *,
 		void *buffer, size_t length) {
 	assert(length);
@@ -93,6 +99,7 @@ readEntries(void *object) {
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withSeekAbs(&seekAbs)
 	.withSeekRel(&seekRel)
+	.withSeekEof(&seekEof)
 	.withRead(&read)
 	.withWrite(&write)
 	.withReadEntries(&readEntries)
