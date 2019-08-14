@@ -387,9 +387,12 @@ expected<off_t>
 MemoryFile::seek(off_t delta, VfsSeek whence) {
 	if(whence == VfsSeek::absolute) {
 		_offset = delta;
-	}else{
-		assert(whence == VfsSeek::relative);
+	}else if(whence == VfsSeek::relative){
 		_offset += delta;
+	}else if(whence == VfsSeek::eof) {
+		assert(whence == VfsSeek::eof);
+		auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
+		_offset += delta + node->_fileSize;
 	}
 	co_return _offset;
 }

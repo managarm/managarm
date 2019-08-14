@@ -46,6 +46,19 @@ File::ptSeekRel(void *object, int64_t offset) {
 	}
 }
 
+async::result<protocols::fs::SeekResult>
+File::ptSeekEof(void *object, int64_t offset) {
+	auto self = static_cast<File *>(object);
+	auto result = co_await self->seek(offset, VfsSeek::eof);
+	auto error = std::get_if<Error>(&result);
+	if(error && *error == Error::seekOnPipe) {
+		co_return protocols::fs::Error::seekOnPipe;
+	}else{
+		assert(!error);
+		co_return std::get<off_t>(result);
+	}
+}
+
 async::result<protocols::fs::ReadResult>
 File::ptRead(void *object, const char *credentials,
 		void *buffer, size_t length) {

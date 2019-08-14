@@ -100,6 +100,9 @@ public:
 	static async::result<protocols::fs::SeekResult>
 	ptSeekAbs(void *object, int64_t offset);
 
+	static async::result<protocols::fs::SeekResult>
+	ptSeekEof(void *object, int64_t offset);
+
 	static async::result<protocols::fs::ReadResult>
 	ptRead(void *object, const char *credentials, void *buffer, size_t length);
 
@@ -145,6 +148,7 @@ public:
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
 		.seekRel = &ptSeekRel,
+		.seekEof = &ptSeekEof,
 		.read = &ptRead,
 		.write = &ptWrite,
 		.readEntries = &ptReadEntries,
