@@ -65,6 +65,8 @@ int main() {
 		throw std::runtime_error("mount() failed");
 	if(mount("", "/realfs/run", "tmpfs", 0, ""))
 		throw std::runtime_error("mount() failed");
+	if(mount("", "/realfs/tmp", "tmpfs", 0, ""))
+		throw std::runtime_error("mount() failed");
 
 	if(mkdir("/dev/pts", 0620))
 		throw std::runtime_error("mkdir() failed");
