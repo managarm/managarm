@@ -993,6 +993,11 @@ async::result<std::optional<std::string>>
 OpenFile::readEntries() {
 	co_await inode->readyJump.async_wait();
 
+	if (inode->fileType != kTypeDirectory) {
+		std::cout << "\e[33m" "ext2fs: readEntries called on something that's not a directory\e[39m" << std::endl;
+		co_return std::nullopt; // FIXME: this does not indicate an error
+	}
+
 	auto map_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
 
 	helix::LockMemoryView lock_memory;
