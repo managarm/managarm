@@ -96,6 +96,12 @@ readEntries(void *object) {
 	co_return co_await self->readEntries();
 }
 
+async::result<void>
+truncate(void *object, size_t size) {
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	co_return co_await self->inode->fs.truncate(self->inode.get(), size);
+}
+
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withSeekAbs(&seekAbs)
 	.withSeekRel(&seekRel)
@@ -103,7 +109,8 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withRead(&read)
 	.withWrite(&write)
 	.withReadEntries(&readEntries)
-	.withAccessMemory(&accessMemory);
+	.withAccessMemory(&accessMemory)
+	.withTruncate(&truncate);
 
 async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object,
 		std::string name) {

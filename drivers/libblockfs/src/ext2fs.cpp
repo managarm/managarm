@@ -982,6 +982,22 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 	}
 }
 
+
+async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
+	HEL_CHECK(helResizeMemory(inode->backingMemory,
+			(size + 0xFFF) & ~size_t(0xFFF)));
+	inode->setFileSize(size);
+
+	// Notify the kernel that the inode might have changed.
+	// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
+	auto inode_address = (inode->number - 1) * inodeSize;
+
+	inode->diskMapping = helix::Mapping{inodeTable,
+			inode_address, inodeSize,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+	co_return;
+}
+
 // --------------------------------------------------------
 // OpenFile
 // --------------------------------------------------------
