@@ -150,7 +150,7 @@ private:
 
 	arch::dma_array<uint64_t> _dcbaa;
 	arch::dma_array<uint64_t> _scratchpadBufArray;
-	std::vector<std::shared_ptr<arch::dma_buffer>> _scratchpadBufs;
+	std::vector<arch::dma_buffer> _scratchpadBufs;
 
 	std::vector<std::shared_ptr<Interrupter>> _interrupters;
 

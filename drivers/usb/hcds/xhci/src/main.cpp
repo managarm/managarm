@@ -162,32 +162,23 @@ async::detached Controller::initialize() {
 		| (hcsparams2 & hcsparams2::max_scratchpad_bufs_low);
 
 	auto pagesize_reg = _operational.load(op_regs::pagesize);
-	size_t page_size = 0;
-
-	while(!(pagesize_reg & 1)) {
-		pagesize_reg >>= 1;
-		page_size++;
-	}
-
-	page_size = 1 << (page_size + 12); // 2^(n + 12)
+	size_t page_size = 1 << ((__builtin_ffs(pagesize_reg) - 1) + 12); // 2^(n + 12)
 
 	printf("xhci: max scratchpad buffers: %u\n", max_scratchpad_bufs);
 	printf("xhci: page size: %lu\n", page_size);
 
 	auto max_erst = _space.load(cap_regs::hcsparams2) & hcsparams2::erst_max;
-	max_erst = 1 << (max_erst);// | 2^max_erst
-	max_erst = max_erst ? : 1; // /
+	max_erst = 1 << (max_erst);
 	printf("xhci: max_erst: %u\n", max_erst);
 
 	_scratchpadBufArray = arch::dma_array<uint64_t>{
 		&_memoryPool, static_cast<size_t>(max_scratchpad_bufs)};
 	for (size_t i = 0; i < max_scratchpad_bufs; i++) {
-		auto buf = std::make_shared<arch::dma_buffer>(&_memoryPool,
-								page_size);
-		_scratchpadBufs.push_back(buf);
+		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
+					page_size));
 
 		uintptr_t phys;
-		HEL_CHECK(helPointerPhysical(buf->data(), &phys));
+		HEL_CHECK(helPointerPhysical(_scratchpadBufs.back().data(), &phys));
 		_scratchpadBufArray[i] = phys;
 	}
 
