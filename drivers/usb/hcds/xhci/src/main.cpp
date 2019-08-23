@@ -30,57 +30,44 @@
 #include "spec.hpp"
 #include "xhci.hpp"
 
-async::result<void> sleep_a_bit(uint64_t time) {
-	uint64_t tick;
-	HEL_CHECK(helGetClock(&tick));
-
-	helix::AwaitClock await_clock;
-	auto &&submit = helix::submitAwaitClock(&await_clock, tick + time,
-		helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(await_clock.error());
-
-	co_return;
-}
-
 constexpr const char *completionCodeNames[256] = {
-	[0] = "Invalid",
-	[1] = "Success",
-	[2] = "Data buffer error",
-	[3] = "Babble detected",
-	[4] = "USB transaction error",
-	[5] = "TRB error",
-	[6] = "Stall error",
-	[7] = "Resource error",
-	[8] = "Bandwidth error",
-	[9] = "No slots available",
-	[10] = "Invalid stream type",
-	[11] = "Slot not enabled",
-	[12] = "Endpoint not enabled",
-	[13] = "Short packet",
-	[14] = "Ring underrun",
-	[15] = "Ring overrun",
-	[16] = "VF event ring full",
-	[17] = "Parameter error",
-	[18] = "Bandwidth overrun",
-	[19] = "Context state error",
-	[20] = "No ping response",
-	[21] = "Event ring full",
-	[22] = "Incompatible device",
-	[23] = "Missed service",
-	[24] = "Command ring stopped",
-	[25] = "Command aborted",
-	[26] = "Stopped",
-	[27] = "Stopped - invalid length",
-	[28] = "Stopped - short packet",
-	[29] = "Max exit latency too high",
-	[30] = "Reserved",
-	[31] = "Isoch buffer overrun",
-	[32] = "Event lost",
-	[33] = "Undefined error",
-	[34] = "Invalid stream ID",
-	[35] = "Secondary bandwidth error",
-	[36] = "Split transaction error",
+	"Invalid",
+	"Success",
+	"Data buffer error",
+	"Babble detected",
+	"USB transaction error",
+	"TRB error",
+	"Stall error",
+	"Resource error",
+	"Bandwidth error",
+	"No slots available",
+	"Invalid stream type",
+	"Slot not enabled",
+	"Endpoint not enabled",
+	"Short packet",
+	"Ring underrun",
+	"Ring overrun",
+	"VF event ring full",
+	"Parameter error",
+	"Bandwidth overrun",
+	"Context state error",
+	"No ping response",
+	"Event ring full",
+	"Incompatible device",
+	"Missed service",
+	"Command ring stopped",
+	"Command aborted",
+	"Stopped",
+	"Stopped - invalid length",
+	"Stopped - short packet",
+	"Max exit latency too high",
+	"Reserved",
+	"Isoch buffer overrun",
+	"Event lost",
+	"Undefined error",
+	"Invalid stream ID",
+	"Secondary bandwidth error",
+	"Split transaction error",
 };
 
 // ----------------------------------------------------------------
@@ -164,7 +151,6 @@ async::detached Controller::initialize() {
 	while(!(_operational.load(op_regs::usbsts) & usbsts::hc_halted)); // wait for halt
 
 	_operational.store(op_regs::usbcmd, usbcmd::hc_reset(1)); // reset hcd
-	//co_await sleep_a_bit(50'000'000);
 	while(_operational.load(op_regs::usbsts) & usbsts::controller_not_ready); // poll for reset to complete
 	printf("xhci: controller reset done...\n");
 
@@ -239,8 +225,6 @@ async::detached Controller::initialize() {
 	while(_operational.load(op_regs::usbsts) & usbsts::hc_halted); // wait for start
 
 	printf("xhci: init done...\n");
-
-	//co_await sleep_a_bit(50'000'000);
 
 	printf("xhci: command ring test:\n");
 
