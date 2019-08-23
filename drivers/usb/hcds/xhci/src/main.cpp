@@ -90,12 +90,12 @@ Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
 	_runtime = _space.subspace(runtime_offset);
 	_doorbells = _space.subspace(doorbell_offset);
 
-	_numPorts = _space.load(cap_regs::hcsparams1) & hcsparams1::max_ports;
+	_numPorts = _space.load(cap_regs::hcsparams1) & hcsparams1::maxPorts;
 	printf("xhci: %u ports\n", _numPorts);
 }
 
 uint16_t Controller::getExtendedCapabilityOffset(uint8_t id) {
-	auto ptr = (_space.load(cap_regs::hccparams1) & hccparams1::ext_cap_ptr) * 4;
+	auto ptr = (_space.load(cap_regs::hccparams1) & hccparams1::extCapPtr) * 4;
 	if (!ptr)
 		return 0;
 
@@ -148,18 +148,18 @@ async::detached Controller::initialize() {
 	state &= ~usbcmd::run;
 	_operational.store(op_regs::usbcmd, state);
 
-	while(!(_operational.load(op_regs::usbsts) & usbsts::hc_halted)); // wait for halt
+	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)); // wait for halt
 
-	_operational.store(op_regs::usbcmd, usbcmd::hc_reset(1)); // reset hcd
-	while(_operational.load(op_regs::usbsts) & usbsts::controller_not_ready); // poll for reset to complete
+	_operational.store(op_regs::usbcmd, usbcmd::hcReset(1)); // reset hcd
+	while(_operational.load(op_regs::usbsts) & usbsts::controllerNotReady); // poll for reset to complete
 	printf("xhci: controller reset done...\n");
 
-	_operational.store(op_regs::config, config::enabled_device_slots(1));
+	_operational.store(op_regs::config, config::enabledDeviceSlots(1));
 
 	auto hcsparams2 = _space.load(cap_regs::hcsparams2);
 	auto max_scratchpad_bufs = 
-		((hcsparams2 & hcsparams2::max_scratchpad_bufs_hi) << 4)
-		| (hcsparams2 & hcsparams2::max_scratchpad_bufs_low);
+		((hcsparams2 & hcsparams2::maxScratchpadBufsHi) << 4)
+		| (hcsparams2 & hcsparams2::maxScratchpadBufsLow);
 
 	auto pagesize_reg = _operational.load(op_regs::pagesize);
 	size_t page_size = 1 << ((__builtin_ffs(pagesize_reg) - 1) + 12); // 2^(n + 12)
@@ -167,7 +167,7 @@ async::detached Controller::initialize() {
 	printf("xhci: max scratchpad buffers: %u\n", max_scratchpad_bufs);
 	printf("xhci: page size: %lu\n", page_size);
 
-	auto max_erst = _space.load(cap_regs::hcsparams2) & hcsparams2::erst_max;
+	auto max_erst = _space.load(cap_regs::hcsparams2) & hcsparams2::erstMax;
 	max_erst = 1 << (max_erst);
 	printf("xhci: max_erst: %u\n", max_erst);
 
@@ -196,7 +196,7 @@ async::detached Controller::initialize() {
 	_operational.store(op_regs::crcr, _cmdRing.getCrcr() | 1);
 
 	printf("xhci: setting up interrupters\n");
-	auto max_intrs = _space.load(cap_regs::hcsparams1) & hcsparams1::max_intrs;
+	auto max_intrs = _space.load(cap_regs::hcsparams1) & hcsparams1::maxIntrs;
 	printf("xhci: max interrupters: %u\n", max_intrs);
 
 	_interrupters.push_back(std::make_shared<Interrupter>(0, this));
@@ -209,11 +209,11 @@ async::detached Controller::initialize() {
 
 	handleIrqs();
 
-	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intr_enable(1)); // enable interrupts and start hcd
+	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1)); // enable interrupts and start hcd
 
-	_operational.store(op_regs::usbsts, usbsts::event_intr(1));
+	_operational.store(op_regs::usbsts, usbsts::eventIntr(1));
 
-	while(_operational.load(op_regs::usbsts) & usbsts::hc_halted); // wait for start
+	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
 
 	printf("xhci: init done...\n");
 
@@ -423,12 +423,12 @@ void Controller::Interrupter::setEnable(bool enable) {
 
 void Controller::Interrupter::setEventRing(EventRing *ring, bool clearEhb) {
 	_space.store(interrupter::erstsz, ring->getErstSize());
-	_space.store(interrupter::erstba_low,ring->getErstPtr() & 0xFFFFFFFF);
-	_space.store(interrupter::erstba_hi, ring->getErstPtr() >> 32);
+	_space.store(interrupter::erstbaLow,ring->getErstPtr() & 0xFFFFFFFF);
+	_space.store(interrupter::erstbaHi, ring->getErstPtr() >> 32);
 
-	_space.store(interrupter::erdp_low,
+	_space.store(interrupter::erdpLow,
 		(ring->getEventRingPtr() & 0xFFFFFFF0) | (clearEhb << 3));
-	_space.store(interrupter::erdp_hi, ring->getEventRingPtr() >> 32);
+	_space.store(interrupter::erdpHi, ring->getEventRingPtr() >> 32);
 }
 
 bool Controller::Interrupter::isPending() {

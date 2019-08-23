@@ -32,50 +32,50 @@ namespace cap_regs {
 }
 
 namespace hcsparams1 {
-	arch::field<uint32_t, uint8_t> max_ports(24, 8);
-	arch::field<uint32_t, uint16_t> max_intrs(8, 10);
-	arch::field<uint32_t, uint8_t> max_dev_slots(0, 8);
+	arch::field<uint32_t, uint8_t> maxPorts(24, 8);
+	arch::field<uint32_t, uint16_t> maxIntrs(8, 10);
+	arch::field<uint32_t, uint8_t> maxDevSlots(0, 8);
 }
 
 namespace hcsparams2 {
 	arch::field<uint32_t, uint8_t> ist(0, 4);
-	arch::field<uint32_t, uint8_t> erst_max(4, 4);
-	arch::field<uint32_t, uint8_t> max_scratchpad_bufs_hi(21, 4);
-	arch::field<uint32_t, bool> scratchpad_restore(26, 1);
-	arch::field<uint32_t, uint8_t> max_scratchpad_bufs_low(27, 4);
+	arch::field<uint32_t, uint8_t> erstMax(4, 4);
+	arch::field<uint32_t, uint8_t> maxScratchpadBufsHi(21, 4);
+	arch::field<uint32_t, bool> scratchpadRestore(26, 1);
+	arch::field<uint32_t, uint8_t> maxScratchpadBufsLow(27, 4);
 }
 
 namespace hccparams1 {
-	arch::field<uint32_t, uint16_t> ext_cap_ptr(16, 16);
+	arch::field<uint32_t, uint16_t> extCapPtr(16, 16);
 }
 
 namespace usbcmd {
 	arch::field<uint32_t, bool> run(0, 1);
-	arch::field<uint32_t, bool> hc_reset(1, 1);
-	arch::field<uint32_t, bool> intr_enable(2, 1);
+	arch::field<uint32_t, bool> hcReset(1, 1);
+	arch::field<uint32_t, bool> intrEnable(2, 1);
 }
 
 namespace usbsts {
-	arch::field<uint32_t, bool> hc_halted(0, 1);
-	arch::field<uint32_t, bool> host_sysem_err(2, 1);
-	arch::field<uint32_t, bool> event_intr(3, 1);
-	arch::field<uint32_t, bool> port_change(4, 1);
-	arch::field<uint32_t, bool> controller_not_ready(11, 1);
-	arch::field<uint32_t, bool> host_controller_error(12, 1);
+	arch::field<uint32_t, bool> hcHalted(0, 1);
+	arch::field<uint32_t, bool> hostSystemErr(2, 1);
+	arch::field<uint32_t, bool> eventIntr(3, 1);
+	arch::field<uint32_t, bool> portChange(4, 1);
+	arch::field<uint32_t, bool> controllerNotReady(11, 1);
+	arch::field<uint32_t, bool> hostControllerError(12, 1);
 }
 
 namespace config {
-	arch::field<uint32_t, uint8_t> enabled_device_slots(0, 8);
+	arch::field<uint32_t, uint8_t> enabledDeviceSlots(0, 8);
 }
 
 namespace interrupter {
 	arch::bit_register<uint32_t> iman(0x0);
 	arch::scalar_register<uint32_t> imod(0x4);
 	arch::scalar_register<uint32_t> erstsz(0x8);
-	arch::scalar_register<uint32_t> erstba_low(0x10);
-	arch::scalar_register<uint32_t> erstba_hi(0x14);
-	arch::scalar_register<uint32_t> erdp_low(0x18);
-	arch::scalar_register<uint32_t> erdp_hi(0x1C);
+	arch::scalar_register<uint32_t> erstbaLow(0x10);
+	arch::scalar_register<uint32_t> erstbaHi(0x14);
+	arch::scalar_register<uint32_t> erdpLow(0x18);
+	arch::scalar_register<uint32_t> erdpHi(0x1C);
 }
 
 namespace iman {
