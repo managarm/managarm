@@ -23,6 +23,11 @@ int main() {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/ehci", nullptr);
 	}else assert(ehci != -1);
 
+	auto xhci = fork();
+	if(!xhci) {
+		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/xhci", nullptr);
+	}else assert(ehci != -1);
+
 	auto virtio = fork();
 	if(!virtio) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
