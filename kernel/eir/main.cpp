@@ -16,11 +16,14 @@
 
 namespace arch = frigg::arch_x86;
 
+// Integer type large enough to hold physical and virtal addresses of the architecture.
+using address_t = uint64_t;
+
 static constexpr int kPageShift = 12;
 static constexpr size_t kPageSize = size_t(1) << kPageShift;
 
-uint64_t bootMemoryLimit;
-uint64_t allocatedMemory;
+address_t bootMemoryLimit;
+address_t allocatedMemory;
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -34,15 +37,15 @@ enum class RegionType {
 
 struct Region {
 	RegionType regionType;
-	uint64_t address;
-	uint64_t size;
+	address_t address;
+	address_t size;
 
 	int order;
 	uint64_t numRoots;
-	uint64_t buddyTree;
-	uint64_t buddyOverhead;
+	address_t buddyTree;
+	address_t buddyOverhead;
 	//uint64_t pageStructs;
-	uint64_t buddyMap;
+	address_t buddyMap;
 };
 
 static constexpr size_t numRegions = 64;
@@ -59,19 +62,19 @@ Region *obtainRegion() {
 	frigg::panicLogger() << "Eir: Memory region limit exhausted" << frigg::endLog;
 }
 
-void createInitialRegion(uint64_t address, uint64_t size) {
-	auto limit = address + size;
+void createInitialRegion(address_t base, address_t size) {
+	auto limit = base + size;
 
 	// For now we do not touch memory that is required during boot.
-	address = frigg::max(address, bootMemoryLimit);
+	address_t address = frigg::max(base, bootMemoryLimit);
 	
 	// Align address to 2 MiB.
 	// This ensures thor can allocate contiguous chunks of up to 2 MiB.
-	address = (address + 0x1FFFFF) & ~uint64_t(0x1FFFFF);
+	address = (address + 0x1FFFFF) & ~address_t(0x1FFFFF);
 
 	if(address >= limit) {
 		frigg::infoLogger() << "eir: Discarding memory region at 0x"
-				<< frigg::logHex(address) << " (smaller than alignment)" << frigg::endLog;
+				<< frigg::logHex(base) << " (smaller than alignment)" << frigg::endLog;
 		return;
 	}
 	
@@ -89,9 +92,9 @@ void createInitialRegion(uint64_t address, uint64_t size) {
 
 	// For now we ensure that the kernel has some memory to work with.
 	// TODO: Handle small memory regions.
-	if(limit - address < 32 * uint64_t(0x100000)) {
+	if(limit - address < 32 * address_t(0x100000)) {
 		frigg::infoLogger() << "eir: Discarding memory region at 0x"
-				<< frigg::logHex(address) << " (smaller than minimum size)" << frigg::endLog;
+				<< frigg::logHex(base) << " (smaller than minimum size)" << frigg::endLog;
 		return;
 	}
 
@@ -104,7 +107,7 @@ void createInitialRegion(uint64_t address, uint64_t size) {
 	region->size = limit - address;
 }
 
-uint64_t cutFromRegion(size_t size) {
+address_t cutFromRegion(size_t size) {
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
@@ -128,7 +131,7 @@ void setupRegionStructs() {
 		auto order = frigg::buddy_tools::suitable_order(regions[i].size >> kPageShift);
 		auto pre_roots = regions[i].size >> (kPageShift + order);
 		auto overhead = frigg::buddy_tools::determine_size(pre_roots, order);
-		overhead = (overhead + uint64_t(kPageSize - 1)) & ~uint64_t(kPageSize - 1);
+		overhead = (overhead + address_t(kPageSize - 1)) & ~address_t(kPageSize - 1);
 
 		// Note that cutFromRegion might actually reduce this regions' size.
 		auto table_paddr = cutFromRegion(overhead);
@@ -403,7 +406,7 @@ void mapRegionsAndStructs() {
 			mapSingle4kPage(0xFFFF'8000'0000'0000 + page,
 					page, kAccessWrite | kAccessGlobal);
 
-	uint64_t tree_mapping = 0xFFFF'C080'0000'0000;
+	address_t tree_mapping = 0xFFFF'C080'0000'0000;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
@@ -428,12 +431,12 @@ void mapRegionsAndStructs() {
 // Bootstrap information handling.
 // ----------------------------------------------------------------------------
 
-uint64_t bootstrapDataPointer = 0x40000000;
+address_t bootstrapDataPointer = 0x40000000;
 
-uint64_t mapBootstrapData(void *p) {
+address_t mapBootstrapData(void *p) {
 	auto pointer = bootstrapDataPointer;
 	bootstrapDataPointer += kPageSize;
-	mapSingle4kPage(pointer, (uint64_t)p, 0);
+	mapSingle4kPage(pointer, (address_t)p, 0);
 	return pointer;
 }
 
@@ -604,8 +607,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		}
 	}
 
-	bootMemoryLimit = (bootMemoryLimit + uint64_t(kPageSize - 1))
-			& ~uint64_t(kPageSize - 1);
+	bootMemoryLimit = (bootMemoryLimit + address_t(kPageSize - 1))
+			& ~address_t(kPageSize - 1);
 
 	// ------------------------------------------------------------------------
 	// Memory region setup.
@@ -614,32 +617,36 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	// Walk the memory map and retrieve all useable regions.
 	assert(mb_info->flags & kMbInfoMemoryMap);
 	frigg::infoLogger() << "Memory map:" << frigg::endLog;
-	size_t offset = 0;
-	while(offset < mb_info->memoryMapLength) {
+	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
 		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
 		
 		frigg::infoLogger() << "    Type " << map->type << " mapping."
-				<< " Base: " << (void *)map->baseAddress
-				<< ", length: " << (void *)map->length << frigg::endLog;
+				<< " Base: 0x" << frigg::logHex(map->baseAddress)
+				<< ", length: 0x" << frigg::logHex(map->length) << frigg::endLog;
+
+		offset += map->size + 4;
+	}
+
+	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
+		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
 
 		if(map->type == 1)
 			createInitialRegion(map->baseAddress, map->length);
 
 		offset += map->size + 4;
 	}
-
 	setupRegionStructs();
-	
+
 	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType == RegionType::null)
 			continue;
-		frigg::infoLogger() << "    Type " << (int)regions[i].regionType << " region."
-				<< " Base: " << (void *)regions[i].address
-				<< ", length: " << (void *)regions[i].size << frigg::endLog;
+		frigg::infoLogger() << "    Memory region [" << i << "]."
+				<< " Base: 0x" << frigg::logHex(regions[i].address)
+				<< ", length: 0x" << frigg::logHex(regions[i].size) << frigg::endLog;
 		if(regions[i].regionType == RegionType::allocatable)
-			frigg::infoLogger() << "        Buddy tree at " << (void *)regions[i].buddyTree
-					<< ", overhead: " << frigg::logHex(regions[i].buddyOverhead)
+			frigg::infoLogger() << "        Buddy tree at 0x" << frigg::logHex(regions[i].buddyTree)
+					<< ", overhead: 0x" << frigg::logHex(regions[i].buddyOverhead)
 					<< frigg::endLog;
 	}
 
@@ -660,7 +667,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	// Identically map the first 128 MiB so that we can activate paging
 	// without causing a page fault.
-	for(uint64_t addr = 0; addr < 0x8000000; addr += 0x1000)
+	for(address_t addr = 0; addr < 0x8000000; addr += 0x1000)
 		mapSingle4kPage(addr, addr, kAccessWrite | kAccessExecute);
 
 	mapRegionsAndStructs();
@@ -759,7 +766,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	
 		// Map the framebuffer to a lower-half address.
 		assert(mb_info->fbAddress & ~(kPageSize - 1));
-		for(uint64_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
+		for(address_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
 			mapSingle4kPage(0x80000000 + pg, mb_info->fbAddress + pg, kAccessWrite);
 		framebuf->fbEarlyWindow = 0x80000000;
 	}
