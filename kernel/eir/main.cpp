@@ -387,6 +387,9 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
 	
 	// setup the new pt entry
+	if(pt_entry & kPagePresent)
+		frigg::infoLogger() << "eir: Trying to map 0x" << frigg::logHex(address)
+				<< " twice!" << frigg::endLog;
 	assert(!(pt_entry & kPagePresent));
 	uint64_t new_entry = physical | kPagePresent;
 	if(flags & kAccessWrite)
@@ -412,7 +415,7 @@ void mapRegionsAndStructs() {
 			continue;
 
 		// Map the region itself.
-		for(size_t page = 0; page < regions[i].size; page += kPageSize)
+		for(address_t page = 0; page < regions[i].size; page += kPageSize)
 			mapSingle4kPage(0xFFFF'8000'0000'0000 + regions[i].address + page,
 					regions[i].address + page, kAccessWrite | kAccessGlobal);
 
@@ -420,7 +423,7 @@ void mapRegionsAndStructs() {
 		regions[i].buddyMap = tree_mapping;
 
 		auto overhead = frigg::buddy_tools::determine_size(regions[i].numRoots, regions[i].order);
-		for(size_t page = 0; page < overhead; page += kPageSize) {
+		for(address_t page = 0; page < overhead; page += kPageSize) {
 			mapSingle4kPage(tree_mapping, regions[i].buddyTree + page, kAccessWrite | kAccessGlobal);
 			tree_mapping += kPageSize;
 		}
@@ -695,7 +698,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 			" after loading the kernel" << frigg::endLog;
 
 	// Setup the kernel stack.
-	for(size_t page = 0; page < 0x10000; page += kPageSize)
+	for(address_t page = 0; page < 0x10000; page += kPageSize)
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), kAccessWrite);
 
 	// Setup the eir interface struct.
