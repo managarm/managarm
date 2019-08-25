@@ -463,10 +463,10 @@ frigg::String<KernelAlloc> getHardwareId(ACPI_HANDLE handle) {
 
 // --------------------------------------------------------
 
-IrqConfiguration irqConfig[24];
+IrqConfiguration irqConfig[256];
 
 void configureIrq(unsigned int gsi, IrqConfiguration desired) {
-	assert(gsi < 24);
+	assert(gsi < 256);
 	assert(desired.specified());
 	if(!irqConfig[gsi].specified()) {
 		auto pin = getGlobalSystemIrq(gsi);
