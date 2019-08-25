@@ -713,8 +713,7 @@ void initializeBasicSystem() {
 		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
 		if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
-			assert(!entry->systemIntBase);
-			setupIoApic(entry->mmioAddress);
+			setupIoApic(entry->ioApicId, entry->systemIntBase, entry->mmioAddress);
 		}
 		offset += generic->length;
 	}

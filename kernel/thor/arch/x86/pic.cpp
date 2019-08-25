@@ -343,10 +343,10 @@ void sendGlobalNmi() {
 
 // --------------------------------------------------------
 
-IrqPin *globalSystemIrqs[24];
+IrqPin *globalSystemIrqs[256];
 
 IrqPin *getGlobalSystemIrq(size_t n) {
-	assert(n <= 24);
+	assert(n <= 256);
 	return globalSystemIrqs[n];
 }
 
@@ -402,7 +402,7 @@ namespace {
 			bool _activeLow;
 		};
 
-		IoApic(arch::mem_space space);
+		IoApic(int apic_id, arch::mem_space space);
 
 		size_t pinCount();
 
@@ -419,19 +419,22 @@ namespace {
 			_space.store(apicData, value);
 		}
 
+		int _apicId;
 		arch::mem_space _space;
 		size_t _numPins;
 		// TODO: Replace by dyn_array?
 		Pin **_pins;
 	};
 
-	static frigg::String<KernelAlloc> buildName(unsigned int index) {
+	static frigg::String<KernelAlloc> buildName(int apic_id, unsigned int index) {
 		return frigg::String<KernelAlloc>{*kernelAlloc, "io-apic."}
+				+ frigg::to_string(*kernelAlloc, apic_id)
+				+ frigg::String<KernelAlloc>{*kernelAlloc, ":"}
 				+ frigg::to_string(*kernelAlloc, index);
 	}
 
 	IoApic::Pin::Pin(IoApic *chip, unsigned int index)
-	: IrqPin{buildName(index)}, _chip{chip}, _index{index} { }
+	: IrqPin{buildName(chip->_apicId, index)}, _chip{chip}, _index{index} { }
 
 	IrqStrategy IoApic::Pin::program(TriggerMode mode, Polarity polarity) {
 		IrqStrategy strategy;
@@ -495,10 +498,10 @@ namespace {
 		acknowledgeIrq(0);
 	}
 
-	IoApic::IoApic(arch::mem_space space)
-	: _space{std::move(space)} {
+	IoApic::IoApic(int apic_id, arch::mem_space space)
+	: _apicId(apic_id), _space{std::move(space)} {
 		_numPins = ((_loadRegister(kIoApicVersion) >> 16) & 0xFF) + 1;
-		frigg::infoLogger() << "thor: I/O APIC supports "
+		frigg::infoLogger() << "thor: I/O APIC " << apic_id << " supports "
 				<< _numPins << " pins" << frigg::endLog;
 
 		_pins = frigg::constructN<Pin *>(*kernelAlloc, _numPins);
@@ -525,7 +528,7 @@ namespace {
 	}
 }
 
-void setupIoApic(PhysicalAddr address) {
+void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
@@ -533,10 +536,10 @@ void setupIoApic(PhysicalAddr address) {
 	
 	picModel = kModelApic;
 
-	auto apic = frigg::construct<IoApic>(*kernelAlloc, arch::mem_space{register_ptr});
-	for(size_t i = 0; i < frigg::min(apic->pinCount(), size_t{24}); i++) {
+	auto apic = frigg::construct<IoApic>(*kernelAlloc, apic_id, arch::mem_space{register_ptr});
+	for(size_t i = 0; i < apic->pinCount(); i++) {
 		auto pin = apic->accessPin(i);
-		globalSystemIrqs[i] = pin;
+		globalSystemIrqs[gsi_base + i] = pin;
 	}
 
 	earlyFibers->push(KernelFiber::post([=] {
@@ -548,32 +551,6 @@ void setupIoApic(PhysicalAddr address) {
 		}
 	}));
 }
-
-/*
-
-uint32_t *ioApicRegs;
-arch::mem_space ioApicBase;
-
-void setupIoApic(PhysicalAddr address) {
-	// TODO: We really only need a single page.
-	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
-	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
-			page_access::write);
-	ioApicBase = arch::mem_space(register_ptr);
-	
-	picModel = kModelApic;
-	maskLegacyPic();
-
-	int num_ints = ((readIoApic(kIoApicVersion) >> 16) & 0xFF) + 1;
-	frigg::infoLogger() << "I/O APIC supports " << num_ints << " interrupts" << frigg::endLog;
-
-	for(int i = 0; i < num_ints; i++) {
-		uint32_t vector = 64 + i;
-		writeIoApic(kIoApicInts + i * 2, vector);
-		writeIoApic(kIoApicInts + i * 2 + 1, 0);
-	}
-}
-*/
 
 // --------------------------------------------------------
 // Legacy PIC management

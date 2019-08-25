@@ -80,7 +80,7 @@ void sendGlobalNmi();
 // I/O APIC management
 // --------------------------------------------------------
 
-void setupIoApic(PhysicalAddr address);
+void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address);
 
 // --------------------------------------------------------
 // Legacy PIC management
