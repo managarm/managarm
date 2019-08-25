@@ -234,7 +234,7 @@ async::detached Controller::initialize() {
 			completionCodeNames[compCode], compCode);
 
 	if (compCode != 1 && compCode != 11) {
-		printf("xhci: invalid response to command (hardware/emulator quirk)\n");
+		printf("xhci: invalid response to command (hardware/emulator quirk?)\n");
 		printf("xhci: was expecting either: %s (1) or %s (11)\n",
 					completionCodeNames[1],
 					completionCodeNames[11]);
@@ -422,12 +422,15 @@ void Controller::Interrupter::setEnable(bool enable) {
 }
 
 void Controller::Interrupter::setEventRing(EventRing *ring, bool clearEhb) {
-	_space.store(interrupter::erstsz, ring->getErstSize());
-	_space.store(interrupter::erstbaLow,ring->getErstPtr() & 0xFFFFFFFF);
-	_space.store(interrupter::erstbaHi, ring->getErstPtr() >> 32);
+	// don't reload erstba if only setting erdp (indicated wanting to clear ehb)
+	if (!clearEhb) {
+		_space.store(interrupter::erstsz, ring->getErstSize());
+		_space.store(interrupter::erstbaLow,ring->getErstPtr() & 0xFFFFFFFF);
+		_space.store(interrupter::erstbaHi, ring->getErstPtr() >> 32);
+	}
 
 	_space.store(interrupter::erdpLow,
-		(ring->getEventRingPtr() & 0xFFFFFFF0) | (clearEhb << 3));
+		(ring->getEventRingPtr() & 0xFFFFFFF0) | ((clearEhb ? 1 : 0) << 3));
 	_space.store(interrupter::erdpHi, ring->getEventRingPtr() >> 32);
 }
 
@@ -436,7 +439,8 @@ bool Controller::Interrupter::isPending() {
 }
 
 void Controller::Interrupter::clearPending() {
-	_space.store(interrupter::iman, iman::pending(1));
+	auto reg = _space.load(interrupter::iman);
+	_space.store(interrupter::iman, reg | iman::pending(1));
 }
 
 // ------------------------------------------------------------------------
