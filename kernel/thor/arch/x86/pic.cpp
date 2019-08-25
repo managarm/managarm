@@ -395,6 +395,7 @@ namespace {
 		private:
 			IoApic *_chip;
 			unsigned int _index;
+			int _vector = -1;
 			
 			// The following variables store the current pin configuration.
 			bool _levelTriggered;
@@ -450,11 +451,25 @@ namespace {
 			_activeLow = true;
 		}
 
-		auto vector = 64 + _index;
+		// Allocate an IRQ vector for the I/O APIC pin.
+		if(_vector == -1)
+			for(int i = 0; i < 24; i++) {
+				if(!globalIrqSlots[i]->isAvailable())
+					continue;
+				frigg::infoLogger() << "thor: Allocating IRQ slot " << i
+						<< " to " << name() << frigg::endLog;
+				globalIrqSlots[i]->link(this);
+				_vector = 64 + i;
+				break;
+			}
+		if(_vector == -1)
+			frigg::panicLogger() << "thor: Could not allocate interrupt vector for "
+					<< name() << frigg::endLog;
+
 		_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
 				static_cast<uint32_t>(pin_word2::destination(0)));
 		_chip->_storeRegister(kIoApicInts + _index * 2,
-				static_cast<uint32_t>(pin_word1::vector(vector)
+				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
 				| pin_word1::activeLow(_activeLow)));
 		return strategy;
@@ -462,18 +477,16 @@ namespace {
 	
 	void IoApic::Pin::mask() {
 //		frigg::infoLogger() << "thor: Masking pin " << _index << frigg::endLog;
-		auto vector = 64 + _index;
 		_chip->_storeRegister(kIoApicInts + _index * 2,
-				static_cast<uint32_t>(pin_word1::vector(vector)
+				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
 				| pin_word1::activeLow(_activeLow) | pin_word1::masked(true)));
 	}
 
 	void IoApic::Pin::unmask() {
 //		frigg::infoLogger() << "thor: Unmasking pin " << _index << frigg::endLog;
-		auto vector = 64 + _index;
 		_chip->_storeRegister(kIoApicInts + _index * 2,
-				static_cast<uint32_t>(pin_word1::vector(vector)
+				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
 				| pin_word1::activeLow(_activeLow)));
 	}
@@ -524,7 +537,6 @@ void setupIoApic(PhysicalAddr address) {
 	for(size_t i = 0; i < frigg::min(apic->pinCount(), size_t{24}); i++) {
 		auto pin = apic->accessPin(i);
 		globalSystemIrqs[i] = pin;
-		globalIrqSlots[i]->link(pin);
 	}
 
 	earlyFibers->push(KernelFiber::post([=] {

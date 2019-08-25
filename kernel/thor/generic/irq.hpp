@@ -38,6 +38,10 @@ struct IrqPin;
 // Represents a slot in the CPU's interrupt table.
 // Slots might be global or per-CPU.
 struct IrqSlot {
+	bool isAvailable() {
+		return _pin == nullptr;
+	}
+
 	// Links an IrqPin to this slot.
 	// From now on all IRQ raises will go to this IrqPin.
 	void link(IrqPin *pin);
@@ -46,7 +50,7 @@ struct IrqSlot {
 	void raise();
 
 private:
-	IrqPin *_pin;
+	IrqPin *_pin = nullptr;
 };
 
 // ----------------------------------------------------------------------------

@@ -447,7 +447,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 
 	if(logEveryIrq)
-		frigg::infoLogger() << "thor: IRQ #" << number << frigg::endLog;
+		frigg::infoLogger() << "thor: IRQ slot #" << number << frigg::endLog;
 
 	globalIrqSlots[number]->raise();
 
