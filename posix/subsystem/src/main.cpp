@@ -1911,6 +1911,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::INOTIFY_ADD) {
+			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+
 			if(logRequests)
 				std::cout << "posix: INOTIFY_ADD" << std::endl;
 
@@ -1921,13 +1924,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			co_await resolver.resolve();
-			assert(resolver.currentLink());
+			if(!resolver.currentLink()) {
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
 
 			auto wd = inotify::addWatch(ifile.get(), resolver.currentLink()->getTarget());
 
-			helix::SendBuffer send_resp;
-
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_wd(wd);
 
