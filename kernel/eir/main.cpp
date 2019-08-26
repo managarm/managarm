@@ -226,6 +226,8 @@ enum PageFlags {
 	kPagePresent = 1,
 	kPageWrite = 2,
 	kPageUser = 4,
+	kPagePwt = 0x8,
+	kPagePat = 0x80,
 	kPageGlobal = 0x100,
 	kPageXd = 0x8000000000000000
 };
@@ -298,6 +300,11 @@ enum {
 	kAccessGlobal = 4,
 };
 
+enum class CachingMode {
+	null,
+	writeCombine
+};
+
 // generates a page table where the first entry points to the table itself.
 uint64_t allocPt() {
 	uint64_t address = allocPage();
@@ -343,7 +350,8 @@ void mapPt(uint64_t address, uint64_t pt) {
 	((uint64_t *)pd)[pd_index] = pt | kPagePresent | kPageWrite;
 }
 
-void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
+void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags,
+		CachingMode caching_mode = CachingMode::null) {
 	assert(address % 0x1000 == 0);
 	assert(physical % 0x1000 == 0);
 
@@ -398,6 +406,11 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 		new_entry |= kPageXd;
 	if(!(flags & kAccessGlobal))
 		new_entry |= kPageGlobal;
+	if(caching_mode == CachingMode::writeCombine) {
+		new_entry |= kPagePat | kPagePwt;
+	}else{
+		assert(caching_mode == CachingMode::null);
+	}
 	((uint64_t*)pt)[pt_index] = new_entry;
 }
 
@@ -770,7 +783,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		// Map the framebuffer to a lower-half address.
 		assert(mb_info->fbAddress & ~(kPageSize - 1));
 		for(address_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
-			mapSingle4kPage(0x80000000 + pg, mb_info->fbAddress + pg, kAccessWrite);
+			mapSingle4kPage(0x80000000 + pg, mb_info->fbAddress + pg,
+					kAccessWrite, CachingMode::writeCombine);
 		framebuf->fbEarlyWindow = 0x80000000;
 	}
 
