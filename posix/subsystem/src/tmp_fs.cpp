@@ -198,7 +198,7 @@ private:
 		co_return link;
 	}
 
-	async::result<std::shared_ptr<FsLink>> mkdir(std::string name) override;
+	async::result<std::variant<Error, std::shared_ptr<FsLink>>> mkdir(std::string name) override;
 
 	async::result<std::shared_ptr<FsLink>> symlink(std::string name, std::string path) override;
 
@@ -540,7 +540,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock)
 DirectoryNode::DirectoryNode(Superblock *superblock)
 : Node{superblock, FsNode::defaultSupportsObservers} { }
 
-async::result<std::shared_ptr<FsLink>>
+async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));

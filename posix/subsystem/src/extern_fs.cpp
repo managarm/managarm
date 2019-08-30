@@ -318,11 +318,12 @@ private:
 		return std::shared_ptr<FsLink>{std::move(self), &_treeLink};
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-			mkdir(std::string name) override, ([=] {
+	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	mkdir(std::string name) override {
 		(void)name;
-		assert(!"mkdir is not implemented for extern_fs");
-	}))
+		std::cout << "\e[31m" "posix: mkdir is not implemented for extern_fs" "\e[39m" << std::endl;
+		co_return Error::illegalOperationTarget;
+	}
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			symlink(std::string name, std::string link) override, ([=] {

@@ -726,8 +726,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
-			if(logRequests)
-				std::cout << "posix: ACCESS" << std::endl;
+			if(logRequests || logPaths)
+				std::cout << "posix: ACCESS " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
 
@@ -777,15 +777,26 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			co_await parent->mkdir(resolver.nextComponent());
+			auto result = co_await parent->mkdir(resolver.nextComponent());
+			if(auto error = std::get_if<Error>(&result); error) {
+				assert(*error == Error::illegalOperationTarget);
 
-			resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}else{
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINK) {
 			if(logRequests || logPaths)
 				std::cout << "posix: SYMLINK " << req.path() << std::endl;
@@ -1914,8 +1925,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
-			if(logRequests)
-				std::cout << "posix: INOTIFY_ADD" << std::endl;
+			if(logRequests || logPaths)
+				std::cout << "posix: INOTIFY_ADD" << req.path() << std::endl;
 
 			auto ifile = self->fileContext()->getFile(req.fd());
 			assert(ifile);

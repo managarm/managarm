@@ -65,7 +65,8 @@ async::result<void> populateRootView() {
 
 	co_await tree->getTarget()->mkdir("realfs");
 	
-	auto dev = co_await tree->getTarget()->mkdir("dev");
+	// TODO: Check for errors from mkdir().
+	auto dev = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir("dev"));
 	rootView->mount(std::move(dev), getDevtmpfs());
 
 	// Populate the tmpfs from the fs we are running on.
@@ -114,7 +115,9 @@ async::result<void> populateRootView() {
 			//std::cout << "posix: Importing " << item.second + "/" + resp.path() << std::endl;
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto link = co_await item.first->mkdir(resp.path());
+				// TODO: Check for errors from mkdir().
+				auto link = std::get<std::shared_ptr<FsLink>>(
+						co_await item.first->mkdir(resp.path()));
 				stack.push_back({link->getTarget(), item.second + "/" + resp.path()});
 			}else{
 				assert(resp.file_type() == managarm::fs::FileType::REGULAR);

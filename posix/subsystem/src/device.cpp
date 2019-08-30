@@ -83,8 +83,10 @@ COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
 			assert(s > k);
 			std::shared_ptr<FsLink> link;
 			link = COFIBER_AWAIT node->getLink(path.substr(k, s - k));
+			// TODO: Check for errors from mkdir().
 			if(!link)
-				link = COFIBER_AWAIT node->mkdir(path.substr(k, s - k));
+				link = std::get<std::shared_ptr<FsLink>>(
+						COFIBER_AWAIT node->mkdir(path.substr(k, s - k)));
 			k = s + 1;
 			node = link->getTarget();
 		}

@@ -122,7 +122,7 @@ public:
 			std::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<FsLink>> mkdir(std::string name);
+	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>> mkdir(std::string name);
 	
 	//! Creates a new symlink (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> symlink(std::string name, std::string path);
