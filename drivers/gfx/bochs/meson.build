@@ -13,3 +13,9 @@ executable('gfx_bochs', ['src/main.cpp', fs_pb],
 	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	install: true)
 
+custom_target('gfx-bochs-server',
+	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output: 'gfx-bochs.bin',
+	input: 'gfx-bochs.yml',
+	install: true,
+	install_dir: get_option('libdir') / 'managarm/server')

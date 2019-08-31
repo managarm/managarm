@@ -1,0 +1,5 @@
+name: gfx-bochs
+exec: /usr/bin/gfx_bochs
+files:
+  - /usr/bin/gfx_bochs
+  - /usr/lib/libdrm_core.so

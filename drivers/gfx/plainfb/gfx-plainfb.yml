@@ -1,0 +1,5 @@
+name: gfx-plainfb
+exec: /usr/bin/gfx_plainfb
+files:
+  - /usr/bin/gfx_plainfb
+  - /usr/lib/libdrm_core.so
