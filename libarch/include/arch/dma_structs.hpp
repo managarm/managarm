@@ -37,7 +37,14 @@ struct dma_buffer_view {
 	}
 
 	dma_buffer_view subview(size_t offset, size_t chunk) const {
+		assert(offset <= _size);
+		assert(offset + chunk <= _size);
 		return dma_buffer_view{_pool, (char *)_data + offset, chunk};
+	}
+
+	dma_buffer_view subview(size_t offset) const {
+		assert(offset <= _size);
+		return dma_buffer_view{_pool, (char *)_data + offset, _size - offset};
 	}
 
 private:
