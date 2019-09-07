@@ -11,6 +11,15 @@ namespace virtio {
 static uint8_t deviceMac[6];
 
 static async::result<void> testNetworking(Device *device);
+static void recvEthernetPacket(Device *device,
+		arch::dma_buffer_view buffer);
+static void recvIp4Packet(Device *device,
+		arch::dma_buffer_view buffer);
+static void recvUdpPacket(Device *device,
+		arch::dma_buffer_view buffer);
+
+static std::deque<std::vector<std::byte>> dhcpInPackets;
+static async::doorbell dhcpInDoorbell;
 
 // --------------------------------------------------------
 // Device
@@ -82,6 +91,8 @@ async::detached Device::_processReceive() {
 		std::cout << "nic-virtio: Preparing to receive" << std::endl;
 		co_await _receiveVq->submitDescriptor(chain.front());
 		std::cout << "nic-virtio: Received packet" << std::endl;
+
+		recvEthernetPacket(this, packet);
 	}
 }
 
@@ -269,59 +280,6 @@ struct UdpHeader {
 	uint16_t checksum;
 };
 
-// DHCP constants and structs.
-
-enum {
-	kBootpNull = 0,
-	kBootpEnd = 255,
-
-	kBootpSubnet = 1,
-	kBootpRouters = 3,
-	kBootpDns = 6,
-
-	kDhcpRequestedIp = 50,
-	kDhcpLeaseTime = 51,
-	kDhcpMessageType = 53,
-	kDhcpServer = 54
-};
-
-enum {
-	kTypeDiscover = 1,
-	kTypeOffer = 2,
-	kTypeRequest = 3,
-	kTypeDecline = 4,
-	kTypeAck = 5,
-	kTypeNak = 6,
-	kTypeRelease = 7,
-	kTypeInform = 8
-};
-
-enum {
-	// bits of the BOOTP flags field
-	kDhcpBroadcast = 0x8000,
-
-	// dhcp magic option
-	kDhcpMagic = 0x63825363
-};
-
-struct DhcpHeader {
-	uint8_t op;
-	uint8_t htype;
-	uint8_t hlen;
-	uint8_t hops;
-	uint32_t transaction;
-	uint16_t secondsSinceBoot;
-	uint16_t flags;
-	Ip4Address clientIp;
-	Ip4Address assignedIp;
-	Ip4Address serverIp;
-	Ip4Address gatewayIp;
-	uint8_t clientHardware[16];
-	uint8_t serverHost[64];
-	uint8_t file[128];
-	uint32_t magic; // move this out of DhcpHeader
-};
-
 static async::result<void> sendEthernetPacket(Device *device,
 		EthernetInfo link_info,
 		const std::vector<std::byte> &payload) {
@@ -335,6 +293,82 @@ static async::result<void> sendEthernetPacket(Device *device,
 	memcpy(&packet[sizeof(EthernetHeader)], payload.data(), payload.size());
 
 	co_await device->sendPacket(packet);
+}
+
+static void recvEthernetPacket(Device *device,
+		arch::dma_buffer_view buffer) {
+	if(buffer.size() < sizeof(EthernetHeader)) {
+		std::cout << "nic-virtio: Ethernet packet without header" << std::endl;
+		return;
+	}
+
+	EthernetHeader header;
+	memcpy(&header, buffer.data(), sizeof(EthernetHeader));
+
+	if(header.etherType == hostToNet<uint16_t>(kEtherIp4))
+		recvIp4Packet(device, buffer.subview(sizeof(EthernetHeader)));
+}
+
+static void recvIp4Packet(Device *device,
+		arch::dma_buffer_view buffer) {
+	if(buffer.size() < sizeof(Ip4Header)) {
+		std::cout << "nic-virtio: IP4 packet without header" << std::endl;
+		return;
+	}
+
+	Ip4Header header;
+	memcpy(&header, buffer.data(), sizeof(Ip4Header));
+
+	size_t header_length = (header.version_headerLength & 0xF) * 4;
+	if(buffer.size() < sizeof(Ip4Header)) {
+		std::cout << "nic-virtio: IP4 packet smaller than length of header" << std::endl;
+		return;
+	}
+
+	// TODO: Support fragment reassembly.
+	auto fo = netToHost<uint16_t>(header.flags_offset);
+	if((fo & kFragmentOffsetMask) || (fo & kFlagMF)) {
+		std::cout << "nic-virtio: Dropping fragmented IP4 packet" << std::endl;
+		return;
+	}
+
+	if(header.protocol == kUdpProtocol) {
+		recvUdpPacket(device, buffer.subview(header_length));
+	}else{
+		std::cout << "nic-virtio: Dropping unexpected IP4 protocol "
+				<< (int)header.protocol << std::endl;
+	}
+}
+
+static void recvUdpPacket(Device *device,
+		arch::dma_buffer_view buffer) {
+	std::cout << "nic-virtio: Got UDP packet" << std::endl;
+
+	if(buffer.size() < sizeof(UdpHeader)) {
+		std::cout << "nic-virtio: UDP packet without header" << std::endl;
+		return;
+	}
+
+	UdpHeader header;
+	memcpy(&header, buffer.data(), sizeof(UdpHeader));
+
+	if(buffer.size() < sizeof(UdpHeader) + netToHost<uint16_t>(header.length)) {
+		std::cout << "nic-virtio: UDP packet is smaller than advertised" << std::endl;
+		return;
+	}
+
+	auto port = netToHost<uint16_t>(header.destination);
+	if(port == 68) {
+		std::vector<std::byte> payload;
+		payload.resize(netToHost<uint16_t>(header.length));
+		memcpy(payload.data(), buffer.subview(sizeof(UdpHeader)).data(), payload.size());
+
+		dhcpInPackets.push_back(std::move(payload));
+		dhcpInDoorbell.ring();
+	}else{
+		std::cout << "nic-virtio: Dropping unexpected IP4 protocol "
+				<< port << std::endl;
+	}
 }
 
 static async::result<void> sendIp4Packet(Device *device,
@@ -393,24 +427,160 @@ static async::result<void> sendUdpPacket(Device *device,
 	co_await sendIp4Packet(device, link_info, network_info, packet);
 }
 
+// --------------------------------------------------------
+
+// DHCP constants and structs.
+
+namespace spec {
+
+enum {
+	kBootpNull = 0,
+	kBootpEnd = 255,
+
+	kBootpSubnet = 1,
+	kBootpRouters = 3,
+	kBootpDns = 6,
+
+	kDhcpRequestedIp = 50,
+	kDhcpLeaseTime = 51,
+	kDhcpMessageType = 53,
+	kDhcpServer = 54
+};
+
+enum {
+	kTypeDiscover = 1,
+	kTypeOffer = 2,
+	kTypeRequest = 3,
+	kTypeDecline = 4,
+	kTypeAck = 5,
+	kTypeNak = 6,
+	kTypeRelease = 7,
+	kTypeInform = 8
+};
+
+enum {
+	// bits of the BOOTP flags field
+	kDhcpBroadcast = 0x8000,
+
+	// dhcp magic option
+	kDhcpMagic = 0x63825363
+};
+
+struct DhcpHeader {
+	uint8_t op;
+	uint8_t htype;
+	uint8_t hlen;
+	uint8_t hops;
+	uint32_t transaction;
+	uint16_t secondsSinceBoot;
+	uint16_t flags;
+	Ip4Address clientIp;
+	Ip4Address assignedIp;
+	Ip4Address serverIp;
+	Ip4Address gatewayIp;
+	uint8_t clientHardware[16];
+	uint8_t serverHost[64];
+	uint8_t file[128];
+	uint32_t magic; // move this out of DhcpHeader
+};
+
+} // namespace spec
+
+template<typename F>
+void walkBootpOptions(const std::vector<std::byte> &buffer, F functor) {
+	size_t offset = 0;
+	auto options = buffer.data() + sizeof(spec::DhcpHeader);
+	size_t length = buffer.size() - sizeof(spec::DhcpHeader);
+	while(offset < length) {
+		auto tag = static_cast<int>(options[offset]);
+		if(tag == spec::kBootpNull) {
+			continue;
+		}else if(tag == spec::kBootpEnd) {
+			break;
+		}
+
+		if(offset + 2 > length) {
+			std::cout << "nic-virtio: DHCP option at end of packet" << std::endl;
+			return;
+		}
+
+		auto opt_size = static_cast<size_t>(options[offset + 1]);
+		if(offset + 2 + opt_size > length) {
+			std::cout << "nic-virtio: DHCP option overflows packet size" << std::endl;
+			return;
+		}
+
+		functor(tag, options + offset + 2, opt_size);
+		offset += 2 + opt_size;
+	}
+}
+
+void dumpBootpPacket(const std::vector<std::byte> &buffer) {
+	assert(buffer.size() >= sizeof(spec::DhcpHeader));
+	spec::DhcpHeader dhcp_header;
+	memcpy(&dhcp_header, buffer.data(), sizeof(spec::DhcpHeader));
+
+	std::cout << "nic-virtio: Dumping BOOTP packet" << std::endl;
+	printf("    BOOTP operation: %d\n", dhcp_header.op);
+	auto bootp_client_ip = dhcp_header.clientIp;
+	auto bootp_assigned_ip = dhcp_header.assignedIp;
+	auto bootp_server_ip = dhcp_header.serverIp;
+	auto bootp_gateway_ip = dhcp_header.gatewayIp;
+	printf("    BOOTP clientIp: %d.%d.%d.%d, assignedIp: %d.%d.%d.%d\n",
+			bootp_client_ip.octets[0], bootp_client_ip.octets[1],
+			bootp_client_ip.octets[2], bootp_client_ip.octets[3],
+			bootp_assigned_ip.octets[0], bootp_assigned_ip.octets[1],
+			bootp_assigned_ip.octets[2], bootp_assigned_ip.octets[3]);
+	printf("    BOOTP serverIp: %d.%d.%d.%d, gatewayIp: %d.%d.%d.%d\n",
+			bootp_server_ip.octets[0], bootp_server_ip.octets[1],
+			bootp_server_ip.octets[2], bootp_server_ip.octets[3],
+			bootp_gateway_ip.octets[0], bootp_gateway_ip.octets[1],
+			bootp_gateway_ip.octets[2], bootp_gateway_ip.octets[3]);
+
+	walkBootpOptions(buffer, [&] (int tag, const std::byte *opt_data, size_t opt_size) {
+		switch(tag) {
+		case spec::kDhcpMessageType:
+			assert(opt_size == 1);
+			printf("    DHCP messageType: %d\n", static_cast<int>(*opt_data));
+			break;
+		case spec::kDhcpServer:
+		case spec::kBootpSubnet:
+		case spec::kBootpRouters:
+		case spec::kBootpDns:
+		case spec::kDhcpLeaseTime:
+			break;
+		default:
+			printf("    Unexpected BOOTP option: %d !\n", tag);
+		}
+	});
+}
+
 static uint32_t dhcpTransaction = 0xD61FF088; // Some random integer.
 
+static constexpr int nDhcpRetries = 5;
+
+Ip4Address dhcpIp;
+Ip4Address assignedIp;
+Ip4Address routerIp;
+Ip4Address subnetMask;
+Ip4Address dnsIp;
+
+// Send a DHCP DISCOVER packet.
 static async::result<void> sendDhcpDiscover(Device *device) {
-	// Send a DHCP DISCOVER packet.
 	MacAddress local_mac{deviceMac[0], deviceMac[1], deviceMac[2],
 			deviceMac[3], deviceMac[4], deviceMac[5]};
 
 	std::vector<std::byte> packet;
-	packet.resize(sizeof(DhcpHeader) + 4);
+	packet.resize(sizeof(spec::DhcpHeader) + 4);
 
-	DhcpHeader dhcp_header;
+	spec::DhcpHeader dhcp_header;
 	dhcp_header.op = 1;
 	dhcp_header.htype = 1;
 	dhcp_header.hlen = 6;
 	dhcp_header.hops = 0;
 	dhcp_header.transaction = hostToNet<uint32_t>(dhcpTransaction);
 	dhcp_header.secondsSinceBoot = 0;
-	dhcp_header.flags = hostToNet<uint16_t>(kDhcpBroadcast);
+	dhcp_header.flags = hostToNet<uint16_t>(spec::kDhcpBroadcast);
 	dhcp_header.clientIp = Ip4Address();
 	dhcp_header.assignedIp = Ip4Address();
 	dhcp_header.serverIp = Ip4Address();
@@ -419,14 +589,14 @@ static async::result<void> sendDhcpDiscover(Device *device) {
 	memcpy(dhcp_header.clientHardware, local_mac.octets, 6);
 	memset(dhcp_header.serverHost, 0, 64);
 	memset(dhcp_header.file, 0, 128);
-	dhcp_header.magic = hostToNet<uint32_t>(kDhcpMagic);
-	memcpy(&packet[0], &dhcp_header, sizeof(DhcpHeader));
+	dhcp_header.magic = hostToNet<uint32_t>(spec::kDhcpMagic);
+	memcpy(&packet[0], &dhcp_header, sizeof(spec::DhcpHeader));
 
-	auto dhcp_options = &packet[sizeof(DhcpHeader)];
-	dhcp_options[0] = static_cast<std::byte>(kDhcpMessageType);
+	auto dhcp_options = &packet[sizeof(spec::DhcpHeader)];
+	dhcp_options[0] = static_cast<std::byte>(spec::kDhcpMessageType);
 	dhcp_options[1] = static_cast<std::byte>(1);
-	dhcp_options[2] = static_cast<std::byte>(kTypeDiscover);
-	dhcp_options[3] = static_cast<std::byte>(kBootpEnd);
+	dhcp_options[2] = static_cast<std::byte>(spec::kTypeDiscover);
+	dhcp_options[3] = static_cast<std::byte>(spec::kBootpEnd);
 
 	EthernetInfo ethernet_info;
 	ethernet_info.sourceMac = local_mac;
@@ -434,7 +604,7 @@ static async::result<void> sendDhcpDiscover(Device *device) {
 	ethernet_info.etherType = kEtherIp4;
 
 	Ip4Info ip_info;
-	ip_info.sourceIp = Ip4Address();
+	ip_info.sourceIp = Ip4Address{};
 	ip_info.destIp = Ip4Address::broadcast();
 	ip_info.protocol = kUdpProtocol;
 
@@ -445,18 +615,222 @@ static async::result<void> sendDhcpDiscover(Device *device) {
 	co_await sendUdpPacket(device, ethernet_info, ip_info, udp_info, packet);
 }
 
+// Send a DHCP REQUEST packet.
+static async::result<void> sendDhcpRequest(Device *device) {
+	MacAddress local_mac{deviceMac[0], deviceMac[1], deviceMac[2],
+			deviceMac[3], deviceMac[4], deviceMac[5]};
+
+	std::vector<std::byte> packet;
+	packet.resize(sizeof(spec::DhcpHeader) + 16);
+
+	spec::DhcpHeader new_dhcp_header;
+	new_dhcp_header.op = 1;
+	new_dhcp_header.htype = 1;
+	new_dhcp_header.hlen = 6;
+	new_dhcp_header.hops = 0;
+	new_dhcp_header.transaction = hostToNet<uint32_t>(dhcpTransaction);
+	new_dhcp_header.secondsSinceBoot = 0;
+	new_dhcp_header.flags = 0;
+	new_dhcp_header.clientIp = Ip4Address();
+	new_dhcp_header.assignedIp = Ip4Address();
+	new_dhcp_header.serverIp = dhcpIp;
+	new_dhcp_header.gatewayIp = Ip4Address();
+	memset(new_dhcp_header.clientHardware, 0, 16);
+	memcpy(new_dhcp_header.clientHardware, local_mac.octets, 6);
+	memset(new_dhcp_header.serverHost, 0, 64);
+	memset(new_dhcp_header.file, 0, 128);
+	new_dhcp_header.magic = hostToNet<uint32_t>(spec::kDhcpMagic);
+	memcpy(&packet[0], &new_dhcp_header, sizeof(spec::DhcpHeader));
+
+	auto dhcp_options = &packet[sizeof(spec::DhcpHeader)];
+	dhcp_options[0] = static_cast<std::byte>(spec::kDhcpMessageType);
+	dhcp_options[1] = static_cast<std::byte>(1);
+	dhcp_options[2] = static_cast<std::byte>(spec::kTypeRequest);
+	dhcp_options[3] = static_cast<std::byte>(spec::kDhcpServer);
+	dhcp_options[4] = static_cast<std::byte>(4);
+	dhcp_options[5] = static_cast<std::byte>(dhcpIp.octets[0]);
+	dhcp_options[6] = static_cast<std::byte>(dhcpIp.octets[1]);
+	dhcp_options[7] = static_cast<std::byte>(dhcpIp.octets[2]);
+	dhcp_options[8] = static_cast<std::byte>(dhcpIp.octets[3]);
+	dhcp_options[9] = static_cast<std::byte>(spec::kDhcpRequestedIp);
+	dhcp_options[10] = static_cast<std::byte>(4);
+	dhcp_options[11] = static_cast<std::byte>(assignedIp.octets[0]);
+	dhcp_options[12] = static_cast<std::byte>(assignedIp.octets[1]);
+	dhcp_options[13] = static_cast<std::byte>(assignedIp.octets[2]);
+	dhcp_options[14] = static_cast<std::byte>(assignedIp.octets[3]);
+	dhcp_options[15] = static_cast<std::byte>(spec::kBootpEnd);
+
+	EthernetInfo ethernet_info;
+	ethernet_info.sourceMac = local_mac;
+	ethernet_info.destMac = MacAddress::broadcast();
+	ethernet_info.etherType = kEtherIp4;
+
+	Ip4Info ip_info;
+	ip_info.sourceIp = Ip4Address{};
+	ip_info.destIp = Ip4Address::broadcast();
+	ip_info.protocol = kUdpProtocol;
+
+	UdpInfo udp_info;
+	udp_info.sourcePort = 68;
+	udp_info.destPort = 67;
+
+	co_await sendUdpPacket(device, ethernet_info, ip_info, udp_info, packet);
+}
+
+static async::result<bool> dhcpDiscover(Device *device) {
+	MacAddress local_mac{deviceMac[0], deviceMac[1], deviceMac[2],
+			deviceMac[3], deviceMac[4], deviceMac[5]};
+
+	for(int n = 0; n < nDhcpRetries; n++) {
+		std::cout << "nic-virtio: Sending DHCP DISCOVER" << std::endl;
+		co_await sendDhcpDiscover(device);
+
+		while(true) {
+			// TODO: break out of this loop once x seconds have passed.
+
+			if(dhcpInPackets.empty()) {
+				co_await dhcpInDoorbell.async_wait();
+				continue;
+			}
+
+			std::cout << "nic-virtio: Received DHCP packet" << std::endl;
+			auto buffer = std::move(dhcpInPackets.front());
+			dhcpInPackets.pop_front();
+
+			if(buffer.size() < sizeof(spec::DhcpHeader)) {
+				std::cout << "nic-virtio: Discarding DHCP packet with truncated header"
+						<< std::endl;
+				continue;
+			}
+
+			dumpBootpPacket(buffer);
+
+			spec::DhcpHeader dhcp_header;
+			memcpy(&dhcp_header, buffer.data(), sizeof(spec::DhcpHeader));
+
+			int dhcp_type;
+			walkBootpOptions(buffer, [&] (int tag, const std::byte *opt_data, size_t opt_size) {
+				switch(tag) {
+				case spec::kDhcpMessageType:
+					assert(opt_size == 1);
+					dhcp_type = static_cast<int>(*opt_data);
+					break;
+				case spec::kDhcpServer:
+					assert(opt_size == 4);
+					dhcpIp = Ip4Address{static_cast<uint8_t>(opt_data[0]),
+							static_cast<uint8_t>(opt_data[1]),
+							static_cast<uint8_t>(opt_data[2]),
+							static_cast<uint8_t>(opt_data[3])};
+					break;
+				case spec::kBootpSubnet:
+					assert(opt_size == 4);
+					subnetMask = Ip4Address{static_cast<uint8_t>(opt_data[0]),
+							static_cast<uint8_t>(opt_data[1]),
+							static_cast<uint8_t>(opt_data[2]),
+							static_cast<uint8_t>(opt_data[3])};
+					break;
+				case spec::kBootpRouters:
+					assert(opt_size == 4);
+					routerIp = Ip4Address{static_cast<uint8_t>(opt_data[0]),
+							static_cast<uint8_t>(opt_data[1]),
+							static_cast<uint8_t>(opt_data[2]),
+							static_cast<uint8_t>(opt_data[3])};
+					break;
+				case spec::kBootpDns:
+					assert(opt_size == 4);
+					dnsIp = Ip4Address{static_cast<uint8_t>(opt_data[0]),
+							static_cast<uint8_t>(opt_data[1]),
+							static_cast<uint8_t>(opt_data[2]),
+							static_cast<uint8_t>(opt_data[3])};
+					break;
+				case spec::kDhcpLeaseTime:
+					break;
+				default:
+					printf("    Unexpected BOOTP option: %d !\n", tag);
+				}
+			});
+
+			if(dhcp_type != spec::kTypeOffer) {
+				std::cout << "nic-virtio: Discarding DHCP packet of unexpected type"
+						<< std::endl;
+				continue;
+			}
+			co_return true;
+		}
+	}
+
+	co_return false;
+}
+
+static async::result<bool> dhcpRequest(Device *device) {
+	MacAddress local_mac{deviceMac[0], deviceMac[1], deviceMac[2],
+			deviceMac[3], deviceMac[4], deviceMac[5]};
+
+	for(int n = 0; n < nDhcpRetries; n++) {
+		std::cout << "nic-virtio: Sending DHCP REQUEST" << std::endl;
+		co_await sendDhcpRequest(device);
+
+		while(true) {
+			// TODO: break out of this loop once x seconds have passed.
+
+			if(dhcpInPackets.empty()) {
+				co_await dhcpInDoorbell.async_wait();
+				continue;
+			}
+
+			std::cout << "nic-virtio: Received DHCP packet" << std::endl;
+			auto buffer = std::move(dhcpInPackets.front());
+			dhcpInPackets.pop_front();
+
+			if(buffer.size() < sizeof(spec::DhcpHeader)) {
+				std::cout << "nic-virtio: Discarding DHCP packet with truncated header"
+						<< std::endl;
+				continue;
+			}
+
+			dumpBootpPacket(buffer);
+
+			spec::DhcpHeader dhcp_header;
+			memcpy(&dhcp_header, buffer.data(), sizeof(spec::DhcpHeader));
+
+			int dhcp_type;
+			walkBootpOptions(buffer, [&] (int tag, const std::byte *opt_data, size_t opt_size) {
+				switch(tag) {
+				case spec::kDhcpMessageType:
+					assert(opt_size == 1);
+					dhcp_type = static_cast<int>(*opt_data);
+					break;
+				case spec::kDhcpServer:
+				case spec::kBootpSubnet:
+				case spec::kBootpRouters:
+				case spec::kBootpDns:
+				case spec::kDhcpLeaseTime:
+					break;
+				default:
+					printf("    Unexpected BOOTP option: %d !\n", tag);
+				}
+			});
+
+			if(dhcp_type != spec::kTypeAck) {
+				std::cout << "nic-virtio: Discarding DHCP packet of unexpected type"
+						<< std::endl;
+				continue;
+			}
+			co_return true;
+		}
+	}
+
+	co_return false;
+}
+
 static async::result<void> testNetworking(Device *device) {
 	while(true) {
-		uint64_t tick;
-		HEL_CHECK(helGetClock(&tick));
-
-		helix::AwaitClock await_clock;
-		auto &&submit = helix::submitAwaitClock(&await_clock, tick + 2'000'000'000,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_clock.error());
-
-		async::detach(sendDhcpDiscover(device));
+		if(!(co_await dhcpDiscover(device)))
+			continue;
+		if(!(co_await dhcpRequest(device)))
+			continue;
+		// TODO: Assign the DHCP IP to the network interface.
+		break;
 	}
 }
 
