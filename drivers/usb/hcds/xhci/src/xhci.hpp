@@ -120,7 +120,34 @@ private:
 		Controller *_controller;
 
 		int _ccs;
+	};
 
+	struct TransferRing {
+		constexpr static size_t transferRingSize = 128;
+
+		struct TransferEvent {
+			async::promise<void> promise;
+			Event event;
+		};
+
+		struct alignas(64) TransferRingEntries {
+			RawTrb ent[transferRingSize];
+		};
+
+		TransferRing(Controller *controller);
+		uintptr_t getPtr();
+
+		void pushRawTransfer(RawTrb cmd, TransferEvent *ev = nullptr);
+
+		std::array<TransferEvent *, transferRingSize> _transferEvents;
+	private:
+		arch::dma_object<TransferRingEntries> _transferRing;
+		size_t _dequeuePtr;
+		size_t _enqueuePtr;
+
+		Controller *_controller;
+
+		bool _pcs; // producer cycle state
 	};
 
 	struct Interrupter {
@@ -133,6 +160,77 @@ private:
 		arch::mem_space _space;
 	};
 
+	struct Device;
+
+	struct Port {
+		Port(int id, Controller *controller);
+		void reset();
+		void disable();
+		bool isConnected();
+		bool isEnabled();
+		async::result<void> initPort();
+
+		async::doorbell _doorbell;
+	private:
+		uint8_t getLinkStatus();
+		uint8_t getSpeed();
+		int _id;
+		std::shared_ptr<Device> _device;
+		Controller *_controller;
+		arch::mem_space _space;
+	};
+
+	struct Device {
+		Device(int portId, Controller *controller);
+
+		void submit(int endpoint);
+		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
+		async::result<void> allocSlot(int revision);
+
+		async::result<void> readDescriptor(arch::dma_buffer &dest, uint16_t desc, size_t len);
+
+
+		std::array<TransferRing::TransferEvent *, 31> _transferEvents;
+
+		int _slotId;
+
+	private:
+		int _portId;
+		Controller *_controller;
+
+		arch::dma_object<DeviceContext> _devCtx;
+		std::array<std::unique_ptr<TransferRing>, 31> _transferRings;
+	};
+
+	struct SupportedProtocol {
+		int minor;
+		int major;
+
+		std::string name;
+
+		size_t compatiblePortStart;
+		size_t compatiblePortCount;
+
+		uint16_t protocolDefined;
+
+		size_t protocolSlotType;
+
+		struct PortSpeed {
+			uint8_t value;
+			uint8_t exponent;
+			uint8_t type;
+
+			bool fullDuplex;
+
+			uint8_t linkProtocol;
+			uint16_t mantissa;
+		};
+
+		std::vector<PortSpeed> speeds;
+	};
+
+	std::vector<SupportedProtocol> _supportedProtocols;
+
 	protocols::hw::Device _hw_device;
 	helix::Mapping _mapping;
 	helix::UniqueDescriptor _mmio;
@@ -144,7 +242,7 @@ private:
 
 	void ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_id);
 
-	uint16_t getExtendedCapabilityOffset(uint8_t id);
+	std::vector<std::pair<uint8_t, uint16_t>> getExtendedCapabilityOffsets();
 
 	arch::os::contiguous_pool _memoryPool;
 
@@ -152,11 +250,15 @@ private:
 	arch::dma_array<uint64_t> _scratchpadBufArray;
 	std::vector<arch::dma_buffer> _scratchpadBufs;
 
-	std::vector<std::shared_ptr<Interrupter>> _interrupters;
+	std::vector<std::unique_ptr<Interrupter>> _interrupters;
+	std::vector<std::unique_ptr<Port>> _ports;
+	std::array<std::shared_ptr<Device>, 256> _devices;
 
 	CommandRing _cmdRing;
 	EventRing _eventRing;
 
 	int _numPorts;
+	int _maxDeviceSlots;
 };
+
 

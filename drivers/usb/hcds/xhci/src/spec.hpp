@@ -47,6 +47,7 @@ namespace hcsparams2 {
 
 namespace hccparams1 {
 	arch::field<uint32_t, uint16_t> extCapPtr(16, 16);
+	arch::field<uint32_t, bool> contextSize(2, 1);
 }
 
 namespace usbcmd {
@@ -81,6 +82,21 @@ namespace interrupter {
 namespace iman {
 	arch::field<uint32_t, bool> pending(0, 1);
 	arch::field<uint32_t, bool> enable(1, 1);
+}
+
+namespace port {
+	arch::bit_register<uint32_t> portsc(0x0);
+	arch::bit_register<uint32_t> portpmsc(0x4);
+	arch::bit_register<uint32_t> portli(0x8);
+	arch::bit_register<uint32_t> porthlpmc(0xC);
+}
+
+namespace portsc {
+	arch::field<uint32_t, bool> portReset(4, 1);
+	arch::field<uint32_t, bool> portEnable(1, 1);
+	arch::field<uint32_t, bool> connectStatus(0, 1);
+	arch::field<uint32_t, uint8_t> portLinkStatus(5, 4);
+	arch::field<uint32_t, uint8_t> portSpeed(10, 4);
 }
 
 struct RawTrb {
@@ -130,6 +146,34 @@ enum class TrbType : uint8_t {
 	deviceNotificationEvent,
 	mfindexWrapEvent
 };
+
+struct InputControlContext {
+	uint32_t dropContextFlags;
+	uint32_t addContextFlags;
+	uint32_t rsvd1[5];
+	uint32_t configValue : 8;
+	uint32_t interfaceNumber : 8;
+	uint32_t alternateSetting : 8;
+	uint32_t rsvd2 : 8;
+};
+static_assert(sizeof(InputControlContext) == 32, "invalid InputControlContext size");
+
+struct RawContext {
+	uint32_t val[8];
+};
+
+struct alignas(64) InputContext {
+	InputControlContext icc;
+	RawContext slotContext;
+	RawContext endpointContext[31];
+};
+static_assert (sizeof(InputContext) == 34 * 32, "invalid InputContext size"); // 34 due to 64 byte alignment
+
+struct alignas(64) DeviceContext {
+	RawContext slotContext;
+	RawContext endpointContext[31];
+};
+static_assert (sizeof(DeviceContext) == 32 * 32, "invalid DeviceContext size");
 
 
 #endif // XHCI_SPEC_HPP

@@ -94,52 +94,160 @@ Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
 	printf("xhci: %u ports\n", _numPorts);
 }
 
-uint16_t Controller::getExtendedCapabilityOffset(uint8_t id) {
+std::vector<std::pair<uint8_t, uint16_t>> Controller::getExtendedCapabilityOffsets() {
 	auto ptr = (_space.load(cap_regs::hccparams1) & hccparams1::extCapPtr) * 4;
 	if (!ptr)
-		return 0;
+		return {};
+
+	std::vector<std::pair<uint8_t, uint16_t>> caps = {};
 
 	while(1) {
 		auto val = arch::scalar_load<uint32_t>(_space, ptr);
 
 		if (val == 0xFFFFFFFF)
-			return 0;
+			break;
 
-		if (id == (val & 0xFF))
-			return ptr;
+		if (!(val & 0xFF))
+			break;
 
-		if (!((val >> 8) & 0xFF))
-			return 0;
+		caps.push_back({val & 0xFF, ptr});
 
+		auto old_ptr = ptr;
 		ptr += ((val >> 8) & 0xFF) << 2;
+		if (old_ptr == ptr)
+			break;
 	}
 
-	return 0;
+	return caps;
 }
 
 async::detached Controller::initialize() {
-	auto usb_legacy_cap = getExtendedCapabilityOffset(0x1);
+	auto caps = getExtendedCapabilityOffsets();
 
-	if(usb_legacy_cap) {
-		printf("xhci: usb legacy capability at %04x\n", usb_legacy_cap);
+	auto usb_legacy_cap = std::find_if(caps.begin(), caps.end(), 
+			[](auto &a){
+				return a.first == 0x1;
+			});
 
-		if (arch::scalar_load<uint8_t>(_space, usb_legacy_cap + 2) & 1)
+	if(usb_legacy_cap != caps.end()) {
+		auto usb_legacy_cap_off = usb_legacy_cap->second;
+		printf("xhci: usb legacy capability at %04x\n", usb_legacy_cap_off);
+
+		auto val = arch::scalar_load<uint32_t>(_space, usb_legacy_cap_off);
+
+		if (val & (1 << 16))
 			printf("xhci: controller is currently owned by the BIOS\n");
 
-		if(!(arch::scalar_load<uint8_t>(_space, usb_legacy_cap + 3) & 1)) {
-			arch::scalar_store<uint8_t>(_space, usb_legacy_cap + 3, 
-				arch::scalar_load<uint8_t>(_space, usb_legacy_cap + 3)
-					| 1);
+		if(!(val & (1 << 24))) {
+			arch::scalar_store<uint32_t>(_space, usb_legacy_cap_off, 
+						val | (1 << 24));
 		} else {
 			printf("xhci: we already own the controller\n");
 		}
 
-		while(arch::scalar_load<uint8_t>(_space, usb_legacy_cap + 2) & 1) {
+		while(val & (1 << 16)) {
 			// Do nothing while we wait for the BIOS.
+			val = arch::scalar_load<uint32_t>(_space, usb_legacy_cap_off);
 		}
 		printf("xhci: took over controller from BIOS\n");
 	} else {
 		printf("xhci: no usb legacy support extended capability\n");
+	}
+
+	for (auto &c : caps) {
+		if (c.first != 0x2)
+			continue;
+
+		auto off = c.second;
+
+		SupportedProtocol proto;
+
+		auto v = arch::scalar_load<uint32_t>(_space, off);
+		proto.major = (v >> 24) & 0xFF;
+		proto.minor = (v >> 16) & 0xFF;
+		off += 4;
+
+		v = arch::scalar_load<uint32_t>(_space, off);
+		proto.name = {
+			static_cast<char>(v & 0xFF),
+			static_cast<char>((v >> 8) & 0xFF),
+			static_cast<char>((v >> 16) & 0xFF),
+			static_cast<char>((v >> 24) & 0xFF)
+		};
+		off += 4;
+
+		v = arch::scalar_load<uint32_t>(_space, off);
+		proto.compatiblePortStart = v & 0xFF;
+		proto.compatiblePortCount = (v >> 8) & 0xFF;
+		proto.protocolDefined = (v >> 16) & 0xFFF;
+		auto speedIdCount = (v >> 28) & 0xF;
+		off += 4;
+
+		v = arch::scalar_load<uint32_t>(_space, off);
+		proto.protocolSlotType = v & 0xF;
+		off += 4;
+
+		proto.speeds = {};
+
+		for (size_t i = 0; i < speedIdCount; i++) {
+			v = arch::scalar_load<uint32_t>(_space, off);
+
+			SupportedProtocol::PortSpeed speed;
+			speed.value = v & 0xF;
+			speed.exponent = (v >> 4) & 0x3;
+			speed.type = (v >> 6) & 0x3;
+			speed.fullDuplex = (v >> 8) & 1;
+			speed.linkProtocol = (v >> 14) & 0x3;
+			speed.mantissa = (v >> 16) & 0xFFFF;
+
+			off += 4;
+
+			proto.speeds.push_back(speed);
+		}
+
+		_supportedProtocols.push_back(proto);
+	}
+
+	for (auto &p : _supportedProtocols) {
+		printf("xhci: supported protocol:\n");
+		printf("xhci: name: \"%s\" %u.%u\n", p.name.c_str(), p.major, p.minor);
+		printf("xhci: compatible ports: %lu to %lu\n", p.compatiblePortStart, 
+				p.compatiblePortStart + p.compatiblePortCount - 1);
+		printf("xhci: protocol defined: %03x\n", p.protocolDefined);
+		printf("xhci: protocol slot type: %lu\n", p.protocolSlotType);
+
+		constexpr const char *exponent[] = {
+			"B/s",
+			"Kb/s",
+			"Mb/s",
+			"Gb/s"
+		};
+
+		constexpr const char *type[] = {
+			"Symmetric",
+			"Reserved",
+			"Asymmetric Rx",
+			"Asymmetric Tx"
+		};
+
+		constexpr const char *linkProtocol[] = {
+			"SuperSpeed",
+			"SuperSpeedPlus",
+			"Reserved",
+			"Reserved"
+		};
+
+		printf("xhci: supported speeds:\n");
+		for (auto &s : p.speeds) {
+			printf("xhci:\tspeed:%u %s\n", s.mantissa, 
+					exponent[s.exponent]);
+			printf("xhci:\tfull duplex? %s\n",
+					s.fullDuplex ? "yes" : "no");
+			printf("xhci:\ttype: %s\n", type[s.type]);
+			if (p.major == 3)
+				printf("xhci:\tlink protocol: %s\n", 
+						linkProtocol[s.linkProtocol]);
+		}
 	}
 
 	printf("xhci: initializing controller...\n");
@@ -154,7 +262,10 @@ async::detached Controller::initialize() {
 	while(_operational.load(op_regs::usbsts) & usbsts::controllerNotReady); // poll for reset to complete
 	printf("xhci: controller reset done...\n");
 
-	_operational.store(op_regs::config, config::enabledDeviceSlots(1));
+	assert(!(_space.load(cap_regs::hccparams1) & hccparams1::contextSize) && "device has 64-byte contexts, which are unsupported");
+
+	_maxDeviceSlots = _space.load(cap_regs::hcsparams1) & hcsparams1::maxDevSlots;
+	_operational.store(op_regs::config, config::enabledDeviceSlots(_maxDeviceSlots));
 
 	auto hcsparams2 = _space.load(cap_regs::hcsparams2);
 	auto max_scratchpad_bufs = 
@@ -199,19 +310,18 @@ async::detached Controller::initialize() {
 	auto max_intrs = _space.load(cap_regs::hcsparams1) & hcsparams1::maxIntrs;
 	printf("xhci: max interrupters: %u\n", max_intrs);
 
-	_interrupters.push_back(std::make_shared<Interrupter>(0, this));
+	_interrupters.push_back(std::make_unique<Interrupter>(0, this));
 
 	for (int i = 1; i < max_intrs; i++)
-		_interrupters.push_back(std::make_shared<Interrupter>(i, this));
+		_interrupters.push_back(std::make_unique<Interrupter>(i, this));
 
 	_interrupters[0]->setEventRing(&_eventRing);
 	_interrupters[0]->setEnable(true);
 
+	co_await _hw_device.enableBusIrq();
 	handleIrqs();
 
 	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1)); // enable interrupts and start hcd
-
-	_operational.store(op_regs::usbsts, usbsts::eventIntr(1));
 
 	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
 
@@ -243,12 +353,19 @@ async::detached Controller::initialize() {
 		printf("xhci: command ring test successful!\n");
 	}
 
+	_eventRing._dequeuedEvents.clear(); // discard all prior events, we dont care
+
+	// detect devices on root hub ports
+	for (size_t i = 0; i < _numPorts; i++) {
+		_ports.push_back(std::make_unique<Port>(i + 1, this));
+		printf("xhci: port %lu %s a device connected to it\n", i + 1, _ports.back()->isConnected() ? "has" : "doesn't have");
+		co_await _ports.back()->initPort();
+	}
+
 	co_return;
 }
 
 async::detached Controller::handleIrqs() {
-	co_await _hw_device.enableBusIrq();
-
 	uint64_t sequence = 0;
 
 	while(1) {
@@ -260,6 +377,7 @@ async::detached Controller::handleIrqs() {
 		sequence = await.sequence();
 
 		if (!_interrupters[0]->isPending()) {
+			printf("xhci: nacked interrupt, interrupter not pending\n");
 			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
 		}
@@ -350,13 +468,13 @@ Controller::EventRing::EventRing(Controller *controller)
 uintptr_t Controller::EventRing::getErstPtr() {
 	uintptr_t ptr;
 	HEL_CHECK(helPointerPhysical(_erst.data(), &ptr));
-	return ptr + _dequeuePtr * sizeof(RawTrb);
+	return ptr;
 }
 
 uintptr_t Controller::EventRing::getEventRingPtr() {
 	uintptr_t ptr;
 	HEL_CHECK(helPointerPhysical(_eventRing.data(), &ptr));
-	return ptr;
+	return ptr + _dequeuePtr * sizeof(RawTrb);
 }
 
 size_t Controller::EventRing::getErstSize() {
@@ -364,7 +482,7 @@ size_t Controller::EventRing::getErstSize() {
 }
 
 void Controller::EventRing::processRing() {
-	while(1) {
+	while((_eventRing->ent[_dequeuePtr].val[3] & 1) == _ccs) {
 		RawTrb raw_ev = _eventRing->ent[_dequeuePtr];
 
 		int old_ccs = _ccs;
@@ -397,6 +515,18 @@ void Controller::EventRing::processEvent(Controller::Event ev) {
 		if (cmdEv) {
 			cmdEv->event = ev;
 			cmdEv->promise.set_value();
+		}
+	} else if (ev.type == TrbType::portStatusChangeEvent) {
+		printf("xhci: port %lu changed state\n", ev.portId);
+		assert(ev.portId <= _controller->_ports.size());
+		if (_controller->_ports[ev.portId - 1])
+			_controller->_ports[ev.portId - 1]->_doorbell.ring();
+	} else if (ev.type == TrbType::transferEvent) {
+		auto transferEv = _controller->_devices[ev.slotId]->_transferEvents[ev.endpointId - 1];
+		_controller->_devices[ev.slotId]->_transferEvents[ev.endpointId - 1] = nullptr;
+		if (transferEv) {
+			transferEv->event = ev;
+			transferEv->promise.set_value();
 		}
 	}
 }
@@ -546,6 +676,246 @@ void Controller::Event::printInfo() {
 	}
 
 	printf("xhci: --- end of event dump ---\n");
+}
+
+// ------------------------------------------------------------------------
+// Controller::Port
+// ------------------------------------------------------------------------
+
+Controller::Port::Port(int id, Controller *controller)
+: _id{id}, _controller{controller} {
+	_space = controller->_operational.subspace(0x400 + (id - 1) * 0x10);
+}
+
+void Controller::Port::reset() {
+	printf("xhci: resetting port %d\n", _id);
+	auto val = _space.load(port::portsc);
+	_space.store(port::portsc, val | portsc::portReset(true));
+}
+
+void Controller::Port::disable() {
+	auto val = _space.load(port::portsc);
+	_space.store(port::portsc, val | portsc::portEnable(true));
+}
+
+bool Controller::Port::isConnected() {
+	return _space.load(port::portsc) & portsc::connectStatus;
+}
+
+bool Controller::Port::isEnabled() {
+	return _space.load(port::portsc) & portsc::portEnable;
+}
+
+uint8_t Controller::Port::getLinkStatus() {
+	return _space.load(port::portsc) & portsc::portLinkStatus;
+}
+
+uint8_t Controller::Port::getSpeed() {
+	return _space.load(port::portsc) & portsc::portSpeed;
+}
+
+async::result<void> Controller::Port::initPort() {
+	if (!isConnected())
+		co_return;
+
+	int revision = 0;
+
+	printf("xhci: initializing device on port %u\n", _id);
+	if (getLinkStatus() == 0) { // U0
+		if (isEnabled())
+			printf("xhci: i am a usb 3 device\n");
+		else
+			assert(!"device is in U0 and not enabled after reset!");
+		revision = 3;
+	} else if (getLinkStatus() == 7) { // Polling
+		printf("xhci: i am a usb 2 device\n");
+		reset();
+		co_await _doorbell.async_wait();
+		revision = 2;
+	} else {
+		assert(!"port is in an unexpected state");
+	}
+
+	assert(getLinkStatus() == 0 && "device not in U0 state");
+	assert(isEnabled() && "device not enabled");
+
+	_device = std::make_shared<Device>(_id, _controller);
+	co_await _device->allocSlot(revision);
+	_controller->_devices[_device->_slotId] = _device;
+
+	arch::dma_buffer buf{&_controller->_memoryPool, 512};
+	memset(buf.data(), 0, 512);
+	co_await _device->readDescriptor(buf, 0x0100, 512);
+
+	printf("xhci: device descriptor: ");
+	for (int i = 0; i < 18; i++)
+		printf("%02x ", static_cast<unsigned char *>(buf.data())[i]);
+	printf("\n");
+}
+
+// ------------------------------------------------------------------------
+// Controller::TransferRing
+// ------------------------------------------------------------------------
+
+Controller::TransferRing::TransferRing(Controller *controller)
+:_transferRing{&controller->_memoryPool}, _dequeuePtr{0}, _enqueuePtr{0},
+	_controller{controller}, _pcs{true} {
+
+	for (uint32_t i = 0; i < transferRingSize; i++) {
+		_transferRing->ent[i] = {{0, 0, 0, 0}};
+	}
+
+	_transferRing->ent[transferRingSize - 1] = {{
+		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
+		static_cast<uint32_t>(getPtr() >> 32),
+		0,
+		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
+	}};
+}
+
+uintptr_t Controller::TransferRing::getPtr() {
+	uintptr_t ptr;
+	HEL_CHECK(helPointerPhysical(_transferRing.data(), &ptr));
+	return ptr;
+}
+
+void Controller::TransferRing::pushRawTransfer(RawTrb cmd, 
+		Controller::TransferRing::TransferEvent *ev) {
+	assert(_enqueuePtr < 127 && "ring aspect of the transfer ring not yet supported");
+	_transferRing->ent[_enqueuePtr] = cmd;
+	_transferEvents[_enqueuePtr] = ev;
+	if (_pcs) {
+		_transferRing->ent[_enqueuePtr].val[3] |= 1;
+	} else {
+		_transferRing->ent[_enqueuePtr].val[3] &= ~1;
+	}
+	_enqueuePtr++;
+
+	// update link trb
+	_transferRing->ent[transferRingSize - 1] = {{
+		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
+		static_cast<uint32_t>(getPtr() >> 32),
+		0,
+		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
+	}};
+}
+
+// ------------------------------------------------------------------------
+// Controller::Device
+// ------------------------------------------------------------------------
+
+Controller::Device::Device(int portId, Controller *controller)
+: _slotId{-1}, _portId{portId}, _controller{controller} {
+}
+
+void Controller::Device::submit(int endpoint) {
+	assert(_slotId != -1);
+	_controller->ringDoorbell(_slotId, endpoint, /* stream */ 0);
+}
+
+async::result<void> Controller::Device::allocSlot(int revision) {
+	// TODO: check _controller->_supportedProtocols for the correct value
+	// instead of 0 for the slot type (x << 16)
+	RawTrb enable_slot = {{0, 0, 0, 
+		(static_cast<uint32_t>(TrbType::enableSlotCommand) << 10)}};
+	Controller::CommandRing::CommandEvent ev;
+	_controller->_cmdRing.pushRawCommand(enable_slot, &ev);
+	_controller->_cmdRing.submit();
+
+	co_await ev.promise.async_get();
+
+	assert(ev.event.completionCode != 9); // TODO: handle running out of device slots
+	assert(ev.event.completionCode == 1); // success
+
+	_slotId = ev.event.slotId;
+
+	printf("xhci: slot enabled successfully!\n");
+	printf("xhci: slot id for port %d is %d\n", _portId, _slotId);
+
+	// initialize slot
+
+	_devCtx = arch::dma_object<DeviceContext>{&_controller->_memoryPool};
+
+	auto inputCtx = arch::dma_object<InputContext>{&_controller->_memoryPool};
+	memset(inputCtx.data(), 0, sizeof(InputContext));
+	inputCtx->icc.addContextFlags = (1 << 0) | (1 << 1); // slot and control endpoint
+	// TODO: support hubs (generate route string)
+	inputCtx->slotContext.val[0] = (1 << 27); // 1 context entry
+	inputCtx->slotContext.val[1] = (_portId << 16); // root hub port
+
+	_transferRings[0] = std::make_unique<TransferRing>(_controller);
+
+	// type = control
+	// max packet size = TODO ("The default maximum packet size for the Default Control Endpoint, as function of the PORTSC Port Speed field.")
+	// max burst size = 0
+	// tr dequeue = tr ring ptr
+	// dcs = 1
+	// interval = 0
+	// max p streams = 0
+	// mult = 0
+	// error count = 3
+	auto tr_ptr = _transferRings[0]->getPtr();
+	printf("xhci: tr ptr = %016lx\n", tr_ptr);
+	assert(!(tr_ptr & 0xF));
+	inputCtx->endpointContext[0].val[1] = (3 << 1) | (4 << 3) | (/* packet size */ 512 << 16);
+	inputCtx->endpointContext[0].val[2] = (1 << 0) | (tr_ptr & 0xFFFFFFF0);
+	inputCtx->endpointContext[0].val[3] = (tr_ptr >> 32);
+
+	uintptr_t dev_ctx_ptr;
+	HEL_CHECK(helPointerPhysical(_devCtx.data(), &dev_ctx_ptr));
+	_controller->_dcbaa[_slotId] = dev_ctx_ptr;
+
+	uintptr_t in_ctx_ptr;
+	HEL_CHECK(helPointerPhysical(inputCtx.data(), &in_ctx_ptr));
+
+	RawTrb address_device = {{
+		static_cast<uint32_t>(in_ctx_ptr & 0xFFFFFFFF),
+		static_cast<uint32_t>(in_ctx_ptr >> 32), 0,
+		(_slotId << 24) | 
+			(static_cast<uint32_t>(TrbType::addressDeviceCommand) << 10)}};
+	Controller::CommandRing::CommandEvent ev2;
+	_controller->_cmdRing.pushRawCommand(address_device, &ev2);
+	_controller->_cmdRing.submit();
+
+	co_await ev2.promise.async_get();
+
+	printf("xhci: device successfully addressed\n");
+}
+
+void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, Controller::TransferRing::TransferEvent *ev) {
+	_transferRings[endpoint]->pushRawTransfer(cmd, ev);
+}
+
+async::result<void> Controller::Device::readDescriptor(arch::dma_buffer &dest, uint16_t desc, size_t len) {
+	RawTrb setup_stage = {{
+			static_cast<uint32_t>((desc << 16) | (6 << 8) | 0x80), // GET_DESCRIPTOR, dev to host
+			static_cast<uint32_t>(len << 16), 8,
+			(3 << 16) | (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
+
+	uintptr_t ptr;
+	HEL_CHECK(helPointerPhysical(dest.data(), &ptr));
+
+	RawTrb data_stage = {{
+			static_cast<uint32_t>(ptr & 0xFFFFFFFF),
+			static_cast<uint32_t>(ptr >> 32),
+			static_cast<uint32_t>(len),
+			(1 << 2) | (1 << 16) | (static_cast<uint32_t>(TrbType::dataStage) << 10)}};
+
+	RawTrb status_stage = {{
+			0, 0, 0, 
+			(1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
+
+	pushRawTransfer(0, setup_stage);
+	pushRawTransfer(0, data_stage);
+	pushRawTransfer(0, status_stage);
+
+	TransferRing::TransferEvent ev;
+	_transferEvents[0] = &ev;
+	submit(1);
+
+	co_await ev.promise.async_get();
+
+	printf("xhci: device descriptor successfully read\n");
 }
 
 // ------------------------------------------------------------------------
