@@ -746,14 +746,46 @@ async::result<void> Controller::Port::initPort() {
 	co_await _device->allocSlot(revision);
 	_controller->_devices[_device->_slotId] = _device;
 
-	arch::dma_buffer buf{&_controller->_memoryPool, 512};
-	memset(buf.data(), 0, 512);
-	co_await _device->readDescriptor(buf, 0x0100, 512);
+	arch::dma_object<DeviceDescriptor> descriptor{&_controller->_memoryPool};
+	co_await _device->readDescriptor(descriptor.view_buffer(), 0x0100);
 
-	printf("xhci: device descriptor: ");
-	for (int i = 0; i < 18; i++)
-		printf("%02x ", static_cast<unsigned char *>(buf.data())[i]);
-	printf("\n");
+	// Advertise the USB device on mbus.
+	char class_code[3], sub_class[3], protocol[3];
+	char vendor[5], product[5], release[5];
+	sprintf(class_code, "%.2x", descriptor->deviceClass);
+	sprintf(sub_class, "%.2x", descriptor->deviceSubclass);
+	sprintf(protocol, "%.2x", descriptor->deviceProtocol);
+	sprintf(vendor, "%.4x", descriptor->idVendor);
+	sprintf(product, "%.4x", descriptor->idProduct);
+	sprintf(release, "%.4x", descriptor->bcdDevice);
+
+	mbus::Properties mbus_desc{
+		{"usb.type", mbus::StringItem{"device"}},
+		{"usb.vendor", mbus::StringItem{vendor}},
+		{"usb.product", mbus::StringItem{product}},
+		{"usb.class", mbus::StringItem{class_code}},
+		{"usb.subclass", mbus::StringItem{sub_class}},
+		{"usb.protocol", mbus::StringItem{protocol}},
+		{"usb.release", mbus::StringItem{release}}
+	};
+
+	auto root = co_await mbus::Instance::global().getRoot();
+
+	char name[3];
+	sprintf(name, "%.2x", _id);
+
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		// TODO: Use the local_lane to serve the USB device.
+
+		async::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.async_get();
+	});
+
+	co_await root.createObject(name, mbus_desc, std::move(handler));
 }
 
 // ------------------------------------------------------------------------
@@ -889,10 +921,10 @@ void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, Controller::T
 	_transferRings[endpoint]->pushRawTransfer(cmd, ev);
 }
 
-async::result<void> Controller::Device::readDescriptor(arch::dma_buffer &dest, uint16_t desc, size_t len) {
+async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	RawTrb setup_stage = {{
 			static_cast<uint32_t>((desc << 16) | (6 << 8) | 0x80), // GET_DESCRIPTOR, dev to host
-			static_cast<uint32_t>(len << 16), 8,
+			static_cast<uint32_t>(dest.size() << 16), 8,
 			(3 << 16) | (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
 
 	uintptr_t ptr;
@@ -901,7 +933,7 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer &dest, u
 	RawTrb data_stage = {{
 			static_cast<uint32_t>(ptr & 0xFFFFFFFF),
 			static_cast<uint32_t>(ptr >> 32),
-			static_cast<uint32_t>(len),
+			static_cast<uint32_t>(dest.size()),
 			(1 << 2) | (1 << 16) | (static_cast<uint32_t>(TrbType::dataStage) << 10)}};
 
 	RawTrb status_stage = {{

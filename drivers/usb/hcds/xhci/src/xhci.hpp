@@ -187,7 +187,7 @@ private:
 		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
 		async::result<void> allocSlot(int revision);
 
-		async::result<void> readDescriptor(arch::dma_buffer &dest, uint16_t desc, size_t len);
+		async::result<void> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
 
 		std::array<std::unique_ptr<TransferRing>, 31> _transferRings;
 
