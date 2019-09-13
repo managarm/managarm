@@ -189,8 +189,7 @@ private:
 
 		async::result<void> readDescriptor(arch::dma_buffer &dest, uint16_t desc, size_t len);
 
-
-		std::array<TransferRing::TransferEvent *, 31> _transferEvents;
+		std::array<std::unique_ptr<TransferRing>, 31> _transferRings;
 
 		int _slotId;
 
@@ -199,7 +198,6 @@ private:
 		Controller *_controller;
 
 		arch::dma_object<DeviceContext> _devCtx;
-		std::array<std::unique_ptr<TransferRing>, 31> _transferRings;
 	};
 
 	struct SupportedProtocol {

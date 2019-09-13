@@ -522,8 +522,11 @@ void Controller::EventRing::processEvent(Controller::Event ev) {
 		if (_controller->_ports[ev.portId - 1])
 			_controller->_ports[ev.portId - 1]->_doorbell.ring();
 	} else if (ev.type == TrbType::transferEvent) {
-		auto transferEv = _controller->_devices[ev.slotId]->_transferEvents[ev.endpointId - 1];
-		_controller->_devices[ev.slotId]->_transferEvents[ev.endpointId - 1] = nullptr;
+		auto transferRing = _controller->_devices[ev.slotId]->_transferRings[ev.endpointId - 1].get();
+		size_t commandIndex = (ev.trbPointer - transferRing->getPtr()) / sizeof(RawTrb);
+		assert(commandIndex < Controller::TransferRing::transferRingSize);
+		auto transferEv = transferRing->_transferEvents[commandIndex];
+		transferRing->_transferEvents[commandIndex] = nullptr;
 		if (transferEv) {
 			transferEv->event = ev;
 			transferEv->promise.set_value();
@@ -905,12 +908,11 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer &dest, u
 			0, 0, 0, 
 			(1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
 
+	TransferRing::TransferEvent ev;
+
 	pushRawTransfer(0, setup_stage);
 	pushRawTransfer(0, data_stage);
-	pushRawTransfer(0, status_stage);
-
-	TransferRing::TransferEvent ev;
-	_transferEvents[0] = &ev;
+	pushRawTransfer(0, status_stage, &ev);
 	submit(1);
 
 	co_await ev.promise.async_get();
