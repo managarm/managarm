@@ -139,6 +139,9 @@ private:
 
 		void pushRawTransfer(RawTrb cmd, TransferEvent *ev = nullptr);
 
+		void updateDequeue(int current);
+		void updateLink();
+
 		std::array<TransferEvent *, transferRingSize> _transferEvents;
 	private:
 		arch::dma_object<TransferRingEntries> _transferRing;

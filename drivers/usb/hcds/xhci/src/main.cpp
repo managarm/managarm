@@ -531,6 +531,8 @@ void Controller::EventRing::processEvent(Controller::Event ev) {
 			transferEv->event = ev;
 			transferEv->promise.set_value();
 		}
+
+		transferRing->updateDequeue(commandIndex);
 	}
 }
 
@@ -816,7 +818,7 @@ uintptr_t Controller::TransferRing::getPtr() {
 
 void Controller::TransferRing::pushRawTransfer(RawTrb cmd, 
 		Controller::TransferRing::TransferEvent *ev) {
-	assert(_enqueuePtr < 127 && "ring aspect of the transfer ring not yet supported");
+
 	_transferRing->ent[_enqueuePtr] = cmd;
 	_transferEvents[_enqueuePtr] = ev;
 	if (_pcs) {
@@ -826,13 +828,24 @@ void Controller::TransferRing::pushRawTransfer(RawTrb cmd,
 	}
 	_enqueuePtr++;
 
-	// update link trb
+	if (_enqueuePtr >= Controller::TransferRing::transferRingSize - 1) {
+		updateLink();
+		_pcs = !_pcs;
+		_enqueuePtr = 0;
+	}
+}
+
+void Controller::TransferRing::updateLink() {
 	_transferRing->ent[transferRingSize - 1] = {{
 		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
 		static_cast<uint32_t>(getPtr() >> 32),
 		0,
 		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
 	}};
+}
+
+void Controller::TransferRing::updateDequeue(int current) {
+	_dequeuePtr = current;
 }
 
 // ------------------------------------------------------------------------
