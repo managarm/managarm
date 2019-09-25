@@ -633,7 +633,9 @@ void Controller::Event::printInfo() {
 			raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
 	printf("xhci: type: %u\n", static_cast<unsigned int>(type));
 	printf("xhci: slot id: %d\n", slotId);
-	printf("xhci: completion code: %d\n", completionCode);
+	printf("xhci: completion code: %s (%d)\n",
+			completionCodeNames[completionCode],
+			completionCode);
 
 	switch(type) {
 		case TrbType::transferEvent:
@@ -780,7 +782,7 @@ async::result<void> Controller::Port::initPort() {
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		// TODO: Use the local_lane to serve the USB device.
+		protocols::usb::serve(::Device{_device}, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
@@ -854,6 +856,50 @@ void Controller::TransferRing::updateDequeue(int current) {
 
 Controller::Device::Device(int portId, Controller *controller)
 : _slotId{-1}, _portId{portId}, _controller{controller} {
+}
+
+arch::dma_pool *Controller::Device::setupPool() {
+	return &_controller->_memoryPool;
+}
+
+arch::dma_pool *Controller::Device::bufferPool() {
+	return &_controller->_memoryPool;
+}
+
+async::result<std::string> Controller::Device::configurationDescriptor() {
+	arch::dma_object<ConfigDescriptor> header{&_controller->_memoryPool};
+	co_await readDescriptor(header.view_buffer(), 0x0200);
+
+	arch::dma_buffer descriptor{&_controller->_memoryPool, header->totalLength};
+	co_await readDescriptor(descriptor, 0x0200);
+	co_return std::string{(char *)descriptor.data(), descriptor.size()};
+}
+
+async::result<Configuration> Controller::Device::useConfiguration(int number) {
+	RawTrb setup_stage = {{
+			static_cast<uint32_t>((number << 16) | (9 << 8) | 0x00), // SET_CONFIGURATION, host to device
+			0, 8,
+			(3 << 16) | (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
+
+	RawTrb status_stage = {{
+			0, 0, 0, 
+			(1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
+
+	TransferRing::TransferEvent ev;
+
+	pushRawTransfer(0, setup_stage);
+	pushRawTransfer(0, status_stage, &ev);
+	submit(1);
+
+	co_await ev.promise.async_get();
+
+	printf("xhci: configuration set\n");
+
+	co_return Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
+}
+
+async::result<void> Controller::Device::transfer(ControlTransfer info) {
+	assert(!"TODO: implement this");
 }
 
 void Controller::Device::submit(int endpoint) {
@@ -963,6 +1009,162 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view des
 	co_await ev.promise.async_get();
 
 	printf("xhci: device descriptor successfully read\n");
+}
+
+async::result<void> Controller::Device::setupEndpoint(int endpoint, Direction dir, size_t maxPacketSize, bool drop) {
+	printf("xhci: doing endpoint stuff to %d\n", endpoint);
+	auto inputCtx = arch::dma_object<InputContext>{&_controller->_memoryPool};
+	memset(inputCtx.data(), 0, sizeof(InputContext));
+
+	int endpointId = endpoint * 2 + (dir == Direction::in ? 1 : 0);
+
+	printf("xhci: epId is %d\n", endpointId);
+
+	inputCtx->icc.addContextFlags = (1 << 0) | (1 << (endpointId));
+	inputCtx->slotContext = _devCtx->slotContext;
+
+	auto nEndpoints = inputCtx->slotContext.val[0] >> 27;
+	if (nEndpoints < endpoint + 1)
+		nEndpoints = endpoint + 1;
+
+	inputCtx->slotContext.val[0] &= ~(0x1F);
+	inputCtx->slotContext.val[0] = (nEndpoints << 27);
+
+	_transferRings[endpointId - 1] = std::make_unique<TransferRing>(_controller);
+
+	// type = TODO (assume bulk)
+	// max burst size = 0
+	// tr dequeue = tr ring ptr
+	// dcs = 1
+	// interval = 0
+	// max p streams = 0
+	// mult = 0
+	// error count = 3
+	auto tr_ptr = _transferRings[endpointId - 1]->getPtr();
+	printf("xhci: tr ptr = %016lx\n", tr_ptr);
+	assert(!(tr_ptr & 0xF));
+	inputCtx->endpointContext[endpointId - 1].val[1] = (3 << 1) | ((2 + (dir == Direction::in ? 4 : 0)) << 3) | (maxPacketSize << 16);
+	inputCtx->endpointContext[endpointId - 1].val[2] = (1 << 0) | (tr_ptr & 0xFFFFFFF0);
+	inputCtx->endpointContext[endpointId - 1].val[3] = (tr_ptr >> 32);
+
+	uintptr_t in_ctx_ptr;
+	HEL_CHECK(helPointerPhysical(inputCtx.data(), &in_ctx_ptr));
+
+	RawTrb configure_endpoint = {{
+		static_cast<uint32_t>(in_ctx_ptr & 0xFFFFFFFF),
+		static_cast<uint32_t>(in_ctx_ptr >> 32), 0,
+		(_slotId << 24) | 
+			(static_cast<uint32_t>(TrbType::configureEndpointCommand) << 10)}};
+	Controller::CommandRing::CommandEvent ev;
+	_controller->_cmdRing.pushRawCommand(configure_endpoint, &ev);
+	_controller->_cmdRing.submit();
+
+	co_await ev.promise.async_get();
+}
+
+// ------------------------------------------------------------------------
+// Controller::ConfigurationState
+// ------------------------------------------------------------------------
+
+Controller::ConfigurationState::ConfigurationState(Controller *controller, 
+		std::shared_ptr<Device> device, int number)
+:_controller{controller}, _device{device}, _number{number} {
+}
+
+async::result<Interface> Controller::ConfigurationState::useInterface(int number, int alternative) {
+	auto descriptor = co_await _device->configurationDescriptor();
+
+	struct EndpointInfo {
+		int pipe;
+		Controller::Device::Direction dir;
+		int packet_size;
+	};
+
+	std::vector<EndpointInfo> _eps = {};
+
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		(void)length;
+
+		if(type != descriptor_type::endpoint)
+			return;
+		auto desc = (EndpointDescriptor *)p;
+
+		// TODO: Pay attention to interface/alternative.
+		auto packet_size = desc->maxPacketSize & 0x7FF;
+
+		int pipe = info.endpointNumber.value();
+		if (info.endpointIn.value()) {
+			printf("xhci: setting up in endpoint %d (max packet size: %d)\n", pipe, desc->maxPacketSize);
+
+			_eps.push_back({pipe, Controller::Device::Direction::in, packet_size});
+		} else {
+			printf("xhci: setting up out endpoint %d (max packet size: %d)\n", pipe, desc->maxPacketSize);
+			_eps.push_back({pipe, Controller::Device::Direction::out, packet_size});
+		}
+	});
+
+	for (auto &ep : _eps)
+		co_await _device->setupEndpoint(ep.pipe, ep.dir, ep.packet_size);
+
+	co_return Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
+}
+
+// ------------------------------------------------------------------------
+// Controller::InterfaceState
+// ------------------------------------------------------------------------
+
+Controller::InterfaceState::InterfaceState(Controller *controller, 
+		std::shared_ptr<Device> device, int interface)
+: _controller{controller}, _device{device}, _interface{interface} {
+}
+
+async::result<Endpoint> Controller::InterfaceState::getEndpoint(PipeType type, int number) {
+	co_return Endpoint{std::make_shared<Controller::EndpointState>(_controller, _device, number, type)};
+}
+
+// ------------------------------------------------------------------------
+// Controller::EndpointState
+// ------------------------------------------------------------------------
+
+Controller::EndpointState::EndpointState(Controller *controller, 
+		std::shared_ptr<Device> device, int endpoint, PipeType type)
+: _controller{controller}, _device{device}, _endpoint{endpoint}, _type{type} {
+}
+
+async::result<void> Controller::EndpointState::transfer(ControlTransfer info) {
+	assert(!"TODO: implement this");
+	co_return;
+}
+
+async::result<size_t> Controller::EndpointState::transfer(InterruptTransfer info) {
+	assert(!"TODO: implement this");
+	co_return 0;
+}
+
+async::result<size_t> Controller::EndpointState::transfer(BulkTransfer info) {
+	uintptr_t ptr;
+	HEL_CHECK(helPointerPhysical(info.buffer.data(), &ptr));
+
+	RawTrb transfer = {{
+			static_cast<uint32_t>(ptr & 0xFFFFFFFF),
+			static_cast<uint32_t>(ptr >> 32),
+			static_cast<uint32_t>(info.buffer.size()),
+			(1 << 2) | (1 << 5) | (static_cast<uint32_t>(TrbType::normal) << 10)}};
+
+	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
+
+	printf("xhci: transfer to endpoint %d, going %s, epid = %d, size %lu\n", _endpoint, _type == PipeType::in ? "in" : "out", endpointId, info.buffer.size());
+
+	Controller::TransferRing::TransferEvent ev;
+
+	_device->pushRawTransfer(endpointId - 1, transfer, &ev);
+	_device->submit(endpointId);
+
+	co_await ev.promise.async_get();
+
+	assert(ev.event.completionCode == 1); // success
+
+	co_return info.buffer.size() - ev.event.transferLen;
 }
 
 // ------------------------------------------------------------------------

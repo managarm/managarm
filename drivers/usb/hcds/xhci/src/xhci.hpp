@@ -6,6 +6,7 @@
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
+#include <protocols/usb/api.hpp>
 
 #include "spec.hpp"
 
@@ -183,8 +184,15 @@ private:
 		arch::mem_space _space;
 	};
 
-	struct Device {
+	struct Device : DeviceData, std::enable_shared_from_this<Device> {
 		Device(int portId, Controller *controller);
+
+		// Public API inherited from DeviceData.
+		arch::dma_pool *setupPool() override;
+		arch::dma_pool *bufferPool() override;
+		async::result<std::string> configurationDescriptor() override;
+		async::result<Configuration> useConfiguration(int number) override;
+		async::result<void> transfer(ControlTransfer info) override;
 
 		void submit(int endpoint);
 		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
@@ -195,6 +203,13 @@ private:
 		std::array<std::unique_ptr<TransferRing>, 31> _transferRings;
 
 		int _slotId;
+
+		enum class Direction {
+			in,
+			out
+		};
+
+		async::result<void> setupEndpoint(int endpoint, Direction dir, size_t maxPacketSize, bool drop = false);
 
 	private:
 		int _portId;
@@ -228,6 +243,42 @@ private:
 		};
 
 		std::vector<PortSpeed> speeds;
+	};
+
+	struct ConfigurationState final : ConfigurationData {
+		explicit ConfigurationState(Controller *controller, std::shared_ptr<Device> device, int number);
+
+		async::result<Interface> useInterface(int number, int alternative) override;
+
+	private:
+		Controller *_controller;
+		std::shared_ptr<Device> _device;
+		int _number;
+	};
+
+	struct InterfaceState final : InterfaceData {
+		explicit InterfaceState(Controller *controller, std::shared_ptr<Device> device, int interface);
+
+		async::result<Endpoint> getEndpoint(PipeType type, int number) override;
+
+	private:
+		Controller *_controller;
+		std::shared_ptr<Device> _device;
+		int _interface;
+	};
+
+	struct EndpointState final : EndpointData {
+		explicit EndpointState(Controller *controller, std::shared_ptr<Device> device, int endpoint, PipeType type);
+
+		async::result<void> transfer(ControlTransfer info) override;
+		async::result<size_t> transfer(InterruptTransfer info) override;
+		async::result<size_t> transfer(BulkTransfer info) override;
+
+	private:
+		Controller *_controller;
+		std::shared_ptr<Device> _device;
+		int _endpoint;
+		PipeType _type;
 	};
 
 	std::vector<SupportedProtocol> _supportedProtocols;
