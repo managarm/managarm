@@ -1142,22 +1142,31 @@ async::result<size_t> Controller::EndpointState::transfer(InterruptTransfer info
 }
 
 async::result<size_t> Controller::EndpointState::transfer(BulkTransfer info) {
-	uintptr_t ptr;
-	HEL_CHECK(helPointerPhysical(info.buffer.data(), &ptr));
-
-	RawTrb transfer = {{
-			static_cast<uint32_t>(ptr & 0xFFFFFFFF),
-			static_cast<uint32_t>(ptr >> 32),
-			static_cast<uint32_t>(info.buffer.size()),
-			(1 << 2) | (1 << 5) | (static_cast<uint32_t>(TrbType::normal) << 10)}};
-
 	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
-
-	printf("xhci: transfer to endpoint %d, going %s, epid = %d, size %lu\n", _endpoint, _type == PipeType::in ? "in" : "out", endpointId, info.buffer.size());
 
 	Controller::TransferRing::TransferEvent ev;
 
-	_device->pushRawTransfer(endpointId - 1, transfer, &ev);
+	size_t progress = 0;
+	while(progress < info.buffer.size()) {
+		uintptr_t pptr, ptr = (uintptr_t)info.buffer.data() + progress;
+		HEL_CHECK(helPointerPhysical((void *)ptr, &pptr));
+
+		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
+
+		bool is_last = (progress + chunk) >= info.buffer.size();
+
+		RawTrb transfer = {{
+			static_cast<uint32_t>(pptr & 0xFFFFFFFF),
+			static_cast<uint32_t>(pptr >> 32),
+			static_cast<uint32_t>(chunk),
+			(!is_last << 4) | (1 << 2) | (is_last << 5)
+				| (static_cast<uint32_t>(TrbType::normal) << 10)}};
+
+		_device->pushRawTransfer(endpointId - 1, transfer, is_last ? &ev : nullptr);
+
+		progress += chunk;
+	}
+
 	_device->submit(endpointId);
 
 	co_await ev.promise.async_get();
