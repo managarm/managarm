@@ -899,7 +899,48 @@ async::result<Configuration> Controller::Device::useConfiguration(int number) {
 }
 
 async::result<void> Controller::Device::transfer(ControlTransfer info) {
-	assert(!"TODO: implement this");
+	RawTrb setup_stage = {{
+		0, static_cast<uint32_t>(info.buffer.size() << 16), 8,
+		((info.flags == kXferToDevice ? 2 : 3) << 16) 
+		| (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
+
+	memcpy(setup_stage.val, info.setup.data(), sizeof(SetupPacket));
+
+	pushRawTransfer(0, setup_stage);
+
+	size_t progress = 0;
+	while(progress < info.buffer.size()) {
+		uintptr_t pptr, ptr = (uintptr_t)info.buffer.data() + progress;
+		HEL_CHECK(helPointerPhysical((void *)ptr, &pptr));
+
+		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
+
+		bool is_last = (progress + chunk) >= info.buffer.size();
+
+		RawTrb transfer = {{
+			static_cast<uint32_t>(pptr & 0xFFFFFFFF),
+			static_cast<uint32_t>(pptr >> 32),
+			static_cast<uint32_t>(chunk),
+			(!is_last << 4) | (1 << 2)
+				| ((info.flags == kXferToDevice ? 0 : 1) << 16)
+				| (static_cast<uint32_t>(TrbType::normal) << 10)}};
+
+		pushRawTransfer(0, transfer);
+
+		progress += chunk;
+	}
+
+	TransferRing::TransferEvent ev;
+
+	RawTrb status_stage = {{
+			0, 0, 0, 
+			((info.flags == kXferToDevice ? 0 : 1) << 16) 
+			| (1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
+
+	pushRawTransfer(0, status_stage, &ev);
+	submit(1);
+
+	co_await ev.promise.async_get();
 }
 
 void Controller::Device::submit(int endpoint) {
@@ -1011,12 +1052,24 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view des
 	printf("xhci: device descriptor successfully read\n");
 }
 
-async::result<void> Controller::Device::setupEndpoint(int endpoint, Direction dir, size_t maxPacketSize, bool drop) {
+static inline uint32_t getHcdEndpointType(PipeType dir, EndpointType type) {
+	if (type == EndpointType::control)
+		return 4;
+	if (type == EndpointType::isochronous)
+		return 1 + (dir == PipeType::in ? 4 : 0);
+	if (type == EndpointType::bulk)
+		return 2 + (dir == PipeType::in ? 4 : 0);
+	if (type == EndpointType::interrupt)
+		return 3 + (dir == PipeType::in ? 4 : 0);
+	return 0;
+}
+
+async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type, bool drop) {
 	printf("xhci: doing endpoint stuff to %d\n", endpoint);
 	auto inputCtx = arch::dma_object<InputContext>{&_controller->_memoryPool};
 	memset(inputCtx.data(), 0, sizeof(InputContext));
 
-	int endpointId = endpoint * 2 + (dir == Direction::in ? 1 : 0);
+	int endpointId = endpoint * 2 + (dir == PipeType::in ? 1 : 0);
 
 	printf("xhci: epId is %d\n", endpointId);
 
@@ -1032,7 +1085,6 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, Direction di
 
 	_transferRings[endpointId - 1] = std::make_unique<TransferRing>(_controller);
 
-	// type = TODO (assume bulk)
 	// max burst size = 0
 	// tr dequeue = tr ring ptr
 	// dcs = 1
@@ -1043,7 +1095,7 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, Direction di
 	auto tr_ptr = _transferRings[endpointId - 1]->getPtr();
 	printf("xhci: tr ptr = %016lx\n", tr_ptr);
 	assert(!(tr_ptr & 0xF));
-	inputCtx->endpointContext[endpointId - 1].val[1] = (3 << 1) | ((2 + (dir == Direction::in ? 4 : 0)) << 3) | (maxPacketSize << 16);
+	inputCtx->endpointContext[endpointId - 1].val[1] = (3 << 1) | (getHcdEndpointType(dir, type) << 3) | (maxPacketSize << 16);
 	inputCtx->endpointContext[endpointId - 1].val[2] = (1 << 0) | (tr_ptr & 0xFFFFFFF0);
 	inputCtx->endpointContext[endpointId - 1].val[3] = (tr_ptr >> 32);
 
@@ -1076,8 +1128,9 @@ async::result<Interface> Controller::ConfigurationState::useInterface(int number
 
 	struct EndpointInfo {
 		int pipe;
-		Controller::Device::Direction dir;
+		PipeType dir;
 		int packet_size;
+		EndpointType type;
 	};
 
 	std::vector<EndpointInfo> _eps = {};
@@ -1091,20 +1144,21 @@ async::result<Interface> Controller::ConfigurationState::useInterface(int number
 
 		// TODO: Pay attention to interface/alternative.
 		auto packet_size = desc->maxPacketSize & 0x7FF;
+		auto ep_type = info.endpointType.value();
 
 		int pipe = info.endpointNumber.value();
 		if (info.endpointIn.value()) {
-			printf("xhci: setting up in endpoint %d (max packet size: %d)\n", pipe, desc->maxPacketSize);
-
-			_eps.push_back({pipe, Controller::Device::Direction::in, packet_size});
+			_eps.push_back({pipe, PipeType::in, packet_size, ep_type});
 		} else {
-			printf("xhci: setting up out endpoint %d (max packet size: %d)\n", pipe, desc->maxPacketSize);
-			_eps.push_back({pipe, Controller::Device::Direction::out, packet_size});
+			_eps.push_back({pipe, PipeType::out, packet_size, ep_type});
 		}
 	});
 
-	for (auto &ep : _eps)
-		co_await _device->setupEndpoint(ep.pipe, ep.dir, ep.packet_size);
+	for (auto &ep : _eps) {
+		printf("xhci: setting up %s endpoint %d (max packet size: %d)\n", 
+			ep.dir == PipeType::in ? "in" : "out", ep.pipe, ep.packet_size);
+		co_await _device->setupEndpoint(ep.pipe, ep.dir, ep.packet_size, ep.type);
+	}
 
 	co_return Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
 }
@@ -1137,8 +1191,41 @@ async::result<void> Controller::EndpointState::transfer(ControlTransfer info) {
 }
 
 async::result<size_t> Controller::EndpointState::transfer(InterruptTransfer info) {
-	assert(!"TODO: implement this");
-	co_return 0;
+	//assert(!"TODO: implement this");
+	//co_return 0;
+
+	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
+
+	Controller::TransferRing::TransferEvent ev;
+
+	size_t progress = 0;
+	while(progress < info.buffer.size()) {
+		uintptr_t pptr, ptr = (uintptr_t)info.buffer.data() + progress;
+		HEL_CHECK(helPointerPhysical((void *)ptr, &pptr));
+
+		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
+
+		bool is_last = (progress + chunk) >= info.buffer.size();
+
+		RawTrb transfer = {{
+			static_cast<uint32_t>(pptr & 0xFFFFFFFF),
+			static_cast<uint32_t>(pptr >> 32),
+			static_cast<uint32_t>(chunk),
+			(!is_last << 4) | (1 << 2) | (is_last << 5)
+				| (static_cast<uint32_t>(TrbType::normal) << 10)}};
+
+		_device->pushRawTransfer(endpointId - 1, transfer, is_last ? &ev : nullptr);
+
+		progress += chunk;
+	}
+
+	_device->submit(endpointId);
+
+	co_await ev.promise.async_get();
+
+	assert(ev.event.completionCode == 1 || ev.event.completionCode == 13); // success
+
+	co_return info.buffer.size() - ev.event.transferLen;
 }
 
 async::result<size_t> Controller::EndpointState::transfer(BulkTransfer info) {

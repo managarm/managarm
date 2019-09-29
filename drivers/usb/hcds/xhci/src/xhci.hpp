@@ -204,12 +204,7 @@ private:
 
 		int _slotId;
 
-		enum class Direction {
-			in,
-			out
-		};
-
-		async::result<void> setupEndpoint(int endpoint, Direction dir, size_t maxPacketSize, bool drop = false);
+		async::result<void> setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type, bool drop = false);
 
 	private:
 		int _portId;
