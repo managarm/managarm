@@ -55,6 +55,36 @@ private:
 
 // ----------------------------------------------------------------------------
 
+enum class TriggerMode {
+	null,
+	edge,
+	level
+};
+
+enum class Polarity {
+	null,
+	high,
+	low
+};
+
+struct IrqConfiguration {
+	bool specified() {
+		return trigger != TriggerMode::null
+				&& polarity != Polarity::null;
+	}
+
+	bool compatible(IrqConfiguration other) {
+		assert(specified());
+		return trigger == other.trigger
+				&& polarity == other.polarity;
+	}
+
+	TriggerMode trigger = TriggerMode::null;
+	Polarity polarity = Polarity::null;
+};
+
+// ----------------------------------------------------------------------------
+
 enum class IrqStatus {
 	null,
 	acked,
@@ -109,18 +139,6 @@ enum class IrqStrategy {
 	maskThenEoi
 };
 
-enum class TriggerMode {
-	null,
-	edge,
-	level
-};
-
-enum class Polarity {
-	null,
-	high,
-	low
-};
-
 // Represents a (not necessarily physical) "pin" of an interrupt controller.
 // This class handles the IRQ configuration and acknowledgement.
 struct IrqPin {
@@ -145,7 +163,7 @@ public:
 		return _name;
 	}
 
-	void configure(TriggerMode mode, Polarity polarity);
+	void configure(IrqConfiguration cfg);
 
 	// This function is called from IrqSlot::raise().
 	void raise();
@@ -175,6 +193,8 @@ private:
 
 	// Must be protected against IRQs.
 	frigg::TicketLock _mutex;
+
+	IrqConfiguration _activeCfg;
 
 	IrqStrategy _strategy;
 

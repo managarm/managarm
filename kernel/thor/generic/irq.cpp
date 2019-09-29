@@ -128,20 +128,27 @@ IrqPin::IrqPin(frigg::String<KernelAlloc> name)
 		_raiseSequence{0}, _sinkSequence{0}, _inService{false}, _dueSinks{0},
 		_maskState{0} { }
 
-void IrqPin::configure(TriggerMode mode, Polarity polarity) {
+void IrqPin::configure(IrqConfiguration desired) {
+	assert(desired.specified());
+
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	frigg::infoLogger() << "thor: Configuring IRQ " << _name
-			<< " to trigger mode: " << static_cast<int>(mode)
-			<< ", polarity: " << static_cast<int>(polarity) << frigg::endLog;
+	if(!_activeCfg.specified()) {
+		frigg::infoLogger() << "thor: Configuring IRQ " << _name
+				<< " to trigger mode: " << static_cast<int>(desired.trigger)
+				<< ", polarity: " << static_cast<int>(desired.polarity) << frigg::endLog;
+		_strategy = program(desired.trigger, desired.polarity);
 
-	_strategy = program(mode, polarity);
-	_raiseSequence = 0;
-	_sinkSequence = 0;
-	_inService = false;
-	_dueSinks = 0;
-	_maskState = 0;
+		_activeCfg = desired;
+		_raiseSequence = 0;
+		_sinkSequence = 0;
+		_inService = false;
+		_dueSinks = 0;
+		_maskState = 0;
+	}else{
+		assert(_activeCfg.compatible(desired));
+	}
 }
 
 void IrqPin::raise() {

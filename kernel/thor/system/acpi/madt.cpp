@@ -206,22 +206,6 @@ void walkResources(ACPI_HANDLE object, const char *method, F functor) {
 
 // --------------------------------------------------------
 
-struct IrqConfiguration {
-	bool specified() {
-		return trigger != TriggerMode::null
-				&& polarity != Polarity::null;
-	}
-
-	bool compatible(IrqConfiguration other) {
-		assert(specified());
-		return trigger == other.trigger
-				&& polarity == other.polarity;
-	}
-
-	TriggerMode trigger;
-	Polarity polarity;
-};
-
 // Stores the IRQ override information (GSI, trigger mode, polarity)
 // of a bus-specific IRQ (e.g., on the ISA bus).
 struct IrqOverride {
@@ -249,13 +233,6 @@ IrqOverride resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
 		return *(*irqOverrides[irq]);
 	}
 	return IrqOverride{irq, desired};
-}
-
-// --------------------------------------------------------
-
-void commitIrq(IrqOverride line) {
-	auto pin = getGlobalSystemIrq(line.gsi);
-	pin->configure(line.configuration.trigger, line.configuration.polarity);
 }
 
 // --------------------------------------------------------
@@ -295,18 +272,10 @@ frigg::String<KernelAlloc> getHardwareId(ACPI_HANDLE handle) {
 
 // --------------------------------------------------------
 
-IrqConfiguration irqConfig[256];
-
-void configureIrq(unsigned int gsi, IrqConfiguration desired) {
-	assert(gsi < 256);
-	assert(desired.specified());
-	if(!irqConfig[gsi].specified()) {
-		auto pin = getGlobalSystemIrq(gsi);
-		pin->configure(desired.trigger, desired.polarity);
-		irqConfig[gsi] = desired;
-	}else{
-		assert(irqConfig[gsi].compatible(desired));
-	}
+void configureIrq(IrqOverride ovr) {
+	auto pin = getGlobalSystemIrq(ovr.gsi);
+	assert(pin);
+	pin->configure(ovr.configuration);
 }
 
 IrqPin *configureRoute(const char *link_path) {
@@ -351,7 +320,7 @@ IrqPin *configureRoute(const char *link_path) {
 					<< ", polarity: " << static_cast<int>(polarity)
 					<< frigg::endLog;
 			assert(!pin);
-			configureIrq(r->Data.Irq.Interrupts[0], {trigger, polarity});
+			configureIrq(IrqOverride{r->Data.Irq.Interrupts[0], {trigger, polarity}});
 			pin = getGlobalSystemIrq(r->Data.Irq.Interrupts[0]);
 		}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
 			assert(r->Data.ExtendedIrq.InterruptCount == 1);
@@ -363,7 +332,7 @@ IrqPin *configureRoute(const char *link_path) {
 					<< ", polarity: " << static_cast<int>(polarity)
 					<< frigg::endLog;
 			assert(!pin);
-			configureIrq(r->Data.ExtendedIrq.Interrupts[0], {trigger, polarity});
+			configureIrq(IrqOverride{r->Data.ExtendedIrq.Interrupts[0], {trigger, polarity}});
 			pin = getGlobalSystemIrq(r->Data.ExtendedIrq.Interrupts[0]);
 		}else if(r->Type != ACPI_RESOURCE_TYPE_END_TAG) {
 			frigg::infoLogger() << "    Resource: [Type "
@@ -404,7 +373,7 @@ void enumerateSystemBusses() {
 						<< ", " << nameOf(index) << ": "
 						<< "GSI " << route->SourceIndex << frigg::endLog;
 
-				configureIrq(route->SourceIndex, {TriggerMode::level, Polarity::low});
+				configureIrq(IrqOverride{route->SourceIndex, {TriggerMode::level, Polarity::low}});
 				auto pin = getGlobalSystemIrq(route->SourceIndex);
 				routing.push({slot, index, pin});
 			}else{
@@ -617,12 +586,12 @@ void initializeExtendedSystem() {
 	// TODO: This is a hack. We assume that HPET will use legacy replacement
 	// and that SCI is routed to IRQ 9.
 	frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
-	commitIrq(resolveIsaIrq(0));
-	commitIrq(resolveIsaIrq(1));
-	commitIrq(resolveIsaIrq(4));
-	commitIrq(resolveIsaIrq(9));
-	commitIrq(resolveIsaIrq(12));
-	commitIrq(resolveIsaIrq(14));
+	configureIrq(resolveIsaIrq(0));
+	configureIrq(resolveIsaIrq(1));
+	configureIrq(resolveIsaIrq(4));
+	configureIrq(resolveIsaIrq(9));
+	configureIrq(resolveIsaIrq(12));
+	configureIrq(resolveIsaIrq(14));
 	
 	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
