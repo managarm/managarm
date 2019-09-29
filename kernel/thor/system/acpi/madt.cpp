@@ -222,35 +222,38 @@ struct IrqConfiguration {
 	Polarity polarity;
 };
 
-struct IrqLine {
+// Stores the IRQ override information (GSI, trigger mode, polarity)
+// of a bus-specific IRQ (e.g., on the ISA bus).
+struct IrqOverride {
 	unsigned int gsi;
 	IrqConfiguration configuration;
 };
 
-IrqLine defaultIrq(unsigned int irq) {
-	return IrqLine{irq, IrqConfiguration{TriggerMode::edge, Polarity::high}};
+IrqOverride defaultIrq(unsigned int irq) {
+	return IrqOverride{irq, IrqConfiguration{TriggerMode::edge, Polarity::high}};
 }
 
-frigg::LazyInitializer<frigg::Optional<IrqLine>> irqOverrides[16];
+frigg::LazyInitializer<frigg::Optional<IrqOverride>> irqOverrides[16];
 
-IrqLine resolveIrq(unsigned int irq) {
+IrqOverride resolveIsaIrq(unsigned int irq) {
 	assert(irq < 16);
 	if((*irqOverrides[irq]))
 		return *(*irqOverrides[irq]);
 	return defaultIrq(irq);
 }
 
-IrqLine overrideIrq(unsigned int irq, IrqConfiguration desired) {
+// Same as resolveIsaIrq(irq) but allows to set more specific configuration options.
+IrqOverride resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
 	if(irq < 16 && *irqOverrides[irq]) {
 		assert(desired.compatible((*irqOverrides[irq])->configuration));
 		return *(*irqOverrides[irq]);
 	}
-	return IrqLine{irq, desired};
+	return IrqOverride{irq, desired};
 }
 
 // --------------------------------------------------------
 
-void commitIrq(IrqLine line) {
+void commitIrq(IrqOverride line) {
 	auto pin = getGlobalSystemIrq(line.gsi);
 	pin->configure(line.configuration.trigger, line.configuration.polarity);
 }
@@ -561,7 +564,7 @@ void initializeBasicSystem() {
 			assert(entry->bus == 0);
 			assert(entry->sourceIrq < 16);
 
-			IrqLine line;
+			IrqOverride line;
 			line.gsi = entry->systemInt;
 
 			auto trigger = entry->flags & OverrideFlags::triggerMask;
@@ -614,12 +617,12 @@ void initializeExtendedSystem() {
 	// TODO: This is a hack. We assume that HPET will use legacy replacement
 	// and that SCI is routed to IRQ 9.
 	frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
-	commitIrq(resolveIrq(0));
-	commitIrq(resolveIrq(1));
-	commitIrq(resolveIrq(4));
-	commitIrq(resolveIrq(9));
-	commitIrq(resolveIrq(12));
-	commitIrq(resolveIrq(14));
+	commitIrq(resolveIsaIrq(0));
+	commitIrq(resolveIsaIrq(1));
+	commitIrq(resolveIsaIrq(4));
+	commitIrq(resolveIsaIrq(9));
+	commitIrq(resolveIsaIrq(12));
+	commitIrq(resolveIsaIrq(14));
 	
 	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
