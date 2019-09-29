@@ -2,7 +2,7 @@
 #ifndef LIBUSB_USB_HPP
 #define LIBUSB_USB_HPP
 
-#include <experimental/optional>
+#include <optional>
 #include <assert.h>
 
 namespace setup_type {
@@ -117,14 +117,22 @@ struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {
 	uint8_t interval;
 };
 
+enum class EndpointType {
+	control = 0,
+	isochronous,
+	bulk,
+	interrupt
+};
+
 template<typename F>
 void walkConfiguration(std::string buffer, F functor) {
 	struct {
-		std::experimental::optional<int> configNumber;
-		std::experimental::optional<int> interfaceNumber;
-		std::experimental::optional<int> interfaceAlternative;
-		std::experimental::optional<int> endpointNumber;
-		std::experimental::optional<bool> endpointIn;
+		std::optional<int> configNumber;
+		std::optional<int> interfaceNumber;
+		std::optional<int> interfaceAlternative;
+		std::optional<int> endpointNumber;
+		std::optional<bool> endpointIn;
+		std::optional<EndpointType> endpointType;
 	} info;
 
 	auto p = &buffer[0];
@@ -138,24 +146,25 @@ void walkConfiguration(std::string buffer, F functor) {
 			assert(desc->length == sizeof(ConfigDescriptor));
 
 			info.configNumber = desc->configValue;
-			info.interfaceNumber = std::experimental::nullopt;
-			info.interfaceAlternative = std::experimental::nullopt;
-			info.endpointNumber = std::experimental::nullopt;
-			info.endpointIn = std::experimental::nullopt;
+			info.interfaceNumber = std::nullopt;
+			info.interfaceAlternative = std::nullopt;
+			info.endpointNumber = std::nullopt;
+			info.endpointIn = std::nullopt;
 		}else if(base->descriptorType == descriptor_type::interface) {
 			auto desc = (InterfaceDescriptor *)base;
 			assert(desc->length == sizeof(InterfaceDescriptor));
 
 			info.interfaceNumber = desc->interfaceNumber;
 			info.interfaceAlternative = desc->alternateSetting;
-			info.endpointNumber = std::experimental::nullopt;
-			info.endpointIn = std::experimental::nullopt;
+			info.endpointNumber = std::nullopt;
+			info.endpointIn = std::nullopt;
 		}else if(base->descriptorType == descriptor_type::endpoint) {
 			auto desc = (EndpointDescriptor *)base;
 			assert(desc->length == sizeof(EndpointDescriptor));
-		
+
 			info.endpointNumber = desc->endpointAddress & 0x0F;
 			info.endpointIn = desc->endpointAddress & 0x80;
+			info.endpointType = static_cast<EndpointType>(desc->attributes & 0x03);
 		}
 
 		functor(base->descriptorType, base->length, base, info);
