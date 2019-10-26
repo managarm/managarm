@@ -147,8 +147,8 @@ namespace commands {
 		uint32_t hotspot_y;
 		uint32_t width;
 		uint32_t height;
-		uint32_t _unknown;
-		uint32_t bpp;
+		uint32_t and_mask_depth;
+		uint32_t xor_mask_depth;
 		uint8_t pixel_data[];
 	};
 

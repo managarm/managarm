@@ -359,7 +359,7 @@ async::result<void> GfxDevice::DeviceFifo::defineCursor(int width, int height, G
 		co_return;
 
 	// size in dwords
-	size_t size = sizeof(commands::define_alpha_cursor) / 4 + 3 + SVGA_BITMAP_SIZE(width, height) + SVGA_PIXMAP_SIZE(width, height, 32);
+	size_t size = sizeof(commands::define_cursor) / 4 + 1 + SVGA_BITMAP_SIZE(width, height) + SVGA_PIXMAP_SIZE(width, height, 32);
 
 	auto ptr = static_cast<uint32_t *>(co_await reserve(size));
 
@@ -371,7 +371,8 @@ async::result<void> GfxDevice::DeviceFifo::defineCursor(int width, int height, G
 	cmd->id = 0;
 	cmd->hotspot_x = 1;
 	cmd->hotspot_y = 1;
-	cmd->bpp = 32;
+	cmd->and_mask_depth = 1;
+	cmd->xor_mask_depth = 32;
 
 	if (bo) {
 		helix::Mapping bitmap{bo->getMemory().first, 0, (size_t)(width * height * 4)};
