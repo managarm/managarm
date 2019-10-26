@@ -151,6 +151,13 @@ namespace commands {
 		uint32_t bpp;
 		uint8_t pixel_data[];
 	};
+
+	struct update_rectangle {
+		uint32_t x;
+		uint32_t y;
+		uint32_t w;
+		uint32_t h;
+	};
 }
 
 enum class caps : uint32_t {

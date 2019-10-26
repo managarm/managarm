@@ -98,7 +98,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		void moveCursor(int x, int y);
 		void setCursorState(bool enabled);
 		bool hasCapability(caps capability);
-
+		async::result<void> updateRectangle(int x, int y, int w, int h);
 	private:
 		async::result<void *> reserve(size_t size);
 		void commit(size_t);

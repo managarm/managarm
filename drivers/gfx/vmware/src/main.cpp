@@ -421,6 +421,23 @@ void GfxDevice::DeviceFifo::setCursorState(bool enabled) {
 	}
 }
 
+async::result<void> GfxDevice::DeviceFifo::updateRectangle(int x, int y, int w, int h) {
+	// size in dwords
+	size_t size = sizeof(commands::update_rectangle) / 4 + 1;
+
+	auto ptr = static_cast<uint32_t *>(co_await reserve(size));
+
+	ptr[0] = (uint32_t)command_index::update;
+	auto cmd = reinterpret_cast<commands::update_rectangle *>(ptr + 1);
+
+	cmd->x = x;
+	cmd->y = y;
+	cmd->w = w;
+	cmd->h = h;
+
+	commitAll();
+}
+
 // ----------------------------------------------------------------
 // GfxDevice::Configuration
 // ----------------------------------------------------------------
@@ -549,7 +566,10 @@ async::detached GfxDevice::Configuration::commitConfiguration() {
 	if (_fb) {
 		helix::Mapping user_fb{_fb->getBufferObject()->getMemory().first, 0, _fb->getBufferObject()->getSize()};
 		drm_core::fastCopy16(_device->_fbMapping.get(), user_fb.get(), _fb->getBufferObject()->getSize());
-		_device->writeRegister(register_index::enable, 1); // HACK: make the emulator actually redraw the window, might be a qemu issue, check in vmware
+		int w = _device->readRegister(register_index::width),
+			h = _device->readRegister(register_index::height);
+
+		co_await _device->_fifo.updateRectangle(0, 0, w, h);
 	}
 
 	complete();
