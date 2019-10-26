@@ -186,7 +186,8 @@ async::result<bool> Controller::_detectDevice() {
 		model[i + 1] = tmp;
 	}
 
-	_supportsLBA48 = ident_data[164 + 3] & (1 << 2);
+	_supportsLBA48 = (ident_data[167] & (1 << 2))
+			&& (ident_data[173] & (1 << 2));
 
 	printf("block/ata: detected device, model: '%s', %s 48-bit LBA\n", model, _supportsLBA48 ? "supports" : "doesn't support");
 
