@@ -43,7 +43,7 @@ public:
 	Controller();
 
 public:
-	void run();
+	async::detached run();
 
 private:
 	async::detached _doRequestLoop();
@@ -54,7 +54,9 @@ public:
 
 private:
 	enum Commands {
-		kCommandReadSectorsExt = 0x24
+		kCommandReadSectors = 0x20,
+		kCommandReadSectorsExt = 0x24,
+		kCommandIdentify = 0xEC,
 	};
 
 	enum Flags {
@@ -77,6 +79,8 @@ private:
 
 	async::result<void> _performRequest(Request *request);
 
+	async::result<bool> _detectDevice();
+
 	std::queue<std::unique_ptr<Request>> _requestQueue;
 	async::doorbell _doorbell;
 
@@ -85,11 +89,13 @@ private:
 	arch::io_space _ioSpace;
 	arch::io_space _altSpace;
 
+	bool _supportsLBA48;
+
 	uint64_t _irqSequence = 0;
 };
 
 Controller::Controller()
-: BlockDevice{512}, _ioSpace{0x1F0}, _altSpace{0x3F6} {
+: BlockDevice{512}, _ioSpace{0x1F0}, _altSpace{0x3F6}, _supportsLBA48{false} {
 	HelHandle irq_handle;
 	HEL_CHECK(helAccessIrq(14, &irq_handle));
 	_irq = helix::UniqueDescriptor{irq_handle};
@@ -99,7 +105,10 @@ Controller::Controller()
 	HEL_CHECK(helEnableIo(_ioHandle));
 }
 
-void Controller::run() {
+async::detached Controller::run() {
+	if (!(co_await _detectDevice()))
+		co_return;
+
 	_doRequestLoop();
 
 	blockfs::runDevice(this);
@@ -132,6 +141,58 @@ async::result<void> Controller::readSectors(uint64_t sector, void *buffer, size_
 	return future;
 }
 
+async::result<bool> Controller::_detectDevice() {
+	_ioSpace.store(regs::outDevice, kDeviceLba);
+	// TODO: delay
+
+	_ioSpace.store(regs::outCommand, kCommandIdentify);
+
+	if(logIrqs)
+		std::cout << "block/ata: Awaiting IRQ." << std::endl;
+	helix::AwaitEvent await_irq;
+	auto &&submit = helix::submitAwaitEvent(_irq, &await_irq, _irqSequence,
+			helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(await_irq.error());
+	_irqSequence = await_irq.sequence();
+	if(logIrqs)
+		std::cout << "block/ata: IRQ fired." << std::endl;
+
+	// Check if the device is ready without clearing the IRQ.
+	auto alt_status = _altSpace.load(alt_regs::inStatus);
+	if(alt_status & kStatusBsy) {
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, _irqSequence));
+		co_return false;
+	}
+
+	// Clear and acknowledge the IRQ.
+	auto status = _ioSpace.load(regs::inStatus);
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, _irqSequence));
+
+	if (status & kStatusBsy || !(status & kStatusDrq))
+		co_return false;
+
+	uint8_t ident_data[512];
+	_ioSpace.load_iterative(regs::inData, reinterpret_cast<uint16_t *>(ident_data), 256);
+
+	char model[41];
+	memcpy(model, ident_data + 54, 40);
+	model[40] = 0;
+
+	// model name is returned as big endian, swap each 2-byte pair to fix that
+	for (int i = 0; i < 40; i += 2) {
+		uint8_t tmp = model[i];
+		model[i] = model[i + 1];
+		model[i + 1] = tmp;
+	}
+
+	_supportsLBA48 = ident_data[164 + 3] & (1 << 2);
+
+	printf("block/ata: detected device, model: '%s', %s 48-bit LBA\n", model, _supportsLBA48 ? "supports" : "doesn't support");
+
+	co_return true;
+}
+
 async::result<void> Controller::_performRequest(Request *request) {
 	if(logRequests)
 		std::cout << "block/ata: Reading " << request->numSectors
@@ -141,17 +202,22 @@ async::result<void> Controller::_performRequest(Request *request) {
 	_ioSpace.store(regs::outDevice, kDeviceLba);
 	// TODO: There should be a delay after drive selection.
 
-	_ioSpace.store(regs::outSectorCount, (request->numSectors >> 8) & 0xFF);
-	_ioSpace.store(regs::outLba1, (request->sector >> 24) & 0xFF);
-	_ioSpace.store(regs::outLba2, (request->sector >> 32) & 0xFF);
-	_ioSpace.store(regs::outLba3, (request->sector >> 40) & 0xFF);
+	if (_supportsLBA48) {
+		_ioSpace.store(regs::outSectorCount, (request->numSectors >> 8) & 0xFF);
+		_ioSpace.store(regs::outLba1, (request->sector >> 24) & 0xFF);
+		_ioSpace.store(regs::outLba2, (request->sector >> 32) & 0xFF);
+		_ioSpace.store(regs::outLba3, (request->sector >> 40) & 0xFF);
+	}
 
 	_ioSpace.store(regs::outSectorCount, request->numSectors & 0xFF);
 	_ioSpace.store(regs::outLba1, request->sector & 0xFF);
 	_ioSpace.store(regs::outLba2, (request->sector >> 8) & 0xFF);
 	_ioSpace.store(regs::outLba3, (request->sector >> 16) & 0xFF);
 
-	_ioSpace.store(regs::outCommand, kCommandReadSectorsExt);
+	if (_supportsLBA48)
+		_ioSpace.store(regs::outCommand, kCommandReadSectorsExt);
+	else
+		_ioSpace.store(regs::outCommand, kCommandReadSectors);
 
 	// Receive the result for each sector.
 	for(size_t k = 0; k < request->numSectors; k++) {
