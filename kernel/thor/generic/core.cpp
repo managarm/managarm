@@ -124,6 +124,10 @@ void *KernelAlloc::allocate(size_t size) {
 	return _allocator.allocate(size);
 }
 
+void *KernelAlloc::reallocate(void *pointer, size_t size) {
+	return _allocator.realloc(pointer, size);
+}
+
 void KernelAlloc::free(void *pointer) {
 	_allocator.free(pointer);
 }

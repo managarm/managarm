@@ -8,115 +8,43 @@
 #include "../../generic/kernel_heap.hpp"
 #include "../../system/pci/pci.hpp"
 
-extern "C" {
-#include <acpi.h>
-}
+#include <acpispec/tables.h>
+#include <lai/host.h>
 
 namespace {
 	constexpr bool logEverySci = false;
 }
 
-#define NOT_IMPLEMENTED() do { assert(!"Fix this"); /* frigg::panicLogger() << "ACPI interface function " << __func__ << " is not implemented!" << frigg::endLog;*/ } while(0)
+namespace thor {
+namespace acpi {
+	extern void *globalRsdtWindow;
+} }
 
 using namespace thor;
 
-// --------------------------------------------------------
-// Initialization and shutdown
-// --------------------------------------------------------
-
-ACPI_STATUS AcpiOsInitialize() {
-	return AE_OK;
+void laihost_log(int, const char *msg) {
+	frigg::infoLogger() << "lai: " << msg << frigg::endLog;
 }
 
-ACPI_STATUS AcpiOsTerminate() {
-	return AE_OK;
+void laihost_panic(const char *msg) {
+	frigg::panicLogger() << "\e[31m" "lai panic: " << msg << "\e[39m" << frigg::endLog;
+	__builtin_unreachable();
 }
 
-ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
-	ACPI_SIZE pointer;
-	if(AcpiFindRootPointer(&pointer) != AE_OK)
-		frigg::panicLogger() << "thor: Could not find ACPI RSDP table" << frigg::endLog;
-	return pointer;
+void *laihost_malloc(size_t size) {
+	return kernelAlloc->allocate(size);
 }
 
-// --------------------------------------------------------
-// Logging
-// --------------------------------------------------------
-
-void ACPI_INTERNAL_VAR_XFACE AcpiOsPrintf(const char *format, ...) {
-	va_list args;
-	va_start(args, format);
-	AcpiOsVprintf(format, args);
-	va_end(args);
+void *laihost_realloc(void *ptr, size_t size) {
+	return kernelAlloc->reallocate(ptr, size);
 }
 
-void AcpiOsVprintf(const char *format, va_list args) {
-	auto printer = frigg::infoLogger();
-//	frigg::infoLogger() << "printf: " << format << frigg::endLog;
-	frigg::printf(printer, format, args);
-//	TODO: Call finish()?
-//	printer.finish();
+void laihost_free(void *ptr) {
+	kernelAlloc->free(ptr);
 }
 
-// --------------------------------------------------------
-// Locks
-// --------------------------------------------------------
-
-ACPI_STATUS AcpiOsCreateLock(ACPI_SPINLOCK *out_handle) {
-	// TODO: implement this
-	return AE_OK;
-}
-
-void AcpiOsDeleteLock(ACPI_HANDLE handle) {
-	// TODO: implement this
-}
-
-// this function should disable interrupts
-ACPI_CPU_FLAGS AcpiOsAcquireLock(ACPI_SPINLOCK spinlock) {
-	// TODO: implement this
-	return 0;
-}
-
-// this function should re-enable interrupts
-void AcpiOsReleaseLock(ACPI_SPINLOCK spinlock, ACPI_CPU_FLAGS flags) {
-	// TODO: implement this
-}
-
-// --------------------------------------------------------
-// Semaphores
-// --------------------------------------------------------
-
-ACPI_STATUS AcpiOsCreateSemaphore(UINT32 max_units, UINT32 initial_units,
-		ACPI_SEMAPHORE *out_handle) {
-	auto semaphore = frigg::construct<AcpiSemaphore>(*kernelAlloc);
-	semaphore->counter = initial_units;
-	*out_handle = semaphore;
-	return AE_OK;
-}
-
-ACPI_STATUS AcpiOsDeleteSemaphore(ACPI_SEMAPHORE handle) {
-	NOT_IMPLEMENTED();
-	return AE_OK;
-}
-
-ACPI_STATUS AcpiOsSignalSemaphore(ACPI_SEMAPHORE handle, UINT32 units) {
-	assert(units == 1);
-	handle->counter++;
-	return AE_OK;
-}
-
-ACPI_STATUS AcpiOsWaitSemaphore(ACPI_SEMAPHORE handle, UINT32 units, UINT16 timeout) {
-	assert(units == 1);
-	assert(handle->counter > 0);
-	handle->counter--;
-	return AE_OK;
-}
-
-// --------------------------------------------------------
-// Physical memory access
-// --------------------------------------------------------
-
-void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS physical, ACPI_SIZE length) {
+// TODO: We do not want to keep things mapped forever.
+void *laihost_map(size_t physical, size_t length) {
 	auto paddr = physical & ~(kPageSize - 1);
 	auto vsize = length + (physical & (kPageSize - 1));
 	assert(vsize <= 0x100000);
@@ -128,255 +56,89 @@ void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS physical, ACPI_SIZE length) {
 	return reinterpret_cast<char *>(ptr) + (physical & (kPageSize - 1));
 }
 
-void AcpiOsUnmapMemory(void *pointer, ACPI_SIZE length) {
-	auto vaddr = (uintptr_t)pointer & ~(kPageSize - 1);
-	auto vsize = length + ((uintptr_t)pointer & (kPageSize - 1));
-	assert(vsize <= 0x100000);
+static void *scan_rsdt(const char *name, size_t index) {
+	auto rsdt = reinterpret_cast<acpi_rsdt_t *>(thor::acpi::globalRsdtWindow);
+	assert(rsdt->header.length >= sizeof(acpi_header_t));
 
-	for(size_t pg = 0; pg < vsize; pg += kPageSize)
-		KernelPageSpace::global().unmapSingle4k(vaddr + pg);
-//TODO:	KernelVirtualMemory::global().free(pointer);
+	size_t n = 0;
+	int numPtrs = (rsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint32_t);
+	for(int i = 0; i < numPtrs; i++) {
+		auto tableWindow = reinterpret_cast<acpi_header_t *>(laihost_map(rsdt->tables[i], 0x10000));
+		assert(tableWindow->length <= 0x10000 && "TODO: allow larger ACPI table windows");
+		char sig[5];
+		sig[4] = 0;
+		memcpy(sig, tableWindow->signature, 4);
+		if(memcmp(tableWindow->signature, name, 4))
+			continue;
+		if(n == index)
+			return tableWindow;
+		n++;
+	}
+
+	return nullptr;
 }
 
-// --------------------------------------------------------
-// Memory management
-// --------------------------------------------------------
-
-void *AcpiOsAllocate(ACPI_SIZE size) {
-	return kernelAlloc->allocate(size);
-}
-
-void AcpiOsFree(void *pointer) {
-	kernelAlloc->free(pointer);
-}
-
-// --------------------------------------------------------
-// Interrupts
-// --------------------------------------------------------
-
-namespace {
-	struct AcpiSink : IrqSink {
-		AcpiSink(ACPI_OSD_HANDLER handler, void *context)
-		: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "acpi-sci"}},
-				_handler{handler}, _context{context} { }
-
-		IrqStatus raise() override {
-			auto report = [] (unsigned int event, const char *name) {
-				ACPI_EVENT_STATUS status;
-				AcpiGetEventStatus(event, &status);
-				const char *enabled = (status & ACPI_EVENT_FLAG_ENABLED) ? "enabled" : "disabled";
-				const char *set = (status & ACPI_EVENT_FLAG_SET) ? "set" : "clear";
-				frigg::infoLogger() << "    " << name << ": " << enabled
-						<< " " << set << frigg::endLog;
-			};
-
-			if(logEverySci) {
-				frigg::infoLogger() << "thor: Handling ACPI interrupt." << frigg::endLog;
-				report(ACPI_EVENT_PMTIMER, "ACPI timer");
-				report(ACPI_EVENT_GLOBAL, "Global lock");
-				report(ACPI_EVENT_POWER_BUTTON, "Power button");
-				report(ACPI_EVENT_SLEEP_BUTTON, "Sleep button");
-				report(ACPI_EVENT_RTC, "RTC");
-			}
-
-			auto result = _handler(_context);
-			if(result == ACPI_INTERRUPT_HANDLED) {
-				return IrqStatus::acked;
-			}else{
-				assert(result == ACPI_INTERRUPT_NOT_HANDLED);
-				return IrqStatus::nacked;
-			}
-		}
-
-	private:
-		ACPI_OSD_HANDLER _handler;
-		void *_context;
-	};
-}
-
-ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 number,
-		ACPI_OSD_HANDLER handler, void *context) {
-	frigg::infoLogger() << "thor: Installing handler for ACPI IRQ " << number << frigg::endLog;
-
-	auto sink = frigg::construct<AcpiSink>(*kernelAlloc, handler, context);
-	auto pin = getGlobalSystemIrq(number);
-	IrqPin::attachSink(pin, sink);
-	
-	// There are mainboards that raise the SCI before we actually enable it.
-	// This is a problem if the SCI is level-triggered and we mask it because
-	// there is no handler attached. Kick the IRQ so that it gets unmasked again.
-	IrqPin::kickSink(sink);
-
-	return AE_OK;
-}
-
-ACPI_STATUS AcpiOsRemoveInterruptHandler(UINT32 interrupt,
-		ACPI_OSD_HANDLER handler) {
-	NOT_IMPLEMENTED();
-}
-
-// --------------------------------------------------------
-// Threads
-// --------------------------------------------------------
-
-ACPI_THREAD_ID AcpiOsGetThreadId() {
-	return 1;
-}
-
-void AcpiOsSleep(UINT64 milliseconds) {
-	NOT_IMPLEMENTED();
-}
-
-void AcpiOsStall(UINT32 milliseconds) {
-	NOT_IMPLEMENTED();
-}
-
-UINT64 AcpiOsGetTimer() {
-	NOT_IMPLEMENTED();
-}
-
-ACPI_STATUS AcpiOsSignal(UINT32 function, void *info) {
-	NOT_IMPLEMENTED();
-}
-
-// --------------------------------------------------------
-// Async execution
-// --------------------------------------------------------
-
-ACPI_STATUS AcpiOsExecute(ACPI_EXECUTE_TYPE type,
-		ACPI_OSD_EXEC_CALLBACK function, void *context) {
-	NOT_IMPLEMENTED();
-}
-
-void AcpiOsWaitEventsComplete() {
-	NOT_IMPLEMENTED();
-}
-
-// --------------------------------------------------------
-// Hardware access
-// --------------------------------------------------------
-
-ACPI_STATUS AcpiOsReadMemory(ACPI_PHYSICAL_ADDRESS address,
-		UINT64 *value, UINT32 width) {
-	NOT_IMPLEMENTED();
-}
-
-ACPI_STATUS AcpiOsWriteMemory(ACPI_PHYSICAL_ADDRESS address,
-		UINT64 value, UINT32 width) {
-	NOT_IMPLEMENTED();
-}
-
-ACPI_STATUS AcpiOsReadPort(ACPI_IO_ADDRESS address, UINT32 *value, UINT32 width) {
-	if(width == 8) {
-		// read the I/O port
-		uint16_t port = address;
-		uint8_t result;
-		asm volatile ( "inb %1, %0" : "=a"(result) : "d"(port) );
-		*value = result;
-	}else if(width == 16) {
-		// read the I/O port
-		uint16_t port = address;
-		uint16_t result;
-		asm volatile ( "inw %1, %0" : "=a"(result) : "d"(port) );
-		*value = result;
-	}else if(width == 32) {
-		// read the I/O port
-		uint16_t port = address;
-		uint32_t result;
-		asm volatile ( "inl %1, %0" : "=a"(result) : "d"(port) );
-		*value = result;
+void *laihost_scan(const char *name, size_t index) {
+	if(!memcmp(name, "DSDT", 4)) {
+		void *fadtWindow = scan_rsdt("FACP", 0);
+		assert(fadtWindow);
+		auto fadt = reinterpret_cast<acpi_fadt_t *>(fadtWindow);
+		void *dsdtWindow = laihost_map(fadt->dsdt, 0x10000);
+		auto dsdt = reinterpret_cast<acpi_header_t *>(dsdtWindow);
+		assert(dsdt->length <= 0x10000 && "TODO: allow larger ACPI table windows");
+		return dsdtWindow;
 	}else{
-		assert(!"Unexpected bit width for AcpiOsReadPort()");
+		return scan_rsdt(name, index);
 	}
-	
-	return AE_OK;
 }
 
-ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width) {
-	if(width == 8) {
-		// read the I/O port
-		uint16_t port = address;
-		uint8_t to_write = value;
-		asm volatile ( "outb %0, %1" : : "a"(to_write), "d"(port) );
-	}else if(width == 16) {
-		// read the I/O port
-		uint16_t port = address;
-		uint16_t to_write = value;
-		asm volatile ( "outw %0, %1" : : "a"(to_write), "d"(port) );
-	}else if(width == 32) {
-		// read the I/O port
-		uint16_t port = address;
-		uint32_t to_write = value;
-		asm volatile ( "outl %0, %1" : : "a"(to_write), "d"(port) );
-	}else{
-		assert(!"Unexpected bit width for AcpiOsWritePort()");
-	}
-	
-	return AE_OK;
+void laihost_outb(uint16_t p, uint8_t v) {
+	asm volatile ("outb %0, %1" : : "a"(v), "d"(p));
+}
+void laihost_outw(uint16_t p, uint16_t v) {
+	asm volatile ("outw %0, %1" : : "a"(v), "d"(p));
+}
+void laihost_outd(uint16_t p, uint32_t v) {
+	asm volatile ("outl %0, %1" : : "a"(v), "d"(p));
 }
 
-ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID *target, UINT32 offset,
-		UINT64 *value, UINT32 width) {
-/*	std::cout << "segment: " << target->Segment
-			<< ", bus: " << target->Bus
-			<< ", slot: " << target->Device
-			<< ", function: " << target->Function << std::endl;*/
-
-	assert(!target->Segment);
-	switch(width) {
-	case 8:
-		*value = readPciByte(target->Bus, target->Device, target->Function, offset);
-		break;
-	case 16:
-		*value = readPciHalf(target->Bus, target->Device, target->Function, offset);
-		break;
-	case 32:
-		*value = readPciWord(target->Bus, target->Device, target->Function, offset);
-		break;
-	default:
-		frigg::panicLogger() << "Unexpected PCI access width" << frigg::endLog;
-	}
-	return AE_OK;
+uint8_t laihost_inb(uint16_t p) {
+	uint8_t v;
+	asm volatile ("inb %1, %0" : "=a"(v) : "d"(p));
+	return v;
+}
+uint16_t laihost_inw(uint16_t p) {
+	uint16_t v;
+	asm volatile ("inw %1, %0" : "=a"(v) : "d"(p));
+	return v;
+}
+uint32_t laihost_ind(uint16_t p) {
+	uint32_t v;
+	asm volatile ("inl %1, %0" : "=a"(v) : "d"(p));
+	return v;
 }
 
-ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID *target, UINT32 offset,
-		UINT64 value, UINT32 width) {
-	assert(!target->Segment);
-	switch(width) {
-	case 8:
-		writePciByte(target->Bus, target->Device, target->Function, offset, value);
-		break;
-	case 16:
-		writePciHalf(target->Bus, target->Device, target->Function, offset, value);
-		break;
-	case 32:
-		writePciWord(target->Bus, target->Device, target->Function, offset, value);
-		break;
-	default:
-		frigg::panicLogger() << "Unexpected PCI access width" << frigg::endLog;
-	}
-	return AE_OK;
+void laihost_pci_writeb(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn,
+		uint16_t offset, uint8_t v) {
+	writePciByte(bus, slot, fn, offset, v);
+}
+void laihost_pci_writew(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn,
+		uint16_t offset, uint16_t v) {
+	writePciHalf(bus, slot, fn, offset, v);
+}
+void laihost_pci_writed(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn,
+		uint16_t offset, uint32_t v) {
+	writePciWord(bus, slot, fn, offset, v);
 }
 
-// --------------------------------------------------------
-// Table / object override
-// --------------------------------------------------------
-
-ACPI_STATUS AcpiOsPredefinedOverride(const ACPI_PREDEFINED_NAMES *predefined,
-		ACPI_STRING *new_value) {
-	*new_value = nullptr;
-	return AE_OK;
+uint8_t laihost_pci_readb(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
+	return readPciByte(bus, slot, fn, offset);
+}
+uint16_t laihost_pci_readw(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
+	return readPciHalf(bus, slot, fn, offset);
+}
+uint32_t laihost_pci_readd(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
+	return readPciWord(bus, slot, fn, offset);
 }
 
-ACPI_STATUS AcpiOsTableOverride(ACPI_TABLE_HEADER *existing,
-		ACPI_TABLE_HEADER **new_table) {
-	*new_table = nullptr;
-	return AE_OK;
-}
-
-ACPI_STATUS AcpiOsPhysicalTableOverride(ACPI_TABLE_HEADER *existing,
-		ACPI_PHYSICAL_ADDRESS *new_address, UINT32 *new_length) {
-	*new_address = 0;
-	return AE_OK;
-}
-
+void laihost_sleep(uint64_t) { }

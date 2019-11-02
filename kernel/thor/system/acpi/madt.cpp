@@ -11,21 +11,14 @@
 #include "../../system/pci/pci.hpp"
 #include "pm-interface.hpp"
 
-extern "C" {
-#include <acpi.h>
-}
+#include <lai/core.h>
+#include <lai/helpers/pc-bios.h>
+#include <lai/helpers/pci.h>
+#include <lai/helpers/pm.h>
+#include <lai/helpers/sci.h>
 
 namespace thor {
 namespace acpi {
-
-void acpicaCheckFailed(const char *expr, const char *file, int line) {
-	frigg::panicLogger() << "ACPICA_CHECK failed: "
-			<< expr << "\nIn file " << file << " on line " << line
-			<< frigg::endLog;
-}
-
-#define ACPICA_CHECK(expr) do { if((expr) != AE_OK) { \
-		acpicaCheckFailed(#expr, __FILE__, __LINE__); } } while(0)
 
 struct MadtHeader {
 	uint32_t localApicAddress;
@@ -85,124 +78,11 @@ struct MadtLocalNmiEntry {
 
 struct HpetEntry {
 	uint32_t generalCapsAndId;
-	ACPI_GENERIC_ADDRESS address;
+	acpi_gas_t address;
 	uint8_t hpetNumber;
 	uint16_t minimumTick;
 	uint8_t pageProtection;
 } __attribute__ (( packed ));
-
-// --------------------------------------------------------
-
-struct ScopedBuffer {
-	friend void swap(ScopedBuffer &a, ScopedBuffer &b) {
-		using std::swap;
-		swap(a._object, b._object);
-	}
-
-	ScopedBuffer() {
-		_object.Length = ACPI_ALLOCATE_BUFFER;
-		_object.Pointer = nullptr;
-	}
-
-	ScopedBuffer(const ScopedBuffer &) = delete;
-	
-	ScopedBuffer(ScopedBuffer &&other)
-	: ScopedBuffer() {
-		swap(*this, other);
-	}
-
-
-	~ScopedBuffer() {
-		if(_object.Pointer)
-			AcpiOsFree(_object.Pointer);
-	}
-
-	ScopedBuffer &operator= (ScopedBuffer other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	size_t size() {
-		assert(_object.Pointer);
-		return _object.Length;
-	}
-
-	void *data() {
-		assert(_object.Pointer);
-		return _object.Pointer;
-	}
-
-	ACPI_BUFFER *get() {
-		return &_object;
-	}
-
-private:
-	ACPI_BUFFER _object;
-};
-
-frigg::Vector<ACPI_HANDLE, KernelAlloc> getChildren(ACPI_HANDLE parent) {
-	frigg::Vector<ACPI_HANDLE, KernelAlloc> results{*kernelAlloc};
-	ACPI_HANDLE child = nullptr;
-	while(true) {
-		ACPI_STATUS status = AcpiGetNextObject(ACPI_TYPE_ANY, parent, child, &child);
-		if(status == AE_NOT_FOUND)
-			break;
-		ACPICA_CHECK(status);
-		
-		results.push(child);
-	}
-	return results;
-}
-
-bool hasChild(ACPI_HANDLE parent, const char *path) {
-	ACPI_HANDLE child = nullptr;
-	while(true) {
-		ACPI_STATUS status = AcpiGetNextObject(ACPI_TYPE_ANY, parent, child, &child);
-		if(status == AE_NOT_FOUND)
-			return false;
-		ACPICA_CHECK(status);
-	
-		acpi::ScopedBuffer buffer;
-		ACPICA_CHECK(AcpiGetName(child, ACPI_SINGLE_NAME, buffer.get()));
-		if(!strcmp(static_cast<char *>(buffer.data()), path))
-			return true;
-	}
-}
-
-ACPI_HANDLE getChild(ACPI_HANDLE parent, const char *path) {
-	ACPI_HANDLE child;
-	ACPICA_CHECK(AcpiGetHandle(parent, const_cast<char *>(path), &child));
-	return child;
-}
-
-uint64_t evaluate(ACPI_HANDLE handle) {
-	acpi::ScopedBuffer buffer;
-	ACPICA_CHECK(AcpiEvaluateObject(handle, nullptr, nullptr, buffer.get()));
-	auto object = reinterpret_cast<ACPI_OBJECT *>(buffer.data());
-	assert(object->Type == ACPI_TYPE_INTEGER);
-	return object->Integer.Value;
-}
-
-void evaluateWith1(ACPI_HANDLE handle) {
-	ACPI_OBJECT args[1];
-	args[0].Integer.Type = ACPI_TYPE_INTEGER;
-	args[0].Integer.Value = 1;
-
-	ACPI_OBJECT_LIST list;
-	list.Count = 1;
-	list.Pointer = args;
-
-	ACPICA_CHECK(AcpiEvaluateObject(handle, nullptr, &list, nullptr));
-}
-
-template<typename F>
-void walkResources(ACPI_HANDLE object, const char *method, F functor) {
-	auto fptr = [] (ACPI_RESOURCE *r, void *c) -> ACPI_STATUS {
-		(*static_cast<F *>(c))(r);
-		return AE_OK;
-	};
-	ACPICA_CHECK(AcpiWalkResources(object, const_cast<char *>(method), fptr, &functor));
-}
 
 // --------------------------------------------------------
 
@@ -237,38 +117,23 @@ IrqOverride resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
 
 // --------------------------------------------------------
 
-uint32_t handlePowerButton(void *context) {
-	frigg::infoLogger() << "thor: Preparing for shutdown" << frigg::endLog;
+struct SciDevice : IrqSink {
+	SciDevice()
+	: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "acpi-sci"}} { }
 
-	ACPICA_CHECK(AcpiEnterSleepStatePrep(5));
-	ACPICA_CHECK(AcpiEnterSleepState(5));
+	IrqStatus raise() override {
+		auto isr = lai_get_sci_event();
+		if(isr & ACPI_POWER_BUTTON)
+			lai_enter_sleep(5); // Shut down.
 
-	return ACPI_INTERRUPT_HANDLED;
-}
-
-void dispatchEvent(uint32_t type, ACPI_HANDLE device, uint32_t number, void *context) {
-	if(type == ACPI_EVENT_TYPE_FIXED) {
-		frigg::infoLogger() << "thor: Fixed ACPI event" << frigg::endLog;
-	}else{
-		assert(type == ACPI_EVENT_TYPE_GPE);
-		frigg::infoLogger() << "thor: ACPI GPE event" << frigg::endLog;
+		// Ack the IRQ if any interesting event occurred.
+		if(isr & ACPI_POWER_BUTTON)
+			return IrqStatus::acked;
+		return IrqStatus::nacked;
 	}
-}
+};
 
-// --------------------------------------------------------
-
-frigg::String<KernelAlloc> getHardwareId(ACPI_HANDLE handle) {
-	frigg::String<KernelAlloc> string{*kernelAlloc};
-
-	ACPI_DEVICE_INFO *info;
-	ACPICA_CHECK(AcpiGetObjectInfo(handle, &info));
-	if(info->HardwareId.Length)
-		string = frigg::String<KernelAlloc>{*kernelAlloc,
-				info->HardwareId.String, info->HardwareId.Length - 1};
-	ACPI_FREE(info);
-
-	return string;
-}
+frigg::LazyInitializer<SciDevice> sciDevice;
 
 // --------------------------------------------------------
 
@@ -278,115 +143,61 @@ void configureIrq(IrqOverride ovr) {
 	pin->configure(ovr.configuration);
 }
 
-IrqPin *configureRoute(const char *link_path) {
-	auto decodeTrigger = [] (unsigned int trigger) {
-		switch(trigger) {
-		case ACPI_LEVEL_SENSITIVE: return TriggerMode::level;
-		case ACPI_EDGE_SENSITIVE: return TriggerMode::edge;
-		default: frigg::panicLogger() << "Bad ACPI IRQ trigger mode" << frigg::endLog;
-		}
-	};
-	auto decodePolarity = [] (unsigned int polarity) {
-		switch(polarity) {
-		case ACPI_ACTIVE_HIGH: return Polarity::high;
-		case ACPI_ACTIVE_LOW: return Polarity::low;
-		default: frigg::panicLogger() << "Bad ACPI IRQ polarity" << frigg::endLog;
-		}
-	};
-	
-	// TODO: Hack to null-terminate the string.
-	auto handle = getChild(ACPI_ROOT_OBJECT, link_path);
-
-	if(hasChild(handle, "_STA")) {
-		auto status = evaluate(getChild(handle, "_STA"));
-		if(!(status & 1)) {
-			frigg::infoLogger() << "    Link device is not present." << frigg::endLog;
-			return nullptr;
-		}else if(!(status & 2)) {
-			frigg::infoLogger() << "    Link device is not enabled." << frigg::endLog;
-			return nullptr;
-		}
-	}
-
-	IrqPin *pin = nullptr;
-	walkResources(handle, "_CRS", [&] (ACPI_RESOURCE *r) {
-		if(r->Type == ACPI_RESOURCE_TYPE_IRQ) {
-			assert(r->Data.Irq.InterruptCount == 1);
-			auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
-			auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
-			frigg::infoLogger() << "    Resource: Irq "
-					<< (int)r->Data.Irq.Interrupts[0]
-					<< ", trigger mode: " << static_cast<int>(trigger)
-					<< ", polarity: " << static_cast<int>(polarity)
-					<< frigg::endLog;
-			assert(!pin);
-			configureIrq(IrqOverride{r->Data.Irq.Interrupts[0], {trigger, polarity}});
-			pin = getGlobalSystemIrq(r->Data.Irq.Interrupts[0]);
-		}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
-			assert(r->Data.ExtendedIrq.InterruptCount == 1);
-			auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
-			auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
-			frigg::infoLogger() << "    Resource: Extended Irq "
-					<< (int)r->Data.ExtendedIrq.Interrupts[0]
-					<< ", trigger mode: " << static_cast<int>(trigger)
-					<< ", polarity: " << static_cast<int>(polarity)
-					<< frigg::endLog;
-			assert(!pin);
-			configureIrq(IrqOverride{r->Data.ExtendedIrq.Interrupts[0], {trigger, polarity}});
-			pin = getGlobalSystemIrq(r->Data.ExtendedIrq.Interrupts[0]);
-		}else if(r->Type != ACPI_RESOURCE_TYPE_END_TAG) {
-			frigg::infoLogger() << "    Resource: [Type "
-					<< r->Type << "]" << frigg::endLog;
-		}
-	});
-
-	assert(pin);
-	return pin;
-}
-
 void enumerateSystemBusses() {
-	auto sb = getChild(ACPI_ROOT_OBJECT, "_SB_");
-	for(auto child : getChildren(sb)) {
-		auto id = getHardwareId(child);
-		if(id != "PNP0A03" && id != "PNP0A08")
+	LAI_CLEANUP_STATE lai_state_t state;
+	lai_init_state(&state);
+
+	LAI_CLEANUP_VAR lai_variable_t pci_pnp_id = LAI_VAR_INITIALIZER;
+	LAI_CLEANUP_VAR lai_variable_t pcie_pnp_id = LAI_VAR_INITIALIZER;
+	lai_eisaid(&pci_pnp_id, "PNP0A03");
+	lai_eisaid(&pcie_pnp_id, "PNP0A08");
+
+	lai_nsnode_t *sb_handle = lai_resolve_path(NULL, "\\_SB_");
+	LAI_ENSURE(sb_handle);
+	struct lai_ns_child_iterator iter = LAI_NS_CHILD_ITERATOR_INITIALIZER(sb_handle);
+	lai_nsnode_t *handle;
+	while ((handle = lai_ns_child_iterate(&iter))) {
+		if (lai_check_device_pnp_id(handle, &pci_pnp_id, &state)
+				&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &state))
 			continue;
-		
+
 		frigg::infoLogger() << "thor: Found PCI host bridge" << frigg::endLog;
 
 		pci::RoutingInfo routing{*kernelAlloc};
 
-		acpi::ScopedBuffer buffer;
-		ACPICA_CHECK(AcpiGetIrqRoutingTable(child, buffer.get()));
+		// Look for a PRT and evaluate it.
+		lai_nsnode_t *prtHandle = lai_resolve_path(handle, "_PRT");
+		if(!prtHandle) {
+			frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
+					" giving up on this root complex" << frigg::endLog;
+			continue;
+		}
 
-		size_t offset = 0;
-		while(true) {
-			auto route = (ACPI_PCI_ROUTING_TABLE *)((char *)buffer.data() + offset);
-			if(!route->Length)
-				break;
-			
-			auto slot = route->Address >> 16;
-			auto function = route->Address & 0xFFFF;
-			assert(function == 0xFFFF);
-			auto index = static_cast<pci::IrqIndex>(route->Pin + 1);
-			if(!*route->Source) {
-				frigg::infoLogger() << "    Route for slot " << slot
-						<< ", " << nameOf(index) << ": "
-						<< "GSI " << route->SourceIndex << frigg::endLog;
+		LAI_CLEANUP_VAR lai_variable_t prt = LAI_VAR_INITIALIZER;
+		if (lai_eval(&prt, prtHandle, &state)) {
+			frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
+					" giving up on this root complex" << frigg::endLog;
+			continue;
+		}
 
-				configureIrq(IrqOverride{route->SourceIndex, {TriggerMode::level, Polarity::low}});
-				auto pin = getGlobalSystemIrq(route->SourceIndex);
-				routing.push({slot, index, pin});
-			}else{
-				frigg::infoLogger() << "    Route for slot " << slot
-						<< ", " << nameOf(index) << ": " << (const char *)route->Source
-						<< "[" << route->SourceIndex << "]" << frigg::endLog;
+		// Walk through the PRT and determine the routing.
+		struct lai_prt_iterator iter = LAI_PRT_ITERATOR_INITIALIZER(&prt);
+		lai_api_error_t e;
+		while (!(e = lai_pci_parse_prt(&iter))) {
+			assert(iter.function == -1 && "TODO: support routing of individual functions");
+			auto index = static_cast<pci::IrqIndex>(iter.pin + 1);
 
-				assert(!route->SourceIndex);
-				auto pin = configureRoute(const_cast<const char *>(route->Source));
-				routing.push({slot, index, pin});
-			}
+			frigg::infoLogger() << "    Route for slot " << iter.slot
+					<< ", " << nameOf(index) << ": "
+					<< "GSI " << iter.gsi << frigg::endLog;
 
-			offset += route->Length;
+			// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
+			// Hence, for now we do not deal with link devices.
+			configureIrq(IrqOverride{iter.gsi, {
+					iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
+					iter.active_low ? Polarity::low : Polarity::high}});
+			auto pin = getGlobalSystemIrq(iter.gsi);
+			routing.push({static_cast<unsigned int>(iter.slot), index, pin});
 		}
 
 		pci::pciDiscover(routing);
@@ -396,16 +207,17 @@ void enumerateSystemBusses() {
 // --------------------------------------------------------
 
 void bootOtherProcessors() {
-	ACPI_TABLE_HEADER *madt;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
+	void *madtWindow = laihost_scan("APIC", 0);
+	assert(madtWindow);
+	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
 
 	frigg::infoLogger() << "thor: Booting APs." << frigg::endLog;
-	
-	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
-	while(offset < madt->Length) {
+
+	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+	while(offset < madt->length) {
 		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
 		if(generic->type == 0) { // local APIC
-			auto entry = (MadtLocalEntry *)generic;	
+			auto entry = (MadtLocalEntry *)generic;
 			// TODO: Support BSPs with APIC ID != 0.
 			if((entry->flags & local_flags::enabled)
 					&& entry->localApicId) // We ignore the BSP here.
@@ -418,13 +230,14 @@ void bootOtherProcessors() {
 // --------------------------------------------------------
 
 void dumpMadt() {
-	ACPI_TABLE_HEADER *madt;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
+	void *madtWindow = laihost_scan("APIC", 0);
+	assert(madtWindow);
+	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
 
 	frigg::infoLogger() << "thor: Dumping MADT" << frigg::endLog;
 
-	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
-	while(offset < madt->Length) {
+	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+	while(offset < madt->length) {
 		auto generic = (MadtGenericEntry *)((uintptr_t)madt + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
@@ -432,13 +245,6 @@ void dumpMadt() {
 					<< (int)entry->localApicId
 					<< ((entry->flags & local_flags::enabled) ? "" :" (disabled)")
 					<< frigg::endLog;
-
-			// TODO: This has to be refactored.
-//			uint32_t id = entry->localApicId;
-//			if(seen_bsp)
-//				helControlKernel(kThorSubArch, kThorIfBootSecondary,
-//						&id, nullptr);
-//			seen_bsp = 1;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
 			frigg::infoLogger() << "    I/O APIC id: " << (int)entry->ioApicId
@@ -446,7 +252,7 @@ void dumpMadt() {
 					<< frigg::endLog;
 		}else if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
-			
+
 			const char *bus, *polarity, *trigger;
 			if(entry->bus == 0) {
 				bus = "ISA";
@@ -493,42 +299,48 @@ void dumpMadt() {
 	}
 }
 
-void initializeBasicSystem() {
-	ACPICA_CHECK(AcpiInitializeSubsystem());
-	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
-	ACPICA_CHECK(AcpiLoadTables());
+void *globalRsdtWindow;
 
-	frigg::infoLogger() << "thor: ACPICA initialized." << frigg::endLog;
+void initializeBasicSystem() {
+	lai_rsdp_info rsdp_info;
+	if(lai_bios_detect_rsdp(&rsdp_info))
+		frigg::panicLogger() << "thor: Could not detect ACPI" << frigg::endLog;
+	globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, 0x10000);
+	auto rsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
+	assert(rsdt->header.length <= 0x10000 && "TODO: support large RSDTs");
+
+	lai_create_namespace();
 
 	dumpMadt();
-	
-	ACPI_TABLE_HEADER *madt;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
+
+	void *madtWindow = laihost_scan("APIC", 0);
+	assert(madtWindow);
+	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
 
 	// Configure all interrupt controllers.
 	// TODO: This should be done during thor's initialization in order to avoid races.
 	frigg::infoLogger() << "thor: Configuring I/O APICs." << frigg::endLog;
-	
-	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
-	while(offset < madt->Length) {
-		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
+
+	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+	while(offset < madt->length) {
+		auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
 		if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
 			setupIoApic(entry->ioApicId, entry->systemIntBase, entry->mmioAddress);
 		}
 		offset += generic->length;
 	}
-	
+
 	// Determine IRQ override configuration.
 	for(int i = 0; i < 16; i++)
 		irqOverrides[i].initialize();
 
-	offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
-	while(offset < madt->Length) {
-		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
+	offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+	while(offset < madt->length) {
+		auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
 		if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
-			
+
 			// ACPI defines only ISA IRQ overrides.
 			assert(entry->bus == 0);
 			assert(entry->sourceIrq < 16);
@@ -545,7 +357,7 @@ void initializeBasicSystem() {
 			}else{
 				assert(trigger != OverrideFlags::triggerDefault);
 				assert(polarity != OverrideFlags::polarityDefault);
-				
+
 				switch(trigger) {
 				case OverrideFlags::triggerEdge:
 					line.configuration.trigger = TriggerMode::edge; break;
@@ -554,7 +366,7 @@ void initializeBasicSystem() {
 				default:
 					frigg::panicLogger() << "Illegal IRQ trigger mode in MADT" << frigg::endLog;
 				}
-				
+
 				switch(polarity) {
 				case OverrideFlags::polarityHigh:
 					line.configuration.polarity = Polarity::high; break;
@@ -570,48 +382,56 @@ void initializeBasicSystem() {
 		}
 		offset += generic->length;
 	}
-	
-	// Initialize the HPET.
-	frigg::infoLogger() << "thor: Setting up HPET." << frigg::endLog;
-	ACPI_TABLE_HEADER *hpet_table;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));
 
-	auto hpet_entry = (HpetEntry *)((uintptr_t)hpet_table + sizeof(ACPI_TABLE_HEADER));
-	assert(hpet_entry->address.SpaceId == ACPI_ADR_SPACE_SYSTEM_MEMORY);
-	setupHpet(hpet_entry->address.Address);
+	// Initialize the HPET.
+	[&] () {
+		void *hpetWindow = laihost_scan("HPET", 0);
+		if(!hpetWindow) {
+			frigg::infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frigg::endLog;
+			return;
+		}
+		auto hpet = reinterpret_cast<acpi_header_t *>(hpetWindow);
+		if(hpet->length < sizeof(acpi_header_t) + sizeof(HpetEntry)) {
+			frigg::infoLogger() << "\e[31m" "thor: HPET table has no entries!" "\e[39m"
+					<< frigg::endLog;
+			return;
+		}
+		auto hpetEntry = (HpetEntry *)((uintptr_t)hpetWindow + sizeof(acpi_header_t));
+		frigg::infoLogger() << "thor: Setting up HPET" << frigg::endLog;
+		assert(hpetEntry->address.address_space == ACPI_GAS_MMIO);
+		setupHpet(hpetEntry->address.base);
+	}();
 }
 
 void initializeExtendedSystem() {
 	// Configure the ISA IRQs.
-	// TODO: This is a hack. We assume that HPET will use legacy replacement
-	// and that SCI is routed to IRQ 9.
+	// TODO: This is a hack. We assume that HPET will use legacy replacement.
 	frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
 	configureIrq(resolveIsaIrq(0));
 	configureIrq(resolveIsaIrq(1));
 	configureIrq(resolveIsaIrq(4));
-	configureIrq(resolveIsaIrq(9));
 	configureIrq(resolveIsaIrq(12));
 	configureIrq(resolveIsaIrq(14));
-	
+
+	// Install the SCI before enabling ACPI.
+	void *fadtWindow = laihost_scan("FACP", 0);
+	assert(fadtWindow);
+	auto fadt = reinterpret_cast<acpi_fadt_t *>(fadtWindow);
+
+	auto sciOverride = resolveIsaIrq(fadt->sci_irq);
+	configureIrq(sciOverride);
+	sciDevice.initialize();
+	lai_set_sci_event(ACPI_POWER_BUTTON);
+	IrqPin::attachSink(getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
+
+	// Enable ACPI.
 	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
-	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
-
-	ACPICA_CHECK(AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON,
-			&handlePowerButton, nullptr));
-	ACPICA_CHECK(AcpiInstallGlobalEventHandler(&dispatchEvent, nullptr));
-
-	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	
-	if(hasChild(ACPI_ROOT_OBJECT, "_PIC")) {
-		frigg::infoLogger() << "thor: Invoking \\_PIC method" << frigg::endLog;
-		evaluateWith1(getChild(ACPI_ROOT_OBJECT, "_PIC"));
-	}
+	lai_enable_acpi(1);
 
 	bootOtherProcessors();
 	enumerateSystemBusses();
-
 	initializePmInterface();
-	
+
 	frigg::infoLogger() << "thor: System configuration complete." << frigg::endLog;
 }
 

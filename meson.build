@@ -12,13 +12,24 @@ if cpp_compiler.get_id() == 'clang'
 endif
 
 if get_option('build_kernel')
+	add_global_arguments(
+		[
+			'-ffreestanding',
+			'-mcmodel=kernel',
+			'-mno-red-zone',
+			'-mgeneral-regs-only',
+		],
+		language: ['c', 'cpp'])
+	add_global_arguments(['-fno-exceptions', '-fno-rtti'], language: 'cpp')
 	frigg_pb = find_program('frigg_pb')
 
 	cxxshim = subproject('cxxshim')
 	frigg = subproject('frigg')
+	lai = subproject('lai')
 	libsmarter = subproject('libsmarter')
 	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	frigg_dep = frigg.get_variable('frigg_dep')
+	lai_dep = lai.get_variable('dependency')
 	libsmarter_dep = libsmarter.get_variable('libsmarter_dep')
 
 	subdir('kernel/eir')

@@ -10,9 +10,7 @@
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 
-extern "C" {
-#include <acpi.h>
-}
+#include <lai/helpers/pm.h>
 
 namespace thor {
 	// TODO: Move this to a header file.
@@ -43,9 +41,8 @@ bool handleReq(LaneHandle lane) {
 	req.ParseFromArray(buffer.data(), buffer.size());
 
 	if(req.req_type() == managarm::hw::CntReqType::PM_RESET) {
-		auto res = AcpiReset();
-		assert(res == AE_NOT_EXIST);
-		frigg::infoLogger() << "thor: ACPI reset register does not exist" << frigg::endLog;
+		if(lai_acpi_reset())
+			frigg::infoLogger() << "thor: ACPI reset failed" << frigg::endLog;
 
 		issuePs2Reset();
 		frigg::infoLogger() << "thor: Reset using PS/2 controller failed" << frigg::endLog;
@@ -54,7 +51,7 @@ bool handleReq(LaneHandle lane) {
 	}else{
 		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
-		
+
 		frigg::String<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
@@ -69,12 +66,12 @@ bool handleReq(LaneHandle lane) {
 
 LaneHandle createObject(LaneHandle mbus_lane) {
 	auto branch = fiberOffer(mbus_lane);
-	
+
 	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
 	cls_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "class"));
 	auto &cls_item = cls_prop.mutable_item().mutable_string_item();
 	cls_item.set_value(frigg::String<KernelAlloc>(*kernelAlloc, "pm-interface"));
-	
+
 	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 	req.set_parent_id(1);
@@ -88,7 +85,7 @@ LaneHandle createObject(LaneHandle mbus_lane) {
 	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 	resp.ParseFromArray(buffer.data(), buffer.size());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-	
+
 	auto descriptor = fiberPullDescriptor(branch);
 	assert(descriptor.is<LaneDescriptor>());
 	return descriptor.get<LaneDescriptor>().handle;
@@ -102,7 +99,7 @@ void handleBind(LaneHandle object_lane) {
 	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
 	req.ParseFromArray(buffer.data(), buffer.size());
 	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-	
+
 	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
 	resp.set_error(managarm::mbus::Error::SUCCESS);
 
@@ -134,4 +131,3 @@ void initializePmInterface() {
 }
 
 } // namespace thor::acpi
-

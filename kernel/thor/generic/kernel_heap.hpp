@@ -48,6 +48,7 @@ struct KernelAlloc {
 	: _allocator{policy} { }
 
 	void *allocate(size_t size);
+	void *reallocate(void *pointer, size_t size);
 	void free(void *pointer);
 	void deallocate(void *pointer, size_t size);
 
