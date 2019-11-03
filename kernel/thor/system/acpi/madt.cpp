@@ -9,6 +9,7 @@
 #include "../../arch/x86/pic.hpp"
 #include "../../generic/kernel_heap.hpp"
 #include "../../system/pci/pci.hpp"
+#include "acpi.hpp"
 #include "pm-interface.hpp"
 
 #include <lai/core.h>
@@ -84,14 +85,11 @@ struct HpetEntry {
 	uint8_t pageProtection;
 } __attribute__ (( packed ));
 
+} } // namespace thor::acpi
+
 // --------------------------------------------------------
 
-// Stores the global IRQ information (GSI, trigger mode, polarity)
-// (in constrast to bus-specific information, e.g., for IRQs on the ISA bus).
-struct GlobalIrqInfo {
-	unsigned int gsi;
-	IrqConfiguration configuration;
-};
+namespace thor {
 
 frigg::LazyInitializer<frigg::Optional<GlobalIrqInfo>> isaIrqOverrides[16];
 
@@ -113,6 +111,19 @@ GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
 
 // --------------------------------------------------------
 
+void configureIrq(GlobalIrqInfo info) {
+	auto pin = getGlobalSystemIrq(info.gsi);
+	assert(pin);
+	pin->configure(info.configuration);
+}
+
+} // namespace thor
+
+// --------------------------------------------------------
+
+namespace thor {
+namespace acpi {
+
 struct SciDevice : IrqSink {
 	SciDevice()
 	: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "acpi-sci"}} { }
@@ -130,75 +141,6 @@ struct SciDevice : IrqSink {
 };
 
 frigg::LazyInitializer<SciDevice> sciDevice;
-
-// --------------------------------------------------------
-
-void configureIrq(GlobalIrqInfo ovr) {
-	auto pin = getGlobalSystemIrq(ovr.gsi);
-	assert(pin);
-	pin->configure(ovr.configuration);
-}
-
-void enumerateSystemBusses() {
-	LAI_CLEANUP_STATE lai_state_t state;
-	lai_init_state(&state);
-
-	LAI_CLEANUP_VAR lai_variable_t pci_pnp_id = LAI_VAR_INITIALIZER;
-	LAI_CLEANUP_VAR lai_variable_t pcie_pnp_id = LAI_VAR_INITIALIZER;
-	lai_eisaid(&pci_pnp_id, "PNP0A03");
-	lai_eisaid(&pcie_pnp_id, "PNP0A08");
-
-	lai_nsnode_t *sb_handle = lai_resolve_path(NULL, "\\_SB_");
-	LAI_ENSURE(sb_handle);
-	struct lai_ns_child_iterator iter = LAI_NS_CHILD_ITERATOR_INITIALIZER(sb_handle);
-	lai_nsnode_t *handle;
-	while ((handle = lai_ns_child_iterate(&iter))) {
-		if (lai_check_device_pnp_id(handle, &pci_pnp_id, &state)
-				&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &state))
-			continue;
-
-		frigg::infoLogger() << "thor: Found PCI host bridge" << frigg::endLog;
-
-		pci::RoutingInfo routing{*kernelAlloc};
-
-		// Look for a PRT and evaluate it.
-		lai_nsnode_t *prtHandle = lai_resolve_path(handle, "_PRT");
-		if(!prtHandle) {
-			frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
-					" giving up on this root complex" << frigg::endLog;
-			continue;
-		}
-
-		LAI_CLEANUP_VAR lai_variable_t prt = LAI_VAR_INITIALIZER;
-		if (lai_eval(&prt, prtHandle, &state)) {
-			frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
-					" giving up on this root complex" << frigg::endLog;
-			continue;
-		}
-
-		// Walk through the PRT and determine the routing.
-		struct lai_prt_iterator iter = LAI_PRT_ITERATOR_INITIALIZER(&prt);
-		lai_api_error_t e;
-		while (!(e = lai_pci_parse_prt(&iter))) {
-			assert(iter.function == -1 && "TODO: support routing of individual functions");
-			auto index = static_cast<pci::IrqIndex>(iter.pin + 1);
-
-			frigg::infoLogger() << "    Route for slot " << iter.slot
-					<< ", " << nameOf(index) << ": "
-					<< "GSI " << iter.gsi << frigg::endLog;
-
-			// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
-			// Hence, for now we do not deal with link devices.
-			configureIrq(GlobalIrqInfo{iter.gsi, {
-					iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
-					iter.active_low ? Polarity::low : Polarity::high}});
-			auto pin = getGlobalSystemIrq(iter.gsi);
-			routing.push({static_cast<unsigned int>(iter.slot), index, pin});
-		}
-
-		pci::pciDiscover(routing);
-	}
-}
 
 // --------------------------------------------------------
 
@@ -425,7 +367,7 @@ void initializeExtendedSystem() {
 	lai_enable_acpi(1);
 
 	bootOtherProcessors();
-	enumerateSystemBusses();
+	pci::enumerateSystemBusses();
 	initializePmInterface();
 
 	frigg::infoLogger() << "thor: System configuration complete." << frigg::endLog;

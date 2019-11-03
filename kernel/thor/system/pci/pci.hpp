@@ -145,7 +145,7 @@ enum {
 
 extern frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
 
-void pciDiscover(const RoutingInfo &routing);
+void enumerateSystemBusses();
 
 void runAllDevices();
 
