@@ -8,6 +8,8 @@
 #include "../fb.hpp"
 #include "../../generic/irq.hpp"
 
+#include <lai/core.h>
+
 namespace thor {
 
 struct Memory;
@@ -52,9 +54,44 @@ struct RoutingEntry {
 	IrqPin *pin;
 };
 
-using RoutingInfo = frigg::Vector<RoutingEntry, KernelAlloc>;
+struct PciBus;
 
-struct PciDevice {
+struct PciBus {
+	PciBus(uint32_t busId_, lai_nsnode_t *acpiHandle);
+
+	PciBus(const PciBus &) = delete;
+
+	PciBus &operator=(const PciBus &) = delete;
+
+	IrqPin *resolveIrqRoute(unsigned int slot, IrqIndex index);
+
+	uint32_t busId;
+
+	lai_nsnode_t *acpiHandle = nullptr;
+
+private:
+	// PRT of this bus.
+	frigg::Vector<RoutingEntry, KernelAlloc> _irqRouting{*kernelAlloc};
+};
+
+// Either a device or a bridge.
+struct PciEntity {
+	PciEntity(uint32_t bus, uint32_t slot, uint32_t function)
+	: bus{bus}, slot{slot}, function{function} { }
+
+	PciEntity(const PciEntity &) = delete;
+
+	PciEntity &operator= (const PciEntity &) = delete;
+
+	// Location of the device on the PCI bus.
+	uint32_t bus;
+	uint32_t slot;
+	uint32_t function;
+
+	PciBus *parentBus;
+};
+
+struct PciDevice : PciEntity {
 	enum BarType {
 		kBarNone = 0,
 		kBarIo = 1,
@@ -83,7 +120,7 @@ struct PciDevice {
 	PciDevice(uint32_t bus, uint32_t slot, uint32_t function,
 			uint32_t vendor, uint32_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface)
-	: mbusId(0), bus(bus), slot(slot), function(function),
+	: PciEntity{bus, slot, function}, mbusId(0),
 			vendor(vendor), deviceId(device_id), revision(revision),
 			classCode(class_code), subClass(sub_class), interface(interface),
 			interrupt(nullptr), caps(*kernelAlloc),
@@ -92,11 +129,6 @@ struct PciDevice {
 	// mbus object ID of the device
 	int64_t mbusId;
 
-	// location of the device on the PCI bus
-	uint32_t bus;
-	uint32_t slot;
-	uint32_t function;
-	
 	// vendor-specific device information
 	uint16_t vendor;
 	uint16_t deviceId;

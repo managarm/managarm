@@ -33,7 +33,7 @@ namespace {
 		auto buffer = fiberRecv(branch);
 		managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.ParseFromArray(buffer.data(), buffer.size());
-	
+
 		if(req.req_type() == managarm::hw::CntReqType::GET_PCI_INFO) {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -64,7 +64,7 @@ namespace {
 				}
 				resp.add_bars(std::move(msg));
 			}
-		
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -78,10 +78,10 @@ namespace {
 				assert(device->bars[index].type == PciDevice::kBarMemory);
 				descriptor = MemoryViewDescriptor{device->bars[index].memory};
 			}
-			
+
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
-		
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -89,7 +89,7 @@ namespace {
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_IRQ) {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
-	
+
 			assert(device->interrupt);
 			auto object = frigg::makeShared<IrqObject>(*kernelAlloc,
 					frigg::String<KernelAlloc>{*kernelAlloc, "pci-irq."}
@@ -111,7 +111,7 @@ namespace {
 						<< frigg::endLog;
 				disableLogHandler(device->associatedScreen);
 			}
-			
+
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
@@ -144,7 +144,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_word(word);
-		
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -161,7 +161,7 @@ namespace {
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
-		
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -185,7 +185,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_word(word);
-		
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -200,7 +200,7 @@ namespace {
 			resp.set_fb_height(fb->height);
 			resp.set_fb_bpp(fb->bpp);
 			resp.set_fb_type(fb->type);
-		
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -209,10 +209,10 @@ namespace {
 			assert(fb);
 
 			MemoryViewDescriptor descriptor{fb->memory};
-			
+
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
-		
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -220,7 +220,7 @@ namespace {
 		}else{
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
-			
+
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
@@ -330,7 +330,7 @@ namespace {
 		managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
 		req.ParseFromArray(buffer.data(), buffer.size());
 		assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-		
+
 		managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::mbus::Error::SUCCESS);
 
@@ -360,13 +360,68 @@ void runDevice(frigg::SharedPtr<PciDevice> device) {
 }
 
 // --------------------------------------------------------
+// PciBus implementation.
+// --------------------------------------------------------
+
+PciBus::PciBus(uint32_t busId_, lai_nsnode_t *acpiHandle_)
+: busId{busId_}, acpiHandle{acpiHandle_} {
+	LAI_CLEANUP_STATE lai_state_t laiState;
+	lai_init_state(&laiState);
+
+	// Look for a PRT and evaluate it.
+	lai_nsnode_t *prtHandle = lai_resolve_path(acpiHandle, "_PRT");
+	if(!prtHandle) {
+		frigg::infoLogger() << "thor: There is no _PRT;"
+				" giving up IRQ routing of this bus" << frigg::endLog;
+		return;
+	}
+
+	LAI_CLEANUP_VAR lai_variable_t prt = LAI_VAR_INITIALIZER;
+	if (lai_eval(&prt, prtHandle, &laiState)) {
+		frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
+				" giving up IRQ routing of this bus" << frigg::endLog;
+		return;
+	}
+
+	// Walk through the PRT and determine the routing.
+	struct lai_prt_iterator iter = LAI_PRT_ITERATOR_INITIALIZER(&prt);
+	lai_api_error_t e;
+	while (!(e = lai_pci_parse_prt(&iter))) {
+		assert(iter.function == -1 && "TODO: support routing of individual functions");
+		auto index = static_cast<IrqIndex>(iter.pin + 1);
+
+		frigg::infoLogger() << "    Route for slot " << iter.slot
+				<< ", " << nameOf(index) << ": "
+				<< "GSI " << iter.gsi << frigg::endLog;
+
+		// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
+		// Hence, for now we do not deal with link devices.
+		configureIrq(GlobalIrqInfo{iter.gsi, {
+				iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
+				iter.active_low ? Polarity::low : Polarity::high}});
+		auto pin = getGlobalSystemIrq(iter.gsi);
+		_irqRouting.push({static_cast<unsigned int>(iter.slot), index, pin});
+	}
+}
+
+IrqPin *PciBus::resolveIrqRoute(unsigned int slot, IrqIndex index) {
+	auto entry = std::find_if(_irqRouting.begin(), _irqRouting.end(), [&] (const auto &ref) {
+		return ref.slot == slot && ref.index == index;
+	});
+	if(entry == _irqRouting.end())
+		return nullptr;
+	assert(entry->pin);
+	return entry->pin;
+}
+
+// --------------------------------------------------------
 // Discovery functionality
 // --------------------------------------------------------
 
 size_t computeBarLength(uintptr_t mask) {
 	static_assert(sizeof(long) == 8, "Fix builtin usage");
 	static_assert(sizeof(uintptr_t) == 8, "Fix builtin usage");
-	
+
 	assert(mask);
 	size_t length_bits = __builtin_ctzl(mask);
 	size_t decoded_bits = 64 - __builtin_clzl(mask);
@@ -375,38 +430,26 @@ size_t computeBarLength(uintptr_t mask) {
 	return size_t(1) << length_bits;
 }
 
-frigg::LazyInitializer<frg::vector<unsigned int, KernelAlloc>> enumerationQueue;
+frigg::LazyInitializer<frg::vector<PciBus *, KernelAlloc>> enumerationQueue;
 
-IrqPin *resolveRoute(const RoutingInfo &info, unsigned int slot, IrqIndex index) {
-	auto entry = std::find_if(info.begin(), info.end(), [&] (const auto &ref) {
-		return ref.slot == slot && ref.index == index;
-	});
-	if(entry == info.end())
-		return nullptr;
-	assert(entry->pin);
-	return entry->pin;
-}
-
-void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
-		const RoutingInfo &routing) {
-	uint16_t vendor = readPciHalf(bus, slot, function, kPciVendor);
+void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
+	uint16_t vendor = readPciHalf(bus->busId, slot, function, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
-	
-	uint8_t header_type = readPciByte(bus, slot, function, kPciHeaderType);
+
+	uint8_t header_type = readPciByte(bus->busId, slot, function, kPciHeaderType);
 	if((header_type & 0x7F) == 0) {
 		frigg::infoLogger() << "        Function " << function << ": Device";
 	}else if((header_type & 0x7F) == 1) {
-		uint8_t secondary = readPciByte(bus, slot, function, kPciBridgeSecondary);
+		uint8_t downstreamId = readPciByte(bus->busId, slot, function, kPciBridgeSecondary);
 		frigg::infoLogger() << "        Function " << function
-				<< ": PCI-to-PCI bridge to bus " << (int)secondary;
-		enumerationQueue->push_back(secondary);
+				<< ": PCI-to-PCI bridge to bus " << (int)downstreamId;
 	}else{
 		frigg::infoLogger() << "        Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F);
 	}
 
-	auto command = readPciHalf(bus, slot, function, kPciCommand);
+	auto command = readPciHalf(bus->busId, slot, function, kPciCommand);
 	if(command & 0x01)
 		frigg::infoLogger() << " (Decodes IO)";
 	if(command & 0x02)
@@ -416,13 +459,25 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 	if(command & 0x400)
 		frigg::infoLogger() << " (IRQs masked)";
 	frigg::infoLogger() << frigg::endLog;
-	writePciHalf(bus, slot, function, kPciCommand, command | 0x400);
+	writePciHalf(bus->busId, slot, function, kPciCommand, command | 0x400);
 
-	auto device_id = readPciHalf(bus, slot, function, kPciDevice);
-	auto revision = readPciByte(bus, slot, function, kPciRevision);
-	auto class_code = readPciByte(bus, slot, function, kPciClassCode);
-	auto sub_class = readPciByte(bus, slot, function, kPciSubClass);
-	auto interface = readPciByte(bus, slot, function, kPciInterface);
+	lai_nsnode_t *deviceHandle = nullptr;
+	if(bus->acpiHandle) {
+		LAI_CLEANUP_STATE lai_state_t laiState;
+		lai_init_state(&laiState);
+		deviceHandle = lai_pci_find_device(bus->acpiHandle, slot, function, &laiState);
+	}
+	if(deviceHandle) {
+		LAI_CLEANUP_FREE_STRING char *acpiPath = lai_stringify_node_path(deviceHandle);
+		frigg::infoLogger() << "            ACPI: " << const_cast<const char *>(acpiPath)
+				<< frigg::endLog;
+	}
+
+	auto device_id = readPciHalf(bus->busId, slot, function, kPciDevice);
+	auto revision = readPciByte(bus->busId, slot, function, kPciRevision);
+	auto class_code = readPciByte(bus->busId, slot, function, kPciClassCode);
+	auto sub_class = readPciByte(bus->busId, slot, function, kPciSubClass);
+	auto interface = readPciByte(bus->busId, slot, function, kPciInterface);
 	frigg::infoLogger() << "            Vendor/device: " << frigg::logHex(vendor)
 			<< "." << frigg::logHex(device_id) << "." << frigg::logHex(revision)
 			<< ", class: " << frigg::logHex(class_code)
@@ -430,25 +485,25 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 			<< "." << frigg::logHex(interface) << frigg::endLog;
 
 	if((header_type & 0x7F) == 0) {
-//		uint16_t subsystem_vendor = readPciHalf(bus, slot, function, kPciRegularSubsystemVendor);
-//		uint16_t subsystem_device = readPciHalf(bus, slot, function, kPciRegularSubsystemDevice);
+//		uint16_t subsystem_vendor = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemVendor);
+//		uint16_t subsystem_device = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemDevice);
 //		frigg::infoLogger() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
 //				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::endLog;
 
-		auto status = readPciHalf(bus, slot, function, kPciStatus);
+		auto status = readPciHalf(bus->busId, slot, function, kPciStatus);
 
 		if(status & 0x08)
 			frigg::infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frigg::endLog;
 
-		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus, slot, function,
+		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface);
 
 		// Find all capabilities.
 		if(status & 0x10) {
 			// The bottom two bits of each capability offset must be masked!
-			uint8_t offset = readPciByte(bus, slot, function, kPciRegularCapabilities) & 0xFC;
+			uint8_t offset = readPciByte(bus->busId, slot, function, kPciRegularCapabilities) & 0xFC;
 			while(offset != 0) {
-				auto type = readPciByte(bus, slot, function, offset);
+				auto type = readPciByte(bus->busId, slot, function, offset);
 
 				auto name = nameOfCapability(type);
 				if(name) {
@@ -462,29 +517,29 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 				// TODO: 
 				size_t size = -1;
 				if(type == 0x09)
-					size = readPciByte(bus, slot, function, offset + 2);
+					size = readPciByte(bus->busId, slot, function, offset + 2);
 
 				device->caps.push({type, offset, size});
 
-				uint8_t successor = readPciByte(bus, slot, function, offset + 1);
+				uint8_t successor = readPciByte(bus->busId, slot, function, offset + 1);
 				offset = successor & 0xFC;
 			}
 		}
-		
+
 		// Determine the BARs
 		for(int i = 0; i < 6; i++) {
 			uint32_t offset = kPciRegularBar0 + i * 4;
-			uint32_t bar = readPciWord(bus, slot, function, offset);
+			uint32_t bar = readPciWord(bus->busId, slot, function, offset);
 			if(bar == 0)
 				continue;
-			
+
 			if((bar & 1) != 0) {
 				uintptr_t address = bar & 0xFFFFFFFC;
-				
+
 				// write all 1s to the BAR and read it back to determine this its length.
-				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
-				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFFC;
-				writePciWord(bus, slot, function, offset, bar);
+				writePciWord(bus->busId, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = readPciWord(bus->busId, slot, function, offset) & 0xFFFFFFFC;
+				writePciWord(bus->busId, slot, function, offset, bar);
 				auto length = computeBarLength(mask);
 
 				device->bars[i].type = PciDevice::kBarIo;
@@ -501,17 +556,17 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 						<< ", length: " << length << " ports" << frigg::endLog;
 			}else if(((bar >> 1) & 3) == 0) {
 				uint32_t address = bar & 0xFFFFFFF0;
-				
+
 				// Write all 1s to the BAR and read it back to determine this its length.
-				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
-				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFF0;
-				writePciWord(bus, slot, function, offset, bar);
+				writePciWord(bus->busId, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = readPciWord(bus->busId, slot, function, offset) & 0xFFFFFFF0;
+				writePciWord(bus->busId, slot, function, offset, bar);
 				auto length = computeBarLength(mask);
 
 				device->bars[i].type = PciDevice::kBarMemory;
 				device->bars[i].address = address;
 				device->bars[i].length = length;
-				
+
 				auto offset = address & (kPageSize - 1);
 				device->bars[i].memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
@@ -524,22 +579,22 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 						<< ", length: " << length << " bytes" << frigg::endLog;
 			}else if(((bar >> 1) & 3) == 2) {
 				assert(i < 5); // Otherwise there is no next bar.
-				auto high = readPciWord(bus, slot, function, offset + 4);;
+				auto high = readPciWord(bus->busId, slot, function, offset + 4);;
 				auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
-				
+
 				// Write all 1s to the BAR and read it back to determine this its length.
-				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
-				writePciWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
-				uint32_t mask = (uint64_t{readPciWord(bus, slot, function, offset + 4)} << 32)
-						| (readPciWord(bus, slot, function, offset) & 0xFFFFFFF0);
-				writePciWord(bus, slot, function, offset, bar);
-				writePciWord(bus, slot, function, offset + 4, high);
+				writePciWord(bus->busId, slot, function, offset, 0xFFFFFFFF);
+				writePciWord(bus->busId, slot, function, offset + 4, 0xFFFFFFFF);
+				uint32_t mask = (uint64_t{readPciWord(bus->busId, slot, function, offset + 4)} << 32)
+						| (readPciWord(bus->busId, slot, function, offset) & 0xFFFFFFF0);
+				writePciWord(bus->busId, slot, function, offset, bar);
+				writePciWord(bus->busId, slot, function, offset + 4, high);
 				auto length = computeBarLength(mask);
 
 				device->bars[i].type = PciDevice::kBarMemory;
 				device->bars[i].address = address;
 				device->bars[i].length = length;
-				
+
 				auto offset = address & (kPageSize - 1);
 				device->bars[i].memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
@@ -556,10 +611,10 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 			}
 		}
 
-		auto irq_index = static_cast<IrqIndex>(readPciByte(bus, slot, function,
+		auto irq_index = static_cast<IrqIndex>(readPciByte(bus->busId, slot, function,
 				kPciRegularInterruptPin));
 		if(irq_index != IrqIndex::null) {
-			auto irq_pin = resolveRoute(routing, slot, irq_index);
+			auto irq_pin = bus->resolveIrqRoute(slot, irq_index);
 			if(irq_pin) {
 				frigg::infoLogger() << "            Interrupt: "
 						<< nameOf(irq_index)
@@ -572,58 +627,42 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 		}
 
 		allDevices->push(device);
+	}else if((header_type & 0x7F) == 1) {
+		LAI_CLEANUP_STATE lai_state_t laiState;
+		lai_init_state(&laiState);
+
+		uint8_t downstreamId = readPciByte(bus->busId, slot, function, kPciBridgeSecondary);
+		auto downstreamBus = frg::construct<PciBus>(*kernelAlloc, downstreamId, deviceHandle);
+		enumerationQueue->push_back(std::move(downstreamBus)); // FIXME: move should be unnecessary.
 	}
 
 	// TODO: This should probably be moved somewhere else.
 	if(class_code == 0x0C && sub_class == 0x03 && interface == 0x00) {
 		frigg::infoLogger() << "            \e[32mDisabling UHCI SMI generation!\e[39m"
 				<< frigg::endLog;
-		writePciHalf(bus, slot, function, 0xC0, 0x2000);
+		writePciHalf(bus->busId, slot, function, 0xC0, 0x2000);
 	}
 }
 
-void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
-		const RoutingInfo &routing);
-
-void checkPciDevice(uint32_t bus, uint32_t slot,
-		const RoutingInfo &routing) {
-	uint16_t vendor = readPciHalf(bus, slot, 0, kPciVendor);
+void checkPciDevice(PciBus *bus, uint32_t slot) {
+	uint16_t vendor = readPciHalf(bus->busId, slot, 0, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
-	
-	frigg::infoLogger() << "    Bus: " << bus << ", slot " << slot << frigg::endLog;
-	
-	uint8_t header_type = readPciByte(bus, slot, 0, kPciHeaderType);
+
+	frigg::infoLogger() << "    Bus: " << bus->busId << ", slot " << slot << frigg::endLog;
+
+	uint8_t header_type = readPciByte(bus->busId, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {
 		for(uint32_t function = 0; function < 8; function++)
-			checkPciFunction(bus, slot, function, routing);
+			checkPciFunction(bus, slot, function);
 	}else{
-		checkPciFunction(bus, slot, 0, routing);
+		checkPciFunction(bus, slot, 0);
 	}
 }
 
-void checkPciBus(uint32_t bus, const RoutingInfo &routing) {
+void checkPciBus(PciBus *bus) {
 	for(uint32_t slot = 0; slot < 32; slot++)
-		checkPciDevice(bus, slot, routing);
-}
-
-void pciDiscover(const RoutingInfo &routing) {
-	frigg::infoLogger() << "thor: Discovering PCI devices" << frigg::endLog;
-	enumerationQueue.initialize(*kernelAlloc);
-	allDevices.initialize(*kernelAlloc);
-
-	enumerationQueue->push_back(0);
-	// Note that elements are added to this queue while it is being traversed.
-	for(size_t i = 0; i < enumerationQueue->size(); i++) {
-		auto bus = (*enumerationQueue)[i];
-		if(!bus) {
-			checkPciBus(0, routing);
-		}else{
-			frigg::infoLogger() << "\e[31m" "thor: IRQ routing behind bridges is"
-					" not implemented correctly" "\e[39m" << frigg::endLog;
-			checkPciBus(bus, RoutingInfo{*kernelAlloc});
-		}
-	}
+		checkPciDevice(bus, slot);
 }
 
 void runAllDevices() {
@@ -633,8 +672,11 @@ void runAllDevices() {
 }
 
 void enumerateSystemBusses() {
-	LAI_CLEANUP_STATE lai_state_t state;
-	lai_init_state(&state);
+	enumerationQueue.initialize(*kernelAlloc);
+	allDevices.initialize(*kernelAlloc);
+
+	LAI_CLEANUP_STATE lai_state_t laiState;
+	lai_init_state(&laiState);
 
 	LAI_CLEANUP_VAR lai_variable_t pci_pnp_id = LAI_VAR_INITIALIZER;
 	LAI_CLEANUP_VAR lai_variable_t pcie_pnp_id = LAI_VAR_INITIALIZER;
@@ -646,50 +688,20 @@ void enumerateSystemBusses() {
 	struct lai_ns_child_iterator iter = LAI_NS_CHILD_ITERATOR_INITIALIZER(sb_handle);
 	lai_nsnode_t *handle;
 	while ((handle = lai_ns_child_iterate(&iter))) {
-		if (lai_check_device_pnp_id(handle, &pci_pnp_id, &state)
-				&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &state))
+		if (lai_check_device_pnp_id(handle, &pci_pnp_id, &laiState)
+				&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &laiState))
 			continue;
 
 		frigg::infoLogger() << "thor: Found PCI host bridge" << frigg::endLog;
+		auto rootBus = frg::construct<PciBus>(*kernelAlloc, 0, handle);
+		enumerationQueue->push_back(std::move(rootBus)); // FIXME: the move should not be necessary.
+	}
 
-		RoutingInfo routing{*kernelAlloc};
-
-		// Look for a PRT and evaluate it.
-		lai_nsnode_t *prtHandle = lai_resolve_path(handle, "_PRT");
-		if(!prtHandle) {
-			frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
-					" giving up on this root complex" << frigg::endLog;
-			continue;
-		}
-
-		LAI_CLEANUP_VAR lai_variable_t prt = LAI_VAR_INITIALIZER;
-		if (lai_eval(&prt, prtHandle, &state)) {
-			frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
-					" giving up on this root complex" << frigg::endLog;
-			continue;
-		}
-
-		// Walk through the PRT and determine the routing.
-		struct lai_prt_iterator iter = LAI_PRT_ITERATOR_INITIALIZER(&prt);
-		lai_api_error_t e;
-		while (!(e = lai_pci_parse_prt(&iter))) {
-			assert(iter.function == -1 && "TODO: support routing of individual functions");
-			auto index = static_cast<IrqIndex>(iter.pin + 1);
-
-			frigg::infoLogger() << "    Route for slot " << iter.slot
-					<< ", " << nameOf(index) << ": "
-					<< "GSI " << iter.gsi << frigg::endLog;
-
-			// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
-			// Hence, for now we do not deal with link devices.
-			configureIrq(GlobalIrqInfo{iter.gsi, {
-					iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
-					iter.active_low ? Polarity::low : Polarity::high}});
-			auto pin = getGlobalSystemIrq(iter.gsi);
-			routing.push({static_cast<unsigned int>(iter.slot), index, pin});
-		}
-
-		pciDiscover(routing);
+	// Note that elements are added to this queue while it is being traversed.
+	frigg::infoLogger() << "thor: Discovering PCI devices" << frigg::endLog;
+	for(size_t i = 0; i < enumerationQueue->size(); i++) {
+		auto bus = (*enumerationQueue)[i];
+		checkPciBus(bus);
 	}
 }
 
