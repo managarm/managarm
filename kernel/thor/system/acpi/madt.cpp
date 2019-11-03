@@ -86,33 +86,29 @@ struct HpetEntry {
 
 // --------------------------------------------------------
 
-// Stores the IRQ override information (GSI, trigger mode, polarity)
-// of a bus-specific IRQ (e.g., on the ISA bus).
-struct IrqOverride {
+// Stores the global IRQ information (GSI, trigger mode, polarity)
+// (in constrast to bus-specific information, e.g., for IRQs on the ISA bus).
+struct GlobalIrqInfo {
 	unsigned int gsi;
 	IrqConfiguration configuration;
 };
 
-IrqOverride defaultIrq(unsigned int irq) {
-	return IrqOverride{irq, IrqConfiguration{TriggerMode::edge, Polarity::high}};
-}
+frigg::LazyInitializer<frigg::Optional<GlobalIrqInfo>> isaIrqOverrides[16];
 
-frigg::LazyInitializer<frigg::Optional<IrqOverride>> irqOverrides[16];
-
-IrqOverride resolveIsaIrq(unsigned int irq) {
+GlobalIrqInfo resolveIsaIrq(unsigned int irq) {
 	assert(irq < 16);
-	if((*irqOverrides[irq]))
-		return *(*irqOverrides[irq]);
-	return defaultIrq(irq);
+	if((*isaIrqOverrides[irq]))
+		return *(*isaIrqOverrides[irq]);
+	return GlobalIrqInfo{irq, IrqConfiguration{TriggerMode::edge, Polarity::high}};
 }
 
 // Same as resolveIsaIrq(irq) but allows to set more specific configuration options.
-IrqOverride resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
-	if(irq < 16 && *irqOverrides[irq]) {
-		assert(desired.compatible((*irqOverrides[irq])->configuration));
-		return *(*irqOverrides[irq]);
+GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
+	if(irq < 16 && *isaIrqOverrides[irq]) {
+		assert(desired.compatible((*isaIrqOverrides[irq])->configuration));
+		return *(*isaIrqOverrides[irq]);
 	}
-	return IrqOverride{irq, desired};
+	return GlobalIrqInfo{irq, desired};
 }
 
 // --------------------------------------------------------
@@ -137,7 +133,7 @@ frigg::LazyInitializer<SciDevice> sciDevice;
 
 // --------------------------------------------------------
 
-void configureIrq(IrqOverride ovr) {
+void configureIrq(GlobalIrqInfo ovr) {
 	auto pin = getGlobalSystemIrq(ovr.gsi);
 	assert(pin);
 	pin->configure(ovr.configuration);
@@ -193,7 +189,7 @@ void enumerateSystemBusses() {
 
 			// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
 			// Hence, for now we do not deal with link devices.
-			configureIrq(IrqOverride{iter.gsi, {
+			configureIrq(GlobalIrqInfo{iter.gsi, {
 					iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
 					iter.active_low ? Polarity::low : Polarity::high}});
 			auto pin = getGlobalSystemIrq(iter.gsi);
@@ -333,7 +329,7 @@ void initializeBasicSystem() {
 
 	// Determine IRQ override configuration.
 	for(int i = 0; i < 16; i++)
-		irqOverrides[i].initialize();
+		isaIrqOverrides[i].initialize();
 
 	offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
 	while(offset < madt->length) {
@@ -345,7 +341,7 @@ void initializeBasicSystem() {
 			assert(entry->bus == 0);
 			assert(entry->sourceIrq < 16);
 
-			IrqOverride line;
+			GlobalIrqInfo line;
 			line.gsi = entry->systemInt;
 
 			auto trigger = entry->flags & OverrideFlags::triggerMask;
@@ -377,8 +373,8 @@ void initializeBasicSystem() {
 				}
 			}
 
-			assert(!(*irqOverrides[entry->sourceIrq]));
-			*irqOverrides[entry->sourceIrq] = line;
+			assert(!(*isaIrqOverrides[entry->sourceIrq]));
+			*isaIrqOverrides[entry->sourceIrq] = line;
 		}
 		offset += generic->length;
 	}
