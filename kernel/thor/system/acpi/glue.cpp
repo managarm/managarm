@@ -45,26 +45,36 @@ void laihost_free(void *ptr) {
 
 // TODO: We do not want to keep things mapped forever.
 void *laihost_map(size_t physical, size_t length) {
+	auto pow2ceil = [] (unsigned long s) {
+		assert(s);
+		return 1 << (sizeof(unsigned long) * CHAR_BIT - __builtin_clzl(s - 1));
+	};
+
 	auto paddr = physical & ~(kPageSize - 1);
 	auto vsize = length + (physical & (kPageSize - 1));
-	assert(vsize <= 0x100000);
+	size_t msize = pow2ceil(frg::max(vsize, static_cast<size_t>(0x10000)));
 
-	auto ptr = KernelVirtualMemory::global().allocate(0x100000);
+	auto ptr = KernelVirtualMemory::global().allocate(msize);
 	for(size_t pg = 0; pg < vsize; pg += kPageSize)
 		KernelPageSpace::global().mapSingle4k((VirtualAddr)ptr + pg, paddr + pg,
 				page_access::write, CachingMode::null);
 	return reinterpret_cast<char *>(ptr) + (physical & (kPageSize - 1));
 }
 
-static void *scan_rsdt(const char *name, size_t index) {
+static void *mapTable(uintptr_t address) {
+	auto headerWindow = laihost_map(address, sizeof(acpi_header_t));
+	auto headerPtr = reinterpret_cast<acpi_header_t *>(headerWindow);
+	return laihost_map(address, headerPtr->length);
+}
+
+static void *scanRsdt(const char *name, size_t index) {
 	auto rsdt = reinterpret_cast<acpi_rsdt_t *>(thor::acpi::globalRsdtWindow);
 	assert(rsdt->header.length >= sizeof(acpi_header_t));
 
 	size_t n = 0;
 	int numPtrs = (rsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint32_t);
 	for(int i = 0; i < numPtrs; i++) {
-		auto tableWindow = reinterpret_cast<acpi_header_t *>(laihost_map(rsdt->tables[i], 0x10000));
-		assert(tableWindow->length <= 0x10000 && "TODO: allow larger ACPI table windows");
+		auto tableWindow = reinterpret_cast<acpi_header_t *>(mapTable(rsdt->tables[i]));
 		char sig[5];
 		sig[4] = 0;
 		memcpy(sig, tableWindow->signature, 4);
@@ -80,15 +90,13 @@ static void *scan_rsdt(const char *name, size_t index) {
 
 void *laihost_scan(const char *name, size_t index) {
 	if(!memcmp(name, "DSDT", 4)) {
-		void *fadtWindow = scan_rsdt("FACP", 0);
+		void *fadtWindow = scanRsdt("FACP", 0);
 		assert(fadtWindow);
 		auto fadt = reinterpret_cast<acpi_fadt_t *>(fadtWindow);
-		void *dsdtWindow = laihost_map(fadt->dsdt, 0x10000);
-		auto dsdt = reinterpret_cast<acpi_header_t *>(dsdtWindow);
-		assert(dsdt->length <= 0x10000 && "TODO: allow larger ACPI table windows");
+		void *dsdtWindow = mapTable(fadt->dsdt);
 		return dsdtWindow;
 	}else{
-		return scan_rsdt(name, index);
+		return scanRsdt(name, index);
 	}
 }
 
