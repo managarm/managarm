@@ -363,16 +363,29 @@ void runDevice(frigg::SharedPtr<PciDevice> device) {
 // PciBus implementation.
 // --------------------------------------------------------
 
-PciBus::PciBus(uint32_t busId_, lai_nsnode_t *acpiHandle_)
-: busId{busId_}, acpiHandle{acpiHandle_} {
+PciBus::PciBus(PciBridge *associatedBridge_, uint32_t busId_, lai_nsnode_t *acpiHandle_)
+: associatedBridge{associatedBridge_}, busId{busId_}, acpiHandle{acpiHandle_} {
 	LAI_CLEANUP_STATE lai_state_t laiState;
 	lai_init_state(&laiState);
 
 	// Look for a PRT and evaluate it.
 	lai_nsnode_t *prtHandle = lai_resolve_path(acpiHandle, "_PRT");
 	if(!prtHandle) {
-		frigg::infoLogger() << "thor: There is no _PRT;"
-				" giving up IRQ routing of this bus" << frigg::endLog;
+		if(associatedBridge) {
+			frigg::infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
+					" assuming expansion bridge routing" << frigg::endLog;
+			for(int i = 0; i < 4; i++) {
+				_bridgeIrqs[i] = associatedBridge->parentBus->resolveIrqRoute(
+						associatedBridge->slot, static_cast<IrqIndex>(i + 1));
+				if(_bridgeIrqs[i])
+					frigg::infoLogger() << "thor:     Bridge IRQ [" << i << "]: "
+							<< _bridgeIrqs[i]->name() << frigg::endLog;
+			}
+			_routingModel = RoutingModel::expansionBridge;
+		}else{
+			frigg::infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
+					" giving up IRQ routing of this bus" << frigg::endLog;
+		}
 		return;
 	}
 
@@ -400,18 +413,24 @@ PciBus::PciBus(uint32_t busId_, lai_nsnode_t *acpiHandle_)
 				iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
 				iter.active_low ? Polarity::low : Polarity::high}});
 		auto pin = getGlobalSystemIrq(iter.gsi);
-		_irqRouting.push({static_cast<unsigned int>(iter.slot), index, pin});
+		_routingTable.push({static_cast<unsigned int>(iter.slot), index, pin});
 	}
+	_routingModel = RoutingModel::rootTable;
 }
 
 IrqPin *PciBus::resolveIrqRoute(unsigned int slot, IrqIndex index) {
-	auto entry = std::find_if(_irqRouting.begin(), _irqRouting.end(), [&] (const auto &ref) {
-		return ref.slot == slot && ref.index == index;
-	});
-	if(entry == _irqRouting.end())
+	if(_routingModel == RoutingModel::rootTable) {
+		auto entry = std::find_if(_routingTable.begin(), _routingTable.end(),
+				[&] (const auto &ref) { return ref.slot == slot && ref.index == index; });
+		if(entry == _routingTable.end())
+			return nullptr;
+		assert(entry->pin);
+		return entry->pin;
+	}else if(_routingModel == RoutingModel::expansionBridge) {
+		return _bridgeIrqs[(static_cast<int>(index) - 1 + slot) % 4];
+	}else{
 		return nullptr;
-	assert(entry->pin);
-	return entry->pin;
+	}
 }
 
 // --------------------------------------------------------
@@ -495,7 +514,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		if(status & 0x08)
 			frigg::infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frigg::endLog;
 
-		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus->busId, slot, function,
+		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface);
 
 		// Find all capabilities.
@@ -631,8 +650,11 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		LAI_CLEANUP_STATE lai_state_t laiState;
 		lai_init_state(&laiState);
 
+		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->busId, slot, function);
+
 		uint8_t downstreamId = readPciByte(bus->busId, slot, function, kPciBridgeSecondary);
-		auto downstreamBus = frg::construct<PciBus>(*kernelAlloc, downstreamId, deviceHandle);
+		auto downstreamBus = frg::construct<PciBus>(*kernelAlloc, bridge,
+				downstreamId, deviceHandle);
 		enumerationQueue->push_back(std::move(downstreamBus)); // FIXME: move should be unnecessary.
 	}
 
@@ -693,7 +715,7 @@ void enumerateSystemBusses() {
 			continue;
 
 		frigg::infoLogger() << "thor: Found PCI host bridge" << frigg::endLog;
-		auto rootBus = frg::construct<PciBus>(*kernelAlloc, 0, handle);
+		auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, 0, handle);
 		enumerationQueue->push_back(std::move(rootBus)); // FIXME: the move should not be necessary.
 	}
 

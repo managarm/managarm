@@ -48,16 +48,23 @@ inline const char *nameOfCapability(unsigned int type) {
 	}
 }
 
+enum class RoutingModel {
+	none,
+	rootTable, // Routing table of PCI IRQ pins to global IRQs (i.e., PRT).
+	expansionBridge // Default routing of expansion bridges.
+};
+
 struct RoutingEntry {
 	unsigned int slot;
 	IrqIndex index;
 	IrqPin *pin;
 };
 
+struct PciBridge;
 struct PciBus;
 
 struct PciBus {
-	PciBus(uint32_t busId_, lai_nsnode_t *acpiHandle);
+	PciBus(PciBridge *associatedBridge_, uint32_t busId_, lai_nsnode_t *acpiHandle_);
 
 	PciBus(const PciBus &) = delete;
 
@@ -65,30 +72,40 @@ struct PciBus {
 
 	IrqPin *resolveIrqRoute(unsigned int slot, IrqIndex index);
 
+	PciBridge *associatedBridge;
+
 	uint32_t busId;
 
 	lai_nsnode_t *acpiHandle = nullptr;
 
 private:
-	// PRT of this bus.
-	frigg::Vector<RoutingEntry, KernelAlloc> _irqRouting{*kernelAlloc};
+	RoutingModel _routingModel = RoutingModel::none;
+	// PRT of this bus (RoutingModel::rootTable).
+	frigg::Vector<RoutingEntry, KernelAlloc> _routingTable{*kernelAlloc};
+	// IRQs of the bridge (RoutingModel::expansionBridge).
+	IrqPin *_bridgeIrqs[4] = {};
 };
 
 // Either a device or a bridge.
 struct PciEntity {
-	PciEntity(uint32_t bus, uint32_t slot, uint32_t function)
-	: bus{bus}, slot{slot}, function{function} { }
+	PciEntity(PciBus *parentBus_, uint32_t bus, uint32_t slot, uint32_t function)
+	: parentBus{parentBus_}, bus{bus}, slot{slot}, function{function} { }
 
 	PciEntity(const PciEntity &) = delete;
 
 	PciEntity &operator= (const PciEntity &) = delete;
 
+	PciBus *parentBus;
+
 	// Location of the device on the PCI bus.
 	uint32_t bus;
 	uint32_t slot;
 	uint32_t function;
+};
 
-	PciBus *parentBus;
+struct PciBridge : PciEntity {
+	PciBridge(PciBus *parentBus_, uint32_t bus, uint32_t slot, uint32_t function)
+	: PciEntity{parentBus_, bus, slot, function} { }
 };
 
 struct PciDevice : PciEntity {
@@ -117,10 +134,10 @@ struct PciDevice : PciEntity {
 		size_t length;
 	};
 
-	PciDevice(uint32_t bus, uint32_t slot, uint32_t function,
+	PciDevice(PciBus *parentBus_, uint32_t bus, uint32_t slot, uint32_t function,
 			uint32_t vendor, uint32_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface)
-	: PciEntity{bus, slot, function}, mbusId(0),
+	: PciEntity{parentBus_, bus, slot, function}, mbusId(0),
 			vendor(vendor), deviceId(device_id), revision(revision),
 			classCode(class_code), subClass(sub_class), interface(interface),
 			interrupt(nullptr), caps(*kernelAlloc),
