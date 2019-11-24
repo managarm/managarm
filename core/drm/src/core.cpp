@@ -1012,6 +1012,19 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::action(&send_resp, ser.data(), ser.size()));
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_DESTROY_DUMB){
+		self->_buffers.erase(req.drm_handle());
+
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
