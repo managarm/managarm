@@ -61,6 +61,22 @@ void *laihost_map(size_t physical, size_t length) {
 	return reinterpret_cast<char *>(ptr) + (physical & (kPageSize - 1));
 }
 
+void laihost_unmap(void *ptr, size_t length) {
+	auto pow2ceil = [] (unsigned long s) {
+		assert(s);
+		return 1 << (sizeof(unsigned long) * CHAR_BIT - __builtin_clzl(s - 1));
+	};
+
+	auto vaddr = reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1);
+	auto vsize = length + (reinterpret_cast<uintptr_t>(ptr) & (kPageSize - 1));
+	size_t msize = pow2ceil(frg::max(vsize, static_cast<size_t>(0x10000)));
+
+	for(size_t pg = 0; pg < vsize; pg += kPageSize)
+		KernelPageSpace::global().unmapSingle4k(vaddr + pg);
+	// TODO: free the virtual memory range.
+	(void)msize;
+}
+
 static void *mapTable(uintptr_t address) {
 	auto headerWindow = laihost_map(address, sizeof(acpi_header_t));
 	auto headerPtr = reinterpret_cast<acpi_header_t *>(headerWindow);
