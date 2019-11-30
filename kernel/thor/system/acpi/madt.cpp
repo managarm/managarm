@@ -238,14 +238,24 @@ void dumpMadt() {
 }
 
 void *globalRsdtWindow;
+int globalRsdtVersion;
 
 void initializeBasicSystem() {
 	lai_rsdp_info rsdp_info;
 	if(lai_bios_detect_rsdp(&rsdp_info))
 		frigg::panicLogger() << "thor: Could not detect ACPI" << frigg::endLog;
-	globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, 0x10000);
-	auto rsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
-	assert(rsdt->header.length <= 0x10000 && "TODO: support large RSDTs");
+
+	assert((rsdp_info.acpi_version == 1 || rsdp_info.acpi_version == 2) && "Got unknown acpi version from lai");
+	globalRsdtVersion = rsdp_info.acpi_version;
+	if(rsdp_info.acpi_version == 2){
+		globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, 0x1000);
+		auto xsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
+		globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, xsdt->header.length);
+	} else if(rsdp_info.acpi_version == 1) {
+		globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, 0x1000);
+		auto rsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
+		globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, rsdt->header.length);
+	}
 
 	lai_create_namespace();
 

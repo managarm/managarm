@@ -18,6 +18,7 @@ namespace {
 namespace thor {
 namespace acpi {
 	extern void *globalRsdtWindow;
+	extern int globalRsdtVersion;
 } }
 
 using namespace thor;
@@ -84,21 +85,42 @@ static void *mapTable(uintptr_t address) {
 }
 
 static void *scanRsdt(const char *name, size_t index) {
-	auto rsdt = reinterpret_cast<acpi_rsdt_t *>(thor::acpi::globalRsdtWindow);
-	assert(rsdt->header.length >= sizeof(acpi_header_t));
+	if(thor::acpi::globalRsdtVersion == 1){
+		auto rsdt = reinterpret_cast<acpi_rsdt_t *>(thor::acpi::globalRsdtWindow);
+		assert(rsdt->header.length >= sizeof(acpi_header_t));
 
-	size_t n = 0;
-	int numPtrs = (rsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint32_t);
-	for(int i = 0; i < numPtrs; i++) {
-		auto tableWindow = reinterpret_cast<acpi_header_t *>(mapTable(rsdt->tables[i]));
-		char sig[5];
-		sig[4] = 0;
-		memcpy(sig, tableWindow->signature, 4);
-		if(memcmp(tableWindow->signature, name, 4))
-			continue;
-		if(n == index)
-			return tableWindow;
-		n++;
+		size_t n = 0;
+		int numPtrs = (rsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint32_t);
+		for(int i = 0; i < numPtrs; i++) {
+			auto tableWindow = reinterpret_cast<acpi_header_t *>(mapTable(rsdt->tables[i]));
+			char sig[5];
+			sig[4] = 0;
+			memcpy(sig, tableWindow->signature, 4);
+			if(memcmp(tableWindow->signature, name, 4))
+				continue;
+			if(n == index)
+				return tableWindow;
+			n++;
+		}
+	} else if(thor::acpi::globalRsdtVersion == 2){
+		auto xsdt = reinterpret_cast<acpi_xsdt_t *>(thor::acpi::globalRsdtWindow);
+		assert(xsdt->header.length >= sizeof(acpi_header_t));
+
+		size_t n = 0;
+		int numPtrs = (xsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint64_t);
+		for(int i = 0; i < numPtrs; i++) {
+			auto tableWindow = reinterpret_cast<acpi_header_t *>(mapTable(xsdt->tables[i]));
+			char sig[5];
+			sig[4] = 0;
+			memcpy(sig, tableWindow->signature, 4);
+			if(memcmp(tableWindow->signature, name, 4))
+				continue;
+			if(n == index)
+				return tableWindow;
+			n++;
+		}
+	} else {
+		assert(!"Unknown acpi version in scanRsdt");
 	}
 
 	return nullptr;
