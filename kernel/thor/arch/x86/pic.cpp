@@ -355,7 +355,7 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 // --------------------------------------------------------
 
 // TODO: Replace this by proper IRQ allocation.
-extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[24];
+extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[64];
 
 constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
 constexpr arch::scalar_register<uint32_t> apicData(0x10);
@@ -456,7 +456,7 @@ namespace {
 
 		// Allocate an IRQ vector for the I/O APIC pin.
 		if(_vector == -1)
-			for(int i = 0; i < 24; i++) {
+			for(int i = 0; i < 64; i++) {
 				if(!globalIrqSlots[i]->isAvailable())
 					continue;
 				frigg::infoLogger() << "thor: Allocating IRQ slot " << i

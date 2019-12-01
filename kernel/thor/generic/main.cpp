@@ -29,7 +29,7 @@ bool debugToVga = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
 
-frigg::LazyInitializer<IrqSlot> globalIrqSlots[24];
+frigg::LazyInitializer<IrqSlot> globalIrqSlots[64];
 
 MfsDirectory *mfsRoot;
 frigg::LazyInitializer<frg::string<KernelAlloc>> kernelCommandLine;
@@ -91,7 +91,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	initializeReclaim();
 
-	for(int i = 0; i < 24; i++)
+	for(int i = 0; i < 64; i++)
 		globalIrqSlots[i].initialize();
 
 	initializeTheSystemEarly();
