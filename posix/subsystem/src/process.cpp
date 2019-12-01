@@ -563,6 +563,28 @@ Process::~Process() {
 	std::cout << "\e[33mposix: Process is destructed\e[39m" << std::endl;
 }
 
+bool Process::checkSignalRaise() {
+	auto p = reinterpret_cast<unsigned int *>(accessThreadPage());
+	unsigned int gsf = __atomic_load_n(p, __ATOMIC_RELAXED);
+	if(!gsf)
+		return true;
+	return false;
+}
+
+bool Process::checkOrRequestSignalRaise() {
+	auto p = reinterpret_cast<unsigned int *>(accessThreadPage());
+	unsigned int gsf = __atomic_load_n(p, __ATOMIC_RELAXED);
+	if(!gsf)
+		return true;
+	if(gsf == 1) {
+		__atomic_store_n(p, 2, __ATOMIC_RELAXED);
+	}else if(gsf != 2) {
+		std::cout << "\e[33m" "posix: Ignoring unexpected value "
+				<< gsf << " of global signal flag" "\e[39m" << std::endl;
+	}
+	return false;
+}
+
 async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	auto process = std::make_shared<Process>(nullptr);
 	process->_path = path;
@@ -570,6 +592,11 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
 	process->_signalContext = SignalContext::create();
+
+	HelHandle thread_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, &thread_memory));
+	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
+	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
 	// The initial signal mask allows all signals.
 	process->_signalMask = 0;
@@ -579,6 +606,10 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
 	client_lane.release();
 
+	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapDropAtFork,
+			&process->_clientThreadPage));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -621,6 +652,11 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_fileContext = FileContext::clone(original->_fileContext);
 	process->_signalContext = SignalContext::clone(original->_signalContext);
 
+	HelHandle thread_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, &thread_memory));
+	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
+	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
+
 	// Signal masks are copied on fork().
 	process->_signalMask = original->_signalMask;
 
@@ -629,6 +665,10 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
 	client_lane.release();
 
+	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapDropAtFork,
+			&process->_clientThreadPage));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -668,8 +708,13 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 			process->_fileContext->getUniverse().getHandle(), &exec_posix_lane));
 	client_lane.release();
 
+	void *exec_thread_page;
 	void *exec_clk_tracker_page;
 	void *exec_client_table;
+	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
+			exec_vm_context->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapDropAtFork,
+			&exec_thread_page));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -699,6 +744,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_path = std::move(path);
 	process->_vmContext = std::move(exec_vm_context);
 	process->_signalContext->resetHandlers();
+	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;

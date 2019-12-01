@@ -20,6 +20,7 @@ namespace fs = managarm::fs;
 namespace {
 	struct ManagarmProcessData {
 		HelHandle posixLane;
+		void *threadPage;
 		HelHandle *fileTable;
 		void *clockTrackerPage;
 	};
@@ -764,6 +765,7 @@ namespace initrd {
 
 			ManagarmProcessData data = {
 				kHelThisThread,
+				nullptr,
 				reinterpret_cast<HelHandle *>(self->_process->clientFileTable),
 				nullptr
 			};

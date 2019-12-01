@@ -77,11 +77,11 @@ public:
 	helix::BorrowedDescriptor getUniverse() {
 		return _universe;
 	}
-	
+
 	helix::BorrowedDescriptor fileTableMemory() {
 		return _fileTableMemory;
 	}
-	
+
 	int attachFile(smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
 
 	void attachFile(int fd, smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
@@ -185,7 +185,7 @@ public:
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
-	
+
 	void raiseContext(SignalItem *item, Process *process, Generation *generation);
 
 	void restoreContext(helix::BorrowedDescriptor thread);
@@ -193,7 +193,7 @@ public:
 private:
 	SignalHandler _handlers[64];
 	SignalSlot _slots[64];
-	
+
 	async::doorbell _signalBell;
 	uint64_t _currentSeq;
 	uint64_t _activeSet;
@@ -216,6 +216,10 @@ struct Generation {
 	helix::UniqueLane posixLane;
 	helix::UniqueDescriptor threadDescriptor;
 	async::cancellation_event cancelServe;
+};
+
+struct ThreadPage {
+	int globalSignalFlag;
 };
 
 struct Process : std::enable_shared_from_this<Process> {
@@ -259,7 +263,7 @@ public:
 	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
 	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
 	SignalContext *signalContext() { return _signalContext.get(); }
-	
+
 	void setSignalMask(uint64_t mask) {
 		_signalMask = mask;
 	}
@@ -269,8 +273,21 @@ public:
 	}
 
 	HelHandle clientPosixLane() { return _clientPosixLane; }
+	void *clientThreadPage() { return _clientThreadPage; }
 	void *clientFileTable() { return _clientFileTable; }
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
+
+	ThreadPage *accessThreadPage() {
+		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
+	}
+
+	// Like checkOrRequestSignalRaise() but only check if raising is possible.
+	bool checkSignalRaise();
+
+	// Check if signals can currently be raised (via the thread page).
+	// If not, request the thread to raise its signals.
+	// Preconditon: the thread has to be stopped!
+	bool checkOrRequestSignalRaise();
 
 	void terminate(int signo = -1);
 	void notify();
@@ -292,7 +309,11 @@ private:
 	std::shared_ptr<FileContext> _fileContext;
 	std::shared_ptr<SignalContext> _signalContext;
 
+	helix::UniqueDescriptor _threadPageMemory;
+	helix::Mapping _threadPageMapping;
+
 	HelHandle _clientPosixLane;
+	void *_clientThreadPage;
 	void *_clientFileTable;
 	void *_clientClkTrackerPage;
 
