@@ -377,7 +377,7 @@ async::detached Controller::handleIrqs() {
 		sequence = await.sequence();
 
 		if (!_interrupters[0]->isPending()) {
-			printf("xhci: nacked interrupt, interrupter not pending\n");
+			//printf("xhci: nacked interrupt, interrupter not pending\n");
 			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
 		}
