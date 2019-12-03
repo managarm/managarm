@@ -292,6 +292,14 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 	_fxState()->mxcsr |= 1 << 11;
 	_fxState()->mxcsr |= 1 << 12;
 
+	_fxState()->fcw |= 1 << 0; // IM
+	_fxState()->fcw |= 1 << 1; // DM
+	_fxState()->fcw |= 1 << 2; // ZM
+	_fxState()->fcw |= 1 << 3; // OM
+	_fxState()->fcw |= 1 << 4; // UM
+	_fxState()->fcw |= 1 << 5; // PM
+	_fxState()->fcw |= 0b11 << 8; // PC
+
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
 	general()->rsp = abi.sp;
@@ -313,6 +321,14 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	_fxState()->mxcsr |= 1 << 10;
 	_fxState()->mxcsr |= 1 << 11;
 	_fxState()->mxcsr |= 1 << 12;
+
+	_fxState()->fcw |= 1 << 0; // IM
+	_fxState()->fcw |= 1 << 1; // DM
+	_fxState()->fcw |= 1 << 2; // ZM
+	_fxState()->fcw |= 1 << 3; // OM
+	_fxState()->fcw |= 1 << 4; // UM
+	_fxState()->fcw |= 1 << 5; // PM
+	_fxState()->fcw |= 0b11 << 8; // PC
 
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
