@@ -39,9 +39,25 @@ struct PlainfbAttribute : sysfs::Attribute {
 	async::result<std::string> show(sysfs::Object *object) override;
 };
 
+struct SubsystemVendorAttribute : sysfs::Attribute {
+	SubsystemVendorAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
+struct SubsystemDeviceAttribute : sysfs::Attribute {
+	SubsystemDeviceAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
 VendorAttribute vendorAttr{"vendor"};
 DeviceAttribute deviceAttr{"device"};
 PlainfbAttribute plainfbAttr{"owns_plainfb"};
+SubsystemVendorAttribute subsystemVendorAttr{"subsystem_vendor"};
+SubsystemDeviceAttribute subsystemDeviceAttr{"subsystem_device"};
 
 struct Device final : drvcore::BusDevice {
 	Device(std::string sysfs_name, int64_t mbus_id)
@@ -63,6 +79,8 @@ struct Device final : drvcore::BusDevice {
 	uint32_t pciFunction;
 	uint32_t vendorId;
 	uint32_t deviceId;
+	uint32_t subsystemVendorId;
+	uint32_t subsystemDeviceId;
 	bool ownsPlainfb = false;
 };
 
@@ -77,6 +95,20 @@ async::result<std::string> DeviceAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
 	sprintf(buffer, "0x%.4x", device->deviceId);
+	co_return std::string{buffer};
+}
+
+async::result<std::string> SubsystemVendorAttribute::show(sysfs::Object *object) {
+	char buffer[7]; // The format is 0x1234\0.
+	auto device = static_cast<Device *>(object);
+	sprintf(buffer, "0x%.4x", device->subsystemVendorId);
+	co_return std::string{buffer};
+}
+
+async::result<std::string> SubsystemDeviceAttribute::show(sysfs::Object *object) {
+	char buffer[7]; // The format is 0x1234\0.
+	auto device = static_cast<Device *>(object);
+	sprintf(buffer, "0x%.4x", device->subsystemDeviceId);
 	co_return std::string{buffer};
 }
 
@@ -115,6 +147,11 @@ async::detached run() {
 				properties["pci-vendor"]).value, 0, 16);
 		device->deviceId = std::stoi(std::get<mbus::StringItem>(
 				properties["pci-device"]).value, 0, 16);
+		device->subsystemVendorId = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-subsystem-vendor"]).value, 0, 16);
+		device->subsystemDeviceId = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-subsystem-device"]).value, 0, 16);
+
 		if(properties.find("class") != properties.end()
 				&& std::get<mbus::StringItem>(properties["class"]).value == "framebuffer")
 			device->ownsPlainfb = true;
@@ -124,6 +161,8 @@ async::detached run() {
 		device->realizeAttribute(&vendorAttr);
 		device->realizeAttribute(&deviceAttr);
 		device->realizeAttribute(&plainfbAttr);
+		device->realizeAttribute(&subsystemVendorAttr);
+		device->realizeAttribute(&subsystemDeviceAttr);
 
 		mbusMap.insert(std::make_pair(entity.getId(), device));
 	});
