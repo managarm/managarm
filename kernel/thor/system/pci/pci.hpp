@@ -136,10 +136,10 @@ struct PciDevice : PciEntity {
 
 	PciDevice(PciBus *parentBus_, uint32_t bus, uint32_t slot, uint32_t function,
 			uint32_t vendor, uint32_t device_id, uint8_t revision,
-			uint8_t class_code, uint8_t sub_class, uint8_t interface)
+			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
 	: PciEntity{parentBus_, bus, slot, function}, mbusId(0),
 			vendor(vendor), deviceId(device_id), revision(revision),
-			classCode(class_code), subClass(sub_class), interface(interface),
+			classCode(class_code), subClass(sub_class), interface(interface), subsystemVendor(subsystem_vendor), subsystemDevice(subsystem_device),
 			interrupt(nullptr), caps(*kernelAlloc),
 			associatedFrameBuffer(nullptr), associatedScreen(nullptr) { }
 	
@@ -155,6 +155,9 @@ struct PciDevice : PciEntity {
 	uint8_t classCode;
 	uint8_t subClass;
 	uint8_t interface;
+
+	uint16_t subsystemVendor;
+	uint16_t subsystemDevice;
 
 	IrqPin *interrupt;
 	

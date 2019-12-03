@@ -286,6 +286,16 @@ namespace {
 		auto &if_item = if_prop.mutable_item().mutable_string_item();
 		if_item.set_value(frigg::to_string(*kernelAlloc, device->interface, 16, 2));
 
+		managarm::mbus::Property<KernelAlloc> subsystem_vendor_prop(*kernelAlloc);
+		subsystem_vendor_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-subsystem-vendor"));
+		auto &subsystem_vendor_item = subsystem_vendor_prop.mutable_item().mutable_string_item();
+		subsystem_vendor_item.set_value(frigg::to_string(*kernelAlloc, device->subsystemVendor, 16, 2));
+
+		managarm::mbus::Property<KernelAlloc> subsystem_device_prop(*kernelAlloc);
+		subsystem_device_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-subsystem-device"));
+		auto &subsystem_device_item = subsystem_device_prop.mutable_item().mutable_string_item();
+		subsystem_device_item.set_value(frigg::to_string(*kernelAlloc, device->subsystemDevice, 16, 2));
+
 		managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 		req.set_parent_id(1);
@@ -299,6 +309,8 @@ namespace {
 		req.add_properties(std::move(class_prop));
 		req.add_properties(std::move(subclass_prop));
 		req.add_properties(std::move(if_prop));
+		req.add_properties(std::move(subsystem_vendor_prop));
+		req.add_properties(std::move(subsystem_device_prop));
 
 		if(device->associatedFrameBuffer) {
 			managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
@@ -504,8 +516,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 			<< "." << frigg::logHex(interface) << frigg::endLog;
 
 	if((header_type & 0x7F) == 0) {
-//		uint16_t subsystem_vendor = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemVendor);
-//		uint16_t subsystem_device = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemDevice);
+		uint16_t subsystem_vendor = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemVendor);
+		uint16_t subsystem_device = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemDevice);
 //		frigg::infoLogger() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
 //				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::endLog;
 
@@ -515,7 +527,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 			frigg::infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frigg::endLog;
 
 		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus, bus->busId, slot, function,
-				vendor, device_id, revision, class_code, sub_class, interface);
+				vendor, device_id, revision, class_code, sub_class, interface, subsystem_vendor, subsystem_device);
 
 		// Find all capabilities.
 		if(status & 0x10) {
