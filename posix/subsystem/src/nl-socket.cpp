@@ -150,9 +150,6 @@ public:
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
 			COFIBER_AWAIT _statusBell.async_wait(cancellation);
-		if(cancellation.is_cancellation_requested())
-			std::cout << "\e[33mposix: nl_socket::poll() cancellation is untested\e[39m"
-					<< std::endl;
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
@@ -162,11 +159,11 @@ public:
 		int events = EPOLLOUT;
 		if(!_recvQueue.empty())
 			events |= EPOLLIN;
-		
+
 //		std::cout << "posix: poll(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
 //				<< " returns (" << _currentSeq
 //				<< ", " << edges << ", " << events << ")" << std::endl;
-	
+
 		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
 	}))
 	
