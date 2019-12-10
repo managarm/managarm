@@ -48,7 +48,7 @@
 namespace {
 	constexpr bool logRequests = false;
 	constexpr bool logPaths = false;
-	constexpr bool logSignals = true;
+	constexpr bool logSignals = false;
 	constexpr bool logCleanup = false;
 }
 
@@ -323,10 +323,12 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(!pid) {
 				std::cout << "\e[31mposix: SIG_KILL(0) should target "
 						"the whole process group\e[39m" << std::endl;
-				std::cout << "posix: SIG_KILL on PID " << self->pid() << std::endl;
+				if(logSignals)
+					std::cout << "posix: SIG_KILL on PID " << self->pid() << std::endl;
 				target = self;
 			}else{
-				std::cout << "posix: SIG_KILL on PID " << pid << std::endl;
+				if(logSignals)
+					std::cout << "posix: SIG_KILL on PID " << pid << std::endl;
 				target = Process::findProcess(pid);
 				assert(target);
 			}
@@ -341,6 +343,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			info.uid = 0;
 			target->signalContext()->issueSignal(sn, info);
 
+			// If the process signalled itself, we should process the signal before resuming.
 			if(self->checkOrRequestSignalRaise()) {
 				auto active = self->signalContext()->fetchSignal(~self->signalMask());
 				if(active)
