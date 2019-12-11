@@ -96,6 +96,6 @@ endif
 
 if get_option('build_tools')
 	subdir('tools/bakesvr')
-	subdir('tools/frigg_pb')
+	subdir('tools/legacy-frigg_pb')
 endif
 
