@@ -348,7 +348,7 @@ void EventDevice::enableEvent(int type, int code) {
 }
 
 void EventDevice::emitEvent(int type, int code, int value) {
-	auto getBit = [] (uint8_t *array, size_t length, unsigned int bit) {
+	auto getBit = [] (uint8_t *array, size_t length, unsigned int bit) -> bool {
 		assert(bit / 8 < length);
 		return array[bit / 8] & (1 << (bit % 8));
 	};
