@@ -79,7 +79,8 @@ private:
 	// Clock ID for input timestamps.
 	int _clockId;
 
-	std::queue<PendingEvent> _pending;
+	std::deque<PendingEvent> _pending;
+	bool _overflow = false;
 };
 
 struct EventDevice {

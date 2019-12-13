@@ -84,34 +84,57 @@ async::result<protocols::fs::ReadResult>
 File::read(void *object, const char *, void *buffer, size_t max_size) {
 	auto self = static_cast<File *>(object);
 
-	if(self->_nonBlock && self->_pending.empty())
+	// Make sure that we can at least write the SYN_DROPPED packet.
+	if(max_size < sizeof(input_event))
+		co_return protocols::fs::Error::illegalArguments;
+
+	if(self->_nonBlock && self->_pending.empty() && !self->_overflow)
 		co_return protocols::fs::Error::wouldBlock;
 
-	while(self->_pending.empty())
+	while(self->_pending.empty() && !self->_overflow)
 		co_await self->_statusBell.async_wait();
 
-	size_t written = 0;
-	while(!self->_pending.empty()
-			&& written + sizeof(input_event) <= max_size) {
-		auto evt = self->_pending.front();
-		self->_pending.pop();
-		if(self->_pending.empty())
-			self->_statusPage.update(self->_currentSeq, 0);
+	if(self->_overflow) {
+		struct timespec now;
+		if(clock_gettime(self->_clockId, &now))
+			throw std::runtime_error("clock_gettime() failed");
 
 		input_event uev;
 		memset(&uev, 0, sizeof(input_event));
-		uev.time.tv_sec = evt.timestamp.tv_sec;
-		uev.time.tv_usec = evt.timestamp.tv_nsec / 1000;
-		uev.type = evt.type;
-		uev.code = evt.code;
-		uev.value = evt.value;
+		uev.time.tv_sec = now.tv_sec;
+		uev.time.tv_usec = now.tv_nsec / 1000;
+		uev.type = EV_SYN;
+		uev.code = SYN_DROPPED;
+		memcpy(reinterpret_cast<char *>(buffer), &uev, sizeof(input_event));
 
-		memcpy(reinterpret_cast<char *>(buffer) + written, &uev, sizeof(input_event));
-		written += sizeof(input_event);
+		// Reset the overflow flag.
+		self->_pending.clear();
+		self->_overflow = false;
+
+		co_return sizeof(input_event);
+	}else{
+		size_t written = 0;
+		while(!self->_pending.empty()
+				&& written + sizeof(input_event) <= max_size) {
+			auto evt = self->_pending.front();
+			self->_pending.pop_front();
+			if(self->_pending.empty())
+				self->_statusPage.update(self->_currentSeq, 0);
+
+			input_event uev;
+			memset(&uev, 0, sizeof(input_event));
+			uev.time.tv_sec = evt.timestamp.tv_sec;
+			uev.time.tv_usec = evt.timestamp.tv_nsec / 1000;
+			uev.type = evt.type;
+			uev.code = evt.code;
+			uev.value = evt.value;
+			memcpy(reinterpret_cast<char *>(buffer) + written, &uev, sizeof(input_event));
+			written += sizeof(input_event);
+		}
+
+		assert(written);
+		co_return written;
 	}
-
-	assert(written);
-	co_return written;
 }
 
 async::result<void> File::write(void *, const char *, const void *, size_t) {
@@ -393,9 +416,17 @@ void EventDevice::notify() {
 		return;
 
 	for(auto &file : _files) {
+		if(file._overflow)
+			continue;
+
 		struct timespec now;
 		if(clock_gettime(file._clockId, &now))
 			throw std::runtime_error("clock_gettime() failed");
+
+		if(file._pending.size() > 1024) {
+			file._overflow = true;
+			continue;
+		}
 
 		if(logCodes)
 			for(StagedEvent evt : _staged)
@@ -404,7 +435,7 @@ void EventDevice::notify() {
 						<< ", value: " << evt.value << std::endl;
 
 		for(StagedEvent evt : _staged)
-			file._pending.push(PendingEvent{evt.type, evt.code, evt.value, now});
+			file._pending.push_back(PendingEvent{evt.type, evt.code, evt.value, now});
 		file._currentSeq++;
 		file._statusPage.update(file._currentSeq, EPOLLIN);
 		file._statusBell.ring();
