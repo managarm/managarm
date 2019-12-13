@@ -1,4 +1,3 @@
-
 #include <linux/input.h>
 #include <stdio.h>
 #include <string.h>
@@ -94,23 +93,18 @@ File::read(void *object, const char *, void *buffer, size_t max_size) {
 	size_t written = 0;
 	while(!self->_pending.empty()
 			&& written + sizeof(input_event) <= max_size) {
-		auto event = self->_pending.front();
+		auto evt = self->_pending.front();
 		self->_pending.pop();
 		if(self->_pending.empty())
 			self->_statusPage.update(self->_currentSeq, 0);
 
-		// TODO: The time should be set when we enqueue the event.
-		struct timespec now;
-		if(clock_gettime(self->_clockId, &now))
-			throw std::runtime_error("clock_gettime() failed");
-
 		input_event uev;
 		memset(&uev, 0, sizeof(input_event));
-		uev.time.tv_sec = now.tv_sec;
-		uev.time.tv_usec = now.tv_nsec / 1000;
-		uev.type = event.type;
-		uev.code = event.code;
-		uev.value = event.value;
+		uev.time.tv_sec = evt.timestamp.tv_sec;
+		uev.time.tv_usec = evt.timestamp.tv_nsec / 1000;
+		uev.type = evt.type;
+		uev.code = evt.code;
+		uev.value = evt.value;
 
 		memcpy(reinterpret_cast<char *>(buffer) + written, &uev, sizeof(input_event));
 		written += sizeof(input_event);
@@ -391,16 +385,26 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		resetSent = true;
 	}
 
-	if(logCodes)
-		std::cout << "Event type: " << type << ", code: " << code
-				<< ", value: " << value << std::endl;
-	_staged.push_back(Event{type, code, value});
+	_staged.push_back(StagedEvent{type, code, value});
 }
 
 void EventDevice::notify() {
+	if(_staged.empty())
+		return;
+
 	for(auto &file : _files) {
-		for(const auto &event : _staged)
-			file._pending.push(event);
+		struct timespec now;
+		if(clock_gettime(file._clockId, &now))
+			throw std::runtime_error("clock_gettime() failed");
+
+		if(logCodes)
+			for(StagedEvent evt : _staged)
+				std::cout << "[" << now.tv_sec << "." << (now.tv_nsec / 1'000'000)
+						<< "] Event type: " << evt.type << ", code: " << evt.code
+						<< ", value: " << evt.value << std::endl;
+
+		for(StagedEvent evt : _staged)
+			file._pending.push(PendingEvent{evt.type, evt.code, evt.value, now});
 		file._currentSeq++;
 		file._statusPage.update(file._currentSeq, EPOLLIN);
 		file._statusBell.ring();

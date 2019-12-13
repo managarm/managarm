@@ -17,16 +17,20 @@ namespace libevbackend {
 struct EventDevice;
 
 // --------------------------------------------
-// Event
+// Events
 // --------------------------------------------
 
-struct Event {
-	Event(int type, int code, int value)
-	: type(type), code(code), value(value) { }
-
+struct StagedEvent {
 	int type;
 	int code;
 	int value;
+};
+
+struct PendingEvent {
+	int type;
+	int code;
+	int value;
+	struct timespec timestamp;
 };
 
 // --------------------------------------------
@@ -75,7 +79,7 @@ private:
 	// Clock ID for input timestamps.
 	int _clockId;
 
-	std::queue<Event> _pending;
+	std::queue<PendingEvent> _pending;
 };
 
 struct EventDevice {
@@ -122,7 +126,7 @@ private:
 		>
 	> _files;
 
-	std::vector<Event> _staged;
+	std::vector<StagedEvent> _staged;
 };
 
 // --------------------------------------------
