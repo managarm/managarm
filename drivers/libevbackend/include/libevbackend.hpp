@@ -1,6 +1,7 @@
+#pragma once
 
-#ifndef LIBEVBACKEND_HPP
-#define LIBEVBACKEND_HPP
+#include <queue>
+#include <vector>
 
 #include <async/result.hpp>
 #include <async/doorbell.hpp>
@@ -26,7 +27,6 @@ struct Event {
 	int type;
 	int code;
 	int value;
-	boost::intrusive::list_member_hook<> hook;
 };
 
 // --------------------------------------------
@@ -34,10 +34,13 @@ struct Event {
 // --------------------------------------------
 
 struct File {
+	friend struct EventDevice;
+	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
+
 	// ------------------------------------------------------------------------
 	// File operations.
 	// ------------------------------------------------------------------------
-	
+
 	static async::result<protocols::fs::ReadResult>
 	read(void *object, const char *, void *buffer, size_t length);
 
@@ -50,7 +53,7 @@ struct File {
 	static async::result<void>
 	ioctl(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
-	
+
 	// ------------------------------------------------------------------------
 	// Public File API.
 	// ------------------------------------------------------------------------
@@ -59,12 +62,20 @@ struct File {
 
 	File(EventDevice *device, bool non_block);
 
+	~File();
+
 private:
 	EventDevice *_device;
-	bool _nonBlock;
+	boost::intrusive::list_member_hook<> hook;
+	protocols::fs::StatusPageProvider _statusPage;
+	async::doorbell _statusBell;
+	uint64_t _currentSeq;
 
+	bool _nonBlock;
 	// Clock ID for input timestamps.
 	int _clockId;
+
+	std::queue<Event> _pending;
 };
 
 struct EventDevice {
@@ -77,6 +88,7 @@ struct EventDevice {
 
 public:
 	friend struct File;
+	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
 
 	EventDevice();
 
@@ -88,15 +100,7 @@ public:
 
 	void notify();
 
-	helix::BorrowedDescriptor statusPageMemory() {
-		return _statusPage.getMemory();
-	}
-
 private:
-	protocols::fs::StatusPageProvider _statusPage;
-	async::doorbell _statusBell;
-	uint64_t _currentSeq;
-
 	// Supported event bits.
 	// The array sizes come from Linux' EV_CNT, KEY_CNT, REL_CNT etc. macros (divided by 8)
 	// and can be extended if more event constants are added.
@@ -110,22 +114,15 @@ private:
 	std::array<AbsoluteSlot, 8> _absoluteSlots;
 
 	boost::intrusive::list<
-		Event,
+		File,
 		boost::intrusive::member_hook<
-			Event,
+			File,
 			boost::intrusive::list_member_hook<>,
-			&Event::hook
+			&File::hook
 		>
-	> _emitted;
+	> _files;
 
-	boost::intrusive::list<
-		Event,
-		boost::intrusive::member_hook<
-			Event,
-			boost::intrusive::list_member_hook<>,
-			&Event::hook
-		>
-	> _events;
+	std::vector<Event> _staged;
 };
 
 // --------------------------------------------
@@ -136,5 +133,3 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 		helix::UniqueLane p);
 
 } // namespace libevbackend
-
-#endif // LIBEVBACKEND_HPP

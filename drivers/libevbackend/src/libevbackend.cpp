@@ -41,7 +41,7 @@ async::detached issueReset() {
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "pm-interface")
 	});
-	
+
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		pmLane = helix::UniqueLane(co_await entity.bind());
@@ -50,7 +50,7 @@ async::detached issueReset() {
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
 	co_await pmFound.async_wait();
-	
+
 	// Send the actual request.
 	helix::Offer offer;
 	helix::SendBuffer send_req;
@@ -85,19 +85,19 @@ async::result<protocols::fs::ReadResult>
 File::read(void *object, const char *, void *buffer, size_t max_size) {
 	auto self = static_cast<File *>(object);
 
-	if(self->_nonBlock && self->_device->_events.empty())
+	if(self->_nonBlock && self->_pending.empty())
 		co_return protocols::fs::Error::wouldBlock;
 
-	while(self->_device->_events.empty())
-		co_await self->_device->_statusBell.async_wait();
-	
+	while(self->_pending.empty())
+		co_await self->_statusBell.async_wait();
+
 	size_t written = 0;
-	while(!self->_device->_events.empty()
+	while(!self->_pending.empty()
 			&& written + sizeof(input_event) <= max_size) {
-		auto event = &self->_device->_events.front();
-		self->_device->_events.pop_front();
-		if(self->_device->_events.empty())
-			self->_device->_statusPage.update(self->_device->_currentSeq, 0);
+		auto event = self->_pending.front();
+		self->_pending.pop();
+		if(self->_pending.empty())
+			self->_statusPage.update(self->_currentSeq, 0);
 
 		// TODO: The time should be set when we enqueue the event.
 		struct timespec now;
@@ -108,15 +108,14 @@ File::read(void *object, const char *, void *buffer, size_t max_size) {
 		memset(&uev, 0, sizeof(input_event));
 		uev.time.tv_sec = now.tv_sec;
 		uev.time.tv_usec = now.tv_nsec / 1000;
-		uev.type = event->type;
-		uev.code = event->code;
-		uev.value = event->value;
+		uev.type = event.type;
+		uev.code = event.code;
+		uev.value = event.value;
 
 		memcpy(reinterpret_cast<char *>(buffer) + written, &uev, sizeof(input_event));
 		written += sizeof(input_event);
-		delete event;
 	}
-	
+
 	assert(written);
 	co_return written;
 }
@@ -129,14 +128,14 @@ async::result<protocols::fs::PollResult>
 File::poll(void *object, uint64_t past_seq, async::cancellation_token cancellation) {
 	auto self = static_cast<File *>(object);
 
-	assert(past_seq <= self->_device->_currentSeq);
-	while(self->_device->_currentSeq == past_seq)
-		co_await self->_device->_statusBell.async_wait();
-	
+	assert(past_seq <= self->_currentSeq);
+	while(self->_currentSeq == past_seq)
+		co_await self->_statusBell.async_wait();
+
 	co_return protocols::fs::PollResult{
-		self->_device->_currentSeq,
+		self->_currentSeq,
 		EPOLLIN,
-		self->_device->_events.empty() ? 0 : EPOLLIN
+		self->_pending.empty() ? 0 : EPOLLIN
 	};
 }
 
@@ -154,7 +153,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		managarm::fs::SvrResponse resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
 		auto ser = resp.SerializeAsString();
 		auto chunk = std::min(size_t(req.size()), self->_device->_typeBits.size());
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -186,7 +185,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {nullptr, 0};
 		}
-	
+
 		auto ser = resp.SerializeAsString();
 		auto chunk = std::min(size_t(req.size()), p.second);
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -257,7 +256,14 @@ helix::UniqueLane File::serve(smarter::shared_ptr<File> file) {
 }
 
 File::File(EventDevice *device, bool non_block)
-: _device{device}, _nonBlock{non_block}, _clockId{CLOCK_MONOTONIC} { }
+: _device{device}, _currentSeq{1}, _nonBlock{non_block}, _clockId{CLOCK_MONOTONIC} {
+	_statusPage.update(_currentSeq, 0);
+}
+
+File::~File() {
+	// TODO: This should probably be done in an explicit handleClose().
+	_device->_files.erase(_device->_files.iterator_to(*this));
+}
 
 // ----------------------------------------------------------------------------
 // EventDevice implementation.
@@ -277,7 +283,7 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
@@ -285,11 +291,12 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_pt;
 			helix::PushDescriptor push_page;
-		
+
 			auto file = smarter::make_shared<File>(device.get(),
 					req.flags() & managarm::fs::OF_NONBLOCK);
-			auto remote_lane = File::serve(std::move(file));
-			
+			device->_files.push_back(*file.get());
+			auto remote_lane = File::serve(file);
+
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
@@ -298,7 +305,7 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_pt, remote_lane, kHelItemChain),
-					helix::action(&push_page, device->statusPageMemory()));
+					helix::action(&push_page, file->_statusPage.getMemory()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
@@ -309,15 +316,12 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 	}
 }
 
-EventDevice::EventDevice()
-: _currentSeq{1} {
-	_statusPage.update(_currentSeq, 0);
-
+EventDevice::EventDevice() {
 	memset(_typeBits.data(), 0, _typeBits.size());
 	memset(_keyBits.data(), 0, _keyBits.size());
 	memset(_relBits.data(), 0, _relBits.size());
 	memset(_absBits.data(), 0, _absBits.size());
-	
+
 	memset(_currentKeys.data(), 0, _currentKeys.size());
 	memset(_absoluteSlots.data(), 0, _absoluteSlots.size() * sizeof(AbsoluteSlot));
 }
@@ -359,7 +363,7 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		array[bit / 8] &= ~(1 << (bit % 8));
 		array[bit / 8] |= (((int)value) << (bit % 8));
 	};
-	
+
 	// Filter out events that do not update the device state.
 	if(type == EV_KEY && getBit(_currentKeys.data(), _currentKeys.size(), code) == value)
 		return;
@@ -387,19 +391,21 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		resetSent = true;
 	}
 
-	auto event = new Event(type, code, value);
 	if(logCodes)
 		std::cout << "Event type: " << type << ", code: " << code
 				<< ", value: " << value << std::endl;
-	_emitted.push_back(*event);
+	_staged.push_back(Event{type, code, value});
 }
 
 void EventDevice::notify() {
-	_events.splice(_events.end(), _emitted);
-	_currentSeq++;
-	_statusPage.update(_currentSeq, EPOLLIN);
-	_statusBell.ring();
+	for(auto &file : _files) {
+		for(const auto &event : _staged)
+			file._pending.push(event);
+		file._currentSeq++;
+		file._statusPage.update(file._currentSeq, EPOLLIN);
+		file._statusBell.ring();
+	}
+	_staged.clear();
 }
 
 } // namespace libevbackend
-
