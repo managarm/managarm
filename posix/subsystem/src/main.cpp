@@ -492,10 +492,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
 			if(logRequests)
 				std::cout << "posix: VM_MAP size: " << (void *)(size_t)req.size() << std::endl;
-
 			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
 
-			// TODO: Validate mode and flags.
+			// TODO: Validate req.flags().
+
+			if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
 
 			uint32_t native_flags = 0;
 			if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_PRIVATE) {
@@ -532,7 +542,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						req.rel_offset(), req.size(), native_flags);
 			}
 
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_offset(reinterpret_cast<uintptr_t>(address));
 			auto ser = resp.SerializeAsString();
@@ -553,6 +562,39 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_offset(reinterpret_cast<uintptr_t>(address));
 
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::VM_PROTECT) {
+			if(logRequests)
+				std::cout << "posix: VM_PROTECT" << std::endl;
+			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+
+			if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			uint32_t native_flags = 0;
+			if(req.mode() & PROT_READ)
+				native_flags |= kHelMapProtRead;
+			if(req.mode() & PROT_WRITE)
+				native_flags |= kHelMapProtWrite;
+			if(req.mode() & PROT_EXEC)
+				native_flags |= kHelMapProtExecute;
+
+			co_await self->vmContext()->protectFile(
+					reinterpret_cast<void *>(req.address()), req.size(), native_flags);
+
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));

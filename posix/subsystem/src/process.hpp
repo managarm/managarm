@@ -33,6 +33,8 @@ struct VmContext {
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
 
+	async::result<void> protectFile(void *pointer, size_t size, uint32_t protectionFlags);
+
 	void unmapFile(void *pointer, size_t size);
 
 private:

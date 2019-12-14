@@ -125,6 +125,24 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 	co_return pointer;
 }
 
+async::result<void> VmContext::protectFile(void *pointer, size_t size, uint32_t protectionFlags) {
+	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
+
+	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(pointer));
+	assert(it != _areaTree.end());
+	assert(it->second.areaSize == alignedSize);
+
+	helix::ProtectMemory protect;
+	auto &&submit = helix::submitProtectMemory(_space, &protect,
+			pointer, size, protectionFlags, helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(protect.error());
+	it->second.nativeFlags &= ~(kHelMapProtRead | kHelMapProtWrite | kHelMapProtExecute);
+	it->second.nativeFlags |= protectionFlags;
+
+	co_return;
+}
+
 void VmContext::unmapFile(void *pointer, size_t size) {
 	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
 

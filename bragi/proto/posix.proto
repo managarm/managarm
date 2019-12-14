@@ -27,6 +27,7 @@ enum CntReqType {
 	WAIT = 56;
 	VM_MAP = 26;
 	VM_REMAP = 43;
+	VM_PROTECT = 62;
 	VM_UNMAP = 27;
 
 	MOUNT = 21;
