@@ -16,6 +16,7 @@
 #include <async/jump.hpp>
 #include <cofiber.hpp>
 #include <protocols/mbus/client.hpp>
+#include <helix/timer.hpp>
 
 #include "common.hpp"
 #include "clock.hpp"
@@ -51,53 +52,6 @@ namespace {
 	constexpr bool logSignals = false;
 	constexpr bool logCleanup = false;
 }
-
-template<typename F>
-struct TimeoutCallback {
-	TimeoutCallback(uint64_t duration, F function)
-	: _function{std::move(function)} {
-		_runTimer(duration);
-	}
-
-	TimeoutCallback(const TimeoutCallback &other) = delete;
-
-	TimeoutCallback &operator= (const TimeoutCallback &other) = delete;
-
-	async::result<void> retire() {
-		_cancelTimer.cancel();
-		return _promise.async_get();
-	}
-
-private:
-	async::detached _runTimer(uint64_t duration) {
-		uint64_t tick;
-		HEL_CHECK(helGetClock(&tick));
-
-		helix::AwaitClock await;
-		auto &&submit = helix::submitAwaitClock(&await, tick + duration,
-				helix::Dispatcher::global());
-		auto async_id = await.asyncId();
-
-		{
-			async::cancellation_callback cb{_cancelTimer, [&] {
-				HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(),
-						async_id));
-			}};
-			co_await submit.async_wait();
-		}
-
-		if(await.error() != kHelErrCancelled) {
-			HEL_CHECK(await.error());
-			_function();
-		}
-
-		_promise.set_value();
-	}
-
-	F _function;
-	async::cancellation_event _cancelTimer;
-	async::promise<void> _promise;
-};
 
 std::map<
 	std::array<char, 16>,
@@ -1725,9 +1679,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 			}else if(req.timeout() > 0) {
 				async::cancellation_event cancel_wait;
-				TimeoutCallback timer{static_cast<uint64_t>(req.timeout()), [&] {
-					cancel_wait.cancel();
-				}};
+				helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 				co_await timer.retire();
 			}else{
@@ -1858,9 +1810,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						std::min(req.size(), uint32_t(16)), cancel_wait);
 			}else if(req.timeout() > 0) {
 				async::cancellation_event cancel_wait;
-				TimeoutCallback timer{static_cast<uint64_t>(req.timeout()), [&] {
-					cancel_wait.cancel();
-				}};
+				helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 				co_await timer.retire();
 			}else{
