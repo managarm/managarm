@@ -616,6 +616,10 @@ void handleSyscall(SyscallImageAccessor image) {
 				(void *)arg2, (uintptr_t)arg3, (size_t)arg4, (uint32_t)arg5, &actual_pointer);
 		*image.out0() = (Word)actual_pointer;
 	} break;
+	case kHelCallSubmitProtectMemory: {
+		*image.error() = helSubmitProtectMemory((HelHandle)arg0,
+				(void *)arg1, (size_t)arg2, (uint32_t)arg3, (HelHandle)arg4, (uintptr_t)arg5);
+	} break;
 	case kHelCallUnmapMemory: {
 		*image.error() = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
 	} break;

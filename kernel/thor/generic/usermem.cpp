@@ -1345,6 +1345,13 @@ void Mapping::tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address) 
 	_address = address;
 }
 
+void Mapping::protect(MappingFlags flags) {
+	std::underlying_type_t<MappingFlags> newFlags = _flags;
+	newFlags &= ~(MappingFlags::protRead | MappingFlags::protWrite | MappingFlags::protExecute);
+	newFlags |= flags;
+	_flags = static_cast<MappingFlags>(newFlags);
+}
+
 bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
 	struct Closure {
 		Mapping *self;
@@ -1557,6 +1564,12 @@ void NormalMapping::install() {
 	}
 
 	_view->unlockRange(_viewOffset, length());
+}
+
+void NormalMapping::reinstall() {
+	// TODO: Implement this properly.
+	//       Note that we need to call markDirty() on dirty pages that we unmap here.
+	assert(!"reinstall() is not implemented for NormalMapping");
 }
 
 void NormalMapping::uninstall() {
@@ -2196,15 +2209,64 @@ void CowMapping::install() {
 			assert(it->physical != PhysicalAddr(-1));
 			owner()->_pageSpace.mapSingle4k(address() + pg,
 					it->physical, true, compilePageFlags(), CachingMode::null);
-		}else{
-			auto range = findBorrowedPage(pg);
-			if(range.get<0>() == PhysicalAddr(-1))
-				continue;
-
+		}else if(auto range = findBorrowedPage(pg); range.get<0>() != PhysicalAddr(-1)) {
 			// Note that we have to mask the writeable flag here.
 			// TODO: Update RSS.
 			owner()->_pageSpace.mapSingle4k(address() + pg, range.get<0>(), true,
 					compilePageFlags() & ~page_access::write, range.get<1>());
+		}
+	}
+
+	_slice->getView()->unlockRange(_viewOffset, length());
+}
+
+void CowMapping::reinstall() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+	assert(_state == MappingState::active);
+
+	auto findBorrowedPage = [&] (uintptr_t offset) -> frigg::Tuple<PhysicalAddr, CachingMode> {
+		auto page_offset = _viewOffset + offset;
+
+		// Get the page from a descendant CoW chain.
+		auto chain = _copyChain;
+		while(chain) {
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&chain->_mutex);
+
+			if(auto it = chain->_pages.find(page_offset >> kPageShift); it) {
+				// We can just copy synchronously here -- the descendant is not evicted.
+				auto physical = it->load(std::memory_order_relaxed);
+				assert(physical != PhysicalAddr(-1));
+				return frigg::Tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
+			}
+
+			chain = chain->_superChain;
+		}
+
+		// Get the page from the root view.
+		return _slice->getView()->peekRange(page_offset);
+	};
+
+	if(auto e = _slice->getView()->lockRange(_viewOffset, length()); e)
+		assert(!"lockRange() failed");
+
+	for(size_t pg = 0; pg < length(); pg += kPageSize) {
+		if(auto it = _ownedPages.find(pg >> kPageShift); it) {
+			// TODO: Update RSS.
+			assert(it->state == CowState::hasCopy);
+			assert(it->physical != PhysicalAddr(-1));
+			owner()->_pageSpace.unmapSingle4k(address() + pg);
+			owner()->_pageSpace.mapSingle4k(address() + pg,
+					it->physical, true, compilePageFlags(), CachingMode::null);
+		}else if(auto range = findBorrowedPage(pg); range.get<0>() != PhysicalAddr(-1)) {
+			// Note that we have to mask the writeable flag here.
+			// TODO: Update RSS.
+			owner()->_pageSpace.unmapSingle4k(address() + pg);
+			owner()->_pageSpace.mapSingle4k(address() + pg, range.get<0>(), true,
+					compilePageFlags() & ~page_access::write, range.get<1>());
+		}else{
+			assert(!owner()->_pageSpace.isMapped(address() + pg));
 		}
 	}
 
@@ -2451,6 +2513,57 @@ Error AddressSpace::map(Guard &guard,
 
 	*actual_address = target;
 	return kErrSuccess;
+}
+
+bool AddressSpace::protect(VirtualAddr address, size_t length,
+		uint32_t flags, AddressProtectNode *node) {
+	std::underlying_type_t<MappingFlags> mappingFlags = 0;
+
+	// TODO: The upgrading mechanism needs to be arch-specific:
+	// Some archs might only support RX, while other support X.
+	auto mask = kMapProtRead | kMapProtWrite | kMapProtExecute;
+	if((flags & mask) == (kMapProtRead | kMapProtWrite | kMapProtExecute)
+			|| (flags & mask) == (kMapProtWrite | kMapProtExecute)) {
+		// WX is upgraded to RWX.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite
+			| MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtExecute)
+			|| (flags & mask) == kMapProtExecute) {
+		// X is upgraded to RX.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtWrite)
+			|| (flags & mask) == kMapProtWrite) {
+		// W is upgraded to RW.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite;
+	}else if((flags & mask) == kMapProtRead) {
+		mappingFlags |= MappingFlags::protRead;
+	}else{
+		assert(!(flags & mask));
+	}
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	AddressSpace::Guard space_guard(&lock);
+
+	auto mapping = _findMapping(address);
+	assert(mapping);
+
+	// TODO: Allow shrinking of the mapping.
+	assert(mapping->address() == address);
+	assert(mapping->length() == length);
+	mapping->protect(static_cast<MappingFlags>(mappingFlags));
+	mapping->reinstall();
+
+	node->_worklet.setup([] (Worklet *base) {
+		auto node = frg::container_of(base, &AddressUnmapNode::_worklet);
+		node->complete();
+	});
+
+	node->_shootNode.address = address;
+	node->_shootNode.size = length;
+	node->_shootNode.setup(&node->_worklet);
+	if(!_pageSpace.submitShootdown(&node->_shootNode))
+		return false;
+	return true;
 }
 
 bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {

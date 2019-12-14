@@ -721,6 +721,8 @@ struct Mapping {
 public:
 	void tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address);
 
+	void protect(MappingFlags flags);
+
 	// Makes sure that pages are not evicted from virtual memory.
 	virtual bool lockVirtualRange(LockVirtualNode *node) = 0;
 	virtual void unlockVirtualRange(uintptr_t offset, size_t length) = 0;
@@ -739,6 +741,7 @@ public:
 	virtual smarter::shared_ptr<Mapping> forkMapping() = 0;
 
 	virtual void install() = 0;
+	virtual void reinstall() = 0;
 	virtual void uninstall() = 0;
 	virtual void retire() = 0;
 
@@ -772,6 +775,7 @@ struct NormalMapping : Mapping, MemoryObserver {
 	smarter::shared_ptr<Mapping> forkMapping() override;
 
 	void install() override;
+	void reinstall() override;
 	void uninstall() override;
 	void retire() override;
 
@@ -813,6 +817,7 @@ struct CowMapping : Mapping, MemoryObserver {
 	smarter::shared_ptr<Mapping> forkMapping() override;
 
 	void install() override;
+	void reinstall() override;
 	void uninstall() override;
 	void retire() override;
 
@@ -933,6 +938,23 @@ private:
 	ShootNode _shootNode;
 };
 
+struct AddressProtectNode {
+	friend struct AddressSpace;
+
+	void setup(Worklet *completion) {
+		_completion = completion;
+	}
+
+	void complete() {
+		WorkQueue::post(_completion);
+	}
+
+private:
+	Worklet *_completion;
+	Worklet _worklet;
+	ShootNode _shootNode;
+};
+
 struct AddressUnmapNode {
 	friend struct AddressSpace;
 
@@ -1012,6 +1034,8 @@ public:
 	Error map(Guard &guard, frigg::UnsafePtr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
+
+	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 

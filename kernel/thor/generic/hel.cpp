@@ -621,6 +621,87 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	}
 }
 
+HelError helSubmitProtectMemory(HelHandle space_handle,
+		void *pointer, size_t length, uint32_t flags,
+		HelHandle queue_handle, uintptr_t context) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	uint32_t protectFlags = 0;
+	if(flags & kHelMapProtRead)
+		protectFlags |= AddressSpace::kMapProtRead;
+	if(flags & kHelMapProtWrite)
+		protectFlags |= AddressSpace::kMapProtWrite;
+	if(flags & kHelMapProtExecute)
+		protectFlags |= AddressSpace::kMapProtExecute;
+
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	frigg::SharedPtr<IpcQueue> queue;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		if(space_handle == kHelNullHandle) {
+			space = this_thread->getAddressSpace().lock();
+		}else{
+			auto space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
+			if(!space_wrapper)
+				return kHelErrNoDescriptor;
+			if(!space_wrapper->is<AddressSpaceDescriptor>())
+				return kHelErrBadDescriptor;
+			space = space_wrapper->get<AddressSpaceDescriptor>().space;
+		}
+
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
+	}
+
+	struct Closure : IpcNode {
+		Closure()
+		: ipcSource{&helResult, sizeof(HelSimpleResult), nullptr} {
+			setupSource(&ipcSource);
+		}
+
+		void complete() override {
+			frigg::destruct(*kernelAlloc, this);
+		}
+
+		frigg::SharedPtr<IpcQueue> ipcQueue;
+		Worklet worklet;
+		AddressProtectNode protect;
+		QueueSource ipcSource;
+
+		HelSimpleResult helResult;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	struct Ops {
+		static void managed(Worklet *base) {
+			auto closure = frg::container_of(base, &Closure::worklet);
+
+			closure->helResult = HelSimpleResult{kHelErrNone};
+			closure->ipcQueue->submit(closure);
+		}
+	};
+
+	closure->ipcQueue = frigg::move(queue);
+	closure->setupContext(context);
+
+	closure->worklet.setup(&Ops::managed);
+	closure->protect.setup(&closure->worklet);
+	if(space->protect(reinterpret_cast<VirtualAddr>(pointer), length, protectFlags,
+			&closure->protect)) {
+		closure->helResult = HelSimpleResult{kHelErrNone};
+		closure->ipcQueue->submit(closure);
+		return kHelErrNone;
+	}
+
+	return kHelErrNone;
+}
+
 HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();

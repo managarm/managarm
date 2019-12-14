@@ -422,6 +422,17 @@ private:
 	}
 };
 
+struct ProtectMemory : Operation {
+	HelError error() {
+		return result()->error;
+	}
+
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	}
+};
+
 struct ManageMemory : Operation {
 	HelError error() {
 		return result()->error;
@@ -698,6 +709,16 @@ struct Submission : private Context {
 		operation->setAsyncId(async_id);
 	}
 
+	Submission(BorrowedDescriptor space, ProtectMemory *operation,
+			void *pointer, size_t length, uint32_t flags,
+			Dispatcher &dispatcher)
+	: _result(operation) {
+		HEL_CHECK(helSubmitProtectMemory(space.getHandle(),
+				pointer, length, flags,
+				dispatcher.acquire(),
+				reinterpret_cast<uintptr_t>(context())));
+	}
+
 	Submission(BorrowedDescriptor memory, ManageMemory *operation,
 			Dispatcher &dispatcher)
 	: _result(operation) {
@@ -872,6 +893,12 @@ private:
 inline Submission submitAwaitClock(AwaitClock *operation, uint64_t counter,
 		Dispatcher &dispatcher) {
 	return {operation, counter, dispatcher};
+}
+
+inline Submission submitProtectMemory(BorrowedDescriptor memory, ProtectMemory *operation,
+		void *pointer, size_t length, uint32_t flags,
+		Dispatcher &dispatcher) {
+	return {memory, operation, pointer, length, flags, dispatcher};
 }
 
 inline Submission submitManageMemory(BorrowedDescriptor memory, ManageMemory *operation,

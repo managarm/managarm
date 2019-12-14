@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 99,
+	kHelNumCalls = 100,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -38,6 +38,7 @@ enum {
 	kHelCallCreateSpace = 27,
 	kHelCallForkSpace = 33,
 	kHelCallMapMemory = 44,
+	kHelCallSubmitProtectMemory = 99,
 	kHelCallUnmapMemory = 36,
 	kHelCallPointerPhysical = 43,
 	kHelCallLoadForeign = 77,
@@ -400,6 +401,9 @@ HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
 HEL_C_LINKAGE HelError helForkSpace(HelHandle handle, HelHandle *forked);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
 		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actual_pointer);
+HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle space,
+		void *pointer, size_t size, uint32_t flags,
+		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helUnmapMemory(HelHandle space, void *pointer, size_t size);
 HEL_C_LINKAGE HelError helPointerPhysical(void *pointer, uintptr_t *physical);
 HEL_C_LINKAGE HelError helLoadForeign(HelHandle handle, uintptr_t address,

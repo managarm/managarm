@@ -133,6 +133,14 @@ extern inline __attribute__ (( always_inline )) HelError helMapMemory(HelHandle 
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helSubmitProtectMemory(HelHandle space,
+		void *pointer, size_t size, uint32_t flags,
+		HelHandle queue, uintptr_t context) {
+	return helSyscall6(kHelCallSubmitProtectMemory, (HelWord)space,
+			(HelWord)pointer, (HelWord)size, (HelWord)flags,
+			(HelWord)queue, (HelWord)context);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helUnmapMemory(HelHandle space,
 		void *pointer, size_t size) {
 	return helSyscall3(kHelCallUnmapMemory, (HelWord)space, (HelWord)pointer, (HelWord)size);
