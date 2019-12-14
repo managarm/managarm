@@ -34,17 +34,26 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 	HelHandle space;
 	HEL_CHECK(helForkSpace(original->_space.getHandle(), &space));
 	context->_space = helix::UniqueDescriptor(space);
-	context->_areaTree = original->_areaTree; // Copy construction is sufficient here.
+
+	for(const auto &entry : context->_areaTree) {
+		const auto &[address, area] = entry;
+		Area copy;
+		copy.areaSize = area.areaSize;
+		copy.nativeFlags = area.nativeFlags;
+		copy.memory = area.memory.dup();
+		copy.file = area.file;
+		copy.offset = area.offset;
+		context->_areaTree.emplace(address, std::move(copy));
+	}
 
 	return context;
 }
 
 async::result<void *>
-VmContext::mapFile(smarter::shared_ptr<File, FileHandle> file,
+VmContext::mapFile(helix::UniqueDescriptor memory,
+		smarter::shared_ptr<File, FileHandle> file,
 		intptr_t offset, size_t size, uint32_t native_flags) {
 	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
-
-	auto memory = co_await file->accessMemory(offset);
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
@@ -65,9 +74,10 @@ VmContext::mapFile(smarter::shared_ptr<File, FileHandle> file,
 	Area area;
 	area.areaSize = aligned_size;
 	area.nativeFlags = native_flags;
+	area.memory = std::move(memory);
 	area.file = std::move(file);
 	area.offset = offset;
-	_areaTree.insert({address, std::move(area)});
+	_areaTree.emplace(address, std::move(area));
 
 	co_return pointer;
 }

@@ -518,24 +518,23 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(req.fd() == -1);
 				assert(!req.rel_offset());
 
-				HelHandle memory;
-				HEL_CHECK(helAllocateMemory(req.size(), 0, &memory));
+				HelHandle handle;
+				HEL_CHECK(helAllocateMemory(req.size(), 0, &handle));
 
-				// Perform the actual mapping.
-				HEL_CHECK(helMapMemory(memory, self->vmContext()->getSpace().getHandle(),
-						nullptr, 0, req.size(), native_flags, &address));
-				HEL_CHECK(helCloseDescriptor(memory));
+				address = co_await self->vmContext()->mapFile(
+						helix::UniqueDescriptor{handle}, nullptr,
+						0, req.size(), native_flags);
 			}else{
 				auto file = self->fileContext()->getFile(req.fd());
 				assert(file && "Illegal FD for VM_MAP");
-				address = co_await self->vmContext()->mapFile(std::move(file),
+				auto memory = co_await file->accessMemory(req.rel_offset());
+				address = co_await self->vmContext()->mapFile(std::move(memory), std::move(file),
 						req.rel_offset(), req.size(), native_flags);
 			}
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_offset(reinterpret_cast<uintptr_t>(address));
-
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
