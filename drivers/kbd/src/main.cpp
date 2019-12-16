@@ -17,35 +17,471 @@
 #include <helix/await.hpp>
 #include <libevbackend.hpp>
 #include <protocols/mbus/client.hpp>
+#include <async/queue.hpp>
+#include <helix/timer.hpp>
 
 #include "spec.hpp"
-
-arch::io_space base;
+#include "ps2.hpp"
 
 namespace {
 	constexpr bool logPackets = false;
 	constexpr bool logMouse = false;
 }
+constexpr int default_timeout = 100'000'000;
 
-// --------------------------------------------
-// Keyboard
-// --------------------------------------------
+// --------------------------------------------------------------------
+// Controller
+// --------------------------------------------------------------------
 
-std::shared_ptr<libevbackend::EventDevice> kbdEvntDev = std::make_shared<libevbackend::EventDevice>();
-helix::UniqueIrq kbdIrq;
+Controller::Controller() {
+	for (auto &dev : _devices)
+		dev = nullptr;
 
-enum KeyboardStatus {
-	kStatusNormal = 1,
-	kStatusE0 = 2,
-	kStatusE1First = 3,
-	kStatusE1Second = 4
-};
+	HEL_CHECK(helAccessIrq(1, &_irq1Handle));
+	_irq1 = helix::UniqueIrq(_irq1Handle);
 
-KeyboardStatus escapeStatus = kStatusNormal;
-uint8_t e1Buffer;
+	uintptr_t ports[] = { DATA, STATUS };
+	HelHandle handle;
+	HEL_CHECK(helAccessIo(ports, 2, &handle));
+	HEL_CHECK(helEnableIo(handle));
+
+	_space = arch::global_io.subspace(DATA);
+}
+
+async::detached Controller::init() {
+	handleIrqsFor(_irq1, 0);
+
+	_space = arch::global_io.subspace(DATA);
+
+	// disable both devices
+	submitCommand(controller_cmd::DisablePort{}, 0);
+	submitCommand(controller_cmd::DisablePort{}, 1);
+
+	// flush the output buffer
+	while(_space.load(kbd_register::status) & status_bits::outBufferStatus)
+		_space.load(kbd_register::data);
+
+	// enable interrupt for second device
+	auto configuration = submitCommand(controller_cmd::GetByte0{});
+	_hasSecondPort = configuration & (1 << 5);
+
+	configuration |= 0b11; // enable interrupts
+	configuration &= ~(1 << 6); // disable translation
+
+	submitCommand(controller_cmd::SetByte0{}, configuration);
+
+	// enable devices
+	submitCommand(controller_cmd::EnablePort{}, 0);
+	_devices[0] = new Device{this, 0};
+	co_await _devices[0]->init();
+
+	if (!_devices[0]->exists()) { // port exists, device doesnt
+		delete _devices[0];
+		_devices[0] = nullptr;
+	}
+
+	if (_hasSecondPort) {
+		printf("setting up second port!\n");
+		HEL_CHECK(helAccessIrq(12, &_irq12Handle));
+		_irq12 = helix::UniqueIrq(_irq12Handle);
+
+		handleIrqsFor(_irq12, 1);
+
+		submitCommand(controller_cmd::EnablePort{}, 1);
+		_devices[1] = new Device{this, 1};
+		co_await _devices[1]->init();
+
+		if (!_devices[1]->exists()) { // port exists, device doesnt
+			delete _devices[1];
+			_devices[1] = nullptr;
+		}
+	}
+
+	co_return;
+}
+
+void Controller::sendCommandByte(uint8_t byte) {
+	_space.store(kbd_register::command, byte);
+}
+
+void Controller::sendDataByte(uint8_t byte) {
+	_space.store(kbd_register::data, byte);
+}
+
+std::optional<uint8_t> Controller::recvByte(uint64_t timeout) {
+	if (timeout) {
+		uint64_t start, end, current;
+
+		HEL_CHECK(helGetClock(&start));
+		end = start + timeout;
+		current = start;
+
+		while (!(_space.load(kbd_register::status) 
+				& status_bits::outBufferStatus) && current < end)
+			HEL_CHECK(helGetClock(&current));
+
+		bool cancelled = current >= end;
+
+		if (cancelled)
+			return std::nullopt;
+
+		return _space.load(kbd_register::data);
+	}
+
+	while (!(_space.load(kbd_register::status) & status_bits::outBufferStatus))
+		;
+	return _space.load(kbd_register::data);
+}
+
+void Controller::submitCommand(controller_cmd::DisablePort tag, int port) {
+	if (port == 0)
+		sendCommandByte(disable1stPort);
+	else if (port == 1)
+		sendCommandByte(disable2ndPort);
+}
+
+void Controller::submitCommand(controller_cmd::EnablePort tag, int port) {
+	if (port == 0)
+		sendCommandByte(enable1stPort);
+	else if (port == 1)
+		sendCommandByte(enable2ndPort);
+}
+
+uint8_t Controller::submitCommand(controller_cmd::GetByte0 tag) {
+	sendCommandByte(readByte0);
+
+	auto result = recvByte(default_timeout);
+
+	assert(result != std::nullopt && "timed out");
+
+	return result.value();
+}
+
+void Controller::submitCommand(controller_cmd::SetByte0 tag, uint8_t val) {
+	sendCommandByte(writeByte0);
+	sendDataByte(val);
+}
+
+void Controller::submitCommand(controller_cmd::SendBytePort2 tag) {
+	sendCommandByte(0xD4); // TODO: define a constant?
+}
+
+async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
+	uint64_t sequence = 0;
+	while(true) {
+		helix::AwaitEvent await_irq;
+		auto &&submit = helix::submitAwaitEvent(irq, &await_irq,
+				sequence, helix::Dispatcher::global());
+		co_await submit.async_wait();
+		HEL_CHECK(await_irq.error());
+		sequence = await_irq.sequence();
+
+		// TODO: detect whether we want to ack/nack
+		processData(port);
+		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, sequence));
+	}
+}
+
+bool Controller::processData(int port) {
+	size_t count = 0;
+	while (_space.load(kbd_register::status) & status_bits::outBufferStatus) {
+		auto val = _space.load(kbd_register::data);
+
+		if (logPackets)
+			printf("ps2-hid: received byte %02x\n!", val);
+
+		if (!_devices[port]) {
+			printf("ps2-hid: received irq for non-existent device\n!");
+		} else {
+			_devices[port]->pushByte(val);
+		}
+
+		count++;
+	}
+
+	return count > 0;
+}
+
+// --------------------------------------------------------------------
+// Controller::Device
+// --------------------------------------------------------------------
+
+Controller::Device::Device(Controller *controller, int port)
+: _controller{controller}, _port{port}, _deviceType{0}, _exists{false} {
+}
+
+async::result<void> Controller::Device::init() {
+	auto res1 = co_await submitCommand(device_cmd::DisableScan{});
+
+	if (std::holds_alternative<NoDevice>(res1))
+		co_return; // not present
+
+	auto res2 = co_await submitCommand(device_cmd::Identify{});
+
+	_exists = !std::holds_alternative<NoDevice>(res2);
+	_deviceType = _exists ? std::get<DeviceType>(res2) : DeviceType{};
+
+	if (!_exists)
+		co_return;
+
+	_evDev = std::make_shared<libevbackend::EventDevice>();
+
+	if (_deviceType.keyboard)
+		co_await kbdInit();
+
+	if (_deviceType.mouse)
+		co_await mouseInit();
+
+	auto res3 = co_await submitCommand(device_cmd::EnableScan{});
+	assert(std::holds_alternative<std::monostate>(res3));
+
+	//printf("done setting up ps2kbd: 2\n");
+}
+
+async::result<void> Controller::Device::kbdInit() {
+	//set scancode 1
+	auto res1 = co_await submitCommand(device_cmd::SetScancodeSet{}, 1);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	// make sure it's used
+	auto res2 = co_await submitCommand(device_cmd::GetScancodeSet{});
+	assert(std::holds_alternative<int>(res2));
+	assert(std::get<int>(res2) == 1);
+
+	//setup evdev stuff
+	_evDev->enableEvent(EV_KEY, KEY_A);
+	_evDev->enableEvent(EV_KEY, KEY_B);
+	_evDev->enableEvent(EV_KEY, KEY_C);
+	_evDev->enableEvent(EV_KEY, KEY_D);
+	_evDev->enableEvent(EV_KEY, KEY_E);
+	_evDev->enableEvent(EV_KEY, KEY_F);
+	_evDev->enableEvent(EV_KEY, KEY_G);
+	_evDev->enableEvent(EV_KEY, KEY_H);
+	_evDev->enableEvent(EV_KEY, KEY_I);
+	_evDev->enableEvent(EV_KEY, KEY_J);
+	_evDev->enableEvent(EV_KEY, KEY_K);
+	_evDev->enableEvent(EV_KEY, KEY_L);
+	_evDev->enableEvent(EV_KEY, KEY_M);
+	_evDev->enableEvent(EV_KEY, KEY_N);
+	_evDev->enableEvent(EV_KEY, KEY_O);
+	_evDev->enableEvent(EV_KEY, KEY_P);
+	_evDev->enableEvent(EV_KEY, KEY_Q);
+	_evDev->enableEvent(EV_KEY, KEY_R);
+	_evDev->enableEvent(EV_KEY, KEY_S);
+	_evDev->enableEvent(EV_KEY, KEY_T);
+	_evDev->enableEvent(EV_KEY, KEY_U);
+	_evDev->enableEvent(EV_KEY, KEY_V);
+	_evDev->enableEvent(EV_KEY, KEY_W);
+	_evDev->enableEvent(EV_KEY, KEY_X);
+	_evDev->enableEvent(EV_KEY, KEY_Y);
+	_evDev->enableEvent(EV_KEY, KEY_Z);
+	_evDev->enableEvent(EV_KEY, KEY_1);
+	_evDev->enableEvent(EV_KEY, KEY_2);
+	_evDev->enableEvent(EV_KEY, KEY_3);
+	_evDev->enableEvent(EV_KEY, KEY_4);
+	_evDev->enableEvent(EV_KEY, KEY_5);
+	_evDev->enableEvent(EV_KEY, KEY_6);
+	_evDev->enableEvent(EV_KEY, KEY_7);
+	_evDev->enableEvent(EV_KEY, KEY_8);
+	_evDev->enableEvent(EV_KEY, KEY_9);
+	_evDev->enableEvent(EV_KEY, KEY_0);
+	_evDev->enableEvent(EV_KEY, KEY_ENTER);
+	_evDev->enableEvent(EV_KEY, KEY_ESC);
+	_evDev->enableEvent(EV_KEY, KEY_BACKSPACE);
+	_evDev->enableEvent(EV_KEY, KEY_TAB);
+	_evDev->enableEvent(EV_KEY, KEY_SPACE);
+	_evDev->enableEvent(EV_KEY, KEY_MINUS);
+	_evDev->enableEvent(EV_KEY, KEY_EQUAL);
+	_evDev->enableEvent(EV_KEY, KEY_LEFTBRACE);
+	_evDev->enableEvent(EV_KEY, KEY_RIGHTBRACE);
+	_evDev->enableEvent(EV_KEY, KEY_BACKSLASH);
+	_evDev->enableEvent(EV_KEY, KEY_SEMICOLON);
+	_evDev->enableEvent(EV_KEY, KEY_COMMA);
+	_evDev->enableEvent(EV_KEY, KEY_DOT);
+	_evDev->enableEvent(EV_KEY, KEY_SLASH);
+	_evDev->enableEvent(EV_KEY, KEY_HOME);
+	_evDev->enableEvent(EV_KEY, KEY_PAGEUP);
+	_evDev->enableEvent(EV_KEY, KEY_DELETE);
+	_evDev->enableEvent(EV_KEY, KEY_END);
+	_evDev->enableEvent(EV_KEY, KEY_PAGEDOWN);
+	_evDev->enableEvent(EV_KEY, KEY_RIGHT);
+	_evDev->enableEvent(EV_KEY, KEY_LEFT);
+	_evDev->enableEvent(EV_KEY, KEY_DOWN);
+	_evDev->enableEvent(EV_KEY, KEY_UP);
+	_evDev->enableEvent(EV_KEY, KEY_LEFTCTRL);
+	_evDev->enableEvent(EV_KEY, KEY_LEFTSHIFT);
+	_evDev->enableEvent(EV_KEY, KEY_LEFTALT);
+	_evDev->enableEvent(EV_KEY, KEY_LEFTMETA);
+	_evDev->enableEvent(EV_KEY, KEY_RIGHTCTRL);
+	_evDev->enableEvent(EV_KEY, KEY_RIGHTSHIFT);
+	_evDev->enableEvent(EV_KEY, KEY_RIGHTALT);
+	_evDev->enableEvent(EV_KEY, KEY_RIGHTMETA);
+
+	// Create an mbus object for the partition.
+	auto root = co_await mbus::Instance::global().getRoot();
+
+	mbus::Properties descriptor{
+		{"unix.subsystem", mbus::StringItem{"input"}}
+	};
+
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		libevbackend::serveDevice(_evDev, std::move(local_lane));
+
+		async::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.async_get();
+	});
+
+	co_await root.createObject("ps2kbd", descriptor, std::move(handler));
+
+	printf("done setting up ps2kbd\n");
+
+	runKbd();
+}
+
+async::result<void> Controller::Device::mouseInit() {
+	// attempt to enable scroll wheel
+	auto res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 100);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 80);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	auto res2 = co_await submitCommand(device_cmd::Identify{});
+	assert(std::holds_alternative<DeviceType>(res2));
+
+	auto type = std::get<DeviceType>(res2);
+	assert(type.mouse); // ensure the mouse is still a mouse
+	_deviceType.hasScrollWheel = _deviceType.hasScrollWheel || type.hasScrollWheel;
+
+	// attempt to enable the 4th and 5th buttons
+	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 80);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	res2 = co_await submitCommand(device_cmd::Identify{});
+	assert(std::holds_alternative<DeviceType>(res2));
+
+	type = std::get<DeviceType>(res2);
+	assert(type.mouse); // ensure the mouse is still a mouse
+	_deviceType.has5Buttons = _deviceType.has5Buttons || type.has5Buttons;
+
+	// set report rate to the default
+	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 100);
+	assert(std::holds_alternative<std::monostate>(res1));
+
+	// setup evdev stuff
+	_evDev->enableEvent(EV_REL, REL_X);
+	_evDev->enableEvent(EV_REL, REL_Y);
+
+	if (_deviceType.hasScrollWheel)
+		_evDev->enableEvent(EV_REL, REL_WHEEL);
+
+	_evDev->enableEvent(EV_KEY, BTN_LEFT);
+	_evDev->enableEvent(EV_KEY, BTN_RIGHT);
+	_evDev->enableEvent(EV_KEY, BTN_MIDDLE);
+
+	if (_deviceType.has5Buttons) {
+		_evDev->enableEvent(EV_KEY, BTN_SIDE);
+		_evDev->enableEvent(EV_KEY, BTN_EXTRA);
+	}
+
+	// Create an mbus object for the partition.
+	auto root = co_await mbus::Instance::global().getRoot();
+
+	mbus::Properties descriptor{
+		{"unix.subsystem", mbus::StringItem{"input"}}
+	};
+
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		libevbackend::serveDevice(_evDev, std::move(local_lane));
+
+		async::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.async_get();
+	});
+
+	co_await root.createObject("ps2mouse", descriptor, std::move(handler));
+
+	runMouse();
+}
+
+async::detached Controller::Device::runMouse() {
+	while (true) {
+		uint8_t byte0, byte1, byte2, byte3 = 0;
+		byte0 = (co_await recvByte()).value();
+		byte1 = (co_await recvByte()).value();
+		byte2 = (co_await recvByte()).value();
+
+		if (_deviceType.has5Buttons || _deviceType.hasScrollWheel)
+			byte3 = (co_await recvByte()).value();
+
+		int movement_x = (int)byte1 - (int)((byte0 << 4) & 0x100);
+		int movement_y = (int)byte2 - (int)((byte0 << 3) & 0x100);
+
+		int movement_wheel = 0;
+		if (_deviceType.hasScrollWheel) {
+			movement_wheel = (int)(byte3 & 0x7) - (int)(byte3 & 0x8);
+		}
+
+		if (!(byte0 & 8)) {
+			printf("ps2-hid: desync? first byte is %02x\n", byte0);
+			continue;
+		}
+
+
+		if (byte0 & 0xC0) {
+			printf("ps2-hid: overflow"\n);
+			continue;
+		}
+
+		if(logMouse) {
+			printf("ps2-hid: mouse packet dump:\n");
+			printf("ps2-hid: x move: %d, y move: %d, z move: %d\n",
+					movement_x, movement_y, movement_wheel);
+			printf("ps2-hid: left: %d, right: %d, middle: %d\n",
+					(byte0 & 1) > 0, (byte0 & 2) > 0, (byte0 & 4));
+			printf("ps2-hid: 4th: %d, 5th: %d\n",
+					(byte3 & 4) > 0, (byte3 & 5) > 0);
+		}
+
+		_evDev->emitEvent(EV_REL, REL_X, byte1 ? movement_x : 0);
+		_evDev->emitEvent(EV_REL, REL_Y, byte2 ? -movement_y : 0);
+
+		if (_deviceType.hasScrollWheel) {
+			_evDev->emitEvent(EV_REL, REL_WHEEL, -movement_wheel);
+		}
+
+		_evDev->emitEvent(EV_KEY, BTN_LEFT, byte0 & 1);
+		_evDev->emitEvent(EV_KEY, BTN_RIGHT, byte0 & 2);
+		_evDev->emitEvent(EV_KEY, BTN_MIDDLE, byte0 & 4);
+
+		if (_deviceType.has5Buttons) {
+			_evDev->emitEvent(EV_KEY, BTN_SIDE, byte3 & 4);
+			_evDev->emitEvent(EV_KEY, BTN_EXTRA, byte3 & 5);
+		}
+
+		_evDev->emitEvent(EV_SYN, SYN_REPORT, 0);
+		_evDev->notify();
+	}
+}
 
 int scanNormal(uint8_t data) {
-	switch(data) {
+	switch (data) {
 		case 0x01: return KEY_ESC;
 		case 0x02: return KEY_1;
 		case 0x03: return KEY_2;
@@ -136,7 +572,7 @@ int scanNormal(uint8_t data) {
 }
 
 int scanE0(uint8_t data) {
-	switch(data) {
+	switch (data) {
 		case 0x1C: return KEY_KPENTER;
 		case 0x1D: return KEY_RIGHTCTRL;
 		case 0x35: return KEY_KPSLASH;
@@ -160,364 +596,199 @@ int scanE0(uint8_t data) {
 }
 
 int scanE1(uint8_t data1, uint8_t data2) {
-	if((data1 & 0x7F) == 0x1D && (data2 & 0X7F) == 0x45){
+	if ((data1 & 0x7F) == 0x1D && (data2 & 0x7F) == 0x45) {
 		return KEY_PAUSE;
-	}else{
+	} else {
 		return KEY_RESERVED;
 	}
 }
 
-void handleKeyboardData(uint8_t data) {
-	bool pressed = !(data & 0x80);
-	if(escapeStatus == kStatusE1First) {
-		e1Buffer = data;
+async::detached Controller::Device::runKbd() {
+	while (true) {
+		int key = -1;
+		bool pressed = false;
+		uint8_t byte0, byte1, byte2;
 
-		escapeStatus = kStatusE1Second;
-	}else if(escapeStatus == kStatusE1Second) {
-		assert((e1Buffer & 0x80) == (data & 0x80));
-		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
-		kbdEvntDev->notify();
-		escapeStatus = kStatusNormal;
-	}else if(escapeStatus == kStatusE0) {
-		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
-		kbdEvntDev->notify();
-		escapeStatus = kStatusNormal;
-	}else{
-		assert(escapeStatus == kStatusNormal);
+		byte0 = (co_await recvByte()).value();
 
-		if(data == 0xE0) {
-			escapeStatus = kStatusE0;
-			return;
-		}else if(data == 0xE1) {
-			escapeStatus = kStatusE1First;
-			return;
+		if (byte0 == 0xE0) {
+			byte1 = (co_await recvByte()).value();
+			key = scanE0(byte1 & 0x7F);
+			pressed = !(byte1 & 0x80);
+		} else if (byte0 == 0xE1) {
+			byte1 = (co_await recvByte()).value();
+			byte2 = (co_await recvByte()).value();
+			key = scanE1(byte1, byte2);
+			pressed = !(byte1 & 0x80);
+			assert((byte1 & 0x80) == (byte2 & 0x80));
+		} else {
+			key = scanNormal(byte0 & 0x7F);
+			pressed = !(byte0 & 0x80);
 		}
 
-		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
-		kbdEvntDev->notify();
+		_evDev->emitEvent(EV_KEY, key, pressed);
+		_evDev->emitEvent(EV_SYN, SYN_REPORT, 0);
+		_evDev->notify();
 	}
 }
 
-// --------------------------------------------
-// Mouse
-// --------------------------------------------
-
-std::shared_ptr<libevbackend::EventDevice> mouseEvntDev = std::make_shared<libevbackend::EventDevice>();
-helix::UniqueIrq mouseIrq;
-
-enum MouseState {
-	kMouseData,
-	kMouseWaitForAck
-};
-
-enum MouseByte {
-	kMouseByte0,
-	kMouseByte1,
-	kMouseByte2
-};
-
-MouseState mouseState = kMouseData;
-MouseByte mouseByte = kMouseByte0;
-unsigned int byte0 = 0;
-unsigned int byte1 = 0;
-
-void handleMouseData(uint8_t data) {
-	if(mouseState == kMouseWaitForAck) {
-		assert(data == 0xFA);
-		mouseState = kMouseData;
-	}else{
-		assert(mouseState == kMouseData);
-
-		if(mouseByte == kMouseByte0) {
-			assert(data & 8);
-			byte0 = data;
-			mouseByte = kMouseByte1;
-		}else if(mouseByte == kMouseByte1) {
-			byte1 = data;
-			mouseByte = kMouseByte2;
-		}else{
-			assert(mouseByte == kMouseByte2);
-			unsigned int byte2 = data;
-
-			int movement_x = (int)byte1 - (int)((byte0 << 4) & 0x100);
-			int movement_y = (int)byte2 - (int)((byte0 << 3) & 0x100);
-
-			if(byte0 & 0xC0)
-				std::cout << "ps2-hid: Overflow" << std::endl;
-
-			if(logMouse) {
-				std::cout << "ps2-hid: Packet: " << std::hex << byte0
-						<< " " << byte1 << " " << byte2 << std::dec << std::endl;
-				std::cout << "ps2-hid: Movement: " << movement_x << ", " << movement_y << std::endl;
-			}
-
-			mouseEvntDev->emitEvent(EV_REL, REL_X, byte1 ? movement_x : 0);
-			mouseEvntDev->emitEvent(EV_REL, REL_Y, byte2 ? -movement_y : 0);
-			mouseEvntDev->emitEvent(EV_KEY, BTN_LEFT, byte0 & 1);
-			mouseEvntDev->emitEvent(EV_KEY, BTN_RIGHT, byte0 & 2);
-			mouseEvntDev->emitEvent(EV_KEY, BTN_MIDDLE, byte0 & 4);
-			mouseEvntDev->emitEvent(EV_SYN, SYN_REPORT, 0);
-			mouseEvntDev->notify();
-
-			mouseByte = kMouseByte0;
-		}
+void Controller::Device::pushByte(uint8_t byte) {
+	if (_awaitingResponse) {
+		_responseQueue.put(byte);
+	} else {
+		_reportQueue.put(byte);
 	}
 }
 
-// --------------------------------------------
-// Functions
-// --------------------------------------------
+static Controller::Device::DeviceType determineTypeById(uint16_t id) {
+	if (id == 0)
+		return Controller::Device::DeviceType{.mouse = true};
+	if (id == 0x3)
+		return Controller::Device::DeviceType{.mouse = true, .hasScrollWheel = true};
+	if (id == 0x4)
+		return Controller::Device::DeviceType{.mouse = true, .has5Buttons = true};
+	if (id == 0xAB41 || id == 0xABC1 || id == 0xAB83)
+		return Controller::Device::DeviceType{.keyboard = true};
 
-void sendByte(uint8_t data) {
-	//base.store(kbd_register::command, write2ndNextByte);
-	base.store(kbd_register::command, 0xD4);
-	while(base.load(kbd_register::status) & status_bits::inBufferStatus) { };
-	base.store(kbd_register::data, data);
+	printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
+	return Controller::Device::DeviceType{}; // we assume nothing
 }
 
-bool readDeviceData() {
-	bool avail = false;
-	size_t batch = 1;
-	uint8_t status;
-	while((status = base.load(kbd_register::command)) & 0x01) {
-		uint8_t data = base.load(kbd_register::data);
-		if(logPackets)
-			std::cout << "ps2-hid: Byte " << batch++ << ". Status: "
-					<< std::hex << (unsigned int)status
-					<< ", data: " << (unsigned int)data << std::dec << std::endl;
-		if(status & 0x20) {
-			handleMouseData(data);
-		}else{
-			handleKeyboardData(data);
-		}
+async::result<std::variant<NoDevice, Controller::Device::DeviceType>> Controller::Device::submitCommand(device_cmd::Identify tag) {
+	_awaitingResponse = true;
+	FlagGuard g{_awaitingResponse, false};
 
-		avail = true;
+	if (co_await transferByte(0xF2) == std::nullopt) co_return NoDevice{};
+
+	auto resp2 = co_await recvByte(default_timeout);
+	auto resp3 = co_await recvByte(default_timeout);
+
+	if (resp2 == std::nullopt && resp3 == std::nullopt) { // ancient AT keyboard
+		co_return DeviceType{.keyboard = true};
 	}
 
-	return avail;
+	if ((resp2 != std::nullopt) ^ (resp3 != std::nullopt)) {
+		uint16_t v = resp2 != std::nullopt ? resp2.value() : resp3.value();
+
+		co_return determineTypeById(v);
+	}
+
+	uint16_t a = resp2.value();
+	uint16_t b = resp3.value();
+	uint16_t v = a << 8 | b;
+
+	co_return determineTypeById(v);
 }
 
-async::detached handleKbdIrqs() {
-	uint64_t sequence = 0;
-	while(true) {
-		helix::AwaitEvent await_irq;
-		auto &&submit = helix::submitAwaitEvent(kbdIrq, &await_irq,
-				sequence, helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_irq.error());
-		sequence = await_irq.sequence();
-		//std::cout << "ps2-hid: Keyboard IRQ" << std::endl;
+async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::DisableScan tag) {
+	_awaitingResponse = true;
+	FlagGuard g{_awaitingResponse, false};
 
-		readDeviceData();
+	if (co_await transferByte(0xF5) == std::nullopt) co_return NoDevice{};
 
-		// TODO: Only ack if the IRQ was from the PS/2 controller.
-		HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckAcknowledge, sequence));
-		//HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckNack, sequence));
+	co_return std::monostate{};
+}
+
+async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::EnableScan tag) {
+	_awaitingResponse = true;
+	FlagGuard g{_awaitingResponse, false};
+
+	if (co_await transferByte(0xF4) == std::nullopt) co_return NoDevice{};
+
+	co_return std::monostate{};
+}
+
+async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::SetReportRate tag, int rate) {
+	_awaitingResponse = true;
+	FlagGuard g{_awaitingResponse, false};
+
+	if (co_await transferByte(0xF3) == std::nullopt) co_return NoDevice{};
+	if (co_await transferByte(rate) == std::nullopt) co_return NoDevice{};
+
+	co_return std::monostate{};
+}
+
+async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::SetScancodeSet tag, int set) {
+	_awaitingResponse = true;
+	FlagGuard g{_awaitingResponse, false};
+
+	if (co_await transferByte(0xF0) == std::nullopt) co_return NoDevice{};
+	if (co_await transferByte(set) == std::nullopt) co_return NoDevice{};
+
+	co_return std::monostate{};
+}
+
+async::result<std::variant<NoDevice, int>> Controller::Device::submitCommand(device_cmd::GetScancodeSet tag) {
+	_awaitingResponse = true;
+	FlagGuard g{_awaitingResponse, false};
+
+	if (co_await transferByte(0xF0) == std::nullopt) co_return NoDevice{};
+	if (co_await transferByte(0) == std::nullopt) co_return NoDevice{};
+
+	auto set = co_await recvByte(default_timeout);
+	assert(set != std::nullopt);
+
+	co_return set.value();
+}
+
+void Controller::Device::sendByte(uint8_t byte) {
+	if (_port == 1) {
+		_controller->submitCommand(controller_cmd::SendBytePort2{});
+	}
+
+	while (_controller->_space.load(kbd_register::status) & status_bits::inBufferStatus)
+		; // wait for the buffer to become empty
+
+	_controller->_space.store(kbd_register::data, byte);
+}
+
+
+async::result<std::optional<uint8_t>> Controller::Device::transferByte(uint8_t byte) {
+	while (true) {
+		sendByte(byte);
+
+		auto resp = co_await recvByte(default_timeout);
+
+		if (auto v = resp.value_or(0); v != 0xFE)
+			co_return resp;
 	}
 }
 
-async::detached handleMouseIrqs() {
-	uint64_t sequence = 0;
-	while(true) {
-		helix::AwaitEvent await_irq;
-		auto &&submit = helix::submitAwaitEvent(mouseIrq, &await_irq,
-				sequence, helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_irq.error());
-		sequence = await_irq.sequence();
-		//std::cout << "ps2-hid: Mouse IRQ" << std::endl;
+async::result<std::optional<uint8_t>> Controller::Device::recvByte(uint64_t timeout) {
+	if (timeout) {
+		async::cancellation_event ev;
+		helix::TimeoutCancellation timer{timeout, ev};
 
-		readDeviceData();
+		auto result = _awaitingResponse ? 
+			co_await _responseQueue.async_get(ev) 
+			: co_await _reportQueue.async_get(ev);
 
-		// TODO: Only ack if the IRQ was from the PS/2 controller.
-		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), kHelAckAcknowledge, sequence));
+		co_await timer.retire();
+
+		co_return result;
+	} else {
+		if (_awaitingResponse)
+			co_return co_await _responseQueue.async_get();
+		else
+			co_return co_await _reportQueue.async_get();
 	}
 }
 
-async::detached runKbd() {
-	kbdEvntDev->enableEvent(EV_KEY, KEY_A);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_B);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_C);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_D);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_E);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_F);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_G);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_H);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_I);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_J);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_K);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_L);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_M);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_N);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_O);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_P);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_Q);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_R);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_S);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_T);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_U);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_V);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_W);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_X);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_Y);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_Z);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_1);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_2);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_3);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_4);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_5);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_6);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_7);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_8);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_9);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_0);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_ENTER);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_ESC);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_BACKSPACE);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_TAB);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_SPACE);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_MINUS);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_EQUAL);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTBRACE);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTBRACE);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_BACKSLASH);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_SEMICOLON);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_COMMA);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_DOT);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_SLASH);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_HOME);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_PAGEUP);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_DELETE);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_END);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_PAGEDOWN);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHT);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFT);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_DOWN);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_UP);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTCTRL);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTSHIFT);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTALT);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTMETA);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTCTRL);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTSHIFT);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTALT);
-	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTMETA);
-
-	// Create an mbus object for the partition.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"unix.subsystem", mbus::StringItem{"input"}}
-	};
-
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		libevbackend::serveDevice(kbdEvntDev, std::move(local_lane));
-
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
-	});
-
-	co_await root.createObject("ps2kbd", descriptor, std::move(handler));
+bool Controller::Device::exists() {
+	return _exists;
 }
 
-async::detached runMouse() {
-	mouseEvntDev->enableEvent(EV_REL, REL_X);
-	mouseEvntDev->enableEvent(EV_REL, REL_Y);
-	mouseEvntDev->enableEvent(EV_KEY, BTN_LEFT);
-	mouseEvntDev->enableEvent(EV_KEY, BTN_RIGHT);
-	mouseEvntDev->enableEvent(EV_KEY, BTN_MIDDLE);
-
-	// Create an mbus object for the partition.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"unix.subsystem", mbus::StringItem{"input"}}
-	};
-
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		libevbackend::serveDevice(mouseEvntDev, std::move(local_lane));
-
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
-	});
-
-	co_await root.createObject("ps2mouse", descriptor, std::move(handler));
-}
-
-async::detached pollController() {
-	while(true) {
-		readDeviceData();
-
-		uint64_t tick;
-		HEL_CHECK(helGetClock(&tick));
-
-		helix::AwaitClock await_clock;
-		auto &&submit = helix::submitAwaitClock(&await_clock, tick + 1'000'000,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_clock.error());
-	}
-}
+Controller *_controller;
 
 int main() {
 	std::cout << "ps2-hid: Starting driver" << std::endl;
 
-	HelHandle kbd_handle;
-	HEL_CHECK(helAccessIrq(1, &kbd_handle));
-	kbdIrq = helix::UniqueIrq(kbd_handle);
-
-	HelHandle mouse_handle;
-	HEL_CHECK(helAccessIrq(12, &mouse_handle));
-	mouseIrq = helix::UniqueIrq(mouse_handle);
-
-	uintptr_t ports[] = { DATA, STATUS };
-	HelHandle handle;
-	HEL_CHECK(helAccessIo(ports, 2, &handle));
-	HEL_CHECK(helEnableIo(handle));
-
-	base = arch::global_io.subspace(DATA);
-
-	// disable both devices
-	base.store(kbd_register::command, disable1stPort);
-	base.store(kbd_register::command, disable2ndPort);
-
-	// flush the output buffer
-	while(base.load(kbd_register::status) & status_bits::outBufferStatus)
-		base.load(kbd_register::data);
-
-	// enable interrupt for second device
-	base.store(kbd_register::command, readByte0);
-	uint8_t configuration = base.load(kbd_register::data);
-	configuration |= 0x02;
-	base.store(kbd_register::command, writeByte0);
-	base.store(kbd_register::data, configuration);
-
-	// enable both devices
-	base.store(kbd_register::command, enable1stPort);
-	base.store(kbd_register::command, enable2ndPort);
-
-	// enables mouse response
-	sendByte(0xF4);
-	mouseState = kMouseWaitForAck;
+	_controller = new Controller;
 
 	{
 		async::queue_scope scope{helix::globalQueue()};
 
-		runKbd();
-		runMouse();
-		std::cout << "ps2-hid: mbus objects are ready" << std::endl;
-
-		handleKbdIrqs();
-		handleMouseIrqs();
-	//	pollController();
+		_controller->init();
 	}
 
 	helix::globalQueue()->run();
