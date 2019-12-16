@@ -445,7 +445,7 @@ async::detached Controller::Device::runMouse() {
 
 
 		if (byte0 & 0xC0) {
-			printf("ps2-hid: overflow"\n);
+			printf("ps2-hid: overflow\n");
 			continue;
 		}
 
