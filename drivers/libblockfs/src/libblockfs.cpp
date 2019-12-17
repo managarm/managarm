@@ -54,7 +54,7 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 
 	auto chunk_offset = self->offset;
 	auto map_offset = chunk_offset & ~size_t(0xFFF);
-	auto map_size = ((chunk_offset + chunk_size) & ~size_t(0xFFF)) - map_offset + 0x1000;
+	auto map_size = (((chunk_offset & size_t(0xFFF)) + chunk_size + 0xFFF) & ~size_t(0xFFF));
 	self->offset += chunk_size;
 
 	helix::LockMemoryView lock_memory;
