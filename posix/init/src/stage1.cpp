@@ -26,7 +26,7 @@ int main() {
 	auto xhci = fork();
 	if(!xhci) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/xhci", nullptr);
-	}else assert(ehci != -1);
+	}else assert(xhci != -1);
 
 	auto virtio = fork();
 	if(!virtio) {
