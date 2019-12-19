@@ -97,6 +97,11 @@ struct FileOperations {
 		ioctl = f;
 		return *this;
 	}
+	constexpr FileOperations &withFlock(async::result<protocols::fs::Error> (*f)(void *object,
+			int flags)) {
+		flock = f;
+		return *this;
+	}
 	constexpr FileOperations &withGetOption(async::result<int> (*f)(void *object,
 			int option)) {
 		getOption = f;
@@ -142,6 +147,7 @@ struct FileOperations {
 	async::result<void> (*fallocate)(void *object, int64_t offset, size_t size);
 	async::result<void> (*ioctl)(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
+	async::result<protocols::fs::Error> (*flock)(void *object, int flags);
 	async::result<int> (*getOption)(void *object, int option);
 	async::result<void> (*setOption)(void *object, int option, int value);
 	async::result<PollResult> (*poll)(void *object, uint64_t sequence,

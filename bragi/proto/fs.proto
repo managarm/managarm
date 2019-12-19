@@ -29,6 +29,13 @@ enum OpenFlags {
 	OF_NONBLOCK = 1;
 }
 
+enum FlockFlags {
+	LOCK_SH = 1;
+	LOCK_EX = 2;
+	LOCK_NB = 4;
+	LOCK_UN = 8;
+}
+
 enum FileCaps {
 	FC_STATUS_PAGE = 1;
 }
@@ -81,6 +88,7 @@ enum CntReqType {
 	MMAP = 9;
 	CLOSE = 4;
 
+	FLOCK = 73;
 }
 
 message Rect {
@@ -111,6 +119,9 @@ message CntRequest {
 
 	// used by PT_IOCTL, PT_SET_OPTION.
 	optional int64 command = 8;
+
+	//used by FLOCK
+	optional int32 flock_flags = 9;
 
 	// used by PT_SET_OPTION.
 	optional int32 value = 42;

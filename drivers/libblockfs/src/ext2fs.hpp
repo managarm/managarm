@@ -6,8 +6,10 @@
 #include <optional>
 #include <unordered_map>
 #include <vector>
+#include <protocols/fs/file-locks.hpp>
 
 #include <async/jump.hpp>
+#include <async/doorbell.hpp>
 #include <hel.h>
 
 #include <blockfs.hpp>
@@ -20,6 +22,9 @@ namespace ext2fs {
 // --------------------------------------------------------
 // On-disk structures
 // --------------------------------------------------------
+
+using FlockManager = protocols::fs::FlockManager;
+using Flock = protocols::fs::Flock;
 
 union FileData {
 	struct Blocks {
@@ -228,6 +233,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	struct timespec accessTime;
 	struct timespec dataModifyTime;
 	struct timespec anyChangeTime;
+	FlockManager flockManager;
 };
 
 // --------------------------------------------------------
@@ -297,6 +303,7 @@ struct OpenFile {
 
 	std::shared_ptr<Inode> inode;
 	uint64_t offset;
+	Flock flock;
 };
 
 } } // namespace blockfs::ext2fs

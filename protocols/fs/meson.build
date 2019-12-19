@@ -6,7 +6,7 @@ gen = generator(protoc,
 
 fs_pb = gen.process('../../bragi/proto/fs.proto')
 fs_proto_inc = include_directories('include/')
-libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', fs_pb],
+libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_pb],
 	dependencies: [
 		clang_coroutine_dep,
 		lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
@@ -20,6 +20,5 @@ libfs_protocol_dep = declare_dependency(
 install_headers(
 	'include/protocols/fs/client.hpp',
 	'include/protocols/fs/common.hpp',
-	'include/protocols/fs/server.hpp',
 	subdir: 'protocols/fs/')
 
