@@ -3,8 +3,8 @@
 #include <sys/epoll.h>
 #include <iostream>
 
+#include <async/result.hpp>
 #include <async/doorbell.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "timerfd.hpp"
 
@@ -20,7 +20,7 @@ private:
 		uint64_t interval;
 	};
 	
-	COFIBER_ROUTINE(cofiber::no_future, arm(Timer *timer), ([=] {
+	async::detached arm(Timer *timer) {
 		assert(timer->initial || timer->interval);
 //		std::cout << "posix: Timer armed" << std::endl;
 
@@ -32,7 +32,7 @@ private:
 			auto &&submit = helix::submitAwaitClock(&await_initial, tick + timer->initial,
 					helix::Dispatcher::global());
 			timer->asyncId = await_initial.asyncId();
-			COFIBER_AWAIT submit.async_wait();
+			co_await submit.async_wait();
 			timer->asyncId = 0;
 			assert(!await_initial.error() || await_initial.error() == kHelErrCancelled);
 			tick += timer->initial;
@@ -43,7 +43,7 @@ private:
 				_seqBell.ring();
 			}else{
 				delete timer;
-				COFIBER_RETURN();
+				co_return;
 			}
 		}
 
@@ -51,7 +51,7 @@ private:
 			if(_activeTimer == timer)
 				_activeTimer = nullptr;
 			delete timer;
-			COFIBER_RETURN();
+			co_return;
 		}
 
 		while(true) {
@@ -59,7 +59,7 @@ private:
 			auto &&submit = helix::submitAwaitClock(&await_interval, tick + timer->interval,
 					helix::Dispatcher::global());
 			timer->asyncId = await_interval.asyncId();
-			COFIBER_AWAIT submit.async_wait();
+			co_await submit.async_wait();
 			timer->asyncId = 0;
 			assert(!await_interval.error() || await_interval.error() == kHelErrCancelled);
 			tick += timer->interval;
@@ -70,10 +70,10 @@ private:
 				_seqBell.ring();
 			}else{
 				delete timer;
-				COFIBER_RETURN();
+				co_return;
 			}
 		}
-	}))
+	}
 
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -100,30 +100,29 @@ public:
 		_cancelServe.cancel();
 	}
 
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
+	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
 		assert(max_length == sizeof(uint64_t));
 		assert(_expirations);
 
 		memcpy(data, &_expirations, sizeof(uint64_t));
 		_expirations = 0;
-		COFIBER_RETURN(sizeof(uint64_t));
-	}))
+		co_return sizeof(uint64_t);
+	}
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t in_seq,
-			async::cancellation_token cancellation) override, ([=] {
+	expected<PollResult> poll(Process *, uint64_t in_seq, 
+			async::cancellation_token cancellation) override {
 		if(logTimerfd)
 			std::cout << "posix: timerfd::poll(" << in_seq << ")" << std::endl;
 		assert(in_seq <= _theSeq);
 		while(in_seq == _theSeq && !cancellation.is_cancellation_requested()) {
 			if(!isOpen())
-				COFIBER_RETURN(Error::fileClosed);
+				co_return Error::fileClosed;
 
-			COFIBER_AWAIT _seqBell.async_wait(cancellation);
+			co_await _seqBell.async_wait(cancellation);
 		}
 
-		COFIBER_RETURN(PollResult(_theSeq, EPOLLIN, _expirations ? EPOLLIN : 0));
-	}))
+		co_return PollResult(_theSeq, EPOLLIN, _expirations ? EPOLLIN : 0);
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
