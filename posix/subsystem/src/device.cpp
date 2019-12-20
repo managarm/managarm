@@ -45,21 +45,20 @@ std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 	return *it;
 }
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-openDevice(VfsType type, DeviceId id,
+FutureMaybe<SharedFilePtr> openDevice(VfsType type, DeviceId id,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags), ([=] {
+		SemanticFlags semantic_flags) {
 	if(type == VfsType::charDevice) {
 		auto device = charRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(mount), std::move(link),
-				semantic_flags));
+		co_return co_await device->open(std::move(mount), std::move(link),
+				semantic_flags);
 	}else{
 		assert(type == VfsType::blockDevice);
 		auto device = blockRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(mount), std::move(link),
-				semantic_flags));
+		co_return co_await device->open(std::move(mount), std::move(link),
+				semantic_flags);
 	}
-}))
+}
 
 // --------------------------------------------------------
 // devtmpfs functions.
@@ -70,30 +69,27 @@ std::shared_ptr<FsLink> getDevtmpfs() {
 	return devtmpfs;
 }
 
-COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
-		VfsType type, DeviceId id), ([=] {
+async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id) {
 	size_t k = 0;
 	auto node = getDevtmpfs()->getTarget();
 	while(true) {
 		size_t s = path.find('/', k);
 		if(s == std::string::npos) {
-			COFIBER_AWAIT node->mkdev(path.substr(k), type, id);
+			co_await node->mkdev(path.substr(k), type, id);
 			break;
 		}else{
 			assert(s > k);
 			std::shared_ptr<FsLink> link;
-			link = COFIBER_AWAIT node->getLink(path.substr(k, s - k));
+			link = co_await node->getLink(path.substr(k, s - k));
 			// TODO: Check for errors from mkdir().
 			if(!link)
 				link = std::get<std::shared_ptr<FsLink>>(
-						COFIBER_AWAIT node->mkdir(path.substr(k, s - k)));
+						co_await node->mkdir(path.substr(k, s - k)));
 			k = s + 1;
 			node = link->getTarget();
 		}
 	}
-
-	COFIBER_RETURN();
-}))
+}
 
 // --------------------------------------------------------
 // File implementation for external devices.
@@ -105,24 +101,23 @@ constexpr bool logStatusSeqlock = false;
 
 struct DeviceFile : File {
 private:
-	COFIBER_ROUTINE(expected<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
+	expected<off_t> seek(off_t offset, VfsSeek whence) override {
 		assert(whence == VfsSeek::absolute);
-		COFIBER_AWAIT _file.seekAbsolute(offset);
-		COFIBER_RETURN(offset);
-	}))
+		co_await _file.seekAbsolute(offset);
+		co_return offset;
+	}
 
 	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
-		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
-		COFIBER_RETURN(length);
-	}))
+	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
+		size_t length = co_await _file.readSome(data, max_length);
+		co_return length;
+	}
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence,
-			async::cancellation_token cancellation = {}) override, ([=] {
-		auto result = COFIBER_AWAIT _file.poll(sequence, cancellation);
-		COFIBER_RETURN(result);
-	}))
+	expected<PollResult> poll(Process *, uint64_t sequence,
+			async::cancellation_token cancellation = {}) override {
+		auto result = co_await _file.poll(sequence, cancellation);
+		co_return result;
+	}
 	
 	expected<PollResult> checkStatus(Process *) override {
 		if(!_statusMapping) {
@@ -161,10 +156,10 @@ private:
 		return promise.async_get();
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(off_t offset) override, ([=] {
-		auto memory = COFIBER_AWAIT _file.accessMemory(offset);
-		COFIBER_RETURN(std::move(memory));
-	}))
+	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t offset) override {
+		auto memory = co_await _file.accessMemory(offset);
+		co_return std::move(memory);
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _file.getLane();
@@ -199,10 +194,9 @@ private:
 // External device helpers.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-openExternalDevice(helix::BorrowedLane lane,
+FutureMaybe<SharedFilePtr> openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags), ([=] {
+		SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~(semanticNonBlock)));
 
 	uint32_t open_flags = 0;
@@ -226,7 +220,7 @@ openExternalDevice(helix::BorrowedLane lane,
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_pt, kHelItemChain),
 			helix::action(&pull_page));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -245,11 +239,10 @@ openExternalDevice(helix::BorrowedLane lane,
 	auto file = smarter::make_shared<DeviceFile>(helix::UniqueLane{},
 			pull_pt.descriptor(), std::move(mount), std::move(link), std::move(status_mapping));
 	file->setupWeakFile(file);
-	COFIBER_RETURN(File::constructHandle(std::move(file)));
-}))
+	co_return File::constructHandle(std::move(file));
+}
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mountExternalDevice(helix::BorrowedLane lane),
-		([=] {
+FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -264,7 +257,7 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mountExternalDevice(helix:
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_node));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -273,6 +266,6 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mountExternalDevice(helix:
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	COFIBER_RETURN(extern_fs::createRoot(lane.dup(), pull_node.descriptor()));
-}))
+	co_return extern_fs::createRoot(lane.dup(), pull_node.descriptor());
+}
 
