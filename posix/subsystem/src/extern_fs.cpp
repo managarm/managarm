@@ -325,20 +325,20 @@ private:
 		co_return Error::illegalOperationTarget;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-			symlink(std::string name, std::string link) override, ([=] {
+	FutureMaybe<std::shared_ptr<FsLink>> symlink(std::string name, std::string link) override {
 		(void)name;
 		(void)link;
 		assert(!"symlink is not implemented for extern_fs");
-	}))
+		__builtin_unreachable();
+	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mkdev(std::string name,
-			VfsType type, DeviceId id) override, ([=] {
+	FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name, VfsType type, DeviceId id) override {
 		(void)name;
 		(void)type;
 		(void)id;
 		assert(!"mkdev is not implemented for extern_fs");
-	}))
+		__builtin_unreachable();
+	}
 
 	FutureMaybe<std::shared_ptr<FsLink>>
 			getLink(std::string name) override {
