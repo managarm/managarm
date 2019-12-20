@@ -28,10 +28,10 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 // Attribute implementation.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<void>, Attribute::store(Object *object, std::string data), ([=] {
+async::result<void> Attribute::store(Object *object, std::string data) {
 	// FIXME: Return an error to the caller.
 	throw std::runtime_error("Attribute does not support store()");
-}))
+}
 
 // ----------------------------------------------------------------------------
 // AttributeFile implementation.
@@ -54,20 +54,18 @@ void AttributeFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-COFIBER_ROUTINE(expected<off_t>,
-AttributeFile::seek(off_t offset, VfsSeek whence), ([=] {
+expected<off_t> AttributeFile::seek(off_t offset, VfsSeek whence) {
 	assert(whence == VfsSeek::relative && !offset);
-	COFIBER_RETURN(_offset);
-}))
+	co_return _offset;
+}
 
-COFIBER_ROUTINE(expected<size_t>,
-AttributeFile::readSome(Process *, void *data, size_t max_length), ([=] {
+expected<size_t> AttributeFile::readSome(Process *, void *data, size_t max_length) {
 	assert(max_length > 0);
 
 	if(!_cached) {
 		assert(!_offset);
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
-		_buffer = COFIBER_AWAIT node->_attr->show(node->_object);
+		_buffer = co_await node->_attr->show(node->_object);
 		_cached = true;
 	}
 
@@ -75,17 +73,16 @@ AttributeFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	size_t chunk = std::min(_buffer.size() - _offset, max_length);
 	memcpy(data, _buffer.data() + _offset, chunk);
 	_offset += chunk;
-	COFIBER_RETURN(chunk);
-}))
+	co_return chunk;
+}
 
-COFIBER_ROUTINE(FutureMaybe<void>,
-AttributeFile::writeAll(Process *, const void *data, size_t length), ([=] {
+FutureMaybe<void> AttributeFile::writeAll(Process *, const void *data, size_t length)  {
 	assert(length > 0);
 
 	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
-	COFIBER_AWAIT node->_attr->store(node->_object,
+	co_await node->_attr->store(node->_object,
 			std::string{reinterpret_cast<const char *>(data), length});
-}))
+}
 
 helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {
 	return _passthrough;
@@ -114,16 +111,15 @@ void DirectoryFile::handleClose() {
 }
 
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
-COFIBER_ROUTINE(async::result<ReadEntriesResult>,
-DirectoryFile::readEntries(), ([=] {
+async::result<ReadEntriesResult> DirectoryFile::readEntries() {
 	if(_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
 		_iter++;
-		COFIBER_RETURN(name);
+		co_return name;
 	}else{
-		COFIBER_RETURN(std::nullopt);
+		co_return std::nullopt;
 	}
-}))
+}
 
 helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 	return _passthrough;
@@ -167,7 +163,7 @@ VfsType AttributeNode::getType() {
 	return VfsType::regular;
 }
 
-COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
+FutureMaybe<FileStats> AttributeNode::getStats() {
 	// TODO: Store a file creation time.
 	auto now = clk::getRealtime();
 	
@@ -184,19 +180,18 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 	stats.mtimeNanos = now.tv_nsec;
 	stats.ctimeSecs = now.tv_sec;
 	stats.ctimeNanos = now.tv_nsec;
-	COFIBER_RETURN(stats);
-}))
+	co_return stats;
+}
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-AttributeNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags), ([=] {
+FutureMaybe<SharedFilePtr> AttributeNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
 	assert(!semantic_flags);
 
 	auto file = smarter::make_shared<AttributeFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	AttributeFile::serve(file);
-	COFIBER_RETURN(File::constructHandle(std::move(file)));
-}))
+	co_return File::constructHandle(std::move(file));
+}
 
 // ----------------------------------------------------------------------------
 // SymlinkNode implementation.
@@ -209,12 +204,12 @@ VfsType SymlinkNode::getType() {
 	return VfsType::symlink;
 }
 
-COFIBER_ROUTINE(FutureMaybe<FileStats>, SymlinkNode::getStats(), ([=] {
+FutureMaybe<FileStats> SymlinkNode::getStats() {
 	std::cout << "\e[31mposix: Fix sysfs SymlinkNode::getStats()\e[39m" << std::endl;
-	COFIBER_RETURN(FileStats{});
-}))
+	co_return FileStats{};
+}
 
-COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), ([=] {
+expected<std::string> SymlinkNode::readSymlink(FsLink *link) {
 	auto object = _target.lock();
 	assert(object);
 	
@@ -240,8 +235,8 @@ COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), (
 		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
 	}
 
-	COFIBER_RETURN(path);
-}))
+	co_return path;
+}
 
 // ----------------------------------------------------------------------------
 // DirectoryNode implementation.
@@ -288,34 +283,32 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-COFIBER_ROUTINE(FutureMaybe<FileStats>, DirectoryNode::getStats(), ([=] {
+FutureMaybe<FileStats> DirectoryNode::getStats() {
 	std::cout << "\e[31mposix: Fix sysfs Directory::getStats()\e[39m" << std::endl;
-	COFIBER_RETURN(FileStats{});
-}))
+	co_return FileStats{};
+}
 
 std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	// TODO: Even the root should return a valid link.
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
 }
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
-DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags), ([=] {
+FutureMaybe<SharedFilePtr> DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
 	assert(!semantic_flags);
 
 	auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	DirectoryFile::serve(file);
-	COFIBER_RETURN(File::constructHandle(std::move(file)));
-}))
+	co_return File::constructHandle(std::move(file));
+}
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-		DirectoryNode::getLink(std::string name), ([=] {
+FutureMaybe<std::shared_ptr<FsLink>> DirectoryNode::getLink(std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
-		COFIBER_RETURN(*it);
-	COFIBER_RETURN(nullptr); // TODO: Return an error code.
-}))
+		co_return *it;
+	co_return nullptr; // TODO: Return an error code.
+}
 
 // ----------------------------------------------------------------------------
 // Attribute implementation
