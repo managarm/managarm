@@ -35,7 +35,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		void commit() override;
 		
 	private:
-		cofiber::no_future _dispatch();
+		async::detached _dispatch();
 	
 		GfxDevice *_device;
 		std::optional<ScanoutState> _state;
@@ -103,7 +103,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 			unsigned int screen_width, unsigned int screen_height,
 			size_t screen_pitch, helix::Mapping fb_mapping);
 
-	cofiber::no_future initialize();
+	async::detached initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
 	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) override;

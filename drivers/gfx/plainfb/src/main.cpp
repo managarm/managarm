@@ -14,7 +14,6 @@
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
@@ -48,7 +47,7 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] { 
+async::detached GfxDevice::initialize() { 
 	// Setup planes, encoders and CRTCs (i.e. the static entities).
 	auto plane = std::make_shared<Plane>(this);
 	_theCrtc = std::make_shared<Crtc>(this, plane);
@@ -87,8 +86,9 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
 	});
 	_theConnector->setModeList(supported_modes);
-}))
-	
+	co_return;
+}
+
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
@@ -204,13 +204,13 @@ void GfxDevice::Configuration::commit() {
 	_dispatch();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] {
+async::detached GfxDevice::Configuration::_dispatch() {
 	if(_state && _state->mode) {
 //		std::cout << "Swap to framebuffer " << _state[i]->fb->id()
 //				<< " " << _state[i]->width << "x" << _state[i]->height << std::endl;
 
 		if(!_device->_claimedDevice) {
-			COFIBER_AWAIT _device->_hwDevice.claimDevice();
+			co_await _device->_hwDevice.claimDevice();
 			_device->_claimedDevice = true;
 		}
 
@@ -239,7 +239,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 	}
 
 	complete();
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice::Connector.
@@ -350,11 +350,11 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 //
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
-	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
+async::detached bindController(mbus::Entity entity) {
+	protocols::hw::Device hw_device(co_await entity.bind());
 
-	auto info = COFIBER_AWAIT hw_device.getFbInfo();
-	auto fb_memory = COFIBER_AWAIT hw_device.accessFbMemory();
+	auto info = co_await hw_device.getFbInfo();
+	auto fb_memory = co_await hw_device.accessFbMemory();
 	std::cout << "gfx/plainfb: Resolution " << info.width
 			<< "x" << info.height << " (" << info.bpp
 			<< " bpp, pitch: " << info.pitch << ")" << std::endl;
@@ -366,7 +366,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	gfx_device->initialize();
 
 	// Create an mbus object for the device.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 	
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
@@ -385,11 +385,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("gfx_plainfb", descriptor, std::move(handler));
-}))
+	co_await root.createObject("gfx_plainfb", descriptor, std::move(handler));
+}
 
-COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached observeControllers() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "framebuffer")
@@ -401,8 +401,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		bindController(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 int main() {
 	std::cout << "gfx/plainfb: Starting driver" << std::endl;
