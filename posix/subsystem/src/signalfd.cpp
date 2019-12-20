@@ -26,8 +26,7 @@ public:
 	OpenFile(uint64_t mask)
 	: File{StructName::get("signalfd")}, _mask{mask} { }
 
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *process, void *data, size_t max_length) override, ([=] {
+	expected<size_t> readSome(Process *process, void *data, size_t max_length) override {
 		// TODO: Return an error otherwise.
 		assert(max_length >= sizeof(struct signalfd_siginfo));
 
@@ -38,22 +37,22 @@ public:
 		si.ssi_signo = active->signalNumber;
 
 		memcpy(data, &si, sizeof(struct signalfd_siginfo));
-		COFIBER_RETURN(sizeof(struct signalfd_siginfo));
-	}))
+		co_return sizeof(struct signalfd_siginfo);
+	}
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *process, uint64_t in_seq,
-			async::cancellation_token cancellation) override, ([=] {
-		auto result = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq,
+	expected<PollResult> poll(Process *process, uint64_t in_seq,
+			async::cancellation_token cancellation) override {
+		auto result = co_await process->signalContext()->pollSignal(in_seq,
 				_mask, cancellation);
-		COFIBER_RETURN(PollResult(std::get<0>(result), EPOLLIN, EPOLLIN));
-	}))
+		co_return PollResult(std::get<0>(result), EPOLLIN, EPOLLIN);
+	}
 
-	COFIBER_ROUTINE(expected<PollResult>, checkStatus(Process *process) override, ([=] {
+	expected<PollResult> checkStatus(Process *process) override {
 		auto result = process->signalContext()->checkSignal(_mask);
-		COFIBER_RETURN(PollResult(std::get<0>(result),
+		co_return PollResult(std::get<0>(result),
 					(std::get<1>(result) & _mask) ? EPOLLIN : 0,
-					(std::get<2>(result) & _mask) ? EPOLLIN : 0));
-	}))
+					(std::get<2>(result) & _mask) ? EPOLLIN : 0);
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
