@@ -59,13 +59,12 @@ public:
 	}
 
 public:
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
+	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
 
 		while(_recvQueue.empty())
-			COFIBER_AWAIT _statusBell.async_wait();
+			co_await _statusBell.async_wait();
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
@@ -73,11 +72,10 @@ public:
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
 		_recvQueue.pop_front();
-		COFIBER_RETURN(size);
-	}))
+		co_return size;
+	}
 	
-	COFIBER_ROUTINE(FutureMaybe<void>,
-	writeAll(Process *, const void *data, size_t length) override, ([=] {
+	FutureMaybe<void> writeAll(Process *, const void *data, size_t length) override {
 		throw std::runtime_error("posix: Fix netlink send()");
 /*
 		if(logSockets)
@@ -90,19 +88,18 @@ public:
 		_remote->deliver(std::move(packet));
 */
 
-		COFIBER_RETURN();
-	}))
+		co_return;
+	}
 
-	COFIBER_ROUTINE(expected<RecvResult>,
-	recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
-			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) override, ([=] {
+	expected<RecvResult> recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
+			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) override {
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 		assert(!flags);
 		assert(max_addr_length >= sizeof(struct sockaddr_nl));
 
 		while(_recvQueue.empty())
-			COFIBER_AWAIT _statusBell.async_wait();
+			co_await _statusBell.async_wait();
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
@@ -131,25 +128,25 @@ public:
 		}
 
 		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer()));
-	}))
+		co_return RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer());
+	}
 	
 	expected<size_t> sendMsg(Process *process, MsgFlags flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
 	
-	COFIBER_ROUTINE(async::result<void>, setOption(int option, int value) override, ([=] {
+	async::result<void> setOption(int option, int value) override {
 		assert(option == SO_PASSCRED);
 		_passCreds = value;
-		COFIBER_RETURN();
-	}));
+		co_return;
+	};
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
-			async::cancellation_token cancellation) override, ([=] {
+	expected<PollResult> poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override {
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
-			COFIBER_AWAIT _statusBell.async_wait(cancellation);
+			co_await _statusBell.async_wait(cancellation);
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
@@ -164,8 +161,8 @@ public:
 //				<< " returns (" << _currentSeq
 //				<< ", " << edges << ", " << events << ")" << std::endl;
 
-		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
-	}))
+		co_return PollResult(_currentSeq, edges, events);
+	}
 	
 	async::result<void> bind(Process *, const void *, size_t) override;
 	
@@ -214,10 +211,9 @@ private:
 // OpenFile implementation.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(expected<size_t>,
-OpenFile::sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
+expected<size_t> OpenFile::sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
 		const void *addr_ptr, size_t addr_length,
-		std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
+		std::vector<smarter::shared_ptr<File, FileHandle>> files) {
 	if(logSockets)
 		std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 	assert(!flags);
@@ -264,11 +260,10 @@ OpenFile::sendMsg(Process *process, MsgFlags flags, const void *data, size_t max
 		// TODO: Deliver the message a listener function.
 	}
 
-	COFIBER_RETURN(max_length);
-}))
+	co_return max_length;
+}
 
-COFIBER_ROUTINE(async::result<void>,
-OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length), ([=] {
+async::result<void> OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length) {
 	struct sockaddr_nl sa;
 	assert(addr_length <= sizeof(struct sockaddr_nl));
 	memcpy(&sa, addr_ptr, addr_length);
@@ -291,11 +286,10 @@ OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length), ([=] {
 	}
 
 	// Do nothing for now.
-	COFIBER_RETURN();
-}))
+	co_return;
+}
 
-COFIBER_ROUTINE(async::result<size_t>,
-OpenFile::sockname(void *addr_ptr, size_t max_addr_length), ([=] {
+async::result<size_t> OpenFile::sockname(void *addr_ptr, size_t max_addr_length) {
 	assert(_socketPort);
 
 	// TODO: Fill in nl_groups.
@@ -305,8 +299,8 @@ OpenFile::sockname(void *addr_ptr, size_t max_addr_length), ([=] {
 	sa.nl_pid = _socketPort;
 	memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_nl), max_addr_length));
 	
-	COFIBER_RETURN(sizeof(struct sockaddr_nl));
-}))
+	co_return sizeof(struct sockaddr_nl);
+}
 
 // ----------------------------------------------------------------------------
 // Group implementation.
