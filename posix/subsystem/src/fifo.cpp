@@ -4,9 +4,10 @@
 #include <iostream>
 
 #include <async/doorbell.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
+
+#include <experimental/coroutine>
 
 namespace fifo {
 
@@ -55,17 +56,16 @@ public:
 		_channel = std::move(channel);
 	}
 
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
+	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
 		if(logFifos)
 			std::cout << "posix: Read from pipe " << this << std::endl;
 
 		while(_channel->packetQueue.empty() && _channel->writerCount)
-			COFIBER_AWAIT _channel->statusBell.async_wait();
+			co_await _channel->statusBell.async_wait();
 
 		if(_channel->packetQueue.empty()) {
 			assert(!_channel->writerCount);
-			COFIBER_RETURN(0);
+			co_return 0;
 		}
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
@@ -75,16 +75,16 @@ public:
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
 		_channel->packetQueue.pop_front();
-		COFIBER_RETURN(size);
-	}))
+		co_return size;
+	}
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq,
-			async::cancellation_token cancellation) override, ([=] {
+	expected<PollResult> poll(Process *, uint64_t past_seq,
+			async::cancellation_token cancellation) override {
 		// TODO: Return Error::fileClosed as appropriate.
 		assert(past_seq <= _channel->currentSeq);
 		while(past_seq == _channel->currentSeq
 				&& !cancellation.is_cancellation_requested())
-			COFIBER_AWAIT _channel->statusBell.async_wait(cancellation);
+			co_await _channel->statusBell.async_wait(cancellation);
 
 		if(cancellation.is_cancellation_requested())
 			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
@@ -102,8 +102,8 @@ public:
 		if(!_channel->packetQueue.empty())
 			events |= EPOLLIN;
 
-		COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
-	}))
+		co_return PollResult(_channel->currentSeq, edges, events);
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
@@ -145,8 +145,7 @@ public:
 		_channel = nullptr;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<void>,
-	writeAll(Process *process, const void *data, size_t max_length) override, ([=] {
+	FutureMaybe<void> writeAll(Process *process, const void *data, size_t max_length) override {
 
 		Packet packet;
 		packet.buffer.resize(max_length);
@@ -157,13 +156,14 @@ public:
 		_channel->inSeq = ++_channel->currentSeq;
 		_channel->statusBell.ring();
 
-		COFIBER_RETURN();
-	}))
+		co_return;
+	}
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t,
-			async::cancellation_token) override, ([=] {
+	expected<PollResult> poll(Process *, uint64_t, async::cancellation_token) override {
 		std::cout << "posix: Fix fifo WriterFile::poll()" << std::endl;
-	}))
+		co_await std::experimental::suspend_always{};
+		__builtin_unreachable();
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
