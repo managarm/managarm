@@ -39,8 +39,7 @@ private:
 	: sysfs::Attribute("uevent", true) { }
 
 public:
-	virtual COFIBER_ROUTINE(async::result<std::string>,
-	show(sysfs::Object *object) override, ([=] {
+	virtual async::result<std::string> show(sysfs::Object *object) override {
 		auto device = static_cast<Device *>(object);
 
 		UeventProperties ue;
@@ -51,11 +50,10 @@ public:
 		for(const auto &[name, value] : ue)
 			ss << name << '=' << value << '\n';
 
-		COFIBER_RETURN(ss.str());
-	}))
+		co_return ss.str();
+	}
 
-	virtual COFIBER_ROUTINE(async::result<void>,
-	store(sysfs::Object *object, std::string data) override, ([=] {
+	virtual async::result<void> store(sysfs::Object *object, std::string data) override {
 		auto device = static_cast<Device *>(object);
 
 		UeventProperties ue;
@@ -71,7 +69,8 @@ public:
 		for(const auto &[name, value] : ue)
 			ss << name << '=' << value << '\0';
 		drvcore::emitHotplug(ss.str());
-	}))
+		co_return;
+	}
 };
 
 //-----------------------------------------------------------------------------
