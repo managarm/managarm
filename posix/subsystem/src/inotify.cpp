@@ -49,19 +49,17 @@ public:
 		std::cout << "\e[31m" "posix: Destruction of inotify leaks watches" "\e[39m" << std::endl;
 	}
 
-	COFIBER_ROUTINE(expected<size_t>,
-	readSome(Process *, void *data, size_t max_length) override, ([=] {
+	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
 		throw std::runtime_error("read() from inotify is not implemented");
-	}))
+	}
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence,
-			async::cancellation_token cancellation) override, ([=] {
+	expected<PollResult> poll(Process *, uint64_t sequence, async::cancellation_token cancellation) override {
 		// TODO: Return Error::fileClosed as appropriate.
 
 		assert(sequence <= _currentSeq);
 		while(sequence == _currentSeq
 				&& !cancellation.is_cancellation_requested())
-			COFIBER_AWAIT _statusBell.async_wait(cancellation);
+			co_await _statusBell.async_wait(cancellation);
 
 		int edges = 0;
 		if(_inSeq > sequence)
@@ -71,8 +69,8 @@ public:
 		if(!_queue.empty())
 			events |= EPOLLIN;
 
-		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
-	}))
+		co_return PollResult(_currentSeq, edges, events);
+	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
