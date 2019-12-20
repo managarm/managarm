@@ -30,8 +30,8 @@ private:
 		null, resetting, probing
 	};
 
-	cofiber::no_future _reset();
-	cofiber::no_future _probe();
+	async::detached _reset();
+	async::detached _probe();
 
 	Controller *_controller;
 	State _state;
@@ -48,9 +48,9 @@ struct Controller : std::enable_shared_from_this<Controller> {
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio, helix::UniqueIrq irq);
 	
-	cofiber::no_future initialize();
+	async::detached initialize();
 	async::result<void> probeDevice();
-	cofiber::no_future handleIrqs();
+	async::detached handleIrqs();
 	
 	// ------------------------------------------------------------------------
 	// Schedule classes.
@@ -149,7 +149,7 @@ private:
 	void _checkPorts();	
 
 public:
-	cofiber::no_future resetPort(int number);
+	async::detached resetPort(int number);
 
 	// ----------------------------------------------------------------------------
 	// Debugging functions.
