@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
+#include <algorithm>
 
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
@@ -37,6 +38,18 @@ async::result<protocols::fs::SeekResult> seekEof(void *object, int64_t offset) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset += offset + self->inode->fileSize();
 	co_return self->offset;
+}
+
+using FlockManager = protocols::fs::FlockManager;
+using Flock = protocols::fs::Flock;
+
+async::result<protocols::fs::Error> flock(void *object, int flags) {
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	co_await self->inode->readyJump.async_wait();
+	auto inode = self->inode;
+
+	auto result = co_await inode->flockManager.lock(&self->flock, flags);
+	co_return result;
 }
 
 async::result<protocols::fs::ReadResult> read(void *object, const char *,
@@ -102,15 +115,17 @@ truncate(void *object, size_t size) {
 	co_return co_await self->inode->fs.truncate(self->inode.get(), size);
 }
 
-constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withSeekAbs(&seekAbs)
-	.withSeekRel(&seekRel)
-	.withSeekEof(&seekEof)
-	.withRead(&read)
-	.withWrite(&write)
-	.withReadEntries(&readEntries)
-	.withAccessMemory(&accessMemory)
-	.withTruncate(&truncate);
+constexpr protocols::fs::FileOperations fileOperations {
+	.seekAbs      = &seekAbs,
+	.seekRel      = &seekRel,
+	.seekEof      = &seekEof,
+	.read         = &read,
+	.write        = &write,
+	.flock        = &flock,
+	.readEntries  = &readEntries,
+	.accessMemory = &accessMemory,
+	.truncate     = &truncate
+};
 
 async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object,
 		std::string name) {

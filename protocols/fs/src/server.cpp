@@ -141,6 +141,26 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix::action(&send_resp, ser.data(), ser.size()));
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
+		helix::SendBuffer send_resp;
+
+		assert(file_ops->flock);
+		auto result = co_await file_ops->flock(file.get(), req.flock_flags());
+
+		managarm::fs::SvrResponse resp;
+		if(result == protocols::fs::Error::illegalArguments) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else if(result == protocols::fs::Error::wouldBlock) {
+			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
 		helix::SendBuffer send_resp;
 
