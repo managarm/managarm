@@ -15,7 +15,6 @@
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <fafnir/dsl.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
@@ -81,12 +80,11 @@ async::result<std::string> DeviceState::configurationDescriptor() {
 	return _controller->configurationDescriptor(_device);
 }
 
-COFIBER_ROUTINE(async::result<Configuration>, 
-		DeviceState::useConfiguration(int number), ([=] {
-	COFIBER_AWAIT _controller->useConfiguration(_device, number);
-	COFIBER_RETURN(Configuration{std::make_shared<ConfigurationState>(_controller,
-			_device, number)});
-}))
+async::result<Configuration> DeviceState::useConfiguration(int number) {
+	co_await _controller->useConfiguration(_device, number);
+	co_return Configuration{std::make_shared<ConfigurationState>(_controller,
+			_device, number)};
+}
 
 async::result<void> DeviceState::transfer(ControlTransfer info) {
 	return _controller->transfer(_device, 0, info);
@@ -102,11 +100,10 @@ ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
 	(void)_configuration;
 }
 
-COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int number,
-		int alternative), ([=] {
-	COFIBER_AWAIT _controller->useInterface(_device, number, alternative);
-	COFIBER_RETURN(Interface{std::make_shared<InterfaceState>(_controller, _device, number)});
-}))
+async::result<Interface> ConfigurationState::useInterface(int number, int alternative) {
+	co_await _controller->useInterface(_device, number, alternative);
+	co_return Interface{std::make_shared<InterfaceState>(_controller, _device, number)};
+}
 
 // ----------------------------------------------------------------------------
 // InterfaceState
@@ -118,11 +115,10 @@ InterfaceState::InterfaceState(std::shared_ptr<Controller> controller,
 	(void)_interface;
 }
 
-COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type,
-		int number), ([=] {
-	COFIBER_RETURN(Endpoint{std::make_shared<EndpointState>(_controller,
-			_device, type, number)});
-}))
+async::result<Endpoint> InterfaceState::getEndpoint(PipeType type, int number) {
+	co_return Endpoint{std::make_shared<EndpointState>(_controller,
+			_device, type, number)};
+}
 
 // ----------------------------------------------------------------------------
 // EndpointState
@@ -155,36 +151,35 @@ void Enumerator::observeHub(std::shared_ptr<Hub> hub) {
 		_observePort(hub, port);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, Enumerator::_observePort(std::shared_ptr<Hub> hub,
-		int port), ([=] {
+async::detached Enumerator::_observePort(std::shared_ptr<Hub> hub, int port) {
 	while(true)
-		COFIBER_AWAIT _observationCycle(hub.get(), port);
-}))
+		co_await _observationCycle(hub.get(), port);
+}
 
-COFIBER_ROUTINE(async::result<void>, Enumerator::_observationCycle(Hub *hub, int port), ([=] {
+async::result<void> Enumerator::_observationCycle(Hub *hub, int port) {
 	std::unique_lock<async::mutex> enumerate_lock;
 
 	// Wait until the device is connected.
 	while(true) {
-		auto s = COFIBER_AWAIT hub->pollState(port);
+		auto s = co_await hub->pollState(port);
 
 		if(s.status & hub_status::connect)
 			break;
 	}
 
-	COFIBER_AWAIT _enumerateMutex.async_lock();
+	co_await _enumerateMutex.async_lock();
 	enumerate_lock = std::unique_lock<async::mutex>{_enumerateMutex, std::adopt_lock};
 
 	std::cout << "usb: Issuing reset on port " << port << std::endl;
 	bool low_speed;
-	if(!(COFIBER_AWAIT hub->issueReset(port, &low_speed)))
-		COFIBER_RETURN();
+	if(!(co_await hub->issueReset(port, &low_speed)))
+		co_return;
 	if(low_speed)
 		std::cout << "\e[31musb: Device is low speed!\e[39m" << std::endl;
 	
 	// Wait until the device is enabled.
 	while(true) {
-		auto s = COFIBER_AWAIT hub->pollState(port);
+		auto s = co_await hub->pollState(port);
 
 		// TODO: Handle disconnect here.
 		if(s.status & hub_status::enable)
@@ -192,17 +187,17 @@ COFIBER_ROUTINE(async::result<void>, Enumerator::_observationCycle(Hub *hub, int
 	}
 
 //		std::cout << "usb: Enumerating device on port " << port << std::endl;
-	COFIBER_AWAIT _controller->enumerateDevice(low_speed);
+	co_await _controller->enumerateDevice(low_speed);
 	enumerate_lock.unlock();
 	
 	// Wait until the device is disconnected.
 	while(true) {
-		auto s = COFIBER_AWAIT hub->pollState(port);
+		auto s = co_await hub->pollState(port);
 
 		if(!(s.status & hub_status::connect))
 			break;
 	}
-}))
+}
 
 namespace usb {
 namespace standard_hub {
@@ -239,7 +234,7 @@ struct StandardHub final : Hub {
 	async::result<void> initialize();
 
 private:
-	cofiber::no_future _run();
+	async::detached _run();
 
 public:
 	size_t numPorts() override;
@@ -254,13 +249,13 @@ private:
 	std::vector<PortState> _state;
 };
 
-COFIBER_ROUTINE(async::result<void>, StandardHub::initialize(), ([=] {
+async::result<void> StandardHub::initialize() {
 	// Read the generic USB device configuration.
 	std::experimental::optional<int> cfg_number;
 	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> end_number;
 
-	auto cfg_descriptor = COFIBER_AWAIT _device.configurationDescriptor();
+	auto cfg_descriptor = co_await _device.configurationDescriptor();
 	walkConfiguration(cfg_descriptor, [&] (int type, size_t, void *, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!cfg_number);
@@ -274,9 +269,9 @@ COFIBER_ROUTINE(async::result<void>, StandardHub::initialize(), ([=] {
 		}
 	});
 
-	auto cfg = COFIBER_AWAIT _device.useConfiguration(cfg_number.value());
-	auto intf = COFIBER_AWAIT cfg.useInterface(intf_number.value(), 0);
-	_endpoint = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, end_number.value()));
+	auto cfg = co_await _device.useConfiguration(cfg_number.value());
+	auto intf = co_await cfg.useInterface(intf_number.value(), 0);
+	_endpoint = co_await intf.getEndpoint(PipeType::in, end_number.value());
 
 	// Read the hub class-specific descriptor.
 	struct HubDescriptor : public DescriptorBase {
@@ -292,22 +287,20 @@ COFIBER_ROUTINE(async::result<void>, StandardHub::initialize(), ([=] {
 	get_descriptor->length = sizeof(HubDescriptor);
 
 	arch::dma_object<HubDescriptor> hub_descriptor{_device.bufferPool()};
-	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToHost,
+	co_await _device.transfer(ControlTransfer{kXferToHost,
 			get_descriptor, hub_descriptor.view_buffer()});
 
 	_state.resize(hub_descriptor->numPorts, PortState{0, 0});
 	_run();
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(cofiber::no_future, StandardHub::_run(), ([=] {
+async::detached StandardHub::_run() {
 	std::cout << "usb: Serving standard hub with "
 			<< _state.size() << " ports." << std::endl;
 
 	while(true) {
 		arch::dma_array<uint8_t> report{_device.bufferPool(), (_state.size() + 1 + 7) / 8};
-		COFIBER_AWAIT _endpoint.transfer(InterruptTransfer{XferFlags::kXferToHost,
+		co_await _endpoint.transfer(InterruptTransfer{XferFlags::kXferToHost,
 				report.view_buffer()});
 
 //		std::cout << "usb: Hub report: " << (unsigned int)report[0] << std::endl;
@@ -325,7 +318,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardHub::_run(), ([=] {
 			status_req->length = 4;
 
 			arch::dma_array<uint16_t> result{_device.bufferPool(), 2};
-			COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToHost,
+			co_await _device.transfer(ControlTransfer{kXferToHost,
 					status_req, result.view_buffer()});
 //			std::cout << "usb: Port " << port << " status: "
 //					<< result[0] << ", " << result[1] << std::endl;
@@ -351,7 +344,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardHub::_run(), ([=] {
 				clear_req->index = port + 1;
 				clear_req->length = 0;
 
-				COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+				co_await _device.transfer(ControlTransfer{kXferToDevice,
 						clear_req, arch::dma_buffer_view{}});
 			}
 
@@ -367,7 +360,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardHub::_run(), ([=] {
 				clear_req->index = port + 1;
 				clear_req->length = 0;
 
-				COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+				co_await _device.transfer(ControlTransfer{kXferToDevice,
 						clear_req, arch::dma_buffer_view{}});
 			}
 
@@ -383,30 +376,30 @@ COFIBER_ROUTINE(cofiber::no_future, StandardHub::_run(), ([=] {
 				clear_req->index = port + 1;
 				clear_req->length = 0;
 
-				COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+				co_await _device.transfer(ControlTransfer{kXferToDevice,
 						clear_req, arch::dma_buffer_view{}});
 			}
 		}
 	}
-}))
+}
 
 size_t StandardHub::numPorts() {
 	return _state.size();
 }
 
-COFIBER_ROUTINE(async::result<PortState>, StandardHub::pollState(int port), ([=] {
+async::result<PortState> StandardHub::pollState(int port) {
 	while(true) {
 		auto state = _state[port];
 		if(state.changes) {
 			_state[port].changes = 0;
-			COFIBER_RETURN(state);
+			co_return state;
 		}
 
-		COFIBER_AWAIT _doorbell.async_wait();
+		co_await _doorbell.async_wait();
 	}
-}))
+}
 
-COFIBER_ROUTINE(async::result<bool>, StandardHub::issueReset(int port, bool *low_speed), ([=] {
+async::result<bool> StandardHub::issueReset(int port, bool *low_speed) {
 	// Issue a SetPortFeature request to reset the port.
 	arch::dma_object<SetupPacket> reset_req{_device.setupPool()};
 	reset_req->type = setup_type::targetOther | setup_type::byClass
@@ -416,7 +409,7 @@ COFIBER_ROUTINE(async::result<bool>, StandardHub::issueReset(int port, bool *low
 	reset_req->index = port + 1;
 	reset_req->length = 0;
 
-	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+	co_await _device.transfer(ControlTransfer{kXferToDevice,
 			reset_req, arch::dma_buffer_view{}});
 	
 	// Issue a GetPortStatus request to determine if the device is low-speed.
@@ -429,12 +422,12 @@ COFIBER_ROUTINE(async::result<bool>, StandardHub::issueReset(int port, bool *low
 	status_req->length = 4;
 
 	arch::dma_array<uint16_t> result{_device.bufferPool(), 2};
-	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToHost,
+	co_await _device.transfer(ControlTransfer{kXferToHost,
 			status_req, result.view_buffer()});
 	*low_speed = (result[0] & port_bits::lowSpeed);
 
-	COFIBER_RETURN(true);
-}))
+	co_return true;
+}
 
 } // anonymous namespace
 
@@ -495,8 +488,8 @@ void Controller::initialize() {
 	_refreshFrame();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
-	COFIBER_AWAIT connectKernletCompiler();
+async::detached Controller::_handleIrqs() {
+	co_await connectKernletCompiler();
 
 	std::vector<uint8_t> kernlet_program;
 	fnr::emit_to(std::back_inserter(kernlet_program),
@@ -531,7 +524,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 		fnr::end{}
 	);
 
-	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
+	auto kernlet_object = co_await compile(kernlet_program.data(),
 			kernlet_program.size(), {BindType::offset, BindType::bitsetEvent});
 
 	HelHandle event_handle;
@@ -545,14 +538,14 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 2, &bound_handle));
 	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
 
-	COFIBER_AWAIT _hwDevice.enableBusIrq();
+	co_await _hwDevice.enableBusIrq();
 
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await;
 		auto &&submit = helix::submitAwaitEvent(event, &await, sequence,
 				helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
+		co_await submit.async_wait();
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
@@ -568,9 +561,9 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 			_progressSchedule();
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, Controller::_refreshFrame(), ([=] {
+async::detached Controller::_refreshFrame() {
 	while(true) {
 //		std::cout << "uhci: Frame update" << std::endl;
 		_updateFrame();
@@ -581,10 +574,10 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_refreshFrame(), ([=] {
 		helix::AwaitClock await_clock;
 		auto &&submit = helix::submitAwaitClock(&await_clock, tick + 500'000'000,
 				helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
+		co_await submit.async_wait();
 		HEL_CHECK(await_clock.error());
 	}
-}))
+}
 
 void Controller::_updateFrame() {
 	auto frame = _ioSpace.load(op_regs::frameNumber);
@@ -641,20 +634,19 @@ size_t Controller::RootHub::numPorts() {
 	return 2;
 }
 
-COFIBER_ROUTINE(async::result<PortState>, Controller::RootHub::pollState(int port), ([=] {
+async::result<PortState> Controller::RootHub::pollState(int port) {
 	while(true) {
 		auto state = _controller->_portState[port];
 		if(state.changes) {
 			_controller->_portState[port].changes = 0;
-			COFIBER_RETURN(state);
+			co_return state;
 		}
 
-		COFIBER_AWAIT _controller->_portDoorbell.async_wait();
+		co_await _controller->_portDoorbell.async_wait();
 	}
-}))
+}
 
-COFIBER_ROUTINE(async::result<bool>,
-Controller::RootHub::issueReset(int port, bool *low_speed), ([=] {
+async::result<bool> Controller::RootHub::issueReset(int port, bool *low_speed) {
 	auto port_space = _controller->_ioSpace.subspace(0x10 + (2 * port));
 
 	// Reset the port for 50 ms.
@@ -666,7 +658,7 @@ Controller::RootHub::issueReset(int port, bool *low_speed), ([=] {
 	helix::AwaitClock await_clock;
 	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50'000'000,
 			helix::Dispatcher::global());
-	COFIBER_AWAIT submit.async_wait();
+	co_await submit.async_wait();
 	HEL_CHECK(await_clock.error());
 	
 	// Disable the reset line.
@@ -689,7 +681,7 @@ Controller::RootHub::issueReset(int port, bool *low_speed), ([=] {
 		HEL_CHECK(helGetClock(&now));
 		if(now - start > 1000'000'000) {
 			std::cout << "\e[31muhci: Could not enable device after reset\e[39m" << std::endl;
-			COFIBER_RETURN(false);
+			co_return false;
 		}
 	}
 	
@@ -701,10 +693,10 @@ Controller::RootHub::issueReset(int port, bool *low_speed), ([=] {
 	_controller->_portState[port].changes |= hub_status::reset;
 	_controller->_portDoorbell.ring();
 
-	COFIBER_RETURN(true);
-}))
+	co_return true;
+}
 
-COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed), ([=] {
+async::result<void> Controller::enumerateDevice(bool low_speed) {
 	// This queue will become the default control pipe of our new device.
 	auto queue = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 	_linkAsync(queue);
@@ -722,7 +714,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed)
 	set_address->index = 0;
 	set_address->length = 0;
 
-	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
+	co_await _directTransfer(0, 0, ControlTransfer{kXferToDevice,
 			set_address, arch::dma_buffer_view{}}, queue, low_speed, 8);
 
 	// Enquire the maximum packet size of the default control pipe.
@@ -735,7 +727,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed)
 	get_header->length = 8;
 
 	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};
-	COFIBER_AWAIT _directTransfer(address, 0, ControlTransfer{kXferToHost,
+	co_await _directTransfer(address, 0, ControlTransfer{kXferToHost,
 			get_header, descriptor.view_buffer().subview(0, 8)}, queue, low_speed, 8);
 
 	_activeDevices[address].lowSpeed = low_speed;
@@ -751,7 +743,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed)
 	get_descriptor->index = 0;
 	get_descriptor->length = sizeof(DeviceDescriptor);
 
-	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
+	co_await transfer(address, 0, ControlTransfer{kXferToHost,
 			get_descriptor, descriptor.view_buffer()});
 	assert(descriptor->length == sizeof(DeviceDescriptor));
 
@@ -773,7 +765,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed)
 			&& descriptor->deviceProtocol == 0) {
 		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
 		auto hub = usb::standard_hub::create(Device{std::move(state)});
-		COFIBER_AWAIT hub->initialize();
+		co_await hub->initialize();
 		_enumerator.observeHub(std::move(hub));
 	}
 
@@ -787,7 +779,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed)
 		{ "usb.release", mbus::StringItem{release}}
 	};
 	
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 	
 	char name[3];
 	sprintf(name, "%.2x", address);
@@ -804,16 +796,14 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed)
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject(name, mbus_desc, std::move(handler));
-	COFIBER_RETURN();
-}))
+	co_await root.createObject(name, mbus_desc, std::move(handler));
+}
 
 // ------------------------------------------------------------------------
 // Controller: Device management.
 // ------------------------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(int address),
-		([=] {
+async::result<std::string> Controller::configurationDescriptor(int address) {
 	// Read the descriptor header that contains the hierachy size.
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
 	get_header->type = setup_type::targetDevice | setup_type::byStandard
@@ -824,7 +814,7 @@ COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(
 	get_header->length = sizeof(ConfigDescriptor);
 
 	arch::dma_object<ConfigDescriptor> header{&schedulePool};
-	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
+	co_await transfer(address, 0, ControlTransfer{kXferToHost,
 			get_header, header.view_buffer()});
 	assert(header->length == sizeof(ConfigDescriptor));
 
@@ -838,16 +828,15 @@ COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(
 	get_descriptor->length = header->totalLength;
 
 	arch::dma_buffer descriptor{&schedulePool, header->totalLength};
-	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
+	co_await transfer(address, 0, ControlTransfer{kXferToHost,
 			get_descriptor, descriptor});
 
 	// TODO: This function should return a arch::dma_buffer!
 	std::string copy((char *)descriptor.data(), header->totalLength);
-	COFIBER_RETURN(std::move(copy));
-}))
+	co_return std::move(copy);
+}
 
-COFIBER_ROUTINE(async::result<void>, Controller::useConfiguration(int address,
-		int configuration), ([=] {
+async::result<void> Controller::useConfiguration(int address, int configuration) {
 	arch::dma_object<SetupPacket> set_config{&schedulePool};
 	set_config->type = setup_type::targetDevice | setup_type::byStandard
 			| setup_type::toDevice;
@@ -856,15 +845,12 @@ COFIBER_ROUTINE(async::result<void>, Controller::useConfiguration(int address,
 	set_config->index = 0;
 	set_config->length = 0;
 
-	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToDevice,
+	co_await transfer(address, 0, ControlTransfer{kXferToDevice,
 			set_config, arch::dma_buffer_view{}});
-	
-	COFIBER_RETURN();
-}))
+}
 
-COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
-		int interface, int alternative), ([=] {
-	auto descriptor = COFIBER_AWAIT configurationDescriptor(address);
+async::result<void> Controller::useInterface(int address, int interface, int alternative) {
+	auto descriptor = co_await configurationDescriptor(address);
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
 
@@ -895,9 +881,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 //TODO: For bulk: this->_linkAsync(entity);
 
 	});
-	
-	COFIBER_RETURN();
-}))
+}
 
 // ------------------------------------------------------------------------
 // Controller: Transfer functions.
@@ -1236,16 +1220,16 @@ void Controller::_dump(Transaction *transaction) {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
-	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
-	auto info = COFIBER_AWAIT device.getPciInfo();
+async::detached bindController(mbus::Entity entity) {
+	protocols::hw::Device device(co_await entity.bind());
+	auto info = co_await device.getPciInfo();
 	assert(info.barInfo[4].ioType == protocols::hw::IoType::kIoTypePort);
-	auto bar = COFIBER_AWAIT device.accessBar(4);
-	auto irq = COFIBER_AWAIT device.accessIrq();
+	auto bar = co_await device.accessBar(4);
+	auto irq = co_await device.accessIrq();
 
 	// TODO: Disable the legacy support registers of all UHCI devices
 	// before using one of them!
-	auto legsup = COFIBER_AWAIT device.loadPciSpace(kPciLegacySupport, 2);
+	auto legsup = co_await device.loadPciSpace(kPciLegacySupport, 2);
 	std::cout << "uhci: Legacy support register: " << legsup << std::endl;
 
 	HEL_CHECK(helEnableIo(bar.getHandle()));
@@ -1256,10 +1240,10 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	controller->initialize();
 
 	globalControllers.push_back(std::move(controller));
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached observeControllers() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-class", "0c"),
@@ -1273,8 +1257,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		bindController(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 // --------------------------------------------------------
 // main() function

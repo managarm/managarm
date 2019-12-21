@@ -51,7 +51,7 @@ struct Enumerator {
 	void observeHub(std::shared_ptr<Hub> hub);
 
 private:
-	cofiber::no_future _observePort(std::shared_ptr<Hub> hub, int port);
+	async::detached _observePort(std::shared_ptr<Hub> hub, int port);
 	async::result<void> _observationCycle(Hub *hub, int port);
 
 	BaseController *_controller;
@@ -81,8 +81,8 @@ struct Controller final : std::enable_shared_from_this<Controller>, BaseControll
 			arch::io_space space, helix::UniqueIrq irq);
 
 	void initialize();
-	cofiber::no_future _handleIrqs();
-	cofiber::no_future _refreshFrame();
+	async::detached _handleIrqs();
+	async::detached _refreshFrame();
 	
 	async::result<void> enumerateDevice(bool low_speed) override;
 
