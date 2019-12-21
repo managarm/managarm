@@ -15,7 +15,7 @@ clock_pb = custom_target('clock_pb',
 #clock_pb = gen.process('../../protocols/clock/clock.proto')
 clock_proto_inc = include_directories('include/')
 #libclock_protocol = shared_library('clock_protocol', [clock_pb],
-#	dependencies: [lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
+#	dependencies: [lib_helix_dep, proto_lite_dep],
 #	include_directories: hw_proto_inc,
 #	install: true)
 

@@ -46,7 +46,6 @@ if get_option('build_drivers')
 
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
-	lib_cofiber_dep = cpp_compiler.find_library('cofiber')
 
 	subdir('hel')
 
