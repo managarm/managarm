@@ -14,7 +14,7 @@ drm_core = shared_library('drm_core', [
 	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	dependencies: [
 		clang_coroutine_dep,
-		libarch_dep, lib_helix_dep, lib_cofiber_dep, libfs_protocol_dep,
+		libarch_dep, lib_helix_dep, libfs_protocol_dep,
 		hw_protocol_dep, libmbus_protocol_dep, proto_lite_dep],
 	include_directories: drm_core_inc,
 	install: true)

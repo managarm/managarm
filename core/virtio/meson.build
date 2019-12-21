@@ -5,7 +5,7 @@ virtio_core = shared_library('virtio_core', ['src/core.cpp'],
 	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	dependencies: [
 		clang_coroutine_dep,
-		libarch_dep, lib_helix_dep, lib_cofiber_dep,
+		libarch_dep, lib_helix_dep,
 		hw_protocol_dep, libkernlet_protocol_dep, proto_lite_dep],
 	include_directories: virtio_core_inc,
 	install: true)
