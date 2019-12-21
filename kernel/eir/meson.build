@@ -1,13 +1,13 @@
-
 eir_sources = files(
 	'../../frigg/src/debug.cpp',
 	'../../frigg/src/libc.cpp',
 	'../../frigg/src/arch_x86/gdt.cpp',
 	'../common/font-8x16.cpp',
 	'main.cpp',
-	'multiboot.S')
+	'load.S')
 
-executable('eir', eir_sources,
+mb1_sources = files('multiboot1/multiboot1.S', 'multiboot1/multiboot1.cpp')
+executable('eir-mb1', eir_sources, mb1_sources,
 	include_directories: include_directories(
 		'../include/',
 		'../common/',

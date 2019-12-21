@@ -13,14 +13,9 @@
 #include <frigg/physical_buddy.hpp>
 #include <eir/interface.hpp>
 #include <render-text.hpp>
+#include "main.hpp"
 
 namespace arch = frigg::arch_x86;
-
-// Integer type large enough to hold physical and virtal addresses of the architecture.
-using address_t = uint64_t;
-
-static constexpr int kPageShift = 12;
-static constexpr size_t kPageSize = size_t(1) << kPageShift;
 
 address_t bootMemoryLimit;
 address_t allocatedMemory;
@@ -28,27 +23,6 @@ address_t allocatedMemory;
 // ----------------------------------------------------------------------------
 // Memory region management.
 // ----------------------------------------------------------------------------
-
-enum class RegionType {
-	null,
-	unconstructed,
-	allocatable
-};
-
-struct Region {
-	RegionType regionType;
-	address_t address;
-	address_t size;
-
-	int order;
-	uint64_t numRoots;
-	address_t buddyTree;
-	address_t buddyOverhead;
-	//uint64_t pageStructs;
-	address_t buddyMap;
-};
-
-static constexpr size_t numRegions = 64;
 
 Region regions[numRegions];
 
@@ -250,18 +224,7 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 	frigg::panicLogger() << "Eir: Out of memory" << frigg::endLog;
 }
 
-template<typename T>
-T *bootAlloc() {
-	return new ((void *)bootReserve(sizeof(T), alignof(T))) T();
-}
 
-template<typename T>
-T *bootAllocN(int n) {
-	auto pointer = (T *)bootReserve(sizeof(T) * n, alignof(T));
-	for(size_t i = 0; i < n; i++)
-		new (&pointer[i]) T();
-	return pointer;
-}
 
 uintptr_t allocPage() {
 	for(size_t i = 0; i < numRegions; ++i) {
@@ -293,17 +256,6 @@ void setupPaging() {
 		((uint64_t*)eirPml4Pointer)[i] = pdpt_page | kPagePresent | kPageWrite;
 	}
 }
-
-enum {
-	kAccessWrite = 1,
-	kAccessExecute = 2,
-	kAccessGlobal = 4,
-};
-
-enum class CachingMode {
-	null,
-	writeCombine
-};
 
 // generates a page table where the first entry points to the table itself.
 uint64_t allocPt() {
@@ -458,11 +410,8 @@ address_t mapBootstrapData(void *p) {
 
 // ----------------------------------------------------------------------------
 
-extern char eirRtImageCeiling;
 // TODO: eirRtLoadGdt could be written using inline assembly.
 extern "C" void eirRtLoadGdt(uint32_t *pointer, uint32_t size);
-extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
-		uint64_t stack_ptr);
 
 uint32_t gdtEntries[4 * 2];
 
@@ -527,72 +476,7 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 
 static_assert(sizeof(void *) == 4, "Expected 32-bit system");
 
-enum MbInfoFlags {
-	kMbInfoPlainMemory = 1,
-	kMbInfoBootDevice = 2,
-	kMbInfoCommandLine = 4,
-	kMbInfoModules = 8,
-	kMbInfoFramebuffer = 12,
-	kMbInfoSymbols = 16,
-	kMbInfoMemoryMap = 32
-};
-
-struct MbModule {
-	void *startAddress;
-	void *endAddress;
-	char *string;
-	uint32_t reserved;
-};
-
-struct MbInfo {
-	uint32_t flags;
-	uint32_t memLower;
-	uint32_t memUpper;
-	uint32_t bootDevice;
-	char *commandLine;
-	uint32_t numModules;
-	MbModule *modulesPtr;
-	uint32_t numSymbols;
-	uint32_t symbolSize;
-	void *symbolsPtr;
-	uint32_t stringSection;
-	uint32_t memoryMapLength;
-	void *memoryMapPtr;
-	uint32_t padding[9];
-	uint64_t fbAddress;
-	uint32_t fbPitch;
-	uint32_t fbWidth;
-	uint32_t fbHeight;
-	uint8_t fbBpp;
-	uint8_t fbType;
-	uint8_t colorInfo[6];
-};
-
-struct MbMemoryMap {
-	uint32_t size;
-	uint64_t baseAddress;
-	uint64_t length;
-	uint32_t type;
-};
-
-extern "C" void eirMain(MbInfo *mb_info) {
-	frigg::infoLogger() << "" << frigg::endLog;
-
-	if(mb_info->flags & kMbInfoFramebuffer) {
-		if(mb_info->fbAddress + mb_info->fbWidth * mb_info->fbPitch >= UINTPTR_MAX) {
-			frigg::infoLogger() << "eir: Framebuffer outside of addressable memory!"
-					<< frigg::endLog;
-		}else if(mb_info->fbBpp != 32) {
-			frigg::infoLogger() << "eir: Framebuffer does not use 32 bpp!"
-					<< frigg::endLog;
-		}else{
-			displayFb = reinterpret_cast<void *>(mb_info->fbAddress);
-			displayWidth = mb_info->fbWidth;
-			displayHeight = mb_info->fbHeight;
-			displayPitch = mb_info->fbPitch;
-		}
-	}
-
+void initProcessorEarly(){
 	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
 
 	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
@@ -610,63 +494,11 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	if((extended[3] & arch::kCpuFlagNx) == 0)
 		frigg::panicLogger() << "NX bit is not supported on this CPU" << frigg::endLog;
 
+	frigg::Array<uint32_t, 4> normal = arch::cpuid(arch::kCpuIndexFeatures);
+	if((normal[3] & arch::kCpuFlagPat) == 0)
+		frigg::panicLogger() << "PAT is not supported on this CPU" << frigg::endLog;
+
 	intializeGdt();
-	
-	// Make sure we do not trash ourselfs or our boot modules.
-	bootMemoryLimit = (uintptr_t)&eirRtImageCeiling;
-
-	if((mb_info->flags & kMbInfoModules) != 0) {
-		for(unsigned int i = 0; i < mb_info->numModules; i++) {
-			uintptr_t ceil = (uintptr_t)mb_info->modulesPtr[i].endAddress;
-			if(ceil > bootMemoryLimit)
-				bootMemoryLimit = ceil;
-		}
-	}
-
-	bootMemoryLimit = (bootMemoryLimit + address_t(kPageSize - 1))
-			& ~address_t(kPageSize - 1);
-
-	// ------------------------------------------------------------------------
-	// Memory region setup.
-	// ------------------------------------------------------------------------
-
-	// Walk the memory map and retrieve all useable regions.
-	assert(mb_info->flags & kMbInfoMemoryMap);
-	frigg::infoLogger() << "Memory map:" << frigg::endLog;
-	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
-		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
-		
-		frigg::infoLogger() << "    Type " << map->type << " mapping."
-				<< " Base: 0x" << frigg::logHex(map->baseAddress)
-				<< ", length: 0x" << frigg::logHex(map->length) << frigg::endLog;
-
-		offset += map->size + 4;
-	}
-
-	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
-		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
-
-		if(map->type == 1)
-			createInitialRegion(map->baseAddress, map->length);
-
-		offset += map->size + 4;
-	}
-	setupRegionStructs();
-
-	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
-	for(size_t i = 0; i < numRegions; ++i) {
-		if(regions[i].regionType == RegionType::null)
-			continue;
-		frigg::infoLogger() << "    Memory region [" << i << "]."
-				<< " Base: 0x" << frigg::logHex(regions[i].address)
-				<< ", length: 0x" << frigg::logHex(regions[i].size) << frigg::endLog;
-		if(regions[i].regionType == RegionType::allocatable)
-			frigg::infoLogger() << "        Buddy tree at 0x" << frigg::logHex(regions[i].buddyTree)
-					<< ", overhead: 0x" << frigg::logHex(regions[i].buddyOverhead)
-					<< frigg::endLog;
-	}
-
-	// ------------------------------------------------------------------------
 
 	// Program the PAT. Each byte configures a single entry.
 	// 00: Uncacheable
@@ -676,7 +508,10 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	// Keep in sync with the SMP trampoline in thor.
 	uint64_t pat = 0x00'00'01'00'00'00'04'06;
 	frigg::arch_x86::wrmsr(0x277, pat);
-	
+}
+
+// Returns Core region index
+void initProcessorPaging(void *kernel_start, int& core_idx, uint64_t& kernel_entry){
 	setupPaging();
 	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
 			" after setting up paging" << frigg::endLog;
@@ -689,7 +524,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	mapRegionsAndStructs();
 
 	// Select the largest memory region as the "core region".
-	int core_idx = -1;
+	core_idx = -1;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
@@ -701,19 +536,16 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		frigg::panicLogger() << "eir: Could not set up a useable memory region" << frigg::endLog;
 
 	// Setup the kernel image.
-	assert((mb_info->flags & kMbInfoModules) != 0);
-	assert(mb_info->numModules >= 2);
-	MbModule *kernel_module = &mb_info->modulesPtr[0];
-
-	uint64_t kernel_entry;
-	loadKernelImage(kernel_module->startAddress, &kernel_entry);
+	loadKernelImage(kernel_start, &kernel_entry);
 	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
 			" after loading the kernel" << frigg::endLog;
 
 	// Setup the kernel stack.
 	for(address_t page = 0; page < 0x10000; page += kPageSize)
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), kAccessWrite);
+}
 
+EirInfo *generateInfo(int core_idx, const char* cmdline){
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
@@ -727,8 +559,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info_ptr->coreRegion.buddyTree = regions[core_idx].buddyMap;
 
 	// Parse the kernel command line.
-	assert(mb_info->flags & kMbInfoCommandLine);
-	const char *l = mb_info->commandLine;
+	const char *l = cmdline;
 	while(true) {
 		while(*l && *l == ' ')
 			l++;
@@ -748,48 +579,11 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		l = s;
 	}
 
-	auto cmd_length = strlen(mb_info->commandLine);
+	auto cmd_length = strlen(cmdline);
 	assert(cmd_length <= kPageSize);
 	auto cmd_buffer = bootAllocN<char>(cmd_length);
-	memcpy(cmd_buffer, mb_info->commandLine, cmd_length + 1);
+	memcpy(cmd_buffer, cmdline, cmd_length + 1);
 	info_ptr->commandLine = mapBootstrapData(cmd_buffer);
-
-	// Setup the module information.
-	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);
-	for(size_t i = 0; i < mb_info->numModules - 1; i++) {
-		MbModule &image_module = mb_info->modulesPtr[i + 1];
-		modules[i].physicalBase = (EirPtr)image_module.startAddress;
-		modules[i].length = (EirPtr)image_module.endAddress
-				- (EirPtr)image_module.startAddress;
-
-		size_t name_length = strlen(image_module.string);
-		char *name_ptr = bootAllocN<char>(name_length);
-		memcpy(name_ptr, image_module.string, name_length);
-		modules[i].namePtr = mapBootstrapData(name_ptr);
-		modules[i].nameLength = name_length;
-	}
-	info_ptr->numModules = mb_info->numModules - 1;
-	info_ptr->moduleInfo = mapBootstrapData(modules);
 	
-	if(mb_info->flags & kMbInfoFramebuffer) {
-		auto framebuf = &info_ptr->frameBuffer;
-		framebuf->fbAddress = mb_info->fbAddress;
-		framebuf->fbPitch = mb_info->fbPitch;
-		framebuf->fbWidth = mb_info->fbWidth;
-		framebuf->fbHeight = mb_info->fbHeight;
-		framebuf->fbBpp = mb_info->fbBpp;
-		framebuf->fbType = mb_info->fbType;
-	
-		// Map the framebuffer to a lower-half address.
-		assert(mb_info->fbAddress & ~(kPageSize - 1));
-		for(address_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
-			mapSingle4kPage(0x80000000 + pg, mb_info->fbAddress + pg,
-					kAccessWrite, CachingMode::writeCombine);
-		framebuf->fbEarlyWindow = 0x80000000;
-	}
-
-	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
-	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
-			0xFFFF'FE80'0001'0000);
+	return info_ptr;
 }
-

@@ -1,23 +1,8 @@
-
 .set kEferLme, 0x100
 .set kEferNx, 0x800
 
-.section .header
-	.int 0x1BADB002 # Magic
-	.int 0x4 # Enable graphic fields in the header
-	.int -0x1BADB006 # Checksum
-	.int 0 # File format: header_addr
-	.int 0 # File format: load_addr
-	.int 0 # File format: load_end_addr
-	.int 0 # File format: bss_end_addr
-	.int 0 # File format: entry_addr
-	.int 0 # Graphics: Linear mode
-	.int 0 # Graphics: width
-	.int 0 # Graphics: height
-	.int 32 # Graphics: depth
-
 .section .data
-eirRtGdtr:
+gdtr:
 	.short 0
 	.int 0
 
@@ -25,34 +10,26 @@ eirRtGdtr:
 	.align 16
 eirRtStackBottom:
 	.skip 0x100000 # reserve 1 MiB for the stack
+	.global eirRtStackTop
 eirRtStackTop:
 
 .section .text
-.global eirRtEntry
-eirRtEntry:
-	cld
-	mov $eirRtStackTop, %esp
-	push %ebx
-	call eirMain
-
-halt_kernel:
-	hlt
-	jmp halt_kernel
 
 .global eirRtLoadGdt
 eirRtLoadGdt:
+
 	mov 4(%esp), %eax
 	mov 8(%esp), %ecx
 	
 	# construct gdtr and load it
-	mov %cx, (eirRtGdtr)
-	mov %eax, (eirRtGdtr + 2)
-	lgdt (eirRtGdtr)
+	mov %cx, (gdtr)
+	mov %eax, (gdtr + 2)
+	lgdt (gdtr)
 
 	# reload code segment
-	ljmp $0x8, $gdt_reload
+	ljmp $0x8, $.Lgdt_reload
 
-gdt_reload:
+.Lgdt_reload:
 	# reload data segments
 	mov $0x10, %ax
 	mov %ax, %ds
@@ -96,9 +73,9 @@ eirRtEnterKernel:
 	mov %esi, %cr0
 
 	# load a 64 bit code segment
-	ljmp $0x18, $pkrt_kernel_64bits
+	ljmp $0x18, $.Lkernel_64bits
 
-pkrt_kernel_64bits:
+.Lkernel_64bits:
 .code64
 	mov $0, %si
 	mov %si, %ds
