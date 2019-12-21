@@ -9,7 +9,7 @@
 namespace protocols {
 namespace usb {
 
-cofiber::no_future serve(Device device, helix::UniqueLane lane);
+async::detached serve(Device device, helix::UniqueLane lane);
 
 } } // namespace protocols::usb
 

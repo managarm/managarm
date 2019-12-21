@@ -9,8 +9,7 @@
 namespace protocols {
 namespace usb {
 
-COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
-		helix::UniqueLane p), ([endpoint, lane = std::move(p)] () {
+async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -18,9 +17,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		if(accept.error() == kHelErrEndOfLane)
-			COFIBER_RETURN();
+			co_return;
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -39,7 +38,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			InterruptTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
 			transfer.lazyNotification = req.lazy_notification();
-			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
+			auto length = co_await endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -48,7 +47,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_data, buffer.data(), length));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE) {
@@ -59,12 +58,12 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
 			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&recv_buffer, buffer.data(), buffer.size()));
-			COFIBER_AWAIT payload.async_wait();
+			co_await payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
 		
 			BulkTransfer transfer{XferFlags::kXferToDevice, buffer};
 			transfer.lazyNotification = req.lazy_notification();
-			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
+			auto length = co_await endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -73,7 +72,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST) {
 			helix::SendBuffer send_resp;
@@ -84,7 +83,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			BulkTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
 			transfer.lazyNotification = req.lazy_notification();
-			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
+			auto length = co_await endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -93,7 +92,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_data, buffer.data(), length));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}else{
@@ -105,14 +104,13 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
-		helix::UniqueLane p), ([interface, lane = std::move(p)] () {
+async::detached serveInterface(Interface interface, helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -120,9 +118,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		if(accept.error() == kHelErrEndOfLane)
-			COFIBER_RETURN();
+			co_return;
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -136,7 +134,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto endpoint = COFIBER_AWAIT interface.getEndpoint(static_cast<PipeType>(req.pipetype()), req.number());
+			auto endpoint = co_await interface.getEndpoint(static_cast<PipeType>(req.pipetype()), req.number());
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -150,7 +148,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_lane, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else {
@@ -162,14 +160,13 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configuration,
-		helix::UniqueLane p), ([configuration, lane = std::move(p)] () {
+async::detached serveConfiguration(Configuration configuration, helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -177,9 +174,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		if(accept.error() == kHelErrEndOfLane)
-			COFIBER_RETURN();
+			co_return;
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -193,7 +190,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto interface = COFIBER_AWAIT configuration.useInterface(req.number(),
+			auto interface = co_await configuration.useInterface(req.number(),
 					req.alternative());
 			
 			helix::UniqueLane local_lane, remote_lane;
@@ -207,7 +204,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_lane, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else {
@@ -219,14 +216,13 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
-		([device, lane = std::move(p)] () {
+async::detached serve(Device device, helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -234,9 +230,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		if(accept.error() == kHelErrEndOfLane)
-			COFIBER_RETURN();
+			co_return;
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -250,7 +246,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
-			auto data = COFIBER_AWAIT device.configurationDescriptor();
+			auto data = co_await device.configurationDescriptor();
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -259,7 +255,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_data, data.data(), data.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}else if(req.req_type() == managarm::usb::CntReqType::TRANSFER_TO_HOST) {
@@ -270,10 +266,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			arch::dma_object<SetupPacket> setup(nullptr);
 			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&recv_buffer, setup.data(), sizeof(SetupPacket)));
-			COFIBER_AWAIT payload.async_wait();
+			co_await payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
 			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
-			COFIBER_AWAIT device.transfer(ControlTransfer{XferFlags::kXferToHost, setup, buffer});	
+			co_await device.transfer(ControlTransfer{XferFlags::kXferToHost, setup, buffer});	
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -282,14 +278,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_data, buffer.data(), buffer.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}else if(req.req_type() == managarm::usb::CntReqType::USE_CONFIGURATION) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto configuration = COFIBER_AWAIT device.useConfiguration(req.number());
+			auto configuration = co_await device.useConfiguration(req.number());
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -302,7 +298,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_lane, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else {
@@ -314,11 +310,11 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
 	}
-}))
+}
 
 }}
 
