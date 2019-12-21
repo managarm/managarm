@@ -3,6 +3,7 @@
 
 #include <variant>
 #include <string.h> // for hel.h
+#include <vector>
 
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>

@@ -4,6 +4,7 @@
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
+#include <vector>
 
 namespace protocols {
 namespace hw {

@@ -4,13 +4,13 @@
 #include <iostream>
 #include <set>
 #include <deque>
+#include <unordered_map>
 
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
 #include <hel.h>
 
 #include "file.hpp"
-#include "fs.hpp"
 
 using DeviceId = std::pair<int, int>;
 

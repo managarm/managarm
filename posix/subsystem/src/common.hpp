@@ -2,6 +2,7 @@
 #define POSIX_SUBSYSTEM_COMMON_HPP
 
 #include <iostream>
+#include <unordered_map>
 
 #include <helix/ipc.hpp>
 

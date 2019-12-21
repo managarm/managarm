@@ -1,6 +1,8 @@
 #ifndef POSIX_SUBSYSTEM_SOCKUTIL_HPP
 #define POSIX_SUBSYSTEM_SOCKUTIL_HPP
 
+#include <vector>
+
 // Helper class to build control messages.
 // TODO: Move this to an own file.
 struct CtrlBuilder {

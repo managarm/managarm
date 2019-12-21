@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unordered_map>
 #include <variant>
+#include <vector>
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>

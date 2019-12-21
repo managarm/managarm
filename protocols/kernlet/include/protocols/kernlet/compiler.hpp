@@ -3,6 +3,7 @@
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
+#include <vector>
 
 enum class BindType {
 	null,
