@@ -13,7 +13,6 @@
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
@@ -41,8 +40,7 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withIoctl(&drm_core::File::ioctl)
 	.withPoll(&drm_core::File::poll);
 
-COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device> device,
-		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
+async::detached serveDevice(std::shared_ptr<drm_core::Device> device, helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
@@ -52,7 +50,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
+		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -81,7 +79,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_pt, remote_lane, kHelItemChain),
 					helix::action(&push_page, file->statusPageMemory()));
-			COFIBER_AWAIT transmit.async_wait();
+			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
@@ -89,7 +87,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 			throw std::runtime_error("Invalid request in serveDevice()");
 		}
 	}
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice.
@@ -107,7 +105,7 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 	_operational = arch::global_io;
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
+async::detached GfxDevice::initialize() {
 	_operational.store(regs::index, (uint16_t)RegisterIndex::id);
 	auto version = _operational.load(regs::data); 
 	if(version < 0xB0C2) {
@@ -149,7 +147,8 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 		
 	_theConnector->setupPhysicalDimensions(306, 230);
 	_theConnector->setupSubpixel(0);
-}))
+	co_return;
+}
 	
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
@@ -289,7 +288,7 @@ void GfxDevice::Configuration::commit() {
 	_doCommit();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_doCommit(), ([&] {
+async::detached GfxDevice::Configuration::_doCommit() {
 	if(logCommits)
 		std::cout << "gfx-bochs: Committing configuration" << std::endl;
 	drm_mode_modeinfo last_mode;
@@ -303,7 +302,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_doCommit(), ([&] 
 
 	if(_mode) {
 		if(!_device->_claimedDevice) {
-			COFIBER_AWAIT _device->_hwDevice.claimDevice();
+			co_await _device->_hwDevice.claimDevice();
 			_device->_claimedDevice = true;
 		}
 
@@ -345,7 +344,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_doCommit(), ([&] 
 	}
 
 	complete();
-}))
+}
 
 // ----------------------------------------------------------------
 // GfxDevice::Connector.
@@ -449,11 +448,11 @@ uintptr_t GfxDevice::BufferObject::getAddress() {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
-	protocols::hw::Device pci_device(COFIBER_AWAIT entity.bind());
-	auto info = COFIBER_AWAIT pci_device.getPciInfo();
+async::detached bindController(mbus::Entity entity) {
+	protocols::hw::Device pci_device(co_await entity.bind());
+	auto info = co_await pci_device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
-	auto bar = COFIBER_AWAIT pci_device.accessBar(0);
+	auto bar = co_await pci_device.accessBar(0);
 	
 	void *actual_pointer;
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
@@ -465,7 +464,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	gfx_device->initialize();
 
 	// Create an mbus object for the device.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 	
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
@@ -484,11 +483,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("gfx_bochs", descriptor, std::move(handler));
-}))
+	co_await root.createObject("gfx_bochs", descriptor, std::move(handler));
+}
 
-COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached observeControllers() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-vendor", "1234")
@@ -500,8 +499,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		bindController(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 int main() {
 	printf("gfx/bochs: Starting driver\n");

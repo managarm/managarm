@@ -22,7 +22,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		void commit() override;
 		
 	private:
-		cofiber::no_future _doCommit();
+		async::detached _doCommit();
 
 		GfxDevice *_device;
 		int _width;
@@ -91,7 +91,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	GfxDevice(protocols::hw::Device hw_device,
 			helix::UniqueDescriptor video_ram, void* frame_buffer);
 	
-	cofiber::no_future initialize();
+	async::detached initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
 	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) override;
