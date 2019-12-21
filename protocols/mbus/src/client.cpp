@@ -2,8 +2,6 @@
 #include <sys/auxv.h>
 #include <iostream>
 
-#include <helix/await.hpp>
-
 #include <protocols/mbus/client.hpp>
 #include "mbus.pb.h"
 

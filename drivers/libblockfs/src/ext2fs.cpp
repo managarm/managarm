@@ -7,7 +7,6 @@
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include <helix/memory.hpp>
 
 #include "ext2fs.hpp"

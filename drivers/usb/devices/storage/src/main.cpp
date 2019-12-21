@@ -8,7 +8,6 @@
 #include <stdio.h>
 
 #include <async/result.hpp>
-#include <helix/await.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>

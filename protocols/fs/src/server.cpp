@@ -5,7 +5,6 @@
 #include <iostream>
 
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 
 #include <protocols/fs/server.hpp>
 #include "fs.pb.h"

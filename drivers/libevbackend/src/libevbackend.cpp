@@ -13,7 +13,6 @@
 #include <async/jump.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include <libevbackend.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>

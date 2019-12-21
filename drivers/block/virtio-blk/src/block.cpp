@@ -1,7 +1,6 @@
 
 #include <stdlib.h>
 #include <iostream>
-#include <helix/await.hpp>
 
 #include "block.hpp"
 

@@ -15,7 +15,6 @@
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 
 #include "mbus.pb.h"
 

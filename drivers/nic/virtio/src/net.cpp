@@ -1,8 +1,6 @@
 #include <stdlib.h>
 #include <iostream>
 
-#include <helix/await.hpp>
-
 #include "net.hpp"
 
 namespace nic {

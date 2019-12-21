@@ -2,7 +2,6 @@
 #include <async/result.hpp>
 #include <async/queue.hpp>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include <libevbackend.hpp>
 #include <array>
 #include <vector>

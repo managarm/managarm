@@ -16,7 +16,6 @@
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/kernlet/compiler.hpp>
 #include <protocols/mbus/client.hpp>

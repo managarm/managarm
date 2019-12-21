@@ -5,7 +5,6 @@
 #include <string.h>
 
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include "hw.pb.h"
 #include "protocols/hw/client.hpp"
 

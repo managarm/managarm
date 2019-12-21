@@ -6,7 +6,6 @@
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 
 #include "usb.pb.h"
 #include "protocols/usb/client.hpp"

@@ -3,7 +3,6 @@
 #include <future>
 
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include "file.hpp"
 #include "process.hpp"
 #include "fs.pb.h"

@@ -2,7 +2,6 @@
 #include <string.h>
 #include <iostream>
 
-#include <helix/await.hpp>
 #include "protocols/usb/server.hpp"
 #include "usb.pb.h"
 

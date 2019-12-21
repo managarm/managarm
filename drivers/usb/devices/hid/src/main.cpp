@@ -10,7 +10,6 @@
 #include <string.h>
 
 #include <async/result.hpp>
-#include <helix/await.hpp>
 #include <libevbackend.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>

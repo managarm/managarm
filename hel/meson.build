@@ -11,7 +11,6 @@ install_headers(
     'include/hel-syscalls.h')
 
 install_headers(
-	'include/helix/await.hpp',
 	'include/helix/ipc.hpp',
 	'include/helix/memory.hpp')
 

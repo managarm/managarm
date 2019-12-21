@@ -1,6 +1,5 @@
 
 #include <iostream>
-#include <helix/await.hpp>
 
 #include "fs.pb.h"
 #include "protocols/fs/client.hpp"

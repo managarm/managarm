@@ -1,7 +1,6 @@
 #ifndef HELIX_TIMEOUT_HPP
 #define HELIX_TIMEOUT_HPP
 
-#include <helix/await.hpp>
 #include <helix/ipc.hpp>
 #include <async/cancellation.hpp>
 

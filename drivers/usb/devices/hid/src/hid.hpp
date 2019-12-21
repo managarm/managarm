@@ -3,7 +3,6 @@
 #define HID_HID_HPP
 
 #include <async/result.hpp>
-#include <helix/await.hpp>
 #include <libevbackend.hpp>
 
 // -----------------------------------------------------

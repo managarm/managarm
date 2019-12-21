@@ -12,7 +12,6 @@
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 

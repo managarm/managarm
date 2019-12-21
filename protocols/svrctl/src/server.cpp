@@ -5,7 +5,6 @@
 #include <iostream>
 
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 
 #include <protocols/svrctl/server.hpp>
 #include "svrctl.pb.h"

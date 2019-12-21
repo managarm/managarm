@@ -13,7 +13,6 @@
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helix/ipc.hpp>
-#include <helix/await.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
 
