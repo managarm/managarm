@@ -8,21 +8,25 @@ SECTIONS {
 
 	.text : ALIGN(0x1000) {
 		*(.header)
-		*(.text)
+		*(.text*)
 	}
 	
-	.trampoline : ALIGN(0x100) {
+	.trampoline : ALIGN(0x1000) {
 		trampolineStart = .;
 		*(.trampoline)
 		. = ALIGN(0x1000);
 		trampolineEnd = .;
 	}
 
+	.rodata : ALIGN(0x1000) {
+		*(.rodata*)
+	}
 	.data : ALIGN(0x1000) {
-		*(.data)
+		*(.data*)
 	}
 	.bss : ALIGN(0x1000) {
-		*(.bss)
+		*(COMMON)
+		*(.bss*)
 	}
 
 	eirRtImageCeiling = .;
