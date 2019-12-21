@@ -8,7 +8,6 @@
 #include <stdio.h>
 
 #include <async/result.hpp>
-#include <cofiber.hpp>
 #include <helix/await.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
@@ -26,8 +25,8 @@ namespace {
 	constexpr bool enableRead6 = false;
 }
 
-COFIBER_ROUTINE(cofiber::no_future, StorageDevice::run(int config_num, int intf_num), ([=] {
-	auto descriptor = COFIBER_AWAIT _usbDevice.configurationDescriptor();
+async::detached StorageDevice::run(int config_num, int intf_num) {
+	auto descriptor = co_await _usbDevice.configurationDescriptor();
 
 	std::experimental::optional<int> in_endp_number;
 	std::experimental::optional<int> out_endp_number;
@@ -50,10 +49,10 @@ COFIBER_ROUTINE(cofiber::no_future, StorageDevice::run(int config_num, int intf_
 	if(logSteps)
 		std::cout << "block-usb: Setting up configuration" << std::endl;
 	
-	auto config = COFIBER_AWAIT _usbDevice.useConfiguration(config_num);
-	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
-	auto endp_in = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
-	auto endp_out = COFIBER_AWAIT(intf.getEndpoint(PipeType::out, out_endp_number.value()));
+	auto config = co_await _usbDevice.useConfiguration(config_num);
+	auto intf = co_await config.useInterface(intf_num, 0);
+	auto endp_in = co_await intf.getEndpoint(PipeType::in, in_endp_number.value());
+	auto endp_out = co_await intf.getEndpoint(PipeType::out, out_endp_number.value());
 
 	if(logSteps)
 		std::cout << "block-usb: Device is ready" << std::endl;
@@ -112,7 +111,7 @@ COFIBER_ROUTINE(cofiber::no_future, StorageDevice::run(int config_num, int intf_
 
 			if(logSteps)
 				std::cout << "block-usb: Sending CBW" << std::endl;
-			COFIBER_AWAIT endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
+			co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
 					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}});
 			
 			if(logSteps)
@@ -123,13 +122,13 @@ COFIBER_ROUTINE(cofiber::no_future, StorageDevice::run(int config_num, int intf_
 			// the next transaction is also posted to the queue.
 //			data_info.lazyNotification = true;
 			auto data_xfer = endp_in.transfer(data_info);
-			COFIBER_AWAIT std::move(data_xfer);
+			co_await std::move(data_xfer);
 
 			if(logSteps)
 				std::cout << "block-usb: Waiting for CSW" << std::endl;
 			auto csw_xfer = endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}});
-			COFIBER_AWAIT std::move(csw_xfer);
+			co_await std::move(csw_xfer);
 
 			if(logSteps)
 				std::cout << "block-usb: Request complete" << std::endl;
@@ -147,11 +146,10 @@ COFIBER_ROUTINE(cofiber::no_future, StorageDevice::run(int config_num, int intf_
 			_queue.pop_front();
 			delete req;
 		}else{
-			COFIBER_AWAIT _doorbell.async_wait();
+			co_await _doorbell.async_wait();
 		}
 	}
-
-}))
+}
 
 async::result<void> StorageDevice::readSectors(uint64_t sector, void *buffer,
 			size_t num_sectors) {
@@ -163,8 +161,8 @@ async::result<void> StorageDevice::readSectors(uint64_t sector, void *buffer,
 }
 
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
-	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+async::detached bindDevice(mbus::Entity entity) {
+	auto lane = helix::UniqueLane(co_await entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
 	
 	std::experimental::optional<int> config_number;
@@ -176,7 +174,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	if(logEnumeration)
 		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
-	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+	auto descriptor = co_await device.configurationDescriptor();
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
@@ -210,7 +208,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	if(intf_class.value() != 0x08
 			|| intf_subclass.value() != 0x06
 			|| intf_protocol.value() != 0x50)
-		return;
+		co_return;
 
 	if(logEnumeration)
 		std::cout << "block-usb: Detected USB device" << std::endl;
@@ -218,10 +216,10 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto storage_device = new StorageDevice(device);
 	storage_device->run(config_number.value(), intf_number.value());
 	blockfs::runDevice(storage_device);
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached observeDevices() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("usb.type", "device"),
@@ -234,8 +232,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 		bindDevice(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 // --------------------------------------------------------
 // main() function
