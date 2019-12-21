@@ -5,7 +5,6 @@
 #include <sys/auxv.h>
 #include <iostream>
 
-#include <cofiber.hpp>
 #include <frigg/elf.hpp>
 
 #include "common.hpp"

@@ -2,8 +2,6 @@
 #include <string.h>
 #include <future>
 
-#include <cofiber.hpp>
-#include <cofiber/future.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include "file.hpp"

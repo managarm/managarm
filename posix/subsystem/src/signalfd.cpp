@@ -5,7 +5,6 @@
 #include <iostream>
 
 #include <async/doorbell.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "process.hpp"
 #include "signalfd.hpp"

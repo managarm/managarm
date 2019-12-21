@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <iostream>
+#include <deque>
 
 #include <async/doorbell.hpp>
 #include <helix/ipc.hpp>

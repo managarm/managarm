@@ -3,7 +3,6 @@
 #include <string.h>
 #include <sys/auxv.h>
 
-#include <cofiber.hpp>
 #include "common.hpp"
 #include "clock.hpp"
 #include "exec.hpp"

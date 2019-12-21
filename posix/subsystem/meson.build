@@ -59,7 +59,6 @@ executable('posix-subsystem',
 	dependencies: [
 		clang_coroutine_dep,
 		lib_helix_dep,
-		lib_cofiber_dep,
 		proto_lite_dep,
 		libmbus_protocol_dep,
 		libfs_protocol_dep,

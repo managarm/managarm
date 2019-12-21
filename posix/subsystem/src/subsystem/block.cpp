@@ -2,7 +2,6 @@
 #include <string.h>
 #include <iostream>
 
-#include <cofiber.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "../common.hpp"

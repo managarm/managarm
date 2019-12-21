@@ -7,7 +7,6 @@
 #include <map>
 
 #include <async/doorbell.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "nl-socket.hpp"
 #include "process.hpp"

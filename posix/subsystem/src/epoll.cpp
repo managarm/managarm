@@ -4,7 +4,6 @@
 
 #include <async/doorbell.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "common.hpp"
 #include "epoll.hpp"

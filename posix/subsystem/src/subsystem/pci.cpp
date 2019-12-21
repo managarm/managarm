@@ -3,7 +3,6 @@
 #include <iostream>
 #include <sstream>
 
-#include <cofiber.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "../common.hpp"

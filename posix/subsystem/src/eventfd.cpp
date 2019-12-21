@@ -4,7 +4,6 @@
 #include <iostream>
 
 #include <async/doorbell.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "fs.hpp"
 #include "eventfd.hpp"

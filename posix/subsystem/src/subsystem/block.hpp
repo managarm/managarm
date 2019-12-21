@@ -1,7 +1,7 @@
 #ifndef POSIX_SUBSYSTEM_BLOCK_SYSTEM_HPP
 #define POSIX_SUBSYSTEM_BLOCK_SYSTEM_HPP
 
-#include <cofiber.hpp>
+#include <async/result.hpp>
 
 namespace block_subsystem {
 

@@ -5,9 +5,6 @@
 #include <experimental/coroutine>
 #include <future>
 
-#include <cofiber.hpp>
-#include <cofiber/future.hpp>
-
 #include "common.hpp"
 #include "fs.pb.h"
 #include "vfs.hpp"

@@ -6,7 +6,6 @@
 #include <iostream>
 
 #include <async/doorbell.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "sockutil.hpp"
 #include "un-socket.hpp"

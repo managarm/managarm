@@ -2,8 +2,6 @@
 #include <string.h>
 #include <future>
 
-#include <cofiber.hpp>
-#include <cofiber/future.hpp>
 
 #include "common.hpp"
 #include "fs.hpp"

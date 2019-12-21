@@ -14,7 +14,6 @@
 #include <iostream>
 
 #include <async/jump.hpp>
-#include <cofiber.hpp>
 #include <protocols/mbus/client.hpp>
 #include <helix/timer.hpp>
 
