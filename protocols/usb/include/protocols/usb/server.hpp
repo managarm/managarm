@@ -2,7 +2,7 @@
 #ifndef LIBUSB_SERVER_HPP
 #define LIBUSB_SERVER_HPP
 
-#include <cofiber.hpp>
+#include <async/result.hpp>
 #include <helix/ipc.hpp>
 #include "api.hpp"
 

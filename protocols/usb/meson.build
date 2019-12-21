@@ -9,7 +9,7 @@ libusb_proto_inc = include_directories('include/')
 libusb_protocol = shared_library('usb_protocol', ['src/api.cpp', 'src/client.cpp', 'src/server.cpp', libusb_pb],
 	dependencies: [
 		clang_coroutine_dep,
-		libarch_dep, lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
+		libarch_dep, lib_helix_dep, proto_lite_dep],
 	include_directories: libusb_proto_inc,
 	install: true)
 

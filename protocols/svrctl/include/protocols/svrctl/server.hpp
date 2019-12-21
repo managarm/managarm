@@ -8,7 +8,6 @@
 
 #include <async/cancellation.hpp>
 #include <async/result.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 #include <smarter.hpp>

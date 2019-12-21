@@ -6,7 +6,6 @@
 
 #include <arch/dma_structs.hpp>
 #include <async/result.hpp>
-#include <cofiber.hpp>
 
 #include "usb.hpp"
 

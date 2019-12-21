@@ -9,7 +9,6 @@
 #include <async/result.hpp>
 #include <async/cancellation.hpp>
 #include <boost/variant.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/common.hpp>
 

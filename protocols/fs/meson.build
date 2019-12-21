@@ -9,7 +9,7 @@ fs_proto_inc = include_directories('include/')
 libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_pb],
 	dependencies: [
 		clang_coroutine_dep,
-		lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
+		lib_helix_dep, proto_lite_dep],
 	include_directories: fs_proto_inc,
 	install: true)
 

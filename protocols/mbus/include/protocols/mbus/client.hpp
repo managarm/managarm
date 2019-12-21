@@ -9,7 +9,6 @@
 #include <variant>
 
 #include <async/result.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 
 namespace mbus {
