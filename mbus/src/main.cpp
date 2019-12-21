@@ -14,7 +14,6 @@
 #include <vector>
 
 #include <async/result.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 

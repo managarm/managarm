@@ -8,6 +8,6 @@ mbus_pb = gen.process('../bragi/proto/mbus.proto')
 executable('mbus', ['src/main.cpp', mbus_pb],
 	dependencies: [
 		clang_coroutine_dep,
-		lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
+		lib_helix_dep, proto_lite_dep],
 	install: true)
 
