@@ -10,11 +10,15 @@ namespace frigg FRIGG_VISIBILITY {
 namespace arch_x86 {
 
 enum {
+	kCpuIndexFeatures = 1,
 	kCpuIndexStructuredExtendedFeaturesEnum = 7,
 	kCpuIndexExtendedFeatures = 0x80000001
 };
 
 enum {
+	// Normal features, EDX register
+	kCpuFlagPat = (1 << 16),
+
 	// Structured extended features enumeration, EBX register
 	kCpuFlagFsGsBase = 1,
 
