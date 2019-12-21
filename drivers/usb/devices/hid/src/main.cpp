@@ -10,7 +10,6 @@
 #include <string.h>
 
 #include <async/result.hpp>
-#include <cofiber.hpp>
 #include <helix/await.hpp>
 #include <libevbackend.hpp>
 #include <protocols/mbus/client.hpp>
@@ -507,9 +506,8 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num,
-		int intf_num), ([=] {
-	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+async::detached HidDevice::run(Device device, int config_num, int intf_num) {
+	auto descriptor = co_await device.configurationDescriptor();
 
 	std::vector<size_t> report_descs;
 	std::experimental::optional<int> in_endp_number;
@@ -559,7 +557,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 
 		arch::dma_buffer buffer{device.bufferPool(), report_descs[i]};
 
-		COFIBER_AWAIT device.transfer(ControlTransfer{kXferToHost,
+		co_await device.transfer(ControlTransfer{kXferToHost,
 				get_descriptor, buffer});
 		
 		auto p = reinterpret_cast<uint8_t *>(buffer.data());
@@ -587,7 +585,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		}
 
 	// Create an mbus object for the device.
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	auto root = co_await mbus::Instance::global().getRoot();
 	
 	mbus::Properties mbus_descriptor{
 		{"unix.subsystem", mbus::StringItem{"input"}}
@@ -604,11 +602,11 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		return promise.async_get();
 	});
 
-	COFIBER_AWAIT root.createObject("input_hid", mbus_descriptor, std::move(handler));
+	co_await root.createObject("input_hid", mbus_descriptor, std::move(handler));
 	
-	auto config = COFIBER_AWAIT device.useConfiguration(config_num);
-	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
-	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
+	auto config = co_await device.useConfiguration(config_num);
+	auto intf = co_await config.useInterface(intf_num, 0);
+	auto endp = co_await intf.getEndpoint(PipeType::in, in_endp_number.value());
 
 	// Read reports from the USB device.
 	std::cout << "usb-hid: Entering report loop" << std::endl;
@@ -620,7 +618,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
 		InterruptTransfer transfer{XferFlags::kXferToHost, report};
 		transfer.allowShortPackets = true;
-		auto length = COFIBER_AWAIT endp.transfer(transfer);
+		auto length = co_await endp.transfer(transfer);
 
 		// Some devices (e.g. bochs) send empty packets instead of NAKs.
 		if(!length)
@@ -666,13 +664,13 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		_eventDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 		_eventDev->notify();
 	}
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
-	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+async::detached bindDevice(mbus::Entity entity) {
+	auto lane = helix::UniqueLane(co_await entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
 
-	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+	auto descriptor = co_await device.configurationDescriptor();
 	std::experimental::optional<int> config_number;
 	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> intf_alternative;
@@ -699,17 +697,17 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	});
 	
 	if(!intf_number)
-		COFIBER_RETURN();
+		co_return;
 	std::cout << "usb-hid: Detected HID device. "
 			"Interface: " << intf_number.value()
 			<< ", alternative: " << intf_alternative.value() << std::endl;
 
 	HidDevice* hid_device = new HidDevice();
 	hid_device->run(device, config_number.value(), intf_number.value());
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached observeDevices() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("usb.type", "device"),
@@ -722,8 +720,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 		bindDevice(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 // --------------------------------------------------------
 // main() function

@@ -3,7 +3,6 @@
 #define HID_HID_HPP
 
 #include <async/result.hpp>
-#include <cofiber.hpp>
 #include <helix/await.hpp>
 #include <libevbackend.hpp>
 
@@ -53,7 +52,7 @@ struct Element {
 struct HidDevice {
 	HidDevice();
 	void parseReportDescriptor(Device device, uint8_t* p, uint8_t* limit);
-	cofiber::no_future run(Device device, int intf_num, int config_num);
+	async::detached run(Device device, int intf_num, int config_num);
 
 	std::vector<Field> fields;
 	std::vector<Element> elements;
