@@ -11,7 +11,7 @@ libblockfs_driver = shared_library('blockfs', ['src/libblockfs.cpp', 'src/gpt.cp
 	dependencies: [
 		clang_coroutine_dep,
 		lib_helix_dep, libfs_protocol_dep, libmbus_protocol_dep,
-		lib_cofiber_dep, proto_lite_dep],
+		proto_lite_dep],
 	include_directories: libblockfs_driver_inc,
 	install: true)
 

@@ -13,7 +13,6 @@ executable('kernletcc', ['src/main.cpp', 'src/fafnir.cpp', kernlet_pb],
 	dependencies: [
 		clang_coroutine_dep,
 		lewis_dep,
-		lib_cofiber_dep,
 		lib_helix_dep,
 		proto_lite_dep,
 		libmbus_protocol_dep,

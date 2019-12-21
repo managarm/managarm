@@ -3,7 +3,6 @@
 #define LIBFS_HPP
 
 #include <async/result.hpp>
-#include <cofiber.hpp>
 
 namespace blockfs {
 

@@ -12,7 +12,6 @@
 #include <async/result.hpp>
 #include <async/jump.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include <libevbackend.hpp>

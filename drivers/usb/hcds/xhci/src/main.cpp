@@ -11,7 +11,6 @@
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
-#include <cofiber.hpp>
 #include <fafnir/dsl.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
