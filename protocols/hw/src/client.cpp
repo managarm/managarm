@@ -6,15 +6,13 @@
 
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
-#include <cofiber.hpp>
 #include "hw.pb.h"
 #include "protocols/hw/client.hpp"
 
 namespace protocols {
 namespace hw {
 
-COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
-		([=] {
+async::result<PciInfo> Device::getPciInfo() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -27,7 +25,7 @@ COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -57,11 +55,10 @@ COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 		info.barInfo[i].offset = resp.bars(i).offset();
 	}
 
-	COFIBER_RETURN(info);
-}))
+	co_return info;
+}
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessBar(int index),
-		([=] {
+async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -77,7 +74,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessBar(int in
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_bar));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -88,11 +85,10 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessBar(int in
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
 	auto bar = pull_bar.descriptor();
-	COFIBER_RETURN(std::move(bar));
-}))
+	co_return std::move(bar);
+}
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessIrq(),
-		([=] {
+async::result<helix::UniqueDescriptor> Device::accessIrq() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -107,7 +103,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessIrq(),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_irq));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -117,11 +113,10 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessIrq(),
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
-	COFIBER_RETURN(pull_irq.descriptor());
-}))
+	co_return pull_irq.descriptor();
+}
 
-COFIBER_ROUTINE(async::result<void>, Device::claimDevice(),
-		([=] {
+async::result<void> Device::claimDevice() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -134,7 +129,7 @@ COFIBER_ROUTINE(async::result<void>, Device::claimDevice(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -142,12 +137,9 @@ COFIBER_ROUTINE(async::result<void>, Device::claimDevice(),
 	managarm::hw::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(async::result<void>, Device::enableBusIrq(),
-		([=] {
+async::result<void> Device::enableBusIrq() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -160,7 +152,7 @@ COFIBER_ROUTINE(async::result<void>, Device::enableBusIrq(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -168,12 +160,9 @@ COFIBER_ROUTINE(async::result<void>, Device::enableBusIrq(),
 	managarm::hw::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+}
 
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset,
-		unsigned int size), ([=] {
+async::result<uint32_t> Device::loadPciSpace(size_t offset, unsigned int size) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -188,7 +177,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset,
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -196,11 +185,10 @@ COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset,
 	managarm::hw::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
-	COFIBER_RETURN(resp.word());
-}))
+	co_return resp.word();
+}
 
-COFIBER_ROUTINE(async::result<void>, Device::storePciSpace(size_t offset,
-		unsigned int size, uint32_t word), ([=] {
+async::result<void> Device::storePciSpace(size_t offset, unsigned int size, uint32_t word) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -216,7 +204,7 @@ COFIBER_ROUTINE(async::result<void>, Device::storePciSpace(size_t offset,
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -224,11 +212,9 @@ COFIBER_ROUTINE(async::result<void>, Device::storePciSpace(size_t offset,
 	managarm::hw::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
-	COFIBER_RETURN();
-}))
+}
 
-COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciCapability(unsigned int index,
-		size_t offset, unsigned int size), ([=] {
+async::result<uint32_t> Device::loadPciCapability(unsigned int index, size_t offset, unsigned int size) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -244,7 +230,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciCapability(unsigned int 
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -252,10 +238,10 @@ COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciCapability(unsigned int 
 	managarm::hw::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
-	COFIBER_RETURN(resp.word());
-}))
+	co_return resp.word();
+}
 
-COFIBER_ROUTINE(async::result<FbInfo>, Device::getFbInfo(), ([=] {
+async::result<FbInfo> Device::getFbInfo() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -268,7 +254,7 @@ COFIBER_ROUTINE(async::result<FbInfo>, Device::getFbInfo(), ([=] {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -285,10 +271,10 @@ COFIBER_ROUTINE(async::result<FbInfo>, Device::getFbInfo(), ([=] {
 	info.bpp = resp.fb_bpp();
 	info.type = resp.fb_type();
 
-	COFIBER_RETURN(info);
-}))
+	co_return info;
+}
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessFbMemory(), ([=] {
+async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -303,7 +289,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessFbMemory()
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_bar));
-	COFIBER_AWAIT transmit.async_wait();
+	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -314,8 +300,8 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessFbMemory()
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
 	auto bar = pull_bar.descriptor();
-	COFIBER_RETURN(std::move(bar));
-}))
+	co_return std::move(bar);
+}
 
 } } // namespace protocols::hw
 
