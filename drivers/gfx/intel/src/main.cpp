@@ -6,7 +6,6 @@
 
 #include <arch/mem_space.hpp>
 #include <async/result.hpp>
-#include <cofiber.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -556,16 +555,16 @@ void Controller::relinquishVga() {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
-	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
-	auto info = COFIBER_AWAIT device.getPciInfo();
+async::detached bindController(mbus::Entity entity) {
+	protocols::hw::Device device(co_await entity.bind());
+	auto info = co_await device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	assert(info.barInfo[2].ioType == protocols::hw::IoType::kIoTypeMemory);
 	assert(!info.barInfo[0].offset);
 	assert(!info.barInfo[2].offset);
-	auto ctrl_bar = COFIBER_AWAIT device.accessBar(0);
-	auto memory_bar = COFIBER_AWAIT device.accessBar(2);
-//	auto irq = COFIBER_AWAIT device.accessIrq();
+	auto ctrl_bar = co_await device.accessBar(0);
+	auto memory_bar = co_await device.accessBar(2);
+//	auto irq = co_await device.accessIrq();
 	
 	void *ctrl_window, *memory_window;
 	HEL_CHECK(helMapMemory(ctrl_bar.getHandle(), kHelNullHandle, nullptr,
@@ -577,10 +576,10 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 
 	Controller controller{arch::mem_space(ctrl_window), memory_window};
 	controller.run();
-}))
+}
 
-COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::detached observeControllers() {
+	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-vendor", "8086"),
@@ -593,8 +592,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		bindController(std::move(entity));
 	});
 
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 // --------------------------------------------------------
 // main() function
