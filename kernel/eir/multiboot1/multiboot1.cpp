@@ -58,11 +58,9 @@ struct MbMemoryMap {
 };
 
 extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
-	if(magic != 0x2BADB002){
-		frigg::infoLogger() << "eir: Invalid multiboot1 signature, halting..." << frigg::endLog;
-		asm("cli; hlt");
-	}
-
+	if(magic != 0x2BADB002)
+		frigg::panicLogger() << "eir: Invalid multiboot1 signature, halting..." << frigg::endLog;
+		
 	MbInfo* mb_info = reinterpret_cast<MbInfo*>(info);
 
 	if(mb_info->flags & kMbInfoFramebuffer) {
