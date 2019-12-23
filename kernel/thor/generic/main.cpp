@@ -89,14 +89,14 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	kernelCommandLine.initialize(*kernelAlloc, reinterpret_cast<const char *>(info->commandLine));
 	earlyFibers.initialize(*kernelAlloc);
 
-	initializeReclaim();
-
 	for(int i = 0; i < 64; i++)
 		globalIrqSlots[i].initialize();
 
 	initializeTheSystemEarly();
 	initializeBootProcessor();
 	initializeThisProcessor();
+
+	initializeReclaim();
 	
 	if(logInitialization)
 		frigg::infoLogger() << "thor: Bootstrap processor initialized successfully."

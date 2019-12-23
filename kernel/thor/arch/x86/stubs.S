@@ -31,7 +31,7 @@
 .set .L_imageClientFs, 0xA0
 .set .L_imageClientGs, 0xA8
 
-.set .L_imageFxSave, 0xB0
+.set .L_imageFxSave, 0xC0
 
 .set .L_msrIndexFsBase, 0xC0000100
 .set .L_msrIndexGsBase, 0xC0000101
@@ -558,9 +558,6 @@ doForkExecutor:
 	mov %r14, .L_imageR14(%rdi)
 	mov %r15, .L_imageR15(%rdi)
 
-	# save the cpu's extended state
-	fxsaveq .L_imageFxSave(%rdi)
-	
 	# setup the state for the second return
 	mov (%rsp), %rdx
 	mov %rdx, .L_imageRip(%rdi)
@@ -603,10 +600,7 @@ _restoreExecutorRegisters:
 	mov .L_imageR12(%rdi), %r12
 	mov .L_imageR13(%rdi), %r13
 	mov .L_imageR14(%rdi), %r14
-	mov .L_imageR15(%rdi), %r15
-	
-	# restore the cpu's extended state
-	fxrstorq .L_imageFxSave(%rdi)
+	mov .L_imageR15(%rdi), %r15	
 	
 	mov .L_imageRdi(%rdi), %rdi
 	iretq
