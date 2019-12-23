@@ -708,6 +708,32 @@ void initializeThisProcessor() {
 		frigg::infoLogger() << "\e[37mthor: CPU does not support SMAP!\e[39m" << frigg::endLog;
 	}
 
+	// Enable the SMEP extension.
+	if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 6)) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports SMEP\e[39m" << frigg::endLog;
+
+		uint64_t cr4;
+		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
+		cr4 |= uint32_t(1) << 20;
+		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
+
+	}else{
+		frigg::infoLogger() << "\e[37mthor: CPU does not support SMEP!\e[39m" << frigg::endLog;
+	}
+
+	// Enable the UMIP extension.
+	if(frigg::arch_x86::cpuid(0x07)[2] & (uint32_t(1) << 2)) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports UMIP\e[39m" << frigg::endLog;
+
+		uint64_t cr4;
+		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
+		cr4 |= uint32_t(1) << 11;
+		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
+
+	}else{
+		frigg::infoLogger() << "\e[37mthor: CPU does not support UMIP!\e[39m" << frigg::endLog;
+	}
+
 	// Enable the PCID extension.
 	bool pcid_bit = frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
 	bool invpcid_bit = frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
