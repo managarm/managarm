@@ -8,6 +8,7 @@
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/arch_x86/idt.hpp>
 #include <frigg/arch_x86/tss.hpp>
+#include <frigg/arch_x86/machine.hpp>
 #include <frigg/smart_ptr.hpp>
 #include <frigg/tuple.hpp>
 #include "../../generic/types.hpp"
@@ -517,12 +518,12 @@ public:
 		return reinterpret_cast<General *>(_pointer);
 	}
 
-private:
-	
 	FxState *_fxState() {
-		return reinterpret_cast<FxState *>(_pointer + sizeof(General));
+		// fxState is offset from General by 0x10 bytes to make it aligned
+		return reinterpret_cast<FxState *>(_pointer + sizeof(General) + 0x10);
 	}
 
+private:
 	char *_pointer;
 	void *_syscallStack;
 	frigg::arch_x86::Tss64 *_tss;
@@ -538,6 +539,13 @@ void forkExecutor(F functor, Executor *executor) {
 		auto fp = static_cast<F *>(p);
 		(*fp)();
 	};
+
+	if(getCpuData()->haveXsave) {
+		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+	} else {
+		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+	}	
+
 	doForkExecutor(executor, delegate, &functor);
 }
 
@@ -585,6 +593,8 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	bool haveSmap;
 	bool havePcids;
+	bool haveXsave;
+	size_t xsaveRegionSize;
 
 	LocalApicContext apicContext;
 	

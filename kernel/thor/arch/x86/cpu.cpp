@@ -275,7 +275,14 @@ bool FaultImageAccessor::allowUserPages() {
 // --------------------------------------------------------
 
 size_t Executor::determineSize() {
-	return sizeof(General) + sizeof(FxState);
+	auto *cpu_data = getCpuData();
+
+	// fxState is offset from General by 0x10 bytes to make it 64byte aligned for xsave
+	if(cpu_data->haveXsave){
+		return sizeof(General) + 0x10 + cpu_data->xsaveRegionSize;
+	}else{
+		return sizeof(General) + 0x10 + sizeof(FxState);
+	}	
 }
 
 Executor::Executor()
@@ -284,6 +291,10 @@ Executor::Executor()
 Executor::Executor(UserContext *context, AbiParameters abi) {
 	_pointer = (char *)kernelAlloc->allocate(getStateSize());
 	memset(_pointer, 0, getStateSize());
+
+	// Assert assumptions about xsave
+	assert(!((uintptr_t)_pointer & 0x3F));
+	assert(!((uintptr_t)this->_fxState() & 0x3F));
 
 	_fxState()->mxcsr |= 1 << 7;
 	_fxState()->mxcsr |= 1 << 8;
@@ -314,6 +325,10 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 : _syscallStack{nullptr}, _tss{nullptr} {
 	_pointer = (char *)kernelAlloc->allocate(getStateSize());
 	memset(_pointer, 0, getStateSize());
+
+	// Assert assumptions about xsave
+	assert(!((uintptr_t)_pointer & 0x3F));
+	assert(!((uintptr_t)this->_fxState() & 0x3F));
 
 	_fxState()->mxcsr |= 1 << 7;
 	_fxState()->mxcsr |= 1 << 8;
@@ -367,8 +382,12 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->ss = accessor._frame()->ss;
 	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
 	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
-	
-	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+
+	if(getCpuData()->haveXsave){
+		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+	} else {
+		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+	}
 }
 
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
@@ -397,7 +416,12 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
 	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
 	
-	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+
+	if(getCpuData()->haveXsave){
+		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+	}else{
+		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+	}
 }
 
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
@@ -425,8 +449,12 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->ss = kSelClientUserData;
 	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
 	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
-	
-	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+
+	if(getCpuData()->haveXsave){
+		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+	}else{
+		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+	}
 }
 
 void switchExecutor(frigg::UnsafePtr<Thread> thread) {
@@ -474,12 +502,18 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, executor->general()->clientFs);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, executor->general()->clientGs);
 
+	if(getCpuData()->haveXsave){
+		frigg::arch_x86::xrstor((uint8_t*)executor->_fxState(), ~0);
+	}else{
+		asm volatile ("fxrstorq %0" : : "m" (*executor->_fxState()));
+	}
+
 	uint16_t cs = executor->general()->cs;
 	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
 			|| cs == kSelClientUserCode || cs == kSelSystemFiberCode);
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
-
+	
 	_restoreExecutorRegisters(executor->general());
 }
 
@@ -691,6 +725,45 @@ void initializeThisProcessor() {
 //	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
 //	cr4 |= 0x10000;
 //	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
+
+	// Enable the XSAVE instruction set and child features
+	if(frigg::arch_x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports XSAVE\e[39m" << frigg::endLog;
+
+		uint64_t cr4;
+		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
+		cr4 |= uint32_t(1) << 18; // Enable XSAVE and x{get, set}bv
+		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
+
+		auto xsave_cpuid = frigg::arch_x86::cpuid(0xD);
+
+		uint64_t xcr0 = 0;
+		xcr0 |= (uint64_t(1) << 0); // Enable saving of x87 feature set
+		xcr0 |= (uint64_t(1) << 1); // Enable saving of SSE feature set
+
+		if(frigg::arch_x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
+			frigg::infoLogger() << "\e[37mthor: CPU supports AVX\e[39m" << frigg::endLog;
+			xcr0 |= (uint64_t(1) << 2); // Enable saving of AVX feature set and enable it
+		}else{
+			frigg::infoLogger() << "\e[37mthor: CPU does not support AVX!\e[39m" << frigg::endLog;
+		}
+
+		if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 16)) {
+			frigg::infoLogger() << "\e[37mthor: CPU supports AVX-512\e[39m" << frigg::endLog;
+			xcr0 |= (uint64_t(1) << 5); // Enable AVX-512
+			xcr0 |= (uint64_t(1) << 6); // Enable management of ZMM{0 -> 15}
+			xcr0 |= (uint64_t(1) << 7); // Enable management of ZMM{16 -> 31}
+		}else{
+			frigg::infoLogger() << "\e[37mthor: CPU does not support AVX-512!\e[39m" << frigg::endLog;
+		}
+
+		frigg::arch_x86::wrxcr(0, xcr0);
+
+		cpu_data->xsaveRegionSize = xsave_cpuid[2];
+		cpu_data->haveXsave = true;
+	}else{
+		frigg::infoLogger() << "\e[37mthor: CPU does not support XSAVE!\e[39m" << frigg::endLog;
+	}
 
 	// Enable the SMAP extension.
 	if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 20)) {

@@ -51,6 +51,22 @@ enum {
 	kMsrSyscallEnable = 1
 };
 
+inline void xsave(uint8_t* area, uint64_t rfbm){
+	assert(!((uintptr_t)area & 0x3F));
+
+	uint64_t low = rfbm & 0xFFFFFFFF;
+	uint64_t high = (rfbm >> 32) & 0xFFFFFFFF;
+	asm volatile("xsave %0" : : "m"(*area), "a"(low), "d"(high) : "memory");
+}
+
+inline void xrstor(uint8_t* area, uint64_t rfbm){
+	assert(!((uintptr_t)area & 0x3F));
+
+	uint64_t low = rfbm & 0xFFFFFFFF;
+	uint64_t high = (rfbm >> 32) & 0xFFFFFFFF;
+	asm volatile("xrstor %0" : : "m"(*area), "a"(low), "d"(high) : "memory");
+}
+
 inline void wrmsr(uint32_t index, uint64_t value) {
 	uint32_t low = value;
 	uint32_t high = value >> 32;
@@ -61,6 +77,20 @@ inline void wrmsr(uint32_t index, uint64_t value) {
 inline uint64_t rdmsr(uint32_t index) {
 	uint32_t low, high;
 	asm volatile ( "rdmsr" : "=a" (low), "=d" (high)
+			: "c" (index) : "memory" );
+	return ((uint64_t)high << 32) | (uint64_t)low;
+}
+
+inline void wrxcr(uint32_t index, uint64_t value){
+	uint32_t low = value;
+	uint32_t high = value >> 32;
+	asm volatile ( "xsetbv" : : "c" (index),
+			"a" (low), "d" (high) : "memory" );
+}
+
+inline uint64_t rdxcr(uint32_t index) {
+	uint32_t low, high;
+	asm volatile ( "xgetbv" : "=a" (low), "=d" (high)
 			: "c" (index) : "memory" );
 	return ((uint64_t)high << 32) | (uint64_t)low;
 }
