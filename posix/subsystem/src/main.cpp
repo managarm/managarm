@@ -63,7 +63,9 @@ std::shared_ptr<Process> findProcessWithCredentials(const char *credentials) {
 	return globalCredentialsMap.at(creds);
 }
 
-void dumpRegisters(helix::BorrowedDescriptor thread) {
+void dumpRegisters(std::shared_ptr<Process> proc) {
+	helix::BorrowedDescriptor thread = proc->currentGeneration()->threadDescriptor;
+
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 
@@ -76,6 +78,19 @@ void dumpRegisters(helix::BorrowedDescriptor thread) {
 	printf("r11: %.16lx, r12: %.16lx, r13: %.16lx\n", gprs[9], gprs[10], gprs[11]);
 	printf("r14: %.16lx, r15: %.16lx, rbp: %.16lx\n", gprs[12], gprs[13], gprs[14]);
 	printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
+
+	printf("mappings:\n");
+	for (auto mapping : *(proc->vmContext())) {
+		uintptr_t start = mapping.baseAddress();
+		uintptr_t end = start + mapping.size();
+
+		printf("%016lx - %016lx - %s%s%s - %s + %ld\n", start, end,
+				mapping.isReadable() ? "r" : "",
+				mapping.isWritable() ? "w" : "",
+				mapping.isExecutable() ? "x" : "",
+				mapping.backingFile().get() ? "file" : "anon",
+				mapping.backingFileOffset());
+	}
 }
 
 async::detached observeThread(std::shared_ptr<Process> self,
@@ -313,7 +328,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mposix: User space panic in process %s\n", self->path().c_str());
-			dumpRegisters(thread);
+			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
 
@@ -325,12 +340,12 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else if(observe.observation() == kHelObserveBreakpoint) {
 			printf("\e[35mposix: Breakpoint in process %s\n", self->path().c_str());
-			dumpRegisters(thread);
+			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
 		}else if(observe.observation() == kHelObservePageFault) {
 			printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
-			dumpRegisters(thread);
+			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
 
@@ -342,7 +357,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else if(observe.observation() == kHelObserveGeneralFault) {
 			printf("\e[31mposix: General fault in process %s\n", self->path().c_str());
-			dumpRegisters(thread);
+			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
 
@@ -354,7 +369,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else if(observe.observation() == kHelObserveIllegalInstruction) {
 			printf("\e[31mposix: Illegal instruction in process %s\n", self->path().c_str());
-			dumpRegisters(thread);
+			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
 

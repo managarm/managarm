@@ -49,6 +49,71 @@ private:
 	helix::UniqueDescriptor _space;
 
 	std::map<uintptr_t, Area> _areaTree;
+
+public:
+	struct AreaAccessor {
+		AreaAccessor(std::map<uintptr_t, Area>::iterator iter)
+		:_it{iter} {}
+
+		uintptr_t baseAddress() {
+			return _it->first;
+		}
+
+		size_t size() {
+			return _it->second.areaSize;
+		}
+
+		bool isReadable() {
+			return _it->second.nativeFlags & kHelMapProtRead;
+		}
+
+		bool isWritable() {
+			return _it->second.nativeFlags & kHelMapProtWrite;
+		}
+
+		bool isExecutable() {
+			return _it->second.nativeFlags & kHelMapProtExecute;
+		}
+
+		smarter::borrowed_ptr<File, FileHandle> backingFile() {
+			return _it->second.file;
+		}
+
+		intptr_t backingFileOffset() {
+			return _it->second.offset;
+		}
+
+	private:
+		std::map<uintptr_t, Area>::iterator _it;
+	};
+
+	struct AreaIterator {
+		AreaIterator(std::map<uintptr_t, Area>::iterator iter)
+		:_it{iter} {}
+
+		AreaIterator &operator++() {
+			_it++;
+			return *this;
+		}
+
+		AreaAccessor operator*() {
+			return AreaAccessor{_it};
+		}
+
+		bool operator!=(const AreaIterator &other) {
+			return _it != other._it;
+		}
+	private:
+		std::map<uintptr_t, Area>::iterator _it;
+	};
+
+	AreaIterator begin() {
+		return AreaIterator{_areaTree.begin()};
+	}
+
+	AreaIterator end() {
+		return AreaIterator{_areaTree.end()};
+	}
 };
 
 struct FsContext {
