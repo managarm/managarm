@@ -2,6 +2,7 @@
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
+#include <arch/x86/vmx.hpp>
 
 #include "generic/kernel.hpp"
 #include "generic/service_helpers.hpp"
@@ -657,7 +658,7 @@ void initializeBootProcessor() {
 	staticBootCpuContext->localApicId = getLocalApicId();
 }
 
-void initializeThisProcessor() {	
+void initializeThisProcessor() {
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
 	auto cpu_data = getCpuData();
@@ -826,12 +827,21 @@ void initializeThisProcessor() {
 		frigg::infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frigg::endLog;
 	}
 
+	//Check that both vmx and ept are supported.
+	bool vmxSupported = (frigg::arch_x86::cpuid(0x1)[2] >> 5) & 1 && frigg::arch_x86::rdmsr(0x0000048CU) * (1 << 6);
+	if(!vmxSupported) {
+		frigg::infoLogger() << "vmx: vmx not supported" << frigg::endLog;
+		cpu_data->haveVirtualization = false;
+	} else {
+		cpu_data->haveVirtualization = thor::vmx::vmxon();
+	}
+
 	// setup the syscall interface
 	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]
 			& frigg::arch_x86::kCpuFlagSyscall) == 0)
 		frigg::panicLogger() << "CPU does not support the syscall instruction"
 				<< frigg::endLog;
-	
+
 	uint64_t efer = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrEfer);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrEfer,
 			efer | frigg::arch_x86::kMsrSyscallEnable);

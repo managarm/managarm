@@ -48,7 +48,8 @@ enum {
 	kHelCallUpdateMemory = 47,
 	kHelCallSubmitLockMemoryView = 48,
 	kHelCallLoadahead = 49,
-	
+	kHelCallCreateVirtualizedSpace = 50,
+
 	kHelCallCreateThread = 67,
 	kHelCallQueryThreadStats = 95,
 	kHelCallSetPriority = 85,
@@ -62,14 +63,16 @@ enum {
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
 	kHelCallSubmitAwaitClock = 80,
-	
+	kHelCallCreateVirtualizedCpu = 37,
+	kHelCallRunVirtualizedCpu = 38,
+
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 79,
 	kHelCallShutdownLane = 91,
 
 	kHelCallFutexWait = 70,
 	kHelCallFutexWake = 71,
-	
+
 	kHelCallCreateOneshotEvent = 96,
 	kHelCallCreateBitsetEvent = 97,
 	kHelCallRaiseEvent = 98,
@@ -104,6 +107,7 @@ enum {
 	kHelErrClosedRemotely = 9, // Deprecated name.
 	kHelErrBufferTooSmall = 1,
 	kHelErrFault = 10,
+	kHelErrNoHardwareSupport = 16,
 };
 
 //! Integer type that represents an error or success value.
@@ -369,6 +373,15 @@ struct HelThreadStats {
 	uint64_t userTime;
 };
 
+enum {
+  khelVmexitHlt = 0,
+  khelVmexitError = -1,
+};
+
+struct HelVmexitReason {
+	uint32_t exitReason;
+};
+
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
@@ -418,6 +431,7 @@ HEL_C_LINKAGE HelError helUpdateMemory(HelHandle handle, int type, uintptr_t off
 HEL_C_LINKAGE HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size,
 		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
+HEL_C_LINKAGE HelError helCreateVirtualizedSpace(HelHandle *handle);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
@@ -429,12 +443,14 @@ HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
 HEL_C_LINKAGE HelError helKillThread(HelHandle handle);
 HEL_C_LINKAGE HelError helInterruptThread(HelHandle handle);
 HEL_C_LINKAGE HelError helResume(HelHandle handle);
-HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image); 
+HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image);
 HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
 		HelHandle queue, uintptr_t context, uint64_t *async_id);
+HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
+HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *reason);
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
@@ -481,6 +497,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Buffer too small";
 	case kHelErrFault:
 		return "Segfault";
+	case kHelErrNoHardwareSupport:
+		return "Missing hardware support for this feature";
 	default:
 		return 0;
 	}

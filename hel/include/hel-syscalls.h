@@ -115,7 +115,26 @@ extern inline __attribute__ (( always_inline )) HelError helCreateSpace(HelHandl
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helForkSpace(HelHandle handle, 
+extern inline __attribute__ (( always_inline )) HelError helCreateVirtualizedSpace(HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall0_1(kHelCallCreateVirtualizedSpace, &handle_word);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallCreateVirtualizedCpu, (HelWord)handle, &handle_word);
+	*out_handle = (HelHandle)handle_word;
+	return error;
+}
+
+extern inline __attribute__ (( always_inline )) HelError helRunVirtualizedCpu(HelHandle handle, void *exitInfo) {
+	HelError error = helSyscall2(kHelCallRunVirtualizedCpu, (HelWord)handle, (HelWord)exitInfo);
+	return error;
+}
+
+extern inline __attribute__ (( always_inline )) HelError helForkSpace(HelHandle handle,
 		HelHandle *out_handle) {
 	HelWord handle_word;
 	HelError error = helSyscall1_1(kHelCallForkSpace, (HelWord)handle, &handle_word);
