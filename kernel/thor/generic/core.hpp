@@ -70,6 +70,7 @@ struct CpuData : public PlatformCpuData {
 
 	IrqMutex irqMutex;
 	Scheduler scheduler;
+	bool haveVirtualization;
 
 	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;

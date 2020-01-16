@@ -14,6 +14,7 @@
 #include <eir/interface.hpp>
 #include "../system/pci/pci.hpp"
 #include "../system/fb.hpp"
+#include <arch/x86/ept.hpp>
 
 namespace thor {
 
@@ -97,11 +98,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeThisProcessor();
 
 	initializeReclaim();
-	
+
 	if(logInitialization)
 		frigg::infoLogger() << "thor: Bootstrap processor initialized successfully."
 				<< frigg::endLog;
-	
+
 	// Continue the system initialization.
 	initializeBasicSystem();
 
@@ -119,7 +120,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		// Parse the initrd image.
 		auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
 		assert(info->numModules == 1);
-		
+
 		mfsRoot = frigg::construct<MfsDirectory>(*kernelAlloc);
 		{
 			assert(modules[0].physicalBase % kPageSize == 0);
@@ -656,7 +657,21 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallLoadahead: {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
 	} break;
-
+	case kHelCallCreateVirtualizedSpace: {
+		HelHandle handle;
+		*image.error() = helCreateVirtualizedSpace(&handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallCreateVirtualizedCpu: {
+		HelHandle handle;
+		*image.error() = helCreateVirtualizedCpu((HelHandle)arg0, &handle);
+		*image.out0() = handle;
+		break;
+	}
+	case kHelCallRunVirtualizedCpu: {
+		*image.error() = helRunVirtualizedCpu((HelHandle)arg0, (HelVmexitReason*)arg1);
+		break;
+	}
 	case kHelCallCreateThread: {
 //		frigg::infoLogger() << "[" << this_thread->globalThreadId << "]"
 //				<< " helCreateThread()"

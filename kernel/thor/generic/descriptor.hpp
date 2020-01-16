@@ -5,6 +5,9 @@
 #include <frigg/variant.hpp>
 #include <smarter.hpp>
 #include "mm-rc.hpp"
+#include <arch/x86/ept.hpp>
+#include <arch/x86/vmx.hpp>
+#include <generic/virtualization.hpp>
 
 namespace thor {
 
@@ -63,6 +66,20 @@ struct MemoryViewLockDescriptor {
 	: lock(frigg::move(lock)) { }
 
 	frigg::SharedPtr<NamedMemoryViewLock> lock;
+};
+
+struct VirtualizedSpaceDescriptor {
+	VirtualizedSpaceDescriptor(smarter::shared_ptr<VirtualizedPageSpace> space)
+	: space(frigg::move(space)) { }
+
+	smarter::shared_ptr<VirtualizedPageSpace> space;
+};
+
+struct VirtualizedCpuDescriptor {
+	VirtualizedCpuDescriptor(smarter::shared_ptr<VirtualizedCpu> vcpu)
+	: vcpu(frigg::move(vcpu)) { }
+
+	smarter::shared_ptr<VirtualizedCpu> vcpu;
 };
 
 // --------------------------------------------------------
@@ -205,6 +222,8 @@ typedef frigg::Variant<
 	MemoryViewDescriptor,
 	MemorySliceDescriptor,
 	AddressSpaceDescriptor,
+	VirtualizedSpaceDescriptor,
+	VirtualizedCpuDescriptor,
 	MemoryViewLockDescriptor,
 	ThreadDescriptor,
 	LaneDescriptor,

@@ -8,6 +8,9 @@
 #include "irq.hpp"
 #include "kernlet.hpp"
 #include "../arch/x86/debug.hpp"
+#include <arch/x86/ept.hpp>
+#include <arch/x86/vmx.hpp>
+#include "../../hel/include/hel.h"
 
 using namespace thor;
 
@@ -478,6 +481,71 @@ HelError helCreateSpace(HelHandle *handle) {
 	return kHelErrNone;
 }
 
+HelError helCreateVirtualizedSpace(HelHandle *handle) {
+	if(!getCpuData()->haveVirtualization) {
+		return kHelErrNoHardwareSupport;
+	}
+	auto this_thread = getCurrentThread();
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto this_universe = this_thread->getUniverse();
+
+	PhysicalAddr pml4e = physicalAllocator->allocate(kPageSize);
+	PageAccessor paccessor{pml4e};
+	memset(paccessor.get(), 0, kPageSize);
+	auto vspace = smarter::allocate_shared<thor::vmx::EptSpace>(Allocator{}, pml4e);
+	vspace->map(0x1000, 1);
+
+	Universe::Guard universe_guard(&this_universe->lock);
+	*handle = this_universe->attachDescriptor(universe_guard,
+			VirtualizedSpaceDescriptor(frigg::move(vspace)));
+	return kHelErrNone;
+}
+
+HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
+	if(!getCpuData()->haveVirtualization) {
+		return kHelErrNoHardwareSupport;
+	}
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+	Universe::Guard universe_guard(&this_universe->lock);
+
+	auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+	if(!wrapper)
+		return kHelErrNoDescriptor;
+	if(!wrapper->is<VirtualizedSpaceDescriptor>())
+		return kHelErrBadDescriptor;
+	auto space = wrapper->get<VirtualizedSpaceDescriptor>();
+
+	smarter::shared_ptr<vmx::Vmcs> vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(space.space)));
+
+	*out = this_universe->attachDescriptor(universe_guard,
+			VirtualizedCpuDescriptor(frigg::move(vcpu)));
+	return kHelErrNone;
+}
+
+HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
+	if(!getCpuData()->haveVirtualization) {
+		return kHelErrNoHardwareSupport;
+	}
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+	Universe::Guard universe_guard(&this_universe->lock);
+
+	auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+	if(!wrapper)
+		return kHelErrNoDescriptor;
+	if(!wrapper->is<VirtualizedCpuDescriptor>())
+		return kHelErrBadDescriptor;
+	auto cpu = wrapper->get<VirtualizedCpuDescriptor>();
+	auto info = cpu.vcpu->run();
+	enableUserAccess();
+	memcpy(exitInfo, info, sizeof(HelVmexitReason));
+	disableUserAccess();
+
+	return kHelErrNone;
+}
+
 HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -783,6 +851,15 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		}else if(wrapper->is<ThreadDescriptor>()) {
 			auto thread = wrapper->get<ThreadDescriptor>().thread;
 			space = thread->getAddressSpace().lock();
+		}else if(wrapper->is<VirtualizedSpaceDescriptor>()) {
+			enableUserAccess();
+			auto vspace = wrapper->get<VirtualizedSpaceDescriptor>().space;
+			auto error = vspace->load(address, length, buffer);
+			if(error == kErrFault) {
+				disableUserAccess();
+				return kHelErrFault;
+			}
+			return kHelErrNone;
 		}else{
 			return kHelErrBadDescriptor;
 		}
@@ -833,6 +910,15 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		}else if(wrapper->is<ThreadDescriptor>()) {
 			auto thread = wrapper->get<ThreadDescriptor>().thread;
 			space = thread->getAddressSpace().lock();
+		}else if(wrapper->is<VirtualizedSpaceDescriptor>()) {
+			enableUserAccess();
+			auto vspace = wrapper->get<VirtualizedSpaceDescriptor>().space;
+			auto error = vspace->store(address, length, buffer);
+			if(error == kErrFault) {
+				disableUserAccess();
+				return kHelErrFault;
+			}
+			return kHelErrNone;
 		}else{
 			return kHelErrBadDescriptor;
 		}
