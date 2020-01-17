@@ -11,7 +11,7 @@ namespace thor {
 // I/O related functions
 // --------------------------------------------------------
 
-class IoSpace {
+struct IoSpace {
 public:
 	IoSpace();
 

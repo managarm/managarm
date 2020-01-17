@@ -24,7 +24,7 @@ struct KernletParameterDefn {
 struct KernletObject {
 	// This is only required so that BoundKernlet can access the _entry.
 	// TODO: Add a getIrqAutomationEntry() function instead.
-	friend class BoundKernlet;
+	friend struct BoundKernlet;
 
 	KernletObject(void *entry, const frg::vector<KernletParameterType, KernelAlloc> &bind_types);
 

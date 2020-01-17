@@ -39,13 +39,13 @@ void copyLogMessage(size_t sequence, char *text);
 
 typedef int64_t Handle;
 
-class Universe;
-class Memory;
-class AddressSpace;
-class Thread;
-class Stream;
-class LaneControl;
-class IoSpace;
+struct Universe;
+struct Memory;
+struct AddressSpace;
+struct Thread;
+struct Stream;
+struct LaneControl;
+struct IoSpace;
 
 struct WorkQueue;
 struct KernelFiber;
@@ -107,7 +107,7 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(AddressSpaceLockHandle &lock, ptrdif
 // Process related classes
 // --------------------------------------------------------
 
-class Universe {
+struct Universe {
 public:
 	typedef frigg::TicketLock Lock;
 	typedef frigg::LockGuard<frigg::TicketLock> Guard;

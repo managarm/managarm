@@ -14,8 +14,8 @@ struct IntrusiveSharedLinkedItem {
 
 template<typename T, IntrusiveSharedLinkedItem<T> T::* Ptr>
 struct IntrusiveSharedLinkedList {
-	class Iterator {
-	friend class IntrusiveSharedLinkedList;
+	struct Iterator {
+	friend struct IntrusiveSharedLinkedList;
 	public:
 		UnsafePtr<T> operator* () {
 			return _current;
@@ -106,7 +106,7 @@ private:
 };
 
 template<typename T, typename Allocator>
-class LinkedList {
+struct LinkedList {
 private:
 	struct Item {
 		T element;
@@ -120,8 +120,8 @@ private:
 	};
 
 public:
-	class Iterator {
-	friend class LinkedList;
+	struct Iterator {
+	friend struct LinkedList;
 	public:
 		T &operator* () {
 			return p_current->element;
