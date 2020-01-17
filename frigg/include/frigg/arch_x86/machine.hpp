@@ -54,16 +54,16 @@ enum {
 inline void xsave(uint8_t* area, uint64_t rfbm){
 	assert(!((uintptr_t)area & 0x3F));
 
-	uint64_t low = rfbm & 0xFFFFFFFF;
-	uint64_t high = (rfbm >> 32) & 0xFFFFFFFF;
+	uintptr_t low = rfbm & 0xFFFFFFFF;
+	uintptr_t high = (rfbm >> 32) & 0xFFFFFFFF;
 	asm volatile("xsave %0" : : "m"(*area), "a"(low), "d"(high) : "memory");
 }
 
 inline void xrstor(uint8_t* area, uint64_t rfbm){
 	assert(!((uintptr_t)area & 0x3F));
 
-	uint64_t low = rfbm & 0xFFFFFFFF;
-	uint64_t high = (rfbm >> 32) & 0xFFFFFFFF;
+	uintptr_t low = rfbm & 0xFFFFFFFF;
+	uintptr_t high = (rfbm >> 32) & 0xFFFFFFFF;
 	asm volatile("xrstor %0" : : "m"(*area), "a"(low), "d"(high) : "memory");
 }
 
