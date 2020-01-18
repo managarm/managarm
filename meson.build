@@ -81,6 +81,7 @@ if get_option('build_drivers')
 	subdir('drivers/usb/devices/storage/')
 	subdir('drivers/kernletcc')
 	subdir('utils/runsvr/')
+	subdir('utils/lsmbus/')
 	subdir('testsuites/posix-torture/')
 
 	subdir('drivers/clocktracker')
