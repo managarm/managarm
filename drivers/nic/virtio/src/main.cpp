@@ -15,6 +15,8 @@
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/svrctl/server.hpp>
+#include <protocols/fs/server.hpp>
+#include "fs.pb.h"
 
 #include "net.hpp"
 
@@ -60,6 +62,94 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	co_return protocols::svrctl::Error::success;
 }
 
+namespace {
+async::result<protocols::fs::ReadResult> noopRead(void *, const char *, void *buffer, size_t length) {
+	memset(buffer, 0, length);
+	co_return length;
+}
+
+async::result<void> noopWrite(void*, const char*, const void *, size_t) {
+	co_return;
+}
+}
+
+constexpr protocols::fs::FileOperations fileOps {
+	.read  = &noopRead,
+	.write = &noopWrite
+};
+
+async::detached serve(helix::UniqueLane lane) {
+	while (true) {
+		helix::Accept accept;
+		helix::RecvInline recv_req;
+
+		auto header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
+		co_await header.async_wait();
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());
+
+		auto conversation = accept.descriptor();
+
+		managarm::fs::CntRequest req;
+		req.ParseFromArray(recv_req.data(), recv_req.length());
+
+		if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_socket;
+			auto [local_lane, remote_lane] = helix::createStream();
+			std::cout << "netserver: proto " << req.protocol()
+				  << " type " << req.type() << std::endl;
+
+			async::detach(protocols::fs::servePassthrough(
+						std::move(local_lane), nullptr, &fileOps));
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&push_socket, remote_lane));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_socket.error());
+		} else {
+			helix::SendBuffer send_resp;
+			std::cout << "netserver: received unknown request type: "
+				<< req.req_type() << std::endl;
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}
+	}
+}
+
+async::detached advertise() {
+	auto root = co_await mbus::Instance::global().getRoot();
+
+	mbus::Properties descriptor {
+		{"class", mbus::StringItem{"netserver"}}
+	};
+
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+		auto [local_lane, remote_lane] = helix::createStream();
+
+		serve(std::move(local_lane));
+		co_return std::move(remote_lane);
+	});
+
+	co_await root.createObject("netserver", descriptor, std::move(handler));
+}
+
 static constexpr protocols::svrctl::ControlOperations controlOps = {
 	.bind = bindDevice
 };
@@ -76,6 +166,7 @@ int main() {
 	{
 		async::queue_scope scope{helix::globalQueue()};
 		async::detach(protocols::svrctl::serveControl(&controlOps));
+		advertise();
 	}
 
 	helix::globalQueue()->run();
