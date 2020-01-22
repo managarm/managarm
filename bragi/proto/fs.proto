@@ -82,6 +82,9 @@ enum CntReqType {
 	PT_GET_OPTION = 26;
 	PT_SET_OPTION = 25;
 
+	// Socket API
+	CREATE_SOCKET = 32;
+
 	// Legacy API.
 	OPEN = 1;
 	CONNECT = 10;
@@ -103,6 +106,10 @@ message CntRequest {
 
 	// used by OPEN_ENTRY
 	optional string path = 2;
+
+	// used by SOCKET_CREATE
+	optional int64 type = 49;
+	optional int64 protocol = 50;
 
 	// used by DEV_OPEN
 	optional uint32 flags = 39;

@@ -17,6 +17,7 @@
 #include <protocols/mbus/client.hpp>
 #include <helix/timer.hpp>
 
+#include "net.hpp"
 #include "common.hpp"
 #include "clock.hpp"
 #include "device.hpp"
@@ -27,6 +28,7 @@
 #include "epoll.hpp"
 #include "exec.hpp"
 #include "extern_fs.hpp"
+#include "extern_socket.hpp"
 #include "devices/helout.hpp"
 #include "fifo.hpp"
 #include "inotify.hpp"
@@ -426,6 +428,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			break;
 		HEL_CHECK(accept.error());
 		auto conversation = accept.descriptor();
+
+		auto sendErrorResponse = [&conversation] (managarm::posix::Errors err) -> async::result<void> {
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(err);
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		};
 
 		auto &&initiate = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_req));
@@ -1491,6 +1505,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: SOCKET" << std::endl;
 
 			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
@@ -1508,6 +1524,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else if(req.domain() == AF_NETLINK) {
 				assert(req.socktype() == SOCK_RAW || req.socktype() == SOCK_DGRAM);
 				file = nl_socket::createSocketFile(req.protocol());
+			} else if (req.domain() == AF_INET) {
+				if (req.socktype() != SOCK_DGRAM || req.protocol()) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+				// TODO(arsen) Support SOCK_STREAM and SOCK_RAW + proto
+
+				file = co_await extern_socket::createSocket(
+					co_await net::getNetLane(),
+					req.socktype(), req.protocol());
 			}else{
 				throw std::runtime_error("posix: Handle unknown protocol families");
 			}
@@ -1515,8 +1541,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto fd = self->fileContext()->attachFile(file,
 					req.flags() & SOCK_CLOEXEC);
 
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
 
 			auto ser = resp.SerializeAsString();
@@ -2126,6 +2150,7 @@ async::result<void> enumerateKerncfg() {
 async::detached runInit() {
 	co_await enumerateKerncfg();
 	co_await clk::enumerateTracker();
+	async::detach(net::enumerateNetserver());
 	co_await populateRootView();
 	co_await Process::init("sbin/posix-init");
 }
