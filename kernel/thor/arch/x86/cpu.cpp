@@ -608,10 +608,10 @@ size_t getStateSize() {
 	return Executor::determineSize();
 }
 
-CpuData *getCpuData() {
+PlatformCpuData *getPlatformCpuData() {
 	AssemblyCpuData *cpu_data;
 	asm ("mov %%gs:0, %0" : "=r"(cpu_data));
-	return static_cast<CpuData *>(cpu_data);
+	return static_cast<PlatformCpuData *>(cpu_data);
 }
 
 CpuData *getCpuData(size_t k) {

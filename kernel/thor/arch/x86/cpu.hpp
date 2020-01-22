@@ -26,13 +26,13 @@ enum {
 	kGdtIndexNull = 0,
 
 	kGdtIndexInitialCode = 1,
-	
+
 	// note that the TSS consumes two entries in the GDT.
 	// we put it into the second GDT entry so that it is properly aligned.
 	kGdtIndexTask = 2,
 
 	kGdtIndexSystemIrqCode = 4,
-	
+
 	kGdtIndexExecutorFaultCode = 5,
 	// the order of the following segments should not change
 	// because syscall/sysret demands this layout
@@ -65,7 +65,7 @@ enum {
 	kSelClientUserCode = selectorFor(kGdtIndexClientUserCode, 3),
 	kSelSystemIdleCode = selectorFor(kGdtIndexSystemIdleCode, 0),
 	kSelSystemFiberCode = selectorFor(kGdtIndexSystemFiberCode, 0),
-	
+
 	kSelSystemNmiCode = selectorFor(kGdtIndexSystemNmiCode, 0)
 };
 
@@ -98,7 +98,7 @@ struct UniqueKernelStack {
 	void *base() {
 		return _base;
 	}
-	
+
 	template<typename T, typename... Args>
 	T *embed(Args &&... args) {
 		// TODO: Do not use a magic number as stack alignment here.
@@ -129,7 +129,7 @@ struct FaultImageAccessor {
 	Word *ss() { return &_frame()->ss; }
 	Word *rflags() { return &_frame()->rflags; }
 	Word *code() { return &_frame()->code; }
-	
+
 	bool inKernelDomain() {
 		if(*cs() == kSelSystemIrqCode
 				|| *cs() == kSelSystemIdleCode
@@ -186,12 +186,12 @@ struct IrqImageAccessor {
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 
 	Word *ip() { return &_frame()->rip; }
-	
+
 	// TODO: These are only exposed for debugging.
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
 	Word *ss() { return &_frame()->ss; }
-	
+
 	bool inPreemptibleDomain() {
 		assert(*cs() == kSelSystemIdleCode
 				|| *cs() == kSelSystemFiberCode
@@ -311,7 +311,7 @@ private:
 	Frame *_frame() {
 		return reinterpret_cast<Frame *>(_pointer);
 	}
-	
+
 	char *_pointer;
 };
 
@@ -319,7 +319,7 @@ struct NmiImageAccessor {
 	void **expectedGs() {
 		return &_frame()->expectedGs;
 	}
-	
+
 	Word *ip() { return &_frame()->rip; }
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
@@ -363,7 +363,6 @@ private:
 
 // CpuData is some high-level struct that inherits from PlatformCpuData.
 struct CpuData;
-CpuData *getCpuData();
 CpuData *getCpuData(size_t k);
 int getCpuCount();
 
@@ -413,7 +412,7 @@ struct Executor {
 	static size_t determineSize();
 
 	Executor();
-	
+
 	explicit Executor(UserContext *context, AbiParameters abi);
 	explicit Executor(FiberContext *context, AbiParameters abi);
 
@@ -456,7 +455,7 @@ private:
 		Word r13;			// offset 0x60
 		Word r14;			// offset 0x68
 		Word r15;			// offset 0x70
-		
+
 		Word rip;			// offset 0x78
 		Word cs;			// offset 0x80
 		Word rflags;		// offset 0x88
@@ -533,22 +532,6 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
-template<typename F>
-void forkExecutor(F functor, Executor *executor) {
-	auto delegate = [] (void *p) {
-		auto fp = static_cast<F *>(p);
-		(*fp)();
-	};
-
-	if(getCpuData()->haveXsave) {
-		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
-	} else {
-		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
-	}	
-
-	doForkExecutor(executor, delegate, &functor);
-}
-
 // Copies the current state into the executor and calls the supplied function.
 extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
 
@@ -585,7 +568,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack irqStack;
 	UniqueKernelStack nmiStack;
 	UniqueKernelStack detachedStack;
-	
+
 	frigg::arch_x86::Tss64 tss;
 
 	PageContext pageContext;
@@ -597,10 +580,12 @@ struct PlatformCpuData : public AssemblyCpuData {
 	size_t xsaveRegionSize;
 
 	LocalApicContext apicContext;
-	
+
 	// TODO: This is not really arch-specific!
 	frigg::UnsafePtr<Thread> activeExecutor;
 };
+
+PlatformCpuData *getPlatformCpuData();
 
 void enableUserAccess();
 void disableUserAccess();
@@ -635,6 +620,22 @@ void initializeBootProcessor();
 void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);
+
+template<typename F>
+void forkExecutor(F functor, Executor *executor) {
+	auto delegate = [] (void *p) {
+		auto fp = static_cast<F *>(p);
+		(*fp)();
+	};
+
+	if(getPlatformCpuData()->haveXsave) {
+		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+	} else {
+		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+	}
+
+	doForkExecutor(executor, delegate, &functor);
+}
 
 } // namespace thor
 

@@ -77,6 +77,10 @@ struct CpuData : public PlatformCpuData {
 	std::atomic<uint64_t> heartbeat;
 };
 
+inline CpuData *getCpuData() {
+	return static_cast<CpuData *>(getPlatformCpuData());
+}
+
 inline ExecutorContext *localExecutorContext() {
 	return getCpuData()->executorContext;
 }
