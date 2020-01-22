@@ -32,7 +32,7 @@ trampoline:
 	
 	# Wait until BSP code allows us to proceed.
 .L_spin:
-	cmp $1, statusInitiatorStage
+	cmpl $1, statusInitiatorStage
 	jne .L_spin
 
 	# Now we can initialize the processor and jump into kernel code.
