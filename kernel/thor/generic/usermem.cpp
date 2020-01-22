@@ -1279,7 +1279,7 @@ void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
 
 MemorySlice::MemorySlice(frigg::SharedPtr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size)
-: _view{frigg:move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
+: _view{std::move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
 	assert(!(_viewOffset & (kPageSize - 1)));
 	assert(!(_viewSize & (kPageSize - 1)));
 }
@@ -1420,7 +1420,7 @@ uint32_t Mapping::compilePageFlags() {
 NormalMapping::NormalMapping(size_t length, MappingFlags flags,
 		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset)
 : Mapping{length, flags},
-		_slice{frigg::move(slice)}, _viewOffset{view_offset} {
+		_slice{std::move(slice)}, _viewOffset{view_offset} {
 	assert(_viewOffset >= _slice->offset());
 	assert(_viewOffset + NormalMapping::length() <= _slice->offset() + _slice->length());
 	_view = _slice->getView();
@@ -1654,7 +1654,7 @@ bool NormalMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 // --------------------------------------------------------
 
 CowChain::CowChain(frigg::SharedPtr<CowChain> chain)
-: _superChain{frigg::move(chain)}, _pages{kernelAlloc.get()} {
+: _superChain{std::move(chain)}, _pages{kernelAlloc.get()} {
 }
 
 CowChain::~CowChain() {
