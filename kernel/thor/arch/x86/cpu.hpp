@@ -402,6 +402,13 @@ struct FiberContext {
 	UniqueKernelStack stack;
 };
 
+struct Executor;
+
+// Restores the current executor from its saved image.
+// This is functions does the heavy lifting during task switch.
+// Note: due to the attribute, this must be declared before the friend declaration below.
+[[noreturn]] void restoreExecutor(Executor *executor);
+
 struct Executor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
@@ -536,10 +543,6 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
 
 void workOnExecutor(Executor *executor);
-
-// restores the current executor from its saved image.
-// this is functions does the heavy lifting during task switch.
-[[ noreturn ]] void restoreExecutor(Executor *executor);
 
 size_t getStateSize();
 
