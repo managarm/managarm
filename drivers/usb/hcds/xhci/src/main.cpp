@@ -319,48 +319,20 @@ async::detached Controller::initialize() {
 	co_await _hw_device.enableBusIrq();
 	handleIrqs();
 
+	_ports.resize(_numPorts);
+
+	for (auto &p : _supportedProtocols) {
+		for (size_t i = p.compatiblePortStart; i < (p.compatiblePortStart + p.compatiblePortCount); i++) {
+			_ports[i - 1] = std::make_unique<Port>(i, this, &p);
+			_ports[i - 1]->initPort();
+		}
+	}
+
 	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1)); // enable interrupts and start hcd
 
 	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
 
-	printf("xhci: init done...\n");
-
-	printf("xhci: command ring test:\n");
-
-	RawTrb disable_slot_1_cmd = {{0, 0, 0, (1 << 24) | (10 << 10)}};
-	Controller::CommandRing::CommandEvent ev;
-	_cmdRing.pushRawCommand({{0, 0, 0, (23 << 10)}});
-	_cmdRing.pushRawCommand(disable_slot_1_cmd, &ev);
-	printf("xhci: submitting a disable slot 1 command\n");
-	_cmdRing.submit();
-
-	co_await ev.promise.async_get();
-
-	auto compCode = ev.event.completionCode;
-	printf("xhci: received response to command:\n");
-	printf("xhci: response completion code: (%s) %u\n", 
-			completionCodeNames[compCode], compCode);
-
-	if (compCode != 1 && compCode != 11) {
-		printf("xhci: invalid response to command (hardware/emulator quirk?)\n");
-		printf("xhci: was expecting either: %s (1) or %s (11)\n",
-					completionCodeNames[1],
-					completionCodeNames[11]);
-		printf("xhci: command ring test not successful!\n");
-	} else {
-		printf("xhci: command ring test successful!\n");
-	}
-
-	_eventRing._dequeuedEvents.clear(); // discard all prior events, we dont care
-
-	// detect devices on root hub ports
-	for (size_t i = 0; i < _numPorts; i++) {
-		_ports.push_back(std::make_unique<Port>(i + 1, this));
-		printf("xhci: port %lu %s a device connected to it\n", i + 1, _ports.back()->isConnected() ? "has" : "doesn't have");
-		co_await _ports.back()->initPort();
-	}
-
-	co_return;
+	printf("xhci: init done\n");
 }
 
 async::detached Controller::handleIrqs() {
@@ -375,7 +347,6 @@ async::detached Controller::handleIrqs() {
 		sequence = await.sequence();
 
 		if (!_interrupters[0]->isPending()) {
-			//printf("xhci: nacked interrupt, interrupter not pending\n");
 			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
 		}
@@ -687,24 +658,39 @@ void Controller::Event::printInfo() {
 // Controller::Port
 // ------------------------------------------------------------------------
 
-Controller::Port::Port(int id, Controller *controller)
-: _id{id}, _controller{controller} {
+Controller::Port::Port(int id, Controller *controller, SupportedProtocol *proto)
+: _id{id}, _controller{controller}, _proto{proto} {
 	_space = controller->_operational.subspace(0x400 + (id - 1) * 0x10);
 }
 
 void Controller::Port::reset() {
 	printf("xhci: resetting port %d\n", _id);
-	auto val = _space.load(port::portsc);
-	_space.store(port::portsc, val | portsc::portReset(true));
+	_space.store(port::portsc, portsc::portPower(true) | portsc::portReset(true));
 }
 
 void Controller::Port::disable() {
-	auto val = _space.load(port::portsc);
-	_space.store(port::portsc, val | portsc::portEnable(true));
+	_space.store(port::portsc, portsc::portPower(true) | portsc::portEnable(true));
+}
+
+void Controller::Port::resetChangeBits() {
+	_space.store(port::portsc, portsc::portPower(true)
+			| portsc::connectStatusChange(true)
+			| portsc::portResetChange(true)
+			| portsc::portEnableChange(true)
+			| portsc::warmPortResetChange(true)
+			| portsc::overCurrentChange(true)
+			| portsc::portLinkStatusChange(true)
+			| portsc::portConfigErrorChange(true));
 }
 
 bool Controller::Port::isConnected() {
-	return _space.load(port::portsc) & portsc::connectStatus;
+	auto portsc = _space.load(port::portsc);
+	return portsc & portsc::connectStatus;
+}
+
+bool Controller::Port::isPowered() {
+	auto portsc = _space.load(port::portsc);
+	return portsc & portsc::portPower;
 }
 
 bool Controller::Port::isEnabled() {
@@ -719,34 +705,96 @@ uint8_t Controller::Port::getSpeed() {
 	return _space.load(port::portsc) & portsc::portSpeed;
 }
 
-async::result<void> Controller::Port::initPort() {
-	if (!isConnected())
-		co_return;
+void Controller::Port::transitionToLinkStatus(uint8_t status) {
+	_space.store(port::portsc, portsc::portPower(true)
+			| portsc::portLinkStatus(status)
+			| portsc::portLinkStatusStrobe(true));
+}
 
-	int revision = 0;
-
-	printf("xhci: initializing device on port %u\n", _id);
-	if (getLinkStatus() == 0) { // U0
-		if (isEnabled())
-			printf("xhci: i am a usb 3 device\n");
-		else
-			assert(!"device is in U0 and not enabled after reset!");
-		revision = 3;
-	} else if (getLinkStatus() == 7) { // Polling
-		printf("xhci: i am a usb 2 device\n");
-		reset();
-		co_await _doorbell.async_wait();
-		revision = 2;
-	} else {
-		assert(!"port is in an unexpected state");
+async::detached Controller::Port::initPort() {
+	if (!isPowered()) {
+		printf("xhci: port %u is not powered on\n", _id);
 	}
 
-	assert(getLinkStatus() == 0 && "device not in U0 state");
-	assert(isEnabled() && "device not enabled");
+	if (_proto->major == 2) {
+		// await CCS=1
+		co_await awaitFlag(portsc::connectStatus, true);
+
+		auto linkStatus = getLinkStatus();
+		assert(linkStatus == 7); // Polling
+
+		reset();
+
+		// await PED=1
+		co_await awaitFlag(portsc::portEnable, true);
+	} else if (_proto->major == 3) {
+		// XXX: is this enough?
+		// await PED=1
+		co_await awaitFlag(portsc::portEnable, true);
+	}
+
+	auto linkStatus = getLinkStatus();
+
+	printf("xhci: port link status is %u\n", linkStatus);
+
+	if (linkStatus >= 1 && linkStatus <= 3) {
+		transitionToLinkStatus(0);
+	} else
+		assert(linkStatus == 0); // U0
+
+	int targetPacketSize = -1;
+	bool isFullSpeed = false;
+	uint8_t speedId = getSpeed();
+
+	for (auto &speed : _proto->speeds) {
+		if (speed.value == speedId) {
+			if (speed.exponent == 2
+				&& speed.mantissa == 12) { // Full Speed
+				isFullSpeed = true;
+				targetPacketSize = 8;
+			} else if (speed.exponent == 1
+				&& speed.mantissa == 1500) { // Low Speed
+				targetPacketSize = 8;
+			} else if (speed.exponent == 2
+				&& speed.mantissa == 480) { // High Speed
+				targetPacketSize = 64;
+			} else if (speed.exponent == 3
+				&& (speed.mantissa == 5
+					|| speed.mantissa == 10
+					|| speed.mantissa == 20)) { // SuperSpeed
+				targetPacketSize = 512;
+			}
+
+			break;
+		}
+	}
+
+	if (_proto->speeds.empty()) {
+		switch(speedId) {
+			case 1:
+				isFullSpeed = true;
+			case 2:
+				targetPacketSize = 8;
+				break;
+			case 3:
+				targetPacketSize = 64;
+				break;
+			case 4:
+			case 5:
+			case 6:
+			case 7:
+				targetPacketSize = 512;
+		}
+	}
+
+	assert(targetPacketSize != -1);
 
 	_device = std::make_shared<Device>(_id, _controller);
-	co_await _device->allocSlot(revision);
+	co_await _device->allocSlot(_proto->protocolSlotType, targetPacketSize);
 	_controller->_devices[_device->_slotId] = _device;
+
+	// TODO: if isFullSpeed is set, read the first 8 bytes of the device descriptor
+	// and update the control endpoint's max packet size to match the bMaxPacketSize0 value
 
 	arch::dma_object<DeviceDescriptor> descriptor{&_controller->_memoryPool};
 	co_await _device->readDescriptor(descriptor.view_buffer(), 0x0100);
@@ -946,11 +994,10 @@ void Controller::Device::submit(int endpoint) {
 	_controller->ringDoorbell(_slotId, endpoint, /* stream */ 0);
 }
 
-async::result<void> Controller::Device::allocSlot(int revision) {
-	// TODO: check _controller->_supportedProtocols for the correct value
-	// instead of 0 for the slot type (x << 16)
+async::result<void> Controller::Device::allocSlot(int slotType, int packetSize) {
 	RawTrb enable_slot = {{0, 0, 0, 
-		(static_cast<uint32_t>(TrbType::enableSlotCommand) << 10)}};
+		(slotType << 16)
+			| (static_cast<uint32_t>(TrbType::enableSlotCommand) << 10)}};
 	Controller::CommandRing::CommandEvent ev;
 	_controller->_cmdRing.pushRawCommand(enable_slot, &ev);
 	_controller->_cmdRing.submit();
@@ -979,7 +1026,7 @@ async::result<void> Controller::Device::allocSlot(int revision) {
 	_transferRings[0] = std::make_unique<TransferRing>(_controller);
 
 	// type = control
-	// max packet size = TODO ("The default maximum packet size for the Default Control Endpoint, as function of the PORTSC Port Speed field.")
+	// max packet size = packetSize
 	// max burst size = 0
 	// tr dequeue = tr ring ptr
 	// dcs = 1
@@ -990,7 +1037,7 @@ async::result<void> Controller::Device::allocSlot(int revision) {
 	auto tr_ptr = _transferRings[0]->getPtr();
 	printf("xhci: tr ptr = %016lx\n", tr_ptr);
 	assert(!(tr_ptr & 0xF));
-	inputCtx->endpointContext[0].val[1] = (3 << 1) | (4 << 3) | (/* packet size */ 512 << 16);
+	inputCtx->endpointContext[0].val[1] = (3 << 1) | (4 << 3) | (packetSize << 16);
 	inputCtx->endpointContext[0].val[2] = (1 << 0) | (tr_ptr & 0xFFFFFFF0);
 	inputCtx->endpointContext[0].val[3] = (tr_ptr >> 32);
 
@@ -1255,6 +1302,10 @@ async::result<size_t> Controller::EndpointState::transfer(BulkTransfer info) {
 	_device->submit(endpointId);
 
 	co_await ev.promise.async_get();
+
+	if (ev.event.completionCode != 1) {
+		printf("xhci: completion code is %s instead of success\n", completionCodeNames[ev.event.completionCode]);
+	}
 
 	assert(ev.event.completionCode == 1); // success
 

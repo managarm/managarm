@@ -6,6 +6,7 @@
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
+#include <helix/timer.hpp>
 #include <protocols/usb/api.hpp>
 
 #include "spec.hpp"
@@ -165,14 +166,33 @@ private:
 	};
 
 	struct Device;
+	struct SupportedProtocol;
 
 	struct Port {
-		Port(int id, Controller *controller);
+		Port(int id, Controller *controller, SupportedProtocol *port);
 		void reset();
 		void disable();
+		void resetChangeBits();
 		bool isConnected();
 		bool isEnabled();
-		async::result<void> initPort();
+		bool isPowered();
+		void transitionToLinkStatus(uint8_t status);
+		async::detached initPort();
+
+		template <typename T>
+		async::result<void> awaitFlag(arch::field<uint32_t, T> field, T value) {
+			while (true) {
+				resetChangeBits();
+				if ((_space.load(port::portsc) & field) == value)
+					co_return;
+
+				async::cancellation_event ev;
+				helix::TimeoutCancellation tc{1'000'000'000, ev};
+
+				co_await _doorbell.async_wait(ev);
+				co_await tc.retire();
+			}
+		}
 
 		async::doorbell _doorbell;
 	private:
@@ -181,6 +201,7 @@ private:
 		int _id;
 		std::shared_ptr<Device> _device;
 		Controller *_controller;
+		SupportedProtocol *_proto;
 		arch::mem_space _space;
 	};
 
@@ -196,7 +217,7 @@ private:
 
 		void submit(int endpoint);
 		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
-		async::result<void> allocSlot(int revision);
+		async::result<void> allocSlot(int slotType, int packetSize);
 
 		async::result<void> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
 

@@ -95,8 +95,18 @@ namespace portsc {
 	arch::field<uint32_t, bool> portReset(4, 1);
 	arch::field<uint32_t, bool> portEnable(1, 1);
 	arch::field<uint32_t, bool> connectStatus(0, 1);
+	arch::field<uint32_t, bool> portPower(9, 1);
 	arch::field<uint32_t, uint8_t> portLinkStatus(5, 4);
+	arch::field<uint32_t, bool> portLinkStatusStrobe(16, 1);
 	arch::field<uint32_t, uint8_t> portSpeed(10, 4);
+
+	arch::field<uint32_t, bool> connectStatusChange(17, 1);
+	arch::field<uint32_t, bool> portResetChange(21, 1);
+	arch::field<uint32_t, bool> portEnableChange(18, 1);
+	arch::field<uint32_t, bool> warmPortResetChange(19, 1);
+	arch::field<uint32_t, bool> overCurrentChange(20, 1);
+	arch::field<uint32_t, bool> portLinkStatusChange(22, 1);
+	arch::field<uint32_t, bool> portConfigErrorChange(23, 1);
 }
 
 struct RawTrb {
