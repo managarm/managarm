@@ -10,9 +10,9 @@
 #include <frigg/libc.hpp>
 #include <frigg/string.hpp>
 #include <frigg/support.hpp>
-#include <frigg/physical_buddy.hpp>
 #include <eir/interface.hpp>
 #include <render-text.hpp>
+#include <physical-buddy.hpp>
 #include "main.hpp"
 
 namespace arch = frigg::arch_x86;
@@ -102,9 +102,9 @@ void setupRegionStructs() {
 			continue;
 
 		// Setup a buddy allocator.
-		auto order = frigg::buddy_tools::suitable_order(regions[i].size >> kPageShift);
+		auto order = BuddyAccessor::suitableOrder(regions[i].size >> kPageShift);
 		auto pre_roots = regions[i].size >> (kPageShift + order);
-		auto overhead = frigg::buddy_tools::determine_size(pre_roots, order);
+		auto overhead = BuddyAccessor::determineSize(pre_roots, order);
 		overhead = (overhead + address_t(kPageSize - 1)) & ~address_t(kPageSize - 1);
 
 		// Note that cutFromRegion might actually reduce this regions' size.
@@ -119,7 +119,7 @@ void setupRegionStructs() {
 
 		// Finally initialize the buddy tree.
 		auto table_ptr = reinterpret_cast<int8_t *>(table_paddr);
-		frigg::buddy_tools::initialize(table_ptr, num_roots, order);
+		BuddyAccessor::initialize(table_ptr, num_roots, order);
 
 		// Setup the struct Page area.
 		// TODO: It is not clear that we want page structs. Remove this?
@@ -215,7 +215,7 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		auto physical = regions[i].address + (frigg::buddy_tools::allocate(table,
+		auto physical = regions[i].address + (BuddyAccessor::allocate(table,
 				regions[i].numRoots, regions[i].order, 0) << kPageShift);
 //		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 		return physical;
@@ -232,7 +232,7 @@ uintptr_t allocPage() {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		auto physical = regions[i].address + (frigg::buddy_tools::allocate(table,
+		auto physical = regions[i].address + (BuddyAccessor::allocate(table,
 				regions[i].numRoots, regions[i].order, 0) << kPageShift);
 		allocatedMemory += kPageSize;
 	//		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
@@ -387,7 +387,7 @@ void mapRegionsAndStructs() {
 		// Map the buddy tree.
 		regions[i].buddyMap = tree_mapping;
 
-		auto overhead = frigg::buddy_tools::determine_size(regions[i].numRoots, regions[i].order);
+		auto overhead = BuddyAccessor::determineSize(regions[i].numRoots, regions[i].order);
 		for(address_t page = 0; page < overhead; page += kPageSize) {
 			mapSingle4kPage(tree_mapping, regions[i].buddyTree + page, kAccessWrite | kAccessGlobal);
 			tree_mapping += kPageSize;
