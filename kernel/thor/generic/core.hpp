@@ -1,6 +1,8 @@
 #ifndef THOR_GENERIC_CORE_HPP
 #define THOR_GENERIC_CORE_HPP
 
+#include <frg/optional.hpp>
+#include <frg/hash_map.hpp>
 #include <frigg/callback.hpp>
 #include <frigg/variant.hpp>
 #include "error.hpp"
@@ -123,13 +125,18 @@ public:
 
 	AnyDescriptor *getDescriptor(Guard &guard, Handle handle);
 	
-	frigg::Optional<AnyDescriptor> detachDescriptor(Guard &guard, Handle handle);
+	frg::optional<AnyDescriptor> detachDescriptor(Guard &guard, Handle handle);
 
 	Lock lock;
 
 private:
-	frigg::Hashmap<Handle, AnyDescriptor,
-			frigg::DefaultHasher<Handle>, KernelAlloc> _descriptorMap;
+	frg::hash_map<
+		Handle,
+		AnyDescriptor,
+		frg::hash<Handle>,
+		KernelAlloc
+	> _descriptorMap;
+
 	Handle _nextHandle;
 };
 

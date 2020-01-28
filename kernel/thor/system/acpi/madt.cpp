@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <frg/optional.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
 #include <frigg/optional.hpp>
@@ -91,7 +92,7 @@ struct HpetEntry {
 
 namespace thor {
 
-frigg::LazyInitializer<frigg::Optional<GlobalIrqInfo>> isaIrqOverrides[16];
+frigg::LazyInitializer<frg::optional<GlobalIrqInfo>> isaIrqOverrides[16];
 
 GlobalIrqInfo resolveIsaIrq(unsigned int irq) {
 	assert(irq < 16);

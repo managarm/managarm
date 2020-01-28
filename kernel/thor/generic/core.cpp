@@ -158,7 +158,7 @@ CpuData::CpuData()
 // --------------------------------------------------------
 
 Universe::Universe()
-: _descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc), _nextHandle(1) { }
+: _descriptorMap{frg::hash<Handle>{}, *kernelAlloc}, _nextHandle{1} { }
 
 Universe::~Universe() {
 	if(logCleanup)
@@ -179,7 +179,7 @@ AnyDescriptor *Universe::getDescriptor(Guard &guard, Handle handle) {
 	return _descriptorMap.get(handle);
 }
 
-frigg::Optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle handle) {
+frg::optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle handle) {
 	assert(guard.protects(&lock));
 
 	return _descriptorMap.remove(handle);
