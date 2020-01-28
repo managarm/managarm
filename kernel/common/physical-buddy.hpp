@@ -11,6 +11,8 @@
 struct BuddyAccessor {
 	using AddressType = size_t;
 
+	static inline constexpr AddressType illegalAddress = static_cast<AddressType>(-1);
+
 private:
 	static AddressType findAllocatableChunk(int8_t *slice, AddressType base, AddressType limit,
 			int target) {
@@ -18,8 +20,7 @@ private:
 			if(slice[base + i] >= target)
 				return base + i;
 		}
-		assert(!"No item available at target order");
-		__builtin_trap();
+		return illegalAddress;
 	}
 
 	// Determines the largest free chunk in the given range.
@@ -70,10 +71,14 @@ public:
 		// First phase: Descent to the target order.
 		// In this phase find a free element.
 		AddressType allocIndex = findAllocatableChunk(slice, 0, numRoots, target);
+		if(allocIndex == illegalAddress)
+			return illegalAddress;
 		while(order > target) {
 			slice += size_t(numRoots) << (tableOrder - order);
 			order--;
 			allocIndex = findAllocatableChunk(slice, 2 * allocIndex, 2, target);
+			if(allocIndex == illegalAddress)
+				return illegalAddress;
 		}
 
 		// Here we perform the actual allocation.

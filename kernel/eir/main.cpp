@@ -215,8 +215,11 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		auto physical = regions[i].address + (BuddyAccessor::allocate(table,
-				regions[i].numRoots, regions[i].order, 0) << kPageShift);
+		auto index = BuddyAccessor::allocate(table,
+				regions[i].numRoots, regions[i].order, 0);
+		if(index == BuddyAccessor::illegalAddress)
+			continue;
+		auto physical = regions[i].address + (index << kPageShift);
 //		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 		return physical;
 	}
@@ -232,12 +235,17 @@ uintptr_t allocPage() {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		auto physical = regions[i].address + (BuddyAccessor::allocate(table,
-				regions[i].numRoots, regions[i].order, 0) << kPageShift);
+		auto index = BuddyAccessor::allocate(table,
+				regions[i].numRoots, regions[i].order, 0);
+		if(index == BuddyAccessor::illegalAddress)
+			continue;
+		auto physical = regions[i].address + (index << kPageShift);
 		allocatedMemory += kPageSize;
 	//		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 		return physical;
 	}
+
+	frigg::panicLogger() << "Eir: Out of memory" << frigg::endLog;
 }
 
 uintptr_t eirPml4Pointer = 0;

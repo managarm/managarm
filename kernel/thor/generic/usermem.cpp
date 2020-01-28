@@ -583,7 +583,7 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 	assert(index < _physicalChunks.size());
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
 		auto physical = physicalAllocator->allocate(_chunkSize);
-		assert(physical != PhysicalAddr(-1));
+		assert(physical != PhysicalAddr(-1) && "OOM");
 		assert(!(physical % _chunkAlign));
 
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
@@ -641,7 +641,7 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
 		auto physical = physicalAllocator->allocate(_chunkSize);
-		assert(physical != PhysicalAddr(-1));
+		assert(physical != PhysicalAddr(-1) && "OOM");
 		assert(!(physical & (_chunkAlign - 1)));
 
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
@@ -997,7 +997,7 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	if(pit->physical == PhysicalAddr(-1)) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != PhysicalAddr(-1));
+		assert(physical != PhysicalAddr(-1) && "OOM");
 
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
@@ -1748,7 +1748,7 @@ bool CowMapping::lockVirtualRange(LockVirtualNode *continuation) {
 			}
 
 			closure->physical = physicalAllocator->allocate(kPageSize);
-			assert(closure->physical != PhysicalAddr(-1));
+			assert(closure->physical != PhysicalAddr(-1) && "OOM");
 			closure->accessor = PageAccessor{closure->physical};
 
 			// Try to copy from a descendant CoW chain.
@@ -1964,7 +1964,7 @@ bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 			}
 
 			closure->physical = physicalAllocator->allocate(kPageSize);
-			assert(closure->physical != PhysicalAddr(-1));
+			assert(closure->physical != PhysicalAddr(-1) && "OOM");
 			closure->accessor = PageAccessor{closure->physical};
 
 			// Try to copy from a descendant CoW chain.
@@ -2131,7 +2131,7 @@ smarter::shared_ptr<Mapping> CowMapping::forkMapping() {
 		if(os_it->lockCount || disableCow) {
 			// Allocate a new physical page for a copy.
 			auto copy_physical = physicalAllocator->allocate(kPageSize);
-			assert(copy_physical != PhysicalAddr(-1));
+			assert(copy_physical != PhysicalAddr(-1) && "OOM");
 
 			// As the page is locked anyway, we can just copy it synchronously.
 			PageAccessor locked_accessor{os_it->physical};

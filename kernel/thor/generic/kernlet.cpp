@@ -144,7 +144,7 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				auto va = reinterpret_cast<VirtualAddr>(base + phdr.p_vaddr + pg)
 						& ~(kPageSize - 1);
 				auto physical = physicalAllocator->allocate(kPageSize);
-				assert(physical != PhysicalAddr(-1));
+				assert(physical != PhysicalAddr(-1) && "OOM");
 				KernelPageSpace::global().mapSingle4k(va, physical,
 						pf, CachingMode::null);
 			}

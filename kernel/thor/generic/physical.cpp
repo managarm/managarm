@@ -60,8 +60,11 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 	if(logPhysicalAllocs)
 		frigg::infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frigg::endLog;
-	auto physical = _physicalBase + (BuddyAccessor::allocate(_buddyPointer,
-			_buddyRoots, _buddyOrder, target) << kPageShift);
+	auto index = BuddyAccessor::allocate(_buddyPointer,
+			_buddyRoots, _buddyOrder, target);
+	if(index == BuddyAccessor::illegalAddress)
+		return static_cast<PhysicalAddr>(-1);
+	auto physical = _physicalBase + (index << kPageShift);
 //	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 	assert(!(physical % (size_t(kPageSize) << target)));
 	return physical;

@@ -464,6 +464,7 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		pdpt_pointer = (uint64_t *)region.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		PhysicalAddr pdpt_page = physicalAllocator->allocate(kPageSize);
+		assert(pdpt_page != static_cast<PhysicalAddr>(-1) && "OOM");
 
 		pdpt_pointer = (uint64_t *)region.access(pdpt_page);
 		for(int i = 0; i < 512; i++)
@@ -481,6 +482,7 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		pd_pointer = (uint64_t *)region.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		PhysicalAddr pd_page = physicalAllocator->allocate(kPageSize);
+		assert(pd_page != static_cast<PhysicalAddr>(-1) && "OOM");
 
 		pd_pointer = (uint64_t *)region.access(pd_page);
 		for(int i = 0; i < 512; i++)
@@ -498,6 +500,7 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		pt_pointer = (uint64_t *)region.access(pd_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		PhysicalAddr pt_page = physicalAllocator->allocate(kPageSize);
+		assert(pt_page != static_cast<PhysicalAddr>(-1) && "OOM");
 
 		pt_pointer = (uint64_t *)region.access(pt_page);
 		for(int i = 0; i < 512; i++)
@@ -568,7 +571,7 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 
 ClientPageSpace::ClientPageSpace()
 : PageSpace{physicalAllocator->allocate(kPageSize)} {
-	assert(rootTable() != PhysicalAddr(-1));
+	assert(rootTable() != PhysicalAddr(-1) && "OOM");
 
 	// Initialize the bottom half to unmapped memory.
 	PageAccessor accessor;
@@ -654,7 +657,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1));
+		assert(tbl_address != PhysicalAddr(-1) && "OOM");
 		accessor3 = PageAccessor{tbl_address};
 		memset(accessor3.get(), 0, kPageSize);
 
@@ -672,7 +675,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1));
+		assert(tbl_address != PhysicalAddr(-1) && "OOM");
 		accessor2 = PageAccessor{tbl_address};
 		memset(accessor2.get(), 0, kPageSize);
 
@@ -690,7 +693,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1));
+		assert(tbl_address != PhysicalAddr(-1) && "OOM");
 		accessor1 = PageAccessor{tbl_address};
 		memset(accessor1.get(), 0, kPageSize);
 
