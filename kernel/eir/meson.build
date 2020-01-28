@@ -11,12 +11,11 @@ eir_includes = include_directories(
 		'../common/',
 		'../../frigg/include')
 
-eir_c_args = ['-std=c11', '-m32', '-mcmodel=32']
-eir_cpp_args = ['-std=c++17', '-m32', '-mcmodel=32', '-DFRIGG_NO_LIBC', '-Wall']
-eir_link_args = ['-m32', '-nostdlib', '-T', meson.current_source_dir() + '/link.x']
+eir_c_args = ['-std=c11', '-m32']
+eir_cpp_args = ['-std=c++17', '-m32', '-DFRIGG_NO_LIBC', '-Wall']
+eir_link_args = ['-m32', '-nostdlib', '-Wl,-T,' + meson.current_source_dir() + '/link.x']
 eir_extra_objects = ['./libgcc.a']
 eir_link_depends = files('link.x')
-
 
 mb1_sources = files('multiboot1/multiboot1.S', 'multiboot1/multiboot1.cpp')
 executable('eir-mb1', eir_sources, mb1_sources,
@@ -38,4 +37,3 @@ executable('eir-mb2', eir_sources, mb2_sources,
 	objects: eir_extra_objects,
 	link_depends: eir_link_depends,
 	install: true)
-

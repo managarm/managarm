@@ -93,23 +93,47 @@ embed_trampoline = custom_target('embed-trampoline',
 	input: trampoline,
 	output: 'embed-trampoline.o')
 
+lai_lib = static_library('lai', lai_sources,
+	include_directories: lai_includes,
+	c_args: [
+		'-mcmodel=kernel',
+		'-mno-red-zone'
+	],
+	pic: false
+)
+
 executable('thor', pb_sources, thor_sources, embed_trampoline,
-	include_directories: include_directories(
-		'c_headers/', '../include/',
-		'../common',
-		'../../frigg/include',
-		'../../libarch/include',
-		'../../subprojects/acpica/source/include'),
+	include_directories: [
+		include_directories(
+			'c_headers/',
+			'../include/',
+			'../common',
+			'../../frigg/include',
+			'../../libarch/include',
+			'../../subprojects/acpica/source/include'
+		),
+		lai_includes
+	],
 	dependencies: [
 		cxxshim_dep,
 		frigg_dep,
-		lai_dep,
 		libsmarter_dep
 	],
-	cpp_args: ['-std=c++17',
-		'-DCXXSHIM_INTEGRATE_GCC', '-DFRIGG_NO_LIBC',
-		'-Wall', '-Wno-non-virtual-dtor'],
-	link_args: ['-nostdlib', '-z', 'max-page-size=0x1000',
-		'-T', meson.current_source_dir() + '/arch/x86/link.x'],
+	cpp_args: [
+		'-std=c++17',
+		'-mcmodel=kernel',
+		'-mno-red-zone',
+		'-DCXXSHIM_INTEGRATE_GCC',
+		'-DFRIGG_NO_LIBC',
+		'-Wall',
+		'-Wno-non-virtual-dtor'
+	],
+	link_with: lai_lib,
+	link_args: [
+		'-nostdlib',
+		'-z', 'max-page-size=0x1000',
+		'-Wl,-T,' + meson.current_source_dir() + '/arch/x86/link.x'
+	],
 	link_depends: files('arch/x86/link.x'),
-	install: true)
+	install: true
+)
