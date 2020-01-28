@@ -2,9 +2,9 @@
 #ifndef FRIGG_STRING_HPP
 #define FRIGG_STRING_HPP
 
+#include <frg/optional.hpp>
 #include <frigg/macros.hpp>
 #include <frigg/algorithm.hpp>
-#include <frigg/optional.hpp>
 #include <frigg/debug.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
@@ -69,11 +69,11 @@ public:
 	}
 
 	template<typename T>
-	Optional<T> toNumber() {
+	frg::optional<T> toNumber() {
 		T value = 0;
 		for(size_t i = 0; i < p_length; i++) {
 			if(!(p_pointer[i] >= '0' && p_pointer[i] <= '9'))
-				return Optional<T>();
+				return frg::optional<T>();
 			value = value * 10 + (p_pointer[i] - '0');
 		}
 		return value;

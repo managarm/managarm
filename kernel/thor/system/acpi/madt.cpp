@@ -2,7 +2,6 @@
 #include <frg/optional.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
-#include <frigg/optional.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include "../../arch/x86/cpu.hpp"

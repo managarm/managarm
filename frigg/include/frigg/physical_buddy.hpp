@@ -3,8 +3,8 @@
 
 #include <limits.h>
 
+#include <frg/optional.hpp>
 #include <frigg/macros.hpp>
-#include <frigg/optional.hpp>
 #include <frigg/variant.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
@@ -181,7 +181,7 @@ namespace _buddy {
 			return chunk->base + result->offset;
 		}
 
-		Optional<AllocateSuccess> _allocateInLayer(size_t size, Chunk *chunk, int level,
+		frg::optional<AllocateSuccess> _allocateInLayer(size_t size, Chunk *chunk, int level,
 				uintptr_t bank_offset, size_t bank_size) {
 			assert(level < chunk->numLevels);
 			auto layer = &chunk->layers[level];
@@ -204,7 +204,7 @@ namespace _buddy {
 
 				// note that this can only happen in the first level.
 				if(k == n)
-					return nullOpt;
+					return frg::null_opt;
 			
 				facet->clearBit(f + k);
 
@@ -219,7 +219,7 @@ namespace _buddy {
 
 					// note that this can only happen in the first level.
 					if(k == n)
-						return nullOpt;
+						return frg::null_opt;
 
 					assert(facet->elements[f + k] == layer->shift);
 					facet->elements[f + k] = 0;
@@ -235,7 +235,7 @@ namespace _buddy {
 
 					// note that this can only happen in the first level.
 					if(k == n)
-						return nullOpt;
+						return frg::null_opt;
 
 					// note: we can be sure that this allocation succeeds;
 					// otherwise the corresponding region would have been marked as allocated.

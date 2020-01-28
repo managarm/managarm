@@ -1,11 +1,10 @@
-
 #ifndef FRIGG_PRINTF_HPP
 #define FRIGG_PRINTF_HPP
 
 #include <stdarg.h>
+#include <frg/optional.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/macros.hpp>
-#include <frigg/optional.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
 
@@ -78,7 +77,7 @@ void printf(P &printer, const char *format, va_list args) {
 			}
 		}
 
-		Optional<int> precision;
+		frg::optional<int> precision;
 		if(*format == '.') {
 			++format;
 			assert(*format);
@@ -289,4 +288,3 @@ void printf(P &printer, const char *format, va_list args) {
 } // namespace frigg
 
 #endif // FRIGG_PRINTF_HPP
-

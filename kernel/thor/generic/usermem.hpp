@@ -1,6 +1,7 @@
 #ifndef THOR_GENERIC_USERMEM_HPP
 #define THOR_GENERIC_USERMEM_HPP
 
+#include <frigg/tuple.hpp>
 #include <frigg/vector.hpp>
 #include <frg/container_of.hpp>
 #include <frg/rbtree.hpp>
