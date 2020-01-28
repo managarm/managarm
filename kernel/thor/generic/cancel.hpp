@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include <frigg/hashmap.hpp>
+#include <frg/hash_map.hpp>
 #include <frigg/smart_ptr.hpp>
 #include "kernel_heap.hpp"
 
@@ -73,8 +73,12 @@ private:
 	// Protects the _nodeMap.
 	frigg::TicketLock _mapMutex;
 
-	frigg::Hashmap<uint64_t, CancelNode *,
-			frigg::DefaultHasher<uint64_t>, KernelAlloc> _nodeMap;
+	frg::hash_map<
+		uint64_t,
+		CancelNode *,
+		frg::hash<uint64_t>,
+		KernelAlloc
+	> _nodeMap;
 
 	uint64_t _nextAsyncId;
 

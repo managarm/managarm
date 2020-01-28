@@ -1,10 +1,10 @@
 #ifndef THOR_GENERIC_FUTEX_HPP
 #define THOR_GENERIC_FUTEX_HPP
 
+#include <frg/hash_map.hpp>
 #include <frg/list.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/linked.hpp>
-#include <frigg/hashmap.hpp>
 #include "cancel.hpp"
 #include "kernel_heap.hpp"
 #include "work-queue.hpp"
@@ -28,7 +28,7 @@ struct Futex {
 	using Address = uintptr_t;
 
 	Futex()
-	: _slots(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
+	: _slots{frg::hash<Address>{}, *kernelAlloc} { }
 
 	bool empty() {
 		return _slots.empty();
@@ -111,10 +111,10 @@ private:
 	// improve the scalability of the futex algorithm.
 	Mutex _mutex;
 
-	frigg::Hashmap<
+	frg::hash_map<
 		Address,
 		Slot,
-		frigg::DefaultHasher<Address>,
+		frg::hash<Address>,
 		KernelAlloc
 	> _slots;
 };
