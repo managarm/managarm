@@ -14,7 +14,8 @@ enum Error {
 	kErrTransmissionMismatch,
 	kErrLaneShutdown,
 	kErrEndOfLane,
-	kErrFault
+	kErrFault,
+	kErrNoMemory
 };
 
 } // namespace thor

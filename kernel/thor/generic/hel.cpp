@@ -490,10 +490,18 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	auto this_universe = this_thread->getUniverse();
 
 	PhysicalAddr pml4e = physicalAllocator->allocate(kPageSize);
+	if(pml4e == static_cast<PhysicalAddr>(-1)) {
+		return kHelErrNoMemory;
+	}
 	PageAccessor paccessor{pml4e};
 	memset(paccessor.get(), 0, kPageSize);
 	auto vspace = smarter::allocate_shared<thor::vmx::EptSpace>(Allocator{}, pml4e);
-	vspace->map(0x1000, 1);
+	auto err = vspace->map(0x1000, 1);
+	if(err == kErrNoMemory) {
+		return kHelErrNoMemory;
+	} else {
+		assert(!err);
+	}
 
 	Universe::Guard universe_guard(&this_universe->lock);
 	*handle = this_universe->attachDescriptor(universe_guard,
@@ -540,7 +548,7 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 	auto cpu = wrapper->get<VirtualizedCpuDescriptor>();
 	auto info = cpu.vcpu->run();
 	enableUserAccess();
-	memcpy(exitInfo, info, sizeof(HelVmexitReason));
+	memcpy(exitInfo, &info, sizeof(HelVmexitReason));
 	disableUserAccess();
 
 	return kHelErrNone;
