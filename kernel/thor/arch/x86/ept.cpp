@@ -4,7 +4,7 @@
 
 namespace thor::vmx {
 
-void EptSpace::map(uint64_t guestAddress, int flags) {
+Error EptSpace::map(uint64_t guestAddress, int flags) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
@@ -23,6 +23,9 @@ void EptSpace::map(uint64_t guestAddress, int flags) {
 	size_t* pdpte;
 	if(!(pml4e[pml4eIdx] & (1 << EPT_READ))) {
 		auto pdpte_ptr = physicalAllocator->allocate(kPageSize);
+		if(reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1)) {
+			return kErrNoMemory;
+		}
 		size_t entry = ((pdpte_ptr >> 12) << EPT_PHYSADDR) | pageFlags;
 		pml4e[pml4eIdx] = entry;
 		PageAccessor pdpteAccessor{pdpte_ptr};
@@ -37,6 +40,9 @@ void EptSpace::map(uint64_t guestAddress, int flags) {
 	size_t* pde;
 	if(!(pdpte[pdpteIdx] & (1 << EPT_READ))) {
 		auto pdpte_ptr = physicalAllocator->allocate(kPageSize);
+		if(reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1)) {
+			return kErrNoMemory;
+		}
 		size_t entry = ((pdpte_ptr >> 12) << EPT_PHYSADDR) | pageFlags;
 		pdpte[pdpteIdx] = entry;
 		PageAccessor pdpteAccessor{pdpte_ptr};
@@ -51,6 +57,9 @@ void EptSpace::map(uint64_t guestAddress, int flags) {
 	size_t* pte;
 	if(!(pde[pdeIdx] & (1 << EPT_READ))) {
 		auto pt_ptr = physicalAllocator->allocate(kPageSize);
+		if(reinterpret_cast<PhysicalAddr>(pt_ptr) == static_cast<PhysicalAddr>(-1)) {
+			return kErrNoMemory;
+		}
 		size_t entry = ((pt_ptr >> 12) << EPT_PHYSADDR) | pageFlags;
 		pde[pdeIdx] = entry;
 		PageAccessor pdpteAccessor{pt_ptr};
@@ -64,6 +73,8 @@ void EptSpace::map(uint64_t guestAddress, int flags) {
 	auto alloc = physicalAllocator->allocate(kPageSize) >> 12;
 	size_t entry = (alloc << EPT_PHYSADDR) | pageFlags | (6 << EPT_MEMORY_TYPE) | (1 << EPT_IGNORE_PAT);
 	pte[pteIdx] = entry;
+
+	return kErrSuccess;
 }
 
 uintptr_t EptSpace::translate(uintptr_t guestAddress) {

@@ -109,6 +109,7 @@ enum {
 	kHelErrBufferTooSmall = 1,
 	kHelErrFault = 10,
 	kHelErrNoHardwareSupport = 16,
+	kHelErrNoMemory = 17,
 };
 
 //! Integer type that represents an error or success value.
@@ -500,6 +501,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Segfault";
 	case kHelErrNoHardwareSupport:
 		return "Missing hardware support for this feature";
+	case kHelErrNoMemory:
+		return "Out of memory";
 	default:
 		return 0;
 	}

@@ -14,6 +14,8 @@ namespace thor::vmx {
 		frigg::infoLogger() << "vmx: enabling vmx" << frigg::endLog;
 
 		auto vmxonRegion = physicalAllocator->allocate(kPageSize);
+		assert(reinterpret_cast<PhysicalAddr>(vmxonRegion) != static_cast<PhysicalAddr>(-1) && "OOM");
+
 		PageAccessor vmxonAccessor{vmxonRegion};
 		memset(vmxonAccessor.get(), 0, kPageSize);
 		size_t control = frigg::arch_x86::rdmsr(0x3a);
@@ -249,18 +251,22 @@ namespace thor::vmx {
 
 		if(getCpuData()->haveXsave){
 			hostFstate = (uint8_t*)kernelAlloc->allocate(getCpuData()->xsaveRegionSize);
+			assert(reinterpret_cast<PhysicalAddr>(hostFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			guestFstate = (uint8_t*)kernelAlloc->allocate(getCpuData()->xsaveRegionSize);
+			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)hostFstate, 0, getCpuData()->xsaveRegionSize);
 			memset((void*)guestFstate, 0, getCpuData()->xsaveRegionSize);
 		} else {
 			hostFstate = (uint8_t*)kernelAlloc->allocate(512);
+			hostFstate = (uint8_t*)kernelAlloc->allocate(getCpuData()->xsaveRegionSize);
 			guestFstate = (uint8_t*)kernelAlloc->allocate(512);
+			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)hostFstate, 0, 512);
 			memset((void*)guestFstate, 0, 512);
 		}
 	}
 
-	HelVmexitReason* Vmcs::run() {
+	HelVmexitReason Vmcs::run() {
 		uint16_t es;
 		uint16_t cs;
 		uint16_t ss;
@@ -289,7 +295,7 @@ namespace thor::vmx {
 		vmwrite(HOST_GS_BASE, frigg::arch_x86::rdmsr(MSR_GS_BASE));
 		vmwrite(HOST_CR3, cr3);
 
-		HelVmexitReason *exitInfo = (HelVmexitReason*)kernelAlloc->allocate(sizeof(HelVmexitReason));
+		HelVmexitReason exitInfo{0};
 
 		while(1) {
 			/*
@@ -335,14 +341,14 @@ namespace thor::vmx {
 			auto error = vmread(VM_INSTRUCTION_ERROR);
 			if(error) {
 				frigg::infoLogger() << "vmx: vmx error" << error << frigg::endLog;
-				exitInfo->exitReason = khelVmexitError;
+				exitInfo.exitReason = khelVmexitError;
 				return exitInfo;
 			}
 
 			auto reason = vmread(VM_EXIT_REASON);
 			if(reason == VMEXIT_HLT) {
 				frigg::infoLogger() << "vmx: hlt" << frigg::endLog;
-				exitInfo->exitReason = khelVmexitHlt;
+				exitInfo.exitReason = khelVmexitHlt;
 				return exitInfo;
 			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
 				frigg::infoLogger() << "vmx: external-interrupt exit" << frigg::endLog;

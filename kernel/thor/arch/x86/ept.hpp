@@ -26,7 +26,7 @@ struct EptSpace : VirtualizedPageSpace {
 	Error store(uintptr_t guestAddress, size_t len, const void* buffer);
 	Error load(uintptr_t guestAddress, size_t len, void* buffer);
 
-	void map(uint64_t guestAddress, int flags);
+	Error map(uint64_t guestAddress, int flags);
 
 private:
 	uintptr_t translate(uintptr_t guestAddress);

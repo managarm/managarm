@@ -148,7 +148,7 @@ namespace thor::vmx {
 		Vmcs(smarter::shared_ptr<EptSpace> ept);
 		Vmcs(const Vmcs& vmcs) = delete;
 		Vmcs& operator=(const Vmcs& vmcs) = delete;
-		HelVmexitReason* run();
+		HelVmexitReason run();
 		~Vmcs();
 		void *region;
 		uint8_t* hostFstate;
