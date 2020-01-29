@@ -1,5 +1,4 @@
 #include "kernel.hpp"
-#include <physical-buddy.hpp>
 
 namespace thor {
 
@@ -37,6 +36,7 @@ void PhysicalChunkAllocator::bootstrap(PhysicalAddr address,
 	_buddyOrder = order;
 	_buddyRoots = num_roots;
 	_buddyPointer = buddy_tree;
+	_buddyAccessor = BuddyAccessor{_buddyPointer, _buddyRoots, _buddyOrder};
 
 	_usedPages = 0;
 	_freePages = _buddyRoots << _buddyOrder;
@@ -60,8 +60,7 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 	if(logPhysicalAllocs)
 		frigg::infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frigg::endLog;
-	auto index = BuddyAccessor::allocate(_buddyPointer,
-			_buddyRoots, _buddyOrder, target);
+	auto index = _buddyAccessor.allocate(target);
 	if(index == BuddyAccessor::illegalAddress)
 		return static_cast<PhysicalAddr>(-1);
 	auto physical = _physicalBase + (index << kPageShift);
@@ -79,8 +78,7 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 		target++;
 
 	auto index = (address - _physicalBase) >> kPageShift;
-	BuddyAccessor::free(_buddyPointer, _buddyRoots, _buddyOrder,
-			index, target);
+	_buddyAccessor.free(index, target);
 	
 	assert(_usedPages > size / kPageSize);
 	_freePages += size / kPageSize;

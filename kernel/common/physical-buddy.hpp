@@ -61,20 +61,25 @@ public:
 		}
 	}
 
-	static AddressType allocate(int8_t *pointer, AddressType numRoots, int tableOrder,
-			int target) {
-		assert(target >= 0 && target <= tableOrder);
+	BuddyAccessor()
+	: buddyPointer_{nullptr}, numRoots_{0}, tableOrder_{0} { }
 
-		int order = tableOrder;
-		int8_t *slice = pointer;
+	BuddyAccessor(int8_t *buddyPointer, AddressType numRoots, int tableOrder_)
+	: buddyPointer_{buddyPointer}, numRoots_{numRoots}, tableOrder_{tableOrder_} { }
+
+	AddressType allocate(int target) {
+		assert(target >= 0 && target <= tableOrder_);
+
+		int order = tableOrder_;
+		int8_t *slice = buddyPointer_;
 
 		// First phase: Descent to the target order.
 		// In this phase find a free element.
-		AddressType allocIndex = findAllocatableChunk(slice, 0, numRoots, target);
+		AddressType allocIndex = findAllocatableChunk(slice, 0, numRoots_, target);
 		if(allocIndex == illegalAddress)
 			return illegalAddress;
 		while(order > target) {
-			slice += size_t(numRoots) << (tableOrder - order);
+			slice += size_t(numRoots_) << (tableOrder_ - order);
 			order--;
 			allocIndex = findAllocatableChunk(slice, 2 * allocIndex, 2, target);
 			if(allocIndex == illegalAddress)
@@ -88,29 +93,28 @@ public:
 		// Second phase: Ascent to the tableOrder.
 		// In this phase we fix all superior elements.
 		AddressType updateIndex = allocIndex;
-		while(order < tableOrder) {
+		while(order < tableOrder_) {
 			updateIndex /= 2;
 			auto freeOrder = scanFreeChunks(slice, 2 * updateIndex, 2);
 			order++;
-			slice -= size_t(numRoots) << (tableOrder - order);
+			slice -= size_t(numRoots_) << (tableOrder_ - order);
 			slice[updateIndex] = freeOrder;
 		}
 
 		return allocIndex << target;
 	}
 
-	static void free(int8_t *pointer, AddressType numRoots, int tableOrder,
-			AddressType address, int target) {
-		assert(target >= 0 && target <= tableOrder);
+	void free(AddressType address, int target) {
+		assert(target >= 0 && target <= tableOrder_);
 		assert(address % (size_t(1) << target) == 0);
 
-		int order = tableOrder;
-		int8_t *slice = pointer;
+		int order = tableOrder_;
+		int8_t *slice = buddyPointer_;
 
 		// Analogous to the allocate operation:
 		// First we decend to the target order.
 		while(order > target) {
-			slice += size_t(numRoots) << (tableOrder - order);
+			slice += size_t(numRoots_) << (tableOrder_ - order);
 			order--;
 		}
 
@@ -120,12 +124,17 @@ public:
 		slice[updateIndex] = target;
 
 		// Update all superior elements.
-		while(order < tableOrder) {
+		while(order < tableOrder_) {
 			updateIndex /= 2;
 			auto freeOrder = scanFreeChunks(slice, 2 * updateIndex, 2);
 			order++;
-			slice -= size_t(numRoots) << (tableOrder - order);
+			slice -= size_t(numRoots_) << (tableOrder_ - order);
 			slice[updateIndex] = freeOrder;
 		}
 	}
+
+private:
+	int8_t *buddyPointer_;
+	AddressType numRoots_;
+	int tableOrder_;
 };

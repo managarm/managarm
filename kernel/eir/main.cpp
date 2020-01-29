@@ -215,8 +215,8 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		auto index = BuddyAccessor::allocate(table,
-				regions[i].numRoots, regions[i].order, 0);
+		BuddyAccessor accessor{table, regions[i].numRoots, regions[i].order};
+		auto index = accessor.allocate(0);
 		if(index == BuddyAccessor::illegalAddress)
 			continue;
 		auto physical = regions[i].address + (index << kPageShift);
@@ -235,8 +235,8 @@ uintptr_t allocPage() {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		auto index = BuddyAccessor::allocate(table,
-				regions[i].numRoots, regions[i].order, 0);
+		BuddyAccessor accessor{table, regions[i].numRoots, regions[i].order};
+		auto index = accessor.allocate(0);
 		if(index == BuddyAccessor::illegalAddress)
 			continue;
 		auto physical = regions[i].address + (index << kPageShift);

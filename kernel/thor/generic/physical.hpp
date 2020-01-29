@@ -1,5 +1,7 @@
+#pragma once
 
 #include "types.hpp"
+#include <physical-buddy.hpp>
 
 namespace thor {
 
@@ -40,6 +42,7 @@ private:
 	int8_t *_buddyPointer;
 	int _buddyOrder;
 	size_t _buddyRoots;
+	BuddyAccessor _buddyAccessor;
 
 	size_t _usedPages;
 	size_t _freePages;
@@ -48,4 +51,3 @@ private:
 extern frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 
 } // namespace thor
-
