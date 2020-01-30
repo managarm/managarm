@@ -2,6 +2,7 @@
 #include <deque>
 #include <experimental/optional>
 #include <iostream>
+#include <set>
 
 #include <assert.h>
 #include <linux/input.h>
@@ -281,6 +282,8 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 	LocalState local;
 	GlobalState global;
 	
+	std::set<uint32_t> foundElements;
+
 	auto generateFields = [&] (bool array, bool relative) {
 		if(!global.reportSize || !global.reportCount)
 			throw std::runtime_error("Missing Report Size/Count");
@@ -330,6 +333,8 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				element.logicalMin = field.dataMin;
 				element.logicalMax = field.dataMax;
 				element.isAbsolute = !relative;
+				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
+				foundElements.insert((element.usagePage << 16) |  element.usageId);
 				elements.push_back(element);
 			}
 		}else{
@@ -370,6 +375,8 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				element.usagePage = global.usagePage.value();
 				element.logicalMin = 0;
 				element.logicalMax = 1;
+				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
+				foundElements.insert((element.usagePage << 16) |  element.usageId);
 				elements.push_back(element);
 			}
 		}
@@ -654,10 +661,13 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 				continue;
 			if(!values[i].first)
 				continue;
+			if(element->disabled)
+				continue;
 			if(logInputCodes)
 				std::cout << "    inputType: " << element->inputType
 						<< ", inputCode: " << element->inputCode
 						<< ", value: " << values[i].second << std::endl;
+
 			_eventDev->emitEvent(element->inputType, element->inputCode, values[i].second);
 		}
 		_eventDev->emitEvent(EV_SYN, SYN_REPORT, 0);

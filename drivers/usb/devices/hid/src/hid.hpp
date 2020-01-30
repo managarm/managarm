@@ -42,6 +42,8 @@ struct Element {
 
 	int inputType;
 	int inputCode;
+
+	bool disabled;
 };
 	
 // -----------------------------------------------------
