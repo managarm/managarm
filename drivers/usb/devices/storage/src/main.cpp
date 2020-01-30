@@ -70,35 +70,58 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 			cbw.signature = Signatures::kSignCbw;
 			cbw.tag = 1;
 			cbw.transferLength = req->numSectors * 512;
-			cbw.flags = 0x80; // Direction: Device-to-host.
+			if(!req->isWrite) {
+				cbw.flags = 0x80; // Direction: Device-to-Host.
+			}else{
+				cbw.flags = 0; // Direction: Host-to-Device.
+			}
 			cbw.lun = 0;
 
-			if(enableRead6 && req->sector <= 0x1FFFFF && req->numSectors <= 0xFF) {
-				scsi::Read6 command;
-				memset(&command, 0, sizeof(scsi::Read6));
-				command.opCode = 0x08;
-				command.lba[0] = req->sector >> 16;
-				command.lba[1] = (req->sector >> 8) & 0xFF;
-				command.lba[2] = req->sector & 0xFF;
-				command.transferLength = req->numSectors;
+			if(!req->isWrite) {
+				if(enableRead6 && req->sector <= 0x1FFFFF && req->numSectors <= 0xFF) {
+					scsi::Read6 command;
+					memset(&command, 0, sizeof(scsi::Read6));
+					command.opCode = 0x08;
+					command.lba[0] = req->sector >> 16;
+					command.lba[1] = (req->sector >> 8) & 0xFF;
+					command.lba[2] = req->sector & 0xFF;
+					command.transferLength = req->numSectors;
 
-				cbw.cmdLength = sizeof(scsi::Read6);
-				memcpy(cbw.cmdData, &command, sizeof(scsi::Read6));
-			}else if(req->sector <= 0xFFFFFFFF) {
-				scsi::Read10 command;
-				memset(&command, 0, sizeof(scsi::Read10));
-				command.opCode = 0x28;
-				command.lba[0] = req->sector >> 24;
-				command.lba[1] = (req->sector >> 16) & 0xFF;
-				command.lba[2] = (req->sector >> 8) & 0xFF;
-				command.lba[3] = req->sector & 0xFF;
-				command.transferLength[0] = req->numSectors >> 8;
-				command.transferLength[1] = req->numSectors & 0xFF;
+					cbw.cmdLength = sizeof(scsi::Read6);
+					memcpy(cbw.cmdData, &command, sizeof(scsi::Read6));
+				}else if(req->sector <= 0xFFFFFFFF) {
+					scsi::Read10 command;
+					memset(&command, 0, sizeof(scsi::Read10));
+					command.opCode = 0x28;
+					command.lba[0] = req->sector >> 24;
+					command.lba[1] = (req->sector >> 16) & 0xFF;
+					command.lba[2] = (req->sector >> 8) & 0xFF;
+					command.lba[3] = req->sector & 0xFF;
+					command.transferLength[0] = req->numSectors >> 8;
+					command.transferLength[1] = req->numSectors & 0xFF;
 
-				cbw.cmdLength = sizeof(scsi::Read10);
-				memcpy(cbw.cmdData, &command, sizeof(scsi::Read10));
+					cbw.cmdLength = sizeof(scsi::Read10);
+					memcpy(cbw.cmdData, &command, sizeof(scsi::Read10));
+				}else{
+					throw std::logic_error("USB storage does not currently support high LBAs!");
+				}
 			}else{
-				throw std::logic_error("USB storage does not currently support high LBAs!");
+				if(req->sector <= 0xFFFFFFFF) {
+					scsi::Write10 command;
+					memset(&command, 0, sizeof(scsi::Write10));
+					command.opCode = 0x2A;
+					command.lba[0] = req->sector >> 24;
+					command.lba[1] = (req->sector >> 16) & 0xFF;
+					command.lba[2] = (req->sector >> 8) & 0xFF;
+					command.lba[3] = req->sector & 0xFF;
+					command.transferLength[0] = req->numSectors >> 8;
+					command.transferLength[1] = req->numSectors & 0xFF;
+
+					cbw.cmdLength = sizeof(scsi::Write10);
+					memcpy(cbw.cmdData, &command, sizeof(scsi::Write10));
+				}else{
+					throw std::logic_error("USB storage does not currently support high LBAs!");
+				}
 			}
 
 			// TODO: Respect USB device DMA requirements.
@@ -115,13 +138,18 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 			
 			if(logSteps)
 				std::cout << "block-usb: Waiting for data" << std::endl;
-			BulkTransfer data_info{XferFlags::kXferToHost,
-					arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}};
-			// TODO: We want this to be lazy but that only works if can ensure that
-			// the next transaction is also posted to the queue.
-//			data_info.lazyNotification = true;
-			auto data_xfer = endp_in.transfer(data_info);
-			co_await std::move(data_xfer);
+			if(!req->isWrite) {
+				BulkTransfer data_info{XferFlags::kXferToHost,
+						arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}};
+				// TODO: We want this to be lazy but that only works if can ensure that
+				// the next transaction is also posted to the queue.
+	//			data_info.lazyNotification = true;
+				auto data_xfer = endp_in.transfer(data_info);
+				co_await std::move(data_xfer);
+			}else{
+				co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
+						arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}});
+			}
 
 			if(logSteps)
 				std::cout << "block-usb: Waiting for CSW" << std::endl;
@@ -150,15 +178,23 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	}
 }
 
-async::result<void> StorageDevice::readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors) {
-	auto req = new Request(sector, buffer, num_sectors);
+async::result<void> StorageDevice::readSectors(uint64_t sector,
+		void *buffer, size_t numSectors) {
+	auto req = new Request{false, sector, buffer, numSectors};
 	_queue.push_back(*req);
 	auto result = req->promise.async_get();
 	_doorbell.ring();
 	return result;
 }
 
+async::result<void> StorageDevice::writeSectors(uint64_t sector,
+		const void *buffer, size_t numSectors) {
+	auto req = new Request{true, sector, const_cast<void *>(buffer), numSectors};
+	_queue.push_back(*req);
+	auto result = req->promise.async_get();
+	_doorbell.ring();
+	return result;
+}
 
 async::detached bindDevice(mbus::Entity entity) {
 	auto lane = helix::UniqueLane(co_await entity.bind());

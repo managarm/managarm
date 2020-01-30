@@ -48,6 +48,16 @@ struct Read10 {
 };
 static_assert(sizeof(Read10) == 10);
 
+struct Write10 {
+	uint8_t opCode;
+	uint8_t options;
+	uint8_t lba[4];
+	uint8_t groupNumber;
+	uint8_t transferLength[2];
+	uint8_t control;
+};
+static_assert(sizeof(Write10) == 10);
+
 struct Read12 {
 	uint8_t opCode;
 	uint8_t options;
@@ -90,14 +100,18 @@ struct StorageDevice : blockfs::BlockDevice {
 
 	async::detached run(int config_num, int intf_num);
 
-	async::result<void> readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors) override;
+	async::result<void> readSectors(uint64_t sector,
+			void *buffer, size_t numSectors) override;
+
+	async::result<void> writeSectors(uint64_t sector,
+			const void *buffer, size_t numSectors) override;
 
 private:
 	struct Request {
-		Request(uint64_t sector, void *buffer, size_t num_sectors)
-		: sector(sector), buffer(buffer), numSectors(num_sectors) { }
+		Request(bool isWrite, uint64_t sector, void *buffer, size_t numSectors)
+		: isWrite{isWrite}, sector{sector}, buffer{buffer}, numSectors{numSectors} { }
 
+		bool isWrite;
 		uint64_t sector;
 		void *buffer;
 		size_t numSectors;
