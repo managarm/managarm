@@ -33,12 +33,10 @@ int main() {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
 	}else assert(virtio != -1);
 
-/*
 	auto block_ata = fork();
 	if(!block_ata) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/block-ata", nullptr);
 	}else assert(block_ata != -1);
-*/
 
 	auto block_usb = fork();
 	if(!block_usb) {
