@@ -39,6 +39,13 @@ namespace alt_regs {
 }
 
 class Controller : public blockfs::BlockDevice {
+	enum class IoResult {
+		none,
+		timeout,
+		noData,
+		haveData
+	};
+
 public:
 	Controller();
 
@@ -47,6 +54,7 @@ public:
 
 private:
 	async::detached _doRequestLoop();
+	async::result<IoResult> _waitForBsyIrq();
 
 public:
 	async::result<void> readSectors(uint64_t sector, void *buffer,
@@ -91,7 +99,7 @@ private:
 
 	bool _supportsLBA48;
 
-	uint64_t _irqSequence = 0;
+	uint64_t _irqSequence;
 };
 
 Controller::Controller()
@@ -106,6 +114,10 @@ Controller::Controller()
 }
 
 async::detached Controller::run() {
+	// Initialize the _irqSequence. For now, assume that this is 0.
+	// TODO: if the driver restarts, we would need to get the current IRQ sequence from the kernel.
+	_irqSequence = 0;
+
 	if (!(co_await _detectDevice()))
 		co_return;
 
@@ -128,6 +140,50 @@ async::detached Controller::_doRequestLoop() {
 	}
 }
 
+auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
+	while(true) {
+		if(logIrqs)
+			std::cout << "block/ata: Awaiting IRQ." << std::endl;
+		helix::AwaitEvent awaitIrq;
+		auto &&submit = helix::submitAwaitEvent(_irq, &awaitIrq, _irqSequence,
+				helix::Dispatcher::global());
+		co_await submit.async_wait();
+		HEL_CHECK(awaitIrq.error());
+		_irqSequence = awaitIrq.sequence();
+		if(logIrqs)
+			std::cout << "block/ata: IRQ fired." << std::endl;
+
+		// Since ATA has no internal ISR register, we check BSY to see if the IRQ was likely
+		// caused by this controller.
+		// If BSY is clear, the job of this function is done.
+		// Otherwise, if BSY is set, check an external ISR (e.g., PCI confiuration space),
+		// or error out below.
+		auto altStatus = _altSpace.load(alt_regs::inStatus);
+		if(altStatus & kStatusBsy) {
+			// TODO: Check the PCI registers if the IRQ is pending.
+			//       This is the only situation where we should loop.
+			if(false) {
+				HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, _irqSequence));
+				continue;
+			}
+			std::cout << "\e[31m" "block/ata: Drive asserted IRQ without clearing BSY"
+					"\e[39m" << std::endl;
+		}
+
+		// Clear and acknowledge the IRQ.
+		auto status = _ioSpace.load(regs::inStatus);
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, _irqSequence));
+		// When BSY is still set, all other bits are meaningless.
+		if(status & kStatusBsy)
+			co_return IoResult::timeout;
+		// TODO: Report those errors to the caller.
+		assert(status & kStatusRdy); // Device was disconnected?
+		assert(!(status & kStatusErr));
+		assert(!(status & kStatusDf));
+		co_return ((status & kStatusDrq) ? IoResult::haveData : IoResult::noData);
+	}
+}
+
 async::result<void> Controller::readSectors(uint64_t sector, void *buffer, size_t num_sectors) {
 	auto request = std::make_unique<Request>();
 	auto future = request->promise.async_get();
@@ -147,29 +203,8 @@ async::result<bool> Controller::_detectDevice() {
 
 	_ioSpace.store(regs::outCommand, kCommandIdentify);
 
-	if(logIrqs)
-		std::cout << "block/ata: Awaiting IRQ." << std::endl;
-	helix::AwaitEvent await_irq;
-	auto &&submit = helix::submitAwaitEvent(_irq, &await_irq, _irqSequence,
-			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(await_irq.error());
-	_irqSequence = await_irq.sequence();
-	if(logIrqs)
-		std::cout << "block/ata: IRQ fired." << std::endl;
-
-	// Check if the device is ready without clearing the IRQ.
-	auto alt_status = _altSpace.load(alt_regs::inStatus);
-	if(alt_status & kStatusBsy) {
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, _irqSequence));
-		co_return false;
-	}
-
-	// Clear and acknowledge the IRQ.
-	auto status = _ioSpace.load(regs::inStatus);
-	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, _irqSequence));
-
-	if (status & kStatusBsy || !(status & kStatusDrq))
+	auto ioRes = co_await _waitForBsyIrq();
+	if (ioRes != IoResult::haveData)
 		co_return false;
 
 	uint8_t ident_data[512];
@@ -222,39 +257,8 @@ async::result<void> Controller::_performRequest(Request *request) {
 
 	// Receive the result for each sector.
 	for(size_t k = 0; k < request->numSectors; k++) {
-		while(true) {
-			if(logIrqs)
-				std::cout << "block/ata: Awaiting IRQ." << std::endl;
-			helix::AwaitEvent await_irq;
-			auto &&submit = helix::submitAwaitEvent(_irq, &await_irq, _irqSequence,
-					helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(await_irq.error());
-			_irqSequence = await_irq.sequence();
-			if(logIrqs)
-				std::cout << "block/ata: IRQ fired." << std::endl;
-
-			// Check if the device is ready without clearing the IRQ.
-			auto alt_status = _altSpace.load(alt_regs::inStatus);
-			if(alt_status & kStatusBsy) {
-				HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, _irqSequence));
-				continue;
-			}
-			assert(!(alt_status & kStatusErr));
-			assert(!(alt_status & kStatusDf));
-
-			// Clear and acknowledge the IRQ.
-			auto status = _ioSpace.load(regs::inStatus);
-			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, _irqSequence));
-			assert(!(status & kStatusErr));
-			assert(!(status & kStatusDf));
-			if(!(status & kStatusRdy))
-				std::cout << "\e[31m" "block/ata: RDY is not set after IRQ" "\e[39m" << std::endl;
-			if(!(status & kStatusDrq))
-				std::cout << "\e[31m" "block/ata: DRQ is not set after IRQ" "\e[39m" << std::endl;
-			if((status & kStatusRdy) && (status & kStatusDrq))
-				break;
-		}
+		auto ioRes = co_await _waitForBsyIrq();
+		assert(ioRes == IoResult::haveData);
 
 		// Read the data.
 		// TODO: Do we have to be careful with endianess here?
