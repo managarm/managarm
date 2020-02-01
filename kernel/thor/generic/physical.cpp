@@ -36,7 +36,8 @@ void PhysicalChunkAllocator::bootstrap(PhysicalAddr address,
 	_buddyOrder = order;
 	_buddyRoots = num_roots;
 	_buddyPointer = buddy_tree;
-	_buddyAccessor = BuddyAccessor{_buddyPointer, _buddyRoots, _buddyOrder};
+	_buddyAccessor = BuddyAccessor{_physicalBase, kPageShift,
+			_buddyPointer, _buddyRoots, _buddyOrder};
 
 	_usedPages = 0;
 	_freePages = _buddyRoots << _buddyOrder;
@@ -60,10 +61,9 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 	if(logPhysicalAllocs)
 		frigg::infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frigg::endLog;
-	auto index = _buddyAccessor.allocate(target);
-	if(index == BuddyAccessor::illegalAddress)
+	auto physical = _buddyAccessor.allocate(target);
+	if(physical == BuddyAccessor::illegalAddress)
 		return static_cast<PhysicalAddr>(-1);
-	auto physical = _physicalBase + (index << kPageShift);
 //	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 	assert(!(physical % (size_t(kPageSize) << target)));
 	return physical;
@@ -77,9 +77,8 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 	while(size > (size_t(kPageSize) << target))
 		target++;
 
-	auto index = (address - _physicalBase) >> kPageShift;
-	_buddyAccessor.free(index, target);
-	
+	_buddyAccessor.free(address, target);
+
 	assert(_usedPages > size / kPageSize);
 	_freePages += size / kPageSize;
 	_usedPages -= size / kPageSize;

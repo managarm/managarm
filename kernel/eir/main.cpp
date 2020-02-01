@@ -215,12 +215,11 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		BuddyAccessor accessor{table, regions[i].numRoots, regions[i].order};
-		auto index = accessor.allocate(0);
-		if(index == BuddyAccessor::illegalAddress)
+		BuddyAccessor accessor{regions[i].address, kPageShift,
+				table, regions[i].numRoots, regions[i].order};
+		auto physical = accessor.allocate(0);
+		if(physical == BuddyAccessor::illegalAddress)
 			continue;
-		auto physical = regions[i].address + (index << kPageShift);
-//		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 		return physical;
 	}
 
@@ -235,11 +234,11 @@ uintptr_t allocPage() {
 			continue;
 
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
-		BuddyAccessor accessor{table, regions[i].numRoots, regions[i].order};
-		auto index = accessor.allocate(0);
-		if(index == BuddyAccessor::illegalAddress)
+		BuddyAccessor accessor{regions[i].address, kPageShift,
+				table, regions[i].numRoots, regions[i].order};
+		auto physical = accessor.allocate(0);
+		if(physical == BuddyAccessor::illegalAddress)
 			continue;
-		auto physical = regions[i].address + (index << kPageShift);
 		allocatedMemory += kPageSize;
 	//		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 		return physical;
