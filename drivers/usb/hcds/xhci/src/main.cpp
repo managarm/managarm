@@ -131,23 +131,21 @@ async::detached Controller::initialize() {
 		auto usb_legacy_cap_off = usb_legacy_cap->second;
 		printf("xhci: usb legacy capability at %04x\n", usb_legacy_cap_off);
 
-		auto val = arch::scalar_load<uint32_t>(_space, usb_legacy_cap_off);
+		auto val = arch::scalar_load<uint8_t>(_space, usb_legacy_cap_off + 0x2);
 
-		if (val & (1 << 16))
-			printf("xhci: controller is currently owned by the BIOS\n");
+		if (val)
+			arch::scalar_store<uint8_t>(_space, usb_legacy_cap_off + 0x3, 1);
 
-		if(!(val & (1 << 24))) {
-			arch::scalar_store<uint32_t>(_space, usb_legacy_cap_off, 
-						val | (1 << 24));
-		} else {
-			printf("xhci: we already own the controller\n");
+		while (1) {
+			val = arch::scalar_load<uint8_t>(_space, usb_legacy_cap_off + 0x2);
+
+			if(!val)
+				break;
+
+			sleep(1);
 		}
 
-		while(val & (1 << 16)) {
-			// Do nothing while we wait for the BIOS.
-			val = arch::scalar_load<uint32_t>(_space, usb_legacy_cap_off);
-		}
-		printf("xhci: took over controller from BIOS\n");
+		printf("xhci: device obtained from bios\n");
 	} else {
 		printf("xhci: no usb legacy support extended capability\n");
 	}
@@ -265,10 +263,8 @@ async::detached Controller::initialize() {
 	_maxDeviceSlots = _space.load(cap_regs::hcsparams1) & hcsparams1::maxDevSlots;
 	_operational.store(op_regs::config, config::enabledDeviceSlots(_maxDeviceSlots));
 
-	auto hcsparams2 = _space.load(cap_regs::hcsparams2);
-	auto max_scratchpad_bufs = 
-		((hcsparams2 & hcsparams2::maxScratchpadBufsHi) << 4)
-		| (hcsparams2 & hcsparams2::maxScratchpadBufsLow);
+	uint32_t hcsparams2 = static_cast<uint32_t>(_space.load(cap_regs::hcsparams2));
+	uint32_t max_scratchpad_bufs = ((((hcsparams2) >> 16) & 0x3e0) | (((hcsparams2) >> 27) & 0x1f));
 
 	auto pagesize_reg = _operational.load(op_regs::pagesize);
 	size_t page_size = 1 << ((__builtin_ffs(pagesize_reg) - 1) + 12); // 2^(n + 12)
@@ -922,6 +918,42 @@ async::result<std::string> Controller::Device::configurationDescriptor() {
 }
 
 async::result<Configuration> Controller::Device::useConfiguration(int number) {
+	auto descriptor = co_await configurationDescriptor();
+
+	struct EndpointInfo {
+		int pipe;
+		PipeType dir;
+		int packet_size;
+		EndpointType type;
+	};
+
+	std::vector<EndpointInfo> _eps = {};
+
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		(void)length;
+
+		if(type != descriptor_type::endpoint)
+			return;
+		auto desc = (EndpointDescriptor *)p;
+
+		// TODO: Pay attention to interface/alternative.
+		auto packet_size = desc->maxPacketSize & 0x7FF;
+		auto ep_type = info.endpointType.value();
+
+		int pipe = info.endpointNumber.value();
+		if (info.endpointIn.value()) {
+			_eps.push_back({pipe, PipeType::in, packet_size, ep_type});
+		} else {
+			_eps.push_back({pipe, PipeType::out, packet_size, ep_type});
+		}
+	});
+
+	for (auto &ep : _eps) {
+		printf("xhci: setting up %s endpoint %d (max packet size: %d)\n", 
+			ep.dir == PipeType::in ? "in" : "out", ep.pipe, ep.packet_size);
+		co_await setupEndpoint(ep.pipe, ep.dir, ep.packet_size, ep.type);
+	}
+
 	RawTrb setup_stage = {{
 			static_cast<uint32_t>((number << 16) | (9 << 8) | 0x00), // SET_CONFIGURATION, host to device
 			0, 8,
@@ -938,6 +970,10 @@ async::result<Configuration> Controller::Device::useConfiguration(int number) {
 	submit(1);
 
 	co_await ev.promise.async_get();
+
+	if (ev.event.completionCode != 1)
+		printf("xhci: failed to use configuration, completion code: '%s'\n",
+			completionCodeNames[ev.event.completionCode]);
 
 	printf("xhci: configuration set\n");
 
@@ -987,6 +1023,10 @@ async::result<void> Controller::Device::transfer(ControlTransfer info) {
 	submit(1);
 
 	co_await ev.promise.async_get();
+
+	if (ev.event.completionCode != 1)
+		printf("xhci: failed to perform a control transfer, completion code: '%s'\n",
+			completionCodeNames[ev.event.completionCode]);
 }
 
 void Controller::Device::submit(int endpoint) {
@@ -1059,6 +1099,10 @@ async::result<void> Controller::Device::allocSlot(int slotType, int packetSize) 
 
 	co_await ev2.promise.async_get();
 
+	if (ev2.event.completionCode != 1)
+		printf("xhci: failed to address device, completion code: '%s'\n",
+			completionCodeNames[ev2.event.completionCode]);
+
 	printf("xhci: device successfully addressed\n");
 }
 
@@ -1094,6 +1138,10 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view des
 
 	co_await ev.promise.async_get();
 
+	if (ev.event.completionCode != 1)
+		printf("xhci: failed to read descriptor, completion code: '%s'\n",
+			completionCodeNames[ev.event.completionCode]);
+
 	printf("xhci: device descriptor successfully read\n");
 }
 
@@ -1121,12 +1169,7 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 	inputCtx->icc.addContextFlags = (1 << 0) | (1 << (endpointId));
 	inputCtx->slotContext = _devCtx->slotContext;
 
-	auto nEndpoints = inputCtx->slotContext.val[0] >> 27;
-	if (nEndpoints < endpoint + 1)
-		nEndpoints = endpoint + 1;
-
-	inputCtx->slotContext.val[0] &= ~(0x1F);
-	inputCtx->slotContext.val[0] = (nEndpoints << 27);
+	inputCtx->slotContext.val[0] |= (31 << 27);
 
 	_transferRings[endpointId - 1] = std::make_unique<TransferRing>(_controller);
 
@@ -1137,12 +1180,14 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 	// max p streams = 0
 	// mult = 0
 	// error count = 3
+	// average trb length = packet size * 2
 	auto tr_ptr = _transferRings[endpointId - 1]->getPtr();
 	printf("xhci: tr ptr = %016lx\n", tr_ptr);
 	assert(!(tr_ptr & 0xF));
 	inputCtx->endpointContext[endpointId - 1].val[1] = (3 << 1) | (getHcdEndpointType(dir, type) << 3) | (maxPacketSize << 16);
 	inputCtx->endpointContext[endpointId - 1].val[2] = (1 << 0) | (tr_ptr & 0xFFFFFFF0);
 	inputCtx->endpointContext[endpointId - 1].val[3] = (tr_ptr >> 32);
+	inputCtx->endpointContext[endpointId - 1].val[4] = maxPacketSize * 2;
 
 	uintptr_t in_ctx_ptr;
 	HEL_CHECK(helPointerPhysical(inputCtx.data(), &in_ctx_ptr));
@@ -1157,6 +1202,14 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 	_controller->_cmdRing.submit();
 
 	co_await ev.promise.async_get();
+
+	if (ev.event.completionCode != 1)
+		printf("xhci: failed to configure endpoint, completion code: '%s'\n",
+			completionCodeNames[ev.event.completionCode]);
+
+	assert(ev.event.completionCode == 1);
+
+	printf("xhci: configure endpoint finished\n");
 }
 
 // ------------------------------------------------------------------------
@@ -1169,42 +1222,7 @@ Controller::ConfigurationState::ConfigurationState(Controller *controller,
 }
 
 async::result<Interface> Controller::ConfigurationState::useInterface(int number, int alternative) {
-	auto descriptor = co_await _device->configurationDescriptor();
-
-	struct EndpointInfo {
-		int pipe;
-		PipeType dir;
-		int packet_size;
-		EndpointType type;
-	};
-
-	std::vector<EndpointInfo> _eps = {};
-
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		(void)length;
-
-		if(type != descriptor_type::endpoint)
-			return;
-		auto desc = (EndpointDescriptor *)p;
-
-		// TODO: Pay attention to interface/alternative.
-		auto packet_size = desc->maxPacketSize & 0x7FF;
-		auto ep_type = info.endpointType.value();
-
-		int pipe = info.endpointNumber.value();
-		if (info.endpointIn.value()) {
-			_eps.push_back({pipe, PipeType::in, packet_size, ep_type});
-		} else {
-			_eps.push_back({pipe, PipeType::out, packet_size, ep_type});
-		}
-	});
-
-	for (auto &ep : _eps) {
-		printf("xhci: setting up %s endpoint %d (max packet size: %d)\n", 
-			ep.dir == PipeType::in ? "in" : "out", ep.pipe, ep.packet_size);
-		co_await _device->setupEndpoint(ep.pipe, ep.dir, ep.packet_size, ep.type);
-	}
-
+	assert(!alternative);
 	co_return Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
 }
 
@@ -1236,9 +1254,6 @@ async::result<void> Controller::EndpointState::transfer(ControlTransfer info) {
 }
 
 async::result<size_t> Controller::EndpointState::transfer(InterruptTransfer info) {
-	//assert(!"TODO: implement this");
-	//co_return 0;
-
 	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
 
 	Controller::TransferRing::TransferEvent ev;
