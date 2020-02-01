@@ -23,7 +23,7 @@ namespace {
 // --------------------------------------------------------
 
 namespace regs {
-	inline constexpr arch::scalar_register<uint16_t> inData{0};
+	inline constexpr arch::scalar_register<uint16_t> ioData{0};
 	inline constexpr arch::scalar_register<uint8_t> inStatus{7};
 
 	inline constexpr arch::scalar_register<uint8_t> outSectorCount{2};
@@ -43,7 +43,7 @@ class Controller : public blockfs::BlockDevice {
 		none,
 		timeout,
 		noData,
-		haveData
+		withData
 	};
 
 public:
@@ -54,16 +54,22 @@ public:
 
 private:
 	async::detached _doRequestLoop();
+	async::result<IoResult> _pollForBsy();
 	async::result<IoResult> _waitForBsyIrq();
 
 public:
 	async::result<void> readSectors(uint64_t sector, void *buffer,
 			size_t num_sectors) override;
 
+	async::result<void> writeSectors(uint64_t sector, const void *buffer,
+			size_t num_sectors) override;
+
 private:
 	enum Commands {
 		kCommandReadSectors = 0x20,
 		kCommandReadSectorsExt = 0x24,
+		kCommandWriteSectors = 0x30,
+		kCommandWriteSectorsExt = 0x34,
 		kCommandIdentify = 0xEC,
 	};
 
@@ -79,6 +85,7 @@ private:
 	};
 
 	struct Request {
+		bool isWrite;
 		uint64_t sector;
 		size_t numSectors;
 		void *buffer;
@@ -140,6 +147,19 @@ async::detached Controller::_doRequestLoop() {
 	}
 }
 
+auto Controller::_pollForBsy() -> async::result<IoResult> {
+	while(true) {
+		auto altStatus = _altSpace.load(alt_regs::inStatus);
+		if(altStatus & kStatusBsy)
+			continue; // TODO: sleep some time before continuing.
+		// TODO: Report those errors to the caller.
+		assert(altStatus & kStatusRdy); // Device was disconnected?
+		assert(!(altStatus & kStatusErr));
+		assert(!(altStatus & kStatusDf));
+		co_return ((altStatus & kStatusDrq) ? IoResult::withData : IoResult::noData);
+	}
+}
+
 auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 	while(true) {
 		if(logIrqs)
@@ -180,16 +200,33 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 		assert(status & kStatusRdy); // Device was disconnected?
 		assert(!(status & kStatusErr));
 		assert(!(status & kStatusDf));
-		co_return ((status & kStatusDrq) ? IoResult::haveData : IoResult::noData);
+		co_return ((status & kStatusDrq) ? IoResult::withData : IoResult::noData);
 	}
 }
 
-async::result<void> Controller::readSectors(uint64_t sector, void *buffer, size_t num_sectors) {
+async::result<void> Controller::readSectors(uint64_t sector,
+		void *buffer, size_t numSectors) {
 	auto request = std::make_unique<Request>();
 	auto future = request->promise.async_get();
+	request->isWrite = false;
 	request->sector = sector;
-	request->numSectors = num_sectors;
+	request->numSectors = numSectors;
 	request->buffer = buffer;
+
+	_requestQueue.push(std::move(request));
+	_doorbell.ring();
+
+	return future;
+}
+
+async::result<void> Controller::writeSectors(uint64_t sector,
+		const void *buffer, size_t numSectors) {
+	auto request = std::make_unique<Request>();
+	auto future = request->promise.async_get();
+	request->isWrite = true;
+	request->sector = sector;
+	request->numSectors = numSectors;
+	request->buffer = const_cast<void *>(buffer);
 
 	_requestQueue.push(std::move(request));
 	_doorbell.ring();
@@ -204,11 +241,11 @@ async::result<bool> Controller::_detectDevice() {
 	_ioSpace.store(regs::outCommand, kCommandIdentify);
 
 	auto ioRes = co_await _waitForBsyIrq();
-	if (ioRes != IoResult::haveData)
+	if (ioRes != IoResult::withData)
 		co_return false;
 
 	uint8_t ident_data[512];
-	_ioSpace.load_iterative(regs::inData, reinterpret_cast<uint16_t *>(ident_data), 256);
+	_ioSpace.load_iterative(regs::ioData, reinterpret_cast<uint16_t *>(ident_data), 256);
 
 	char model[41];
 	memcpy(model, ident_data + 54, 40);
@@ -231,12 +268,16 @@ async::result<bool> Controller::_detectDevice() {
 
 async::result<void> Controller::_performRequest(Request *request) {
 	if(logRequests)
-		std::cout << "block/ata: Reading " << request->numSectors
+		std::cout << "block/ata: Reading/writing " << request->numSectors
 				<< " sectors from " << request->sector << std::endl;
 
 	assert(!(request->sector & ~((size_t(1) << 48) - 1)));
+	assert(request->numSectors <= 255);
+
+	// TODO: Make sure RDY is set here.
+
 	_ioSpace.store(regs::outDevice, kDeviceLba);
-	// TODO: There should be a delay after drive selection.
+	// TODO: There should be a 400ns delay after drive selection.
 
 	if (_supportsLBA48) {
 		_ioSpace.store(regs::outSectorCount, (request->numSectors >> 8) & 0xFF);
@@ -250,26 +291,55 @@ async::result<void> Controller::_performRequest(Request *request) {
 	_ioSpace.store(regs::outLba2, (request->sector >> 8) & 0xFF);
 	_ioSpace.store(regs::outLba3, (request->sector >> 16) & 0xFF);
 
-	if (_supportsLBA48)
-		_ioSpace.store(regs::outCommand, kCommandReadSectorsExt);
-	else
-		_ioSpace.store(regs::outCommand, kCommandReadSectors);
+	if(!request->isWrite) {
+		if (_supportsLBA48)
+			_ioSpace.store(regs::outCommand, kCommandReadSectorsExt);
+		else
+			_ioSpace.store(regs::outCommand, kCommandReadSectors);
 
-	// Receive the result for each sector.
-	for(size_t k = 0; k < request->numSectors; k++) {
-		auto ioRes = co_await _waitForBsyIrq();
-		assert(ioRes == IoResult::haveData);
+		// Receive the result for each sector.
+		for(size_t k = 0; k < request->numSectors; k++) {
+			auto ioRes = co_await _waitForBsyIrq();
+			assert(ioRes == IoResult::withData);
 
-		// Read the data.
-		// TODO: Do we have to be careful with endianess here?
-		auto dest = reinterpret_cast<uint8_t *>(request->buffer) + k * 512;
-		// TODO: The following is a hack. Lock the page into memory instead!
-		*static_cast<volatile uint8_t *>(dest) = 0; // Fault in the page.
-		_ioSpace.load_iterative(regs::inData, reinterpret_cast<uint16_t *>(dest), 256);
+			// Read the data.
+			// TODO: Do we have to be careful with endianess here?
+			auto chunk = reinterpret_cast<uint8_t *>(request->buffer) + k * 512;
+			// TODO: The following is a hack. Lock the page into memory instead!
+			*static_cast<volatile uint8_t *>(chunk); // Fault in the page.
+			_ioSpace.load_iterative(regs::ioData, reinterpret_cast<uint16_t *>(chunk), 256);
+		}
+	}else{
+		if (_supportsLBA48)
+			_ioSpace.store(regs::outCommand, kCommandWriteSectorsExt);
+		else
+			_ioSpace.store(regs::outCommand, kCommandWriteSectors);
+
+		// Write requests do not generate an IRQ for the first sector.
+		auto ioRes = co_await _pollForBsy();
+		assert(ioRes == IoResult::withData);
+
+		// Receive the result for each sector.
+		for(size_t k = 0; k < request->numSectors; k++) {
+			// Read the data.
+			// TODO: Do we have to be careful with endianess here?
+			auto chunk = reinterpret_cast<uint8_t *>(request->buffer) + k * 512;
+			// TODO: The following is a hack. Lock the page into memory instead!
+			*static_cast<volatile uint8_t *>(chunk); // Fault in the page.
+			_ioSpace.store_iterative(regs::ioData, reinterpret_cast<uint16_t *>(chunk), 256);
+
+			// Wait for the device to process the sector.
+			auto ioRes = co_await _waitForBsyIrq();
+			if(k + 1 < request->numSectors) {
+				assert(ioRes == IoResult::withData);
+			}else{
+				assert(ioRes == IoResult::noData);
+			}
+		}
 	}
 
 	if(logRequests)
-		std::cout << "block/ata: Reading from " << request->sector
+		std::cout << "block/ata: Reading/writing from " << request->sector
 				<< " complete" << std::endl;
 }
 

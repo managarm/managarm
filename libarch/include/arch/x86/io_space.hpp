@@ -35,6 +35,10 @@ namespace _detail {
 			return v;
 		}
 
+		static void store_iterative(uint16_t addr, const uint16_t *p, size_t n) {
+			asm volatile ("cld\n"
+				"\trep outsw" : "+c"(n), "+S"(p) : "d"(addr) : "memory");
+		}
 		static void load_iterative(uint16_t addr, uint16_t *p, size_t n) {
 			asm volatile ("cld\n"
 				"\trep insw" : "+c"(n), "+D"(p) : "d"(addr) : "memory");
@@ -74,6 +78,11 @@ namespace _detail {
 		typename RT::rep_type load(RT r) const {
 			auto b = io_ops<typename RT::bits_type>::load(_base + r.offset());
 			return static_cast<typename RT::rep_type>(b);
+		}
+
+		template<typename RT>
+		void store_iterative(RT r, const typename RT::rep_type *p, size_t n) const {
+			io_ops<typename RT::bits_type>::store_iterative(_base + r.offset(), p, n);
 		}
 
 		template<typename RT>
