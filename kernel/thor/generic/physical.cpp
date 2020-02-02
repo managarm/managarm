@@ -61,7 +61,7 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 	if(logPhysicalAllocs)
 		frigg::infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frigg::endLog;
-	auto physical = _buddyAccessor.allocate(target);
+	auto physical = _buddyAccessor.allocate(target, 64);
 	if(physical == BuddyAccessor::illegalAddress)
 		return static_cast<PhysicalAddr>(-1);
 //	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;

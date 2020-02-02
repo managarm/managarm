@@ -217,7 +217,7 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
 		BuddyAccessor accessor{regions[i].address, kPageShift,
 				table, regions[i].numRoots, regions[i].order};
-		auto physical = accessor.allocate(0);
+		auto physical = accessor.allocate(0, 32);
 		if(physical == BuddyAccessor::illegalAddress)
 			continue;
 		return physical;
@@ -236,7 +236,7 @@ uintptr_t allocPage() {
 		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
 		BuddyAccessor accessor{regions[i].address, kPageShift,
 				table, regions[i].numRoots, regions[i].order};
-		auto physical = accessor.allocate(0);
+		auto physical = accessor.allocate(0, 32);
 		if(physical == BuddyAccessor::illegalAddress)
 			continue;
 		allocatedMemory += kPageSize;
