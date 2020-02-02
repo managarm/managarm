@@ -422,8 +422,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto ser = resp.SerializeAsString();
 		auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_addr, addr.data(), data.addr_len, kHelItemChain),
-				helix::action(&send_data, buffer.data(), data.data_len, kHelItemChain),
+				helix::action(&send_addr, addr.data(), data.addressLength, kHelItemChain),
+				helix::action(&send_data, buffer.data(), data.dataLength, kHelItemChain),
 				helix::action(&send_ctrl, data.ctrl.data(), data.ctrl.size()));
 
 		co_await transmit.async_wait();
@@ -469,6 +469,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			co_return;
+		} else {
+			assert(!error);
 		}
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
