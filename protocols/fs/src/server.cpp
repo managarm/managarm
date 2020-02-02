@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <iostream>
+#include <vector>
 
 #include <helix/ipc.hpp>
 
@@ -378,7 +379,109 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix::action(&send_resp, ser.data(), ser.size(), 0));
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
-	}else{
+	} else if (req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
+		helix::ExtractCredentials extract_creds;
+		helix::SendBuffer send_resp;
+		helix::SendBuffer send_data;
+		helix::SendBuffer send_addr;
+		helix::SendBuffer send_ctrl;
+
+		auto get_creds = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&extract_creds));
+		co_await get_creds.async_wait();
+		HEL_CHECK(extract_creds.error());
+
+		// ensure we have a handler
+		assert(file_ops->recvMsg);
+		std::vector<char> buffer;
+		buffer.resize(req.size());
+		std::vector<char> addr;
+		addr.resize(req.addr_size());
+
+		auto result = co_await file_ops->recvMsg(file.get(), extract_creds.credentials(), req.flags(),
+				buffer.data(), buffer.size(),
+				addr.data(), addr.size(),
+				req.ctrl_size());
+		auto error = std::get_if<Error>(&result);
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::SUCCESS);
+
+		if (error) {
+			assert(*error == Error::wouldBlock && "libfs_protocol: TODO: handle other errors");
+			resp.set_error(managarm::fs::WOULD_BLOCK);
+
+			auto ser = resp.SerializeAsString();
+			auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto data = std::get<RecvData>(result);
+		auto ser = resp.SerializeAsString();
+		auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_addr, addr.data(), data.addressLength, kHelItemChain),
+				helix::action(&send_data, buffer.data(), data.dataLength, kHelItemChain),
+				helix::action(&send_ctrl, data.ctrl.data(), data.ctrl.size()));
+
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_addr.error());
+		HEL_CHECK(send_data.error());
+		HEL_CHECK(send_ctrl.error());
+	} else if (req.req_type() == managarm::fs::CntReqType::PT_SENDMSG) {
+		std::vector<uint8_t> buffer;
+		buffer.resize(req.size());
+
+		helix::RecvBuffer recv_data;
+		helix::ExtractCredentials extract_creds;
+		helix::RecvInline recv_addr;
+		helix::SendBuffer send_resp;
+
+		auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&recv_data, buffer.data(), buffer.size(), kHelItemChain),
+				helix::action(&extract_creds, kHelItemChain),
+				helix::action(&recv_addr));
+		co_await submit_data.async_wait();
+		HEL_CHECK(recv_data.error());
+		HEL_CHECK(extract_creds.error());
+
+
+		std::vector<uint32_t> files(req.fds().cbegin(), req.fds().cend());
+
+		auto result_or_error = co_await file_ops->sendMsg(file.get(),
+				extract_creds.credentials(), req.flags(),
+				buffer.data(), recv_data.actualLength(),
+				recv_addr.data(), recv_addr.length(),
+				std::move(files));
+
+		managarm::fs::SvrResponse resp;
+
+		auto error = std::get_if<Error>(&result_or_error);
+		if(error && *error == Error::brokenPipe) {
+			resp.set_error(managarm::fs::Errors::BROKEN_PIPE);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			co_return;
+		} else {
+			assert(!error);
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_size(std::get<size_t>(result_or_error));
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	} else {
 		throw std::runtime_error("libfs_protocol: Unexpected"
 				" request type in servePassthrough()");
 	}

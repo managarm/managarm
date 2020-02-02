@@ -1529,8 +1529,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
-				// TODO(arsen) Support SOCK_STREAM and SOCK_RAW + proto
 
+				// TODO(arsen) Support SOCK_STREAM and SOCK_RAW
+				//             + proto
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
 					req.socktype(), req.protocol());
@@ -1600,134 +1601,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::SENDMSG) {
-			if(logRequests)
-				std::cout << "posix: SENDMSG" << std::endl;
-
-			std::vector<uint8_t> buffer;
-			buffer.resize(req.size());
-
-			helix::RecvBuffer recv_data;
-			helix::RecvInline recv_addr;
-			helix::SendBuffer send_resp;
-
-			auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&recv_data, buffer.data(), buffer.size(), kHelItemChain),
-					helix::action(&recv_addr));
-			co_await submit_data.async_wait();
-			HEL_CHECK(recv_data.error());
-
-			auto sockfile = self->fileContext()->getFile(req.fd());
-			assert(sockfile && "Illegal FD for SENDMSG");
-
-			MsgFlags flags = 0;
-			if(req.flags() & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL)) {
-				std::cout << "\e[31mposix: Unknown SENDMSG flags: 0x" << std::hex << req.flags()
-						<< std::dec << "\e[39m" << std::endl;
-				assert(!"Flags not implemented");
-			}
-			if(req.flags() & MSG_DONTWAIT)
-				flags |= msgNoWait;
-			if(req.flags() & MSG_CMSG_CLOEXEC)
-				flags |= msgCloseOnExec;
-			if(req.flags() & MSG_NOSIGNAL) {
-				static bool warned = false;
-				if(!warned)
-					std::cout << "\e[35mposix: Ignoring MSG_NOSIGNAL\e[39m" << std::endl;
-				warned = true;
-			}
-
-			std::vector<smarter::shared_ptr<File, FileHandle>> files;
-			for(int i = 0; i < req.fds_size(); i++) {
-				auto file = self->fileContext()->getFile(req.fds(i));
-				assert(sockfile && "Illegal FD for SENDMSG cmsg");
-				files.push_back(std::move(file));
-			}
-
-			auto result_or_error = co_await sockfile->sendMsg(self.get(), flags,
-					buffer.data(), recv_data.actualLength(),
-					recv_addr.data(), recv_addr.length(),
-					std::move(files));
-
-			managarm::posix::SvrResponse resp;
-
-			auto error = std::get_if<Error>(&result_or_error);
-			if(error && *error == Error::brokenPipe) {
-				resp.set_error(managarm::posix::Errors::BROKEN_PIPE);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_size(std::get<size_t>(result_or_error));
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::RECVMSG) {
-			if(logRequests)
-				std::cout << "posix: RECVMSG" << std::endl;
-
-			helix::SendBuffer send_resp;
-			helix::SendBuffer send_data;
-			helix::SendBuffer send_addr;
-			helix::SendBuffer send_ctrl;
-
-			auto sockfile = self->fileContext()->getFile(req.fd());
-			assert(sockfile && "Illegal FD for SENDMSG");
-
-			MsgFlags flags = 0;
-			if(req.flags() & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)) {
-				std::cout << "\e[31mposix: Unknown RECVMSG flags: 0x" << std::hex << req.flags()
-						<< std::dec << "\e[39m" << std::endl;
-				assert(!"Flags not implemented");
-			}
-			if(req.flags() & MSG_DONTWAIT)
-				flags |= msgNoWait;
-			if(req.flags() & MSG_CMSG_CLOEXEC)
-				flags |= msgCloseOnExec;
-
-			std::vector<char> buffer;
-			std::vector<char> address;
-			buffer.resize(req.size());
-			address.resize(req.addr_size());
-			auto result_or_error = co_await sockfile->recvMsg(self.get(), flags,
-					buffer.data(), req.size(),
-					address.data(), req.addr_size(), req.ctrl_size());
-
-			managarm::posix::SvrResponse resp;
-
-			auto error = std::get_if<Error>(&result_or_error);
-			if(error && *error == Error::wouldBlock) {
-				resp.set_error(managarm::posix::Errors::WOULD_BLOCK);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			auto result = std::get<RecvResult>(result_or_error);
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_addr, address.data(), std::get<1>(result), kHelItemChain),
-					helix::action(&send_data, buffer.data(), std::get<0>(result), kHelItemChain),
-					helix::action(&send_ctrl, std::get<2>(result).data(),
-							std::get<2>(result).size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CALL) {

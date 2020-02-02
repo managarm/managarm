@@ -2,6 +2,7 @@
 #include <string.h>
 #include <future>
 
+#include <sys/socket.h>
 #include <helix/ipc.hpp>
 #include "file.hpp"
 #include "process.hpp"
@@ -141,6 +142,54 @@ async::result<void> File::ptSetFileFlags(void *object, int flags) {
 	return self->setFileFlags(flags);
 }
 
+async::result<protocols::fs::RecvResult>
+File::ptRecvMsg(void *object, const char *creds, uint32_t flags,
+		void *data, size_t len,
+		void *addr, size_t addr_len,
+		size_t max_ctrl_len) {
+	auto self = static_cast<File *>(object);
+	auto process = findProcessWithCredentials(creds);
+	return self->recvMsg(process.get(), flags,
+			data, len,
+			addr, addr_len,
+			max_ctrl_len);
+}
+
+async::result<protocols::fs::SendResult>
+File::ptSendMsg(void *object, const char *creds, uint32_t flags,
+		void *data, size_t len,
+		void *addr, size_t addr_len,
+		std::vector<uint32_t> fds) {
+	auto self = static_cast<File *>(object);
+	auto process = findProcessWithCredentials(creds);
+
+	if(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL)) {
+		std::cout << "\e[31mposix: Unknown SENDMSG flags: 0x" << std::hex << flags
+			<< std::dec << "\e[39m" << std::endl;
+		assert(!"Flags not implemented");
+	}
+	if(flags & MSG_NOSIGNAL) {
+		static bool warned = false;
+		if(!warned)
+			std::cout << "\e[35mposix: Ignoring MSG_NOSIGNAL\e[39m" << std::endl;
+		warned = true;
+		flags &= ~MSG_NOSIGNAL;
+	}
+
+
+	std::vector<smarter::shared_ptr<File, FileHandle>> files;
+	for(auto fd : fds) {
+		auto file = process->fileContext()->getFile(fd);
+		assert(file && "Illegal FD for SENDMSG cmsg");
+		files.push_back(std::move(file));
+	}
+
+	return self->sendMsg(process.get(), flags,
+			data, len,
+			addr, addr_len,
+			std::move(files));
+}
+
 File::~File() {
 	// Nothing to do here.
 	if(logDestruction)
@@ -183,12 +232,15 @@ async::result<ReadEntriesResult> File::readEntries() {
 	throw std::runtime_error("posix: Object has no File::readEntries()");
 }
 
-expected<RecvResult> File::recvMsg(Process *, MsgFlags, void *, size_t,
+async::result<protocols::fs::RecvResult>
+File::recvMsg(Process *, uint32_t, void *, size_t,
 		void *, size_t, size_t) {
 	throw std::runtime_error("posix: Object has no File::recvMsg()");
 }
 
-expected<size_t> File::sendMsg(Process *, MsgFlags, const void *, size_t,
+async::result<protocols::fs::SendResult>
+File::sendMsg(Process *, uint32_t,
+		const void *, size_t,
 		const void *, size_t,
 		std::vector<smarter::shared_ptr<File, FileHandle>>) {
 	std::cout << "posix \e[1;34m" << structName()

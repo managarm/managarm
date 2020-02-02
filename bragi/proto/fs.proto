@@ -11,6 +11,7 @@ enum Errors {
 	ILLEGAL_ARGUMENT = 4;
 	WOULD_BLOCK = 5;
 	SEEK_ON_PIPE = 6;
+	BROKEN_PIPE = 7;
 }
 
 enum FileType {
@@ -72,6 +73,8 @@ enum CntReqType {
 	PT_SOCKNAME = 24;
 	PT_GET_FILE_FLAGS = 30;
 	PT_SET_FILE_FLAGS = 31;
+	PT_RECVMSG = 33;
+	PT_SENDMSG = 34;
 
 	WRITE = 3;
 	SEEK_ABS = 6;
@@ -120,6 +123,13 @@ message CntRequest {
 	// used by READ and WRITE
 	optional int32 size = 5;
 	optional bytes buffer = 6;
+
+	// used by RECVMSG
+	optional uint64 addr_size = 51;
+	optional uint64 ctrl_size = 52;
+
+	// used by SENDMSG
+	repeated uint32 fds = 53;
 
 	// used by SEEK_ABS, SEEK_REL and SEEK_EOF
 	optional int64 rel_offset = 7;
@@ -233,6 +243,9 @@ message SvrResponse {
 	optional int32 status = 62;
 
 	optional int64 pid = 71;
+
+	// returned by PT_SENDMSG
+	optional int64 size = 76;
 
 	// PTS and TTY ioctls.
 	optional int32 pts_index = 63;

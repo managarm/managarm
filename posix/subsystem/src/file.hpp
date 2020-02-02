@@ -55,25 +55,12 @@ template<typename T>
 using expected = async::result<std::variant<Error, T>>;
 
 // ----------------------------------------------------------------------------
-
-using MsgFlags = uint32_t;
-
-inline constexpr MsgFlags msgNoWait = (1 << 1);
-inline constexpr MsgFlags msgCloseOnExec = (1 << 2);
-
-// ----------------------------------------------------------------------------
 // File class.
 // ----------------------------------------------------------------------------
 
 using ReadEntriesResult = std::optional<std::string>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
-
-using RecvResult = std::tuple<
-	size_t,
-	size_t,
-	std::vector<char>
->;
 
 using AcceptResult = smarter::shared_ptr<File, FileHandle>;
 
@@ -134,7 +121,7 @@ public:
 	static async::result<size_t>
 	ptSockname(void *object, void *addr_ptr, size_t max_addr_length);
 
-	static async::result<void> 
+	static async::result<void>
 	ptIoctl(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 
@@ -143,6 +130,19 @@ public:
 
 	static async::result<void>
 	ptSetFileFlags(void *object, int flags);
+
+	static async::result<protocols::fs::RecvResult>
+	ptRecvMsg(void *object, const char *creds, uint32_t flags,
+			void *data, size_t len,
+			void *addr, size_t addr_len,
+			size_t max_ctrl_len);
+
+	static async::result<protocols::fs::SendResult>
+	ptSendMsg(void *object, const char *creds, uint32_t flags,
+			void *data, size_t len,
+			void *addr, size_t addr_len,
+			std::vector<uint32_t> fds);
+
 
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
@@ -161,6 +161,8 @@ public:
 		.ioctl = &ptIoctl,
 		.getFileFlags = &ptGetFileFlags,
 		.setFileFlags = &ptSetFileFlags,
+		.recvMsg = &ptRecvMsg,
+		.sendMsg = &ptSendMsg,
 	};
 
 	// ------------------------------------------------------------------------
@@ -235,11 +237,13 @@ public:
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
 
-	virtual expected<RecvResult> recvMsg(Process *process, MsgFlags flags,
+	virtual async::result<protocols::fs::RecvResult>
+		recvMsg(Process *process, uint32_t flags,
 			void *data, size_t max_length,
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length);
 
-	virtual expected<size_t> sendMsg(Process *process, MsgFlags flags,
+	virtual async::result<protocols::fs::SendResult>
+		sendMsg(Process *process, uint32_t flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files);
