@@ -38,9 +38,9 @@ struct EirInfo {
 	uint32_t debugFlags;
 	uint32_t padding;
 
-	EirRegion coreRegion;
-
+	EirSize numRegions;
 	EirSize numModules;
+	EirPtr regionInfo;
 	EirPtr moduleInfo;
 
 	EirFramebuffer frameBuffer;

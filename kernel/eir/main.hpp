@@ -46,8 +46,8 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags, Cachin
 void initProcessorEarly();
 void setupRegionStructs();
 void createInitialRegion(address_t base, address_t size);
-void initProcessorPaging(void *kernel_start, int& core_idx, uint64_t& kernel_entry);
-EirInfo *generateInfo(int core_idx, const char* cmdline);
+void initProcessorPaging(void *kernel_start, uint64_t& kernel_entry);
+EirInfo *generateInfo(const char* cmdline);
 
 extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry, uint64_t stack_ptr);
 

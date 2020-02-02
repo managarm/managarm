@@ -26,8 +26,8 @@ class PhysicalChunkAllocator {
 public:
 	PhysicalChunkAllocator();
 	
-	void bootstrap(PhysicalAddr address,
-			int order, size_t num_roots, int8_t *buddy_tree);
+	void bootstrapRegion(PhysicalAddr address,
+			int order, size_t numRoots, int8_t *buddyTree);
 
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 	void free(PhysicalAddr address, size_t size);
@@ -38,14 +38,17 @@ public:
 private:
 	Mutex _mutex;
 
-	PhysicalAddr _physicalBase;
-	int8_t *_buddyPointer;
-	int _buddyOrder;
-	size_t _buddyRoots;
-	BuddyAccessor _buddyAccessor;
+	struct Region {
+		PhysicalAddr physicalBase;
+		PhysicalAddr regionSize;
+		BuddyAccessor buddyAccessor;
+	};
 
-	size_t _usedPages;
-	size_t _freePages;
+	Region _allRegions[8];
+	int _numRegions = 0;
+
+	size_t _usedPages = 0;
+	size_t _freePages = 0;
 };
 
 extern frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;

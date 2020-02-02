@@ -30,18 +30,21 @@ void *SkeletalRegion::access(PhysicalAddr physical) {
 PhysicalChunkAllocator::PhysicalChunkAllocator() {
 }
 
-void PhysicalChunkAllocator::bootstrap(PhysicalAddr address,
-		int order, size_t num_roots, int8_t *buddy_tree) {
-	_physicalBase = address;
-	_buddyOrder = order;
-	_buddyRoots = num_roots;
-	_buddyPointer = buddy_tree;
-	_buddyAccessor = BuddyAccessor{_physicalBase, kPageShift,
-			_buddyPointer, _buddyRoots, _buddyOrder};
+void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
+		int order, size_t numRoots, int8_t *buddyTree) {
+	if(_numRegions >= 8) {
+		frigg::infoLogger() << "thor: Ignoring memory region (can only handle 8 regions)"
+				<< frigg::endLog;
+		return;
+	}
 
-	_usedPages = 0;
-	_freePages = _buddyRoots << _buddyOrder;
-	frigg::infoLogger() << "Number of available pages: " << _freePages << frigg::endLog;
+	int n = _numRegions++;
+	_allRegions[n].physicalBase = address;
+	_allRegions[n].regionSize = numRoots << (order + kPageShift);
+	_allRegions[n].buddyAccessor = BuddyAccessor{address, kPageShift,
+			buddyTree, numRoots, order};
+
+	_freePages += numRoots << order;
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
@@ -61,12 +64,19 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 	if(logPhysicalAllocs)
 		frigg::infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frigg::endLog;
-	auto physical = _buddyAccessor.allocate(target, addressBits);
-	if(physical == BuddyAccessor::illegalAddress)
-		return static_cast<PhysicalAddr>(-1);
-//	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
-	assert(!(physical % (size_t(kPageSize) << target)));
-	return physical;
+	for(int i = 0; i < _numRegions; i++) {
+		if(target > _allRegions[i].buddyAccessor.tableOrder())
+			continue;
+
+		auto physical = _allRegions[i].buddyAccessor.allocate(target, addressBits);
+		if(physical == BuddyAccessor::illegalAddress)
+			continue;
+	//	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
+		assert(!(physical % (size_t(kPageSize) << target)));
+		return physical;
+	}
+
+	return static_cast<PhysicalAddr>(-1);
 }
 
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
@@ -77,11 +87,20 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 	while(size > (size_t(kPageSize) << target))
 		target++;
 
-	_buddyAccessor.free(address, target);
+	for(int i = 0; i < _numRegions; i++) {
+		if(address < _allRegions[i].physicalBase)
+			continue;
+		if(address + size - _allRegions[i].physicalBase > _allRegions[i].regionSize)
+			continue;
 
-	assert(_usedPages > size / kPageSize);
-	_freePages += size / kPageSize;
-	_usedPages -= size / kPageSize;
+		_allRegions[i].buddyAccessor.free(address, target);
+		assert(_usedPages > size / kPageSize);
+		_freePages += size / kPageSize;
+		_usedPages -= size / kPageSize;
+		return;
+	}
+
+	assert(!"Physical page is not part of any region");
 }
 
 size_t PhysicalChunkAllocator::numUsedPages() {

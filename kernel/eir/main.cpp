@@ -518,7 +518,7 @@ void initProcessorEarly(){
 }
 
 // Returns Core region index
-void initProcessorPaging(void *kernel_start, int& core_idx, uint64_t& kernel_entry){
+void initProcessorPaging(void *kernel_start, uint64_t& kernel_entry){
 	setupPaging();
 	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
 			" after setting up paging" << frigg::endLog;
@@ -530,18 +530,6 @@ void initProcessorPaging(void *kernel_start, int& core_idx, uint64_t& kernel_ent
 
 	mapRegionsAndStructs();
 
-	// Select the largest memory region as the "core region".
-	core_idx = -1;
-	for(size_t i = 0; i < numRegions; ++i) {
-		if(regions[i].regionType != RegionType::allocatable)
-			continue;
-		if(core_idx < 0 || regions[i].size > regions[core_idx].size)
-			core_idx = i;
-	}
-
-	if(core_idx < 0)
-		frigg::panicLogger() << "eir: Could not set up a useable memory region" << frigg::endLog;
-
 	// Setup the kernel image.
 	loadKernelImage(kernel_start, &kernel_entry);
 	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
@@ -552,18 +540,36 @@ void initProcessorPaging(void *kernel_start, int& core_idx, uint64_t& kernel_ent
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), kAccessWrite);
 }
 
-EirInfo *generateInfo(int core_idx, const char* cmdline){
+EirInfo *generateInfo(const char* cmdline){
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == 0x40000000);
 	info_ptr->signature = eirSignatureValue;
-	info_ptr->coreRegion.address = regions[core_idx].address;
-	info_ptr->coreRegion.length = regions[core_idx].size;
-	info_ptr->coreRegion.order = regions[core_idx].order;
-	info_ptr->coreRegion.numRoots = regions[core_idx].numRoots;
-	info_ptr->coreRegion.buddyTree = regions[core_idx].buddyMap;
+
+	// Pass all memory regions to thor.
+	int n = 0;
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType == RegionType::allocatable)
+			n++;
+	}
+
+	auto regionInfos = bootAllocN<EirRegion>(n);
+	info_ptr->numRegions = n;
+	info_ptr->regionInfo = mapBootstrapData(regionInfos);
+	int j = 0;
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType != RegionType::allocatable)
+			continue;
+
+		regionInfos[j].address = regions[i].address;
+		regionInfos[j].length = regions[i].size;
+		regionInfos[j].order = regions[i].order;
+		regionInfos[j].numRoots = regions[i].numRoots;
+		regionInfos[j].buddyTree = regions[i].buddyMap;
+		j++;
+	}
 
 	// Parse the kernel command line.
 	const char *l = cmdline;

@@ -244,11 +244,10 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 					<< frigg::endLog;
 	}
 
-	int core_idx = -1;
 	uint64_t kernel_entry = 0;
-	initProcessorPaging((void *)kernel_module_start, core_idx, kernel_entry);
+	initProcessorPaging((void *)kernel_module_start, kernel_entry);
 
-	auto *info_ptr = generateInfo(core_idx, cmdline.data());
+	auto *info_ptr = generateInfo(cmdline.data());
 
 	auto modules = bootAllocN<EirModule>(n_modules - 1);
 	add_size = 0;

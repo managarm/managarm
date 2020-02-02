@@ -69,6 +69,8 @@ public:
 	: _baseAddress{baseAddress}, _sizeShift{sizeShift},
 			buddyPointer_{buddyPointer}, numRoots_{numRoots}, tableOrder_{tableOrder_} { }
 
+	int tableOrder() { return tableOrder_; }
+
 	AddressType allocate(int order, int addressBits) {
 		assert(order >= 0 && order <= tableOrder_);
 

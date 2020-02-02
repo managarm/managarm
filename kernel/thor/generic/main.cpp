@@ -77,8 +77,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	SkeletalRegion::initialize();
 	physicalAllocator.initialize();
-	physicalAllocator->bootstrap(info->coreRegion.address, info->coreRegion.order,
-			info->coreRegion.numRoots, reinterpret_cast<int8_t *>(info->coreRegion.buddyTree));
+	auto region = reinterpret_cast<EirRegion *>(info->regionInfo);
+	for(int i = 0; i < info->numRegions; i++)
+		physicalAllocator->bootstrapRegion(region[i].address, region[i].order,
+				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
+	frigg::infoLogger() << "thor: Number of available pages: "
+			<< physicalAllocator->numFreePages() << frigg::endLog;
 	
 	kernelVirtualAlloc.initialize();
 	kernelAlloc.initialize(*kernelVirtualAlloc);

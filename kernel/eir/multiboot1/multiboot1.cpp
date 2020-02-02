@@ -134,12 +134,11 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	assert(mb_info->numModules >= 2);
 	MbModule *kernel_module = &mb_info->modulesPtr[0];
 
-	int core_idx = 0;
 	uint64_t kernel_entry = 0;
-	initProcessorPaging((void *)kernel_module->startAddress, core_idx, kernel_entry);
+	initProcessorPaging((void *)kernel_module->startAddress, kernel_entry);
 
 	assert(mb_info->flags & kMbInfoCommandLine);
-	auto *info_ptr = generateInfo(core_idx, mb_info->commandLine);
+	auto *info_ptr = generateInfo(mb_info->commandLine);
 
 	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);
 	for(size_t i = 0; i < mb_info->numModules - 1; i++) {
