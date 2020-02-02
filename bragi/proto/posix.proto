@@ -70,8 +70,6 @@ enum CntReqType {
 	SOCKET = 35;
 	SOCKPAIR = 25;
 	ACCEPT = 19;
-	RECVMSG = 41;
-	SENDMSG = 42;
 	
 	// epoll-specific calls.
 	EPOLL_CALL = 54;

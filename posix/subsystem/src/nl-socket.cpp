@@ -90,8 +90,10 @@ public:
 		co_return;
 	}
 
-	expected<RecvResult> recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
+	async::result<protocols::fs::RecvResult>
+	recvMsg(Process *process, uint32_t flags, void *data, size_t max_length,
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) override {
+		using namespace protocols::fs;
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 		assert(!flags);
@@ -127,10 +129,11 @@ public:
 		}
 
 		_recvQueue.pop_front();
-		co_return RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer());
+		co_return RecvResult { RecvData { size, sizeof(struct sockaddr_nl), ctrl.buffer() } };
 	}
 	
-	expected<size_t> sendMsg(Process *process, MsgFlags flags,
+	async::result<protocols::fs::SendResult>
+	sendMsg(Process *process, uint32_t flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
@@ -210,7 +213,9 @@ private:
 // OpenFile implementation.
 // ----------------------------------------------------------------------------
 
-expected<size_t> OpenFile::sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
+
+async::result<protocols::fs::SendResult>
+OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 		const void *addr_ptr, size_t addr_length,
 		std::vector<smarter::shared_ptr<File, FileHandle>> files) {
 	if(logSockets)

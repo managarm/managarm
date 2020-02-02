@@ -3,6 +3,7 @@
 
 #include <optional>
 #include <variant>
+#include <vector>
 
 namespace protocols {
 namespace fs {
@@ -11,7 +12,8 @@ enum class Error {
 	none,
 	wouldBlock,
 	illegalArguments,
-	seekOnPipe
+	seekOnPipe,
+	brokenPipe
 };
 
 using ReadResult = std::variant<Error, size_t>;
@@ -19,6 +21,15 @@ using ReadResult = std::variant<Error, size_t>;
 using ReadEntriesResult = std::optional<std::string>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
+
+struct RecvData {
+	size_t data_len;
+	size_t addr_len;
+	std::vector<char> ctrl;
+};
+
+using RecvResult = std::variant<Error, RecvData>;
+using SendResult = std::variant<Error, size_t>;
 
 } } // namespace protocols::fs
 

@@ -127,22 +127,23 @@ public:
 		co_return;
 	}
 
-	expected<RecvResult>
-	recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
+	async::result<protocols::fs::RecvResult>
+	recvMsg(Process *process, uint32_t flags, void *data, size_t max_length,
 			void *, size_t, size_t max_ctrl_length) override {
-		assert(!(flags & ~(msgNoWait | msgCloseOnExec)));
+		using namespace protocols::fs;
+		assert(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)));
 
 		if(_currentState == State::remoteShutDown)
-			co_return RecvResult{0, 0, {}};
+			co_return RecvResult { RecvData { 0, 0, {} } };
 
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		if(_recvQueue.empty() && (flags & msgNoWait)) {
+		if(_recvQueue.empty() && (flags & MSG_DONTWAIT)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
-			co_return Error::wouldBlock;
+			co_return RecvResult { protocols::fs::Error::wouldBlock };
 		}
 
 		while(_recvQueue.empty())
@@ -166,7 +167,7 @@ public:
 			if(ctrl.message(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size())) {
 				for(auto &file : packet->files)
 					ctrl.write<int>(process->fileContext()->attachFile(std::move(file),
-							flags & msgCloseOnExec));
+							flags & MSG_CMSG_CLOEXEC));
 			}else{
 				throw std::runtime_error("posix: CMSG truncation is not implemented");
 			}
@@ -181,23 +182,24 @@ public:
 
 		if(packet->offset == packet->buffer.size())
 			_recvQueue.pop_front();
-		co_return RecvResult{chunk, 0, ctrl.buffer()};
+		co_return RecvResult { RecvData { chunk, 0, ctrl.buffer() } };
 	}
 
-	expected<size_t>
-	sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
+	async::result<protocols::fs::SendResult>
+	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override {
-		assert(!(flags & ~(msgNoWait)));
+		using namespace protocols::fs;
+		assert(!(flags & ~(MSG_DONTWAIT)));
 
 		if(_currentState == State::remoteShutDown)
-			co_return Error::brokenPipe;
+			co_return SendResult { protocols::fs::Error::brokenPipe };
 
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		// We ignore msgNoWait here as we never block anyway.
+		// We ignore MSG_DONTWAIT here as we never block anyway.
 
 		Packet packet;
 		packet.senderPid = process->pid();
@@ -210,7 +212,7 @@ public:
 		_remote->_inSeq = ++_remote->_currentSeq;
 		_remote->_statusBell.ring();
 
-		co_return max_length;
+		co_return SendResult { max_length };
 	}
 
 	async::result<int> getOption(int option) override {
