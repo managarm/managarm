@@ -462,7 +462,7 @@ void Controller::initialize() {
 
 	// Setup the frame list.
 	HelHandle list_handle;
-	HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
+	HEL_CHECK(helAllocateMemory(4096, 0, nullptr, &list_handle));
 	void *list_mapping;
 	HEL_CHECK(helMapMemory(list_handle, kHelNullHandle,
 			nullptr, 0, 4096, kHelMapProtRead | kHelMapProtWrite, &list_mapping));

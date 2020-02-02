@@ -29,7 +29,7 @@ public:
 	void bootstrap(PhysicalAddr address,
 			int order, size_t num_roots, int8_t *buddy_tree);
 
-	PhysicalAddr allocate(size_t size);
+	PhysicalAddr allocate(size_t size, int addressBits = 64);
 	void free(PhysicalAddr address, size_t size);
 
 	size_t numUsedPages();

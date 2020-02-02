@@ -31,7 +31,7 @@ enum {
 	kHelCallSetupChunk = 90,
 	kHelCallCancelAsync = 92,
 
-	kHelCallAllocateMemory = 2,
+	kHelCallAllocateMemory = 51,
 	kHelCallResizeMemory = 83,
 	kHelCallCreateManagedMemory = 64,
 	kHelCallAccessPhysical = 30,
@@ -185,6 +185,10 @@ enum HelAllocFlags {
 	kHelAllocContinuous = 4,
 	kHelAllocOnDemand = 1,
 	kHelAllocBacked = 2
+};
+
+struct HelAllocRestrictions {
+	int addressBits;
 };
 
 enum HelManageRequests {
@@ -404,7 +408,8 @@ HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags,
 HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, HelChunk *chunk, uint32_t flags);
 HEL_C_LINKAGE HelError helCancelAsync(HelHandle queue, uint64_t async_id);
 
-HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags,
+		struct HelAllocRestrictions *restrictions, HelHandle *handle);
 HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t new_size);
 HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle);

@@ -557,7 +557,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(!req.rel_offset());
 
 				HelHandle handle;
-				HEL_CHECK(helAllocateMemory(req.size(), 0, &handle));
+				HEL_CHECK(helAllocateMemory(req.size(), 0, nullptr, &handle));
 
 				address = co_await self->vmContext()->mapFile(
 						helix::UniqueDescriptor{handle}, nullptr,

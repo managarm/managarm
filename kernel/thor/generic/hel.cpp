@@ -331,7 +331,8 @@ HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
 	return kHelErrNone;
 }
 
-HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
+HelError helAllocateMemory(size_t size, uint32_t flags,
+		HelAllocRestrictions *restrictions, HelHandle *handle) {
 	assert(size > 0);
 	assert(size % kPageSize == 0);
 
@@ -342,14 +343,21 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 //	frigg::infoLogger() << "Allocate " << (void *)size
 //			<< ", sum of allocated memory: " << (void *)pressure << frigg::endLog;
 
+	HelAllocRestrictions effective{
+		.addressBits = 64
+	};
+	if(restrictions)
+		readUserMemory(&effective, restrictions, sizeof(HelAllocRestrictions));
+
 	frigg::SharedPtr<Memory> memory;
 	if(flags & kHelAllocContinuous) {
-		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, size, kPageSize);
+		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits,
+				size, kPageSize);
 	}else if(flags & kHelAllocOnDemand) {
-		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
+		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}else{
 		// TODO: 
-		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
+		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}
 
 	{

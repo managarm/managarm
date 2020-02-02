@@ -525,18 +525,19 @@ size_t HardwareMemory::getLength() {
 // AllocatedMemory
 // --------------------------------------------------------
 
-AllocatedMemory::AllocatedMemory(size_t desired_length, size_t desired_chunk_size,
-		size_t chunk_align)
-: Memory(MemoryTag::allocated), _physicalChunks(*kernelAlloc), _chunkAlign(chunk_align) {
+AllocatedMemory::AllocatedMemory(size_t desiredLngth,
+		int addressBits, size_t desiredChunkSize, size_t chunkAlign)
+: Memory(MemoryTag::allocated), _physicalChunks(*kernelAlloc),
+		_addressBits(addressBits), _chunkAlign(chunkAlign) {
 	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
-	_chunkSize = size_t(1) << (64 - __builtin_clzl(desired_chunk_size - 1));
-	if(_chunkSize != desired_chunk_size)
-		frigg::infoLogger() << "\e[31mPhysical allocation of size " << (void *)desired_chunk_size
+	_chunkSize = size_t(1) << (64 - __builtin_clzl(desiredChunkSize - 1));
+	if(_chunkSize != desiredChunkSize)
+		frigg::infoLogger() << "\e[31mPhysical allocation of size " << (void *)desiredChunkSize
 				<< " rounded up to power of 2\e[39m" << frigg::endLog;
 
-	size_t length = (desired_length + (_chunkSize - 1)) & ~(_chunkSize - 1);
-	if(length != desired_length)
-		frigg::infoLogger() << "\e[31mMemory length " << (void *)desired_length
+	size_t length = (desiredLngth + (_chunkSize - 1)) & ~(_chunkSize - 1);
+	if(length != desiredLngth)
+		frigg::infoLogger() << "\e[31mMemory length " << (void *)desiredLngth
 				<< " rounded up to chunk size " << (void *)_chunkSize
 				<< "\e[39m" << frigg::endLog;
 
@@ -582,7 +583,7 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 	size_t index = offset / _chunkSize;
 	assert(index < _physicalChunks.size());
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		auto physical = physicalAllocator->allocate(_chunkSize);
+		auto physical = physicalAllocator->allocate(_chunkSize, _addressBits);
 		assert(physical != PhysicalAddr(-1) && "OOM");
 		assert(!(physical % _chunkAlign));
 
@@ -640,7 +641,7 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(index < _physicalChunks.size());
 
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		auto physical = physicalAllocator->allocate(_chunkSize);
+		auto physical = physicalAllocator->allocate(_chunkSize, _addressBits);
 		assert(physical != PhysicalAddr(-1) && "OOM");
 		assert(!(physical & (_chunkAlign - 1)));
 

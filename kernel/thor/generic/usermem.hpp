@@ -413,8 +413,8 @@ struct AllocatedMemory : Memory {
 		return memory.tag() == MemoryTag::allocated;
 	}
 
-	AllocatedMemory(size_t length, size_t chunk_size = kPageSize,
-			size_t chunk_align = kPageSize);
+	AllocatedMemory(size_t length, int addressBits = 64,
+			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
 	~AllocatedMemory();
 
 	void resize(size_t new_length) override;
@@ -435,6 +435,7 @@ private:
 	frigg::TicketLock _mutex;
 
 	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
+	int _addressBits;
 	size_t _chunkSize, _chunkAlign;
 };
 

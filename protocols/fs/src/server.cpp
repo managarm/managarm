@@ -439,7 +439,7 @@ StatusPageProvider::StatusPageProvider() {
 	// Allocate and map our stauts page.
 	size_t page_size = 4096;
 	HelHandle handle;
-	HEL_CHECK(helAllocateMemory(page_size, 0, &handle));
+	HEL_CHECK(helAllocateMemory(page_size, 0, nullptr, &handle));
 	_memory = helix::UniqueDescriptor{handle};
 	_mapping = helix::Mapping{_memory, 0, page_size};
 }

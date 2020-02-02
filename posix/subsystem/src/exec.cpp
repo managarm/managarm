@@ -85,7 +85,7 @@ expected<ImageInfo> load(SharedFilePtr file,
 			}else{
 				// map the segment with write permission into this address space.
 				HelHandle segment_memory;
-				HEL_CHECK(helAllocateMemory(map_length, 0, &segment_memory));
+				HEL_CHECK(helAllocateMemory(map_length, 0, nullptr, &segment_memory));
 
 				void *window;
 				HEL_CHECK(helMapMemory(segment_memory, kHelNullHandle, nullptr,
@@ -159,7 +159,7 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 
 	// allocate memory for the stack and map it into the remote space.
 	HelHandle stack_memory;
-	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
+	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, nullptr, &stack_memory));
 
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, vm_context->getSpace().getHandle(),

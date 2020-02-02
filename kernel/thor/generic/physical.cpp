@@ -44,7 +44,7 @@ void PhysicalChunkAllocator::bootstrap(PhysicalAddr address,
 	frigg::infoLogger() << "Number of available pages: " << _freePages << frigg::endLog;
 }
 
-PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
+PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -61,7 +61,7 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 	if(logPhysicalAllocs)
 		frigg::infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frigg::endLog;
-	auto physical = _buddyAccessor.allocate(target, 64);
+	auto physical = _buddyAccessor.allocate(target, addressBits);
 	if(physical == BuddyAccessor::illegalAddress)
 		return static_cast<PhysicalAddr>(-1);
 //	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;

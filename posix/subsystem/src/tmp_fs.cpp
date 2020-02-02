@@ -318,7 +318,7 @@ private:
 			HEL_CHECK(helResizeMemory(_memory.getHandle(), aligned_size));
 		}else{
 			HelHandle handle;
-			HEL_CHECK(helAllocateMemory(aligned_size, 0, &handle));
+			HEL_CHECK(helAllocateMemory(aligned_size, 0, nullptr, &handle));
 			_memory = helix::UniqueDescriptor{handle};
 		}
 

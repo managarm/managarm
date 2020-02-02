@@ -10,9 +10,13 @@ namespace os {
 uintptr_t contiguous_policy::map(size_t length) {
 	assert((length % 0x1000) == 0);
 
+	// For now, just allocate everything in 32-bit physical memory.
+	HelAllocRestrictions restrictions;
+	restrictions.addressBits = 32;
+
 	HelHandle memory;
 	void *actual_ptr;
-	HEL_CHECK(helAllocateMemory(length, kHelAllocContinuous, &memory));
+	HEL_CHECK(helAllocateMemory(length, kHelAllocContinuous, &restrictions, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, length,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapCopyOnWriteAtFork, &actual_ptr));
 	HEL_CHECK(helCloseDescriptor(memory));

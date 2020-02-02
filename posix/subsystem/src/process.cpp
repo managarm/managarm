@@ -206,7 +206,7 @@ std::shared_ptr<FileContext> FileContext::create() {
 
 	HelHandle memory;
 	void *window;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, &memory));
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
 			0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
@@ -230,7 +230,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 
 	HelHandle memory;
 	void *window;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, &memory));
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
 			0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
@@ -621,7 +621,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_signalContext = SignalContext::create();
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, &thread_memory));
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
@@ -680,7 +680,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_signalContext = SignalContext::clone(original->_signalContext);
 
 	HelHandle thread_memory;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, &thread_memory));
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
