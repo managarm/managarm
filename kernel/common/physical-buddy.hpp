@@ -128,7 +128,8 @@ public:
 		}
 
 		AddressType physical = _baseAddress + (allocIndex << (order + _sizeShift));
-		assert(!(physical >> addressBits));
+		if(addressBits < static_cast<int>(sizeof(AddressType) * 8))
+			assert(!(physical >> addressBits));
 		return physical;
 	}
 
