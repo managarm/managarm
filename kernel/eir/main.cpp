@@ -583,7 +583,7 @@ EirInfo *generateInfo(const char* cmdline){
 		while(*s && *s != ' ')
 			s++;
 
-		frigg::StringView token{l, s - l};
+		frigg::StringView token{l, static_cast<size_t>(s - l)};
 		if(token == "serial") {
 			info_ptr->debugFlags |= eirDebugSerial;
 		}else if(token == "bochs") {
