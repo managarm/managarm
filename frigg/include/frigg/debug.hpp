@@ -250,6 +250,7 @@ public:
 			if(_valid) {
 				friggEndLog();
 				friggPanic();
+				__builtin_trap();
 			}
 		}
 
@@ -269,7 +270,7 @@ public:
 			friggPrintCritical('\n');
 			friggEndLog();
 			friggPanic();
-			_valid = false;
+			__builtin_trap();
 		}
 	
 	private:
