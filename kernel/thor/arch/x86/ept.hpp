@@ -15,7 +15,7 @@ constexpr uint64_t EPT_MEMORY_TYPE = (3);
 namespace thor::vmx {
 
 struct EptSpace : VirtualizedPageSpace {
-	friend class Vmcs;
+	friend struct Vmcs;
 
 	EptSpace(PhysicalAddr root) : spaceRoot(root){}
 	~EptSpace();
