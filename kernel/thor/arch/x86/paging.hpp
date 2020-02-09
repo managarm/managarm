@@ -3,7 +3,6 @@
 
 #include <atomic>
 #include <frg/list.hpp>
-#include <frigg/algorithm.hpp>
 #include <frigg/smart_ptr.hpp>
 #include <smarter.hpp>
 #include "../../generic/mm-rc.hpp"
@@ -21,7 +20,7 @@ enum {
 
 struct PageAccessor {
 	friend void swap(PageAccessor &a, PageAccessor &b) {
-		using frigg::swap;
+		using std::swap;
 		swap(a._pointer, b._pointer);
 	}
 

@@ -1077,10 +1077,11 @@ private:
 
 struct MemoryViewLockHandle {
 	friend void swap(MemoryViewLockHandle &a, MemoryViewLockHandle &b) {
-		frigg::swap(a._view, b._view);
-		frigg::swap(a._offset, b._offset);
-		frigg::swap(a._size, b._size);
-		frigg::swap(a._active, b._active);
+		using std::swap;
+		swap(a._view, b._view);
+		swap(a._offset, b._offset);
+		swap(a._size, b._size);
+		swap(a._active, b._active);
 	}
 
 	MemoryViewLockHandle() = default;
@@ -1138,11 +1139,12 @@ private:
 struct AddressSpaceLockHandle {
 public:
 	friend void swap(AddressSpaceLockHandle &a, AddressSpaceLockHandle &b) {
-		frigg::swap(a._space, b._space);
-		frigg::swap(a._mapping, b._mapping);
-		frigg::swap(a._address, b._address);
-		frigg::swap(a._length, b._length);
-		frigg::swap(a._active, b._active);
+		using std::swap;
+		swap(a._space, b._space);
+		swap(a._mapping, b._mapping);
+		swap(a._address, b._address);
+		swap(a._length, b._length);
+		swap(a._active, b._active);
 	}
 
 	AddressSpaceLockHandle() = default;

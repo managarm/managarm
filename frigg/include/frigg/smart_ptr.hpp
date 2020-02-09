@@ -4,7 +4,6 @@
 
 #include <frigg/macros.hpp>
 #include <frigg/traits.hpp>
-#include <frigg/algorithm.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 
@@ -195,6 +194,7 @@ class SharedPtr {
 
 public:
 	friend void swap(SharedPtr &a, SharedPtr &b) {
+		using std::swap;
 		swap(a._control, b._control);
 		swap(a._object, b._object);
 	}
@@ -307,6 +307,7 @@ class WeakPtr {
 	friend class UnsafePtr<T, Control>;
 public:
 	friend void swap(WeakPtr &a, WeakPtr &b) {
+		using std::swap;
 		swap(a._control, b._control);
 		swap(a._object, b._object);
 	}
@@ -457,6 +458,7 @@ template<typename Allocator>
 class UniqueMemory {
 public:
 	friend void swap(UniqueMemory &a, UniqueMemory &b) {
+		using std::swap;
 		swap(a._pointer, b._pointer);
 		swap(a._size, b._size);
 		swap(a._allocator, b._allocator);

@@ -5,7 +5,6 @@
 #include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 
-#include <frigg/algorithm.hpp>
 #include <frigg/traits.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
@@ -14,6 +13,7 @@ template<typename T, typename Allocator>
 class Vector {
 public:
 	friend void swap(Vector &a, Vector &b) {
+		using std::swap;
 		swap(a.p_allocator, b.p_allocator);
 		swap(a.p_elements, b.p_elements);
 		swap(a.p_size, b.p_size);

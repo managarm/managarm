@@ -36,7 +36,8 @@ struct DirectSelfAccessor {
 	}
 
 	friend void swap(DirectSelfAccessor &a, DirectSelfAccessor &b) {
-		frigg::swap(a._address, b._address);
+		using std::swap;
+		swap(a._address, b._address);
 	}
 
 	DirectSelfAccessor()
@@ -80,8 +81,9 @@ struct KernelAccessor {
 	}
 
 	friend void swap(KernelAccessor &a, KernelAccessor &b) {
-		frigg::swap(a._pointer, b._pointer);
-		frigg::swap(a._length, b._length);
+		using std::swap;
+		swap(a._pointer, b._pointer);
+		swap(a._length, b._length);
 	}
 
 	KernelAccessor() = default;

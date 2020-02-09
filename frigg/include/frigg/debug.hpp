@@ -2,8 +2,9 @@
 #ifndef FRIGG_DEBUG_HPP
 #define FRIGG_DEBUG_HPP
 
+#include <utility>
+
 #include <frigg/macros.hpp>
-#include <frigg/algorithm.hpp>
 #include <frigg/support.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
@@ -168,7 +169,7 @@ public:
 		struct IsPrinter { };
 
 		friend void swap(Printer &u, Printer &v) {
-			using frigg::swap;
+			using std::swap;
 			swap(u._valid, v._valid);
 		}
 
@@ -226,7 +227,7 @@ public:
 		struct IsPrinter { };
 
 		friend void swap(Printer &u, Printer &v) {
-			using frigg::swap;
+			using std::swap;
 			swap(u._valid, v._valid);
 		}
 

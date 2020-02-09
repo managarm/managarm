@@ -4,7 +4,6 @@
 
 #include <frg/optional.hpp>
 #include <frigg/macros.hpp>
-#include <frigg/algorithm.hpp>
 #include <frigg/debug.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
@@ -92,6 +91,7 @@ public:
 	typedef Char CharType;
 
 	friend void swap(BasicString &a, BasicString &b) {
+		using std::swap;
 		swap(a.p_allocator, b.p_allocator);
 		swap(a.p_buffer, b.p_buffer);
 		swap(a.p_length, b.p_length);

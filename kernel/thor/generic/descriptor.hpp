@@ -106,7 +106,7 @@ static constexpr AdoptLane adoptLane;
 // TODO: implement SharedLaneHandle + UnsafeLaneHandle?
 struct LaneHandle {
 	friend void swap(LaneHandle &a, LaneHandle &b) {
-		using frigg::swap;
+		using std::swap;
 		swap(a._stream, b._stream);
 		swap(a._lane, b._lane);
 	}

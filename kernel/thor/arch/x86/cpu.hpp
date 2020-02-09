@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <utility>
-#include <frigg/algorithm.hpp>
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/arch_x86/idt.hpp>
 #include <frigg/arch_x86/tss.hpp>
@@ -75,7 +74,8 @@ struct UniqueKernelStack {
 	static UniqueKernelStack make();
 
 	friend void swap(UniqueKernelStack &a, UniqueKernelStack &b) {
-		frigg::swap(a._base, b._base);
+		using std::swap;
+		swap(a._base, b._base);
 	}
 
 	UniqueKernelStack()

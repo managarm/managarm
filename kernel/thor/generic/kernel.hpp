@@ -6,7 +6,6 @@
 #include <frigg/support.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/libc.hpp>
-#include <frigg/algorithm.hpp>
 #include <frigg/initializer.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>

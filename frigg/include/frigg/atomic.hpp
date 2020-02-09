@@ -2,7 +2,6 @@
 #ifndef FRIGG_ATOMIC_HPP
 #define FRIGG_ATOMIC_HPP
 
-#include <frigg/algorithm.hpp>
 #include <frigg/macros.hpp>
 
 #if defined(__i386__)
@@ -27,6 +26,7 @@ template<typename Mutex>
 class LockGuard {
 public:
 	friend void swap(LockGuard &u, LockGuard &v) {
+		using std::swap;
 		swap(u._mutex, v._mutex);
 		swap(u._isLocked, v._isLocked);
 	}
