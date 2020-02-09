@@ -21,7 +21,6 @@ private:
 	};
 
 public:
-	static void blockCurrent(frigg::CallbackPtr<bool()> predicate);
 	static void blockCurrent(FiberBlocker *blocker);
 	static void exitCurrent();
 

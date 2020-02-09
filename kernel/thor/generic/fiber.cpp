@@ -4,28 +4,6 @@
 
 namespace thor {
 
-void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
-	auto this_fiber = thisFiber();
-	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_fiber->_mutex);
-	
-	if(!predicate())
-		return;
-
-	assert(!this_fiber->_blocked);
-	this_fiber->_blocked = true;
-	getCpuData()->executorContext = nullptr;
-	getCpuData()->activeFiber = nullptr;
-	Scheduler::suspendCurrent();
-
-	forkExecutor([&] {
-		runDetached([] (frigg::LockGuard<frigg::TicketLock> lock) {
-			lock.unlock();
-			localScheduler()->reschedule();
-		}, frigg::move(lock));
-	}, &this_fiber->_executor);
-}
-
 void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 	auto this_fiber = thisFiber();
 	while(true) {
@@ -59,15 +37,9 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 void KernelFiber::exitCurrent() {
 	frigg::infoLogger() << "thor: Fix exiting fibers" << frigg::endLog;
 
-	struct Predicate {
-		bool always() {
-			return true;
-		}
-	} p;
-
-	KernelFiber::blockCurrent(CALLBACK_MEMBER(&p, &Predicate::always));
-
-//	frigg::panicLogger() << "Fiber exited" << frigg::endLog;
+	FiberBlocker blocker;
+	blocker.setup();
+	KernelFiber::blockCurrent(&blocker);
 }
 
 void KernelFiber::unblockOther(FiberBlocker *blocker) {
