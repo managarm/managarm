@@ -981,6 +981,9 @@ struct AddressSpace : smarter::crtp_counter<AddressSpace, BindableHandle> {
 	friend struct NormalMapping;
 	friend struct CowMapping;
 
+	// Silence Clang warning about hidden overloads.
+	using smarter::crtp_counter<AddressSpace, BindableHandle>::dispose;
+
 public:
 	typedef frigg::TicketLock Lock;
 	typedef frigg::LockGuard<Lock> Guard;
