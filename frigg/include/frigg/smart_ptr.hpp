@@ -149,7 +149,7 @@ template<typename T, typename Control = SharedControl>
 class UnsafePtr;
 
 template<typename T, typename Allocator>
-struct SharedBlock : public SharedCounter {
+struct SharedBlock final : public SharedCounter {
 	void destruct() override {
 		_storage.destruct();
 	}

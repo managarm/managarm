@@ -384,7 +384,7 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_
 bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *pointer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
-struct HardwareMemory : Memory {
+struct HardwareMemory final : Memory {
 	static bool classOf(const Memory &memory) {
 		return memory.tag() == MemoryTag::hardware;
 	}
@@ -408,7 +408,7 @@ private:
 	CachingMode _cacheMode;
 };
 
-struct AllocatedMemory : Memory {
+struct AllocatedMemory final : Memory {
 	static bool classOf(const Memory &memory) {
 		return memory.tag() == MemoryTag::allocated;
 	}
@@ -521,7 +521,7 @@ struct ManagedSpace : CacheBundle {
 	InitiateList _monitorQueue;
 };
 
-struct BackingMemory : Memory {
+struct BackingMemory final : Memory {
 public:
 	static bool classOf(const Memory &memory) {
 		return memory.tag() == MemoryTag::backing;
@@ -549,7 +549,7 @@ private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
-struct FrontalMemory : Memory {
+struct FrontalMemory final : Memory {
 public:
 	static bool classOf(const Memory &memory) {
 		return memory.tag() == MemoryTag::frontal;

@@ -1,4 +1,3 @@
-
 #include <string.h>
 
 #include <frg/container_of.hpp>
@@ -73,7 +72,7 @@ HelError translateError(Error error) {
 template<typename P>
 struct PostEvent {
 public:
-	struct Wrapper : IpcNode {
+	struct Wrapper final : IpcNode {
 		template<typename... Args>
 		Wrapper(uintptr_t context, Args &&... args)
 		: _writer{frigg::forward<Args>(args)...} {
@@ -744,7 +743,7 @@ HelError helSubmitProtectMemory(HelHandle space_handle,
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	struct Closure : IpcNode {
+	struct Closure final : IpcNode {
 		Closure()
 		: ipcSource{&helResult, sizeof(HelSimpleResult), nullptr} {
 			setupSource(&ipcSource);
@@ -1017,7 +1016,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	if(!queue->validSize(ipcSourceSize(sizeof(HelManageResult))))
 		return kHelErrQueueTooSmall;
 
-	struct Closure : IpcNode {
+	struct Closure final : IpcNode {
 		Closure()
 		: ipcSource{&helResult, sizeof(HelManageResult), nullptr} {
 			setupSource(&ipcSource);
@@ -1132,7 +1131,7 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
 		return kHelErrQueueTooSmall;
 
-	struct Closure : IpcNode {
+	struct Closure final : IpcNode {
 		Closure()
 		: ipcSource{&helResult, sizeof(HelHandleResult), nullptr} {
 			setupSource(&ipcSource);
@@ -1582,7 +1581,7 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
-	struct Closure : CancelNode, PrecisionTimerNode, IpcNode {
+	struct Closure final : CancelNode, PrecisionTimerNode, IpcNode {
 		static void issue(uint64_t nanos, frigg::SharedPtr<IpcQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
 			auto closure = frigg::construct<Closure>(*kernelAlloc, nanos,
@@ -1765,7 +1764,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		};
 	};
 
-	struct Closure : IpcNode {
+	struct Closure final : IpcNode {
 		void complete() override {
 			// TODO: Turn items into a unique_ptr.
 			frigg::destructN(*kernelAlloc, items, count);
@@ -2040,7 +2039,7 @@ HelError helFutexWait(int *pointer, int expected) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
-	struct Closure {
+	struct Closure final {
 		ThreadBlocker blocker;
 		Worklet worklet;
 		FutexNode futex;
@@ -2211,7 +2210,7 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue_handle, uintptr_t context) {
-	struct IrqClosure : IpcNode {
+	struct IrqClosure final : IpcNode {
 		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
 			auto closure = frigg::construct<IrqClosure>(*kernelAlloc,
@@ -2249,7 +2248,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelEventResult result;
 	};
 
-	struct EventClosure : IpcNode {
+	struct EventClosure final : IpcNode {
 		static void issue(frigg::SharedPtr<OneshotEvent> event, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
 			auto closure = frigg::construct<EventClosure>(*kernelAlloc,
@@ -2511,4 +2510,3 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 
 	return kHelErrNone;
 }
-

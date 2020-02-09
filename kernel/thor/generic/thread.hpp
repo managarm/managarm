@@ -28,7 +28,7 @@ struct ThreadBlocker;
 
 frigg::UnsafePtr<Thread> getCurrentThread();
 
-struct Thread : frigg::SharedCounter, ScheduleEntity {
+struct Thread final : frigg::SharedCounter, ScheduleEntity {
 private:
 	struct ObserveBase {
 		Error error;

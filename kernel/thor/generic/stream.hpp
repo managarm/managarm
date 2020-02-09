@@ -234,7 +234,7 @@ template<typename Base, typename Signature, typename F>
 struct StreamNodeAdapter;
 
 template<typename Base, typename... Args, typename F>
-struct StreamNodeAdapter<Base, void(Args...), F> : Base {
+struct StreamNodeAdapter<Base, void(Args...), F> final : Base {
 	template<typename... CArgs>
 	explicit StreamNodeAdapter(F functor, CArgs &&... args)
 	: Base(frigg::forward<CArgs>(args)...), _functor(frigg::move(functor)) { }

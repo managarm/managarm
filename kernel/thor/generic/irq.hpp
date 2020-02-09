@@ -224,7 +224,7 @@ private:
 // ----------------------------------------------------------------------------
 
 // This class implements the user-visible part of IRQ handling.
-struct IrqObject : IrqSink {
+struct IrqObject final : IrqSink {
 	IrqObject(frigg::String<KernelAlloc> name);
 
 	void automate(frigg::SharedPtr<BoundKernlet> kernlet);
