@@ -120,6 +120,7 @@ struct coroutine<void> {
 
 	coroutine &operator= (coroutine other) {
 		std::swap(h_, other.h_);
+		return *this;
 	}
 
 private:
