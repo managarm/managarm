@@ -115,6 +115,7 @@ executable('thor', pb_sources, thor_sources, embed_trampoline,
 		lai_includes
 	],
 	dependencies: [
+		clang_coroutine_dep,
 		cxxshim_dep,
 		frigg_dep,
 		libsmarter_dep

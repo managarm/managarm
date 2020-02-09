@@ -25,10 +25,13 @@ if get_option('build_kernel')
 		language: ['c', 'cpp'])
 	add_global_arguments(['-fno-exceptions', '-fno-rtti'], language: 'cpp')
 
+	add_project_arguments('-fcoroutines-ts', language: 'cpp')
+
 	cxxshim = subproject('cxxshim')
 	frigg = subproject('frigg')
 	lai = subproject('lai')
 	libsmarter = subproject('libsmarter')
+	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
 	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	frigg_dep = frigg.get_variable('frigg_dep')
 	lai_sources = lai.get_variable('sources')
