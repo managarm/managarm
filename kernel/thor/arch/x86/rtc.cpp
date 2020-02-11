@@ -94,14 +94,14 @@ bool handleReq(LaneHandle lane) {
 		resp.set_ref_nanos(systemClockSource()->currentNanos());
 		resp.set_time_nanos(getCmosTime());
 	
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}else{
 		managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
 		
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}

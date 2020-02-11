@@ -20,7 +20,7 @@ pb_sources = [
 			meson.current_source_dir() + '/../../bragi/proto/mbus.proto',
 			meson.current_source_dir() + '/../../bragi/proto/posix.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../bragi/proto']),
-	legacy_gen.process(
+	gen.process(
 			meson.current_source_dir() + '/../../protocols/clock/clock.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/clock']),
 	legacy_gen.process(
