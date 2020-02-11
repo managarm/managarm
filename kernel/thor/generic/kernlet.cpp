@@ -289,6 +289,7 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 		else if(name == "__trigger_bitset")
 			return reinterpret_cast<void *>(abi_trigger_bitset);
 		frigg::panicLogger() << "Could not resolve external " << name.data() << frigg::endLog;
+		__builtin_unreachable();
 	};
 
 	for(size_t off = 0; off < plt_rel_sectionsize; off += sizeof(Elf64_Rela)) {
@@ -335,7 +336,7 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 		}
 		frigg::panicLogger() << "thor: Unable to resolve kernel symbol '"
 				<< name.data() << "'" << frigg::endLog;
-		assert(!"Unable to resolve symbol");
+		__builtin_unreachable();
 	};
 
 	auto entry = lookup("automate_irq");
@@ -375,7 +376,7 @@ bool handleReq(LaneHandle lane) {
 		managarm::kernlet::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::kernlet::Error::SUCCESS);
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 		fiberPushDescriptor(branch, KernletObjectDescriptor{std::move(kernlet)});
@@ -383,7 +384,7 @@ bool handleReq(LaneHandle lane) {
 		managarm::kernlet::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::kernlet::Error::ILLEGAL_REQUEST);
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}
