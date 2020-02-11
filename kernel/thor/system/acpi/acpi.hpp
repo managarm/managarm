@@ -9,6 +9,8 @@ struct GlobalIrqInfo {
 	IrqConfiguration configuration;
 };
 
+GlobalIrqInfo resolveIsaIrq(unsigned int irq);
+GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired);
 void configureIrq(GlobalIrqInfo info);
 
 } // namespace thor

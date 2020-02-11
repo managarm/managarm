@@ -78,7 +78,9 @@ thor_sources = files(
 	'system/pci/pci_discover.cpp',
 	'system/acpi/glue.cpp',
 	'system/acpi/madt.cpp',
-	'system/acpi/pm-interface.cpp')
+	'system/acpi/pm-interface.cpp',
+	'system/legacy-pc/ata.cpp'
+)
 
 trampoline = custom_target('trampoline',
 	command: c_compiler.cmd_array() + ['-o', '@OUTPUT@',

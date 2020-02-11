@@ -1,4 +1,3 @@
-
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -10,6 +9,8 @@
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
 #include <helix/ipc.hpp>
+#include <protocols/hw/client.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include <blockfs.hpp>
 
@@ -47,7 +48,9 @@ class Controller : public blockfs::BlockDevice {
 	};
 
 public:
-	Controller();
+	Controller(uint16_t mainOffset, uint16_t altOffset,
+			helix::UniqueDescriptor mainBar, helix::UniqueDescriptor altBar,
+			helix::UniqueDescriptor irq);
 
 public:
 	async::detached run();
@@ -100,7 +103,6 @@ private:
 	async::doorbell _doorbell;
 
 	helix::UniqueDescriptor _irq;
-	HelHandle _ioHandle;
 	arch::io_space _ioSpace;
 	arch::io_space _altSpace;
 
@@ -109,15 +111,13 @@ private:
 	uint64_t _irqSequence;
 };
 
-Controller::Controller()
-: BlockDevice{512}, _ioSpace{0x1F0}, _altSpace{0x3F6}, _supportsLBA48{false} {
-	HelHandle irq_handle;
-	HEL_CHECK(helAccessIrq(14, &irq_handle));
-	_irq = helix::UniqueDescriptor{irq_handle};
-
-	uintptr_t ports[] = { 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6, 0x1F7, 0x3F6 };
-	HEL_CHECK(helAccessIo(ports, 9, &_ioHandle));
-	HEL_CHECK(helEnableIo(_ioHandle));
+Controller::Controller(uint16_t mainOffset, uint16_t altOffset,
+		helix::UniqueDescriptor mainBar, helix::UniqueDescriptor altBar,
+		helix::UniqueDescriptor irq)
+: BlockDevice{512}, _irq{std::move(irq)},
+		_ioSpace{mainOffset}, _altSpace{altOffset}, _supportsLBA48{false} {
+	HEL_CHECK(helEnableIo(mainBar.getHandle()));
+	HEL_CHECK(helEnableIo(altBar.getHandle()));
 }
 
 async::detached Controller::run() {
@@ -343,7 +343,44 @@ async::result<void> Controller::_performRequest(Request *request) {
 				<< " complete" << std::endl;
 }
 
-Controller globalController;
+std::vector<std::shared_ptr<Controller>> globalControllers;
+
+// ------------------------------------------------------------------------
+// Freestanding discovery functions.
+// ------------------------------------------------------------------------
+
+async::detached bindController(mbus::Entity entity) {
+	protocols::hw::Device device(co_await entity.bind());
+	auto info = co_await device.getPciInfo();
+	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
+	assert(info.barInfo[1].ioType == protocols::hw::IoType::kIoTypePort);
+	auto mainBar = co_await device.accessBar(0);
+	auto altBar = co_await device.accessBar(1);
+	auto irq = co_await device.accessIrq();
+
+	auto controller = std::make_shared<Controller>(
+			info.barInfo[0].address, info.barInfo[1].address,
+			std::move(mainBar), std::move(altBar),
+			std::move(irq));
+	controller->run();
+	globalControllers.push_back(std::move(controller));
+}
+
+async::detached observeControllers() {
+	auto root = co_await mbus::Instance::global().getRoot();
+
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("legacy", "ata")
+	});
+
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties) {
+		printf("block/ata: detected controller\n");
+		bindController(std::move(entity));
+	});
+
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+}
 
 // --------------------------------------------------------
 // main() function
@@ -354,9 +391,8 @@ int main() {
 
 	{
 		async::queue_scope scope{helix::globalQueue()};
-		globalController.run();
+		observeControllers();
 	}
 
 	helix::globalQueue()->run();
 }
-
