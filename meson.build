@@ -12,6 +12,7 @@ if cpp_compiler.get_id() == 'clang'
 endif
 
 if get_option('build_kernel')
+	pb2frigg = find_program('pb2frigg')
 	frigg_pb = find_program('frigg_pb')
 
 	add_global_arguments(

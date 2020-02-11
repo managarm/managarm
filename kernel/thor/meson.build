@@ -1,31 +1,38 @@
 
-gen = generator(protoc,
+legacy_gen = generator(protoc,
 	output: ['@BASENAME@.frigg_pb.hpp'],
 	arguments: [
 		'--plugin=protoc-gen-frigg=' + frigg_pb.path(),
 		'--frigg_out=@BUILD_DIR@',
 		'@EXTRA_ARGS@',
 		'@INPUT@']) 
+gen = generator(protoc, arguments: [
+		'--plugin=protoc-gen-frigg=' + pb2frigg.path(),
+		'--frigg_out=@BUILD_DIR@',
+		'@EXTRA_ARGS@',
+		'@INPUT@'
+	],
+	output: '@BASENAME@.frigg_pb.hpp')
 
 pb_sources = [
-	gen.process(
+	legacy_gen.process(
 			meson.current_source_dir() + '/../../bragi/proto/fs.proto',
 			meson.current_source_dir() + '/../../bragi/proto/mbus.proto',
 			meson.current_source_dir() + '/../../bragi/proto/posix.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../bragi/proto']),
-	gen.process(
+	legacy_gen.process(
 			meson.current_source_dir() + '/../../protocols/clock/clock.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/clock']),
-	gen.process(
+	legacy_gen.process(
 			meson.current_source_dir() + '/../../protocols/hw/hw.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/hw']),
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/kerncfg/kerncfg.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kerncfg']),
-	gen.process(
+	legacy_gen.process(
 			meson.current_source_dir() + '/../../protocols/kernlet/kernlet.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kernlet']),
-	gen.process(
+	legacy_gen.process(
 			meson.current_source_dir() + '/../../protocols/svrctl/svrctl.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/svrctl']),
 ]
@@ -112,6 +119,7 @@ executable('thor', pb_sources, thor_sources, embed_trampoline,
 			'../common',
 			'../../frigg/include',
 			'../../libarch/include',
+			'../../tools/pb2frigg/include',
 			'../../subprojects/acpica/source/include'
 		),
 		lai_includes

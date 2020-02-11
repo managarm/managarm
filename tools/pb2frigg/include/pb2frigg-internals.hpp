@@ -158,7 +158,6 @@ struct Header {
 
 template<typename Writer>
 void pokeHeader(Writer &writer, Header header) {
-	FRG_ASSERT(header.wire < 8);
 	pokeVarint(writer, (header.field << 3) | header.wire);
 }
 

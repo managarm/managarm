@@ -29,7 +29,7 @@ bool handleReq(LaneHandle lane) {
 		resp.set_error(managarm::kerncfg::Error::SUCCESS);
 		resp.set_size(kernelCommandLine->size());
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 		fiberSend(branch, kernelCommandLine->data(), kernelCommandLine->size());
@@ -37,7 +37,7 @@ bool handleReq(LaneHandle lane) {
 		managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}
