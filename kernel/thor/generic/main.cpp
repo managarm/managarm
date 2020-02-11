@@ -190,7 +190,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				auto file_size = parseHex(header.fileSize, 8);
 				auto data = p + ((sizeof(Header) + name_size + 3) & ~uint32_t{3});
 				
-				frigg::StringView path{p + sizeof(Header), name_size - 1};
+				frg::string_view path{p + sizeof(Header), name_size - 1};
 				if(path == "TRAILER!!!")
 					break;
 
@@ -202,7 +202,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 					if(slash == end)
 						break;
 
-					auto segment = path.subString(it - path.data(), slash - it);
+					auto segment = path.sub_string(it - path.data(), slash - it);
 					auto child = dir->getTarget(segment);
 					assert(child);
 					assert(child->type == MfsType::directory);
@@ -211,23 +211,29 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				}
 
 				if((mode & type_mask) == directory_type) {
-					frigg::infoLogger() << "thor: initrd directory " << path << frigg::endLog;
+					// TODO: Get rid of the explicit frigg::String constructor call here.
+					frigg::infoLogger() << "thor: initrd directory "
+							<< frigg::String<KernelAlloc>{*kernelAlloc, path.data(), path.size()}
+							<< frigg::endLog;
 
-					auto name = frigg::String<KernelAlloc>{*kernelAlloc,
-							path.subString(it - path.data(), end - it)};
-					dir->link(frigg::String<KernelAlloc>{*kernelAlloc, std::move(name)},
+					auto name = frg::string<KernelAlloc>{*kernelAlloc,
+							path.sub_string(it - path.data(), end - it)};
+					dir->link(frg::string<KernelAlloc>{*kernelAlloc, std::move(name)},
 							frigg::construct<MfsDirectory>(*kernelAlloc));
 				}else{
 					assert((mode & type_mask) == regular_type);
 	//				if(logInitialization)
-						frigg::infoLogger() << "thor: initrd file " << path << frigg::endLog;
+						// TODO: Get rid of the explicit frigg::String constructor call here.
+						frigg::infoLogger() << "thor: initrd file "
+							<< frigg::String<KernelAlloc>{*kernelAlloc, path.data(), path.size()}
+							<< frigg::endLog;
 
 					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					fiberCopyToBundle(memory.get(), 0, data, file_size);
 		
-					auto name = frigg::String<KernelAlloc>{*kernelAlloc,
-							path.subString(it - path.data(), end - it)};
+					auto name = frg::string<KernelAlloc>{*kernelAlloc,
+							path.sub_string(it - path.data(), end - it)};
 					dir->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
 							std::move(memory), file_size));
 				}

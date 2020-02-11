@@ -412,7 +412,9 @@ namespace initrd {
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_path(entry.name);
+				// TODO: Get rid of the explicit constructor call here.
+				resp.set_path(frigg::String<KernelAlloc>{*kernelAlloc,
+						entry.name.data(), entry.name.size()});
 				if(entry.node->type == MfsType::directory) {
 					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
 				}else{
@@ -523,7 +525,9 @@ namespace initrd {
 		void operator() () {
 //			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
 			// TODO: Actually handle the file-not-found case.
-			auto module = resolveModule(_req.path());
+			// TODO: Get rid of the explicit constructor call here.
+			auto module = resolveModule(frg::string<KernelAlloc>{*kernelAlloc,
+					_req.path().data(), _req.path().size()});
 			if(!module) {
 				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);

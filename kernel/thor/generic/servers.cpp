@@ -40,7 +40,7 @@ void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
 // File management.
 // ------------------------------------------------------------------------
 
-bool createMfsFile(frigg::StringView path, const void *buffer, size_t size, MfsRegular **out) {
+bool createMfsFile(frg::string_view path, const void *buffer, size_t size, MfsRegular **out) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&globalMfsMutex);
 
@@ -59,7 +59,7 @@ bool createMfsFile(frigg::StringView path, const void *buffer, size_t size, MfsR
 		if(slash == end)
 			break;
 
-		auto component = path.subString(it - begin, slash - it);
+		auto component = path.sub_string(it - begin, slash - it);
 		if(component == "..") {
 			// We resolve double-dots unless they are at the beginning of the path.
 			assert(!"Fix double-dots");
@@ -72,7 +72,7 @@ bool createMfsFile(frigg::StringView path, const void *buffer, size_t size, MfsR
 				node = target;
 			}else{
 				node = frigg::construct<MfsDirectory>(*kernelAlloc);
-				directory->link(frigg::String<KernelAlloc>{*kernelAlloc, component}, node);
+				directory->link(frg::string<KernelAlloc>{*kernelAlloc, component}, node);
 			}
 		}
 
@@ -84,7 +84,7 @@ bool createMfsFile(frigg::StringView path, const void *buffer, size_t size, MfsR
 
 	// Now, insert the file into its parent directory.
 	auto directory = static_cast<MfsDirectory *>(node);
-	auto name = path.subString(it - begin, end - it);
+	auto name = path.sub_string(it - begin, end - it);
 	if(auto file = directory->getTarget(name); file) {
 		assert(file->type == MfsType::regular);
 		*out = static_cast<MfsRegular *>(file);
@@ -96,12 +96,12 @@ bool createMfsFile(frigg::StringView path, const void *buffer, size_t size, MfsR
 	fiberCopyToBundle(memory.get(), 0, buffer, size);
 
 	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
-	directory->link(frigg::String<KernelAlloc>{*kernelAlloc, name}, file);
+	directory->link(frg::string<KernelAlloc>{*kernelAlloc, name}, file);
 	*out = file;
 	return true;
 }
 
-MfsNode *resolveModule(frigg::StringView path) {
+MfsNode *resolveModule(frg::string_view path) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&globalMfsMutex);
 
@@ -118,7 +118,7 @@ MfsNode *resolveModule(frigg::StringView path) {
 	while(it != end) {
 		auto slash = std::find(it, end, '/');
 
-		auto component = path.subString(it - begin, slash - it);
+		auto component = path.sub_string(it - begin, slash - it);
 		if(component == "..") {
 			// We resolve double-dots unless they are at the beginning of the path.
 			assert(!"Fix double-dots");
@@ -153,7 +153,7 @@ struct ImageInfo {
 	void *phdrPtr;
 	size_t phdrEntrySize;
 	size_t phdrCount;
-	frigg::String<KernelAlloc> interpreter;
+	frg::string<KernelAlloc> interpreter;
 };
 
 ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
@@ -253,7 +253,7 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(frigg::StringView name, MfsRegular *module,
+void executeModule(frg::string_view name, MfsRegular *module,
 		LaneHandle control_lane,
 		LaneHandle xpipe_lane, LaneHandle mbus_lane,
 		Scheduler *scheduler) {
@@ -397,21 +397,27 @@ void runMbus() {
 			mbus_stream.get<0>(), LaneHandle{}, localScheduler());
 }
 
-LaneHandle runServer(frigg::StringView name) {
+LaneHandle runServer(frg::string_view name) {
 	if(debugLaunch)
-		frigg::infoLogger() << "thor: Launching server " << name << frigg::endLog;
+		// TODO: Get rid of the explicit frigg::String constructor call here.
+		frigg::infoLogger() << "thor: Launching server " << frigg::String<KernelAlloc>{*kernelAlloc,
+				name.data(), name.size()} << frigg::endLog;
 
 	frg::string<KernelAlloc> name_str{*kernelAlloc, name.data(), name.size()};
 	if(auto server = allServers->get(name_str); server) {
 		if(debugLaunch)
-			frigg::infoLogger() << "thor: Server " << name
-					<< " is already running" << frigg::endLog;
+			// TODO: Get rid of the explicit frigg::String constructor call here.
+			frigg::infoLogger() << "thor: Server " << frigg::String<KernelAlloc>{*kernelAlloc,
+				name.data(), name.size()} << " is already running" << frigg::endLog;
 		return *server;
 	}
 
 	auto module = resolveModule(name);
 	if(!module)
-		frigg::panicLogger() << "thor: Could not find module " << name << frigg::endLog;
+		// TODO: Get rid of the explicit frigg::String constructor call here.
+		frigg::panicLogger() << "thor: Could not find module "
+				<< frigg::String<KernelAlloc>{*kernelAlloc,
+						name.data(), name.size()} << frigg::endLog;
 	assert(module->type == MfsType::regular);
 
 	auto control_stream = createStream();
@@ -446,7 +452,7 @@ bool handleReq(LaneHandle lane) {
 			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::svrctl::Error::SUCCESS);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else{
@@ -454,7 +460,7 @@ bool handleReq(LaneHandle lane) {
 			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::svrctl::Error::DATA_REQUIRED);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}
@@ -469,7 +475,7 @@ bool handleReq(LaneHandle lane) {
 				managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::svrctl::Error::SUCCESS);
 
-				frigg::String<KernelAlloc> ser(*kernelAlloc);
+				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
 				fiberSend(branch, ser.data(), ser.size());
 				return true;
@@ -479,7 +485,7 @@ bool handleReq(LaneHandle lane) {
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::SUCCESS);
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
@@ -488,7 +494,7 @@ bool handleReq(LaneHandle lane) {
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::SUCCESS);
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 		fiberPushDescriptor(branch, LaneDescriptor{control_lane});
@@ -496,7 +502,7 @@ bool handleReq(LaneHandle lane) {
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
 		
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}

@@ -32,7 +32,7 @@ pb_sources = [
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/kernlet/kernlet.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kernlet']),
-	legacy_gen.process(
+	gen.process(
 			meson.current_source_dir() + '/../../protocols/svrctl/svrctl.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/svrctl']),
 ]

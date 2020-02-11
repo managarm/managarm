@@ -1,7 +1,7 @@
 #ifndef THOR_GENERIC_MODULE_HPP
 #define THOR_GENERIC_MODULE_HPP
 
-#include <frigg/string.hpp>
+#include <frg/string.hpp>
 #include <frigg/vector.hpp>
 #include "kernel_heap.hpp"
 #include "usermem.hpp"
@@ -23,14 +23,14 @@ struct MfsNode {
 
 struct MfsDirectory : MfsNode {
 	struct Link {
-		frigg::String<KernelAlloc> name;
+		frg::string<KernelAlloc> name;
 		MfsNode *node;
 	};
 
 	MfsDirectory()
 	: MfsNode{MfsType::directory}, _entries{*kernelAlloc} { }
 
-	void link(frigg::String<KernelAlloc> name, MfsNode *node) {
+	void link(frg::string<KernelAlloc> name, MfsNode *node) {
 		assert(!getTarget(name));
 		_entries.push(Link{frigg::move(name), node});
 	}
@@ -43,7 +43,7 @@ struct MfsDirectory : MfsNode {
 		return _entries[i];
 	}
 
-	MfsNode *getTarget(frigg::StringView name) {
+	MfsNode *getTarget(frg::string_view name) {
 		for(size_t i = 0; i < _entries.size(); i++) {
 			if(_entries[i].name == name)
 				return _entries[i].node;
@@ -76,7 +76,7 @@ private:
 
 extern MfsDirectory *mfsRoot;
 
-MfsNode *resolveModule(frigg::StringView path);
+MfsNode *resolveModule(frg::string_view path);
 
 } // namespace thor
 
