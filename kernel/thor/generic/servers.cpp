@@ -522,16 +522,16 @@ LaneHandle createObject(LaneHandle mbus_lane) {
 	auto branch = fiberOffer(mbus_lane);
 	
 	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
-	cls_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "class"));
+	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
 	auto &cls_item = cls_prop.mutable_item().mutable_string_item();
-	cls_item.set_value(frigg::String<KernelAlloc>(*kernelAlloc, "svrctl"));
+	cls_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "svrctl"));
 	
 	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 	req.set_parent_id(1);
 	req.add_properties(std::move(cls_prop));
 
-	frigg::String<KernelAlloc> ser(*kernelAlloc);
+	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
 	fiberSend(branch, ser.data(), ser.size());
 
@@ -557,7 +557,7 @@ void handleBind(LaneHandle object_lane) {
 	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
 	resp.set_error(managarm::mbus::Error::SUCCESS);
 
-	frigg::String<KernelAlloc> ser(*kernelAlloc);
+	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
 	fiberSend(branch, ser.data(), ser.size());
 

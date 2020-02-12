@@ -137,7 +137,7 @@ namespace {
 		managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::mbus::Error::SUCCESS);
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
@@ -157,16 +157,16 @@ namespace {
 
 coroutine<void> initializeAtaDevice() {
 	managarm::mbus::Property<KernelAlloc> legacy_prop(*kernelAlloc);
-	legacy_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "legacy"));
+	legacy_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "legacy"));
 	auto &legacy_item = legacy_prop.mutable_item().mutable_string_item();
-	legacy_item.set_value(frigg::String<KernelAlloc>(*kernelAlloc, "ata"));
+	legacy_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "ata"));
 
 	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 	req.set_parent_id(1);
 	req.add_properties(std::move(legacy_prop));
 
-	frigg::String<KernelAlloc> ser{*kernelAlloc};
+	frg::string<KernelAlloc> ser{*kernelAlloc};
 	req.SerializeToString(&ser);
 	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());

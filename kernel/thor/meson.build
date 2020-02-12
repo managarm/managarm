@@ -15,7 +15,7 @@ gen = generator(protoc, arguments: [
 	output: '@BASENAME@.frigg_pb.hpp')
 
 pb_sources = [
-	legacy_gen.process(
+	gen.process(
 			meson.current_source_dir() + '/../../bragi/proto/mbus.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../bragi/proto']),
 	gen.process(
