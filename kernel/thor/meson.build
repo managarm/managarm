@@ -23,7 +23,7 @@ pb_sources = [
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/clock/clock.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/clock']),
-	legacy_gen.process(
+	gen.process(
 			meson.current_source_dir() + '/../../protocols/hw/hw.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/hw']),
 	gen.process(

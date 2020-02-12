@@ -65,7 +65,7 @@ namespace {
 				resp.add_bars(std::move(msg));
 			}
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
@@ -82,7 +82,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 			fiberPushDescriptor(branch, descriptor);
@@ -100,7 +100,7 @@ namespace {
 					+ frigg::to_string(*kernelAlloc, device->function));
 			IrqPin::attachSink(device->interrupt, object.get());
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 			fiberPushDescriptor(branch, IrqDescriptor{object});
@@ -115,7 +115,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::BUSIRQ_ENABLE) {
@@ -126,7 +126,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
@@ -145,7 +145,7 @@ namespace {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_word(word);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::STORE_PCI_SPACE) {
@@ -162,7 +162,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_CAPABILITY) {
@@ -186,7 +186,7 @@ namespace {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_word(word);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::GET_FB_INFO) {
@@ -201,7 +201,7 @@ namespace {
 			resp.set_fb_bpp(fb->bpp);
 			resp.set_fb_type(fb->type);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_FB_MEMORY) {
@@ -213,7 +213,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 			fiberPushDescriptor(branch, descriptor);
@@ -221,7 +221,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}

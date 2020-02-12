@@ -21,7 +21,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(protoError);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
@@ -63,7 +63,7 @@ namespace {
 				resp.add_bars(std::move(noBar));
 			}
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
@@ -85,7 +85,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
@@ -104,7 +104,7 @@ namespace {
 			auto irqOverride = resolveIsaIrq(14);
 			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());

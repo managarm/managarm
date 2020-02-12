@@ -52,7 +52,7 @@ bool handleReq(LaneHandle lane) {
 		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
 
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}
