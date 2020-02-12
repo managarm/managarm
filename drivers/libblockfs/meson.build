@@ -1,9 +1,9 @@
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../bragi/proto', 
+	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/fs', 
 			'@INPUT@'])
-fs_pb = gen.process('../../bragi/proto/fs.proto')
+fs_pb = gen.process('../../protocols/fs/fs.proto')
 
 libblockfs_driver_inc = include_directories('include/')
 libblockfs_driver = shared_library('blockfs', ['src/libblockfs.cpp', 'src/gpt.cpp',

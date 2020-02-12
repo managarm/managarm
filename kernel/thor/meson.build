@@ -8,12 +8,14 @@ gen = generator(protoc, arguments: [
 
 pb_sources = [
 	gen.process(
-			meson.current_source_dir() + '/../../bragi/proto/mbus.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../bragi/proto']),
+			meson.current_source_dir() + '/../../protocols/fs/fs.proto',
+		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/fs']),
 	gen.process(
-			meson.current_source_dir() + '/../../bragi/proto/fs.proto',
-			meson.current_source_dir() + '/../../bragi/proto/posix.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../bragi/proto']),
+			meson.current_source_dir() + '/../../protocols/mbus/mbus.proto',
+		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/mbus']),
+	gen.process(
+			meson.current_source_dir() + '/../../protocols/posix/posix.proto',
+		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/posix']),
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/clock/clock.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/clock']),

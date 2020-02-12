@@ -1,10 +1,10 @@
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../bragi/proto', 
+	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/fs', 
 			'@INPUT@']) 
 
-fs_pb = gen.process('../../bragi/proto/fs.proto')
+fs_pb = gen.process('../../protocols/fs/fs.proto')
 fs_proto_inc = include_directories('include/')
 libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_pb],
 	dependencies: [

@@ -1,9 +1,9 @@
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../../bragi/proto', 
+	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../../protocols/fs', 
 			'@INPUT@'])
-fs_pb = gen.process('../../../bragi/proto/fs.proto')
+fs_pb = gen.process('../../../protocols/fs/fs.proto')
 
 executable('gfx_vmware', ['src/main.cpp', fs_pb],
 	dependencies: [

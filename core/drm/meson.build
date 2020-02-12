@@ -1,10 +1,9 @@
-
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../bragi/proto', 
+		arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/fs', 
 				'@INPUT@']) 
 
-fs_pb = gen.process('../../bragi/proto/fs.proto')
+fs_pb = gen.process('../../protocols/fs/fs.proto')
 drm_core_inc = include_directories(['include/', '../../frigg/include'])
 drm_core = shared_library('drm_core', [
 		'src/core.cpp',
@@ -28,4 +27,3 @@ install_headers(
 		'include/core/drm/id-allocator.hpp',
 		'include/core/drm/core.hpp',
 		subdir: 'core/drm/')
-

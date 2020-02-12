@@ -1,12 +1,13 @@
-
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
 		arguments: ['--cpp_out=@BUILD_DIR@',
-			'--proto_path=@CURRENT_SOURCE_DIR@../../bragi/proto',
+			'@EXTRA_ARGS@',
 			'@INPUT@'])
 
-fs_pb = gen.process('../../bragi/proto/fs.proto')
-posix_pb = gen.process('../../bragi/proto/posix.proto')
+fs_pb = gen.process(meson.current_source_dir() + '/../../protocols/fs/fs.proto',
+	extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/fs'])
+posix_pb = gen.process(meson.current_source_dir() + '/../../protocols/posix/posix.proto',
+	extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/posix'])
 
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
@@ -67,4 +68,3 @@ executable('posix-subsystem',
 		clock_protocol_dep],
 	include_directories: posix_subsystem_inc,
 	install: true)
-
