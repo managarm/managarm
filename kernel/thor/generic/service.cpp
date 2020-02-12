@@ -113,7 +113,7 @@ namespace stdio {
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _buffer;
 	};
 
 	struct SeekClosure {
@@ -137,7 +137,7 @@ namespace stdio {
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _buffer;
 	};
 
 	struct RequestClosure {
@@ -199,7 +199,7 @@ namespace stdio {
 
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
-		frigg::String<KernelAlloc> _errorBuffer;
+		frg::string<KernelAlloc> _errorBuffer;
 	};
 } // namespace stdio
 
@@ -242,7 +242,7 @@ namespace initrd {
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _buffer;
 	};
 
 	struct ReadClosure {
@@ -294,8 +294,8 @@ namespace initrd {
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
-		frigg::String<KernelAlloc> _payload;
+		frg::string<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _payload;
 		CopyFromBundleNode _copyNode;
 	};
 
@@ -329,7 +329,7 @@ namespace initrd {
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _buffer;
 	};
 
 	struct FileRequestClosure {
@@ -412,9 +412,7 @@ namespace initrd {
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				// TODO: Get rid of the explicit constructor call here.
-				resp.set_path(frigg::String<KernelAlloc>{*kernelAlloc,
-						entry.name.data(), entry.name.size()});
+				resp.set_path(entry.name);
 				if(entry.node->type == MfsType::directory) {
 					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
 				}else{
@@ -424,14 +422,14 @@ namespace initrd {
 
 				file->index++;
 
-				frigg::String<KernelAlloc> ser(*kernelAlloc);
+				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
 				fiberSend(branch, ser.data(), ser.size());
 			}else{
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::END_OF_FILE);
 
-				frigg::String<KernelAlloc> ser(*kernelAlloc);
+				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
 				fiberSend(branch, ser.data(), ser.size());
 			}
@@ -439,7 +437,7 @@ namespace initrd {
 			managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
-			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}
@@ -525,9 +523,7 @@ namespace initrd {
 		void operator() () {
 //			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
 			// TODO: Actually handle the file-not-found case.
-			// TODO: Get rid of the explicit constructor call here.
-			auto module = resolveModule(frg::string<KernelAlloc>{*kernelAlloc,
-					_req.path().data(), _req.path().size()});
+			auto module = resolveModule(_req.path());
 			if(!module) {
 				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -593,7 +589,7 @@ namespace initrd {
 		LaneHandle _lane;
 		posix::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _buffer;
 	};
 
 	struct CloseClosure {
@@ -618,7 +614,7 @@ namespace initrd {
 		LaneHandle _lane;
 		posix::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _buffer;
 	};
 
 	struct IsTerminalClosure {
@@ -648,7 +644,7 @@ namespace initrd {
 		LaneHandle _lane;
 		posix::CntRequest<KernelAlloc> _req;
 
-		frigg::String<KernelAlloc> _buffer;
+		frg::string<KernelAlloc> _buffer;
 	};
 
 	struct ServerRequestClosure {

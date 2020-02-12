@@ -16,8 +16,10 @@ gen = generator(protoc, arguments: [
 
 pb_sources = [
 	legacy_gen.process(
-			meson.current_source_dir() + '/../../bragi/proto/fs.proto',
 			meson.current_source_dir() + '/../../bragi/proto/mbus.proto',
+		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../bragi/proto']),
+	gen.process(
+			meson.current_source_dir() + '/../../bragi/proto/fs.proto',
 			meson.current_source_dir() + '/../../bragi/proto/posix.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../bragi/proto']),
 	gen.process(
