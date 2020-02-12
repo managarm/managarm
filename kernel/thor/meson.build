@@ -1,11 +1,3 @@
-
-legacy_gen = generator(protoc,
-	output: ['@BASENAME@.frigg_pb.hpp'],
-	arguments: [
-		'--plugin=protoc-gen-frigg=' + frigg_pb.path(),
-		'--frigg_out=@BUILD_DIR@',
-		'@EXTRA_ARGS@',
-		'@INPUT@']) 
 gen = generator(protoc, arguments: [
 		'--plugin=protoc-gen-frigg=' + pb2frigg.path(),
 		'--frigg_out=@BUILD_DIR@',

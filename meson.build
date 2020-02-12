@@ -13,7 +13,6 @@ endif
 
 if get_option('build_kernel')
 	pb2frigg = find_program('pb2frigg')
-	frigg_pb = find_program('frigg_pb')
 
 	add_global_arguments(
 		[
@@ -103,7 +102,6 @@ endif
 
 if get_option('build_tools')
 	subdir('tools/bakesvr')
-	subdir('tools/legacy-frigg_pb')
 	subdir('tools/pb2frigg')
 endif
 
