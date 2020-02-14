@@ -590,10 +590,10 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 	auto [acceptError, lane] = co_await AcceptSender{objectLane};
 	assert(!acceptError && "Unexpected mbus transaction");
 
-	auto [respError, respBuffer] = co_await RecvBufferSender{lane};
-	assert(!respError && "Unexpected mbus transaction");
+	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+	assert(!reqError && "Unexpected mbus transaction");
 	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(respBuffer.data(), respBuffer.size());
+	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
 
 	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
@@ -601,10 +601,10 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-	memcpy(reqBuffer.data(), ser.data(), ser.size());
-	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
-	assert(!reqError && "Unexpected mbus transaction");
+	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	memcpy(respBuffer.data(), ser.data(), ser.size());
+	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+	assert(!respError && "Unexpected mbus transaction");
 
 	auto stream = createStream();
 	auto boundError = co_await PushDescriptorSender{lane, LaneDescriptor{stream.get<1>()}};
