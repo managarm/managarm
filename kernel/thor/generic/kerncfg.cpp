@@ -1,6 +1,7 @@
 #include <frg/string.hpp>
 
 #include "descriptor.hpp"
+#include "execution/coroutine.hpp"
 #include "fiber.hpp"
 #include "kerncfg.hpp"
 #include "service_helpers.hpp"
@@ -15,14 +16,15 @@ extern frigg::LazyInitializer<frg::string<KernelAlloc>> kernelCommandLine;
 
 namespace {
 
-bool handleReq(LaneHandle lane) {
-	auto branch = fiberAccept(lane);
-	if(!branch)
-		return false;
+coroutine<Error> handleReq(LaneHandle boundLane) {
+	auto [acceptError, lane] = co_await AcceptSender{boundLane};
+	if(acceptError)
+		co_return acceptError;
 
-	auto buffer = fiberRecv(branch);
+	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+	assert(!reqError && "Unexpected mbus transaction");
 	managarm::kerncfg::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(buffer.data(), buffer.size());
+	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 	if(req.req_type() == managarm::kerncfg::CntReqType::GET_CMDLINE) {
 		managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -31,18 +33,27 @@ bool handleReq(LaneHandle lane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
-		fiberSend(branch, kernelCommandLine->data(), kernelCommandLine->size());
+		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		memcpy(respBuffer.data(), ser.data(), ser.size());
+		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+		assert(!respError && "Unexpected mbus transaction");
+		frigg::UniqueMemory<KernelAlloc> cmdlineBuffer{*kernelAlloc, kernelCommandLine->size()};
+		memcpy(cmdlineBuffer.data(), kernelCommandLine->data(), kernelCommandLine->size());
+		auto cmdlineError = co_await SendBufferSender{lane, std::move(cmdlineBuffer)};
+		assert(!cmdlineError && "Unexpected mbus transaction");
 	}else{
 		managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
+		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		memcpy(respBuffer.data(), ser.data(), ser.size());
+		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+		assert(!respError && "Unexpected mbus transaction");
 	}
 
-	return true;
+	co_return kErrSuccess;
 }
 
 } // anonymous namespace
@@ -53,8 +64,11 @@ bool handleReq(LaneHandle lane) {
 
 namespace {
 
-LaneHandle createObject(LaneHandle mbus_lane) {
-	auto branch = fiberOffer(mbus_lane);
+coroutine<void> handleBind(LaneHandle objectLane);
+
+coroutine<void> createObject(LaneHandle mbusLane) {
+	auto [offerError, lane] = co_await OfferSender{mbusLane};
+	assert(!offerError && "Unexpected mbus transaction");
 
 	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
 	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
@@ -68,25 +82,33 @@ LaneHandle createObject(LaneHandle mbus_lane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	fiberSend(branch, ser.data(), ser.size());
+	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	memcpy(reqBuffer.data(), ser.data(), ser.size());
+	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
+	assert(!reqError && "Unexpected mbus transaction");
 
-	auto buffer = fiberRecv(branch);
+	auto [respError, respBuffer] = co_await RecvBufferSender{lane};
+	assert(!respError && "Unexpected mbus transaction");
 	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(buffer.data(), buffer.size());
+	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
-	auto descriptor = fiberPullDescriptor(branch);
-	assert(descriptor.is<LaneDescriptor>());
-	return descriptor.get<LaneDescriptor>().handle;
+	auto [objectError, objectDescriptor] = co_await PullDescriptorSender{lane};
+	assert(!objectError && "Unexpected mbus transaction");
+	assert(objectDescriptor.is<LaneDescriptor>());
+	auto objectLane = objectDescriptor.get<LaneDescriptor>().handle;
+	while(true)
+		co_await handleBind(objectLane);
 }
 
-void handleBind(LaneHandle object_lane) {
-	auto branch = fiberAccept(object_lane);
-	assert(branch);
+coroutine<void> handleBind(LaneHandle objectLane) {
+	auto [acceptError, lane] = co_await AcceptSender{objectLane};
+	assert(!acceptError && "Unexpected mbus transaction");
 
-	auto buffer = fiberRecv(branch);
+	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+	assert(!reqError && "Unexpected mbus transaction");
 	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(buffer.data(), buffer.size());
+	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
 
 	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
@@ -94,18 +116,27 @@ void handleBind(LaneHandle object_lane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	fiberSend(branch, ser.data(), ser.size());
+	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	memcpy(respBuffer.data(), ser.data(), ser.size());
+	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+	assert(!respError && "Unexpected mbus transaction");
 
 	auto stream = createStream();
-	fiberPushDescriptor(branch, LaneDescriptor{stream.get<1>()});
+	auto boundError = co_await PushDescriptorSender{lane, LaneDescriptor{stream.get<1>()}};
+	assert(!boundError && "Unexpected mbus transaction");
+	auto boundLane = stream.get<0>();
 
-	// TODO: Do this in an own fiber.
-	KernelFiber::run([lane = stream.get<0>()] () {
+	execution::detach(([] (LaneHandle boundLane) -> coroutine<void> {
 		while(true) {
-			if(!handleReq(lane))
+			auto error = co_await handleReq(boundLane);
+			if(error == kErrEndOfLane)
 				break;
+			if(isRemoteIpcError(error))
+				frigg::infoLogger() << "thor: Aborting kerncfg request"
+						" after remote violated the protocol" << frigg::endLog;
+			assert(!error);
 		}
-	});
+	})(boundLane));
 }
 
 } // anonymous namespace
@@ -113,9 +144,7 @@ void handleBind(LaneHandle object_lane) {
 void initializeKerncfg() {
 	// Create a fiber to manage requests to the kerncfg mbus object.
 	KernelFiber::run([=] {
-		auto object_lane = createObject(*mbusClient);
-		while(true)
-			handleBind(object_lane);
+		execution::detach(createObject(*mbusClient));
 	});
 }
 
