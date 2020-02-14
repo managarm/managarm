@@ -227,4 +227,16 @@ operator co_await(PullDescriptorSender s) {
 	return {std::move(s)};
 }
 
+//---------------------------------------------------------------------------------------
+
+// Returns true if an IPC error is caused by the remote side not following the protocol.
+inline bool isRemoteIpcError(Error e) {
+	switch(e) {
+		case kErrBufferTooSmall:
+		case kErrTransmissionMismatch:
+			return true;
+	}
+	return false;
+}
+
 } // namespace thor

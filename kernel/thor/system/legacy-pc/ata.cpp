@@ -149,8 +149,13 @@ namespace {
 		auto boundLane = stream.get<0>();
 		while(true) {
 			// Terminate the connection on protocol errors.
-			if(co_await handleRequest(boundLane))
+			auto error = co_await handleRequest(boundLane);
+			if(error == kErrEndOfLane)
 				break;
+			if(isRemoteIpcError(error))
+				frigg::infoLogger() << "thor: Aborting legacy-pc.ata request"
+						" after remote violated the protocol" << frigg::endLog;
+			assert(!error);
 		}
 	}
 }
