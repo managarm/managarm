@@ -674,7 +674,7 @@ size_t AllocatedMemory::getLength() {
 // --------------------------------------------------------
 
 ManagedSpace::ManagedSpace(size_t length)
-: pages{kernelAlloc.get()}, numPages{length >> kPageShift} {
+: pages{*kernelAlloc}, numPages{length >> kPageShift} {
 	assert(!(length & (kPageSize - 1)));
 	for(size_t i = 0; i < (length >> kPageShift); i++)
 		pages.insert(i, this, i);
@@ -1655,7 +1655,7 @@ bool NormalMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 // --------------------------------------------------------
 
 CowChain::CowChain(frigg::SharedPtr<CowChain> chain)
-: _superChain{std::move(chain)}, _pages{kernelAlloc.get()} {
+: _superChain{std::move(chain)}, _pages{*kernelAlloc} {
 }
 
 CowChain::~CowChain() {
@@ -1676,7 +1676,7 @@ CowMapping::CowMapping(size_t length, MappingFlags flags,
 		frigg::SharedPtr<CowChain> chain)
 : Mapping{length, flags},
 		_slice{std::move(slice)}, _viewOffset{view_offset}, _copyChain{std::move(chain)},
-		_ownedPages{kernelAlloc.get()} {
+		_ownedPages{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
 	assert(!(_viewOffset & (kPageSize - 1)));
 }
