@@ -43,20 +43,17 @@ public:
 	void unmap(uintptr_t address, size_t length);
 };
 
-struct KernelAlloc {
-	KernelAlloc(KernelVirtualAlloc &policy)
-	: _allocator{policy} { }
-
-	void *allocate(size_t size);
-	void *reallocate(void *pointer, size_t size);
-	void free(void *pointer);
-	void deallocate(void *pointer, size_t size);
-
-private:
-	frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock> _allocator;
-};
+using KernelAlloc = frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock>;
 
 extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+
+extern frigg::LazyInitializer<
+	frg::slab_pool<
+		KernelVirtualAlloc,
+		IrqSpinlock
+	>
+> kernelHeap;
+
 extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 struct Allocator {

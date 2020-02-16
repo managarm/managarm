@@ -85,7 +85,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			<< physicalAllocator->numFreePages() << frigg::endLog;
 	
 	kernelVirtualAlloc.initialize();
-	kernelAlloc.initialize(*kernelVirtualAlloc);
+	kernelHeap.initialize(*kernelVirtualAlloc);
+	kernelAlloc.initialize(kernelHeap.get());
 
 	initializePhysicalAccess();
 

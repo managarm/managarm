@@ -122,24 +122,17 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 		invalidatePage(reinterpret_cast<char *>(address) + offset);
 }
 
-void *KernelAlloc::allocate(size_t size) {
-	return _allocator.allocate(size);
-}
-
-void *KernelAlloc::reallocate(void *pointer, size_t size) {
-	return _allocator.realloc(pointer, size);
-}
-
-void KernelAlloc::free(void *pointer) {
-	_allocator.free(pointer);
-}
-
-void KernelAlloc::deallocate(void *pointer, size_t size) {
-	_allocator.deallocate(pointer, size);
-}
-
 frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+
 frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+
+frigg::LazyInitializer<
+	frg::slab_pool<
+		KernelVirtualAlloc,
+		IrqSpinlock
+	>
+> kernelHeap;
+
 frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
