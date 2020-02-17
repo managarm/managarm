@@ -26,10 +26,10 @@ struct contiguous_pool : dma_pool {
 private:
 	contiguous_policy _policy;
 
-	frg::slab_allocator<
+	frg::slab_pool<
 		contiguous_policy,
 		std::mutex
-	> _allocator;
+	> _slab;
 };
 
 } } // namespace arch::os

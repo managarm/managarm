@@ -28,21 +28,21 @@ void contiguous_policy::unmap(uintptr_t address, size_t length) {
 }
 
 contiguous_pool::contiguous_pool()
-: _allocator(_policy) { }
+: _slab{_policy} { }
 
 void *contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 	// We do not have to pay attention to the alignment parameter
 	// because the frigg slab allocator always returns naturally aligned chunks.
 	(void)align;
 	// TODO: Check for overflow.
-	return _allocator.allocate(size * count);
+	return _slab.allocate(size * count);
 }
 
 void contiguous_pool::deallocate(void *pointer, size_t size, size_t count, size_t align) {
 	(void)size;
 	(void)count;
 	(void)align;
-	_allocator.free(pointer);
+	_slab.free(pointer);
 }
 
 } } // namespace arch::os
