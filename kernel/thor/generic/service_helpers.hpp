@@ -235,8 +235,9 @@ inline bool isRemoteIpcError(Error e) {
 		case kErrBufferTooSmall:
 		case kErrTransmissionMismatch:
 			return true;
+		default:
+			return false;
 	}
-	return false;
 }
 
 } // namespace thor
