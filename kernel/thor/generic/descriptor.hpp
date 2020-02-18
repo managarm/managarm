@@ -76,6 +76,7 @@ struct VirtualizedSpaceDescriptor {
 };
 
 struct VirtualizedCpuDescriptor {
+	VirtualizedCpuDescriptor() : vcpu(nullptr) { }
 	VirtualizedCpuDescriptor(smarter::shared_ptr<VirtualizedCpu> vcpu)
 	: vcpu(frigg::move(vcpu)) { }
 

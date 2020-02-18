@@ -23,6 +23,8 @@ namespace thor {
 
 	struct VirtualizedCpu {
 			virtual HelVmexitReason run();
+			virtual void storeRegs(const HelX86VirtualizationRegs *regs);
+			virtual void loadRegs(HelX86VirtualizationRegs *res);
 	};
 
 	struct VirtualizedPageSpace {
