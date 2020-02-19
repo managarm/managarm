@@ -1459,6 +1459,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	auto this_universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<Thread> thread;
+	VirtualizedCpuDescriptor vcpu;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1466,19 +1467,29 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!thread_wrapper)
 			return kHelErrNoDescriptor;
-		if(!thread_wrapper->is<ThreadDescriptor>())
+		if(thread_wrapper->is<ThreadDescriptor>()) {
+			thread = thread_wrapper->get<ThreadDescriptor>().thread;
+		} else if(thread_wrapper->is<VirtualizedCpuDescriptor>()) {
+			vcpu = thread_wrapper->get<VirtualizedCpuDescriptor>();
+		}else{
 			return kHelErrBadDescriptor;
-		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+		}
 	}
 
 	// TODO: Make sure that the thread is actually suspenend!
 
 	if(set == kHelRegsProgram) {
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
 		uintptr_t regs[2];
 		regs[0] = *thread->_executor.ip();
 		regs[1] = *thread->_executor.sp();
 		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2);
 	}else if(set == kHelRegsGeneral) {
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
 		uintptr_t regs[15];
 		regs[0] = thread->_executor.general()->rax;
 		regs[1] = thread->_executor.general()->rbx;
@@ -1497,10 +1508,23 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[14] = thread->_executor.general()->rbp;
 		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15);
 	}else if(set == kHelRegsThread) {
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
 		uintptr_t regs[2];
 		regs[0] = thread->_executor.general()->clientFs;
 		regs[1] = thread->_executor.general()->clientGs;
 		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2);
+	}else if(set == kHelRegsVirtualization) {
+		if(!vcpu.vcpu) {
+			return kHelErrIllegalArgs;
+		}
+		Universe::Guard universe_guard(&this_universe->lock);
+		enableUserAccess();
+		HelX86VirtualizationRegs* regs = (HelX86VirtualizationRegs*)image;
+		vcpu.vcpu->loadRegs(regs);
+		disableUserAccess();
+		return kHelErrNone;
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1513,6 +1537,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	auto this_universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<Thread> thread;
+	VirtualizedCpuDescriptor vcpu{0};
 	if(handle == kHelThisThread) {
 		// FIXME: Properly handle this below.
 		thread = this_thread.toShared();
@@ -1523,19 +1548,29 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!thread_wrapper)
 			return kHelErrNoDescriptor;
-		if(!thread_wrapper->is<ThreadDescriptor>())
+		if(thread_wrapper->is<ThreadDescriptor>()) {
+			thread = thread_wrapper->get<ThreadDescriptor>().thread;
+		}else if(thread_wrapper->is<VirtualizedCpuDescriptor>()) {
+			vcpu = thread_wrapper->get<VirtualizedCpuDescriptor>();
+		}else{
 			return kHelErrBadDescriptor;
-		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+		}
 	}
 
 	// TODO: Make sure that the thread is actually suspenend!
 
 	if(set == kHelRegsProgram) {
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
 		uintptr_t regs[2];
 		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2);
 		*thread->_executor.ip() = regs[0];
 		*thread->_executor.sp() = regs[1];
 	}else if(set == kHelRegsGeneral) {
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
 		uintptr_t regs[15];
 		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 15);
 		thread->_executor.general()->rax = regs[0];
@@ -1555,6 +1590,9 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread->_executor.general()->rbp = regs[14];
 	}else if(set == kHelRegsThread) {
 		uintptr_t regs[2];
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
 		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2);
 		thread->_executor.general()->clientFs = regs[0];
 		thread->_executor.general()->clientGs = regs[1];
@@ -1562,6 +1600,15 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		// FIXME: Make those registers thread-specific.
 		auto reg = readUserObject(reinterpret_cast<uint32_t *const *>(image));
 		breakOnWrite(reg);
+	}else if(set == kHelRegsVirtualization) {
+		if(!vcpu.vcpu) {
+			kHelErrIllegalArgs;
+		}
+		Universe::Guard universe_guard(&this_universe->lock);
+		enableUserAccess();
+		vcpu.vcpu->storeRegs((HelX86VirtualizationRegs*)image);
+		disableUserAccess();
+		return kHelErrNone;
 	}else{
 		return kHelErrIllegalArgs;
 	}

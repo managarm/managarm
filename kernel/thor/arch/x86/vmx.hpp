@@ -149,6 +149,8 @@ namespace thor::vmx {
 		Vmcs(const Vmcs& vmcs) = delete;
 		Vmcs& operator=(const Vmcs& vmcs) = delete;
 		HelVmexitReason run();
+		void storeRegs(const HelX86VirtualizationRegs *regs);
+		void loadRegs(HelX86VirtualizationRegs *res);
 		~Vmcs();
 		void *region;
 		uint8_t* hostFstate;

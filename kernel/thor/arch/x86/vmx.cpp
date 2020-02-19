@@ -356,6 +356,128 @@ namespace thor::vmx {
 		}
 	}
 
+	void Vmcs::storeRegs(const HelX86VirtualizationRegs *regs) {
+		memcpy(&state, regs, sizeof(GuestState));
+
+		vmwrite(GUEST_RSP, regs->rsp);
+		vmwrite(GUEST_RIP, regs->rip);
+
+		vmwrite(GUEST_CS_BASE, regs->cs.base);
+		vmwrite(GUEST_CS_LIMIT, regs->cs.limit);
+		vmwrite(GUEST_CS_SELECTOR, regs->cs.selector);
+		vmwrite(GUEST_CS_AR_BYTES, regs->cs.ar_bytes);
+		vmwrite(GUEST_CS_ACCESS_RIGHT, regs->cs.access_right);
+
+		vmwrite(GUEST_DS_BASE, regs->ds.base);
+		vmwrite(GUEST_DS_LIMIT, regs->ds.limit);
+		vmwrite(GUEST_DS_SELECTOR, regs->ds.selector);
+		vmwrite(GUEST_DS_AR_BYTES, regs->ds.ar_bytes);
+		vmwrite(GUEST_DS_ACCESS_RIGHT, regs->ds.access_right);
+
+		vmwrite(GUEST_ES_BASE, regs->es.base);
+		vmwrite(GUEST_ES_LIMIT, regs->es.limit);
+		vmwrite(GUEST_ES_SELECTOR, regs->es.selector);
+		vmwrite(GUEST_ES_AR_BYTES, regs->es.ar_bytes);
+		vmwrite(GUEST_ES_ACCESS_RIGHT, regs->es.access_right);
+
+		vmwrite(GUEST_FS_BASE, regs->fs.base);
+		vmwrite(GUEST_FS_LIMIT, regs->fs.limit);
+		vmwrite(GUEST_FS_SELECTOR, regs->fs.selector);
+		vmwrite(GUEST_FS_AR_BYTES, regs->fs.ar_bytes);
+		vmwrite(GUEST_FS_ACCESS_RIGHT, regs->fs.access_right);
+
+		vmwrite(GUEST_GS_BASE, regs->gs.base);
+		vmwrite(GUEST_GS_LIMIT, regs->gs.limit);
+		vmwrite(GUEST_GS_SELECTOR, regs->gs.selector);
+		vmwrite(GUEST_GS_AR_BYTES, regs->gs.ar_bytes);
+		vmwrite(GUEST_GS_ACCESS_RIGHT, regs->gs.access_right);
+
+		vmwrite(GUEST_SS_BASE, regs->ss.base);
+		vmwrite(GUEST_SS_LIMIT, regs->ss.limit);
+		vmwrite(GUEST_SS_SELECTOR, regs->ss.selector);
+		vmwrite(GUEST_SS_AR_BYTES, regs->ss.ar_bytes);
+		vmwrite(GUEST_SS_ACCESS_RIGHT, regs->ss.access_right);
+
+		vmwrite(GUEST_TR_BASE, regs->tr.base);
+		vmwrite(GUEST_TR_SELECTOR, regs->tr.selector);
+		vmwrite(GUEST_TR_LIMIT, regs->tr.limit);
+		vmwrite(GUEST_TR_AR_BYTES, regs->ldt.ar_bytes);
+		vmwrite(GUEST_TR_ACCESS_RIGHT, regs->tr.access_right);
+
+		vmwrite(GUEST_LDTR_BASE, regs->ldt.base);
+		vmwrite(GUEST_LDTR_SELECTOR, regs->ldt.selector);
+		vmwrite(GUEST_LDTR_LIMIT, regs->ldt.limit);
+		vmwrite(GUEST_LDTR_AR_BYTES, regs->ldt.ar_bytes);
+		vmwrite(GUEST_LDTR_ACCESS_RIGHT, regs->ldt.access_right);
+
+		vmwrite(GUEST_CR0, regs->cr0);
+		vmwrite(GUEST_CR3, regs->cr3);
+		vmwrite(GUEST_CR4, regs->cr4);
+
+		vmwrite(VMCS_FIELD_GUEST_EFER_FULL, regs->efer);
+	}
+
+	void Vmcs::loadRegs(HelX86VirtualizationRegs *res) {
+		memcpy(res, &state, sizeof(GuestState));
+
+		res->rsp = vmread(GUEST_RSP);
+		res->rip = vmread(GUEST_RIP);
+
+		res->cs.base = vmread(GUEST_CS_BASE);
+		res->cs.limit = vmread(GUEST_CS_LIMIT);
+		res->cs.selector = vmread(GUEST_CS_SELECTOR);
+		res->cs.ar_bytes = vmread(GUEST_CS_AR_BYTES);
+		res->cs.access_right = vmread(GUEST_CS_ACCESS_RIGHT);
+
+		res->ds.base = vmread(GUEST_DS_BASE);
+		res->ds.limit = vmread(GUEST_DS_LIMIT);
+		res->ds.selector = vmread(GUEST_DS_SELECTOR);
+		res->ds.ar_bytes = vmread(GUEST_DS_AR_BYTES);
+		res->ds.access_right = vmread(GUEST_DS_ACCESS_RIGHT);
+
+		res->es.base = vmread(GUEST_ES_BASE);
+		res->es.limit = vmread(GUEST_ES_LIMIT);
+		res->es.selector = vmread(GUEST_ES_SELECTOR);
+		res->es.ar_bytes = vmread(GUEST_ES_AR_BYTES);
+		res->es.access_right = vmread(GUEST_ES_ACCESS_RIGHT);
+
+		res->fs.base = vmread(GUEST_FS_BASE);
+		res->fs.limit = vmread(GUEST_FS_LIMIT);
+		res->fs.selector = vmread(GUEST_FS_SELECTOR);
+		res->fs.ar_bytes = vmread(GUEST_FS_AR_BYTES);
+		res->fs.access_right = vmread(GUEST_FS_ACCESS_RIGHT);
+
+		res->gs.base = vmread(GUEST_GS_BASE);
+		res->gs.limit = vmread(GUEST_GS_LIMIT);
+		res->gs.selector = vmread(GUEST_GS_SELECTOR);
+		res->gs.ar_bytes = vmread(GUEST_GS_AR_BYTES);
+		res->gs.access_right = vmread(GUEST_GS_ACCESS_RIGHT);
+
+		res->ss.base = vmread(GUEST_SS_BASE);
+		res->ss.limit = vmread(GUEST_SS_LIMIT);
+		res->ss.selector = vmread(GUEST_SS_SELECTOR);
+		res->ss.ar_bytes = vmread(GUEST_SS_AR_BYTES);
+		res->ss.access_right = vmread(GUEST_SS_ACCESS_RIGHT);
+
+		res->tr.base = vmread(GUEST_TR_BASE);
+		res->tr.limit = vmread(GUEST_TR_LIMIT);
+		res->tr.selector = vmread(GUEST_TR_SELECTOR);
+		res->tr.ar_bytes = vmread(GUEST_TR_AR_BYTES);
+		res->tr.access_right = vmread(GUEST_TR_ACCESS_RIGHT);
+
+		res->ldt.base = vmread(GUEST_LDTR_BASE);
+		res->ldt.limit = vmread(GUEST_LDTR_LIMIT);
+		res->ldt.selector = vmread(GUEST_LDTR_SELECTOR);
+		res->ldt.ar_bytes = vmread(GUEST_LDTR_AR_BYTES);
+		res->ldt.access_right = vmread(GUEST_LDTR_ACCESS_RIGHT);
+
+		res->cr0 = vmread(GUEST_CR0);
+		res->cr3 = vmread(GUEST_CR3);
+		res->cr4 = vmread(GUEST_CR4);
+
+		res->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
+	}
+
 	Vmcs::~Vmcs() {
 		physicalAllocator->free((size_t)region, kPageSize);
 	}
