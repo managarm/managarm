@@ -1,8 +1,8 @@
 #ifndef THOR_GENERIC_USERMEM_HPP
 #define THOR_GENERIC_USERMEM_HPP
 
-#include <frigg/tuple.hpp>
 #include <frigg/vector.hpp>
+#include <frg/tuple.hpp>
 #include <frg/container_of.hpp>
 #include <frg/rbtree.hpp>
 #include <frg/rcu_radixtree.hpp>
@@ -190,7 +190,7 @@ struct FetchNode {
 		return _error;
 	}
 
-	frigg::Tuple<PhysicalAddr, size_t, CachingMode> range() {
+	frg::tuple<PhysicalAddr, size_t, CachingMode> range() {
 		return _range;
 	}
 
@@ -199,7 +199,7 @@ private:
 	uint32_t _flags;
 
 	Error _error;
-	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
+	frg::tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
 struct EvictNode {
@@ -241,7 +241,7 @@ protected:
 	static void completeFetch(FetchNode *node, Error error,
 			PhysicalAddr physical, size_t size, CachingMode cm) {
 		node->_error = error;
-		node->_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, cm};
+		node->_range = frg::tuple<PhysicalAddr, size_t, CachingMode>{physical, size, cm};
 	}
 
 	static void callbackFetch(FetchNode *node) {
@@ -262,7 +262,7 @@ public:
 
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
-	virtual frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) = 0;
+	virtual frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) = 0;
 
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
@@ -396,7 +396,7 @@ struct HardwareMemory final : Memory {
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -425,7 +425,7 @@ struct AllocatedMemory final : Memory {
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -536,7 +536,7 @@ public:
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -562,7 +562,7 @@ public:
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -642,7 +642,7 @@ struct TouchVirtualNode {
 	void setResult(Error error) {
 		_error = error;
 	}
-	void setResult(Error error, frigg::Tuple<PhysicalAddr, size_t, CachingMode> range,
+	void setResult(Error error, frg::tuple<PhysicalAddr, size_t, CachingMode> range,
 			bool spurious = false) {
 		_error = error;
 		_range = range;
@@ -651,7 +651,7 @@ struct TouchVirtualNode {
 	void setResult(Error error, PhysicalAddr physical, size_t size, CachingMode mode,
 			bool spurious = false) {
 		_error = error;
-		_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, mode};
+		_range = frg::tuple<PhysicalAddr, size_t, CachingMode>{physical, size, mode};
 		_spurious = spurious;
 	}
 
@@ -659,7 +659,7 @@ struct TouchVirtualNode {
 		return _error;
 	}
 
-	frigg::Tuple<PhysicalAddr, size_t, CachingMode> range() {
+	frg::tuple<PhysicalAddr, size_t, CachingMode> range() {
 		return _range;
 	}
 
@@ -672,7 +672,7 @@ struct TouchVirtualNode {
 
 private:
 	Error _error;
-	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
+	frg::tuple<PhysicalAddr, size_t, CachingMode> _range;
 	bool _spurious;
 };
 
@@ -729,7 +729,7 @@ public:
 	virtual bool lockVirtualRange(LockVirtualNode *node) = 0;
 	virtual void unlockVirtualRange(uintptr_t offset, size_t length) = 0;
 
-	virtual frigg::Tuple<PhysicalAddr, CachingMode>
+	virtual frg::tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset) = 0;
 
 	// Ensures that a page of virtual memory is present.
@@ -771,7 +771,7 @@ struct NormalMapping : Mapping, MemoryObserver {
 
 	bool lockVirtualRange(LockVirtualNode *node) override;
 	void unlockVirtualRange(uintptr_t offset, size_t length) override;
-	frigg::Tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
+	frg::tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
 	bool touchVirtualPage(TouchVirtualNode *node) override;
 
 	smarter::shared_ptr<Mapping> forkMapping() override;
@@ -813,7 +813,7 @@ struct CowMapping : Mapping, MemoryObserver {
 
 	bool lockVirtualRange(LockVirtualNode *node) override;
 	void unlockVirtualRange(uintptr_t offset, size_t length) override;
-	frigg::Tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
+	frg::tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
 	bool touchVirtualPage(TouchVirtualNode *node) override;
 
 	smarter::shared_ptr<Mapping> forkMapping() override;

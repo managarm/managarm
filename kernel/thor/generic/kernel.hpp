@@ -10,7 +10,6 @@
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/physical_buddy.hpp>
-#include <frigg/tuple.hpp>
 #include <frigg/string.hpp>
 #include <frigg/array.hpp>
 #include <frigg/vector.hpp>

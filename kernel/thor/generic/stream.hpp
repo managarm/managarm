@@ -223,7 +223,7 @@ private:
 	bool _laneShutDown[2];
 };
 
-frigg::Tuple<LaneHandle, LaneHandle> createStream();
+frg::tuple<LaneHandle, LaneHandle> createStream();
 
 //---------------------------------------------------------------------------------------
 // In-kernel stream utilities.

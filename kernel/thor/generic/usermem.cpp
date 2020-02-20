@@ -501,9 +501,9 @@ void HardwareMemory::unlockRange(uintptr_t offset, size_t size) {
 	// Hardware memory is "always locked".
 }
 
-frigg::Tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset) {
+frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
-	return frigg::Tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
+	return frg::tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
 }
 
 bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -616,7 +616,7 @@ void AllocatedMemory::unlockRange(uintptr_t offset, size_t size) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
-frigg::Tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
+frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -627,8 +627,8 @@ frigg::Tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t off
 	assert(index < _physicalChunks.size());
 
 	if(_physicalChunks[index] == PhysicalAddr(-1))
-		return frigg::Tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
-	return frigg::Tuple<PhysicalAddr, CachingMode>{_physicalChunks[index] + disp,
+		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+	return frg::tuple<PhysicalAddr, CachingMode>{_physicalChunks[index] + disp,
 			CachingMode::null};
 }
 
@@ -972,7 +972,7 @@ void BackingMemory::unlockRange(uintptr_t offset, size_t size) {
 	_managed->unlockPages(offset, size);
 }
 
-frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
+frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -983,7 +983,7 @@ frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offse
 	auto pit = _managed->pages.find(index);
 	assert(pit);
 
-	return frigg::Tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
+	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
 bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -1106,7 +1106,7 @@ void FrontalMemory::unlockRange(uintptr_t offset, size_t size) {
 	_managed->unlockPages(offset, size);
 }
 
-frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
+frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -1118,8 +1118,8 @@ frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offse
 	assert(pit);
 
 	if(pit->loadState != ManagedSpace::kStatePresent)
-		return frigg::Tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
-	return frigg::Tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
+		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
 bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -1442,14 +1442,14 @@ void NormalMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 	_view->unlockRange(_viewOffset + offset, size);
 }
 
-frigg::Tuple<PhysicalAddr, CachingMode>
+frg::tuple<PhysicalAddr, CachingMode>
 NormalMapping::resolveRange(ptrdiff_t offset) {
 	assert(_state == MappingState::active);
 
 	// TODO: This function should be rewritten.
 	assert((size_t)offset + kPageSize <= length());
 	auto bundle_range = _view->peekRange(_viewOffset + offset);
-	return frigg::Tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
+	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
 bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
@@ -1901,7 +1901,7 @@ void CowMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 	}
 }
 
-frigg::Tuple<PhysicalAddr, CachingMode>
+frg::tuple<PhysicalAddr, CachingMode>
 CowMapping::resolveRange(ptrdiff_t offset) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
@@ -1909,10 +1909,10 @@ CowMapping::resolveRange(ptrdiff_t offset) {
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 		assert(it->state == CowState::hasCopy);
-		return frigg::Tuple<PhysicalAddr, CachingMode>{it->physical, CachingMode::null};
+		return frg::tuple<PhysicalAddr, CachingMode>{it->physical, CachingMode::null};
 	}
 
-	return frigg::Tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
 }
 
 bool CowMapping::touchVirtualPage(TouchVirtualNode *continuation) {
@@ -2177,7 +2177,7 @@ void CowMapping::install() {
 	_slice->getView()->addObserver(
 			smarter::static_pointer_cast<CowMapping>(selfPtr.lock()));
 
-	auto findBorrowedPage = [&] (uintptr_t offset) -> frigg::Tuple<PhysicalAddr, CachingMode> {
+	auto findBorrowedPage = [&] (uintptr_t offset) -> frg::tuple<PhysicalAddr, CachingMode> {
 		auto page_offset = _viewOffset + offset;
 
 		// Get the page from a descendant CoW chain.
@@ -2190,7 +2190,7 @@ void CowMapping::install() {
 				// We can just copy synchronously here -- the descendant is not evicted.
 				auto physical = it->load(std::memory_order_relaxed);
 				assert(physical != PhysicalAddr(-1));
-				return frigg::Tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
+				return frg::tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
 			}
 
 			chain = chain->_superChain;
@@ -2226,7 +2226,7 @@ void CowMapping::reinstall() {
 	auto lock = frigg::guard(&_mutex);
 	assert(_state == MappingState::active);
 
-	auto findBorrowedPage = [&] (uintptr_t offset) -> frigg::Tuple<PhysicalAddr, CachingMode> {
+	auto findBorrowedPage = [&] (uintptr_t offset) -> frg::tuple<PhysicalAddr, CachingMode> {
 		auto page_offset = _viewOffset + offset;
 
 		// Get the page from a descendant CoW chain.
@@ -2239,7 +2239,7 @@ void CowMapping::reinstall() {
 				// We can just copy synchronously here -- the descendant is not evicted.
 				auto physical = it->load(std::memory_order_relaxed);
 				assert(physical != PhysicalAddr(-1));
-				return frigg::Tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
+				return frg::tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
 			}
 
 			chain = chain->_superChain;

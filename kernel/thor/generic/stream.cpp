@@ -260,13 +260,13 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 	}
 }
 
-frigg::Tuple<LaneHandle, LaneHandle> createStream() {
+frg::tuple<LaneHandle, LaneHandle> createStream() {
 	auto stream = frigg::makeShared<Stream>(*kernelAlloc);
 	stream.control().counter()->setRelaxed(2);
 	LaneHandle handle1(adoptLane, stream, 0);
 	LaneHandle handle2(adoptLane, stream, 1);
 	stream.release();
-	return frigg::makeTuple(handle1, handle2);
+	return frg::make_tuple(handle1, handle2);
 }
 
 } // namespace thor

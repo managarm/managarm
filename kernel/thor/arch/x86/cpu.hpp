@@ -4,12 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <utility>
+#include <frg/tuple.hpp>
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/arch_x86/idt.hpp>
 #include <frigg/arch_x86/tss.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/smart_ptr.hpp>
-#include <frigg/tuple.hpp>
 #include "../../generic/types.hpp"
 #include "ints.hpp"
 #include "paging.hpp"
@@ -600,16 +600,16 @@ template<typename F, typename... Args>
 void runDetached(F functor, Args... args) {
 	struct Context {
 		Context(F functor, Args... args)
-		: functor(frigg::move(functor)), args(frigg::move(args)...) { }
+		: functor(std::move(functor)), args(std::move(args)...) { }
 
 		F functor;
-		frigg::Tuple<Args...> args;
+		frg::tuple<Args...> args;
 	};
 
-	Context original(frigg::move(functor), frigg::forward<Args>(args)...);
+	Context original(std::move(functor), std::forward<Args>(args)...);
 	doRunDetached([] (void *context) {
-		Context stolen = frigg::move(*static_cast<Context *>(context));
-		frigg::applyToFunctor(frigg::move(stolen.functor), frigg::move(stolen.args));
+		Context stolen = std::move(*static_cast<Context *>(context));
+		frg::apply(std::move(stolen.functor), std::move(stolen.args));
 	}, &original);
 }
 
