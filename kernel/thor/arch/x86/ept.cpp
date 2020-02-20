@@ -1,5 +1,5 @@
 #include <arch/x86/ept.hpp>
-#include <generic/usermem.hpp>
+#include <generic/address-space.hpp>
 #include <generic/physical.hpp>
 
 namespace thor::vmx {

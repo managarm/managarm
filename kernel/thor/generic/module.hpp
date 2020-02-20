@@ -4,7 +4,7 @@
 #include <frg/string.hpp>
 #include <frigg/vector.hpp>
 #include "kernel_heap.hpp"
-#include "usermem.hpp"
+#include "address-space.hpp"
 
 namespace thor {
 

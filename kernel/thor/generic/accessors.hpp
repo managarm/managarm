@@ -3,7 +3,7 @@
 
 #include <frigg/variant.hpp>
 
-#include "usermem.hpp"
+#include "address-space.hpp"
 #include "../arch/x86/paging.hpp"
 
 namespace thor {

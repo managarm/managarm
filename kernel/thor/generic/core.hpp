@@ -91,7 +91,7 @@ inline ExecutorContext *localExecutorContext() {
 
 #include "descriptor.hpp"
 #include "accessors.hpp"
-#include "usermem.hpp"
+#include "address-space.hpp"
 #include "thread.hpp"
 #include "stream.hpp"
 #include "io.hpp"

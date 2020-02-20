@@ -1,7 +1,7 @@
 #ifndef THOR_SRC_SYSTEM_FB
 #define THOR_SRC_SYSTEM_FB
 
-#include "../generic/usermem.hpp"
+#include "../generic/address-space.hpp"
 
 namespace thor {
 

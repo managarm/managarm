@@ -1,5 +1,5 @@
 #include <arch/x86/vmx.hpp>
-#include <generic/usermem.hpp>
+#include <generic/address-space.hpp>
 #include <arch/x86/ept.hpp>
 #include <arch/x86/cpu.hpp>
 #include <generic/physical.hpp>

@@ -7,7 +7,7 @@
 #include "../../generic/io.hpp"
 #include "../../generic/kernel_heap.hpp"
 #include "../../generic/service_helpers.hpp"
-#include "../../generic/usermem.hpp"
+#include "../../generic/address-space.hpp"
 #include "../acpi/acpi.hpp"
 #include "../boot-screen.hpp"
 #include "pci.hpp"
