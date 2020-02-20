@@ -55,6 +55,7 @@ thor_sources = files(
 	'arch/x86/vmx.cpp',
 	'generic/physical.cpp',
 	'generic/main.cpp',
+	'generic/memory-view.cpp',
 	'generic/service.cpp',
 	'generic/hel.cpp',
 	'generic/cancel.cpp',
