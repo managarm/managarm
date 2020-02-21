@@ -1,7 +1,7 @@
 #pragma once
 
-#include <frigg/vector.hpp>
 #include <frg/rcu_radixtree.hpp>
+#include <frg/vector.hpp>
 #include "error.hpp"
 #include "types.hpp"
 #include "futex.hpp"
@@ -427,7 +427,7 @@ struct AllocatedMemory final : Memory {
 private:
 	frigg::TicketLock _mutex;
 
-	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
+	frg::vector<PhysicalAddr, KernelAlloc> _physicalChunks;
 	int _addressBits;
 	size_t _chunkSize, _chunkAlign;
 };

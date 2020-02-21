@@ -498,8 +498,8 @@ size_t HardwareMemory::getLength() {
 
 AllocatedMemory::AllocatedMemory(size_t desiredLngth,
 		int addressBits, size_t desiredChunkSize, size_t chunkAlign)
-: Memory(MemoryTag::allocated), _physicalChunks(*kernelAlloc),
-		_addressBits(addressBits), _chunkAlign(chunkAlign) {
+: Memory{MemoryTag::allocated}, _physicalChunks{*kernelAlloc},
+		_addressBits{addressBits}, _chunkAlign{chunkAlign} {
 	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
 	_chunkSize = size_t(1) << (64 - __builtin_clzl(desiredChunkSize - 1));
 	if(_chunkSize != desiredChunkSize)

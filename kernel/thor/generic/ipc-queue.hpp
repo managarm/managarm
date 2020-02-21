@@ -1,6 +1,7 @@
 #ifndef THOR_GENERIC_IPCQUEUE_HPP
 #define THOR_GENERIC_IPCQUEUE_HPP
 
+#include <frigg/vector.hpp>
 #include <frg/list.hpp>
 #include "accessors.hpp"
 #include "cancel.hpp"
