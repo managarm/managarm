@@ -12,7 +12,7 @@
 
 namespace thor {
 
-struct Memory;
+struct MemoryView;
 struct IoSpace;
 
 struct BootScreen;
@@ -123,7 +123,7 @@ struct PciDevice : PciEntity {
 		uintptr_t address;
 		size_t length;
 		
-		frigg::SharedPtr<Memory> memory;
+		frigg::SharedPtr<MemoryView> memory;
 		frigg::SharedPtr<IoSpace> io;
 		ptrdiff_t offset;
 	};

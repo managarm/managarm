@@ -13,7 +13,7 @@ struct FbInfo {
 	uint64_t bpp;
 	uint64_t type;
 	
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 };
 
 void initializeBootFb(uint64_t address, uint64_t pitch, uint64_t width,

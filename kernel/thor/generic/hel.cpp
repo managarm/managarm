@@ -348,7 +348,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	if(restrictions)
 		readUserMemory(&effective, restrictions, sizeof(HelAllocRestrictions));
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 	if(flags & kHelAllocContinuous) {
 		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits,
 				size, kPageSize);
@@ -374,7 +374,7 @@ HelError helResizeMemory(HelHandle handle, size_t new_size) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -446,7 +446,7 @@ HelError helCreateSliceView(HelHandle bundle_handle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<Memory> bundle;
+	frigg::SharedPtr<MemoryView> bundle;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -971,7 +971,7 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -992,7 +992,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -1070,7 +1070,7 @@ HelError helUpdateMemory(HelHandle handle, int type,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1107,7 +1107,7 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -1201,7 +1201,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -2503,7 +2503,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		if(defn.type == KernletParameterType::offset) {
 			bound->setupOffsetBinding(i, x);
 		}else if(defn.type == KernletParameterType::memoryView) {
-			frigg::SharedPtr<Memory> memory;
+			frigg::SharedPtr<MemoryView> memory;
 			{
 				auto irq_lock = frigg::guard(&irqMutex());
 				Universe::Guard universe_guard(&this_universe->lock);

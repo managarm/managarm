@@ -5,8 +5,8 @@
 
 namespace thor {
 
-void fiberCopyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size);
-void fiberCopyFromBundle(Memory *bundle, ptrdiff_t offset, void *pointer, size_t size);
+void fiberCopyToBundle(MemoryView *bundle, ptrdiff_t offset, const void *pointer, size_t size);
+void fiberCopyFromBundle(MemoryView *bundle, ptrdiff_t offset, void *pointer, size_t size);
 
 void fiberSleep(uint64_t nanos);
 

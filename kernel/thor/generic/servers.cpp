@@ -158,7 +158,7 @@ struct ImageInfo {
 };
 
 ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
-		VirtualAddr base, frigg::SharedPtr<Memory> image) {
+		VirtualAddr base, frigg::SharedPtr<MemoryView> image) {
 	ImageInfo info;
 
 	// parse the ELf file format
@@ -193,7 +193,7 @@ ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> spac
 			TransferNode copy;
 			copy.setup(memory.get(), phdr.p_vaddr - virt_address,
 					image.get(), phdr.p_offset, phdr.p_filesz, nullptr);
-			if(!Memory::transfer(&copy))
+			if(!transferBetweenViews(&copy))
 				assert(!"Fix the asynchronous case");
 
 			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,

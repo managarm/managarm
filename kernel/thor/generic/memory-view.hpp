@@ -15,7 +15,6 @@ enum class ManageRequest {
 	writeback
 };
 
-struct Memory;
 struct Mapping;
 struct AddressSpace;
 struct AddressSpaceLockHandle;
@@ -68,15 +67,6 @@ struct CachePage {
 	std::atomic<uint32_t> refcount = 0;
 
 	uint32_t flags = 0;
-};
-
-enum class MemoryTag {
-	null,
-	hardware,
-	allocated,
-	backing,
-	frontal,
-	copyOnWrite
 };
 
 struct ManageNode {
@@ -242,6 +232,12 @@ protected:
 	}
 
 public:
+	virtual size_t getLength() = 0;
+
+	virtual void resize(size_t newLength);
+
+	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
+
 	// Add/remove memory observers. These will be notified of page evictions.
 	virtual void addObserver(smarter::shared_ptr<MemoryObserver> observer) = 0;
 	virtual void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) = 0;
@@ -264,6 +260,11 @@ public:
 
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
+
+	virtual void submitManage(ManageNode *handle);
+
+	// TODO: InitiateLoad does more or less the same as fetchRange(). Remove it.
+	virtual void submitInitiateLoad(MonitorNode *initiate);
 
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
@@ -317,35 +318,6 @@ struct TransferNode {
 	Worklet _worklet;
 };
 
-struct Memory : MemoryView {
-	static bool transfer(TransferNode *node);
-
-	Memory(MemoryTag tag)
-	: _tag(tag) { }
-
-	Memory(const Memory &) = delete;
-
-	Memory &operator= (const Memory &) = delete;
-
-	MemoryTag tag() const {
-		return _tag;
-	}
-
-	virtual void resize(size_t new_length);
-
-	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
-
-	size_t getLength();
-
-	// TODO: InitiateLoad does more or less the same as fetchRange(). Remove it.
-	void submitInitiateLoad(MonitorNode *initiate);
-
-	void submitManage(ManageNode *handle);
-
-private:
-	MemoryTag _tag;
-};
-
 struct CopyToBundleNode {
 	friend bool copyToBundle(MemoryView *, ptrdiff_t, const void *, size_t,
 		CopyToBundleNode *, void (*)(CopyToBundleNode *));
@@ -371,20 +343,19 @@ private:
 	FetchNode _fetch;
 };
 
+bool transferBetweenViews(TransferNode *node);
+
 bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *));
 
 bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *pointer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
-struct HardwareMemory final : Memory {
-	static bool classOf(const Memory &memory) {
-		return memory.tag() == MemoryTag::hardware;
-	}
-
+struct HardwareMemory final : MemoryView {
 	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
 	~HardwareMemory();
 
+	size_t getLength() override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -392,8 +363,6 @@ struct HardwareMemory final : Memory {
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
-
-	size_t getLength();
 
 private:
 	PhysicalAddr _base;
@@ -401,19 +370,15 @@ private:
 	CachingMode _cacheMode;
 };
 
-struct AllocatedMemory final : Memory {
-	static bool classOf(const Memory &memory) {
-		return memory.tag() == MemoryTag::allocated;
-	}
-
+struct AllocatedMemory final : MemoryView {
 	AllocatedMemory(size_t length, int addressBits = 64,
 			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
 	~AllocatedMemory();
 
-	void resize(size_t new_length) override;
-
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
+	size_t getLength() override;
+	void resize(size_t newLength) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -421,8 +386,6 @@ struct AllocatedMemory final : Memory {
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
-
-	size_t getLength();
 
 private:
 	frigg::TicketLock _mutex;
@@ -514,17 +477,13 @@ struct ManagedSpace : CacheBundle {
 	InitiateList _monitorQueue;
 };
 
-struct BackingMemory final : Memory {
+struct BackingMemory final : MemoryView {
 public:
-	static bool classOf(const Memory &memory) {
-		return memory.tag() == MemoryTag::backing;
-	}
-
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
-	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
+	: _managed{std::move(managed)} { }
 
-	void resize(size_t new_length) override;
-
+	size_t getLength() override;
+	void resize(size_t newLength) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -532,25 +491,19 @@ public:
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
-
-	size_t getLength();
-
-	void submitManage(ManageNode *handle);
+	void submitManage(ManageNode *handle) override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
-struct FrontalMemory final : Memory {
+struct FrontalMemory final : MemoryView {
 public:
-	static bool classOf(const Memory &memory) {
-		return memory.tag() == MemoryTag::frontal;
-	}
-
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
-	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
+	: _managed{std::move(managed)} { }
 
+	size_t getLength() override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -558,10 +511,7 @@ public:
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
-
-	size_t getLength();
-
-	void submitInitiateLoad(MonitorNode *initiate);
+	void submitInitiateLoad(MonitorNode *initiate) override;
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;

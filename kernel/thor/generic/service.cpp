@@ -511,7 +511,7 @@ namespace initrd {
 
 		Handle controlHandle;
 		frigg::Vector<OpenFile *, KernelAlloc> openFiles;
-		frigg::SharedPtr<Memory> fileTableMemory;
+		frigg::SharedPtr<MemoryView> fileTableMemory;
 		VirtualAddr clientFileTable;
 	};
 

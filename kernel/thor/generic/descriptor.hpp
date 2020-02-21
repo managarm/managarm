@@ -11,9 +11,9 @@
 
 namespace thor {
 
+struct MemoryView;
 struct AddressSpace;
 struct IoSpace;
-struct Memory;
 struct Thread;
 struct Universe;
 struct IpcQueue;
@@ -41,10 +41,10 @@ struct UniverseDescriptor {
 // --------------------------------------------------------
 
 struct MemoryViewDescriptor {
-	MemoryViewDescriptor(frigg::SharedPtr<Memory> memory)
+	MemoryViewDescriptor(frigg::SharedPtr<MemoryView> memory)
 	: memory(frigg::move(memory)) { }
 
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<MemoryView> memory;
 };
 
 struct MemorySliceDescriptor {

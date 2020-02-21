@@ -162,15 +162,36 @@ void initializeReclaim() {
 // MemoryView.
 // --------------------------------------------------------
 
+void MemoryView::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
+	(void)offset;
+	(void)pointer;
+	(void)size;
+	frigg::panicLogger() << "MemoryView does not support synchronous operations!" << frigg::endLog;
+}
+
+void MemoryView::resize(size_t newLength) {
+	(void)newLength;
+	frigg::panicLogger() << "MemoryView does not support resize!" << frigg::endLog;
+}
+
 Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
 	return kErrIllegalObject;
 }
 
+void MemoryView::submitManage(ManageNode *handle) {
+	frigg::panicLogger() << "MemoryView does not support management!" << frigg::endLog;
+}
+
+void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
+	initiate->setup(kErrSuccess);
+	initiate->complete();
+}
+
 // --------------------------------------------------------
-// Memory
+// Copy operations.
 // --------------------------------------------------------
 
-bool Memory::transfer(TransferNode *node) {
+bool transferBetweenViews(TransferNode *node) {
 	node->_progress = 0;
 
 	if(auto e = node->_srcBundle->lockRange(node->_srcOffset, node->_size); e)
@@ -259,62 +280,6 @@ bool Memory::transfer(TransferNode *node) {
 
 	return Ops::process(node);
 }
-
-void Memory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
-	(void)offset;
-	(void)pointer;
-	(void)size;
-	frigg::panicLogger() << "Bundle does not support synchronous operations!" << frigg::endLog;
-}
-
-void Memory::resize(size_t new_length) {
-	(void)new_length;
-	frigg::panicLogger() << "Bundle does not support resize!" << frigg::endLog;
-}
-
-
-size_t Memory::getLength() {
-	switch(tag()) {
-	case MemoryTag::hardware: return static_cast<HardwareMemory *>(this)->getLength();
-	case MemoryTag::allocated: return static_cast<AllocatedMemory *>(this)->getLength();
-	case MemoryTag::backing: return static_cast<BackingMemory *>(this)->getLength();
-	case MemoryTag::frontal: return static_cast<FrontalMemory *>(this)->getLength();
-	default:
-		frigg::panicLogger() << "Memory::getLength(): Unexpected tag" << frigg::endLog;
-		__builtin_unreachable();
-	}
-}
-
-void Memory::submitInitiateLoad(MonitorNode *initiate) {
-	switch(tag()) {
-	case MemoryTag::frontal:
-		static_cast<FrontalMemory *>(this)->submitInitiateLoad(initiate);
-		break;
-	case MemoryTag::hardware:
-	case MemoryTag::allocated:
-		initiate->setup(kErrSuccess);
-		initiate->complete();
-		break;
-	case MemoryTag::copyOnWrite:
-		assert(!"Not implemented yet");
-	default:
-		assert(!"Not supported");
-	}
-}
-
-void Memory::submitManage(ManageNode *handle) {
-	switch(tag()) {
-	case MemoryTag::backing:
-		static_cast<BackingMemory *>(this)->submitManage(handle);
-		break;
-	default:
-		assert(!"Not supported");
-	}
-}
-
-// --------------------------------------------------------
-// Copy operations.
-// --------------------------------------------------------
 
 bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *)) {
@@ -446,7 +411,7 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t siz
 // --------------------------------------------------------
 
 HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode)
-: Memory{MemoryTag::hardware}, _base{base}, _length{length}, _cacheMode{cache_mode} {
+: _base{base}, _length{length}, _cacheMode{cache_mode} {
 	assert(!(base % kPageSize));
 	assert(!(length % kPageSize));
 }
@@ -498,7 +463,7 @@ size_t HardwareMemory::getLength() {
 
 AllocatedMemory::AllocatedMemory(size_t desiredLngth,
 		int addressBits, size_t desiredChunkSize, size_t chunkAlign)
-: Memory{MemoryTag::allocated}, _physicalChunks{*kernelAlloc},
+: _physicalChunks{*kernelAlloc},
 		_addressBits{addressBits}, _chunkAlign{chunkAlign} {
 	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
 	_chunkSize = size_t(1) << (64 - __builtin_clzl(desiredChunkSize - 1));
@@ -533,12 +498,12 @@ AllocatedMemory::~AllocatedMemory() {
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
 }
 
-void AllocatedMemory::resize(size_t new_length) {
+void AllocatedMemory::resize(size_t newLength) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	assert(!(new_length % _chunkSize));
-	size_t num_chunks = new_length / _chunkSize;
+	assert(!(newLength % _chunkSize));
+	size_t num_chunks = newLength / _chunkSize;
 	assert(num_chunks >= _physicalChunks.size());
 	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
 }
@@ -902,18 +867,18 @@ void ManagedSpace::_progressMonitors() {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::resize(size_t new_length) {
-	assert(!(new_length & (kPageSize - 1)));
+void BackingMemory::resize(size_t newLength) {
+	assert(!(newLength & (kPageSize - 1)));
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
 	// TODO: Implement shrinking.
-	assert((new_length >> kPageShift) >= _managed->numPages);
+	assert((newLength >> kPageShift) >= _managed->numPages);
 
-	for(size_t i = _managed->numPages; i < (new_length >> kPageShift); i++)
+	for(size_t i = _managed->numPages; i < (newLength >> kPageShift); i++)
 		_managed->pages.insert(i, _managed.get(), i);
-	_managed->numPages = new_length >> kPageShift;
+	_managed->numPages = newLength >> kPageShift;
 }
 
 void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
