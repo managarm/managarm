@@ -55,7 +55,10 @@ void AttributeFile::handleClose() {
 }
 
 expected<off_t> AttributeFile::seek(off_t offset, VfsSeek whence) {
-	assert(whence == VfsSeek::relative && !offset);
+	// TODO: it's unclear whether we should allow seeks past the end.
+	// TODO: re-cache the file for seeks to zero.
+	assert(whence == VfsSeek::relative);
+	_offset += offset;
 	co_return _offset;
 }
 
@@ -69,7 +72,8 @@ expected<size_t> AttributeFile::readSome(Process *, void *data, size_t max_lengt
 		_cached = true;
 	}
 
-	assert(_offset <= _buffer.size());
+	if(_offset >= _buffer.size())
+		co_return 0;
 	size_t chunk = std::min(_buffer.size() - _offset, max_length);
 	memcpy(data, _buffer.data() + _offset, chunk);
 	_offset += chunk;
