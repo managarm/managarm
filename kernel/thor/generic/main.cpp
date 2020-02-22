@@ -536,9 +536,6 @@ void handleSyscall(SyscallImageAccessor image) {
 	Word arg3 = *image.in3();
 	Word arg4 = *image.in4();
 	Word arg5 = *image.in5();
-	Word arg6 = *image.in6();
-	Word arg7 = *image.in7();
-	Word arg8 = *image.in8();
 
 	switch(*image.number()) {
 	case kHelCallLog: {
@@ -577,12 +574,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = handle;
 	} break;
 	case kHelCallSetupChunk: {
-		HelHandle handle;
 		*image.error() = helSetupChunk((HelHandle)arg0, (int)arg1,
 				(HelChunk *)arg2, (uint32_t)arg3);
 	} break;
 	case kHelCallCancelAsync: {
-		HelHandle handle;
 		*image.error() = helCancelAsync((HelHandle)arg0, (uint64_t)arg1);
 	} break;
 
@@ -769,7 +764,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = handle;
 	} break;
 	case kHelCallRaiseEvent: {
-		HelHandle handle;
 		*image.error() = helRaiseEvent((HelHandle)arg0);
 	} break;
 	case kHelCallAccessIrq: {
@@ -785,7 +779,6 @@ void handleSyscall(SyscallImageAccessor image) {
 				(HelHandle)arg2, (uintptr_t)arg3);
 	} break;
 	case kHelCallAutomateIrq: {
-		HelHandle handle;
 		*image.error() = helAutomateIrq((HelHandle)arg0, (uint32_t)arg1, (HelHandle)arg2);
 	} break;
 
