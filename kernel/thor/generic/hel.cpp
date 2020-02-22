@@ -1614,7 +1614,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		breakOnWrite(reg);
 	}else if(set == kHelRegsVirtualization) {
 		if(!vcpu.vcpu) {
-			kHelErrIllegalArgs;
+			return kHelErrIllegalArgs;
 		}
 		Universe::Guard universe_guard(&this_universe->lock);
 		enableUserAccess();
