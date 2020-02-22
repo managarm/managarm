@@ -1,5 +1,6 @@
 
 #include <type_traits>
+#include "execution/coroutine.hpp"
 #include "kernel.hpp"
 #include "fiber.hpp"
 #include "service_helpers.hpp"
@@ -115,53 +116,17 @@ void Mapping::protect(MappingFlags flags) {
 }
 
 bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
-	struct Closure {
-		Mapping *self;
-		PopulateVirtualNode *continuation;
+	execution::detach([] (Mapping *self, PopulateVirtualNode *continuation) -> coroutine<void> {
 		size_t progress = 0;
-		Worklet worklet;
-		TouchVirtualNode touchNode;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	struct Ops {
-		static bool process(Closure *closure) {
-			while(closure->progress < closure->continuation->_size)
-				if(!doTouch(closure))
-					return false;
-			return true;
+		while(progress < continuation->_size) {
+			auto [error, range, spurious] = co_await self->touchVirtualPage(continuation->_offset
+					+ progress);
+			assert(!error);
+			progress += range.get<1>();
 		}
-
-		static bool doTouch(Closure *closure) {
-			auto self = closure->self;
-
-			closure->touchNode.setup(closure->continuation->_offset + closure->progress,
-					&closure->worklet);
-			closure->worklet.setup([] (Worklet *base) {
-				auto closure = frg::container_of(base, &Closure::worklet);
-				assert(!closure->touchNode.error());
-				closure->progress += closure->touchNode.range().get<1>();
-				if(!process(closure))
-					return;
-				WorkQueue::post(closure->continuation->_prepared);
-				frigg::destruct(*kernelAlloc, closure);
-			});
-			if(!self->touchVirtualPage(&closure->touchNode))
-				return false;
-			assert(!closure->touchNode.error());
-			closure->progress += closure->touchNode.range().get<1>();
-			return true;
-		}
-
-	};
-
-	closure->self = this;
-	closure->continuation = continuation;
-
-	if(!Ops::process(closure))
-		return false;
-
-	frigg::destruct(*kernelAlloc, closure);
-	return true;
+		WorkQueue::post(continuation->_prepared);
+	}(this, continuation));
+	return false;
 }
 
 uint32_t Mapping::compilePageFlags() {

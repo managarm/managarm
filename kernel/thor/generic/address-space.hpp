@@ -1,5 +1,7 @@
 #pragma once
 
+#include <frg/container_of.hpp>
+#include "execution/basics.hpp"
 #include "memory-view.hpp"
 
 namespace thor {
@@ -63,6 +65,8 @@ private:
 	Worklet *_worklet;
 };
 
+using PhysicalRange = frg::tuple<PhysicalAddr, size_t, CachingMode>;
+
 struct TouchVirtualNode {
 	void setup(uintptr_t offset, Worklet *worklet) {
 		_offset = offset;
@@ -72,8 +76,7 @@ struct TouchVirtualNode {
 	void setResult(Error error) {
 		_error = error;
 	}
-	void setResult(Error error, frg::tuple<PhysicalAddr, size_t, CachingMode> range,
-			bool spurious = false) {
+	void setResult(Error error, PhysicalRange range, bool spurious = false) {
 		_error = error;
 		_range = range;
 		_spurious = spurious;
@@ -81,7 +84,7 @@ struct TouchVirtualNode {
 	void setResult(Error error, PhysicalAddr physical, size_t size, CachingMode mode,
 			bool spurious = false) {
 		_error = error;
-		_range = frg::tuple<PhysicalAddr, size_t, CachingMode>{physical, size, mode};
+		_range = PhysicalRange{physical, size, mode};
 		_spurious = spurious;
 	}
 
@@ -89,7 +92,7 @@ struct TouchVirtualNode {
 		return _error;
 	}
 
-	frg::tuple<PhysicalAddr, size_t, CachingMode> range() {
+	PhysicalRange range() {
 		return _range;
 	}
 
@@ -102,7 +105,7 @@ struct TouchVirtualNode {
 
 private:
 	Error _error;
-	frg::tuple<PhysicalAddr, size_t, CachingMode> _range;
+	PhysicalRange _range;
 	bool _spurious;
 };
 
@@ -176,6 +179,53 @@ public:
 	virtual void reinstall() = 0;
 	virtual void uninstall() = 0;
 	virtual void retire() = 0;
+
+	// ----------------------------------------------------------------------------------
+	// Synactic sugar: touchVirtualPage()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct TouchVirtualPageOperation;
+
+	struct [[nodiscard]] TouchVirtualPageSender {
+		template<typename R>
+		friend TouchVirtualPageOperation<R>
+		connect(TouchVirtualPageSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		Mapping *self;
+		uintptr_t offset;
+	};
+
+	TouchVirtualPageSender touchVirtualPage(uintptr_t offset) {
+		return {this, offset};
+	}
+
+	template<typename R>
+	struct TouchVirtualPageOperation {
+		void start() {
+			worklet.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &TouchVirtualPageOperation::worklet);
+				op->receiver.set_done({op->node.error(), op->node.range(), op->node.spurious()});
+			});
+			node.setup(s.offset, &worklet);
+			if(s.self->touchVirtualPage(&node))
+				WorkQueue::post(&worklet); // Force into slow path for now.
+		}
+
+		TouchVirtualPageSender s;
+		R receiver;
+		TouchVirtualNode node;
+		Worklet worklet;
+	};
+
+	friend execution::sender_awaiter<TouchVirtualPageSender, frg::tuple<Error, PhysicalRange, bool>>
+	operator co_await(TouchVirtualPageSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
 
