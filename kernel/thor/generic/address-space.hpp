@@ -65,8 +65,6 @@ private:
 	Worklet *_worklet;
 };
 
-using PhysicalRange = frg::tuple<PhysicalAddr, size_t, CachingMode>;
-
 struct TouchVirtualNode {
 	void setup(uintptr_t offset, Worklet *worklet) {
 		_offset = offset;

@@ -69,6 +69,8 @@ struct CachePage {
 	uint32_t flags = 0;
 };
 
+using PhysicalRange = frg::tuple<PhysicalAddr, size_t, CachingMode>;
+
 struct ManageNode {
 	void setup(Worklet *worklet) {
 		_worklet = worklet;
@@ -173,7 +175,7 @@ struct FetchNode {
 		return _error;
 	}
 
-	frg::tuple<PhysicalAddr, size_t, CachingMode> range() {
+	PhysicalRange range() {
 		return _range;
 	}
 
@@ -182,7 +184,7 @@ private:
 	uint32_t _flags;
 
 	Error _error;
-	frg::tuple<PhysicalAddr, size_t, CachingMode> _range;
+	PhysicalRange _range;
 };
 
 struct EvictNode {
@@ -224,7 +226,7 @@ protected:
 	static void completeFetch(FetchNode *node, Error error,
 			PhysicalAddr physical, size_t size, CachingMode cm) {
 		node->_error = error;
-		node->_range = frg::tuple<PhysicalAddr, size_t, CachingMode>{physical, size, cm};
+		node->_range = PhysicalRange{physical, size, cm};
 	}
 
 	static void callbackFetch(FetchNode *node) {
@@ -268,6 +270,61 @@ public:
 
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for fetchRange()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct FetchRangeOperation;
+
+	struct [[nodiscard]] FetchRangeSender {
+		template<typename R>
+		friend FetchRangeOperation<R>
+		connect(FetchRangeSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		MemoryView *self;
+		uintptr_t offset;
+	};
+
+	FetchRangeSender fetchRange(uintptr_t offset) {
+		return {this, offset};
+	}
+
+	template<typename R>
+	struct FetchRangeOperation {
+		FetchRangeOperation(FetchRangeSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		FetchRangeOperation(const FetchRangeOperation &) = delete;
+
+		FetchRangeOperation &operator= (const FetchRangeOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &FetchRangeOperation::worklet_);
+				op->receiver_.set_done({op->node_.error(), op->node_.range(), op->node_.flags()});
+			});
+			node_.setup(&worklet_);
+			if(s_.self->fetchRange(s_.offset, &node_))
+				WorkQueue::post(&worklet_); // Force into slow path for now.
+		}
+
+	private:
+		FetchRangeSender s_;
+		R receiver_;
+		FetchNode node_;
+		Worklet worklet_;
+	};
+
+	friend execution::sender_awaiter<FetchRangeSender, frg::tuple<Error, PhysicalRange, uint32_t>>
+	operator co_await(FetchRangeSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
 };
 
 struct SliceRange {

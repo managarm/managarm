@@ -181,76 +181,33 @@ NormalMapping::resolveRange(ptrdiff_t offset) {
 bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	assert(_state == MappingState::active);
 
-	struct Closure {
-		NormalMapping *self;
-		FetchNode fetch;
-		Worklet worklet;
-		TouchVirtualNode *continuation;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
+	execution::detach([] (NormalMapping *self, TouchVirtualNode *continuation) -> coroutine<void> {
+		FetchFlags fetchFlags = 0;
+		if(self->flags() & MappingFlags::dontRequireBacking)
+			fetchFlags |= FetchNode::disallowBacking;
 
-	struct Ops {
-		static bool doFetch(Closure *closure) {
-			auto self = closure->self;
+		if(auto e = self->_view->lockRange((self->_viewOffset + continuation->_offset)
+				& ~(kPageSize - 1), kPageSize); e)
+			assert(!"lockRange() failed");
 
-			FetchFlags fetch_flags = 0;
-			if(self->flags() & MappingFlags::dontRequireBacking)
-				fetch_flags |= FetchNode::disallowBacking;
+		auto [error, range, flags] = co_await self->_view->fetchRange(self->_viewOffset
+				+ continuation->_offset);
 
-			if(auto e = self->_view->lockRange((self->_viewOffset + closure->continuation->_offset)
-					& ~(kPageSize - 1), kPageSize); e)
-				assert(!"lockRange() failed");
+		// TODO: Update RSS, handle dirty pages, etc.
+		auto pageOffset = self->address() + continuation->_offset;
+		self->owner()->_pageSpace.unmapSingle4k(pageOffset & ~(kPageSize - 1));
+		self->owner()->_pageSpace.mapSingle4k(pageOffset & ~(kPageSize - 1),
+				range.get<0>() & ~(kPageSize - 1),
+				true, self->compilePageFlags(), range.get<2>());
+		self->owner()->_residuentSize += kPageSize;
+		logRss(self->owner());
 
-			closure->fetch.setup(&closure->worklet, fetch_flags);
-			closure->worklet.setup([] (Worklet *base) {
-				auto closure = frg::container_of(base, &Closure::worklet);
-				auto self = closure->self;
-				assert(!closure->fetch.error());
-				mapPage(closure);
-				self->_view->unlockRange((self->_viewOffset + closure->continuation->_offset)
-						& ~(kPageSize - 1), kPageSize);
-				closure->continuation->setResult(kErrSuccess, closure->fetch.range());
-
-				// Tail of asynchronous path.
-				WorkQueue::post(closure->continuation->_worklet);
-				frigg::destruct(*kernelAlloc, closure);
-			});
-			if(!self->_view->fetchRange(self->_viewOffset + closure->continuation->_offset,
-					&closure->fetch))
-				return false;
-
-			if(closure->fetch.error()) {
-				closure->continuation->setResult(closure->fetch.error());
-				return true;
-			}
-			mapPage(closure);
-			self->_view->unlockRange((self->_viewOffset + closure->continuation->_offset)
-					& ~(kPageSize - 1), kPageSize);
-			closure->continuation->setResult(kErrSuccess, closure->fetch.range());
-			return true;
-		}
-
-		static void mapPage(Closure *closure) {
-			auto self = closure->self;
-			auto page_offset = self->address() + closure->continuation->_offset;
-
-			// TODO: Update RSS, handle dirty pages, etc.
-			self->owner()->_pageSpace.unmapSingle4k(page_offset & ~(kPageSize - 1));
-			self->owner()->_pageSpace.mapSingle4k(page_offset & ~(kPageSize - 1),
-					closure->fetch.range().get<0>() & ~(kPageSize - 1),
-					true, self->compilePageFlags(), closure->fetch.range().get<2>());
-			self->owner()->_residuentSize += kPageSize;
-			logRss(self->owner());
-		}
-	};
-
-	closure->self = this;
-	closure->continuation = continuation;
-
-	if(!Ops::doFetch(closure))
-		return false;
-
-	frigg::destruct(*kernelAlloc, closure);
-	return true;
+		self->_view->unlockRange((self->_viewOffset + continuation->_offset)
+				& ~(kPageSize - 1), kPageSize);
+		continuation->setResult(kErrSuccess, range);
+		WorkQueue::post(continuation->_worklet);
+	}(this, continuation));
+	return false;
 }
 
 smarter::shared_ptr<Mapping> NormalMapping::forkMapping() {
