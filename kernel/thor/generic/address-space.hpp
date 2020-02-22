@@ -181,7 +181,7 @@ public:
 	virtual void retire() = 0;
 
 	// ----------------------------------------------------------------------------------
-	// Synactic sugar: touchVirtualPage()
+	// Sender boilerplate for touchVirtualPage()
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
@@ -204,20 +204,28 @@ public:
 
 	template<typename R>
 	struct TouchVirtualPageOperation {
+		TouchVirtualPageOperation(TouchVirtualPageSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		TouchVirtualPageOperation(const TouchVirtualPageOperation &) = delete;
+
+		TouchVirtualPageOperation &operator= (const TouchVirtualPageOperation &) = delete;
+
 		void start() {
-			worklet.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &TouchVirtualPageOperation::worklet);
-				op->receiver.set_done({op->node.error(), op->node.range(), op->node.spurious()});
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &TouchVirtualPageOperation::worklet_);
+				op->receiver_.set_done({op->node_.error(), op->node_.range(), op->node_.spurious()});
 			});
-			node.setup(s.offset, &worklet);
-			if(s.self->touchVirtualPage(&node))
-				WorkQueue::post(&worklet); // Force into slow path for now.
+			node_.setup(s_.offset, &worklet_);
+			if(s_.self->touchVirtualPage(&node_))
+				WorkQueue::post(&worklet_); // Force into slow path for now.
 		}
 
-		TouchVirtualPageSender s;
-		R receiver;
-		TouchVirtualNode node;
-		Worklet worklet;
+	private:
+		TouchVirtualPageSender s_;
+		R receiver_;
+		TouchVirtualNode node_;
+		Worklet worklet_;
 	};
 
 	friend execution::sender_awaiter<TouchVirtualPageSender, frg::tuple<Error, PhysicalRange, bool>>
