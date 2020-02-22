@@ -830,16 +830,28 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 
 	auto space = this_thread->getAddressSpace().lock();
 
-	// FIXME: The physical page can change after we destruct the accessor!
-	// We need a better hel API to properly handle that case.
 	AcquireNode node;
 
 	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
 	auto accessor = AddressSpaceLockHandle{std::move(space),
 			reinterpret_cast<char *>(pointer) - disp, kPageSize};
-	node.setup(nullptr);
-	auto acq = accessor.acquire(&node);
-	assert(acq && "helPointerPhysical can only operate on locked memory");
+
+	// FIXME: The physical page can change after we destruct the accessor!
+	// We need a better hel API to properly handle that case.
+	struct Closure {
+		ThreadBlocker blocker;
+		Worklet worklet;
+		AcquireNode acquire;
+	} closure;
+
+	closure.worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		Thread::unblockOther(&closure->blocker);
+	});
+	closure.acquire.setup(&closure.worklet);
+	closure.blocker.setup();
+	if(!accessor.acquire(&closure.acquire))
+		Thread::blockCurrent(&closure.blocker);
 
 	auto page_physical = accessor.getPhysical(0);
 
