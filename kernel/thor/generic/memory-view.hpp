@@ -353,7 +353,10 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *pointer, size_t si
 
 struct HardwareMemory final : MemoryView {
 	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
+	HardwareMemory(const HardwareMemory &) = delete;
 	~HardwareMemory();
+
+	HardwareMemory &operator= (const HardwareMemory &) = delete;
 
 	size_t getLength() override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
@@ -373,7 +376,10 @@ private:
 struct AllocatedMemory final : MemoryView {
 	AllocatedMemory(size_t length, int addressBits = 64,
 			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
+	AllocatedMemory(const AllocatedMemory &) = delete;
 	~AllocatedMemory();
+
+	AllocatedMemory &operator= (const AllocatedMemory &) = delete;
 
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
@@ -482,6 +488,10 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: _managed{std::move(managed)} { }
 
+	BackingMemory(const BackingMemory &) = delete;
+
+	BackingMemory &operator= (const BackingMemory &) = delete;
+
 	size_t getLength() override;
 	void resize(size_t newLength) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
@@ -502,6 +512,10 @@ struct FrontalMemory final : MemoryView {
 public:
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: _managed{std::move(managed)} { }
+
+	FrontalMemory(const FrontalMemory &) = delete;
+
+	FrontalMemory &operator= (const FrontalMemory &) = delete;
 
 	size_t getLength() override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
