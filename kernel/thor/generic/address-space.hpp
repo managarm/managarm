@@ -179,6 +179,60 @@ public:
 	virtual void retire() = 0;
 
 	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for lockVirtualRange()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct LockVirtualRangeOperation;
+
+	struct [[nodiscard]] LockVirtualRangeSender {
+		template<typename R>
+		friend LockVirtualRangeOperation<R>
+		connect(LockVirtualRangeSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		Mapping *self;
+		uintptr_t offset;
+		size_t size;
+	};
+
+	LockVirtualRangeSender lockVirtualRange(uintptr_t offset, size_t size) {
+		return {this, offset, size};
+	}
+
+	template<typename R>
+	struct LockVirtualRangeOperation {
+		LockVirtualRangeOperation(LockVirtualRangeSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		LockVirtualRangeOperation(const LockVirtualRangeOperation &) = delete;
+
+		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &LockVirtualRangeOperation::worklet_);
+				op->receiver_.set_done();
+			});
+			node_.setup(s_.offset, s_.size, &worklet_);
+			if(s_.self->lockVirtualRange(&node_))
+				WorkQueue::post(&worklet_); // Force into slow path for now.
+		}
+
+	private:
+		LockVirtualRangeSender s_;
+		R receiver_;
+		LockVirtualNode node_;
+		Worklet worklet_;
+	};
+
+	friend execution::sender_awaiter<LockVirtualRangeSender>
+	operator co_await(LockVirtualRangeSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for touchVirtualPage()
 	// ----------------------------------------------------------------------------------
 
@@ -228,6 +282,60 @@ public:
 
 	friend execution::sender_awaiter<TouchVirtualPageSender, frg::tuple<Error, PhysicalRange, bool>>
 	operator co_await(TouchVirtualPageSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for populateVirtualRange()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct PopulateVirtualRangeOperation;
+
+	struct [[nodiscard]] PopulateVirtualRangeSender {
+		template<typename R>
+		friend PopulateVirtualRangeOperation<R>
+		connect(PopulateVirtualRangeSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		Mapping *self;
+		uintptr_t offset;
+		size_t size;
+	};
+
+	PopulateVirtualRangeSender populateVirtualRange(uintptr_t offset, size_t size) {
+		return {this, offset, size};
+	}
+
+	template<typename R>
+	struct PopulateVirtualRangeOperation {
+		PopulateVirtualRangeOperation(PopulateVirtualRangeSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		PopulateVirtualRangeOperation(const PopulateVirtualRangeOperation &) = delete;
+
+		PopulateVirtualRangeOperation &operator= (const PopulateVirtualRangeOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &PopulateVirtualRangeOperation::worklet_);
+				op->receiver_.set_done();
+			});
+			node_.setup(s_.offset, s_.size, &worklet_);
+			if(s_.self->populateVirtualRange(&node_))
+				WorkQueue::post(&worklet_); // Force into slow path for now.
+		}
+
+	private:
+		PopulateVirtualRangeSender s_;
+		R receiver_;
+		PopulateVirtualNode node_;
+		Worklet worklet_;
+	};
+
+	friend execution::sender_awaiter<PopulateVirtualRangeSender>
+	operator co_await(PopulateVirtualRangeSender sender) {
 		return {sender};
 	}
 
@@ -618,11 +726,6 @@ struct AcquireNode {
 
 private:
 	Worklet *_acquired;
-
-	AddressSpaceLockHandle *_accessor;
-	Worklet _worklet;
-	LockVirtualNode _lockNode;
-	PopulateVirtualNode _populateNode;
 };
 
 struct AddressSpaceLockHandle {

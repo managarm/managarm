@@ -1639,47 +1639,15 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 		return true;
 	}
 
-	node->_accessor = this;
-
-	struct Ops {
-		static bool doLock(AcquireNode *node) {
-			auto self = node->_accessor;
-			node->_lockNode.setup(self->_address - self->_mapping->address(), self->_length,
-					&node->_worklet);
-			node->_worklet.setup([] (Worklet *base) {
-				auto node = frg::container_of(base, &AcquireNode::_worklet);
-				auto self = node->_accessor;
-				if(doPopulate(node)) {
-					self->_active = true;
-					WorkQueue::post(node->_acquired);
-				}
-			});
-			if(!self->_mapping->lockVirtualRange(&node->_lockNode))
-				return false;
-			return doPopulate(node);
-		}
-
-		static bool doPopulate(AcquireNode *node) {
-			auto self = node->_accessor;
-			node->_populateNode.setup(self->_address - self->_mapping->address(), self->_length,
-					&node->_worklet);
-			node->_worklet.setup([] (Worklet *base) {
-				auto node = frg::container_of(base, &AcquireNode::_worklet);
-				auto self = node->_accessor;
-				self->_active = true;
-				WorkQueue::post(node->_acquired);
-			});
-			if(!self->_mapping->populateVirtualRange(&node->_populateNode))
-				return false;
-			return true;
-		}
-	};
-
-	if(!Ops::doLock(node))
-		return false;
-
-	_active = true;
-	return true;
+	execution::detach([] (AddressSpaceLockHandle *self, AcquireNode *node) -> coroutine<void> {
+		co_await self->_mapping->lockVirtualRange(self->_address - self->_mapping->address(),
+				self->_length);
+		co_await self->_mapping->populateVirtualRange(self->_address - self->_mapping->address(),
+				self->_length);
+		self->_active = true;
+		WorkQueue::post(node->_acquired);
+	}(this, node));
+	return false;
 }
 
 PhysicalAddr AddressSpaceLockHandle::getPhysical(size_t offset) {
