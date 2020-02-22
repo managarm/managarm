@@ -89,7 +89,7 @@ public:
 	};
 
 	PostEvent(frigg::SharedPtr<IpcQueue> queue, uintptr_t context)
-	: _queue(frigg::move(queue)), _context(context) { }
+	: _queue(std::move(queue)), _context(context) { }
 
 	template<typename... Args>
 	void operator() (Args &&... args) {
@@ -165,7 +165,7 @@ HelError helCreateUniverse(HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				UniverseDescriptor(frigg::move(new_universe)));
+				UniverseDescriptor(std::move(new_universe)));
 	}
 
 	return kHelErrNone;
@@ -205,7 +205,7 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard lock(&universe->lock);
 
-		*out_handle = universe->attachDescriptor(lock, frigg::move(descriptor));
+		*out_handle = universe->attachDescriptor(lock, std::move(descriptor));
 	}
 	return kHelErrNone;
 }
@@ -279,7 +279,7 @@ HelError helCreateQueue(HelQueue *head, uint32_t flags,
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				QueueDescriptor(frigg::move(queue)));
+				QueueDescriptor(std::move(queue)));
 	}
 
 	return kHelErrNone;
@@ -364,7 +364,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(frigg::move(memory)));
+				MemoryViewDescriptor(std::move(memory)));
 	}
 
 	return kHelErrNone;
@@ -402,16 +402,16 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 
 	auto managed = frigg::makeShared<ManagedSpace>(*kernelAlloc, size);
 	auto backing_memory = frigg::makeShared<BackingMemory>(*kernelAlloc, managed);
-	auto frontal_memory = frigg::makeShared<FrontalMemory>(*kernelAlloc, frigg::move(managed));
+	auto frontal_memory = frigg::makeShared<FrontalMemory>(*kernelAlloc, std::move(managed));
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*backing_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(frigg::move(backing_memory)));
+				MemoryViewDescriptor(std::move(backing_memory)));
 		*frontal_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(frigg::move(frontal_memory)));
+				MemoryViewDescriptor(std::move(frontal_memory)));
 	}
 
 	return kHelErrNone;
@@ -431,13 +431,13 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(frigg::move(memory)));
+				MemoryViewDescriptor(std::move(memory)));
 	}
 
 	return kHelErrNone;
 }
 
-HelError helCreateSliceView(HelHandle bundle_handle,
+HelError helCreateSliceView(HelHandle memoryHandle,
 		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
 	assert(!flags);
 	assert((offset % kPageSize) == 0);
@@ -446,27 +446,27 @@ HelError helCreateSliceView(HelHandle bundle_handle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<MemoryView> bundle;
+	frigg::SharedPtr<MemoryView> view;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
-		auto wrapper = this_universe->getDescriptor(universe_guard, bundle_handle);
+		auto wrapper = this_universe->getDescriptor(universe_guard, memoryHandle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
 		if(!wrapper->is<MemoryViewDescriptor>())
 			return kHelErrBadDescriptor;
-		bundle = wrapper->get<MemoryViewDescriptor>().memory;
+		view = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
 	auto slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
-			frigg::move(bundle), offset, size);
+			std::move(view), offset, size);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				MemorySliceDescriptor(frigg::move(slice)));
+				MemorySliceDescriptor(std::move(slice)));
 	}
 
 	return kHelErrNone;
@@ -483,7 +483,7 @@ HelError helCreateSpace(HelHandle *handle) {
 	Universe::Guard universe_guard(&this_universe->lock);
 
 	*handle = this_universe->attachDescriptor(universe_guard,
-			AddressSpaceDescriptor(frigg::move(space)));
+			AddressSpaceDescriptor(std::move(space)));
 
 	return kHelErrNone;
 }
@@ -512,7 +512,7 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 
 	Universe::Guard universe_guard(&this_universe->lock);
 	*handle = this_universe->attachDescriptor(universe_guard,
-			VirtualizedSpaceDescriptor(frigg::move(vspace)));
+			VirtualizedSpaceDescriptor(std::move(vspace)));
 	return kHelErrNone;
 }
 
@@ -535,7 +535,7 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	smarter::shared_ptr<vmx::Vmcs> vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(space.space)));
 
 	*out = this_universe->attachDescriptor(universe_guard,
-			VirtualizedCpuDescriptor(frigg::move(vcpu)));
+			VirtualizedCpuDescriptor(std::move(vcpu)));
 	return kHelErrNone;
 }
 
@@ -637,7 +637,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			auto memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
 			auto bundle_length = memory->getLength();
 			slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
-					frigg::move(memory), 0, bundle_length);
+					std::move(memory), 0, bundle_length);
 		}else{
 			return kHelErrBadDescriptor;
 		}
@@ -770,7 +770,7 @@ HelError helSubmitProtectMemory(HelHandle space_handle,
 		}
 	};
 
-	closure->ipcQueue = frigg::move(queue);
+	closure->ipcQueue = std::move(queue);
 	closure->setupContext(context);
 
 	closure->worklet.setup(&Ops::managed);
@@ -835,7 +835,7 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	AcquireNode node;
 
 	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
-	auto accessor = AddressSpaceLockHandle{frigg::move(space),
+	auto accessor = AddressSpaceLockHandle{std::move(space),
 			reinterpret_cast<char *>(pointer) - disp, kPageSize};
 	node.setup(nullptr);
 	auto acq = accessor.acquire(&node);
@@ -880,7 +880,7 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		}
 	}
 
-	auto accessor = AddressSpaceLockHandle{frigg::move(space),
+	auto accessor = AddressSpaceLockHandle{std::move(space),
 			(void *)address, length};
 
 	// TODO: Instead of blocking, this function should be asynchronous.
@@ -939,7 +939,7 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		}
 	}
 
-	auto accessor = AddressSpaceLockHandle{frigg::move(space),
+	auto accessor = AddressSpaceLockHandle{std::move(space),
 			(void *)address, length};
 
 	// TODO: Instead of blocking, this function should be asynchronous.
@@ -1053,7 +1053,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 		}
 	};
 
-	closure->ipcQueue = frigg::move(queue);
+	closure->ipcQueue = std::move(queue);
 	closure->setupContext(context);
 
 	closure->worklet.setup(&Ops::managed);
@@ -1174,7 +1174,7 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 		}
 	};
 
-	closure->ipcQueue = frigg::move(queue);
+	closure->ipcQueue = std::move(queue);
 	closure->setupContext(context);
 
 	MemoryViewLockHandle lock_handle{memory, offset, size};
@@ -1218,7 +1218,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 			NullCompleter(), offset, length);
 	{
 		// TODO: protect memory object with a guard
-		memory->submitInitiateLoad(frigg::move(handle_load));
+		memory->submitInitiateLoad(std::move(handle_load));
 	}*/
 
 	return kHelErrNone;
@@ -1268,7 +1268,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	params.ip = (uintptr_t)ip;
 	params.sp = (uintptr_t)sp;
 
-	auto new_thread = Thread::create(frigg::move(universe), frigg::move(space), params);
+	auto new_thread = Thread::create(std::move(universe), std::move(space), params);
 	new_thread->self = new_thread;
 
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
@@ -1284,7 +1284,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				ThreadDescriptor(frigg::move(new_thread)));
+				ThreadDescriptor(std::move(new_thread)));
 	}
 
 	return kHelErrNone;
@@ -1377,8 +1377,8 @@ HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
 	if(!queue->validSize(ipcSourceSize(sizeof(HelObserveResult))))
 		return kHelErrQueueTooSmall;
 
-	PostEvent<ObserveThreadWriter> functor{frigg::move(queue), context};
-	thread->submitObserve(in_seq, frigg::move(functor));
+	PostEvent<ObserveThreadWriter> functor{std::move(queue), context};
+	thread->submitObserve(in_seq, std::move(functor));
 
 	return kHelErrNone;
 }
@@ -1632,7 +1632,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		static void issue(uint64_t nanos, frigg::SharedPtr<IpcQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
 			auto closure = frigg::construct<Closure>(*kernelAlloc, nanos,
-					frigg::move(queue), context);
+					std::move(queue), context);
 			closure->queue->registerNode(closure);
 			*async_id = closure->asyncId();
 			generalTimerEngine()->installTimer(closure);
@@ -1648,7 +1648,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 
 		explicit Closure(uint64_t nanos, frigg::SharedPtr<IpcQueue> the_queue,
 				uintptr_t context)
-		: queue{frigg::move(the_queue)},
+		: queue{std::move(the_queue)},
 				source{&result, sizeof(HelSimpleResult), nullptr},
 				result{translateError(kErrSuccess), 0} {
 			setupContext(context);
@@ -1691,7 +1691,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
 		return kHelErrQueueTooSmall;
 
-	Closure::issue(counter, frigg::move(queue), context, async_id);
+	Closure::issue(counter, std::move(queue), context, async_id);
 
 	return kHelErrNone;
 }
@@ -1706,9 +1706,9 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*lane1_handle = this_universe->attachDescriptor(universe_guard,
-				LaneDescriptor(frigg::move(lanes.get<0>())));
+				LaneDescriptor(std::move(lanes.get<0>())));
 		*lane2_handle = this_universe->attachDescriptor(universe_guard,
-				LaneDescriptor(frigg::move(lanes.get<1>())));
+				LaneDescriptor(std::move(lanes.get<1>())));
 	}
 
 	return kHelErrNone;
@@ -1923,7 +1923,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 	closure->count = count;
 	closure->weakUniverse = this_universe.toWeak();
-	closure->ipcQueue = frigg::move(queue);
+	closure->ipcQueue = std::move(queue);
 
 	closure->worklet.setup(&Ops::transmitted);
 	closure->packet.setup(count, &closure->worklet);
@@ -1962,7 +1962,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			readUserMemory(buffer.data(), action.buffer, action.length);
 
 			closure->items[i].transmit.setup(kTagSendFromBuffer, &closure->packet);
-			closure->items[i].transmit._inBuffer = frigg::move(buffer);
+			closure->items[i].transmit._inBuffer = std::move(buffer);
 		} break;
 		case kHelActionSendFromBufferSg: {
 			size_t length = 0;
@@ -1982,7 +1982,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			}
 
 			closure->items[i].transmit.setup(kTagSendFromBuffer, &closure->packet);
-			closure->items[i].transmit._inBuffer = frigg::move(buffer);
+			closure->items[i].transmit._inBuffer = std::move(buffer);
 		} break;
 		case kHelActionRecvInline: {
 			// TODO: For now, we hardcode a size of 128 bytes.
@@ -1992,7 +1992,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		} break;
 		case kHelActionRecvToBuffer: {
 			auto space = this_thread->getAddressSpace().lock();
-			auto accessor = AddressSpaceLockHandle{frigg::move(space),
+			auto accessor = AddressSpaceLockHandle{std::move(space),
 					action.buffer, action.length};
 
 			// TODO: Instead of blocking here, the stream should acquire this asynchronously.
@@ -2012,7 +2012,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				Thread::blockCurrent(&acq_closure.blocker);
 
 			closure->items[i].transmit.setup(kTagRecvToBuffer, &closure->packet);
-			closure->items[i].transmit._inAccessor = frigg::move(accessor);
+			closure->items[i].transmit._inAccessor = std::move(accessor);
 		} break;
 		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
@@ -2027,7 +2027,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			}
 
 			closure->items[i].transmit.setup(kTagPushDescriptor, &closure->packet);
-			closure->items[i].transmit._inDescriptor = frigg::move(operand);
+			closure->items[i].transmit._inDescriptor = std::move(operand);
 		} break;
 		case kHelActionPullDescriptor: {
 			closure->items[i].transmit.setup(kTagPullDescriptor, &closure->packet);
@@ -2147,7 +2147,7 @@ HelError helCreateOneshotEvent(HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				OneshotEventDescriptor(frigg::move(event)));
+				OneshotEventDescriptor(std::move(event)));
 	}
 
 	return kHelErrNone;
@@ -2164,7 +2164,7 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				BitsetEventDescriptor(frigg::move(event)));
+				BitsetEventDescriptor(std::move(event)));
 	}
 
 	return kHelErrNone;
@@ -2208,7 +2208,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				IrqDescriptor(frigg::move(irq)));
+				IrqDescriptor(std::move(irq)));
 	}
 
 	return kHelErrNone;
@@ -2261,7 +2261,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
 			auto closure = frigg::construct<IrqClosure>(*kernelAlloc,
-					frigg::move(queue), context);
+					std::move(queue), context);
 			irq->submitAwait(&closure->irqNode, sequence);
 		}
 
@@ -2274,7 +2274,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	public:
 		explicit IrqClosure(frigg::SharedPtr<IpcQueue> the_queue, uintptr_t context)
-		: _queue{frigg::move(the_queue)},
+		: _queue{std::move(the_queue)},
 				source{&result, sizeof(HelEventResult), nullptr} {
 			memset(&result, 0, sizeof(HelEventResult));
 			setupContext(context);
@@ -2299,14 +2299,14 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		static void issue(frigg::SharedPtr<OneshotEvent> event, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
 			auto closure = frigg::construct<EventClosure>(*kernelAlloc,
-					frigg::move(queue), context);
+					std::move(queue), context);
 			event->submitAwait(&closure->eventNode, sequence);
 		}
 
 		static void issue(frigg::SharedPtr<BitsetEvent> event, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
 			auto closure = frigg::construct<EventClosure>(*kernelAlloc,
-					frigg::move(queue), context);
+					std::move(queue), context);
 			event->submitAwait(&closure->eventNode, sequence);
 		}
 
@@ -2320,7 +2320,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	public:
 		explicit EventClosure(frigg::SharedPtr<IpcQueue> the_queue, uintptr_t context)
-		: _queue{frigg::move(the_queue)},
+		: _queue{std::move(the_queue)},
 				source{&result, sizeof(HelEventResult), nullptr} {
 			memset(&result, 0, sizeof(HelEventResult));
 			setupContext(context);
@@ -2369,16 +2369,16 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
-		IrqClosure::issue(frigg::move(irq), sequence,
-				frigg::move(queue), context);
+		IrqClosure::issue(std::move(irq), sequence,
+				std::move(queue), context);
 	}else if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
-		EventClosure::issue(frigg::move(event), sequence,
-				frigg::move(queue), context);
+		EventClosure::issue(std::move(event), sequence,
+				std::move(queue), context);
 	}else if(descriptor.is<BitsetEventDescriptor>()) {
 		auto event = descriptor.get<BitsetEventDescriptor>().event;
-		EventClosure::issue(frigg::move(event), sequence,
-				frigg::move(queue), context);
+		EventClosure::issue(std::move(event), sequence,
+				std::move(queue), context);
 	}else{
 		return kHelErrBadDescriptor;
 	}
@@ -2433,7 +2433,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				IoDescriptor(frigg::move(io_space)));
+				IoDescriptor(std::move(io_space)));
 	}
 
 	return kHelErrNone;
@@ -2552,7 +2552,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*bound_handle = this_universe->attachDescriptor(universe_guard,
-				BoundKernletDescriptor(frigg::move(bound)));
+				BoundKernletDescriptor(std::move(bound)));
 	}
 
 	return kHelErrNone;
