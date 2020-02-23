@@ -382,6 +382,8 @@ private:
 	frigg::SharedPtr<MemorySlice> _slice;
 	frigg::SharedPtr<MemoryView> _view;
 	size_t _viewOffset;
+
+	frigg::TicketLock _evictMutex;
 };
 
 struct CowChain {

@@ -159,9 +159,18 @@ NormalMapping::~NormalMapping() {
 }
 
 bool NormalMapping::lockVirtualRange(LockVirtualNode *node) {
-	if(auto e = _view->lockRange(_viewOffset + node->offset(), node->size()); e)
-		assert(!"lockRange() failed");
-	return true;
+	struct Receiver {
+		void set_done(Error e) {
+			assert(!e);
+			LockVirtualNode::post(continuation);
+		}
+
+		LockVirtualNode *continuation;
+	};
+
+	_view->asyncLockRange(_viewOffset + node->offset(), node->size(),
+			Receiver{node});
+	return false;
 }
 
 void NormalMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
@@ -230,8 +239,9 @@ void NormalMapping::install() {
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-	if(auto e = _view->lockRange(_viewOffset, length()); e)
-		assert(!"lockRange() failed");
+	// Synchronize with observeEviction().
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_evictMutex);
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		auto bundle_range = _view->peekRange(_viewOffset + progress);
@@ -246,8 +256,6 @@ void NormalMapping::install() {
 			logRss(owner());
 		}
 	}
-
-	_view->unlockRange(_viewOffset, length());
 }
 
 void NormalMapping::reinstall() {
@@ -294,6 +302,13 @@ bool NormalMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 	assert(shoot_size);
 	assert(!(shoot_offset & (kPageSize - 1)));
 	assert(!(shoot_size & (kPageSize - 1)));
+
+	// Wait until we are allowed to evict existing pages.
+	// TODO: invent a more specialized synchronization mechanism for this.
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_evictMutex);
+	}
 
 	// TODO: Perform proper locking here!
 
