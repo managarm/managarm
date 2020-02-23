@@ -820,6 +820,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
+			if (!req.path().size()) {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
