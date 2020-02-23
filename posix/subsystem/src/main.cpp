@@ -1165,9 +1165,34 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: DUP" << std::endl;
 
 			auto file = self->fileContext()->getFile(req.fd());
-			assert(file && "Illegal FD for DUP");
 
-			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
+			if (!file) {
+				helix::SendBuffer send_resp;
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::BAD_FD);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			if(req.flags() & ~(managarm::posix::OF_CLOEXEC)) {
+				helix::SendBuffer send_resp;
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
 
 			int newfd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OF_CLOEXEC);
@@ -1188,15 +1213,36 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: DUP2" << std::endl;
 
 			auto file = self->fileContext()->getFile(req.fd());
-			assert(file && "Illegal FD for DUP2");
 
-			assert(!req.flags());
+			if (!file || req.newfd() < 0) {
+				helix::SendBuffer send_resp;
 
-			if(req.newfd() >= 0) {
-				self->fileContext()->attachFile(req.newfd(), file);
-			}else{
-				throw std::runtime_error("DUP2 requires a file descriptor >= 0");
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::BAD_FD);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
 			}
+
+			if(req.flags()) {
+				helix::SendBuffer send_resp;
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			self->fileContext()->attachFile(req.newfd(), file);
 
 			helix::SendBuffer send_resp;
 
