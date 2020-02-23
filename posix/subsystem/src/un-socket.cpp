@@ -217,7 +217,8 @@ public:
 
 	async::result<int> getOption(int option) override {
 		assert(option == SO_PEERCRED);
-		assert(_currentState == State::connected);
+		if (_currentState != State::connected)
+			co_return -1;
 		co_return _remote->_ownerPid;
 	}
 
