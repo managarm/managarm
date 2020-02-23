@@ -174,6 +174,11 @@ void MemoryView::resize(size_t newLength) {
 	frigg::panicLogger() << "MemoryView does not support resize!" << frigg::endLog;
 }
 
+void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
+		execution::any_receiver<Error> receiver) {
+	receiver.set_done(lockRange(offset, size));
+}
+
 Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
 	return kErrIllegalObject;
 }

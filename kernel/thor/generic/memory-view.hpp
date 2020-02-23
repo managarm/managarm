@@ -249,6 +249,8 @@ public:
 	// Locks do *not* force all pages to be available, but once a page is available
 	// (e.g. due to fetchRange()), it cannot be evicted until the lock is released.
 	virtual Error lockRange(uintptr_t offset, size_t size) = 0;
+	virtual void asyncLockRange(uintptr_t offset, size_t size,
+			execution::any_receiver<Error> receiver);
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
@@ -270,6 +272,52 @@ public:
 
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for asyncLockRange()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct LockRangeOperation;
+
+	struct [[nodiscard]] LockRangeSender {
+		template<typename R>
+		friend LockRangeOperation<R>
+		connect(LockRangeSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		MemoryView *self;
+		uintptr_t offset;
+		size_t size;
+	};
+
+	LockRangeSender asyncLockRange(uintptr_t offset, size_t size) {
+		return {this, offset, size};
+	}
+
+	template<typename R>
+	struct LockRangeOperation {
+		LockRangeOperation(LockRangeSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		LockRangeOperation(const LockRangeOperation &) = delete;
+
+		LockRangeOperation &operator= (const LockRangeOperation &) = delete;
+
+		void start() {
+			s_.self->asyncLockRange(s_.offset, s_.size, std::move(receiver_));
+		}
+
+	private:
+		LockRangeSender s_;
+		R receiver_;
+	};
+
+	friend execution::sender_awaiter<LockRangeSender, Error>
+	operator co_await(LockRangeSender sender) {
+		return {sender};
+	}
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for fetchRange()

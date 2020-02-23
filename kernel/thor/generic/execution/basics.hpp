@@ -21,7 +21,7 @@ namespace execution {
     using operation_t = std::invoke_result_t<connect_functor, S, R>;
 
 	template<typename S, typename T = void>
-	struct sender_awaiter {
+	struct [[nodiscard]] sender_awaiter {
 	private:
 		struct receiver {
 			void set_done(T result) {
@@ -131,4 +131,46 @@ namespace execution {
 	}
 
 	using _detach_details::detach;
+
+	template<typename T>
+	struct any_receiver {
+		template<typename R>
+		any_receiver(R receiver) {
+			static_assert(std::is_trivially_copyable_v<R>);
+			new (stor_) R(receiver);
+			set_done_fptr_ = [] (void *p, T value) {
+				auto *rp = static_cast<R *>(p);
+				rp->set_done(std::move(value));
+			};
+		}
+
+		void set_done(T value) {
+			set_done_fptr_(stor_, std::move(value));
+		}
+
+	private:
+		alignas(alignof(void *)) char stor_[sizeof(void *)];
+		void (*set_done_fptr_) (void *, T);
+	};
+
+	template<>
+	struct any_receiver<void> {
+		template<typename R>
+		any_receiver(R receiver) {
+			static_assert(std::is_trivially_copyable_v<R>);
+			new (stor_) R(receiver);
+			set_done_fptr_ = [] (void *p) {
+				auto *rp = static_cast<R *>(p);
+				rp->set_done();
+			};
+		}
+
+		void set_done() {
+			set_done_fptr_(stor_);
+		}
+
+	private:
+		alignas(alignof(void *)) char stor_[sizeof(void *)];
+		void (*set_done_fptr_) (void *);
+	};
 }

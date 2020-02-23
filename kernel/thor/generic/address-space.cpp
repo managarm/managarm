@@ -186,9 +186,9 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 		if(self->flags() & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
 
-		if(auto e = self->_view->lockRange((self->_viewOffset + continuation->_offset)
+		if(auto e = co_await self->_view->asyncLockRange((self->_viewOffset + continuation->_offset)
 				& ~(kPageSize - 1), kPageSize); e)
-			assert(!"lockRange() failed");
+			assert(!"asyncLockRange() failed");
 
 		auto [error, range, flags] = co_await self->_view->fetchRange(self->_viewOffset
 				+ continuation->_offset);
