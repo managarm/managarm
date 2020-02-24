@@ -156,7 +156,7 @@ async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object
 async::result<protocols::fs::GetLinkResult> link(std::shared_ptr<void> object,
 		std::string name, int64_t ino) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto entry = co_await self->link(std::move(name), ino);
+	auto entry = co_await self->link(std::move(name), ino, kTypeRegular);
 	if(!entry)
 		co_return protocols::fs::GetLinkResult{nullptr, -1,
 				protocols::fs::FileType::unknown};
@@ -240,13 +240,26 @@ async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	co_return link;
 }
 
+async::result<protocols::fs::MkdirResult>
+mkdir(std::shared_ptr<void> object, std::string name) {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto entry = co_await self->mkdir(std::move(name));
+
+	if(!entry)
+		co_return protocols::fs::MkdirResult{nullptr, -1};
+
+	assert(entry->inode);
+	co_return protocols::fs::MkdirResult{fs->accessInode(entry->inode), entry->inode};
+}
+
 constexpr protocols::fs::NodeOperations nodeOperations{
 	&getStats,
 	&getLink,
 	&link,
 	&unlink,
 	&open,
-	&readSymlink
+	&readSymlink,
+	&mkdir
 };
 
 } // anonymous namespace

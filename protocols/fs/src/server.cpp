@@ -653,6 +653,38 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_MKDIR) {
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_node;
+
+			auto result = co_await node_ops->mkdir(node, req.path());
+
+			if (std::get<0>(result)) {
+				helix::UniqueLane local_lane, remote_lane;
+				std::tie(local_lane, remote_lane) = helix::createStream();
+				serveNode(std::move(local_lane), std::move(std::get<0>(result)), node_ops);
+
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				resp.set_id(std::get<1>(result));
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+						helix::action(&push_node, remote_lane));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(push_node.error());
+			}else{
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT); // TODO
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_LINK) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;

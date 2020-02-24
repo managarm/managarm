@@ -28,7 +28,7 @@ namespace {
 Inode::Inode(FileSystem &fs, uint32_t number)
 : fs(fs), number(number), isReady(false) { }
 
-async::result<std::experimental::optional<DirEntry>>
+async::result<std::optional<DirEntry>>
 Inode::findEntry(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
@@ -79,11 +79,11 @@ Inode::findEntry(std::string name) {
 	}
 	assert(offset == fileSize());
 
-	co_return std::experimental::nullopt;
+	co_return std::nullopt;
 }
 
-async::result<std::experimental::optional<DirEntry>>
-Inode::link(std::string name, int64_t ino) {
+async::result<std::optional<DirEntry>>
+Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
 
@@ -127,7 +127,16 @@ Inode::link(std::string name, int64_t ino) {
 			disk_entry->inode = ino;
 			disk_entry->recordLength = available;
 			disk_entry->nameLength = name.length();
-			disk_entry->fileType = EXT2_FT_REG_FILE;
+			switch (type) {
+				case kTypeRegular:
+					disk_entry->fileType = EXT2_FT_REG_FILE;
+					break;
+				case kTypeDirectory:
+					disk_entry->fileType = EXT2_FT_DIR;
+					break;
+				default:
+					throw std::runtime_error("unexpected type");
+			}
 			memcpy(disk_entry->name, name.data(), name.length());
 
 			// Update the existing dentry.
@@ -146,7 +155,7 @@ Inode::link(std::string name, int64_t ino) {
 
 			DirEntry entry;
 			entry.inode = ino;
-			entry.fileType = kTypeRegular;
+			entry.fileType = type;
 			co_return entry;
 		}
 
@@ -200,6 +209,61 @@ async::result<void> Inode::unlink(std::string name) {
 	assert(offset == fileSize());
 
 	throw std::runtime_error("Given link does not exist");
+}
+
+async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
+	assert(!name.empty() && name != "." && name != "..");
+
+	co_await readyJump.async_wait();
+
+	auto dir_node = co_await fs.createDirectory();
+	co_await dir_node->readyJump.async_wait();
+
+	co_await fs.assignDataBlocks(dir_node.get(), 0, 1);
+
+	helix::LockMemoryView lock_memory;
+	auto map_size = (dir_node->fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(dir_node->frontalMemory),
+			&lock_memory,
+			0, map_size, helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{dir_node->frontalMemory},
+			0, map_size,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+	// XXX: this is a hack to make the directory accessible under
+	// OSes that respect the permissions, this means "drwxr-xr-x"
+	dir_node->diskInode()->mode = 0x41ED;
+
+	size_t offset = 0;
+
+	auto dot_entry = reinterpret_cast<DiskDirEntry *>(file_map.get());
+	offset += (sizeof(DiskDirEntry) + 1 + 3) & ~size_t(3);
+
+	dot_entry->inode = dir_node->number;
+	dot_entry->recordLength = offset;
+	dot_entry->nameLength = 1;
+	dot_entry->fileType = EXT2_FT_DIR;
+	memcpy(dot_entry->name, ".", 1);
+
+	auto dot_dot_entry = reinterpret_cast<DiskDirEntry *>(
+			reinterpret_cast<char *>(file_map.get()) + offset);
+
+	dot_dot_entry->inode = number;
+	dot_dot_entry->recordLength = dir_node->fileSize() - offset;
+	dot_dot_entry->nameLength = 2;
+	dot_dot_entry->fileType = EXT2_FT_DIR;
+	memcpy(dot_dot_entry->name, "..", 2);
+
+	auto inode_address = (dir_node->number - 1) * fs.inodeSize;
+	dir_node->diskMapping = helix::Mapping{fs.inodeTable,
+			inode_address, fs.inodeSize,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
+	co_return co_await link(name, dir_node->number, kTypeDirectory);
 }
 
 // --------------------------------------------------------
@@ -432,6 +496,35 @@ async::result<std::shared_ptr<Inode>> FileSystem::createRegular() {
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFREG;
 	disk_inode->generation = generation + 1;
+
+	co_return accessInode(ino);
+}
+
+async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
+	auto ino = co_await allocateInode();
+	assert(ino);
+
+	// Lock and map the inode table.
+	auto inode_address = (ino - 1) * inodeSize;
+
+	helix::LockMemoryView lock_inode;
+	auto &&submit = helix::submitLockMemoryView(inodeTable,
+			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lock_inode.error());
+
+	helix::Mapping inode_map{inodeTable,
+				inode_address, inodeSize,
+				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
+	// TODO: Set the UID, GID, timestamps.
+	auto disk_inode = reinterpret_cast<DiskInode *>(inode_map.get());
+	auto generation = disk_inode->generation;
+	memset(disk_inode, 0, inodeSize);
+	disk_inode->mode = EXT2_S_IFDIR;
+	disk_inode->generation = generation + 1;
+	disk_inode->size = blockSize;
 
 	co_return accessInode(ino);
 }

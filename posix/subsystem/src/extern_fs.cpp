@@ -320,9 +320,37 @@ private:
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	mkdir(std::string name) override {
-		(void)name;
-		std::cout << "\e[31m" "posix: mkdir is not implemented for extern_fs" "\e[39m" << std::endl;
-		co_return Error::illegalOperationTarget;
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_node;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_MKDIR);
+		req.set_path(name);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&pull_node));
+		co_await transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		if(resp.error() == managarm::fs::Errors::SUCCESS) {
+			HEL_CHECK(pull_node.error());
+
+			auto child = _sb->internalizeStructural(this, name,
+					resp.id(), pull_node.descriptor());
+			co_return child->treeLink();
+		} else {
+			co_return Error::illegalOperationTarget; // TODO
+		}
 	}
 
 	FutureMaybe<std::shared_ptr<FsLink>> symlink(std::string name, std::string link) override {

@@ -1,7 +1,7 @@
 
 #include <string.h>
 #include <time.h>
-#include <experimental/optional>
+#include <optional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -187,9 +187,10 @@ struct Inode : std::enable_shared_from_this<Inode> {
 		diskInode()->size = size;
 	}
 
-	async::result<std::experimental::optional<DirEntry>> findEntry(std::string name);
-	async::result<std::experimental::optional<DirEntry>> link(std::string name, int64_t ino);
+	async::result<std::optional<DirEntry>> findEntry(std::string name);
+	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<void> unlink(std::string name);
+	async::result<std::optional<DirEntry>> mkdir(std::string name);
 
 	FileSystem &fs;
 
@@ -252,6 +253,7 @@ struct FileSystem {
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
 	async::result<std::shared_ptr<Inode>> createRegular();
+	async::result<std::shared_ptr<Inode>> createDirectory();
 
 	async::result<void> write(Inode *inode, uint64_t offset,
 			const void *buffer, size_t length);

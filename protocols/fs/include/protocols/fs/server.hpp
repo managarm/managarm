@@ -46,6 +46,8 @@ using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 
 using OpenResult = std::pair<helix::UniqueLane, helix::UniqueLane>;
 
+using MkdirResult = std::pair<std::shared_ptr<void>, int64_t>;
+
 struct FileOperations {
 	constexpr FileOperations &withSeekAbs(async::result<SeekResult> (*f)(void *object,
 			int64_t offset)) {
@@ -197,6 +199,8 @@ struct NodeOperations {
 	async::result<OpenResult> (*open)(std::shared_ptr<void> object);
 
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
+
+	async::result<MkdirResult> (*mkdir)(std::shared_ptr<void> object, std::string name);
 };
 
 async::result<void>
