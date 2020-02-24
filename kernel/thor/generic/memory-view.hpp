@@ -217,6 +217,115 @@ struct MemoryObserver {
 	frg::default_list_hook<MemoryObserver> listHook;
 };
 
+struct EvictionQueue {
+	void addObserver(smarter::shared_ptr<MemoryObserver> observer) {
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&mutex_);
+
+		observers_.push_back(observer.get());
+		numObservers_++;
+		observer.release(); // Reference is now owned by the EvictionQueue.
+	}
+
+	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&mutex_);
+
+		auto it = observers_.iterator_to(observer.get());
+		observers_.erase(it);
+		numObservers_--;
+		observer.ctr()->decrement();
+	}
+
+	// ----------------------------------------------------------------------------------
+	// Sender-based implementation of evictRange()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct EvictRangeOperation;
+
+	struct [[nodiscard]] EvictRangeSender {
+		template<typename R>
+		friend EvictRangeOperation<R>
+		connect(EvictRangeSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		EvictionQueue *self;
+		uintptr_t offset;
+		size_t size;
+	};
+
+	EvictRangeSender evictRange(uintptr_t offset, size_t size) {
+		return {this, offset, size};
+	}
+
+	template<typename R>
+	struct EvictRangeOperation {
+		EvictRangeOperation(EvictRangeSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		EvictRangeOperation(const EvictRangeOperation &) = delete;
+
+		EvictRangeOperation &operator= (const EvictRangeOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &EvictRangeOperation::worklet_);
+				op->receiver_.set_done();
+			});
+
+			// TODO: This needs to be called without holding a lock.
+			//       After all, Mapping often calls into this class, leading to deadlocks.
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&s_.self->mutex_);
+
+			if(!s_.self->numObservers_) {
+				WorkQueue::post(&worklet_); // Force into slow-path for now.
+				return;
+			}
+
+			size_t numFastPaths = 0;
+			node_.setup(&worklet_, s_.self->numObservers_);
+			for(auto observer : s_.self->observers_)
+				if(observer->observeEviction(s_.offset, s_.size, &node_))
+					numFastPaths++;
+			if(!numFastPaths)
+				return;
+			if(!node_.retirePending(numFastPaths))
+				return;
+			WorkQueue::post(&worklet_); // Force into slow-path for now.
+		}
+
+	private:
+		EvictRangeSender s_;
+		R receiver_;
+		Worklet worklet_;
+		EvictNode node_;
+	};
+
+	friend execution::sender_awaiter<EvictRangeSender, void>
+	operator co_await(EvictRangeSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
+
+private:
+	frigg::TicketLock mutex_;
+
+	frg::intrusive_list<
+		MemoryObserver,
+		frg::locate_member<
+			MemoryObserver,
+			frg::default_list_hook<MemoryObserver>,
+			&MemoryObserver::listHook
+		>
+	> observers_;
+
+	size_t numObservers_ = 0;
+};
+
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
@@ -555,16 +664,7 @@ struct ManagedSpace : CacheBundle {
 
 	size_t numPages;
 
-	frg::intrusive_list<
-		MemoryObserver,
-		frg::locate_member<
-			MemoryObserver,
-			frg::default_list_hook<MemoryObserver>,
-			&MemoryObserver::listHook
-		>
-	> observers;
-
-	size_t numObservers = 0;
+	EvictionQueue _evictQueue;
 
 	frg::intrusive_list<
 		CachePage,

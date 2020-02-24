@@ -1,3 +1,4 @@
+#include "execution/coroutine.hpp"
 #include "fiber.hpp"
 #include "memory-view.hpp"
 #include "physical.hpp"
@@ -84,6 +85,8 @@ struct MemoryReclaimer {
 				auto lock = frigg::guard(&_mutex);
 
 				if(_cachedSize <= (1 << 20))
+					return false;
+				if(_lruList.empty())
 					return false;
 
 				page = _lruList.pop_front();
@@ -628,11 +631,8 @@ ManagedSpace::~ManagedSpace() {
 }
 
 bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
-	auto irq_lock = frigg::guard(&irqMutex());
+	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
-
-	if(!numObservers)
-		return true;
 
 	size_t index = page->identity;
 	auto pit = pages.find(index);
@@ -641,68 +641,26 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	pit->loadState = kStateEvicting;
 	globalReclaimer->removePage(&pit->cachePage);
 
-	struct Closure {
-		ManagedSpace *bundle;
-		size_t index;
-		ManagedPage *page;
-		Worklet worklet;
-		EvictNode node;
-		ReclaimNode *continuation;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
+	execution::detach([] (ManagedSpace *self, CachePage *page, ManagedPage *pit,
+			ReclaimNode *continuation) -> coroutine<void> {
+		co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
 
-	static constexpr auto finishEviction = [] (ManagedSpace *bundle,
-			size_t index, ManagedPage *page) {
-		if(page->loadState != kStateEvicting)
-			return;
-		assert(!page->lockCount);
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&self->mutex);
+
+		if(pit->loadState != kStateEvicting)
+			co_return;
+		assert(!pit->lockCount);
 
 		if(logUncaching)
 			frigg::infoLogger() << "\e[33mEvicting physical page\e[39m" << frigg::endLog;
-		assert(page->physical != PhysicalAddr(-1));
-		physicalAllocator->free(page->physical, kPageSize);
-		page->loadState = kStateMissing;
-		page->physical = PhysicalAddr(-1);
-	};
-
-	closure->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		if(logUncaching)
-			frigg::infoLogger() << "\e[33mEviction completes (slow-path)\e[39m" << frigg::endLog;
-		{
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&closure->bundle->mutex);
-
-			finishEviction(closure->bundle, closure->index, closure->page);
-		}
-
-		closure->continuation->complete();
-		frigg::destruct(*kernelAlloc, closure);
-	});
-	closure->bundle = this;
-	closure->index = index;
-	closure->page = pit;
-	closure->continuation = continuation;
-
-	if(logUncaching)
-		frigg::infoLogger() << "\e[33mThere are " << numObservers
-				<< " observers\e[39m" << frigg::endLog;
-	closure->node.setup(&closure->worklet, numObservers);
-	size_t fast_paths = 0;
-	// TODO: This needs to be called without holding a lock.
-	//       After all, Mapping often calls into this class, leading to deadlocks.
-	for(auto observer : observers)
-		if(observer->observeEviction(page->identity << kPageShift, kPageSize, &closure->node))
-			fast_paths++;
-	if(!fast_paths)
-		return false;
-	if(!closure->node.retirePending(fast_paths))
-		return false;
-
-	if(logUncaching)
-		frigg::infoLogger() << "\e[33mEviction completes (fast-path)\e[39m" << frigg::endLog;
-	finishEviction(this, index, pit);
-	frigg::destruct(*kernelAlloc, closure);
-	return true;
+		assert(pit->physical != PhysicalAddr(-1));
+		physicalAllocator->free(pit->physical, kPageSize);
+		pit->loadState = kStateMissing;
+		pit->physical = PhysicalAddr(-1);
+		continuation->complete();
+	}(this, page, pit, continuation));
+	return false;
 }
 
 void ManagedSpace::retirePage(CachePage *page) {
@@ -887,22 +845,11 @@ void BackingMemory::resize(size_t newLength) {
 }
 
 void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
-
-	_managed->observers.push_back(observer.get());
-	_managed->numObservers++;
-	observer.release(); // Reference is now owned by the ManagedSpace;
+	_managed->_evictQueue.addObserver(std::move(observer));
 }
 
 void BackingMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
-
-	auto it = _managed->observers.iterator_to(observer.get());
-	_managed->observers.erase(it);
-	_managed->numObservers--;
-	observer.ctr()->decrement();
+	_managed->_evictQueue.removeObserver(observer);
 }
 
 Error BackingMemory::lockRange(uintptr_t offset, size_t size) {
@@ -1021,22 +968,11 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 // --------------------------------------------------------
 
 void FrontalMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
-
-	_managed->observers.push_back(observer.get());
-	_managed->numObservers++;
-	observer.release(); // Reference is now owned by the ManagedSpace;
+	_managed->_evictQueue.addObserver(std::move(observer));
 }
 
 void FrontalMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
-
-	auto it = _managed->observers.iterator_to(observer.get());
-	_managed->observers.erase(it);
-	_managed->numObservers--;
-	observer.ctr()->decrement();
+	_managed->_evictQueue.removeObserver(observer);
 }
 
 Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
