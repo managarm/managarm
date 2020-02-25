@@ -934,79 +934,94 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::STAT
-				|| req.request_type() == managarm::posix::CntReqType::LSTAT) {
-			if(logRequests || logPaths)
-				std::cout << "posix: STAT path: " << req.path() << std::endl;
+		}else if(req.request_type() == managarm::posix::CntReqType::FSTATAT) {
+			if(logRequests)
+				std::cout << "posix: FSTATAT request" << std::endl;
 
 			helix::SendBuffer send_resp;
 
-			PathResolver resolver;
-			resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
-			if(req.request_type() == managarm::posix::STAT) {
-				co_await resolver.resolve();
-			}else{
-				assert(req.request_type() == managarm::posix::LSTAT);
-				co_await resolver.resolve(resolveDontFollow);
-			}
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+			std::shared_ptr<FsLink> target_link;
 
-			if(resolver.currentLink()) {
-				auto stats = co_await resolver.currentLink()->getTarget()->getStats();
+			if (req.fd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.fd());
 
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-
-				DeviceId devnum;
-				switch(resolver.currentLink()->getTarget()->getType()) {
-				case VfsType::regular:
-					resp.set_file_type(managarm::posix::FT_REGULAR);
-					break;
-				case VfsType::directory:
-					resp.set_file_type(managarm::posix::FT_DIRECTORY);
-					break;
-				case VfsType::charDevice:
-					resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
-					devnum = resolver.currentLink()->getTarget()->readDevice();
-					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
-					break;
-				case VfsType::blockDevice:
-					resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
-					devnum = resolver.currentLink()->getTarget()->readDevice();
-					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
-					break;
-				default:
-					break;
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
 				}
 
-				resp.set_fs_inode(stats.inodeNumber);
-				resp.set_mode(stats.mode);
-				resp.set_num_links(stats.numLinks);
-				resp.set_uid(stats.uid);
-				resp.set_gid(stats.gid);
-				resp.set_file_size(stats.fileSize);
-				resp.set_atime_secs(stats.atimeSecs);
-				resp.set_atime_nanos(stats.atimeNanos);
-				resp.set_mtime_secs(stats.mtimeSecs);
-				resp.set_mtime_nanos(stats.mtimeNanos);
-				resp.set_ctime_secs(stats.ctimeSecs);
-				resp.set_ctime_nanos(stats.ctimeNanos);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}else{
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				relative_to = {file->associatedMount(), file->associatedLink()};
 			}
+
+			if (req.flags() & AT_EMPTY_PATH) {
+				target_link = file->associatedLink();
+			} else {
+				PathResolver resolver;
+				resolver.setup(self->fsContext()->getRoot(),
+						relative_to, req.path());
+
+				if (req.flags() & AT_SYMLINK_NOFOLLOW)
+					co_await resolver.resolve(resolveDontFollow);
+				else
+					co_await resolver.resolve();
+
+				target_link = resolver.currentLink();
+			}
+
+			if (!target_link) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
+
+			auto stats = co_await target_link->getTarget()->getStats();
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			DeviceId devnum;
+			switch(target_link->getTarget()->getType()) {
+			case VfsType::regular:
+				resp.set_file_type(managarm::posix::FT_REGULAR);
+				break;
+			case VfsType::directory:
+				resp.set_file_type(managarm::posix::FT_DIRECTORY);
+				break;
+			case VfsType::charDevice:
+				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
+				devnum = target_link->getTarget()->readDevice();
+				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+				break;
+			case VfsType::blockDevice:
+				resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
+				devnum = target_link->getTarget()->readDevice();
+				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+				break;
+			default:
+				break;
+			}
+
+			resp.set_fs_inode(stats.inodeNumber);
+			resp.set_mode(stats.mode);
+			resp.set_num_links(stats.numLinks);
+			resp.set_uid(stats.uid);
+			resp.set_gid(stats.gid);
+			resp.set_file_size(stats.fileSize);
+			resp.set_atime_secs(stats.atimeSecs);
+			resp.set_atime_nanos(stats.atimeNanos);
+			resp.set_mtime_secs(stats.mtimeSecs);
+			resp.set_mtime_nanos(stats.mtimeNanos);
+			resp.set_ctime_secs(stats.ctimeSecs);
+			resp.set_ctime_nanos(stats.ctimeNanos);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
 			if(logRequests || logPaths)
 				std::cout << "posix: READLINK path: " << req.path() << std::endl;
@@ -1259,59 +1274,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
-			if(logRequests)
-				std::cout << "posix: FSTAT" << std::endl;
-
-			auto file = self->fileContext()->getFile(req.fd());
-			assert(file && "Illegal FD for FSTAT");
-			auto stats = co_await file->associatedLink()->getTarget()->getStats();
-
-			helix::SendBuffer send_resp;
-
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-
-			DeviceId devnum;
-			switch(file->associatedLink()->getTarget()->getType()) {
-			case VfsType::regular:
-				resp.set_file_type(managarm::posix::FT_REGULAR);
-				break;
-			case VfsType::directory:
-				resp.set_file_type(managarm::posix::FT_DIRECTORY);
-				break;
-			case VfsType::charDevice:
-				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
-				devnum = file->associatedLink()->getTarget()->readDevice();
-				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
-				break;
-			case VfsType::blockDevice:
-				resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
-				devnum = file->associatedLink()->getTarget()->readDevice();
-				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
-				break;
-			default:
-				break;
-			}
-
-			resp.set_fs_inode(stats.inodeNumber);
-			resp.set_mode(stats.mode);
-			resp.set_num_links(stats.numLinks);
-			resp.set_uid(stats.uid);
-			resp.set_gid(stats.gid);
-			resp.set_file_size(stats.fileSize);
-			resp.set_atime_secs(stats.atimeSecs);
-			resp.set_atime_nanos(stats.atimeNanos);
-			resp.set_mtime_secs(stats.mtimeSecs);
-			resp.set_mtime_nanos(stats.mtimeNanos);
-			resp.set_ctime_secs(stats.ctimeSecs);
-			resp.set_ctime_nanos(stats.ctimeNanos);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

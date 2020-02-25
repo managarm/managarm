@@ -38,9 +38,7 @@ enum CntReqType {
 	MKDIR = 46;
 	SYMLINK = 47;
 	RENAME = 51;
-	STAT = 23;
-	LSTAT = 53;
-	FSTAT = 12;
+	FSTATAT = 63;
 	READLINK = 31;
 	OPEN = 2;
 	READ = 3;
