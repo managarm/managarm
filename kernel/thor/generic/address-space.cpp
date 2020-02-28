@@ -231,27 +231,26 @@ void NormalMapping::install() {
 	_state = MappingState::active;
 	_view->addObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr.lock()));
 
-	uint32_t page_flags = 0;
+	uint32_t pageFlags = 0;
 	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
-		page_flags |= page_access::write;
+		pageFlags |= page_access::write;
 	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
-		page_flags |= page_access::execute;
+		pageFlags |= page_access::execute;
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	// Synchronize with observeEviction().
-	auto irq_lock = frigg::guard(&irqMutex());
+	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_evictMutex);
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		auto bundle_range = _view->peekRange(_viewOffset + progress);
+		auto physicalRange = _view->peekRange(_viewOffset + progress);
 
 		VirtualAddr vaddr = address() + progress;
 		assert(!owner()->_pageSpace.isMapped(vaddr));
-
-		if(bundle_range.get<0>() != PhysicalAddr(-1)) {
-			owner()->_pageSpace.mapSingle4k(vaddr, bundle_range.get<0>(), true,
-					page_flags, bundle_range.get<1>());
+		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
+			owner()->_pageSpace.mapSingle4k(vaddr, physicalRange.get<0>(), true,
+					pageFlags, physicalRange.get<1>());
 			owner()->_residuentSize += kPageSize;
 			logRss(owner());
 		}
@@ -259,21 +258,49 @@ void NormalMapping::install() {
 }
 
 void NormalMapping::reinstall() {
-	// TODO: Implement this properly.
-	//       Note that we need to call markDirty() on dirty pages that we unmap here.
-	assert(!"reinstall() is not implemented for NormalMapping");
+	assert(_state == MappingState::active);
+
+	uint32_t pageFlags = 0;
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
+		pageFlags |= page_access::write;
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
+		pageFlags |= page_access::execute;
+	// TODO: Allow inaccessible mappings.
+	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
+
+	// Synchronize with observeEviction().
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_evictMutex);
+
+	for(size_t progress = 0; progress < length(); progress += kPageSize) {
+		auto physicalRange = _view->peekRange(_viewOffset + progress);
+
+		VirtualAddr vaddr = address() + progress;
+		auto status = owner()->_pageSpace.unmapSingle4k(vaddr);
+		if(!(status & page_status::present))
+			continue;
+		if(status & page_status::dirty)
+			_view->markDirty(_viewOffset + progress, kPageSize);
+		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
+			owner()->_pageSpace.mapSingle4k(vaddr, physicalRange.get<0>(), true,
+					pageFlags, physicalRange.get<1>());
+		}else{
+			owner()->_residuentSize -= kPageSize;
+		}
+	}
 }
 
 void NormalMapping::uninstall() {
 	assert(_state == MappingState::active);
 	_state = MappingState::zombie;
 
-	for(size_t pg = 0; pg < length(); pg += kPageSize) {
-		auto status = owner()->_pageSpace.unmapSingle4k(address() + pg);
+	for(size_t progress = 0; progress < length(); progress += kPageSize) {
+		VirtualAddr vaddr = address() + progress;
+		auto status = owner()->_pageSpace.unmapSingle4k(vaddr);
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
-			_view->markDirty(_viewOffset + pg, kPageSize);
+			_view->markDirty(_viewOffset + progress, kPageSize);
 		owner()->_residuentSize -= kPageSize;
 	}
 }
