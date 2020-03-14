@@ -382,6 +382,9 @@ public:
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
 
+	virtual Error setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
+			uintptr_t offset, size_t size);
+
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for asyncLockRange()
 	// ----------------------------------------------------------------------------------
@@ -734,6 +737,43 @@ public:
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;
+};
+
+struct IndirectMemory final : MemoryView {
+	IndirectMemory(size_t numSlots);
+	IndirectMemory(const IndirectMemory &) = delete;
+	~IndirectMemory();
+
+	IndirectMemory &operator= (const IndirectMemory &) = delete;
+
+	size_t getLength() override;
+	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
+	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
+	void unlockRange(uintptr_t offset, size_t size) override;
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	void markDirty(uintptr_t offset, size_t size) override;
+
+	Error setIndirection(size_t slot, frigg::SharedPtr<MemoryView> memory,
+			uintptr_t offset, size_t size) override;
+
+private:
+	struct SlotObserver : MemoryObserver {
+		bool observeEviction(uintptr_t offset, size_t length, EvictNode *node);
+	};
+
+	struct IndirectionSlot {
+		IndirectMemory *owner;
+		size_t slot;
+		frigg::SharedPtr<MemoryView> memory;
+		uintptr_t offset;
+		size_t size;
+		SlotObserver observer;
+	};
+
+	frigg::TicketLock mutex_;
+	frg::vector<smarter::shared_ptr<IndirectionSlot>, KernelAlloc> indirections_;
 };
 
 } // namespace thor

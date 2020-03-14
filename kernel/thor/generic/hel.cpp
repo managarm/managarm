@@ -437,6 +437,59 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	return kHelErrNone;
 }
 
+HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto memory = frigg::makeShared<IndirectMemory>(*kernelAlloc, numSlots);
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		*handle = this_universe->attachDescriptor(universe_guard,
+				MemoryViewDescriptor(std::move(memory)));
+	}
+
+	return kHelErrNone;
+}
+
+HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
+		HelHandle memoryHandle, uintptr_t offset, size_t size) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	frigg::SharedPtr<MemoryView> indirectView;
+	frigg::SharedPtr<MemoryView> memoryView;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		Universe::Guard universeLock(&thisUniverse->lock);
+
+		auto indirectWrapper = thisUniverse->getDescriptor(universeLock, indirectHandle);
+		if(!indirectWrapper)
+			return kHelErrNoDescriptor;
+		if(!indirectWrapper->is<MemoryViewDescriptor>())
+			return kHelErrBadDescriptor;
+		indirectView = indirectWrapper->get<MemoryViewDescriptor>().memory;
+
+		auto memoryWrapper = thisUniverse->getDescriptor(universeLock, memoryHandle);
+		if(!memoryWrapper)
+			return kHelErrNoDescriptor;
+		if(!memoryWrapper->is<MemoryViewDescriptor>())
+			return kHelErrBadDescriptor;
+		memoryView = memoryWrapper->get<MemoryViewDescriptor>().memory;
+	}
+
+	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size); e) {
+		if(e == kErrIllegalObject) {
+			return kHelErrUnsupportedOperation;
+		}else{
+			assert(e == kErrOutOfBounds);
+			return kHelErrOutOfBounds;
+		}
+	}
+	return kHelErrNone;
+}
+
 HelError helCreateSliceView(HelHandle memoryHandle,
 		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
 	assert(!flags);

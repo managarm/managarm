@@ -37,6 +37,8 @@ enum {
 	kHelCallAccessPhysical = 30,
 	kHelCallCreateSliceView = 88,
 	kHelCallCreateSpace = 27,
+	kHelCallCreateIndirectMemory = 45,
+	kHelCallAlterMemoryIndirection = 52,
 	kHelCallForkSpace = 33,
 	kHelCallMapMemory = 44,
 	kHelCallSubmitProtectMemory = 99,
@@ -96,6 +98,8 @@ enum {
 	kHelErrIllegalSyscall = 5,
 	kHelErrIllegalArgs = 7,
 	kHelErrIllegalState = 15,
+	kHelErrUnsupportedOperation = 18,
+	kHelErrOutOfBounds = 19,
 	kHelErrQueueTooSmall = 14,
 	kHelErrCancelled = 12,
 	kHelErrNoDescriptor = 4,
@@ -459,6 +463,9 @@ HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle);
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
 		size_t size, HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle);
+HEL_C_LINKAGE HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slotIndex,
+		HelHandle memoryHandle, uintptr_t offset, size_t size);
 HEL_C_LINKAGE HelError helCreateSliceView(HelHandle bundle, uintptr_t offset, size_t size,
 		uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);

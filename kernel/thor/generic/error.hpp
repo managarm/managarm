@@ -8,6 +8,7 @@ enum Error {
 	kErrIllegalArgs,
 	kErrIllegalObject,
 	kErrIllegalState,
+	kErrOutOfBounds,
 	kErrCancelled,
 	kErrBufferTooSmall,
 	kErrThreadExited,

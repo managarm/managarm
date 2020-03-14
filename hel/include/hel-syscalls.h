@@ -100,6 +100,24 @@ extern inline __attribute__ (( always_inline )) HelError helAccessPhysical(uintp
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helCreateIndirectMemory(
+		size_t numSlots, HelHandle *handle) {
+	HelWord helHandle;
+	HelError error = helSyscall1_1(kHelCallCreateIndirectMemory,
+			(HelWord)numSlots, &helHandle);
+	*handle = (HelHandle)helHandle;
+	return error;
+}
+
+extern inline __attribute__ (( always_inline )) HelError helAlterMemoryIndirection(
+		HelHandle indirectHandle, size_t slotIndex,
+		HelHandle memoryHandle, uintptr_t offset, size_t size) {
+	HelError error = helSyscall5(kHelCallAlterMemoryIndirection,
+			(HelWord)indirectHandle, (HelWord)slotIndex,
+			(HelWord)memoryHandle, (HelWord)offset, (HelWord)size);
+	return error;
+}
+
 extern inline __attribute__ (( always_inline )) HelError helCreateSliceView(HelHandle bundle,
 		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
 	HelWord hel_handle;

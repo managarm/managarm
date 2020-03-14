@@ -195,6 +195,11 @@ void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
 	initiate->complete();
 }
 
+Error MemoryView::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
+		uintptr_t offset, size_t size) {
+	return kErrIllegalObject;
+}
+
 // --------------------------------------------------------
 // Copy operations.
 // --------------------------------------------------------
@@ -1151,6 +1156,117 @@ void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
 	_managed->_progressManagement();
 
 	_managed->submitMonitor(node);
+}
+
+// --------------------------------------------------------
+// IndirectMemory
+// --------------------------------------------------------
+
+IndirectMemory::IndirectMemory(size_t numSlots)
+: indirections_{*kernelAlloc} {
+	indirections_.resize(numSlots);
+}
+
+IndirectMemory::~IndirectMemory() {
+	// For now we do nothing when deallocating hardware memory.
+}
+
+void IndirectMemory::addObserver(smarter::shared_ptr<MemoryObserver>) {
+	// As we never evict memory, there is no need to handle observers.
+}
+
+void IndirectMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver>) {
+	// As we never evict memory, there is no need to handle observers.
+}
+
+Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	auto slot = offset >> 32;
+	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
+	if(slot >= indirections_.size())
+		return kErrFault;
+	if(!indirections_[slot])
+		return kErrFault;
+	if(inSlotOffset + size > indirections_[slot]->size)
+		return kErrFault;
+	return indirections_[slot]->memory->lockRange(indirections_[slot]->offset
+			+ inSlotOffset, size);
+}
+
+void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	auto slot = offset >> 32;
+	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
+	assert(slot < indirections_.size()); // TODO: Return kErrFault.
+	assert(indirections_[slot]); // TODO: Return kErrFault.
+	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return kErrFault.
+	return indirections_[slot]->memory->unlockRange(indirections_[slot]->offset
+			+ inSlotOffset, size);
+}
+
+frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	auto slot = offset >> 32;
+	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
+	assert(slot < indirections_.size()); // TODO: Return kErrFault.
+	assert(indirections_[slot]); // TODO: Return kErrFault.
+	return indirections_[slot]->memory->peekRange(indirections_[slot]->offset
+			+ inSlotOffset);
+}
+
+bool IndirectMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	auto slot = offset >> 32;
+	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
+	assert(slot < indirections_.size()); // TODO: Return kErrFault.
+	assert(indirections_[slot]); // TODO: Return kErrFault.
+	return indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
+			+ inSlotOffset, node);
+}
+
+void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	auto slot = offset >> 32;
+	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
+	assert(slot < indirections_.size()); // TODO: Return kErrFault.
+	assert(indirections_[slot]); // TODO: Return kErrFault.
+	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return kErrFault.
+	indirections_[slot]->memory->markDirty(indirections_[slot]->offset
+			+ inSlotOffset, size);
+}
+
+size_t IndirectMemory::getLength() {
+	return indirections_.size() << 32;
+}
+
+Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> memory,
+		uintptr_t offset, size_t size) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	if(slot >= indirections_.size())
+		return kErrOutOfBounds;
+	auto indirection = smarter::allocate_shared<IndirectionSlot>(*kernelAlloc,
+			this, slot, memory, offset, size);
+	memory->addObserver(smarter::shared_ptr<MemoryObserver>{indirection, &indirection->observer});
+	indirections_[slot] = std::move(indirection);
+	return kErrSuccess;
+}
+
+bool IndirectMemory::SlotObserver::observeEviction(uintptr_t offset, size_t length,
+		EvictNode *node) {
+	assert(!"TODO: implement eviction of IndirectMemory");
+	__builtin_trap();
 }
 
 } // namespace thor
