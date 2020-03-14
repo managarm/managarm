@@ -539,10 +539,10 @@ drm_core::File::read(void *object, const char *,
 	co_return sizeof(drm_event_vblank);
 }
 
-async::result<protocols::fs::AccessMemoryResult>
-drm_core::File::accessMemory(void *object, uint64_t offset, size_t) {
+async::result<helix::BorrowedDescriptor>
+drm_core::File::accessMemory(void *object) {
 	auto self = static_cast<drm_core::File *>(object);
-	co_return protocols::fs::AccessMemoryResult{self->_memory, 0};
+	co_return self->_memory;
 }
 
 async::result<void>

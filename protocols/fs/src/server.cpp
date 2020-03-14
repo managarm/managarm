@@ -184,19 +184,16 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		helix::SendBuffer send_resp;
 		helix::PushDescriptor push_memory;
 
-		// TODO: Fix the size.
 		assert(file_ops->accessMemory);
-		auto memory = co_await file_ops->accessMemory(file.get(), req.rel_offset(), 0);
-		assert(!memory.second);
+		auto memory = co_await file_ops->accessMemory(file.get());
 
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(memory.second);
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&push_memory, memory.first));
+				helix::action(&push_memory, memory));
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(push_memory.error());

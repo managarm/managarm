@@ -565,7 +565,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else{
 				auto file = self->fileContext()->getFile(req.fd());
 				assert(file && "Illegal FD for VM_MAP");
-				auto memory = co_await file->accessMemory(req.rel_offset());
+				auto memory = co_await file->accessMemory();
 				address = co_await self->vmContext()->mapFile(std::move(memory), std::move(file),
 						req.rel_offset(), req.size(), native_flags);
 			}

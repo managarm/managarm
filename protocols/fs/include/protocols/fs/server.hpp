@@ -40,8 +40,6 @@ struct FileStats {
 
 using SeekResult = std::variant<Error, int64_t>;
 
-using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
-
 using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 
 using OpenResult = std::pair<helix::UniqueLane, helix::UniqueLane>;
@@ -78,8 +76,7 @@ struct FileOperations {
 		readEntries = f;
 		return *this;
 	}
-	constexpr FileOperations &withAccessMemory(async::result<AccessMemoryResult>(*f)(void *object,
-			uint64_t offset, size_t size)) {
+	constexpr FileOperations &withAccessMemory(async::result<helix::BorrowedDescriptor>(*f)(void *object)) {
 		accessMemory = f;
 		return *this;
 	}
@@ -142,8 +139,7 @@ struct FileOperations {
 	async::result<void> (*write)(void *object, const char *credentials,
 			const void *buffer, size_t length);
 	async::result<ReadEntriesResult> (*readEntries)(void *object);
-	async::result<AccessMemoryResult>(*accessMemory)(void *object,
-			uint64_t offset, size_t size);
+	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object);
 	async::result<void> (*truncate)(void *object, size_t size);
 	async::result<void> (*fallocate)(void *object, int64_t offset, size_t size);
 	async::result<void> (*ioctl)(void *object, managarm::fs::CntRequest req,

@@ -176,8 +176,8 @@ struct File {
 	static async::result<protocols::fs::ReadResult>
 	read(void *object, const char *, void *buffer, size_t length);
 
-	static async::result<protocols::fs::AccessMemoryResult>
-	accessMemory(void *object, uint64_t, size_t);
+	static async::result<helix::BorrowedDescriptor>
+	accessMemory(void *object);
 
 	static async::result<void>
 	ioctl(void *object, managarm::fs::CntRequest req, helix::UniqueLane conversation);

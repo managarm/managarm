@@ -156,8 +156,8 @@ private:
 		return promise.async_get();
 	}
 
-	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t offset) override {
-		auto memory = co_await _file.accessMemory(offset);
+	FutureMaybe<helix::UniqueDescriptor> accessMemory() override {
+		auto memory = co_await _file.accessMemory();
 		co_return std::move(memory);
 	}
 

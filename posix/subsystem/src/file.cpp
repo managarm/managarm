@@ -314,7 +314,7 @@ async::result<size_t> File::sockname(void *addr_ptr, size_t max_addr_length) {
 	throw std::runtime_error("posix: Object has no File::sockname()");
 }
 
-FutureMaybe<helix::UniqueDescriptor> File::accessMemory(off_t) {
+FutureMaybe<helix::UniqueDescriptor> File::accessMemory() {
 	// TODO: Return an error.
 	throw std::runtime_error("posix: Object has no File::accessMemory()");
 }

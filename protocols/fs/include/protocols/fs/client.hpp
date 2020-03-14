@@ -32,7 +32,7 @@ struct File {
 
 	async::result<PollResult> poll(uint64_t sequence, async::cancellation_token cancellation);
 
-	async::result<helix::UniqueDescriptor> accessMemory(off_t offset);
+	async::result<helix::UniqueDescriptor> accessMemory();
 
 private:
 	helix::UniqueDescriptor _lane;

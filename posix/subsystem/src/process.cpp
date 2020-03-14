@@ -91,7 +91,7 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 	assert(it != _areaTree.end());
 	assert(it->second.areaSize == aligned_old_size);
 
-	auto memory = co_await it->second.file->accessMemory(it->second.offset);
+	auto memory = co_await it->second.file->accessMemory();
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.

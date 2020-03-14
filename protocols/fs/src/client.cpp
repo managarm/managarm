@@ -111,7 +111,7 @@ async::result<PollResult> File::poll(uint64_t sequence,
 	co_return result;
 }
 
-async::result<helix::UniqueDescriptor> File::accessMemory(off_t offset) {
+async::result<helix::UniqueDescriptor> File::accessMemory() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -119,7 +119,6 @@ async::result<helix::UniqueDescriptor> File::accessMemory(off_t offset) {
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
-	req.set_rel_offset(offset);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];

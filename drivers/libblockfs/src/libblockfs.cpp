@@ -94,12 +94,11 @@ async::result<void> write(void *object, const char *,
 	self->offset += length;
 }
 
-async::result<protocols::fs::AccessMemoryResult>
-accessMemory(void *object, uint64_t offset, size_t size) {
+async::result<helix::BorrowedDescriptor>
+accessMemory(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	co_await self->inode->readyJump.async_wait();
-	assert(offset + size <= self->inode->fileSize());
-	co_return std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, offset);
+	co_return self->inode->frontalMemory;
 }
 
 async::result<protocols::fs::ReadEntriesResult>

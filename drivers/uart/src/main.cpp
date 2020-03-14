@@ -146,15 +146,9 @@ async::result<void> write(void *, const char *, const void *buffer, size_t lengt
 	return value;
 }
 
-async::result<protocols::fs::AccessMemoryResult> accessMemory(void *,
-		uint64_t, size_t) {
-	throw std::runtime_error("accessMemory not yet implemented");
-}
-
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withRead(&read)
-	.withWrite(&write)
-	.withAccessMemory(&accessMemory);
+	.withWrite(&write);
 
 async::detached serveTerminal(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;

@@ -276,10 +276,7 @@ public:
 
 	virtual async::result<size_t> sockname(void *addr_ptr, size_t max_addr_length);
 
-	// TODO: This should not depend on an offset.
-	// Due to missing support from the kernel, we currently need multiple memory
-	// objects per file for DRM device files.
-	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t offset = 0);
+	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory();
 
 	virtual async::result<void> ioctl(Process *process, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
