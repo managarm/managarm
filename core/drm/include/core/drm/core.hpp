@@ -134,7 +134,6 @@ public:
 	std::shared_ptr<ModeObject> findObject(uint32_t);
 
 	uint64_t installMapping(drm_core::BufferObject *bo);
-	std::pair<uint64_t, BufferObject *> findMapping(uint64_t offset);
 
 	void setupMinDimensions(uint32_t width, uint32_t height);
 	void setupMaxDimensions(uint32_t width, uint32_t height);
@@ -148,7 +147,7 @@ private:
 	std::vector<Encoder *> _encoders;
 	std::vector<Connector *> _connectors;
 	std::unordered_map<uint32_t, ModeObject *> _objects;
-	range_allocator _mappingAllocator;
+	id_allocator<uint32_t> _memorySlotAllocator;
 	std::map<uint64_t, BufferObject *> _mappings;
 	uint32_t _minWidth;
 	uint32_t _maxWidth;
@@ -206,6 +205,8 @@ private:
 			uint64_t cookie);
 
 	std::shared_ptr<Device> _device;
+
+	helix::UniqueDescriptor _memory;
 
 	std::vector<std::shared_ptr<FrameBuffer>> _frameBuffers;
 

@@ -58,7 +58,7 @@ VmContext::mapFile(helix::UniqueDescriptor memory,
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
-			nullptr, 0 /*offset*/, aligned_size, native_flags, &pointer));
+			nullptr, offset, aligned_size, native_flags, &pointer));
 //	std::cout << "posix: VM_MAP returns " << pointer << std::endl;
 
 	// Perform some sanity checking.
@@ -97,7 +97,7 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
-			nullptr, 0 /*offset*/, aligned_new_size, it->second.nativeFlags, &pointer));
+			nullptr, it->second.offset, aligned_new_size, it->second.nativeFlags, &pointer));
 //	std::cout << "posix: VM_REMAP returns " << pointer << std::endl;
 
 	// Unmap the old area.

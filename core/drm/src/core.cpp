@@ -32,8 +32,7 @@
 // Device
 // ----------------------------------------------------------------
 
-drm_core::Device::Device() 
-: _mappingAllocator{63, 12} {
+drm_core::Device::Device() {
 	struct SrcWProperty : drm_core::Property {
 		SrcWProperty()
 		: drm_core::Property{drm_core::IntPropertyType{}} { }
@@ -163,20 +162,10 @@ std::shared_ptr<drm_core::ModeObject> drm_core::Device::findObject(uint32_t id) 
 }
 
 uint64_t drm_core::Device::installMapping(drm_core::BufferObject *bo) {
-	auto address = _mappingAllocator.allocate(bo->getSize());
-	_mappings.insert({address, bo});
-	return address;
+	assert(bo->getSize() < (UINT64_C(1) << 32));
+	return static_cast<uint64_t>(_memorySlotAllocator.allocate()) << 32;
 }
 	
-std::pair<uint64_t, drm_core::BufferObject *> drm_core::Device::findMapping(uint64_t offset) {
-	auto it = _mappings.upper_bound(offset);
-	if(it == _mappings.begin())
-		throw std::runtime_error("Mapping does not exist!");
-	
-	it--;
-	return *it;
-}
-
 void drm_core::Device::setupMinDimensions(uint32_t width, uint32_t height) {
 	_minWidth = width;
 	_minHeight = height;
@@ -461,6 +450,10 @@ const void *drm_core::Blob::data() {
 
 drm_core::File::File(std::shared_ptr<Device> device)
 : _device(device), _eventSequence{1} {
+	HelHandle handle;
+	HEL_CHECK(helCreateIndirectMemory(1024, &handle));
+	_memory = helix::UniqueDescriptor{handle};
+
 	_statusPage.update(_eventSequence, 0);
 };
 
@@ -488,6 +481,12 @@ const std::vector<std::shared_ptr<drm_core::FrameBuffer>> &drm_core::File::getFr
 uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 	auto handle = _allocator.allocate();
 	_buffers.insert({handle, bo});
+
+	auto [boMemory, boOffset] = bo->getMemory();
+	HEL_CHECK(helAlterMemoryIndirection(_memory.getHandle(),
+			bo->getMapping() >> 32, boMemory.getHandle(),
+			boOffset, bo->getSize()));
+
 	return handle;
 }
 	
@@ -541,17 +540,9 @@ drm_core::File::read(void *object, const char *,
 }
 
 async::result<protocols::fs::AccessMemoryResult>
-drm_core::File::accessMemory(void *object,
-		uint64_t offset, size_t) {
+drm_core::File::accessMemory(void *object, uint64_t offset, size_t) {
 	auto self = static_cast<drm_core::File *>(object);
-	auto mapping = self->_device->findMapping(offset);
-	assert(mapping.first == offset); // TODO: We can remove this assert once we fix VM_MAP.
-	auto mem = mapping.second->getMemory();
-	assert(!mem.second);
-	co_return protocols::fs::AccessMemoryResult{
-		mem.first,
-		mem.second + (offset - mapping.first)
-	};
+	co_return protocols::fs::AccessMemoryResult{self->_memory, 0};
 }
 
 async::result<void>
