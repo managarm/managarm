@@ -8,6 +8,7 @@
 #include <posix.frigg_pb.hpp>
 #include <fs.frigg_pb.hpp>
 
+#include "execution/coroutine.hpp"
 #include "fiber.hpp"
 #include "service_helpers.hpp"
 #include "../arch/x86/debug.hpp"
@@ -683,6 +684,80 @@ namespace initrd {
 				auto closure = frigg::construct<CloseClosure>(*kernelAlloc,
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
+			}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
+				execution::detach([] (Process *process, LaneHandle lane,
+						posix::CntRequest<KernelAlloc> req) -> coroutine<void> {
+					if(!req.size()) {
+						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+						resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+						frg::string<KernelAlloc> ser(*kernelAlloc);
+						resp.SerializeToString(&ser);
+						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+						memcpy(respBuffer.data(), ser.data(), ser.size());
+						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+						// TODO: improve error handling here.
+						assert(!respError);
+						co_return;
+					}
+
+					if(!(req.flags() & 4)) // MAP_FIXED.
+						assert(!"TODO: implement non-fixed mappings");
+
+					uint32_t protFlags = 0;
+					if(req.mode() & 1)
+						protFlags |= AddressSpace::kMapProtRead;
+					if(req.mode() & 2)
+						protFlags |= AddressSpace::kMapProtWrite;
+					if(req.mode() & 4)
+						protFlags |= AddressSpace::kMapProtExecute;
+
+					frigg::SharedPtr<MemoryView> fileMemory;
+					if(req.flags() & 8) { // MAP_ANONYMOUS.
+						// TODO: Use some always-zero memory for private anonymous mappings.
+						fileMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, req.size());
+					}else{
+						// TODO: improve error handling here.
+						assert((size_t)req.fd() < process->openFiles.size());
+						auto abstractFile = process->openFiles[req.fd()];
+						auto moduleFile = static_cast<ModuleFile *>(abstractFile);
+						fileMemory = moduleFile->module->getMemory();
+					}
+
+					auto space = process->_thread->getAddressSpace();
+					frigg::SharedPtr<MemorySlice> slice;
+					if(req.flags() & 1) { // MAP_PRIVATE.
+						auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+								std::move(fileMemory), req.rel_offset(), req.size());
+						slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
+								std::move(cowMemory), 0, req.size());
+					}else{
+						assert(!"TODO: implement shared mappings");
+					}
+
+					VirtualAddr address;
+					{
+						AddressSpace::Guard spaceGuard(&space->lock);
+						auto error = space->map(spaceGuard, std::move(slice),
+								req.address_hint(), 0, req.size(),
+								AddressSpace::kMapFixed | protFlags,
+								&address);
+						// TODO: improve error handling here.
+						assert(!error);
+					}
+
+					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_offset(address);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(!respError);
+				}(_process, std::move(_requestLane), std::move(req)));
 			}else{
 				frigg::panicLogger() << "Illegal POSIX request type "
 						<< req.request_type() << frigg::endLog;
