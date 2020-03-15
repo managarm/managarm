@@ -46,12 +46,12 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 			void *pointer;
 			HEL_CHECK(helMapMemory(copyView.getHandle(), context->_space.getHandle(),
 					reinterpret_cast<void *>(address),
-					0, area.areaSize, area.nativeFlags, &pointer));
+					0, area.areaSize, kHelMapDropAtFork | area.nativeFlags, &pointer));
 		}else{
 			void *pointer;
 			HEL_CHECK(helMapMemory(area.fileView.getHandle(), context->_space.getHandle(),
 					reinterpret_cast<void *>(address),
-					area.offset, area.areaSize, area.nativeFlags, &pointer));
+					area.offset, area.areaSize, kHelMapDropAtFork | area.nativeFlags, &pointer));
 		}
 
 		Area copy;
@@ -86,13 +86,14 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 
 		HEL_CHECK(helMapMemory(copyView.getHandle(), _space.getHandle(),
 				reinterpret_cast<void *>(hint),
-				0, alignedSize, nativeFlags, &pointer));
+				0, alignedSize, kHelMapDropAtFork | nativeFlags, &pointer));
 	}else{
 		HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
 				reinterpret_cast<void *>(hint),
-				offset, alignedSize, nativeFlags, &pointer));
+				offset, alignedSize, kHelMapDropAtFork | nativeFlags, &pointer));
 	}
-//	std::cout << "posix: VM_MAP returns " << pointer << std::endl;
+	//std::cout << "posix: VM_MAP returns " << pointer
+	//		<< " (size: " << (void *)size << ")" << std::endl;
 
 	// Perform some sanity checking.
 	auto address = reinterpret_cast<uintptr_t>(pointer);
@@ -134,7 +135,8 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
-			nullptr, it->second.offset, aligned_new_size, it->second.nativeFlags, &pointer));
+			nullptr, it->second.offset, aligned_new_size,
+			kHelMapDropAtFork | it->second.nativeFlags, &pointer));
 //	std::cout << "posix: VM_REMAP returns " << pointer << std::endl;
 
 	// Unmap the old area.

@@ -552,7 +552,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else{
 				throw std::runtime_error("posix: Handle illegal flags in VM_MAP");
 			}
-			nativeFlags |= kHelMapDropAtFork;
 
 			uintptr_t hint = 0;
 			if(req.flags() & MAP_FIXED)
