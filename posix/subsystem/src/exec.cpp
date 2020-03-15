@@ -25,7 +25,7 @@ struct ImageInfo {
 };
 
 expected<ImageInfo> load(SharedFilePtr file,
-		helix::BorrowedDescriptor space, uintptr_t base) {
+		VmContext *vmContext, uintptr_t base) {
 	assert(base % kPageSize == 0);
 	ImageInfo info;
 
@@ -74,34 +74,31 @@ expected<ImageInfo> load(SharedFilePtr file,
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 					HEL_CHECK(helLoadahead(file_memory.getHandle(), phdr->p_offset, map_length));
 
-					void *map_pointer;
-					HEL_CHECK(helMapMemory(file_memory.getHandle(), space.getHandle(),
-							(void *)map_address, phdr->p_offset, map_length,
-							kHelMapProtRead | kHelMapProtExecute | kHelMapShareAtFork,
-							&map_pointer));
+					co_await vmContext->mapFile(map_address,
+							file_memory.dup(), file,
+							phdr->p_offset, map_length, true,
+							kHelMapProtRead | kHelMapProtExecute);
 				}else{
 					throw std::runtime_error("Illegal combination of segment permissions");
 				}
 			}else{
 				// map the segment with write permission into this address space.
-				HelHandle segment_memory;
-				HEL_CHECK(helAllocateMemory(map_length, 0, nullptr, &segment_memory));
+				HelHandle segmentHandle;
+				HEL_CHECK(helAllocateMemory(map_length, 0, nullptr, &segmentHandle));
 
 				void *window;
-				HEL_CHECK(helMapMemory(segment_memory, kHelNullHandle, nullptr,
+				HEL_CHECK(helMapMemory(segmentHandle, kHelNullHandle, nullptr,
 						0, map_length, kHelMapProtRead | kHelMapProtWrite, &window));
 
 				// map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-					void *map_pointer;
-					HEL_CHECK(helMapMemory(segment_memory, space.getHandle(),
-							(void *)map_address, 0, map_length,
-							kHelMapProtRead | kHelMapProtWrite | kHelMapCopyOnWriteAtFork,
-							&map_pointer));
+					co_await vmContext->mapFile(map_address,
+							helix::UniqueDescriptor{segmentHandle}, file,
+							0, map_length, true,
+							kHelMapProtRead | kHelMapProtWrite);
 				}else{
 					throw std::runtime_error("Illegal combination of segment permissions");
 				}
-				HEL_CHECK(helCloseDescriptor(segment_memory));
 
 				// read the segment contents from the file.
 				memset(window, 0, map_length);
@@ -137,12 +134,12 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 		std::string path,
 		std::vector<std::string> args, std::vector<std::string> env,
-		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
+		std::shared_ptr<VmContext> vmContext, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle) {
 	auto exec_file = co_await open(root, workdir, path);
 	if(!exec_file)
 		co_return Error::noSuchFile;
-	auto exec_result = co_await load(exec_file, vm_context->getSpace(), 0);
+	auto exec_result = co_await load(exec_file, vmContext.get(), 0);
 	if(auto error = std::get_if<Error>(&exec_result); error)
 		co_return *error;
 	auto exec_info = std::get<ImageInfo>(exec_result);
@@ -150,27 +147,25 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 	// TODO: Should we really look up the dynamic linker in the current source dir?
 	auto interp_file = co_await open(root, workdir, "/lib/ld-init.so");
 	assert(interp_file);
-	auto interp_result = co_await load(interp_file, vm_context->getSpace(), 0x40000000);
+	auto interp_result = co_await load(interp_file, vmContext.get(), 0x40000000);
 	if(auto error = std::get_if<Error>(&interp_result); error)
 		co_return *error;
 	auto interp_info = std::get<ImageInfo>(interp_result);
 
 	constexpr size_t stack_size = 0x10000;
 
-	// allocate memory for the stack and map it into the remote space.
-	HelHandle stack_memory;
-	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, nullptr, &stack_memory));
+	// Allocate memory for the stack.
+	HelHandle stackHandle;
+	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, nullptr, &stackHandle));
 
-	void *stack_base;
-	HEL_CHECK(helMapMemory(stack_memory, vm_context->getSpace().getHandle(),
-			nullptr, 0, stack_size,
-			kHelMapProtRead | kHelMapProtWrite | kHelMapCopyOnWriteAtFork, &stack_base));
-
-	// map the stack into this process and set it up.
 	void *window;
-	HEL_CHECK(helMapMemory(stack_memory, kHelNullHandle, nullptr,
+	HEL_CHECK(helMapMemory(stackHandle, kHelNullHandle, nullptr,
 			0, stack_size, kHelMapProtRead | kHelMapProtWrite, &window));
-	HEL_CHECK(helCloseDescriptor(stack_memory));
+
+	// Map the stack into the new process and set it up.
+	void *stackBase = co_await vmContext->mapFile(0,
+			helix::UniqueDescriptor{stackHandle}, nullptr,
+			0, stack_size, true, kHelMapProtRead | kHelMapProtWrite);
 
 	// the offset at which the stack image starts.
 	size_t d = stack_size;
@@ -179,7 +174,7 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 	auto pushString = [&] (const std::string &str) -> uintptr_t {
 		d -= str.size() + 1;
 		memcpy(reinterpret_cast<char *>(window) + d, str.c_str(), str.size() + 1);
-		return reinterpret_cast<uintptr_t>(stack_base) + d;
+		return reinterpret_cast<uintptr_t>(stackBase) + d;
 	};
 
 	std::vector<uintptr_t> args_ptrs;
@@ -237,8 +232,8 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe.getHandle(),
-			vm_context->getSpace().getHandle(), kHelAbiSystemV,
-			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
+			vmContext->getSpace().getHandle(), kHelAbiSystemV,
+			(void *)interp_info.entryIp, (char *)stackBase + d, 0, &thread));
 
 	co_return helix::UniqueDescriptor{thread};
 }
