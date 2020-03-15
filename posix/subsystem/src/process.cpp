@@ -36,7 +36,6 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 
 	for(const auto &entry : original->_areaTree) {
 		const auto &[address, area] = entry;
-		std::cout << "posix: forking area " << (void *)address << std::endl;
 
 		helix::UniqueDescriptor copyView;
 		if(area.copyOnWrite) {
