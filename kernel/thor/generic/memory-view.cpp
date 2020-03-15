@@ -177,6 +177,10 @@ void MemoryView::resize(size_t newLength) {
 	frigg::panicLogger() << "MemoryView does not support resize!" << frigg::endLog;
 }
 
+void MemoryView::fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+	receiver.set_done({kErrIllegalObject, nullptr});
+}
+
 void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
 		execution::any_receiver<Error> receiver) {
 	receiver.set_done(lockRange(offset, size));
@@ -1267,6 +1271,286 @@ bool IndirectMemory::SlotObserver::observeEviction(uintptr_t offset, size_t leng
 		EvictNode *node) {
 	assert(!"TODO: implement eviction of IndirectMemory");
 	__builtin_trap();
+}
+
+// --------------------------------------------------------
+// CopyOnWriteMemory
+// --------------------------------------------------------
+
+CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<MemoryView> view,
+		uintptr_t offset, size_t length,
+		frigg::SharedPtr<CowChain> chain)
+: _view{std::move(view)}, _viewOffset{offset}, _length{length}, _copyChain{std::move(chain)},
+		_ownedPages{*kernelAlloc} {
+	assert(length);
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(length & (kPageSize - 1)));
+}
+
+size_t CopyOnWriteMemory::getLength() {
+	return _length;
+}
+
+void CopyOnWriteMemory::fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+	// Note that locked pages require special attention during CoW: as we cannot
+	// replace them by copies, we have to copy them eagerly.
+	// Therefore, they are special-cased below.
+
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	// Create a new CowChain for both the original and the forked mapping.
+	// To correct handle locks pages, we move only non-locked pages from
+	// the original mapping to the new chain.
+	auto newChain = frigg::makeShared<CowChain>(*kernelAlloc, _copyChain);
+
+	// Update the original mapping
+	_copyChain = newChain;
+
+	// Create a new mapping in the forked space.
+	auto forked = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+			_view, _viewOffset, _length, newChain);
+
+	// Finally, inspect all copied pages owned by the original mapping.
+	for(size_t pg = 0; pg < _length; pg += kPageSize) {
+		auto osIt = _ownedPages.find(pg >> kPageShift);
+
+		if(!osIt)
+			continue;
+		assert(osIt->state == CowState::hasCopy);
+
+		// The page is locked. We *need* to keep it in the old address space.
+		if(osIt->lockCount /*|| disableCow */) {
+			// Allocate a new physical page for a copy.
+			auto copyPhysical = physicalAllocator->allocate(kPageSize);
+			assert(copyPhysical != PhysicalAddr(-1) && "OOM");
+
+			// As the page is locked anyway, we can just copy it synchronously.
+			PageAccessor lockedAccessor{osIt->physical};
+			PageAccessor copyAccessor{copyPhysical};
+			memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
+
+			// Update the chains.
+			auto fsIt = forked->_ownedPages.insert(pg >> kPageShift);
+			fsIt->state = CowState::hasCopy;
+			fsIt->physical = copyPhysical;
+		}else{
+			auto physical = osIt->physical;
+			assert(physical != PhysicalAddr(-1));
+
+			// Update the chains.
+			auto pageOffset = _viewOffset + pg;
+			auto newIt = newChain->_pages.insert(pageOffset >> kPageShift,
+					PhysicalAddr(-1));
+			_ownedPages.erase(pg >> kPageShift);
+			newIt->store(physical, std::memory_order_relaxed);
+		}
+	}
+
+	execution::detach([] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
+			execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) -> coroutine<void> {
+			co_await self->_evictQueue.evictRange(0, self->_length);
+			receiver.set_done({kErrSuccess, std::move(forked)});
+	}(this, std::move(forked), receiver));
+}
+
+void CopyOnWriteMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
+	_evictQueue.addObserver(std::move(observer));
+}
+
+void CopyOnWriteMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
+	_evictQueue.removeObserver(observer);
+}
+
+Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
+	frigg::panicLogger() << "CopyOnWriteMemory does not support synchronous lockRange()"
+			<< frigg::endLog;
+}
+
+void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
+		execution::any_receiver<Error> receiver) {
+	// For now, it is enough to populate the range, as pages can only be evicted from
+	// the root of the CoW chain, but copies are never evicted.
+	execution::detach([] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
+			execution::any_receiver<Error> receiver) -> coroutine<void> {
+		size_t progress = 0;
+		while(progress < size) {
+			auto offset = overallOffset + progress;
+
+			frigg::SharedPtr<CowChain> chain;
+			frigg::SharedPtr<MemoryView> view;
+			uintptr_t viewOffset;
+			{
+				// If the page is present in our private chain, we just return it.
+				auto irqLock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&self->_mutex);
+
+				if(auto it = self->_ownedPages.find(offset >> kPageShift); it) {
+					assert(it->state == CowState::hasCopy);
+					assert(it->physical != PhysicalAddr(-1));
+
+					it->lockCount++;
+					progress += kPageSize;
+					continue;
+				}
+
+				chain = self->_copyChain;
+				view = self->_view;
+				viewOffset = self->_viewOffset;
+
+				// Otherwise we need to copy from the chain or from the root view.
+				auto it = self->_ownedPages.insert(offset >> kPageShift);
+				it->state = CowState::inProgress;
+			}
+
+			PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
+			assert(physical != PhysicalAddr(-1) && "OOM");
+			PageAccessor accessor{physical};
+
+			// Try to copy from a descendant CoW chain.
+			auto pageOffset = viewOffset + offset;
+			while(chain) {
+				auto irqLock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&chain->_mutex);
+
+				if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+					// We can just copy synchronously here -- the descendant is not evicted.
+					auto srcPhysical = it->load(std::memory_order_relaxed);
+					assert(srcPhysical != PhysicalAddr(-1));
+					auto srcAccessor = PageAccessor{srcPhysical};
+					memcpy(accessor.get(), srcAccessor.get(), kPageSize);
+					break;
+				}
+
+				chain = chain->_superChain;
+			}
+
+			// Copy from the root view.
+			if(!chain) {
+				co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
+						accessor.get(), kPageSize);
+			}
+
+			// To make CoW unobservable, we first need to evict the page here.
+			// TODO: enable read-only eviction.
+			co_await self->_evictQueue.evictRange(offset, kPageSize);
+
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&self->_mutex);
+
+			auto cowIt = self->_ownedPages.find(offset >> kPageShift);
+			assert(cowIt->state == CowState::inProgress);
+			cowIt->state = CowState::hasCopy;
+			cowIt->physical = physical;
+			cowIt->lockCount++;
+			progress += kPageSize;
+		}
+
+		receiver.set_done(kErrSuccess);
+	}(this, offset, size, receiver));
+}
+
+void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	for(size_t pg = 0; pg < size; pg += kPageSize) {
+		auto it = _ownedPages.find((offset + pg) >> kPageShift);
+		assert(it);
+		assert(it->state == CowState::hasCopy);
+		assert(it->lockCount > 0);
+		it->lockCount--;
+	}
+}
+
+frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t offset) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
+		assert(it->state == CowState::hasCopy);
+		return frg::tuple<PhysicalAddr, CachingMode>{it->physical, CachingMode::null};
+	}
+
+	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+}
+
+bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+	execution::detach([] (CopyOnWriteMemory *self, uintptr_t offset,
+			FetchNode *node) -> coroutine<void> {
+		frigg::SharedPtr<CowChain> chain;
+		frigg::SharedPtr<MemoryView> view;
+		uintptr_t viewOffset;
+		{
+			// If the page is present in our private chain, we just return it.
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&self->_mutex);
+
+			if(auto it = self->_ownedPages.find(offset >> kPageShift); it) {
+				assert(it->state == CowState::hasCopy);
+				assert(it->physical != PhysicalAddr(-1));
+
+				completeFetch(node, kErrSuccess, it->physical, kPageSize, CachingMode::null);
+				callbackFetch(node);
+				co_return;
+			}
+
+			chain = self->_copyChain;
+			view = self->_view;
+			viewOffset = self->_viewOffset;
+
+			// Otherwise we need to copy from the chain or from the root view.
+			auto it = self->_ownedPages.insert(offset >> kPageShift);
+			it->state = CowState::inProgress;
+		}
+
+		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
+		assert(physical != PhysicalAddr(-1) && "OOM");
+		PageAccessor accessor{physical};
+
+		// Try to copy from a descendant CoW chain.
+		auto pageOffset = viewOffset + offset;
+		while(chain) {
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&chain->_mutex);
+
+			if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+				// We can just copy synchronously here -- the descendant is not evicted.
+				auto srcPhysical = it->load(std::memory_order_relaxed);
+				assert(srcPhysical != PhysicalAddr(-1));
+				auto srcAccessor = PageAccessor{srcPhysical};
+				memcpy(accessor.get(), srcAccessor.get(), kPageSize);
+				break;
+			}
+
+			chain = chain->_superChain;
+		}
+
+		// Copy from the root view.
+		if(!chain) {
+			co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
+					accessor.get(), kPageSize);
+		}
+
+		// To make CoW unobservable, we first need to evict the page here.
+		// TODO: enable read-only eviction.
+		co_await self->_evictQueue.evictRange(offset, kPageSize);
+
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&self->_mutex);
+
+		auto cowIt = self->_ownedPages.find(offset >> kPageShift);
+		assert(cowIt->state == CowState::inProgress);
+		cowIt->state = CowState::hasCopy;
+		cowIt->physical = physical;
+		completeFetch(node, kErrSuccess, cowIt->physical, kPageSize, CachingMode::null);
+		callbackFetch(node);
+	}(this, offset, node));
+	return false;
+}
+
+void CopyOnWriteMemory::markDirty(uintptr_t, size_t) {
+	// We do not need to track dirty pages.
 }
 
 } // namespace thor

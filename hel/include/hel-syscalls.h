@@ -92,6 +92,15 @@ extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helCopyOnWrite(HelHandle memoryHandle,
+		uintptr_t offset, size_t size, HelHandle *outHandle) {
+	HelWord outWord;
+	HelError error = helSyscall3_1(kHelCallCopyOnWrite, (HelWord)memoryHandle,
+			(HelWord)offset, (HelWord)size, &outWord);
+	*outHandle = (HelHandle)outWord;
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helAccessPhysical(uintptr_t physical,
 		size_t size, HelHandle *handle) {
 	HelWord hel_handle;
@@ -124,6 +133,14 @@ extern inline __attribute__ (( always_inline )) HelError helCreateSliceView(HelH
 	HelError error = helSyscall4_1(kHelCallCreateSliceView, (HelWord)bundle,
 			(HelWord)offset, (HelWord)size, (HelWord)flags, &hel_handle);
 	*handle = (HelHandle)hel_handle;
+	return error;
+};
+
+extern inline __attribute__ (( always_inline )) HelError helForkMemory(HelHandle handle,
+		HelHandle *out_handle) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallForkMemory, (HelWord)handle, &handle_word);
+	*out_handle = (HelHandle)handle_word;
 	return error;
 };
 

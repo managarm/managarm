@@ -597,6 +597,11 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = backing_handle;
 		*image.out1() = frontal_handle;
 	} break;
+	case kHelCallCopyOnWrite: {
+		HelHandle handle;
+		*image.error() = helCopyOnWrite((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2, &handle);
+		*image.out0() = handle;
+	} break;
 	case kHelCallAccessPhysical: {
 		HelHandle handle;
 		*image.error() = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, &handle);
@@ -616,6 +621,11 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateSliceView((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
 				(uint32_t)arg3, &handle);
 		*image.out0() = handle;
+	} break;
+	case kHelCallForkMemory: {
+		HelHandle forkedHandle;
+		*image.error() = helForkMemory((HelHandle)arg0, &forkedHandle);
+		*image.out0() = forkedHandle;
 	} break;
 	case kHelCallCreateSpace: {
 		HelHandle handle;

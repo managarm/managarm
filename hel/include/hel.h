@@ -34,8 +34,10 @@ enum {
 	kHelCallAllocateMemory = 51,
 	kHelCallResizeMemory = 83,
 	kHelCallCreateManagedMemory = 64,
+	kHelCallCopyOnWrite = 39,
 	kHelCallAccessPhysical = 30,
 	kHelCallCreateSliceView = 88,
+	kHelCallForkMemory = 40,
 	kHelCallCreateSpace = 27,
 	kHelCallCreateIndirectMemory = 45,
 	kHelCallAlterMemoryIndirection = 52,
@@ -461,6 +463,8 @@ HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags,
 HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t new_size);
 HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle);
+HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle memory,
+		uintptr_t offset, size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
 		size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle);
@@ -468,6 +472,7 @@ HEL_C_LINKAGE HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_
 		HelHandle memoryHandle, uintptr_t offset, size_t size);
 HEL_C_LINKAGE HelError helCreateSliceView(HelHandle bundle, uintptr_t offset, size_t size,
 		uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helForkMemory(HelHandle handle, HelHandle *forked);
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
 HEL_C_LINKAGE HelError helForkSpace(HelHandle handle, HelHandle *forked);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
@@ -543,6 +548,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Illegal syscall";
 	case kHelErrIllegalArgs:
 		return "Illegal arguments";
+	case kHelErrUnsupportedOperation:
+		return "Unsupported operation";
 	case kHelErrNoDescriptor:
 		return "No such descriptor";
 	case kHelErrBadDescriptor:

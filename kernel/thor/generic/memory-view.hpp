@@ -349,6 +349,8 @@ public:
 
 	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
 
+	virtual void fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver);
+
 	// Add/remove memory observers. These will be notified of page evictions.
 	virtual void addObserver(smarter::shared_ptr<MemoryObserver> observer) = 0;
 	virtual void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) = 0;
@@ -568,6 +570,62 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_
 bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *pointer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
+// ----------------------------------------------------------------------------------
+// Sender boilerplate for copyFromView()
+// ----------------------------------------------------------------------------------
+
+template<typename R>
+struct CopyFromViewOperation;
+
+struct [[nodiscard]] CopyFromViewSender {
+	template<typename R>
+	friend CopyFromViewOperation<R>
+	connect(CopyFromViewSender sender, R receiver) {
+		return {sender, std::move(receiver)};
+	}
+
+	MemoryView *view;
+	uintptr_t offset;
+	void *pointer;
+	size_t size;
+};
+
+inline CopyFromViewSender copyFromView(MemoryView *view, uintptr_t offset,
+		void *pointer, size_t size) {
+	return {view, offset, pointer, size};
+}
+
+template<typename R>
+struct CopyFromViewOperation {
+	CopyFromViewOperation(CopyFromViewSender s, R receiver)
+	: s_{s}, receiver_{std::move(receiver)} { }
+
+	CopyFromViewOperation(const CopyFromViewOperation &) = delete;
+
+	CopyFromViewOperation &operator= (const CopyFromViewOperation &) = delete;
+
+	void start() {
+		auto complete = [] (CopyFromBundleNode *base) {
+			auto op = frg::container_of(base, &CopyFromViewOperation::node_);
+			op->receiver_.set_done();
+		};
+		if(copyFromBundle(s_.view, s_.offset, s_.pointer, s_.size, &node_, complete))
+			receiver_.set_done();
+	}
+
+private:
+	CopyFromViewSender s_;
+	R receiver_;
+	CopyFromBundleNode node_;
+};
+
+inline execution::sender_awaiter<CopyFromViewSender, void>
+operator co_await(CopyFromViewSender sender) {
+	return {sender};
+}
+
+// ----------------------------------------------------------------------------------
+
 struct HardwareMemory final : MemoryView {
 	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
 	HardwareMemory(const HardwareMemory &) = delete;
@@ -774,6 +832,62 @@ private:
 
 	frigg::TicketLock mutex_;
 	frg::vector<smarter::shared_ptr<IndirectionSlot>, KernelAlloc> indirections_;
+};
+
+struct CowChain {
+	CowChain(frigg::SharedPtr<CowChain> chain);
+
+	~CowChain();
+
+// TODO: Either this private again or make this class POD-like.
+	frigg::TicketLock _mutex;
+
+	frigg::SharedPtr<CowChain> _superChain;
+	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
+};
+
+struct CopyOnWriteMemory final : MemoryView /*, MemoryObserver */ {
+public:
+	CopyOnWriteMemory(frigg::SharedPtr<MemoryView> view,
+			uintptr_t offset, size_t length,
+			frigg::SharedPtr<CowChain> chain = nullptr);
+	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
+
+	CopyOnWriteMemory &operator= (const CopyOnWriteMemory &) = delete;
+
+	size_t getLength() override;
+	void fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) override;
+	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
+	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
+	void asyncLockRange(uintptr_t offset, size_t size,
+			execution::any_receiver<Error> receiver) override;
+	void unlockRange(uintptr_t offset, size_t size) override;
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	void markDirty(uintptr_t offset, size_t size) override;
+
+private:
+	enum class CowState {
+		null,
+		inProgress,
+		hasCopy
+	};
+
+	struct CowPage {
+		PhysicalAddr physical = -1;
+		CowState state = CowState::null;
+		unsigned int lockCount = 0;
+	};
+
+	frigg::TicketLock _mutex;
+
+	frigg::SharedPtr<MemoryView> _view;
+	uintptr_t _viewOffset;
+	size_t _length;
+	frigg::SharedPtr<CowChain> _copyChain;
+	frg::rcu_radixtree<CowPage, KernelAlloc> _ownedPages;
+	EvictionQueue _evictQueue;
 };
 
 } // namespace thor

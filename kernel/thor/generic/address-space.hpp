@@ -386,18 +386,6 @@ private:
 	frigg::TicketLock _evictMutex;
 };
 
-struct CowChain {
-	CowChain(frigg::SharedPtr<CowChain> chain);
-
-	~CowChain();
-
-// TODO: Either this private again or make this class POD-like.
-	frigg::TicketLock _mutex;
-
-	frigg::SharedPtr<CowChain> _superChain;
-	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
-};
-
 struct CowMapping : Mapping, MemoryObserver {
 	friend struct AddressSpace;
 
