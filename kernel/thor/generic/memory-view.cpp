@@ -1433,7 +1433,7 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 
 			// To make CoW unobservable, we first need to evict the page here.
 			// TODO: enable read-only eviction.
-			co_await self->_evictQueue.evictRange(offset, kPageSize);
+			co_await self->_evictQueue.evictRange(offset & ~(kPageSize - 1), kPageSize);
 
 			auto irqLock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
