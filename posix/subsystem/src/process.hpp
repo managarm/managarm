@@ -27,7 +27,7 @@ struct VmContext {
 	}
 
 	// TODO: Pass abstract instead of hel flags to this function?
-	async::result<void *> mapFile(helix::UniqueDescriptor memory,
+	async::result<void *> mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 			smarter::shared_ptr<File, FileHandle> file,
 			intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags);
 

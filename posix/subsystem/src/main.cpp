@@ -554,6 +554,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 			nativeFlags |= kHelMapDropAtFork;
 
+			uintptr_t hint = 0;
+			if(req.flags() & MAP_FIXED)
+				hint = req.address_hint();
+
 			void *address;
 			if(req.flags() & MAP_ANONYMOUS) {
 				assert(req.fd() == -1);
@@ -563,14 +567,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				HelHandle handle;
 				HEL_CHECK(helAllocateMemory(req.size(), 0, nullptr, &handle));
 
-				address = co_await self->vmContext()->mapFile(
+				address = co_await self->vmContext()->mapFile(hint,
 						helix::UniqueDescriptor{handle}, nullptr,
 						0, req.size(), copyOnWrite, nativeFlags);
 			}else{
 				auto file = self->fileContext()->getFile(req.fd());
 				assert(file && "Illegal FD for VM_MAP");
 				auto memory = co_await file->accessMemory();
-				address = co_await self->vmContext()->mapFile(
+				address = co_await self->vmContext()->mapFile(hint,
 						std::move(memory), std::move(file),
 						req.rel_offset(), req.size(), copyOnWrite, nativeFlags);
 			}

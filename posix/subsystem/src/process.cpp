@@ -70,7 +70,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 }
 
 async::result<void *>
-VmContext::mapFile(helix::UniqueDescriptor memory,
+VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		smarter::shared_ptr<File, FileHandle> file,
 		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
@@ -86,10 +86,12 @@ VmContext::mapFile(helix::UniqueDescriptor memory,
 		copyView = helix::UniqueDescriptor{handle};
 
 		HEL_CHECK(helMapMemory(copyView.getHandle(), _space.getHandle(),
-				nullptr, 0, alignedSize, nativeFlags, &pointer));
+				reinterpret_cast<void *>(hint),
+				0, alignedSize, nativeFlags, &pointer));
 	}else{
 		HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
-				nullptr, offset, alignedSize, nativeFlags, &pointer));
+				reinterpret_cast<void *>(hint),
+				offset, alignedSize, nativeFlags, &pointer));
 	}
 //	std::cout << "posix: VM_MAP returns " << pointer << std::endl;
 

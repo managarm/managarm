@@ -150,6 +150,9 @@ message CntRequest {
 	// used by SEEK_ABS, SEEK_REL
 	optional int64 rel_offset = 11;
 
+	// used by VM_MAP
+	optional int64 address_hint = 40;
+
 	// used by FORK
 	optional uint64 child_sp = 8;
 	optional uint64 child_ip = 9;
