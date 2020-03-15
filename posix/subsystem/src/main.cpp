@@ -535,39 +535,44 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			uint32_t native_flags = 0;
+			uint32_t nativeFlags = 0;
+
+			if(req.mode() & PROT_READ)
+				nativeFlags |= kHelMapProtRead;
+			if(req.mode() & PROT_WRITE)
+				nativeFlags |= kHelMapProtWrite;
+			if(req.mode() & PROT_EXEC)
+				nativeFlags |= kHelMapProtExecute;
+
+			bool copyOnWrite;
 			if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_PRIVATE) {
-				native_flags |= kHelMapCopyOnWrite;
+				copyOnWrite = true;
 			}else if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_SHARED) {
-				native_flags |= kHelMapShareAtFork;
+				copyOnWrite = false;
 			}else{
 				throw std::runtime_error("posix: Handle illegal flags in VM_MAP");
 			}
-
-			if(req.mode() & PROT_READ)
-				native_flags |= kHelMapProtRead;
-			if(req.mode() & PROT_WRITE)
-				native_flags |= kHelMapProtWrite;
-			if(req.mode() & PROT_EXEC)
-				native_flags |= kHelMapProtExecute;
+			nativeFlags |= kHelMapDropAtFork;
 
 			void *address;
 			if(req.flags() & MAP_ANONYMOUS) {
 				assert(req.fd() == -1);
 				assert(!req.rel_offset());
 
+				// TODO: this is a waste of memory. Use some always-zero memory instead.
 				HelHandle handle;
 				HEL_CHECK(helAllocateMemory(req.size(), 0, nullptr, &handle));
 
 				address = co_await self->vmContext()->mapFile(
 						helix::UniqueDescriptor{handle}, nullptr,
-						0, req.size(), native_flags);
+						0, req.size(), copyOnWrite, nativeFlags);
 			}else{
 				auto file = self->fileContext()->getFile(req.fd());
 				assert(file && "Illegal FD for VM_MAP");
 				auto memory = co_await file->accessMemory();
-				address = co_await self->vmContext()->mapFile(std::move(memory), std::move(file),
-						req.rel_offset(), req.size(), native_flags);
+				address = co_await self->vmContext()->mapFile(
+						std::move(memory), std::move(file),
+						req.rel_offset(), req.size(), copyOnWrite, nativeFlags);
 			}
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);

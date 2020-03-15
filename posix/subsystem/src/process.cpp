@@ -34,12 +34,33 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 	HEL_CHECK(helForkSpace(original->_space.getHandle(), &space));
 	context->_space = helix::UniqueDescriptor(space);
 
-	for(const auto &entry : context->_areaTree) {
+	for(const auto &entry : original->_areaTree) {
 		const auto &[address, area] = entry;
+		std::cout << "posix: forking area " << (void *)address << std::endl;
+
+		helix::UniqueDescriptor copyView;
+		if(area.copyOnWrite) {
+			HelHandle copyHandle;
+			HEL_CHECK(helForkMemory(area.copyView.getHandle(), &copyHandle));
+			copyView = helix::UniqueDescriptor{copyHandle};
+
+			void *pointer;
+			HEL_CHECK(helMapMemory(copyView.getHandle(), context->_space.getHandle(),
+					reinterpret_cast<void *>(address),
+					0, area.areaSize, area.nativeFlags, &pointer));
+		}else{
+			void *pointer;
+			HEL_CHECK(helMapMemory(area.fileView.getHandle(), context->_space.getHandle(),
+					reinterpret_cast<void *>(address),
+					area.offset, area.areaSize, area.nativeFlags, &pointer));
+		}
+
 		Area copy;
+		copy.copyOnWrite = area.copyOnWrite;
 		copy.areaSize = area.areaSize;
 		copy.nativeFlags = area.nativeFlags;
-		copy.memory = area.memory.dup();
+		copy.fileView = area.fileView.dup();
+		copy.copyView = std::move(copyView);
 		copy.file = area.file;
 		copy.offset = area.offset;
 		context->_areaTree.emplace(address, std::move(copy));
@@ -51,19 +72,30 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 async::result<void *>
 VmContext::mapFile(helix::UniqueDescriptor memory,
 		smarter::shared_ptr<File, FileHandle> file,
-		intptr_t offset, size_t size, uint32_t native_flags) {
-	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
+	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
+	helix::UniqueDescriptor copyView;
 	void *pointer;
-	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
-			nullptr, offset, aligned_size, native_flags, &pointer));
+	if(copyOnWrite) {
+		HelHandle handle;
+		HEL_CHECK(helCopyOnWrite(memory.getHandle(),
+				offset, alignedSize, &handle));
+		copyView = helix::UniqueDescriptor{handle};
+
+		HEL_CHECK(helMapMemory(copyView.getHandle(), _space.getHandle(),
+				nullptr, 0, alignedSize, nativeFlags, &pointer));
+	}else{
+		HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
+				nullptr, offset, alignedSize, nativeFlags, &pointer));
+	}
 //	std::cout << "posix: VM_MAP returns " << pointer << std::endl;
 
 	// Perform some sanity checking.
 	auto address = reinterpret_cast<uintptr_t>(pointer);
-	auto succ = _areaTree.lower_bound(address + aligned_size);
+	auto succ = _areaTree.lower_bound(address + alignedSize);
 	if(succ != _areaTree.begin()) {
 		auto pred = std::prev(succ);
 		assert(pred->first + pred->second.areaSize <= address);
@@ -71,9 +103,11 @@ VmContext::mapFile(helix::UniqueDescriptor memory,
 
 	// Construct the new area.
 	Area area;
-	area.areaSize = aligned_size;
-	area.nativeFlags = native_flags;
-	area.memory = std::move(memory);
+	area.copyOnWrite = copyOnWrite;
+	area.areaSize = alignedSize;
+	area.nativeFlags = nativeFlags;
+	area.fileView = std::move(memory);
+	area.copyView = std::move(copyView);
 	area.file = std::move(file);
 	area.offset = offset;
 	_areaTree.emplace(address, std::move(area));
@@ -91,6 +125,8 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 	assert(it != _areaTree.end());
 	assert(it->second.areaSize == aligned_old_size);
 
+	assert(!it->second.copyOnWrite);
+
 	auto memory = co_await it->second.file->accessMemory();
 
 	// Perform the actual mapping.
@@ -105,6 +141,7 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 
 	// Construct the new area from the old one.
 	Area area;
+	area.copyOnWrite = it->second.copyOnWrite;
 	area.areaSize = aligned_new_size;
 	area.nativeFlags = it->second.nativeFlags;
 	area.file = std::move(it->second.file);
