@@ -116,7 +116,24 @@ async::detached observeThread(std::shared_ptr<Process> self,
 		HEL_CHECK(observe.error());
 		sequence = observe.sequence();
 
-		if(observe.observation() == kHelObserveSuperCall + 1) {
+		if(observe.observation() == kHelObserveSuperCall + 10) {
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			size_t size = gprs[5];
+
+			// TODO: this is a waste of memory. Use some always-zero memory instead.
+			HelHandle handle;
+			HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
+
+			void *address = co_await self->vmContext()->mapFile(0,
+					helix::UniqueDescriptor{handle}, nullptr,
+					0, size, true, kHelMapProtRead | kHelMapProtWrite);
+
+			gprs[4] = kHelErrNone;
+			gprs[5] = reinterpret_cast<uintptr_t>(address);
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + 1) {
 			struct ManagarmProcessData {
 				HelHandle posixLane;
 				void *threadPage;

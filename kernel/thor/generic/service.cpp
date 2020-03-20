@@ -724,7 +724,6 @@ namespace initrd {
 						fileMemory = moduleFile->module->getMemory();
 					}
 
-					auto space = process->_thread->getAddressSpace();
 					frigg::SharedPtr<MemorySlice> slice;
 					if(req.flags() & 1) { // MAP_PRIVATE.
 						auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
@@ -736,6 +735,7 @@ namespace initrd {
 					}
 
 					VirtualAddr address;
+					auto space = process->_thread->getAddressSpace();
 					{
 						AddressSpace::Guard spaceGuard(&space->lock);
 						auto error = space->map(spaceGuard, std::move(slice),
@@ -800,6 +800,33 @@ namespace initrd {
 				frigg::infoLogger() << "\e[31m" "thor: Fault in server "
 						<< _process->name().data() << "\e[39m" << frigg::endLog;
 				return;
+			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
+				// TODO: Use some always-zero memory for private anonymous mappings.
+				auto size = _thread->_executor.general()->rsi;
+				auto fileMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
+				auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+						std::move(fileMemory), 0, size);
+				auto slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
+						std::move(cowMemory), 0, size);
+
+				VirtualAddr address;
+				auto space = _thread->getAddressSpace();
+				{
+					AddressSpace::Guard spaceGuard(&space->lock);
+					auto error = space->map(spaceGuard, std::move(slice),
+							0, 0, size,
+							AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
+							| AddressSpace::kMapProtWrite,
+							&address);
+					// TODO: improve error handling here.
+					assert(!error);
+				}
+
+				_thread->_executor.general()->rdi = kHelErrNone;
+				_thread->_executor.general()->rsi = address;
+				if(auto e = Thread::resumeOther(_thread); e)
+					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+				(*this)();
 			}else if(interrupt == kIntrSuperCall + 1) {
 				AcquireNode node;
 
