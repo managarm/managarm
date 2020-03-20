@@ -1682,10 +1682,13 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 	}
 
 	execution::detach([] (AddressSpaceLockHandle *self, AcquireNode *node) -> coroutine<void> {
-		co_await self->_mapping->lockVirtualRange(self->_address - self->_mapping->address(),
-				self->_length);
-		co_await self->_mapping->populateVirtualRange(self->_address - self->_mapping->address(),
-				self->_length);
+		auto misalign = self->_address & (kPageSize - 1);
+		co_await self->_mapping->lockVirtualRange((self->_address - self->_mapping->address())
+					& ~(kPageSize - 1),
+				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
+		co_await self->_mapping->populateVirtualRange((self->_address - self->_mapping->address())
+					& ~(kPageSize - 1),
+				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
 		self->_active = true;
 		WorkQueue::post(node->_acquired);
 	}(this, node));
@@ -1693,6 +1696,9 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 }
 
 PhysicalAddr AddressSpaceLockHandle::getPhysical(size_t offset) {
+	assert(_active);
+	assert(offset < _length);
+
 	return _resolvePhysical(_address + offset);
 }
 
