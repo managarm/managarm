@@ -103,8 +103,8 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(AddressSpaceLockHandle &lock, ptrdif
 	static_assert(sizeof(T) < kPageSize, "Type too large for DirectSpaceAccessor");
 	assert(!(lock.address() % sizeof(T)));
 	
-	_misalign = (lock.address() + offset) % kPageSize;
-	auto physical = lock.getPhysical(offset - _misalign);
+	_misalign = (lock.address() + offset) & (kPageSize - 1);
+	auto physical = lock.getPhysical(offset);
 	assert(physical != PhysicalAddr(-1));
 	_accessor = PageAccessor{physical};
 }
