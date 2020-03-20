@@ -22,15 +22,15 @@ namespace thor {
 	} __attribute__((packed));
 
 	struct VirtualizedCpu {
-			virtual HelVmexitReason run();
-			virtual void storeRegs(const HelX86VirtualizationRegs *regs);
-			virtual void loadRegs(HelX86VirtualizationRegs *res);
+			virtual HelVmexitReason run() = 0;
+			virtual void storeRegs(const HelX86VirtualizationRegs *regs) = 0;
+			virtual void loadRegs(HelX86VirtualizationRegs *res) = 0;
 	};
 
 	struct VirtualizedPageSpace {
-		virtual Error store(uintptr_t guestAddress, size_t len, const void* buffer);
-		virtual Error load(uintptr_t guestAddress, size_t len, void* buffer);
+		virtual Error store(uintptr_t guestAddress, size_t len, const void* buffer) = 0;
+		virtual Error load(uintptr_t guestAddress, size_t len, void* buffer) = 0;
 
-		virtual Error map(uint64_t guestAddress, int flags);
+		virtual Error map(uint64_t guestAddress, int flags) = 0;
 	};
 }
