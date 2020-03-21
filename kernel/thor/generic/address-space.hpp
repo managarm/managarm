@@ -502,7 +502,7 @@ public:
 
 	smarter::shared_ptr<Mapping> getMapping(VirtualAddr address);
 
-	Error map(Guard &guard, frigg::UnsafePtr<MemorySlice> view,
+	Error map(frigg::UnsafePtr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 

@@ -457,10 +457,7 @@ namespace initrd {
 			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					fileTableMemory, 0, 0x1000);
 
-			auto irq_lock = frigg::guard(&irqMutex());
-			AddressSpace::Guard space_guard(&_thread->getAddressSpace()->lock);
-
-			auto error = _thread->getAddressSpace()->map(space_guard, frigg::move(view),
+			auto error = _thread->getAddressSpace()->map(frigg::move(view),
 					0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
 					&clientFileTable);
@@ -736,15 +733,12 @@ namespace initrd {
 
 					VirtualAddr address;
 					auto space = process->_thread->getAddressSpace();
-					{
-						AddressSpace::Guard spaceGuard(&space->lock);
-						auto error = space->map(spaceGuard, std::move(slice),
-								req.address_hint(), 0, req.size(),
-								AddressSpace::kMapFixed | protFlags,
-								&address);
-						// TODO: improve error handling here.
-						assert(!error);
-					}
+					auto error = space->map(std::move(slice),
+							req.address_hint(), 0, req.size(),
+							AddressSpace::kMapFixed | protFlags,
+							&address);
+					// TODO: improve error handling here.
+					assert(!error);
 
 					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -811,16 +805,13 @@ namespace initrd {
 
 				VirtualAddr address;
 				auto space = _thread->getAddressSpace();
-				{
-					AddressSpace::Guard spaceGuard(&space->lock);
-					auto error = space->map(spaceGuard, std::move(slice),
-							0, 0, size,
-							AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
-							| AddressSpace::kMapProtWrite,
-							&address);
-					// TODO: improve error handling here.
-					assert(!error);
-				}
+				auto error = space->map(std::move(slice),
+						0, 0, size,
+						AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
+						| AddressSpace::kMapProtWrite,
+						&address);
+				// TODO: improve error handling here.
+				assert(!error);
 
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = address;

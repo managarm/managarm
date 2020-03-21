@@ -761,15 +761,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	if(flags & kHelMapDontRequireBacking)
 		map_flags |= AddressSpace::kMapDontRequireBacking;
 
-	Error error;
 	VirtualAddr actual_address;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard space_guard(&space->lock);
-
-		error = space->map(space_guard, slice, (VirtualAddr)pointer, offset, length,
-				map_flags, &actual_address);
-	}
+	Error error = space->map(slice, (VirtualAddr)pointer, offset, length,
+			map_flags, &actual_address);
 
 	if(error == kErrBufferTooSmall) {
 		return kHelErrBufferTooSmall;

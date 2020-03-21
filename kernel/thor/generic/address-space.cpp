@@ -444,15 +444,16 @@ smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
 	return _findMapping(address);
 }
 
-Error VirtualSpace::map(Guard &guard,
-		frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address,
+Error VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
-	assert(guard.protects(&lock));
 	assert(length);
 	assert(!(length % kPageSize));
 
 	if(offset + length > slice->length())
 		return kErrBufferTooSmall;
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	VirtualSpace::Guard space_guard(&lock);
 
 	VirtualAddr target;
 	if(flags & kMapFixed) {

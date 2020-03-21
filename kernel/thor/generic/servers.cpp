@@ -201,20 +201,14 @@ ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> spac
 
 			VirtualAddr actual_address;
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				auto irq_lock = frigg::guard(&irqMutex());
-				AddressSpace::Guard space_guard(&space->lock);
-
-				auto error = space->map(space_guard, frigg::move(view),
+				auto error = space->map(frigg::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtWrite,
 						&actual_address);
 				assert(!error);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				auto irq_lock = frigg::guard(&irqMutex());
-				AddressSpace::Guard space_guard(&space->lock);
-
-				auto error = space->map(space_guard, frigg::move(view),
+				auto error = space->map(frigg::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtExecute,
@@ -275,15 +269,11 @@ void executeModule(frg::string_view name, MfsRegular *module,
 			stack_memory, 0, stack_size);
 
 	VirtualAddr stack_base;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard space_guard(&space->lock);
-
-		space->map(space_guard, frigg::move(stack_view), 0, 0, stack_size,
-				AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
-					| AddressSpace::kMapProtWrite,
-				&stack_base);
-	}
+	Error error = space->map(frigg::move(stack_view), 0, 0, stack_size,
+			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
+				| AddressSpace::kMapProtWrite,
+			&stack_base);
+	assert(!error);
 
 	// build the stack data area (containing program arguments,
 	// environment strings and related data).
