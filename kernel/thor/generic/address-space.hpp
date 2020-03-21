@@ -6,6 +6,19 @@
 
 namespace thor {
 
+struct VirtualSpace;
+
+struct VirtualOperations {
+	virtual void retire(RetireNode *node) = 0;
+
+	virtual bool submitShootdown(ShootNode *node) = 0;
+
+	virtual void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+			uint32_t flags, CachingMode cachingMode) = 0;
+	virtual PageStatus unmapSingle4k(VirtualAddr pointer) = 0;
+	virtual bool isMapped(VirtualAddr pointer) = 0;
+};
+
 struct Hole {
 	Hole(VirtualAddr address, size_t length)
 	: _address{address}, _length{length}, largestHole{0} { }
@@ -131,7 +144,7 @@ struct Mapping : MemoryObserver {
 
 	Mapping &operator= (const Mapping &) = delete;
 
-	AddressSpace *owner() {
+	VirtualSpace *owner() {
 		return _owner.get();
 	}
 
@@ -147,7 +160,7 @@ struct Mapping : MemoryObserver {
 		return _flags;
 	}
 
-	void tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address);
+	void tie(smarter::shared_ptr<VirtualSpace> owner, VirtualAddr address);
 
 	void protect(MappingFlags flags);
 
@@ -344,7 +357,7 @@ protected:
 	uint32_t compilePageFlags();
 
 private:
-	smarter::shared_ptr<AddressSpace> _owner;
+	smarter::shared_ptr<VirtualSpace> _owner;
 	VirtualAddr _address;
 	size_t _length;
 	MappingFlags _flags;
@@ -390,7 +403,7 @@ using MappingTree = frg::rbtree<
 >;
 
 struct FaultNode {
-	friend struct AddressSpace;
+	friend struct VirtualSpace;
 	friend struct Mapping;
 
 	FaultNode()
@@ -421,7 +434,7 @@ private:
 };
 
 struct AddressProtectNode {
-	friend struct AddressSpace;
+	friend struct VirtualSpace;
 
 	void setup(Worklet *completion) {
 		_completion = completion;
@@ -438,7 +451,7 @@ private:
 };
 
 struct AddressUnmapNode {
-	friend struct AddressSpace;
+	friend struct VirtualSpace;
 
 	void setup(Worklet *completion) {
 		_completion = completion;
@@ -450,18 +463,15 @@ struct AddressUnmapNode {
 
 private:
 	Worklet *_completion;
-	AddressSpace *_space;
+	VirtualSpace *_space;
 	smarter::shared_ptr<Mapping> _mapping;
 	Worklet _worklet;
 	ShootNode _shootNode;
 };
 
-struct AddressSpace : smarter::crtp_counter<AddressSpace, BindableHandle> {
+struct VirtualSpace {
 	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;
-
-	// Silence Clang warning about hidden overloads.
-	using smarter::crtp_counter<AddressSpace, BindableHandle>::dispose;
 
 public:
 	typedef frigg::TicketLock Lock;
@@ -484,27 +494,11 @@ public:
 		kFaultExecute = (1 << 2)
 	};
 
-	static smarter::shared_ptr<AddressSpace, BindableHandle>
-	constructHandle(smarter::shared_ptr<AddressSpace> ptr) {
-		auto space = ptr.get();
-		space->setup(smarter::adopt_rc, ptr.ctr(), 1);
-		ptr.release();
-		return smarter::shared_ptr<AddressSpace, BindableHandle>{smarter::adopt_rc, space, space};
-	}
+	VirtualSpace(VirtualOperations *ops);
 
-	static smarter::shared_ptr<AddressSpace, BindableHandle> create() {
-		auto ptr = smarter::allocate_shared<AddressSpace>(Allocator{});
-		ptr->selfPtr = ptr;
-		return constructHandle(std::move(ptr));
-	}
+	~VirtualSpace();
 
-	static void activate(smarter::shared_ptr<AddressSpace, BindableHandle> space);
-
-	AddressSpace();
-
-	~AddressSpace();
-
-	void dispose(BindableHandle);
+	void retire();
 
 	smarter::shared_ptr<Mapping> getMapping(VirtualAddr address);
 
@@ -536,7 +530,7 @@ public:
 			return {sender, std::move(receiver)};
 		}
 
-		AddressSpace *self;
+		VirtualSpace *self;
 		VirtualAddr address;
 		size_t size;
 	};
@@ -580,10 +574,9 @@ public:
 
 	Lock lock;
 
-	Futex futexSpace;
+	smarter::borrowed_ptr<VirtualSpace> selfPtr;
 
 private:
-
 	// Allocates a new mapping of the given length somewhere in the address space.
 	VirtualAddr _allocate(size_t length, MapFlags flags);
 
@@ -594,14 +587,78 @@ private:
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
 
-	smarter::borrowed_ptr<AddressSpace> selfPtr;
+	VirtualOperations *_ops;
 
 	HoleTree _holes;
 	MappingTree _mappings;
 
-	ClientPageSpace _pageSpace;
-
 	int64_t _residuentSize = 0;
+};
+
+struct AddressSpace : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {
+	friend struct AddressSpaceLockHandle;
+	friend struct Mapping;
+
+	// Silence Clang warning about hidden overloads.
+	using smarter::crtp_counter<AddressSpace, BindableHandle>::dispose;
+
+	struct Operations : VirtualOperations {
+		Operations(AddressSpace *space)
+		: space_{space} { }
+
+		void retire(RetireNode *node) override {
+			return space_->pageSpace_.retire(node);
+		}
+
+		bool submitShootdown(ShootNode *node) override {
+			return space_->pageSpace_.submitShootdown(node);
+		}
+
+		void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+				uint32_t flags, CachingMode cachingMode) override {
+			space_->pageSpace_.mapSingle4k(pointer, physical, true, flags, cachingMode);
+		}
+
+		PageStatus unmapSingle4k(VirtualAddr pointer) override {
+			return space_->pageSpace_.unmapSingle4k(pointer);
+		}
+
+		bool isMapped(VirtualAddr pointer) override {
+			return space_->pageSpace_.isMapped(pointer);
+		}
+
+	private:
+		AddressSpace *space_;
+	};
+
+public:
+	static smarter::shared_ptr<AddressSpace, BindableHandle>
+	constructHandle(smarter::shared_ptr<AddressSpace> ptr) {
+		auto space = ptr.get();
+		space->setup(smarter::adopt_rc, ptr.ctr(), 1);
+		ptr.release();
+		return smarter::shared_ptr<AddressSpace, BindableHandle>{smarter::adopt_rc, space, space};
+	}
+
+	static smarter::shared_ptr<AddressSpace, BindableHandle> create() {
+		auto ptr = smarter::allocate_shared<AddressSpace>(Allocator{});
+		ptr->selfPtr = ptr;
+		return constructHandle(std::move(ptr));
+	}
+
+	static void activate(smarter::shared_ptr<AddressSpace, BindableHandle> space);
+
+	AddressSpace();
+
+	~AddressSpace();
+
+	void dispose(BindableHandle);
+
+	Futex futexSpace;
+
+private:
+	Operations ops_;
+	ClientPageSpace pageSpace_;
 };
 
 struct MemoryViewLockHandle {

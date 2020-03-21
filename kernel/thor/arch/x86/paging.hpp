@@ -60,6 +60,18 @@ private:
 	void *_pointer;
 };
 
+struct RetireNode {
+	friend struct PageSpace;
+	friend struct PageBinding;
+
+	void setup(Worklet *worklet) {
+		_worklet = worklet;
+	}
+
+private:
+	Worklet *_worklet;
+};
+
 struct ShootNode {
 	friend struct PageSpace;
 	friend struct PageBinding;
@@ -162,18 +174,6 @@ private:
 };
 
 struct PageSpace {
-	struct RetireNode {
-		friend struct PageSpace;
-		friend struct PageBinding;
-
-		void setup(Worklet *worklet) {
-			_worklet = worklet;
-		}
-
-	private:
-		Worklet *_worklet;
-	};
-
 	static void activate(smarter::shared_ptr<PageSpace> space);
 
 	friend struct PageBinding;

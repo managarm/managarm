@@ -21,7 +21,7 @@ namespace {
 
 	constexpr bool disableCow = false;
 
-	void logRss(AddressSpace *space) {
+	void logRss(VirtualSpace *space) {
 		if(!logUsage)
 			return;
 		auto rss = space->rss();
@@ -112,7 +112,7 @@ Mapping::~Mapping() {
 	//frigg::infoLogger() << "\e[31mthor: Mapping is destructed\e[39m" << frigg::endLog;
 }
 
-void Mapping::tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address) {
+void Mapping::tie(smarter::shared_ptr<VirtualSpace> owner, VirtualAddr address) {
 	assert(!_owner);
 	assert(owner);
 	_owner = std::move(owner);
@@ -197,10 +197,10 @@ bool Mapping::touchVirtualPage(TouchVirtualNode *continuation) {
 
 		// TODO: Update RSS, handle dirty pages, etc.
 		auto pageOffset = self->address() + continuation->_offset;
-		self->owner()->_pageSpace.unmapSingle4k(pageOffset & ~(kPageSize - 1));
-		self->owner()->_pageSpace.mapSingle4k(pageOffset & ~(kPageSize - 1),
+		self->owner()->_ops->unmapSingle4k(pageOffset & ~(kPageSize - 1));
+		self->owner()->_ops->mapSingle4k(pageOffset & ~(kPageSize - 1),
 				range.get<0>() & ~(kPageSize - 1),
-				true, self->compilePageFlags(), range.get<2>());
+				self->compilePageFlags(), range.get<2>());
 		self->owner()->_residuentSize += kPageSize;
 		logRss(self->owner());
 
@@ -233,9 +233,9 @@ void Mapping::install() {
 		auto physicalRange = _view->peekRange(_viewOffset + progress);
 
 		VirtualAddr vaddr = address() + progress;
-		assert(!owner()->_pageSpace.isMapped(vaddr));
+		assert(!owner()->_ops->isMapped(vaddr));
 		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-			owner()->_pageSpace.mapSingle4k(vaddr, physicalRange.get<0>(), true,
+			owner()->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
 					pageFlags, physicalRange.get<1>());
 			owner()->_residuentSize += kPageSize;
 			logRss(owner());
@@ -262,13 +262,13 @@ void Mapping::reinstall() {
 		auto physicalRange = _view->peekRange(_viewOffset + progress);
 
 		VirtualAddr vaddr = address() + progress;
-		auto status = owner()->_pageSpace.unmapSingle4k(vaddr);
+		auto status = owner()->_ops->unmapSingle4k(vaddr);
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
 			_view->markDirty(_viewOffset + progress, kPageSize);
 		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-			owner()->_pageSpace.mapSingle4k(vaddr, physicalRange.get<0>(), true,
+			owner()->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
 					pageFlags, physicalRange.get<1>());
 		}else{
 			owner()->_residuentSize -= kPageSize;
@@ -282,7 +282,7 @@ void Mapping::uninstall() {
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
-		auto status = owner()->_pageSpace.unmapSingle4k(vaddr);
+		auto status = owner()->_ops->unmapSingle4k(vaddr);
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
@@ -327,7 +327,7 @@ bool Mapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 
 	// Unmap the memory range.
 	for(size_t pg = 0; pg < shoot_size; pg += kPageSize) {
-		auto status = owner()->_pageSpace.unmapSingle4k(address() + shoot_offset + pg);
+		auto status = owner()->_ops->unmapSingle4k(address() + shoot_offset + pg);
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
@@ -354,7 +354,7 @@ bool Mapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 	closure->node.address = address() + shoot_offset;
 	closure->node.size = shoot_size;
 	closure->node.setup(&closure->worklet);
-	if(!owner()->_pageSpace.submitShootdown(&closure->node))
+	if(!owner()->_ops->submitShootdown(&closure->node))
 		return false;
 
 	frigg::destruct(*kernelAlloc, closure);
@@ -381,22 +381,18 @@ CowChain::~CowChain() {
 }
 
 // --------------------------------------------------------
-// AddressSpace
+// VirtualSpace
 // --------------------------------------------------------
 
-void AddressSpace::activate(smarter::shared_ptr<AddressSpace, BindableHandle> space) {
-	auto page_space = &space->_pageSpace;
-	PageSpace::activate(smarter::shared_ptr<PageSpace>{space->selfPtr.lock(), page_space});
-}
-
-AddressSpace::AddressSpace() {
+VirtualSpace::VirtualSpace(VirtualOperations *ops)
+: _ops{ops} {
 	auto hole = frigg::construct<Hole>(*kernelAlloc, 0x100000, 0x7ffffff00000);
 	_holes.insert(hole);
 }
 
-AddressSpace::~AddressSpace() {
+VirtualSpace::~VirtualSpace() {
 	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: AddressSpace is destructed\e[39m" << frigg::endLog;
+		frigg::infoLogger() << "\e[31mthor: VirtualSpace is destructed\e[39m" << frigg::endLog;
 
 	while(_holes.get_root()) {
 		auto hole = _holes.get_root();
@@ -405,9 +401,9 @@ AddressSpace::~AddressSpace() {
 	}
 }
 
-void AddressSpace::dispose(BindableHandle) {
+void VirtualSpace::retire() {
 	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: AddressSpace is cleared\e[39m" << frigg::endLog;
+		frigg::infoLogger() << "\e[31mthor: VirtualSpace is cleared\e[39m" << frigg::endLog;
 
 	// TODO: Set some flag to make sure that no mappings are added/deleted.
 	auto mapping = _mappings.first();
@@ -417,8 +413,8 @@ void AddressSpace::dispose(BindableHandle) {
 	}
 
 	struct Closure {
-		smarter::shared_ptr<AddressSpace> self;
-		PageSpace::RetireNode retireNode;
+		smarter::shared_ptr<VirtualSpace> self;
+		RetireNode retireNode;
 		Worklet worklet;
 	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
@@ -438,17 +434,17 @@ void AddressSpace::dispose(BindableHandle) {
 
 		frg::destruct(*kernelAlloc, closure);
 	});
-	_pageSpace.retire(&closure->retireNode);
+	_ops->retire(&closure->retireNode);
 }
 
-smarter::shared_ptr<Mapping> AddressSpace::getMapping(VirtualAddr address) {
+smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
 	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard space_guard(&lock);
+	VirtualSpace::Guard space_guard(&lock);
 
 	return _findMapping(address);
 }
 
-Error AddressSpace::map(Guard &guard,
+Error VirtualSpace::map(Guard &guard,
 		frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
@@ -510,13 +506,13 @@ Error AddressSpace::map(Guard &guard,
 	mapping->tie(selfPtr.lock(), target);
 	_mappings.insert(mapping.get());
 	mapping->install();
-	mapping.release(); // AddressSpace owns one reference.
+	mapping.release(); // VirtualSpace owns one reference.
 
 	*actual_address = target;
 	return kErrSuccess;
 }
 
-bool AddressSpace::protect(VirtualAddr address, size_t length,
+bool VirtualSpace::protect(VirtualAddr address, size_t length,
 		uint32_t flags, AddressProtectNode *node) {
 	std::underlying_type_t<MappingFlags> mappingFlags = 0;
 
@@ -543,7 +539,7 @@ bool AddressSpace::protect(VirtualAddr address, size_t length,
 	}
 
 	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard space_guard(&lock);
+	VirtualSpace::Guard space_guard(&lock);
 
 	auto mapping = _findMapping(address);
 	assert(mapping);
@@ -555,21 +551,21 @@ bool AddressSpace::protect(VirtualAddr address, size_t length,
 	mapping->reinstall();
 
 	node->_worklet.setup([] (Worklet *base) {
-		auto node = frg::container_of(base, &AddressUnmapNode::_worklet);
+		auto node = frg::container_of(base, &AddressProtectNode::_worklet);
 		node->complete();
 	});
 
 	node->_shootNode.address = address;
 	node->_shootNode.size = length;
 	node->_shootNode.setup(&node->_worklet);
-	if(!_pageSpace.submitShootdown(&node->_shootNode))
+	if(!_ops->submitShootdown(&node->_shootNode))
 		return false;
 	return true;
 }
 
-bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
+bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard space_guard(&lock);
+	VirtualSpace::Guard space_guard(&lock);
 
 	auto mapping = _findMapping(address);
 	assert(mapping);
@@ -579,13 +575,13 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	assert(mapping->length() == length);
 	mapping->uninstall();
 
-	static constexpr auto deleteMapping = [] (AddressSpace *space, Mapping *mapping) {
+	static constexpr auto deleteMapping = [] (VirtualSpace *space, Mapping *mapping) {
 		space->_mappings.remove(mapping);
 		mapping->retire();
 		mapping->selfPtr.ctr()->decrement();
 	};
 
-	static constexpr auto closeHole = [] (AddressSpace *space, VirtualAddr address, size_t length) {
+	static constexpr auto closeHole = [] (VirtualSpace *space, VirtualAddr address, size_t length) {
 		// Find the holes that preceede/succeede mapping.
 		Hole *pre;
 		Hole *succ;
@@ -650,7 +646,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 		auto node = frg::container_of(base, &AddressUnmapNode::_worklet);
 
 		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard space_guard(&node->_space->lock);
+		VirtualSpace::Guard space_guard(&node->_space->lock);
 
 		deleteMapping(node->_space, node->_mapping.get());
 		closeHole(node->_space, node->_shootNode.address, node->_shootNode.size);
@@ -662,7 +658,7 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	node->_shootNode.address = address;
 	node->_shootNode.size = length;
 	node->_shootNode.setup(&node->_worklet);
-	if(!_pageSpace.submitShootdown(&node->_shootNode))
+	if(!_ops->submitShootdown(&node->_shootNode))
 		return false;
 
 	deleteMapping(this, mapping.get());
@@ -670,14 +666,14 @@ bool AddressSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	return true;
 }
 
-bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {
+bool VirtualSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {
 	node->_address = address;
 	node->_flags = fault_flags;
 
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard space_guard(&lock);
+		VirtualSpace::Guard space_guard(&lock);
 
 		mapping = _findMapping(address);
 		if(!mapping) {
@@ -689,12 +685,12 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 	node->_mapping = mapping;
 
 	// Here we do the mapping-based fault handling.
-	if(node->_flags & AddressSpace::kFaultWrite)
+	if(node->_flags & VirtualSpace::kFaultWrite)
 		if(!((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
 			node->_resolved = false;
 			return true;
 		}
-	if(node->_flags & AddressSpace::kFaultExecute)
+	if(node->_flags & VirtualSpace::kFaultExecute)
 		if(!((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
 			node->_resolved = false;
 			return true;
@@ -726,7 +722,7 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 	}
 }
 
-smarter::shared_ptr<Mapping> AddressSpace::_findMapping(VirtualAddr address) {
+smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
 	auto current = _mappings.get_root();
 	while(current) {
 		if(address < current->address()) {
@@ -743,7 +739,7 @@ smarter::shared_ptr<Mapping> AddressSpace::_findMapping(VirtualAddr address) {
 	return nullptr;
 }
 
-VirtualAddr AddressSpace::_allocate(size_t length, MapFlags flags) {
+VirtualAddr VirtualSpace::_allocate(size_t length, MapFlags flags) {
 	assert(length > 0);
 	assert((length % kPageSize) == 0);
 //	frigg::infoLogger() << "Allocate virtual memory area"
@@ -793,7 +789,7 @@ VirtualAddr AddressSpace::_allocate(size_t length, MapFlags flags) {
 	}
 }
 
-VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
+VirtualAddr VirtualSpace::_allocateAt(VirtualAddr address, size_t length) {
 	assert(!(address % kPageSize));
 	assert(!(length % kPageSize));
 
@@ -817,7 +813,7 @@ VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
 	return address;
 }
 
-void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
+void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	assert(length);
 	assert(offset + length <= hole->length());
 
@@ -835,6 +831,24 @@ void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	}
 
 	frigg::destruct(*kernelAlloc, hole);
+}
+
+// --------------------------------------------------------
+// AddressSpace
+// --------------------------------------------------------
+
+void AddressSpace::activate(smarter::shared_ptr<AddressSpace, BindableHandle> space) {
+	auto pageSpace = &space->pageSpace_;
+	PageSpace::activate(smarter::shared_ptr<PageSpace>{space->selfPtr.lock(), pageSpace});
+}
+
+AddressSpace::AddressSpace()
+: VirtualSpace{&ops_}, ops_{this} { }
+
+AddressSpace::~AddressSpace() { }
+
+void AddressSpace::dispose(BindableHandle) {
+	retire();
 }
 
 // --------------------------------------------------------
