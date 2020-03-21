@@ -506,8 +506,6 @@ public:
 
 	void dispose(BindableHandle);
 
-	void setupDefaultMappings();
-
 	smarter::shared_ptr<Mapping> getMapping(VirtualAddr address);
 
 	Error map(Guard &guard, frigg::UnsafePtr<MemorySlice> view,

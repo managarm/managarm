@@ -259,7 +259,6 @@ void executeModule(frg::string_view name, MfsRegular *module,
 		LaneHandle xpipe_lane, LaneHandle mbus_lane,
 		Scheduler *scheduler) {
 	auto space = AddressSpace::create();
-	space->setupDefaultMappings();
 
 	ImageInfo exec_info = loadModuleImage(space, 0, module->getMemory());
 

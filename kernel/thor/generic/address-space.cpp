@@ -389,7 +389,10 @@ void AddressSpace::activate(smarter::shared_ptr<AddressSpace, BindableHandle> sp
 	PageSpace::activate(smarter::shared_ptr<PageSpace>{space->selfPtr.lock(), page_space});
 }
 
-AddressSpace::AddressSpace() { }
+AddressSpace::AddressSpace() {
+	auto hole = frigg::construct<Hole>(*kernelAlloc, 0x100000, 0x7ffffff00000);
+	_holes.insert(hole);
+}
 
 AddressSpace::~AddressSpace() {
 	if(logCleanup)
@@ -436,11 +439,6 @@ void AddressSpace::dispose(BindableHandle) {
 		frg::destruct(*kernelAlloc, closure);
 	});
 	_pageSpace.retire(&closure->retireNode);
-}
-
-void AddressSpace::setupDefaultMappings() {
-	auto hole = frigg::construct<Hole>(*kernelAlloc, 0x100000, 0x7ffffff00000);
-	_holes.insert(hole);
 }
 
 smarter::shared_ptr<Mapping> AddressSpace::getMapping(VirtualAddr address) {

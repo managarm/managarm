@@ -613,7 +613,6 @@ HelError helCreateSpace(HelHandle *handle) {
 	auto this_universe = this_thread->getUniverse();
 
 	auto space = AddressSpace::create();
-	space->setupDefaultMappings();
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	Universe::Guard universe_guard(&this_universe->lock);
