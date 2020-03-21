@@ -827,6 +827,19 @@ namespace initrd {
 				if(auto e = Thread::resumeOther(_thread); e)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 				(*this)();
+			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
+				execution::detach([] (ObserveClosure *self) -> coroutine<void> {
+					auto address = self->_thread->_executor.general()->rsi;
+					auto size = self->_thread->_executor.general()->rdx;
+					auto space = self->_thread->getAddressSpace();
+					co_await space->unmap(address, size);
+
+					self->_thread->_executor.general()->rdi = kHelErrNone;
+					self->_thread->_executor.general()->rsi = 0;
+					if(auto e = Thread::resumeOther(self->_thread); e)
+						frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+					(*self)();
+				}(this));
 			}else if(interrupt == kIntrSuperCall + 1) {
 				AcquireNode node;
 

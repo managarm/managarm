@@ -133,6 +133,16 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			gprs[5] = reinterpret_cast<uintptr_t>(address);
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + 11) {
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			self->vmContext()->unmapFile(reinterpret_cast<void *>(gprs[5]), gprs[3]);
+
+			gprs[4] = kHelErrNone;
+			gprs[5] = 0;
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 1) {
 			struct ManagarmProcessData {
 				HelHandle posixLane;

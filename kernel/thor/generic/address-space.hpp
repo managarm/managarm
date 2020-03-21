@@ -636,6 +636,62 @@ public:
 		return _residuentSize;
 	}
 
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for unmap()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct UnmapOperation;
+
+	struct [[nodiscard]] UnmapSender {
+		template<typename R>
+		friend UnmapOperation<R>
+		connect(UnmapSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		AddressSpace *self;
+		VirtualAddr address;
+		size_t size;
+	};
+
+	UnmapSender unmap(VirtualAddr address, size_t size) {
+		return {this, address, size};
+	}
+
+	template<typename R>
+	struct UnmapOperation {
+		UnmapOperation(UnmapSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		UnmapOperation(const UnmapOperation &) = delete;
+
+		UnmapOperation &operator= (const UnmapOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &UnmapOperation::worklet_);
+				op->receiver_.set_done();
+			});
+			node_.setup(&worklet_);
+			if(s_.self->unmap(s_.address, s_.size, &node_))
+				WorkQueue::post(&worklet_); // Force into slow path for now.
+		}
+
+	private:
+		UnmapSender s_;
+		R receiver_;
+		AddressUnmapNode node_;
+		Worklet worklet_;
+	};
+
+	friend execution::sender_awaiter<UnmapSender>
+	operator co_await(UnmapSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
+
 	Lock lock;
 
 	Futex futexSpace;
