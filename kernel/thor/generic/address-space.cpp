@@ -219,13 +219,6 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	return false;
 }
 
-smarter::shared_ptr<Mapping> NormalMapping::forkMapping() {
-	auto mapping = smarter::allocate_shared<NormalMapping>(Allocator{},
-			length(), flags(), _slice, _viewOffset);
-	mapping->selfPtr = mapping;
-	return std::move(mapping);
-}
-
 void NormalMapping::install() {
 	assert(_state == MappingState::null);
 	_state = MappingState::active;
@@ -490,12 +483,6 @@ Error AddressSpace::map(Guard &guard,
 	// Setup a new Mapping object.
 	std::underlying_type_t<MappingFlags> mapping_flags = 0;
 
-	if(flags & kMapDropAtFork) {
-		mapping_flags |= MappingFlags::dropAtFork;
-	}else if(flags & kMapShareAtFork) {
-		mapping_flags |= MappingFlags::shareAtFork;
-	}
-
 	// TODO: The upgrading mechanism needs to be arch-specific:
 	// Some archs might only support RX, while other support X.
 	auto mask = kMapProtRead | kMapProtWrite | kMapProtExecute;
@@ -746,78 +733,6 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 	}else{
 		return false;
 	}
-}
-
-bool AddressSpace::fork(ForkNode *node) {
-	node->_fork = AddressSpace::create();
-	node->_original = this;
-
-	// Lock the space and iterate over all holes and mappings.
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&this->lock);
-
-		// Copy holes to the child space.
-		auto os_hole = _holes.first();
-		while(os_hole) {
-			auto fs_hole = frigg::construct<Hole>(*kernelAlloc,
-					os_hole->address(), os_hole->length());
-			node->_fork->_holes.insert(fs_hole);
-
-			os_hole = HoleTree::successor(os_hole);
-		}
-
-		// Modify memory mapping of both spaces.
-		auto os_mapping = _mappings.first();
-		while(os_mapping) {
-			if(os_mapping->flags() & MappingFlags::dropAtFork) {
-				// TODO: Merge this hole into adjacent holes.
-				auto fs_hole = frigg::construct<Hole>(*kernelAlloc,
-						os_mapping->address(), os_mapping->length());
-				node->_fork->_holes.insert(fs_hole);
-			}else{
-				auto fs_mapping = os_mapping->forkMapping();
-				fs_mapping->tie(node->_fork->selfPtr.lock(), os_mapping->address());
-				node->_fork->_mappings.insert(fs_mapping.get());
-				fs_mapping->install();
-				fs_mapping.release(); // AddressSpace owns one reference.
-
-				// In the case of CoW, we need to perform shootdown.
-				// TODO: Add not shoot down all mappings.
-				node->_items.addBack(ForkItem{os_mapping});
-			}
-
-			os_mapping = MappingTree::successor(os_mapping);
-		}
-	}
-
-	struct Ops {
-		static bool process(ForkNode *node) {
-			while(!node->_items.empty()) {
-				auto item = &node->_items.front();
-
-				node->_shootNode.address = item->mapping->address();
-				node->_shootNode.size = item->mapping->length();
-				node->_shootNode.setup(&node->_worklet);
-				node->_worklet.setup([] (Worklet *base) {
-					auto node = frg::container_of(base, &ForkNode::_worklet);
-					node->_items.removeFront();
-
-					// Tail of asynchronous path.
-					if(!process(node))
-						return;
-					WorkQueue::post(node->_forked);
-				});
-				if(!node->_original->_pageSpace.submitShootdown(&node->_shootNode))
-					return false;
-				node->_items.removeFront();
-			}
-
-			return true;
-		}
-	};
-
-	return Ops::process(node);
 }
 
 smarter::shared_ptr<Mapping> AddressSpace::_findMapping(VirtualAddr address) {

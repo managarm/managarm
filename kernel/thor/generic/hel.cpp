@@ -697,53 +697,6 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 	return kHelErrNone;
 }
 
-HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
-
-	smarter::shared_ptr<AddressSpace, BindableHandle> space;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		Universe::Guard universe_guard(&this_universe->lock);
-
-		if(handle == kHelNullHandle) {
-			space = this_thread->getAddressSpace().lock();
-		}else{
-			auto space_wrapper = this_universe->getDescriptor(universe_guard, handle);
-			if(!space_wrapper)
-				return kHelErrNoDescriptor;
-			if(!space_wrapper->is<AddressSpaceDescriptor>())
-				return kHelErrBadDescriptor;
-			space = space_wrapper->get<AddressSpaceDescriptor>().space;
-		}
-	}
-
-	struct Closure {
-		ThreadBlocker blocker;
-		Worklet worklet;
-		ForkNode fork;
-	} closure;
-
-	closure.worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		Thread::unblockOther(&closure->blocker);
-	});
-	closure.fork.setup(&closure.worklet);
-	closure.blocker.setup();
-	if(!space->fork(&closure.fork))
-		Thread::blockCurrent(&closure.blocker);
-
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		Universe::Guard universe_guard(&this_universe->lock);
-
-		*forked_handle = this_universe->attachDescriptor(universe_guard,
-				AddressSpaceDescriptor(closure.fork.forkedSpace()));
-	}
-
-	return kHelErrNone;
-}
-
 HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actual_pointer) {
 	if(length == 0)
@@ -805,14 +758,6 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		map_flags |= AddressSpace::kMapProtWrite;
 	if(flags & kHelMapProtExecute)
 		map_flags |= AddressSpace::kMapProtExecute;
-
-	if(flags & kHelMapShareAtFork) {
-		map_flags |= AddressSpace::kMapShareAtFork;
-	}
-
-	if(flags & kHelMapDropAtFork) {
-		map_flags |= AddressSpace::kMapDropAtFork;
-	}
 
 	if(flags & kHelMapDontRequireBacking)
 		map_flags |= AddressSpace::kMapDontRequireBacking;

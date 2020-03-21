@@ -32,10 +32,6 @@ public:
 enum MappingFlags : uint32_t {
 	null = 0,
 
-	forkMask = 0x07,
-	dropAtFork = 0x01,
-	shareAtFork = 0x02,
-
 	permissionMask = 0x70,
 	protRead = 0x10,
 	protWrite = 0x20,
@@ -169,8 +165,6 @@ public:
 
 	// Helper function that calls touchVirtualPage() on a certain range.
 	bool populateVirtualRange(PopulateVirtualNode *node);
-
-	virtual smarter::shared_ptr<Mapping> forkMapping() = 0;
 
 	virtual void install() = 0;
 	virtual void reinstall() = 0;
@@ -367,8 +361,6 @@ struct NormalMapping : Mapping, MemoryObserver {
 	frg::tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
 	bool touchVirtualPage(TouchVirtualNode *node) override;
 
-	smarter::shared_ptr<Mapping> forkMapping() override;
-
 	void install() override;
 	void reinstall() override;
 	void uninstall() override;
@@ -449,34 +441,6 @@ private:
 	TouchVirtualNode _touchVirtual;
 };
 
-struct ForkItem {
-	Mapping *mapping;
-};
-
-struct ForkNode {
-	friend struct AddressSpace;
-
-	ForkNode()
-	: _items{*kernelAlloc} { }
-
-	void setup(Worklet *forked) {
-		_forked = forked;
-	}
-	smarter::shared_ptr<AddressSpace, BindableHandle> forkedSpace() {
-		return frigg::move(_fork);
-	}
-
-private:
-	Worklet *_forked;
-
-	// TODO: This should be a SharedPtr, too.
-	AddressSpace *_original;
-	smarter::shared_ptr<AddressSpace, BindableHandle> _fork;
-	frigg::LinkedList<ForkItem, KernelAlloc> _items;
-	Worklet _worklet;
-	ShootNode _shootNode;
-};
-
 struct AddressProtectNode {
 	friend struct AddressSpace;
 
@@ -527,15 +491,12 @@ public:
 
 	typedef uint32_t MapFlags;
 	enum : MapFlags {
-		kMapShareAtFork = 0x80,
-
 		kMapFixed = 0x01,
 		kMapPreferBottom = 0x02,
 		kMapPreferTop = 0x04,
 		kMapProtRead = 0x08,
 		kMapProtWrite = 0x10,
 		kMapProtExecute = 0x20,
-		kMapDropAtFork = 0x40,
 		kMapPopulate = 0x200,
 		kMapDontRequireBacking = 0x400,
 	};
@@ -580,8 +541,6 @@ public:
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
 	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
-
-	bool fork(ForkNode *node);
 
 	size_t rss() {
 		return _residuentSize;

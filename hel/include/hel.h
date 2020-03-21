@@ -41,7 +41,6 @@ enum {
 	kHelCallCreateSpace = 27,
 	kHelCallCreateIndirectMemory = 45,
 	kHelCallAlterMemoryIndirection = 52,
-	kHelCallForkSpace = 33,
 	kHelCallMapMemory = 44,
 	kHelCallSubmitProtectMemory = 99,
 	kHelCallUnmapMemory = 36,
@@ -246,14 +245,10 @@ enum HelManageRequests {
 };
 
 enum HelMapFlags {
-	// Basic mapping modes. One of these flags needs to be set.
-	kHelMapShareAtFork = 8,
-
 	// Additional flags that may be set.
 	kHelMapProtRead = 256,
 	kHelMapProtWrite = 512,
 	kHelMapProtExecute = 1024,
-	kHelMapDropAtFork = 32,
 	kHelMapDontRequireBacking = 128
 };
 
@@ -472,7 +467,6 @@ HEL_C_LINKAGE HelError helCreateSliceView(HelHandle bundle, uintptr_t offset, si
 		uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helForkMemory(HelHandle handle, HelHandle *forked);
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
-HEL_C_LINKAGE HelError helForkSpace(HelHandle handle, HelHandle *forked);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
 		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actual_pointer);
 HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle space,

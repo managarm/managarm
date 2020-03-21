@@ -632,11 +632,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateSpace(&handle);
 		*image.out0() = handle;
 	} break;
-	case kHelCallForkSpace: {
-		HelHandle forked;
-		*image.error() = helForkSpace((HelHandle)arg0, &forked);
-		*image.out0() = forked;
-	} break;
 	case kHelCallMapMemory: {
 		void *actual_pointer;
 		*image.error() = helMapMemory((HelHandle)arg0, (HelHandle)arg1,

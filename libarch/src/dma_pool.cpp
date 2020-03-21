@@ -18,7 +18,7 @@ uintptr_t contiguous_policy::map(size_t length) {
 	void *actual_ptr;
 	HEL_CHECK(helAllocateMemory(length, kHelAllocContinuous, &restrictions, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, length,
-			kHelMapDropAtFork | kHelMapProtRead | kHelMapProtWrite, &actual_ptr));
+			kHelMapProtRead | kHelMapProtWrite, &actual_ptr));
 	HEL_CHECK(helCloseDescriptor(memory));
 	return (uintptr_t)actual_ptr;
 }

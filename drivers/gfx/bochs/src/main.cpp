@@ -455,7 +455,7 @@ async::detached bindController(mbus::Entity entity) {
 	
 	void *actual_pointer;
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
-			0, info.barInfo[0].length, kHelMapProtRead | kHelMapProtWrite | kHelMapShareAtFork,
+			0, info.barInfo[0].length, kHelMapProtRead | kHelMapProtWrite,
 			&actual_pointer));
 
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(pci_device),

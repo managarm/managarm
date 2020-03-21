@@ -170,14 +170,6 @@ extern inline __attribute__ (( always_inline )) HelError helRunVirtualizedCpu(He
 	return error;
 }
 
-extern inline __attribute__ (( always_inline )) HelError helForkSpace(HelHandle handle,
-		HelHandle *out_handle) {
-	HelWord handle_word;
-	HelError error = helSyscall1_1(kHelCallForkSpace, (HelWord)handle, &handle_word);
-	*out_handle = (HelHandle)handle_word;
-	return error;
-};
-
 extern inline __attribute__ (( always_inline )) HelError helMapMemory(HelHandle handle,
 		HelHandle space, void *pointer, uintptr_t offset, size_t size, uint32_t flags,
 		void **actual_pointer) {

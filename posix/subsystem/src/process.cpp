@@ -31,7 +31,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 	auto context = std::make_shared<VmContext>();
 
 	HelHandle space;
-	HEL_CHECK(helForkSpace(original->_space.getHandle(), &space));
+	HEL_CHECK(helCreateSpace(&space));
 	context->_space = helix::UniqueDescriptor(space);
 
 	for(const auto &entry : original->_areaTree) {
@@ -46,12 +46,12 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 			void *pointer;
 			HEL_CHECK(helMapMemory(copyView.getHandle(), context->_space.getHandle(),
 					reinterpret_cast<void *>(address),
-					0, area.areaSize, kHelMapDropAtFork | area.nativeFlags, &pointer));
+					0, area.areaSize, area.nativeFlags, &pointer));
 		}else{
 			void *pointer;
 			HEL_CHECK(helMapMemory(area.fileView.getHandle(), context->_space.getHandle(),
 					reinterpret_cast<void *>(address),
-					area.offset, area.areaSize, kHelMapDropAtFork | area.nativeFlags, &pointer));
+					area.offset, area.areaSize, area.nativeFlags, &pointer));
 		}
 
 		Area copy;
@@ -86,11 +86,11 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 
 		HEL_CHECK(helMapMemory(copyView.getHandle(), _space.getHandle(),
 				reinterpret_cast<void *>(hint),
-				0, alignedSize, kHelMapDropAtFork | nativeFlags, &pointer));
+				0, alignedSize, nativeFlags, &pointer));
 	}else{
 		HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
 				reinterpret_cast<void *>(hint),
-				offset, alignedSize, kHelMapDropAtFork | nativeFlags, &pointer));
+				offset, alignedSize, nativeFlags, &pointer));
 	}
 	//std::cout << "posix: VM_MAP returns " << pointer
 	//		<< " (size: " << (void *)size << ")" << std::endl;
@@ -136,7 +136,7 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
 			nullptr, it->second.offset, aligned_new_size,
-			kHelMapDropAtFork | it->second.nativeFlags, &pointer));
+			it->second.nativeFlags, &pointer));
 //	std::cout << "posix: VM_REMAP returns " << pointer << std::endl;
 
 	// Unmap the old area.
@@ -675,15 +675,15 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientFileTable));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
 	assert(globalPidMap.find(1) == globalPidMap.end());
@@ -734,15 +734,15 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientFileTable));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
 	ProcessId pid = nextPid++;
@@ -780,15 +780,15 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	void *exec_client_table;
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			exec_vm_context->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&exec_thread_page));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead,
 			&exec_clk_tracker_page));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead,
 			&exec_client_table));
 
 	// TODO: We should only do this if the execute succeeds.
