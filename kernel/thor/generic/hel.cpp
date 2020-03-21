@@ -806,16 +806,12 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	if(flags & kHelMapProtExecute)
 		map_flags |= AddressSpace::kMapProtExecute;
 
-	if(flags & kHelMapCopyOnWrite) {
-		map_flags |= AddressSpace::kMapCopyOnWrite;
-	}else if(flags & kHelMapShareAtFork) {
+	if(flags & kHelMapShareAtFork) {
 		map_flags |= AddressSpace::kMapShareAtFork;
 	}
 
 	if(flags & kHelMapDropAtFork) {
 		map_flags |= AddressSpace::kMapDropAtFork;
-	}else if(flags & kHelMapCopyOnWriteAtFork) {
-		map_flags |= AddressSpace::kMapCopyOnWriteAtFork;
 	}
 
 	if(flags & kHelMapDontRequireBacking)

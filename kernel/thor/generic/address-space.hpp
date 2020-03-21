@@ -35,7 +35,6 @@ enum MappingFlags : uint32_t {
 	forkMask = 0x07,
 	dropAtFork = 0x01,
 	shareAtFork = 0x02,
-	copyOnWriteAtFork = 0x04,
 
 	permissionMask = 0x70,
 	protRead = 0x10,
@@ -386,52 +385,6 @@ private:
 	frigg::TicketLock _evictMutex;
 };
 
-struct CowMapping : Mapping, MemoryObserver {
-	friend struct AddressSpace;
-
-	CowMapping(size_t length, MappingFlags flags,
-			frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset,
-			frigg::SharedPtr<CowChain> chain);
-
-	~CowMapping();
-
-	bool lockVirtualRange(LockVirtualNode *node) override;
-	void unlockVirtualRange(uintptr_t offset, size_t length) override;
-	frg::tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
-	bool touchVirtualPage(TouchVirtualNode *node) override;
-
-	smarter::shared_ptr<Mapping> forkMapping() override;
-
-	void install() override;
-	void reinstall() override;
-	void uninstall() override;
-	void retire() override;
-
-	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
-
-private:
-	enum class CowState {
-		null,
-		inProgress,
-		hasCopy
-	};
-
-	struct CowPage {
-		PhysicalAddr physical = -1;
-		CowState state = CowState::null;
-		unsigned int lockCount = 0;
-	};
-
-	frigg::TicketLock _mutex;
-
-	frigg::SharedPtr<MemorySlice> _slice;
-	uintptr_t _viewOffset;
-	frigg::SharedPtr<CowChain> _copyChain;
-
-	MappingState _state = MappingState::null;
-	frg::rcu_radixtree<CowPage, KernelAlloc> _ownedPages;
-};
-
 struct HoleLess {
 	bool operator() (const Hole &a, const Hole &b) {
 		return a.address() < b.address();
@@ -575,7 +528,6 @@ public:
 	typedef uint32_t MapFlags;
 	enum : MapFlags {
 		kMapShareAtFork = 0x80,
-		kMapCopyOnWrite = 0x800,
 
 		kMapFixed = 0x01,
 		kMapPreferBottom = 0x02,
@@ -584,7 +536,6 @@ public:
 		kMapProtWrite = 0x10,
 		kMapProtExecute = 0x20,
 		kMapDropAtFork = 0x40,
-		kMapCopyOnWriteAtFork = 0x100,
 		kMapPopulate = 0x200,
 		kMapDontRequireBacking = 0x400,
 	};
