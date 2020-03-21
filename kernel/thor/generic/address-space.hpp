@@ -121,12 +121,13 @@ enum class MappingState {
 	retired
 };
 
-struct Mapping {
-	Mapping(size_t length, MappingFlags flags);
+struct Mapping : MemoryObserver {
+	Mapping(size_t length, MappingFlags flags,
+			frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
 
 	Mapping(const Mapping &) = delete;
 
-	virtual ~Mapping() = default;
+	~Mapping();
 
 	Mapping &operator= (const Mapping &) = delete;
 
@@ -146,30 +147,31 @@ struct Mapping {
 		return _flags;
 	}
 
-public:
 	void tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address);
 
 	void protect(MappingFlags flags);
 
 	// Makes sure that pages are not evicted from virtual memory.
-	virtual bool lockVirtualRange(LockVirtualNode *node) = 0;
-	virtual void unlockVirtualRange(uintptr_t offset, size_t length) = 0;
+	bool lockVirtualRange(LockVirtualNode *node);
+	void unlockVirtualRange(uintptr_t offset, size_t length);
 
-	virtual frg::tuple<PhysicalAddr, CachingMode>
-	resolveRange(ptrdiff_t offset) = 0;
+	frg::tuple<PhysicalAddr, CachingMode>
+	resolveRange(ptrdiff_t offset);
 
 	// Ensures that a page of virtual memory is present.
 	// Note that this does *not* guarantee that the page is not evicted immediately,
 	// unless you hold a lock (via lockVirtualRange()).
-	virtual bool touchVirtualPage(TouchVirtualNode *node) = 0;
+	bool touchVirtualPage(TouchVirtualNode *node);
 
 	// Helper function that calls touchVirtualPage() on a certain range.
 	bool populateVirtualRange(PopulateVirtualNode *node);
 
-	virtual void install() = 0;
-	virtual void reinstall() = 0;
-	virtual void uninstall() = 0;
-	virtual void retire() = 0;
+	void install();
+	void reinstall();
+	void uninstall();
+	void retire();
+
+	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for lockVirtualRange()
@@ -346,29 +348,7 @@ private:
 	VirtualAddr _address;
 	size_t _length;
 	MappingFlags _flags;
-};
 
-struct NormalMapping : Mapping, MemoryObserver {
-	friend struct AddressSpace;
-
-	NormalMapping(size_t length, MappingFlags flags,
-			frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
-
-	~NormalMapping();
-
-	bool lockVirtualRange(LockVirtualNode *node) override;
-	void unlockVirtualRange(uintptr_t offset, size_t length) override;
-	frg::tuple<PhysicalAddr, CachingMode> resolveRange(ptrdiff_t offset) override;
-	bool touchVirtualPage(TouchVirtualNode *node) override;
-
-	void install() override;
-	void reinstall() override;
-	void uninstall() override;
-	void retire() override;
-
-	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
-
-private:
 	MappingState _state = MappingState::null;
 	frigg::SharedPtr<MemorySlice> _slice;
 	frigg::SharedPtr<MemoryView> _view;
@@ -411,8 +391,7 @@ using MappingTree = frg::rbtree<
 
 struct FaultNode {
 	friend struct AddressSpace;
-	friend struct NormalMapping;
-	friend struct CowMapping;
+	friend struct Mapping;
 
 	FaultNode()
 	: _resolved{false} { }
@@ -479,8 +458,7 @@ private:
 
 struct AddressSpace : smarter::crtp_counter<AddressSpace, BindableHandle> {
 	friend struct AddressSpaceLockHandle;
-	friend struct NormalMapping;
-	friend struct CowMapping;
+	friend struct Mapping;
 
 	// Silence Clang warning about hidden overloads.
 	using smarter::crtp_counter<AddressSpace, BindableHandle>::dispose;

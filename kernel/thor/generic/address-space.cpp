@@ -98,8 +98,19 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 // Mapping
 // --------------------------------------------------------
 
-Mapping::Mapping(size_t length, MappingFlags flags)
-: _length{length}, _flags{flags} { }
+Mapping::Mapping(size_t length, MappingFlags flags,
+		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset)
+: _length{length}, _flags{flags},
+		_slice{std::move(slice)}, _viewOffset{view_offset} {
+	assert(_viewOffset >= _slice->offset());
+	assert(_viewOffset + Mapping::length() <= _slice->offset() + _slice->length());
+	_view = _slice->getView();
+}
+
+Mapping::~Mapping() {
+	assert(_state == MappingState::retired);
+	//frigg::infoLogger() << "\e[31mthor: Mapping is destructed\e[39m" << frigg::endLog;
+}
 
 void Mapping::tie(smarter::shared_ptr<AddressSpace> owner, VirtualAddr address) {
 	assert(!_owner);
@@ -140,25 +151,7 @@ uint32_t Mapping::compilePageFlags() {
 	return page_flags;
 }
 
-// --------------------------------------------------------
-// NormalMapping
-// --------------------------------------------------------
-
-NormalMapping::NormalMapping(size_t length, MappingFlags flags,
-		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset)
-: Mapping{length, flags},
-		_slice{std::move(slice)}, _viewOffset{view_offset} {
-	assert(_viewOffset >= _slice->offset());
-	assert(_viewOffset + NormalMapping::length() <= _slice->offset() + _slice->length());
-	_view = _slice->getView();
-}
-
-NormalMapping::~NormalMapping() {
-	assert(_state == MappingState::retired);
-	//frigg::infoLogger() << "\e[31mthor: NormalMapping is destructed\e[39m" << frigg::endLog;
-}
-
-bool NormalMapping::lockVirtualRange(LockVirtualNode *node) {
+bool Mapping::lockVirtualRange(LockVirtualNode *node) {
 	struct Receiver {
 		void set_done(Error e) {
 			assert(!e);
@@ -173,12 +166,12 @@ bool NormalMapping::lockVirtualRange(LockVirtualNode *node) {
 	return false;
 }
 
-void NormalMapping::unlockVirtualRange(uintptr_t offset, size_t size) {
+void Mapping::unlockVirtualRange(uintptr_t offset, size_t size) {
 	_view->unlockRange(_viewOffset + offset, size);
 }
 
 frg::tuple<PhysicalAddr, CachingMode>
-NormalMapping::resolveRange(ptrdiff_t offset) {
+Mapping::resolveRange(ptrdiff_t offset) {
 	assert(_state == MappingState::active);
 
 	// TODO: This function should be rewritten.
@@ -187,10 +180,10 @@ NormalMapping::resolveRange(ptrdiff_t offset) {
 	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
-bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
+bool Mapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	assert(_state == MappingState::active);
 
-	execution::detach([] (NormalMapping *self, TouchVirtualNode *continuation) -> coroutine<void> {
+	execution::detach([] (Mapping *self, TouchVirtualNode *continuation) -> coroutine<void> {
 		FetchFlags fetchFlags = 0;
 		if(self->flags() & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
@@ -219,10 +212,10 @@ bool NormalMapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	return false;
 }
 
-void NormalMapping::install() {
+void Mapping::install() {
 	assert(_state == MappingState::null);
 	_state = MappingState::active;
-	_view->addObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr.lock()));
+	_view->addObserver(smarter::static_pointer_cast<Mapping>(selfPtr.lock()));
 
 	uint32_t pageFlags = 0;
 	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
@@ -250,7 +243,7 @@ void NormalMapping::install() {
 	}
 }
 
-void NormalMapping::reinstall() {
+void Mapping::reinstall() {
 	assert(_state == MappingState::active);
 
 	uint32_t pageFlags = 0;
@@ -283,7 +276,7 @@ void NormalMapping::reinstall() {
 	}
 }
 
-void NormalMapping::uninstall() {
+void Mapping::uninstall() {
 	assert(_state == MappingState::active);
 	_state = MappingState::zombie;
 
@@ -298,13 +291,13 @@ void NormalMapping::uninstall() {
 	}
 }
 
-void NormalMapping::retire() {
+void Mapping::retire() {
 	assert(_state == MappingState::zombie);
-	_view->removeObserver(smarter::static_pointer_cast<NormalMapping>(selfPtr));
+	_view->removeObserver(smarter::static_pointer_cast<Mapping>(selfPtr));
 	_state = MappingState::retired;
 }
 
-bool NormalMapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
+bool Mapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
 		EvictNode *continuation) {
 	assert(_state == MappingState::active);
 
@@ -508,7 +501,7 @@ Error AddressSpace::map(Guard &guard,
 	if(flags & kMapDontRequireBacking)
 		mapping_flags |= MappingFlags::dontRequireBacking;
 
-	auto mapping = smarter::allocate_shared<NormalMapping>(Allocator{},
+	auto mapping = smarter::allocate_shared<Mapping>(Allocator{},
 			length, static_cast<MappingFlags>(mapping_flags),
 			slice.toShared(), slice->offset() + offset);
 	mapping->selfPtr = mapping;
