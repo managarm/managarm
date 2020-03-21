@@ -474,9 +474,6 @@ struct VirtualSpace {
 	friend struct Mapping;
 
 public:
-	typedef frigg::TicketLock Lock;
-	typedef frigg::LockGuard<Lock> Guard;
-
 	typedef uint32_t MapFlags;
 	enum : MapFlags {
 		kMapFixed = 0x01,
@@ -572,8 +569,6 @@ public:
 
 	// ----------------------------------------------------------------------------------
 
-	Lock lock;
-
 	smarter::borrowed_ptr<VirtualSpace> selfPtr;
 
 private:
@@ -589,6 +584,7 @@ private:
 
 	VirtualOperations *_ops;
 
+	frigg::TicketLock _mutex;
 	HoleTree _holes;
 	MappingTree _mappings;
 

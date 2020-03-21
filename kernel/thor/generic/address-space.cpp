@@ -439,7 +439,7 @@ void VirtualSpace::retire() {
 
 smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
 	auto irq_lock = frigg::guard(&irqMutex());
-	VirtualSpace::Guard space_guard(&lock);
+	auto space_guard = frigg::guard(&_mutex);
 
 	return _findMapping(address);
 }
@@ -453,7 +453,7 @@ Error VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address
 		return kErrBufferTooSmall;
 
 	auto irq_lock = frigg::guard(&irqMutex());
-	VirtualSpace::Guard space_guard(&lock);
+	auto space_guard = frigg::guard(&_mutex);
 
 	VirtualAddr target;
 	if(flags & kMapFixed) {
@@ -540,7 +540,7 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 	}
 
 	auto irq_lock = frigg::guard(&irqMutex());
-	VirtualSpace::Guard space_guard(&lock);
+	auto space_guard = frigg::guard(&_mutex);
 
 	auto mapping = _findMapping(address);
 	assert(mapping);
@@ -566,7 +566,7 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 
 bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
-	VirtualSpace::Guard space_guard(&lock);
+	auto space_guard = frigg::guard(&_mutex);
 
 	auto mapping = _findMapping(address);
 	assert(mapping);
@@ -647,7 +647,7 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 		auto node = frg::container_of(base, &AddressUnmapNode::_worklet);
 
 		auto irq_lock = frigg::guard(&irqMutex());
-		VirtualSpace::Guard space_guard(&node->_space->lock);
+		auto space_guard = frigg::guard(&node->_space->_mutex);
 
 		deleteMapping(node->_space, node->_mapping.get());
 		closeHole(node->_space, node->_shootNode.address, node->_shootNode.size);
@@ -674,7 +674,7 @@ bool VirtualSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
-		VirtualSpace::Guard space_guard(&lock);
+		auto space_guard = frigg::guard(&_mutex);
 
 		mapping = _findMapping(address);
 		if(!mapping) {
