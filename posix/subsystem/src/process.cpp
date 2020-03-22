@@ -790,14 +790,9 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
-	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
-			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
-			&process->_clientFileTable));
-	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
-			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead,
-			&process->_clientClkTrackerPage));
+
+	process->_clientFileTable = original->_clientFileTable;
+	process->_clientClkTrackerPage = original->_clientClkTrackerPage;
 
 	ProcessId pid = nextPid++;
 	assert(globalPidMap.find(pid) == globalPidMap.end());
