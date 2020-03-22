@@ -299,6 +299,7 @@ struct Process : std::enable_shared_from_this<Process> {
 	static async::result<std::shared_ptr<Process>> init(std::string path);
 
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
+	static std::shared_ptr<Process> clone(std::shared_ptr<Process> parent, void *ip, void *sp);
 
 	static async::result<Error> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);

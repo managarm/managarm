@@ -192,6 +192,25 @@ async::detached observeThread(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
+		}else if(observe.observation() == kHelObserveSuperCall + 9) {
+			if(logRequests)
+				std::cout << "posix: clone supercall" << std::endl;
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			void *ip = reinterpret_cast<void *>(gprs[kHelRegRsi]);
+			void *sp = reinterpret_cast<void *>(gprs[kHelRegRdx]);
+
+			auto child = Process::clone(self, ip, sp);
+
+			auto new_thread = child->currentGeneration()->threadDescriptor.getHandle();
+
+			gprs[4] = kHelErrNone;
+			gprs[5] = child->pid();
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			HEL_CHECK(helResume(thread.getHandle()));
+			HEL_CHECK(helResume(new_thread));
 		}else if(observe.observation() == kHelObserveSuperCall + 3) {
 			if(logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
