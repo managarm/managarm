@@ -765,6 +765,60 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	return process;
 }
 
+std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void *ip, void *sp) {
+	auto process = std::make_shared<Process>(original.get());
+	process->_path = original->path();
+	process->_vmContext = original->_vmContext;
+	process->_fsContext = original->_fsContext;
+	process->_fileContext = original->_fileContext;
+	process->_signalContext = original->_signalContext;
+
+	HelHandle thread_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
+	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
+	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
+
+	// Signal masks are copied on clone().
+	process->_signalMask = original->_signalMask;
+
+	auto [server_lane, client_lane] = helix::createStream();
+	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
+			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+	client_lane.release();
+
+	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&process->_clientThreadPage));
+	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead,
+			&process->_clientFileTable));
+	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead,
+			&process->_clientClkTrackerPage));
+
+	ProcessId pid = nextPid++;
+	assert(globalPidMap.find(pid) == globalPidMap.end());
+	process->_pid = pid;
+	original->_children.push_back(process);
+	globalPidMap.insert({pid, process.get()});
+
+	auto generation = std::make_shared<Generation>();
+	HelHandle new_thread;
+	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
+			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
+			ip, sp, kHelThreadStopped, &new_thread));
+	generation->threadDescriptor = helix::UniqueDescriptor{new_thread};
+	generation->posixLane = std::move(server_lane);
+
+	process->_currentGeneration = generation;
+	serve(process, std::move(generation));
+
+	return process;
+}
+
 async::result<Error> Process::exec(std::shared_ptr<Process> process,
 		std::string path, std::vector<std::string> args, std::vector<std::string> env) {
 	auto exec_vm_context = VmContext::create();
