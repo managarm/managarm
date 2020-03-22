@@ -692,7 +692,6 @@ async::detached FileSystem::manageIndirect(std::shared_ptr<Inode> inode,
 				&manage, helix::Dispatcher::global());
 		co_await submit_manage.async_wait();
 		HEL_CHECK(manage.error());
-		assert(manage.type() == kHelManageInitialize);
 
 		uint32_t element = manage.offset() >> blockPagesShift;
 
@@ -733,12 +732,24 @@ async::detached FileSystem::manageIndirect(std::shared_ptr<Inode> inode,
 		assert(manage.length() == (1 << blockPagesShift)
 				&& "TODO: propery support multi-page blocks");
 
-		helix::Mapping out_map{memory,
-				static_cast<ptrdiff_t>(manage.offset()), manage.length()};
-		co_await device->readSectors(block * sectorsPerBlock,
-				out_map.get(), sectorsPerBlock);
-		HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-				manage.offset(), manage.length()));
+		if (manage.type() == kHelManageInitialize) {
+			helix::Mapping out_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
+			co_await device->readSectors(block * sectorsPerBlock,
+					out_map.get(), sectorsPerBlock);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+					manage.offset(), manage.length()));
+		} else {
+			assert(manage.type() == kHelManageWriteback);
+
+			helix::Mapping out_map{memory,
+					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
+			co_await device->writeSectors(block * sectorsPerBlock,
+					out_map.get(), sectorsPerBlock);
+			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+					manage.offset(), manage.length()));
+
+		}
 	}
 }
 
@@ -848,14 +859,14 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				prg++;
 			}
 		}else if(block_offset + prg < s_range) {
-			std::cout << "\e[33m" "ext2fs: Allocation in indirect blocks is untested"
-					"\e[39m" << std::endl;
+			bool needsReset = false;
 
 			// Allocate the single-indirect block itself.
 			if(!disk_inode->data.blocks.singleIndirect) {
 				auto block = co_await allocateBlock();
 				assert(block && "Out of disk space"); // TODO: Fix this.
 				disk_inode->data.blocks.singleIndirect = block;
+				needsReset = true;
 			}
 
 			helix::LockMemoryView lock_indirect;
@@ -869,6 +880,9 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 					0, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 			auto window = reinterpret_cast<uint32_t *>(indirect_map.get());
+
+			if(needsReset)
+				memset(window, 0, size_t{1} << blockPagesShift);
 
 			while(prg < num_blocks
 					&& block_offset + prg < s_range) {
