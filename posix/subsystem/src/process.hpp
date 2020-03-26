@@ -65,6 +65,10 @@ public:
 			return _it->second.areaSize;
 		}
 
+		bool isPrivate() {
+			return _it->second.copyOnWrite;
+		}
+
 		bool isReadable() {
 			return _it->second.nativeFlags & kHelMapProtRead;
 		}

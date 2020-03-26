@@ -69,10 +69,13 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 	helix::BorrowedDescriptor thread = proc->currentGeneration()->threadDescriptor;
 
 	uintptr_t pcrs[2];
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
 
 	uintptr_t gprs[15];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
+
+	auto ip = pcrs[0];
+	auto sp = pcrs[1];
 
 	printf("rax: %.16lx, rbx: %.16lx, rcx: %.16lx\n", gprs[0], gprs[1], gprs[2]);
 	printf("rdx: %.16lx, rdi: %.16lx, rsi: %.16lx\n", gprs[3], gprs[4], gprs[5]);
@@ -81,17 +84,60 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 	printf("r14: %.16lx, r15: %.16lx, rbp: %.16lx\n", gprs[12], gprs[13], gprs[14]);
 	printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
 
-	printf("mappings:\n");
+	printf("Mappings:\n");
 	for (auto mapping : *(proc->vmContext())) {
 		uintptr_t start = mapping.baseAddress();
 		uintptr_t end = start + mapping.size();
 
-		printf("%016lx - %016lx - %s%s%s - %s + %ld\n", start, end,
-				mapping.isReadable() ? "r" : "",
-				mapping.isWritable() ? "w" : "",
-				mapping.isExecutable() ? "x" : "",
-				mapping.backingFile().get() ? "file" : "anon",
+		std::string path;
+		if(mapping.backingFile().get()) {
+			// TODO: store the ViewPath inside the mapping.
+			ViewPath vp{proc->fsContext()->getRoot().first,
+					mapping.backingFile()->associatedLink()};
+
+			// TODO: This code is copied from GETCWD, factor it out into a function.
+			path = "";
+			while(true) {
+				if(vp == proc->fsContext()->getRoot())
+					break;
+
+				// If we are at the origin of a mount point, traverse that mount point.
+				ViewPath traversed;
+				if(vp.second == vp.first->getOrigin()) {
+					if(!vp.first->getParent())
+						break;
+					auto anchor = vp.first->getAnchor();
+					assert(anchor); // Non-root mounts must have anchors in their parents.
+					traversed = ViewPath{vp.first->getParent(), vp.second};
+				}else{
+					traversed = vp;
+				}
+
+				auto owner = traversed.second->getOwner();
+				if(!owner) { // We did not reach the root.
+					// TODO: Can we get rid of this case?
+					path = "?" + path;
+					break;
+				}
+
+				path = "/" + traversed.second->getName() + path;
+				vp = ViewPath{traversed.first, owner->treeLink()};
+			}
+		}else{
+			path = "anon";
+		}
+
+		printf("%016lx - %016lx %s %s%s%s %s + 0x%lx\n", start, end,
+				mapping.isPrivate() ? "P" : "S",
+				mapping.isExecutable() ? "x" : "-",
+				mapping.isReadable() ? "r" : "-",
+				mapping.isWritable() ? "w" : "-",
+				path.c_str(),
 				mapping.backingFileOffset());
+		if(ip >= start && ip < end)
+			printf("               ^ IP is 0x%lx bytes into this mapping\n", ip - start);
+		if(sp >= start && sp < end)
+			printf("               ^ Stack is 0x%lx bytes into this mapping\n", sp - start);
 	}
 }
 
