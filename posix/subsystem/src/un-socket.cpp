@@ -250,8 +250,6 @@ public:
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
 			co_await _statusBell.async_wait(cancellation);
-		if(cancellation.is_cancellation_requested())
-			std::cout << "\e[33mposix: un_socket::poll() cancellation is untested\e[39m" << std::endl;
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
