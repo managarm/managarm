@@ -345,7 +345,7 @@ protected:
 public:
 	virtual size_t getLength() = 0;
 
-	virtual void resize(size_t newLength);
+	virtual void resize(size_t newLength, execution::any_receiver<void> receiver);
 
 	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
 
@@ -386,6 +386,51 @@ public:
 
 	virtual Error setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
 			uintptr_t offset, size_t size);
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for resize()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct ResizeOperation;
+
+	struct [[nodiscard]] ResizeSender {
+		template<typename R>
+		friend ResizeOperation<R>
+		connect(ResizeSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		MemoryView *self;
+		size_t newSize;
+	};
+
+	ResizeSender resize(size_t newSize) {
+		return {this, newSize};
+	}
+
+	template<typename R>
+	struct ResizeOperation {
+		ResizeOperation(ResizeSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		ResizeOperation(const ResizeOperation &) = delete;
+
+		ResizeOperation &operator= (const ResizeOperation &) = delete;
+
+		void start() {
+			s_.self->resize(s_.newSize, std::move(receiver_));
+		}
+
+	private:
+		ResizeSender s_;
+		R receiver_;
+	};
+
+	friend execution::sender_awaiter<ResizeSender>
+	operator co_await(ResizeSender sender) {
+		return {sender};
+	}
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for asyncLockRange()
@@ -659,7 +704,7 @@ struct AllocatedMemory final : MemoryView {
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
 	size_t getLength() override;
-	void resize(size_t newLength) override;
+	void resize(size_t newLength, execution::any_receiver<void> receiver) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -759,7 +804,7 @@ public:
 	BackingMemory &operator= (const BackingMemory &) = delete;
 
 	size_t getLength() override;
-	void resize(size_t newLength) override;
+	void resize(size_t newLength, execution::any_receiver<void> receiver) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;

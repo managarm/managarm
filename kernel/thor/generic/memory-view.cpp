@@ -172,8 +172,9 @@ void MemoryView::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t si
 	frigg::panicLogger() << "MemoryView does not support synchronous operations!" << frigg::endLog;
 }
 
-void MemoryView::resize(size_t newLength) {
+void MemoryView::resize(size_t newLength, execution::any_receiver<void> receiver) {
 	(void)newLength;
+	(void)receiver;
 	frigg::panicLogger() << "MemoryView does not support resize!" << frigg::endLog;
 }
 
@@ -515,7 +516,7 @@ AllocatedMemory::~AllocatedMemory() {
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
 }
 
-void AllocatedMemory::resize(size_t newLength) {
+void AllocatedMemory::resize(size_t newLength, execution::any_receiver<void> receiver) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -523,6 +524,7 @@ void AllocatedMemory::resize(size_t newLength) {
 	size_t num_chunks = newLength / _chunkSize;
 	assert(num_chunks >= _physicalChunks.size());
 	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
+	receiver.set_done();
 }
 
 void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
@@ -839,7 +841,7 @@ void ManagedSpace::_progressMonitors() {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::resize(size_t newLength) {
+void BackingMemory::resize(size_t newLength, execution::any_receiver<void> receiver) {
 	assert(!(newLength & (kPageSize - 1)));
 
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -851,6 +853,7 @@ void BackingMemory::resize(size_t newLength) {
 	for(size_t i = _managed->numPages; i < (newLength >> kPageShift); i++)
 		_managed->pages.insert(i, _managed.get(), i);
 	_managed->numPages = newLength >> kPageShift;
+	receiver.set_done();
 }
 
 void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {

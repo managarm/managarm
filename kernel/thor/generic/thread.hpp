@@ -26,6 +26,16 @@ enum Interrupt {
 struct Thread;
 struct ThreadBlocker;
 
+struct ThreadBlocker {
+	friend struct Thread;
+
+	void setup();
+
+private:
+	Thread *_thread;
+	bool _done;
+};
+
 frigg::UnsafePtr<Thread> getCurrentThread();
 
 struct Thread final : frigg::SharedCounter, ScheduleEntity {
@@ -76,6 +86,26 @@ public:
 				frigg::move(universe), frigg::move(address_space), abi);
 		return frigg::SharedPtr<Thread>{frigg::adoptShared, thread, 
 				frigg::SharedControl{thread}};
+	}
+
+	template<typename Sender>
+	static void asyncBlockCurrent(Sender s) {
+		struct Closure {
+			ThreadBlocker blocker;
+		} closure;
+
+		struct Receiver {
+			void set_done() {
+				Thread::unblockOther(&closure->blocker);
+			}
+
+			Closure *closure;
+		};
+
+		closure.blocker.setup();
+		auto operation = connect(std::move(s), Receiver{&closure});
+		operation.start();
+		Thread::blockCurrent(&closure.blocker);
 	}
 
 	// State transitions that apply to the current thread only.
@@ -237,16 +267,6 @@ private:
 	>;
 
 	ObserveQueue _observeQueue;
-};
-
-struct ThreadBlocker {
-	friend struct Thread;
-
-	void setup();
-
-private:
-	Thread *_thread;
-	bool _done;
 };
 
 } // namespace thor

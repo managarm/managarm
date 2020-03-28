@@ -2,6 +2,7 @@
 
 #include <frg/container_of.hpp>
 #include "event.hpp"
+#include "execution/coroutine.hpp"
 #include "kernel.hpp"
 #include "ipc-queue.hpp"
 #include "irq.hpp"
@@ -370,7 +371,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	return kHelErrNone;
 }
 
-HelError helResizeMemory(HelHandle handle, size_t new_size) {
+HelError helResizeMemory(HelHandle handle, size_t newSize) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -387,7 +388,10 @@ HelError helResizeMemory(HelHandle handle, size_t new_size) {
 		memory = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	memory->resize(new_size);
+	Thread::asyncBlockCurrent([] (frigg::SharedPtr<MemoryView> memory, size_t newSize)
+			-> coroutine<void> {
+		co_await memory->resize(newSize);
+	}(std::move(memory), newSize));
 
 	return kHelErrNone;
 }
