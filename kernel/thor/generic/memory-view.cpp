@@ -172,8 +172,8 @@ void MemoryView::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t si
 	frigg::panicLogger() << "MemoryView does not support synchronous operations!" << frigg::endLog;
 }
 
-void MemoryView::resize(size_t newLength, execution::any_receiver<void> receiver) {
-	(void)newLength;
+void MemoryView::resize(size_t newSize, execution::any_receiver<void> receiver) {
+	(void)newSize;
 	(void)receiver;
 	frigg::panicLogger() << "MemoryView does not support resize!" << frigg::endLog;
 }
@@ -516,12 +516,12 @@ AllocatedMemory::~AllocatedMemory() {
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
 }
 
-void AllocatedMemory::resize(size_t newLength, execution::any_receiver<void> receiver) {
+void AllocatedMemory::resize(size_t newSize, execution::any_receiver<void> receiver) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	assert(!(newLength % _chunkSize));
-	size_t num_chunks = newLength / _chunkSize;
+	assert(!(newSize % _chunkSize));
+	size_t num_chunks = newSize / _chunkSize;
 	assert(num_chunks >= _physicalChunks.size());
 	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
 	receiver.set_done();
@@ -841,19 +841,27 @@ void ManagedSpace::_progressMonitors() {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::resize(size_t newLength, execution::any_receiver<void> receiver) {
-	assert(!(newLength & (kPageSize - 1)));
+void BackingMemory::resize(size_t newSize, execution::any_receiver<void> receiver) {
+	assert(!(newSize & (kPageSize - 1)));
+	auto newPages = newSize >> kPageShift;
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	execution::detach([] (BackingMemory *self, size_t newPages,
+			execution::any_receiver<void> receiver) -> coroutine<void> {
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&self->_managed->mutex);
 
-	// TODO: Implement shrinking.
-	assert((newLength >> kPageShift) >= _managed->numPages);
+		if(newPages > self->_managed->numPages) {
+			for(size_t i = self->_managed->numPages; i < newPages; i++)
+				self->_managed->pages.find_or_insert(i, self->_managed.get(), i);
+		}else if(newPages < self->_managed->numPages) {
+			co_await self->_managed->_evictQueue.evictRange(newPages << kPageShift,
+					self->_managed->numPages << kPageShift);
+			// TODO: also free the affected pages!
+		}
+		self->_managed->numPages = newPages;
 
-	for(size_t i = _managed->numPages; i < (newLength >> kPageShift); i++)
-		_managed->pages.insert(i, _managed.get(), i);
-	_managed->numPages = newLength >> kPageShift;
-	receiver.set_done();
+		receiver.set_done();
+	}(this, newPages, std::move(receiver)));
 }
 
 void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
