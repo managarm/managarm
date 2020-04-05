@@ -239,9 +239,9 @@ ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> spac
 
 template<typename T>
 uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
-	uintptr_t misalign = stack_image.size() % alignof(data);
+	uintptr_t misalign = stack_image.size() % alignof(T);
 	if(misalign)
-		stack_image.resize(alignof(data) - misalign);
+		stack_image.resize(alignof(T) - misalign);
 	uintptr_t offset = stack_image.size();
 	stack_image.resize(stack_image.size() + sizeof(data));
 	memcpy(&stack_image[offset], &data, sizeof(data));
