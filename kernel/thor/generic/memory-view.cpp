@@ -1089,7 +1089,6 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&closure->bundle->mutex);
 
-			auto index = closure->offset >> kPageShift;
 			auto misalign = closure->offset & (kPageSize - 1);
 			assert(closure->page->loadState == ManagedSpace::kStatePresent);
 			auto physical = closure->page->physical;
@@ -1376,6 +1375,7 @@ void CopyOnWriteMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> obs
 Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
 	frigg::panicLogger() << "CopyOnWriteMemory does not support synchronous lockRange()"
 			<< frigg::endLog;
+	__builtin_unreachable();
 }
 
 void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
