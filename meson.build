@@ -1,6 +1,6 @@
 
 project('managarm', 'c', 'cpp')
-add_project_arguments('--std=c++17', language: 'cpp')
+add_project_arguments('--std=c++2a', language: 'cpp')
 c_compiler = meson.get_compiler('cpp')
 cpp_compiler = meson.get_compiler('cpp')
 
