@@ -1010,10 +1010,12 @@ struct AcceptResult {
 	AcceptResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
 	UniqueDescriptor descriptor() {
+		assert(_valid);
 		HEL_CHECK(error());
 		return std::move(_descriptor);
 	}
@@ -1036,6 +1038,7 @@ struct ImbueCredentialsResult {
 	ImbueCredentialsResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
@@ -1055,10 +1058,12 @@ struct ExtractCredentialsResult {
 	ExtractCredentialsResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
 	char *credentials() {
+		assert(_valid);
 		return _credentials;
 	}
 
@@ -1080,6 +1085,7 @@ struct SendBufferResult {
 	SendBufferResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
@@ -1099,10 +1105,12 @@ struct RecvBufferResult {
 	RecvBufferResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
 	size_t actualLength() {
+		assert(_valid);
 		HEL_CHECK(error());
 		return _length;
 	}
@@ -1125,15 +1133,18 @@ struct RecvInlineResult {
 	RecvInlineResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
 	void *data() {
+		assert(_valid);
 		HEL_CHECK(error());
 		return _data;
 	}
 
 	size_t length() {
+		assert(_valid);
 		HEL_CHECK(error());
 		return _length;
 	}
@@ -1163,6 +1174,7 @@ struct PushDescriptorResult {
 	PushDescriptorResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
@@ -1182,10 +1194,12 @@ struct PullDescriptorResult {
 	PullDescriptorResult() :_valid{false} {}
 
 	HelError error() {
+		assert(_valid);
 		return _error;
 	}
 
 	UniqueDescriptor descriptor() {
+		assert(_valid);
 		HEL_CHECK(error());
 		return std::move(_descriptor);
 	}
