@@ -1574,36 +1574,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_path.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::UNLINK) {
-			if(logRequests || logPaths)
-				std::cout << "posix: UNLINK path: " << req.path() << std::endl;
-
-			helix::SendBuffer send_resp;
-
-			auto path = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
-			if(path.second) {
-				auto owner = path.second->getOwner();
-				co_await owner->unlink(path.second->getName());
-
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}else{
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}
 		}else if(req.request_type() == managarm::posix::CntReqType::UNLINKAT) {
 			if(logRequests || logPaths)
 				std::cout << "posix: UNLINKAT path: " << req.path() << std::endl;
