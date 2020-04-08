@@ -1489,6 +1489,61 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.request_type() == managarm::posix::CntReqType::UNLINKAT) {
+			if(logRequests || logPaths)
+				std::cout << "posix: UNLINKAT path: " << req.path() << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+			std::shared_ptr<FsLink> target_link;
+
+			// Add flags handling
+
+			if(req.fd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.fd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(),
+					relative_to, req.path());
+
+			co_await resolver.resolve();
+
+			target_link = resolver.currentLink();
+
+			if (!target_link) {
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			} else {
+				auto owner = target_link->getOwner();
+				co_await owner->unlink(target_link->getName());
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
 			if(logRequests)
 				std::cout << "posix: FD_GET_FLAGS" << std::endl;
