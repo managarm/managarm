@@ -11,21 +11,23 @@ File::File(helix::UniqueDescriptor lane)
 : _lane(std::move(lane)) { }
 
 async::result<void> File::seekAbsolute(int64_t offset) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
 	req.set_rel_offset(offset);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 128));
-	co_await transmit.async_wait();
+
+	auto [error, offer, send_req, recv_resp] =
+		co_await helix_ng::exchangeMsgs(
+			_lane, helix::Dispatcher::global(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvBuffer(buffer, 128)
+			)
+		);
+
+	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -36,25 +38,25 @@ async::result<void> File::seekAbsolute(int64_t offset) {
 }
 
 async::result<size_t> File::readSome(void *data, size_t max_length) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::ImbueCredentials imbue_creds;
-	helix::RecvBuffer recv_resp;
-	helix::RecvBuffer recv_data;
-
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::READ);
 	req.set_size(max_length);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&imbue_creds, kHelItemChain),
-			helix::action(&recv_resp, buffer, 128, kHelItemChain),
-			helix::action(&recv_data, data, max_length));
-	co_await transmit.async_wait();
+
+	auto [error, offer, send_req, imbue_creds, recv_resp, recv_data] =
+		co_await helix_ng::exchangeMsgs(
+			_lane, helix::Dispatcher::global(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::imbueCredentials(),
+				helix_ng::recvBuffer(buffer, 128),
+				helix_ng::recvBuffer(data, max_length)
+			)
+		);
+
+	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(imbue_creds.error());
@@ -72,11 +74,6 @@ async::result<size_t> File::readSome(void *data, size_t max_length) {
 
 async::result<PollResult> File::poll(uint64_t sequence,
 		async::cancellation_token cancellation) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::PushDescriptor push_cancel;
-	helix::RecvBuffer recv_resp;
-
 	HelHandle cancel_handle;
 	HEL_CHECK(helCreateOneshotEvent(&cancel_handle));
 	helix::UniqueDescriptor cancel_event{cancel_handle};
@@ -92,12 +89,18 @@ async::result<PollResult> File::poll(uint64_t sequence,
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&push_cancel, cancel_event, kHelItemChain),
-			helix::action(&recv_resp, buffer, 128));
-	co_await transmit.async_wait();
+
+	auto [error, offer, send_req, push_cancel, recv_resp] =
+		co_await helix_ng::exchangeMsgs(
+			_lane, helix::Dispatcher::global(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(cancel_event),
+				helix_ng::recvBuffer(buffer, 128)
+			)
+		);
+
+	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(push_cancel.error());
@@ -112,22 +115,23 @@ async::result<PollResult> File::poll(uint64_t sequence,
 }
 
 async::result<helix::UniqueDescriptor> File::accessMemory() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-	helix::PullDescriptor recv_memory;
-
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 128, kHelItemChain),
-			helix::action(&recv_memory));
-	co_await transmit.async_wait();
+
+	auto [error, offer, send_req, recv_resp, recv_memory] =
+		co_await helix_ng::exchangeMsgs(
+			_lane, helix::Dispatcher::global(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvBuffer(buffer, 128),
+				helix_ng::pullDescriptor()
+			)
+		);
+
+	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
