@@ -352,6 +352,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
 		helix::SendBuffer send_resp;
 
+		assert(file_ops->getFileFlags);
 		auto flags = co_await file_ops->getFileFlags(file.get());
 
 		managarm::fs::SvrResponse resp;
@@ -366,6 +367,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_FILE_FLAGS) {
 		helix::SendBuffer send_resp;
 
+		assert(file_ops->setFileFlags);
 		co_await file_ops->setFileFlags(file.get(), req.flags());
 
 		managarm::fs::SvrResponse resp;
@@ -437,6 +439,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		helix::RecvInline recv_addr;
 		helix::SendBuffer send_resp;
 
+		assert(file_ops->sendMsg);
 		auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_data, buffer.data(), buffer.size(), kHelItemChain),
 				helix::action(&extract_creds, kHelItemChain),
