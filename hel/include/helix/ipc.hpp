@@ -1313,6 +1313,10 @@ struct {
 	auto operator() (T &&arg) {
 		return createActionsArrayFor(false, std::forward<T>(arg));
 	}
+
+	auto operator() () {
+		return std::array<HelAction, 0>{};
+	}
 } chainActionArrays;
 
 template <typename ...T>
