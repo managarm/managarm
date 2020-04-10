@@ -424,11 +424,14 @@ struct HelThreadStats {
 
 enum {
   khelVmexitHlt = 0,
+  khelVmexitTranslationFault = 1,
   khelVmexitError = -1,
 };
 
 struct HelVmexitReason {
 	uint32_t exitReason;
+	size_t address;
+	size_t flags;
 };
 
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);

@@ -4,7 +4,7 @@
 
 namespace thor::vmx {
 
-Error EptSpace::map(uint64_t guestAddress, int flags) {
+Error EptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int flags) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
@@ -15,10 +15,15 @@ Error EptSpace::map(uint64_t guestAddress, int flags) {
 	PageAccessor spaceAccessor{spaceRoot};
 	auto pml4e = reinterpret_cast<size_t*>(spaceAccessor.get());
 
-	size_t pageFlags = (1 << EPT_READ)
-						| (1 << EPT_WRITE)
-						| (1 << EPT_EXEC)
-						| (1 << EPT_USEREXEC);
+	size_t pageFlags = 0;
+
+	pageFlags |= (1 << EPT_READ);
+	if(flags & 1) {
+		pageFlags |= (1 << EPT_WRITE);
+	}
+	if(flags & 2) {
+		pageFlags |= (1 << EPT_EXEC);
+	}
 
 	size_t* pdpte;
 	if(!(pml4e[pml4eIdx] & (1 << EPT_READ))) {
@@ -70,11 +75,48 @@ Error EptSpace::map(uint64_t guestAddress, int flags) {
 		pte = reinterpret_cast<size_t*>(pdpteAccessor.get());
 	}
 
-	auto alloc = physicalAllocator->allocate(kPageSize) >> 12;
+	auto alloc = hostAddress >> 12;
 	size_t entry = (alloc << EPT_PHYSADDR) | pageFlags | (6 << EPT_MEMORY_TYPE) | (1 << EPT_IGNORE_PAT);
-	pte[pteIdx] = entry;
+	pte[pteIdx] = entry | flags;
 
 	return kErrSuccess;
+}
+
+bool EptSpace::isMapped(VirtualAddr guestAddress) {
+	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
+	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
+	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
+	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
+	int offset = (size_t)guestAddress & (0x1000 - 1);
+
+	PageAccessor spaceAccessor{spaceRoot};
+	size_t* pml4e = reinterpret_cast<size_t*>(spaceAccessor.get());
+
+	size_t* pdpte;
+	if(!(pml4e[pml4eIdx] & (1 << EPT_READ))) {
+		return false;
+	} else {
+		PageAccessor pdpteAccessor{(pml4e[pml4eIdx] >> EPT_PHYSADDR) << 12};
+		pdpte = reinterpret_cast<size_t*>(pdpteAccessor.get());
+	}
+
+	size_t* pde;
+	if(!(pdpte[pdpteIdx] & (1 << EPT_READ))) {
+		return false;
+	} else {
+		PageAccessor pdpteAccessor{(pdpte[pdpteIdx] >> EPT_PHYSADDR) << 12};
+		pde = reinterpret_cast<size_t*>(pdpteAccessor.get());
+	}
+
+	size_t* pte;
+	if(!(pde[pdeIdx] & (1 << EPT_READ))) {
+		return false;
+	} else {
+		PageAccessor pdpteAccessor{(pde[pdeIdx] >> EPT_PHYSADDR) << 12};
+		pte = reinterpret_cast<size_t*>(pdpteAccessor.get());
+	}
+
+	return ((pte[pteIdx] & EPT_READ));
 }
 
 uintptr_t EptSpace::translate(uintptr_t guestAddress) {
@@ -112,6 +154,43 @@ uintptr_t EptSpace::translate(uintptr_t guestAddress) {
 	}
 
 	return ((pte[pteIdx] >> EPT_PHYSADDR) << 12) + offset;
+}
+
+PageStatus EptSpace::unmap(uint64_t guestAddress) {
+	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
+	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
+	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
+	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
+	int offset = (size_t)guestAddress & (0x1000 - 1);
+
+	PageAccessor spaceAccessor{spaceRoot};
+	size_t* pml4e = reinterpret_cast<size_t*>(spaceAccessor.get());
+
+	size_t* pdpte;
+	if(!(pml4e[pml4eIdx] & (1 << EPT_READ))) {
+		return -1;
+	} else {
+		PageAccessor pdpteAccessor{(pml4e[pml4eIdx] >> EPT_PHYSADDR) << 12};
+		pdpte = reinterpret_cast<size_t*>(pdpteAccessor.get());
+	}
+
+	size_t* pde;
+	if(!(pdpte[pdpteIdx] & (1 << EPT_READ))) {
+		return -1;
+	} else {
+		PageAccessor pdpteAccessor{(pdpte[pdpteIdx] >> EPT_PHYSADDR) << 12};
+		pde = reinterpret_cast<size_t*>(pdpteAccessor.get());
+	}
+
+	size_t* pte;
+	if(!(pde[pdeIdx] & (1 << EPT_READ))) {
+		return -1;
+	} else {
+		PageAccessor pdpteAccessor{(pde[pdeIdx] >> EPT_PHYSADDR) << 12};
+		pte = reinterpret_cast<size_t*>(pdpteAccessor.get());
+	}
+
+	pte[pteIdx] = page_status::present;
 }
 
 Error EptSpace::store(uintptr_t guestAddress, size_t size, const void* buffer) {
@@ -154,6 +233,25 @@ Error EptSpace::load(uintptr_t guestAddress, size_t size, void* buffer) {
 		progress += chunk;
 	}
 	return kErrSuccess;
+}
+
+bool EptSpace::submitShootdown(ShootNode *node) {
+	EptPtr ptr = {spaceRoot, 0};
+	auto addr = node->address;
+	asm volatile (
+		"invept (%0), %1;"
+		: : "r"(&ptr), "r"((uint64_t)1)
+	);
+	WorkQueue::post(node->_worklet);
+}
+
+void EptSpace::retire(RetireNode *node) {
+	EptPtr ptr = {spaceRoot, 0};
+	asm volatile (
+		"invept (%0), %1;"
+		: : "r"(&ptr), "r"((uint64_t)1)
+	);
+	WorkQueue::post(node->_worklet);
 }
 
 EptSpace::~EptSpace() {

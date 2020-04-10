@@ -1,6 +1,7 @@
 #pragma once
 #include "../../../hel/include/hel.h"
 #include <generic/error.hpp>
+#include "address-space.hpp"
 
 namespace thor {
 	struct GuestState {
@@ -27,10 +28,45 @@ namespace thor {
 			virtual void loadRegs(HelX86VirtualizationRegs *res) = 0;
 	};
 
-	struct VirtualizedPageSpace {
+	struct VirtualizedPageSpace : VirtualSpace {
 		virtual Error store(uintptr_t guestAddress, size_t len, const void* buffer) = 0;
 		virtual Error load(uintptr_t guestAddress, size_t len, void* buffer) = 0;
+		virtual bool isMapped(VirtualAddr pointer) = 0;
+		virtual bool submitShootdown(ShootNode *node) = 0;
+		virtual void retire(RetireNode *node) = 0;
 
-		virtual Error map(uint64_t guestAddress, int flags) = 0;
+		virtual Error map(uint64_t guestAddress, uint64_t hostAddress, int flags) = 0;
+		virtual PageStatus unmap(uint64_t guestAddress) = 0;
+		VirtualizedPageSpace() : VirtualSpace{&ops_}, ops_{this} {}
+
+		struct Operations : VirtualOperations {
+			Operations(VirtualizedPageSpace *space)
+			: space_{space} { }
+
+			void retire(RetireNode *node) override {
+				return space_->retire(node);
+			}
+
+			bool submitShootdown(ShootNode *node) override {
+				return space_->submitShootdown(node);
+			}
+
+			void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+					uint32_t flags, CachingMode cachingMode) override {
+				space_->map(pointer, physical, flags);
+			}
+
+			PageStatus unmapSingle4k(VirtualAddr pointer) override {
+				return space_->unmap(pointer);
+			}
+
+			bool isMapped(VirtualAddr pointer) override {
+				return space_->isMapped(pointer);
+			}
+			private:
+				VirtualizedPageSpace *space_;
+		};
+	private:
+		Operations ops_;
 	};
 }

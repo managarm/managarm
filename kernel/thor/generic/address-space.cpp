@@ -385,8 +385,10 @@ CowChain::~CowChain() {
 // --------------------------------------------------------
 
 VirtualSpace::VirtualSpace(VirtualOperations *ops)
-: _ops{ops} {
-	auto hole = frigg::construct<Hole>(*kernelAlloc, 0x100000, 0x7ffffff00000);
+: _ops{ops} { }
+
+void VirtualSpace::setupInitialHole(VirtualAddr address, size_t size) {
+	auto hole = frigg::construct<Hole>(*kernelAlloc, address, size);
 	_holes.insert(hole);
 }
 
