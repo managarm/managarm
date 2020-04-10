@@ -19,8 +19,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		const FileOperations *file_ops,
 		managarm::fs::CntRequest req, helix::UniqueLane conversation) {
 	if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->seekAbs);
 		auto result = co_await file_ops->seekAbs(file.get(), req.rel_offset());
 
@@ -29,13 +27,13 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_offset(std::get<int64_t>(result));
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->seekRel);
 		auto result = co_await file_ops->seekRel(file.get(), req.rel_offset());
 		auto error = std::get_if<Error>(&result);
@@ -50,13 +48,13 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		}
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->seekEof);
 		auto result = co_await file_ops->seekEof(file.get(), req.rel_offset());
 
@@ -65,18 +63,18 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_offset(std::get<int64_t>(result));
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
-		helix::ExtractCredentials extract_creds;
-		helix::SendBuffer send_resp;
-		helix::SendBuffer send_data;
-
-		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&extract_creds));
-		co_await buff.async_wait();
+		auto [inquiry_error, extract_creds] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(inquiry_error);
 		HEL_CHECK(extract_creds.error());
 
 		std::string data;
@@ -91,27 +89,33 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 		}else if(error && *error == Error::illegalArguments) {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 		}else{
 			assert(!error);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, data.data(), std::get<size_t>(res)));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}
@@ -119,12 +123,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		std::vector<uint8_t> buffer;
 		buffer.resize(req.size());
 
-		helix::ExtractCredentials extract_creds;
-		helix::RecvBuffer recv_buffer;
-		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&extract_creds, kHelItemChain),
-				helix::action(&recv_buffer, buffer.data(), buffer.size()));
-		co_await buff.async_wait();
+		auto [inquiry_error, extract_creds, recv_buffer] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::extractCredentials(),
+			helix_ng::recvBuffer(buffer.data(), buffer.size())
+		);
+		HEL_CHECK(inquiry_error);
 		HEL_CHECK(extract_creds.error());
 		HEL_CHECK(recv_buffer.error());
 
@@ -132,18 +136,17 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		co_await file_ops->write(file.get(), extract_creds.credentials(),
 				buffer.data(), recv_buffer.actualLength());
 
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->flock);
 		auto result = co_await file_ops->flock(file.get(), req.flock_flags());
 
@@ -157,13 +160,13 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		}
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->readEntries);
 		auto result = co_await file_ops->readEntries(file.get());
 
@@ -176,14 +179,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		}
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size()));
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
-		helix::SendBuffer send_resp;
-		helix::PushDescriptor push_memory;
-
 		assert(file_ops->accessMemory);
 		auto memory = co_await file_ops->accessMemory(file.get());
 
@@ -191,15 +192,15 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&push_memory, memory));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp, push_memory] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::pushDescriptor(memory)
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(push_memory.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_TRUNCATE) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->truncate);
 		co_await file_ops->truncate(file.get(), req.size());
 
@@ -207,13 +208,13 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_FALLOCATE) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->fallocate);
 		co_await file_ops->fallocate(file.get(), req.rel_offset(), req.size());
 
@@ -221,16 +222,16 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
 		assert(file_ops->ioctl);
 		co_await file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->getOption);
 		auto result = co_await file_ops->getOption(file.get(), req.command());
 
@@ -239,13 +240,13 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_pid(result);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_OPTION) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->setOption);
 		co_await file_ops->setOption(file.get(), req.command(), req.value());
 
@@ -253,17 +254,18 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
-		helix::PullDescriptor pull_cancel;
-		helix::SendBuffer send_resp;
-
-		auto &&receive = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&pull_cancel));
-		co_await receive.async_wait();
+		auto [inquiry_error, pull_cancel] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::pullDescriptor()
+		);
+		HEL_CHECK(inquiry_error);
 		HEL_CHECK(pull_cancel.error());
 
 		assert(file_ops->poll);
@@ -277,17 +279,19 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_status(std::get<2>(result));
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
-		helix::ExtractCredentials extract_creds;
-		helix::RecvInline recv_addr;
-		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&extract_creds, kHelItemChain),
-				helix::action(&recv_addr));
-		co_await buff.async_wait();
+		auto [inquiry_error, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::extractCredentials(),
+			helix_ng::recvInline()
+		);
+		HEL_CHECK(inquiry_error);
 		HEL_CHECK(extract_creds.error());
 		HEL_CHECK(recv_addr.error());
 
@@ -295,22 +299,23 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		co_await file_ops->bind(file.get(), extract_creds.credentials(),
 				recv_addr.data(), recv_addr.length());
 
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
-		helix::ExtractCredentials extract_creds;
-		helix::RecvInline recv_addr;
-		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&extract_creds, kHelItemChain),
-				helix::action(&recv_addr));
-		co_await buff.async_wait();
+		auto [inquiry_error, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::extractCredentials(),
+			helix_ng::recvInline()
+		);
+		HEL_CHECK(inquiry_error);
 		HEL_CHECK(extract_creds.error());
 		HEL_CHECK(recv_addr.error());
 
@@ -318,19 +323,17 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		co_await file_ops->connect(file.get(), extract_creds.credentials(),
 				recv_addr.data(), recv_addr.length());
 
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
-		helix::SendBuffer send_resp;
-		helix::SendBuffer send_data;
-
 		std::vector<char> addr;
 		addr.resize(req.size());
 		assert(file_ops->sockname);
@@ -342,16 +345,16 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_file_size(actual_length);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, addr.data(),
-						std::min(size_t(req.size()), actual_length)));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(addr.data(),
+					std::min(size_t(req.size()), actual_length))
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->getFileFlags);
 		auto flags = co_await file_ops->getFileFlags(file.get());
 
@@ -360,13 +363,13 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_flags(flags);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size(), 0));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_FILE_FLAGS) {
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->setFileFlags);
 		co_await file_ops->setFileFlags(file.get(), req.flags());
 
@@ -374,20 +377,18 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size(), 0));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	} else if (req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
-		helix::ExtractCredentials extract_creds;
-		helix::SendBuffer send_resp;
-		helix::SendBuffer send_data;
-		helix::SendBuffer send_addr;
-		helix::SendBuffer send_ctrl;
-
-		auto get_creds = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&extract_creds));
-		co_await get_creds.async_wait();
+		auto [inquiry_error, extract_creds] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(inquiry_error);
 		HEL_CHECK(extract_creds.error());
 
 		// ensure we have a handler
@@ -410,22 +411,25 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			resp.set_error(managarm::fs::WOULD_BLOCK);
 
 			auto ser = resp.SerializeAsString();
-			auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
 
 		auto data = std::get<RecvData>(result);
 		auto ser = resp.SerializeAsString();
-		auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_addr, addr.data(), data.addressLength, kHelItemChain),
-				helix::action(&send_data, buffer.data(), data.dataLength, kHelItemChain),
-				helix::action(&send_ctrl, data.ctrl.data(), data.ctrl.size()));
-
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp, send_addr, send_data, send_ctrl]
+				= co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(addr.data(), data.addressLength),
+			helix_ng::sendBuffer(buffer.data(), data.dataLength),
+			helix_ng::sendBuffer(data.ctrl.data(), data.ctrl.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_addr.error());
 		HEL_CHECK(send_data.error());
@@ -434,20 +438,17 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		std::vector<uint8_t> buffer;
 		buffer.resize(req.size());
 
-		helix::RecvBuffer recv_data;
-		helix::ExtractCredentials extract_creds;
-		helix::RecvInline recv_addr;
-		helix::SendBuffer send_resp;
-
 		assert(file_ops->sendMsg);
-		auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&recv_data, buffer.data(), buffer.size(), kHelItemChain),
-				helix::action(&extract_creds, kHelItemChain),
-				helix::action(&recv_addr));
-		co_await submit_data.async_wait();
+		auto [inquiry_error, recv_data, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::recvBuffer(buffer.data(), buffer.size()),
+			helix_ng::extractCredentials(),
+			helix_ng::recvInline()
+		);
+		HEL_CHECK(inquiry_error);
 		HEL_CHECK(recv_data.error());
 		HEL_CHECK(extract_creds.error());
-
+		HEL_CHECK(recv_addr.error());
 
 		std::vector<uint32_t> files(req.fds().cbegin(), req.fds().cend());
 
@@ -464,9 +465,11 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			resp.set_error(managarm::fs::Errors::BROKEN_PIPE);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 			co_return;
 		} else {
@@ -477,9 +480,11 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_size(std::get<size_t>(result_or_error));
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix::Dispatcher::global(),
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(resp_error);
 		HEL_CHECK(send_resp.error());
 	} else {
 		throw std::runtime_error("libfs_protocol: Unexpected"
@@ -494,11 +499,11 @@ serveFile(helix::UniqueLane lane, void *file, const FileOperations *file_ops) {
 	(void)file;
 	(void)file_ops;
 	while(true) {
-		helix::Accept accept;
-
-		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept));
-		co_await initiate.async_wait();
+		auto [req_error, accept] = co_await helix_ng::exchangeMsgs(
+				lane, helix::Dispatcher::global(),
+			helix_ng::accept()
+		);
+		HEL_CHECK(req_error);
 
 		if(accept.error() == kHelErrEndOfLane)
 			co_return;
@@ -515,13 +520,12 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 	}};
 
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await initiate.async_wait();
+		auto [req_error, accept, recv_req] = co_await helix_ng::exchangeMsgs(
+				lane, helix::Dispatcher::global(),
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
+		HEL_CHECK(req_error);
 
 		// TODO: Handle end-of-lane correctly. Why does it even happen here?
 		if(accept.error() == kHelErrLaneShutdown
@@ -567,13 +571,12 @@ void StatusPageProvider::update(uint64_t sequence, int status) {
 async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 		const NodeOperations *node_ops) {
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
+		auto [req_error, accept, recv_req] = co_await helix_ng::exchangeMsgs(
+				lane, helix::Dispatcher::global(),
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
+		HEL_CHECK(req_error);
 		if(accept.error() == kHelErrEndOfLane)
 			co_return;
 
@@ -585,8 +588,6 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
-			helix::SendBuffer send_resp;
-
 			assert(node_ops->getStats);
 			auto result = co_await node_ops->getStats(node);
 
@@ -605,9 +606,11 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			resp.set_ctime_nanos(result.anyChangeTime.tv_nsec);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
 			helix::SendBuffer send_resp;
@@ -637,10 +640,12 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				}
 
 				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-						helix::action(&push_node, remote_lane));
-				co_await transmit.async_wait();
+				auto [resp_error, send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+						conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::pushDescriptor(remote_lane)
+				);
+				HEL_CHECK(resp_error);
 				HEL_CHECK(send_resp.error());
 				HEL_CHECK(push_node.error());
 			}else{
@@ -648,15 +653,14 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(resp_error);
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_MKDIR) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-
 			auto result = co_await node_ops->mkdir(node, req.path());
 
 			if (std::get<0>(result)) {
@@ -669,10 +673,12 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				resp.set_id(std::get<1>(result));
 
 				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-						helix::action(&push_node, remote_lane));
-				co_await transmit.async_wait();
+				auto [resp_error, send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+						conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::pushDescriptor(remote_lane)
+				);
+				HEL_CHECK(resp_error);
 				HEL_CHECK(send_resp.error());
 				HEL_CHECK(push_node.error());
 			}else{
@@ -680,15 +686,14 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT); // TODO
 
 				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(resp_error);
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_LINK) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-
 			auto result = co_await node_ops->link(node, req.path(), req.fd());
 			if(std::get<0>(result)) {
 				helix::UniqueLane local_lane, remote_lane;
@@ -713,10 +718,12 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				}
 
 				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-						helix::action(&push_node, remote_lane));
-				co_await transmit.async_wait();
+				auto [resp_error, send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+						conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::pushDescriptor(remote_lane)
+				);
+				HEL_CHECK(resp_error);
 				HEL_CHECK(send_resp.error());
 				HEL_CHECK(push_node.error());
 			}else{
@@ -724,57 +731,56 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(resp_error);
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UNLINK) {
-			helix::SendBuffer send_resp;
-
 			co_await node_ops->unlink(node, req.path());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_file;
-			helix::PushDescriptor push_pt;
-
 			auto result = co_await node_ops->open(node);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_file, std::get<0>(result), kHelItemChain),
-					helix::action(&push_pt, std::get<1>(result)));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp, push_file, push_pt] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(std::get<0>(result)),
+				helix_ng::pushDescriptor(std::get<1>(result))
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_file.error());
 			HEL_CHECK(push_pt.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_READ_SYMLINK) {
-			helix::SendBuffer send_resp;
-			helix::SendBuffer send_link;
-
 			auto link = co_await node_ops->readSymlink(node);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_link, link.data(), link.size()));
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp, send_link] = co_await helix_ng::exchangeMsgs(
+					conversation, helix::Dispatcher::global(),
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(link.data(), link.size())
+			);
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_link.error());
 		}else{
@@ -784,4 +790,3 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 }
 
 } } // namespace protocols::fs
-
