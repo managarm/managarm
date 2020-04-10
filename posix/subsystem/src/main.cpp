@@ -1277,10 +1277,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
-			assert(!(req.flags() & ~(managarm::posix::OF_CREATE
+			if((req.flags() & ~(managarm::posix::OF_CREATE
 					| managarm::posix::OF_EXCLUSIVE
 					| managarm::posix::OF_NONBLOCK
-					| managarm::posix::OF_CLOEXEC)));
+					| managarm::posix::OF_CLOEXEC))) {
+				std::cout << "posix: OPENAT flags not recognized: " << req.flags() << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
 			SemanticFlags semantic_flags = 0;
 			if(req.flags() & managarm::posix::OF_NONBLOCK)
@@ -1584,7 +1588,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
 
-			// Add flags handling
+			if(req.flags()) {
+				if(req.flags() == 8) {
+					std::cout << "posix: UNLINKAT flag AT_REMOVEDIR handling unimplemented" << std::endl;
+				} else {
+					std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req.flags() << std::endl;
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				}
+			} 
 
 			if(req.fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
