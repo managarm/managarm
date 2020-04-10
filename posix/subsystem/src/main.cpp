@@ -1589,7 +1589,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			std::shared_ptr<FsLink> target_link;
 
 			if(req.flags()) {
-				if(req.flags() == 8) {
+				if(req.flags() & 8) {
 					std::cout << "posix: UNLINKAT flag AT_REMOVEDIR handling unimplemented" << std::endl;
 				} else {
 					std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req.flags() << std::endl;
