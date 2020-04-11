@@ -33,12 +33,6 @@ async::result<void> connectKernletCompiler() {
 async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 		std::vector<BindType> bind_types) {
 	// Compile the kernlet object.
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::SendBuffer send_code;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_kernlet;
-
 	managarm::kernlet::CntRequest req;
 	req.set_req_type(managarm::kernlet::CntReqType::COMPILE);
 
@@ -56,13 +50,16 @@ async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 	}
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(kernletCompilerLane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_code, code, size, kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_kernlet));
-	co_await transmit.async_wait();
+	auto [req_error, offer, send_req, send_code, recv_resp, pull_kernlet]
+			= co_await helix_ng::exchangeMsgs(kernletCompilerLane, helix::Dispatcher::global(),
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(code, size),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor()
+		)
+	);
+	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(send_code.error());
