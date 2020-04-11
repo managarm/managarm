@@ -1,3 +1,5 @@
+#ifndef FRIGG_ARCH_X86_TSS_HPP
+#define FRIGG_ARCH_X86_TSS_HPP
 
 #include <frigg/macros.hpp>
 
@@ -28,3 +30,4 @@ void initializeTss64(Tss64 *tss);
 
 }} // namespace frigg::arch_x86
 
+#endif

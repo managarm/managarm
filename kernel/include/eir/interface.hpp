@@ -1,3 +1,5 @@
+#ifndef EIR_INTERFACE_HPP
+#define EIR_INTERFACE_HPP
 
 static const uint64_t eirSignatureValue = 0x68692C2074686F72;
 
@@ -46,3 +48,4 @@ struct EirInfo {
 	EirFramebuffer frameBuffer;
 };
 
+#endif

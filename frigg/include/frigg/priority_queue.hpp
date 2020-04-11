@@ -1,3 +1,5 @@
+#ifndef FRIGG_PRIORITY_QUEUE_HPP
+#define FRIGG_PRIORITY_QUEUE_HPP
 
 #include <frigg/macros.hpp>
 
@@ -78,3 +80,4 @@ private:
 
 } // namespace frigg
 
+#endif

@@ -1,3 +1,5 @@
+#ifndef FRIGG_ELF_HPP
+#define FRIGG_ELF_HPP
 
 #include <stdint.h>
 
@@ -172,3 +174,4 @@ struct Elf64_Dyn {
 	};
 };
 
+#endif

@@ -1,3 +1,5 @@
+#ifndef FRIGG_LIBC_HPP
+#define FRIGG_LIBC_HPP
 
 extern "C" int isdigit(int ch);
 extern "C" int isspace(int ch);
@@ -19,3 +21,4 @@ extern "C" char *strcpy(char *dest, const char *src);
 extern "C" char *strncpy(char *dest, const char *src, size_t count);
 extern "C" char *strcat(char *dest, const char *src);
 
+#endif
