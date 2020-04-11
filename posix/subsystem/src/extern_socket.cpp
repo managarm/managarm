@@ -21,11 +21,6 @@ private:
 
 namespace extern_socket {
 async::result<smarter::shared_ptr<File, FileHandle>> createSocket(helix::BorrowedLane lane, int type, int proto) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-	helix::PullDescriptor recv_lane;
-
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::CREATE_SOCKET);
 	req.set_type(type);
@@ -33,12 +28,15 @@ async::result<smarter::shared_ptr<File, FileHandle>> createSocket(helix::Borrowe
 	auto req_data = req.SerializeAsString();
 	char buffer[128];
 
-	auto transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, req_data.data(), req_data.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, sizeof(buffer), kHelItemChain),
-			helix::action(&recv_lane));
-	co_await transmit.async_wait();
+	auto [req_error, offer, send_req, recv_resp, recv_lane] = co_await helix_ng::exchangeMsgs(
+			lane, helix::Dispatcher::global(),
+		helix_ng::offer(
+			helix_ng::sendBuffer(req_data.data(), req_data.size()),
+			helix_ng::recvBuffer(buffer, sizeof(buffer)),
+			helix_ng::pullDescriptor()
+		)
+	);
+	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

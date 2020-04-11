@@ -76,11 +76,6 @@ async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	std::vector<uint64_t> buffer;
 	buffer.resize((_bits + 63) & ~size_t(63));
 
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::RecvBuffer recv_data;
-	
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::PT_IOCTL);
 	if(_index) {
@@ -92,12 +87,15 @@ async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	req.set_size(buffer.size() * sizeof(uint64_t));
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&recv_data, buffer.data(), buffer.size() * sizeof(uint64_t)));
-	co_await transmit.async_wait();
+	auto [req_error, offer, send_req, recv_resp, recv_data]
+			= co_await helix_ng::exchangeMsgs(lane, helix::Dispatcher::global(),
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline(),
+			helix_ng::recvBuffer(buffer.data(), buffer.size() * sizeof(uint64_t))
+		)
+	);
+	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

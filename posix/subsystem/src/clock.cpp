@@ -18,21 +18,19 @@ helix::UniqueDescriptor globalTrackerPageMemory;
 helix::Mapping trackerPageMapping;
 
 async::detached fetchTrackerPage() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_memory;
-
 	managarm::clock::CntRequest req;
 	req.set_req_type(managarm::clock::CntReqType::ACCESS_PAGE);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(trackerLane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_memory));
-	co_await transmit.async_wait();
+	auto [req_error, offer, send_req, recv_resp, pull_memory] = co_await helix_ng::exchangeMsgs(
+			trackerLane, helix::Dispatcher::global(),
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor()
+		)
+	);
+	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

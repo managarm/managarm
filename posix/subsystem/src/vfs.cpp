@@ -86,19 +86,18 @@ async::result<void> populateRootView() {
 
 		auto lane = helix::BorrowedLane{__mlibc_getPassthrough(dir_fd)};
 		while(true) {
-			helix::Offer offer;
-			helix::SendBuffer send_req;
-			helix::RecvInline recv_resp;
-
 			managarm::fs::CntRequest req;
 			req.set_req_type(managarm::fs::CntReqType::PT_READ_ENTRIES);
 
 			auto ser = req.SerializeAsString();
-			auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
-					helix::action(&offer, kHelItemAncillary),
-					helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&recv_resp));
-			co_await transmit.async_wait();
+			auto [req_error, offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+					lane, helix::Dispatcher::global(),
+				helix_ng::offer(
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::recvInline()
+				)
+			);
+			HEL_CHECK(req_error);
 			HEL_CHECK(offer.error());
 			HEL_CHECK(send_req.error());
 			HEL_CHECK(recv_resp.error());
