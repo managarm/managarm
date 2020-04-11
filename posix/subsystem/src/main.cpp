@@ -1672,6 +1672,41 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::FD_SET_FLAGS) {
+			if(logRequests)
+				std::cout << "posix: FD_SET_FLAGS" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			auto descriptor = self->fileContext()->getDescriptor(req.fd());
+			if(!descriptor) {
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			if(req.flags()) {
+				if(req.flags() & 1) {
+					descriptor->closeOnExec = !descriptor->closeOnExec;
+				} else {
+					std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
+				}
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
 			if(logRequests)
 				std::cout << "posix: SIG_ACTION" << std::endl;
