@@ -10,7 +10,6 @@
 #include <frigg/libc.hpp>
 #include <frigg/string.hpp>
 #include <frigg/support.hpp>
-#include <eir/interface.hpp>
 #include <render-text.hpp>
 #include <physical-buddy.hpp>
 #include "main.hpp"
@@ -417,20 +416,6 @@ address_t mapBootstrapData(void *p) {
 
 // ----------------------------------------------------------------------------
 
-// TODO: eirRtLoadGdt could be written using inline assembly.
-extern "C" void eirRtLoadGdt(uint32_t *pointer, uint32_t size);
-
-uint32_t gdtEntries[4 * 2];
-
-void intializeGdt() {
-	arch::makeGdtNullSegment(gdtEntries, 0);
-	arch::makeGdtFlatCode32SystemSegment(gdtEntries, 1);
-	arch::makeGdtFlatData32SystemSegment(gdtEntries, 2);
-	arch::makeGdtCode64SystemSegment(gdtEntries, 3);
-	
-	eirRtLoadGdt(gdtEntries, 4 * 8 - 1); 
-}
-
 // note: we are loading the segments to their p_paddr addresses
 // instead of the usual p_vaddr addresses!
 void loadKernelImage(void *image, uint64_t *out_entry) {
@@ -465,14 +450,14 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 					<< frigg::endLog;
 		}
 
-		uint32_t pg = 0;
-		while(pg < (uint32_t)phdr->p_memsz) {
+		uintptr_t pg = 0;
+		while(pg < (uintptr_t)phdr->p_memsz) {
 			auto backing = allocPage();
 			memset(reinterpret_cast<void *>(backing), 0, kPageSize);
-			if(pg < (uint32_t)phdr->p_filesz)
+			if(pg < (uintptr_t)phdr->p_filesz)
 				memcpy(reinterpret_cast<void *>(backing),
-						reinterpret_cast<void *>((uintptr_t)image + (uint32_t)phdr->p_offset + pg),
-						frigg::min(kPageSize, (uint32_t)phdr->p_filesz - pg));
+						reinterpret_cast<void *>((uintptr_t)image + (uintptr_t)phdr->p_offset + pg),
+						frigg::min(kPageSize, (uintptr_t)phdr->p_filesz - pg));
 			mapSingle4kPage(phdr->p_paddr + pg, backing, map_flags);
 			pg += kPageSize;
 		}
@@ -480,8 +465,6 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 	
 	*out_entry = ehdr->e_entry;
 }
-
-static_assert(sizeof(void *) == 4, "Expected 32-bit system");
 
 void initProcessorEarly(){
 	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
@@ -505,7 +488,7 @@ void initProcessorEarly(){
 	if((normal[3] & arch::kCpuFlagPat) == 0)
 		frigg::panicLogger() << "PAT is not supported on this CPU" << frigg::endLog;
 
-	intializeGdt();
+	initArchCpu();
 
 	// Program the PAT. Each byte configures a single entry.
 	// 00: Uncacheable

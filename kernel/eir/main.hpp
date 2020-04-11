@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <eir/interface.hpp>
 
 enum {
 	kAccessWrite = 1,
@@ -44,6 +45,7 @@ uintptr_t bootReserve(size_t length, size_t alignment);
 address_t mapBootstrapData(void *p);
 void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags, CachingMode caching_mode);
 void initProcessorEarly();
+extern void initArchCpu();
 void setupRegionStructs();
 void createInitialRegion(address_t base, address_t size);
 void initProcessorPaging(void *kernel_start, uint64_t& kernel_entry);
