@@ -1676,26 +1676,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: FD_SET_FLAGS" << std::endl;
 
-			helix::SendBuffer send_resp;
-
 			auto descriptor = self->fileContext()->getDescriptor(req.fd());
 			if(!descriptor) {
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
 			if(req.flags()) {
-				if(req.flags() & 1) {
-					descriptor->closeOnExec = !descriptor->closeOnExec;
+				if(req.flags() & FD_CLOEXEC) {
+					descriptor->closeOnExec = 1;
 				} else {
 					std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
+					std::cout << "posix: FD_SET_FLAGS removing FD_CLOEXEC" << std::endl;
+					descriptor->closeOnExec = 0;
 				}
 			}
 
@@ -1703,10 +1696,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-				auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
-						helix_ng::sendBuffer(ser.data(), ser.size()));
-				HEL_CHECK(resp_error);
-			co_await transmit.async_wait();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(resp_error);
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
 			if(logRequests)
