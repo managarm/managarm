@@ -1,3 +1,5 @@
+#ifndef FRIGG_ARCH_X86_IDT_HPP
+#define FRIGG_ARCH_X86_IDT_HPP
 
 #include <frigg/macros.hpp>
 
@@ -23,3 +25,4 @@ void makeIdt64IntUserGate(uint32_t *idt, int entry,
 
 }} // namespace frigg::arch_x86
 
+#endif

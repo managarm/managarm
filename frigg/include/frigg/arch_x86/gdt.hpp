@@ -1,3 +1,5 @@
+#ifndef FRIGG_ARCH_X86_GDT_HPP
+#define FRIGG_ARCH_X86_GDT_HPP
 
 #include <frigg/macros.hpp>
 
@@ -31,3 +33,4 @@ void makeGdtTss64Descriptor(uint32_t *gdt, int entry, void *tss,
 
 }} // namespace frigg::arch_x86
 
+#endif
