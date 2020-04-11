@@ -1678,19 +1678,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto descriptor = self->fileContext()->getDescriptor(req.fd());
 			if(!descriptor) {
-				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
 
-			if(req.flags()) {
-				if(req.flags() & FD_CLOEXEC) {
-					descriptor->closeOnExec = 1;
-				} else {
-					std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
-					std::cout << "posix: FD_SET_FLAGS removing FD_CLOEXEC" << std::endl;
-					descriptor->closeOnExec = 0;
-				}
+			if(req.flags() & ~FD_CLOEXEC) {
+				std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
 			}
+			descriptor->closeOnExec = req.flags() & FD_CLOEXEC;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
