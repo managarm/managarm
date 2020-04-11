@@ -1703,8 +1703,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
+				auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(resp_error);
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
@@ -2355,4 +2356,3 @@ int main() {
 
 	helix::globalQueue()->run();
 }
-
