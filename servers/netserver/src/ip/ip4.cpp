@@ -1,5 +1,6 @@
 #include "ip4.hpp"
 
+#include "checksum.hpp"
 #include <async/doorbell.hpp>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -73,6 +74,14 @@ public:
 
 		header.source = nendian(header.source);
 		header.destination = nendian(header.destination);
+
+		Checksum csum;
+		csum.update(data);
+		auto sum = csum.finalize();
+		if (sum != 0) {
+			std::cout << "netserver: wrong sum: " << sum << std::endl;
+			return false;
+		}
 
 		return true;
 	}
