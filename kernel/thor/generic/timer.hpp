@@ -7,6 +7,7 @@
 #include <frg/intrusive.hpp>
 #include <frigg/atomic.hpp>
 #include "cancel.hpp"
+#include "execution/cancellation.hpp"
 #include "work-queue.hpp"
 
 namespace thor {
@@ -43,19 +44,40 @@ private:
 	std::atomic<AlarmSink *> _sink;
 };
 
+enum class TimerState {
+	none,
+	queued,
+	elapsed,
+	retired
+};
+
 struct PrecisionTimerNode {
+	struct CancelFunctor {
+		CancelFunctor(PrecisionTimerNode *node)
+		: node_{node} { }
+
+		void operator() ();
+
+	private:
+		PrecisionTimerNode *node_;
+	};
+
 	friend struct CompareTimer;
 	friend struct PrecisionTimerEngine;
 
 	PrecisionTimerNode()
-	: _engine{nullptr}, _inQueue{false} { }
+	: _engine{nullptr}, _cancelCb{this} { }
 
 	void setup(uint64_t deadline, Worklet *elapsed) {
 		_deadline = deadline;
 		_elapsed = elapsed;
 	}
 
-	void cancelTimer();
+	void setup(uint64_t deadline, cancellation_token cancelToken, Worklet *elapsed) {
+		_deadline = deadline;
+		_cancelToken = cancelToken;
+		_elapsed = elapsed;
+	}
 
 	bool wasCancelled() {
 		return _wasCancelled;
@@ -65,13 +87,15 @@ struct PrecisionTimerNode {
 
 private:
 	uint64_t _deadline;
+	cancellation_token _cancelToken;
 	Worklet *_elapsed;
 
 	// TODO: If we allow timer engines to be destructed, this needs to be refcounted.
 	PrecisionTimerEngine *_engine;
 
-	bool _inQueue;
+	TimerState _state = TimerState::none;
 	bool _wasCancelled = false;
+	transient_cancellation_callback<CancelFunctor> _cancelCb;
 };
 
 struct CompareTimer {
@@ -92,6 +116,8 @@ public:
 	void installTimer(PrecisionTimerNode *timer);
 
 private:
+	void cancelTimer(PrecisionTimerNode *timer);
+
 	void firedAlarm();
 
 private:
@@ -114,6 +140,10 @@ private:
 	
 	size_t _activeTimers;
 };
+
+inline void PrecisionTimerNode::CancelFunctor::operator() () {
+	node_->_engine->cancelTimer(node_);
+}
 
 ClockSource *systemClockSource();
 PrecisionTimerEngine *generalTimerEngine();

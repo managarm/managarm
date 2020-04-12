@@ -2,6 +2,7 @@
 
 #include <frg/container_of.hpp>
 #include "event.hpp"
+#include "execution/cancellation.hpp"
 #include "execution/coroutine.hpp"
 #include "kernel.hpp"
 #include "ipc-queue.hpp"
@@ -1741,11 +1742,11 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			setupSource(&source);
 
 			worklet.setup(&Closure::elapsed);
-			PrecisionTimerNode::setup(nanos, &worklet);
+			PrecisionTimerNode::setup(nanos, cancelEvent, &worklet);
 		}
 
 		void handleCancellation() override {
-			cancelTimer();
+			cancelEvent.cancel();
 		}
 
 		void complete() override {
@@ -1753,6 +1754,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		}
 
 		Worklet worklet;
+		cancellation_event cancelEvent;
 		frigg::SharedPtr<IpcQueue> queue;
 		QueueSource source;
 		HelSimpleResult result;
