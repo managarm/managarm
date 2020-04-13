@@ -91,11 +91,15 @@ void PrecisionTimerEngine::_progress() {
 			assert(timer->_state == TimerState::queued);
 			_timerQueue.pop();
 			_activeTimers--;
-			timer->_state = TimerState::elapsed;
 			if(logProgress)
 				frigg::infoLogger() << "thor: Timer completed" << frigg::endLog;
-			if(timer->_cancelCb.try_reset())
+			if(timer->_cancelCb.try_reset()) {
+				timer->_state = TimerState::retired;
 				WorkQueue::post(timer->_elapsed);
+			}else{
+				// Let the cancellation handler invoke the continuation.
+				timer->_state = TimerState::elapsed;
+			}
 		}
 
 		// Setup the comparator and iterate if there was a race.
