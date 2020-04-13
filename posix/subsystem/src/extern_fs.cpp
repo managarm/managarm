@@ -165,6 +165,9 @@ private:
 	FutureMaybe<SharedFilePtr>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
+		// Regular files do not support O_NONBLOCK.
+		semantic_flags &= ~semanticNonBlock;
+
 		assert(!semantic_flags);
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -478,6 +481,9 @@ private:
 	FutureMaybe<SharedFilePtr>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
+		// Regular files do not support O_NONBLOCK.
+		semantic_flags &= ~semanticNonBlock;
+
 		assert(!semantic_flags);
 		helix::Offer offer;
 		helix::SendBuffer send_req;
