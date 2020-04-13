@@ -898,6 +898,8 @@ public:
 			frigg::SharedPtr<CowChain> chain = nullptr);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
 
+	~CopyOnWriteMemory();
+
 	CopyOnWriteMemory &operator= (const CopyOnWriteMemory &) = delete;
 
 	size_t getLength() override;

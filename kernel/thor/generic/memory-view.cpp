@@ -1297,6 +1297,14 @@ CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<MemoryView> view,
 	assert(!(length & (kPageSize - 1)));
 }
 
+CopyOnWriteMemory::~CopyOnWriteMemory() {
+	for(auto it = _ownedPages.begin(); it != _ownedPages.end(); ++it) {
+		assert(it->state == CowState::hasCopy);
+		assert(it->physical != PhysicalAddr(-1));
+		physicalAllocator->free(it->physical, kPageSize);
+	}
+}
+
 size_t CopyOnWriteMemory::getLength() {
 	return _length;
 }
