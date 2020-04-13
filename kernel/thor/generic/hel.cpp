@@ -642,14 +642,7 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	}
 	PageAccessor paccessor{pml4e};
 	memset(paccessor.get(), 0, kPageSize);
-	auto vspace = smarter::allocate_shared<thor::vmx::EptSpace>(Allocator{}, pml4e);
-	auto err = vspace->map(0x1000, 1);
-	if(err == kErrNoMemory) {
-		return kHelErrNoMemory;
-	} else {
-		assert(!err);
-	}
-
+	auto vspace = thor::vmx::EptSpace::create(pml4e);
 	Universe::Guard universe_guard(&this_universe->lock);
 	*handle = this_universe->attachDescriptor(universe_guard,
 			VirtualizedSpaceDescriptor(std::move(vspace)));
@@ -715,8 +708,27 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
+	uint32_t map_flags = 0;
+	if(pointer != nullptr) {
+		map_flags |= AddressSpace::kMapFixed;
+	}else{
+		map_flags |= AddressSpace::kMapPreferTop;
+	}
+
+	if(flags & kHelMapProtRead)
+		map_flags |= AddressSpace::kMapProtRead;
+	if(flags & kHelMapProtWrite)
+		map_flags |= AddressSpace::kMapProtWrite;
+	if(flags & kHelMapProtExecute)
+		map_flags |= AddressSpace::kMapProtExecute;
+
+	if(flags & kHelMapDontRequireBacking)
+		map_flags |= AddressSpace::kMapDontRequireBacking;
+
 	frigg::SharedPtr<MemorySlice> slice;
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	smarter::shared_ptr<VirtualSpace> vspace;
+	bool isVspace = false;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -741,34 +753,28 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			auto space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
 			if(!space_wrapper)
 				return kHelErrNoDescriptor;
-			if(!space_wrapper->is<AddressSpaceDescriptor>())
+			if(space_wrapper->is<AddressSpaceDescriptor>()) {
+				space = space_wrapper->get<AddressSpaceDescriptor>().space;
+			} else if(space_wrapper->is<VirtualizedSpaceDescriptor>()) {
+				isVspace = true;
+				vspace = space_wrapper->get<VirtualizedSpaceDescriptor>().space;
+			} else {
 				return kHelErrBadDescriptor;
-			space = space_wrapper->get<AddressSpaceDescriptor>().space;
+			}
 		}
 	}
 
 	// TODO: check proper alignment
 
-	uint32_t map_flags = 0;
-	if(pointer != nullptr) {
-		map_flags |= AddressSpace::kMapFixed;
-	}else{
-		map_flags |= AddressSpace::kMapPreferTop;
-	}
-
-	if(flags & kHelMapProtRead)
-		map_flags |= AddressSpace::kMapProtRead;
-	if(flags & kHelMapProtWrite)
-		map_flags |= AddressSpace::kMapProtWrite;
-	if(flags & kHelMapProtExecute)
-		map_flags |= AddressSpace::kMapProtExecute;
-
-	if(flags & kHelMapDontRequireBacking)
-		map_flags |= AddressSpace::kMapDontRequireBacking;
-
 	VirtualAddr actual_address;
-	Error error = space->map(slice, (VirtualAddr)pointer, offset, length,
-			map_flags, &actual_address);
+	Error error;
+	if(!isVspace) {
+		error = space->map(slice, (VirtualAddr)pointer, offset, length,
+				map_flags, &actual_address);
+	} else {
+		error = vspace->map(slice, (VirtualAddr)pointer, offset, length,
+						map_flags, &actual_address);
+	}
 
 	if(error == kErrBufferTooSmall) {
 		return kHelErrBufferTooSmall;

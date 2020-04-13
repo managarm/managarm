@@ -499,6 +499,8 @@ public:
 
 	smarter::shared_ptr<Mapping> getMapping(VirtualAddr address);
 
+	void setupInitialHole(VirtualAddr address, size_t size);
+
 	Error map(frigg::UnsafePtr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
@@ -639,6 +641,7 @@ public:
 	static smarter::shared_ptr<AddressSpace, BindableHandle> create() {
 		auto ptr = smarter::allocate_shared<AddressSpace>(Allocator{});
 		ptr->selfPtr = ptr;
+		ptr->setupInitialHole(0x100000, 0x7ffffff00000);
 		return constructHandle(std::move(ptr));
 	}
 

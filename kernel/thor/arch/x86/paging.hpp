@@ -67,9 +67,9 @@ struct RetireNode {
 	void setup(Worklet *worklet) {
 		_worklet = worklet;
 	}
+	Worklet *_worklet;
 
 private:
-	Worklet *_worklet;
 };
 
 struct ShootNode {
@@ -82,9 +82,9 @@ struct ShootNode {
 	void setup(Worklet *worklet) {
 		_worklet = worklet;
 	}
+	Worklet *_worklet;
 
 private:
-	Worklet *_worklet;
 
 	// This CPU already performed synchronous shootdown,
 	// hence it can ignore this request during asynchronous shootdown.

@@ -312,8 +312,8 @@ namespace thor::vmx {
 				frigg::arch_x86::xsave((uint8_t*)hostFstate, ~0);
 				frigg::arch_x86::xrstor((uint8_t*)guestFstate, ~0);
 			} else {
-   				asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
-   				asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
+				asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
+				asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
 			}
 			launched = false;
 			if(!launched) {
@@ -327,8 +327,8 @@ namespace thor::vmx {
 				frigg::arch_x86::xsave((uint8_t*)guestFstate, ~0);
 				frigg::arch_x86::xrstor((uint8_t*)hostFstate, ~0);
 			} else {
-   				asm volatile ("fxsaveq %0" : : "m" (*guestFstate));
-   				asm volatile ("fxrstorq %0" : : "m" (*hostFstate));
+				asm volatile ("fxsaveq %0" : : "m" (*guestFstate));
+				asm volatile ("fxrstorq %0" : : "m" (*hostFstate));
 			}
 
 			//Vm exits don't restore the gdt limit
@@ -350,7 +350,40 @@ namespace thor::vmx {
 				frigg::infoLogger() << "vmx: hlt" << frigg::endLog;
 				exitInfo.exitReason = khelVmexitHlt;
 				return exitInfo;
-			} else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
+			} else if(reason == VMEXIT_EPT_VIOLATION) {
+				frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+				size_t address = vmread(EPT_VIOLATION_ADDRESS);
+				struct Closure {
+					ThreadBlocker blocker;
+					Worklet worklet;
+					FaultNode fault;
+				} closure;
+
+				closure.worklet.setup([] (Worklet *base) {
+					auto closure = frg::container_of(base, &Closure::worklet);
+					Thread::unblockOther(&closure->blocker);
+				});
+				closure.fault.setup(&closure.worklet);
+				closure.blocker.setup();
+				size_t exitFlags = vmread(EPT_VIOLATION_FLAGS);
+				uint32_t flags = 0;
+				if(exitFlags & 1) {
+					flags |= AddressSpace::kFaultWrite;
+				}
+				if(exitFlags & (1 << 2)) {
+					flags |= AddressSpace::kFaultExecute;
+				}
+				if(!space->handleFault(address, flags, &closure.fault))
+					Thread::blockCurrent(&closure.blocker);
+
+				bool handled = closure.fault.resolved();
+				if(!handled) {
+					exitInfo.exitReason = khelVmexitTranslationFault;
+					exitInfo.address = address;
+					exitInfo.flags = exitFlags;
+					return exitInfo;
+				}
+			}else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
 				frigg::infoLogger() << "vmx: external-interrupt exit" << frigg::endLog;
 			}
 		}
