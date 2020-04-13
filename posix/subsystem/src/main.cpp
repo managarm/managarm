@@ -1676,20 +1676,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: FD_SET_FLAGS" << std::endl;
 
-			auto descriptor = self->fileContext()->getDescriptor(req.fd());
-			if(!descriptor) {
-				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
-				continue;
-			}
-
 			if(req.flags() & ~FD_CLOEXEC) {
 				std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
-			descriptor->closeOnExec = req.flags() & FD_CLOEXEC;
-			if(self->fileContext()->setDescriptor(req.fd(), descriptor->closeOnExec) != Error::success) {
-				std::cout << "posix: FD_SET_FLAGS setDescriptor failed (file not found but passed previous check?)" << std::endl;
+			int closeOnExec = req.flags() & FD_CLOEXEC;
+			if(self->fileContext()->setDescriptor(req.fd(), closeOnExec) != Error::success) {
 				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
