@@ -339,6 +339,15 @@ std::optional<FileDescriptor> FileContext::getDescriptor(int fd) {
 	return file->second;
 }
 
+Error FileContext::setDescriptor(int fd, bool close_on_exec) {
+	auto it = _fileTable.find(fd);
+	if(it == _fileTable.end()) {
+		return Error::noSuchFile;
+	}
+	it->second.closeOnExec = close_on_exec;
+	return Error::success;
+}
+
 smarter::shared_ptr<File, FileHandle> FileContext::getFile(int fd) {
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())

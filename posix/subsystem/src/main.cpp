@@ -1661,7 +1661,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			int flags = 0;
 			if(descriptor->closeOnExec)
-				flags |= O_CLOEXEC;
+				flags |= FD_CLOEXEC;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -1688,6 +1688,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 			descriptor->closeOnExec = req.flags() & FD_CLOEXEC;
+			if(self->fileContext()->setDescriptor(req.fd(), descriptor->closeOnExec) != Error::success) {
+				std::cout << "posix: FD_SET_FLAGS setDescriptor failed (file not found but passed previous check?)" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
+				continue;
+			}
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

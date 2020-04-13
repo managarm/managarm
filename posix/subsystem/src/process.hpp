@@ -163,6 +163,8 @@ public:
 
 	std::optional<FileDescriptor> getDescriptor(int fd);
 
+	Error setDescriptor(int fd, bool close_on_exec);
+
 	smarter::shared_ptr<File, FileHandle> getFile(int fd);
 
 	void closeFile(int fd);
