@@ -118,6 +118,7 @@ message CntRequest {
 	// used by SOCKET_CREATE
 	optional int64 type = 49;
 	optional int64 protocol = 50;
+	optional int64 domain = 59;
 
 	// used by DEV_OPEN
 	optional uint32 flags = 39;

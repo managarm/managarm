@@ -20,9 +20,10 @@ private:
 }
 
 namespace extern_socket {
-async::result<smarter::shared_ptr<File, FileHandle>> createSocket(helix::BorrowedLane lane, int type, int proto) {
+async::result<smarter::shared_ptr<File, FileHandle>> createSocket(helix::BorrowedLane lane, int domain, int type, int proto) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::CREATE_SOCKET);
+	req.set_domain(domain);
 	req.set_type(type);
 	req.set_protocol(proto);
 	auto req_data = req.SerializeAsString();
