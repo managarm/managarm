@@ -203,8 +203,11 @@ private:
 	}
 
 public:
-	RegularNode(uint64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane)} { }
+	RegularNode(Superblock *sb, uint64_t inode, helix::UniqueLane lane)
+	: Node{inode, std::move(lane), sb}, _sb{sb} { }
+
+private:
+	Superblock *_sb;
 };
 
 struct SymlinkNode final : Node {
@@ -617,7 +620,7 @@ std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 	std::shared_ptr<Node> node;
 	switch(type) {
 	case managarm::fs::FileType::REGULAR:
-		node = std::make_shared<RegularNode>(id, std::move(lane));
+		node = std::make_shared<RegularNode>(this, id, std::move(lane));
 		break;
 	case managarm::fs::FileType::SYMLINK:
 		node = std::make_shared<SymlinkNode>(id, std::move(lane));
