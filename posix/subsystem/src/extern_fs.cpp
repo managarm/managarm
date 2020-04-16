@@ -203,8 +203,11 @@ private:
 	}
 
 public:
-	RegularNode(uint64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane)} { }
+	RegularNode(Superblock *sb, uint64_t inode, helix::UniqueLane lane)
+	: Node{inode, std::move(lane), sb}, _sb{sb} { }
+
+private:
+	Superblock *_sb;
 };
 
 struct SymlinkNode final : Node {
@@ -247,11 +250,12 @@ public:
 };
 
 struct Link : FsLink {
-private:
+public:
 	std::shared_ptr<FsNode> getOwner() override {
 		return _owner;
 	}
 
+private:
 	std::string getName() override {
 		assert(_owner);
 		return _name;
@@ -578,7 +582,38 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createSocket() {
 
 async::result<std::shared_ptr<FsLink>> Superblock::rename(FsLink *source,
 		FsNode *directory, std::string name) {
-	throw std::runtime_error("extern_fs: rename() is not supported");
+
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::RENAME);
+	Link *slink = static_cast<Link *>(source);
+	Node *source_node = static_cast<Node *>(slink->getOwner().get());
+	Node *target_node = static_cast<Node *>(directory);
+	std::shared_ptr<Node> shared_node = std::static_pointer_cast<Node>(source->getTarget());
+	req.set_inode_source(source_node->getInode());
+	req.set_inode_target(target_node->getInode());
+	req.set_old_name(source->getName());
+	req.set_new_name(name);
+
+	auto ser = req.SerializeAsString();
+	auto [error, offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+        _lane, helix::Dispatcher::global(),
+        helix_ng::offer(
+            helix_ng::sendBuffer(ser.data(), ser.size()),
+            helix_ng::recvInline()
+        )
+    );
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	if(resp.error() == managarm::fs::Errors::SUCCESS) {
+		co_return internalizePeripheralLink(target_node, name, shared_node);
+	}else{
+		co_return nullptr;
+	}
 }
 
 std::shared_ptr<Node> Superblock::internalizeStructural(uint64_t id, helix::UniqueLane lane) {
@@ -617,7 +652,7 @@ std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 	std::shared_ptr<Node> node;
 	switch(type) {
 	case managarm::fs::FileType::REGULAR:
-		node = std::make_shared<RegularNode>(id, std::move(lane));
+		node = std::make_shared<RegularNode>(this, id, std::move(lane));
 		break;
 	case managarm::fs::FileType::SYMLINK:
 		node = std::make_shared<SymlinkNode>(id, std::move(lane));

@@ -326,6 +326,37 @@ async::detached servePartition(helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::RENAME) {
+			auto oldInode = fs->accessInode(req.inode_source());
+			auto newInode = fs->accessInode(req.inode_target());
+
+			auto old_file = co_await oldInode->findEntry(req.old_name());
+			if(old_file) {
+				if(co_await newInode->findEntry(req.new_name()) != std::nullopt) {
+					co_await newInode->unlink(req.new_name());
+				}
+				co_await newInode->link(req.new_name(), old_file.value().inode, old_file.value().fileType);
+			} else {
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(resp_error);
+				HEL_CHECK(send_resp.error());
+			}
+
+			co_await oldInode->unlink(req.old_name());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(resp_error);
+			HEL_CHECK(send_resp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
