@@ -96,6 +96,8 @@ enum CntReqType {
 	CLOSE = 4;
 
 	FLOCK = 73;
+
+	RENAME = 36;
 }
 
 message Rect {
@@ -131,6 +133,12 @@ message CntRequest {
 
 	// used by SENDMSG
 	repeated uint32 fds = 53;
+
+	// used by RENAME
+	optional uint64 inode_source = 54;
+	optional uint64 inode_target = 55;
+	optional string old_name = 56;
+	optional string new_name = 57;
 
 	// used by SEEK_ABS, SEEK_REL and SEEK_EOF
 	optional int64 rel_offset = 7;
