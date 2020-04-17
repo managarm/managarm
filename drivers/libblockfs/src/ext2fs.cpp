@@ -289,6 +289,8 @@ async::result<void> FileSystem::init() {
 	sectorsPerBlock = blockSize / 512;
 	blocksPerGroup = sb.blocksPerGroup;
 	inodesPerGroup = sb.inodesPerGroup;
+	blocksCount = sb.blocksCount;
+	inodesCount = sb.inodesCount;
 	numBlockGroups = (sb.blocksCount + (sb.blocksPerGroup - 1)) / sb.blocksPerGroup;
 
 	if(logSuperblock) {
@@ -754,38 +756,38 @@ async::detached FileSystem::manageIndirect(std::shared_ptr<Inode> inode,
 }
 
 async::result<uint32_t> FileSystem::allocateBlock() {
-	int64_t bg_idx = 0;
+	for(uint32_t bg_idx = 0; bg_idx < numBlockGroups; bg_idx++) {
+		helix::LockMemoryView lock_bitmap;
+		auto &&submit_bitmap = helix::submitLockMemoryView(blockBitmap,
+				&lock_bitmap,
+				bg_idx << blockPagesShift, 1 << blockPagesShift,
+				helix::Dispatcher::global());
+		co_await submit_bitmap.async_wait();
+		HEL_CHECK(lock_bitmap.error());
 
-	helix::LockMemoryView lock_bitmap;
-	auto &&submit_bitmap = helix::submitLockMemoryView(blockBitmap,
-			&lock_bitmap,
-			bg_idx << blockPagesShift, 1 << blockPagesShift,
-			helix::Dispatcher::global());
-	co_await submit_bitmap.async_wait();
-	HEL_CHECK(lock_bitmap.error());
+		helix::Mapping bitmap_map{blockBitmap,
+				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
+				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-	helix::Mapping bitmap_map{blockBitmap,
-			bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
-			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+		// TODO: Update the block group descriptor table.
 
-	// TODO: Update the block group descriptor table.
-
-	auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
-	for(int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
-		if(words[i] == 0xFFFFFFFF)
-			continue;
-		for(int j = 0; j < 32; j++) {
-			if(words[i] & (static_cast<uint32_t>(1) << j))
+		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+		for(int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+			if(words[i] == 0xFFFFFFFF)
 				continue;
-			// TODO: Make sure we never return reserved blocks.
-			// TODO: Make sure we never return blocks higher than the max. block in the SB.
-			auto block = bg_idx * blocksPerGroup + i * 32 + j;
-			assert(block != 0);
-			assert(block < blocksPerGroup);
-			words[i] |= static_cast<uint32_t>(1) << j;
-			co_return block;
+			for(int j = 0; j < 32; j++) {
+				if(words[i] & (static_cast<uint32_t>(1) << j))
+					continue;
+				// TODO: Make sure we never return reserved blocks.
+				// TODO: Make sure we never return blocks higher than the max. block in the SB.
+				auto block = bg_idx * blocksPerGroup + i * 32 + j;
+				assert(block);
+				assert(block < blocksCount);
+				words[i] |= static_cast<uint32_t>(1) << j;
+				co_return block;
+			}
+			assert(!"Failed to find zero-bit");
 		}
-		assert(!"Failed to find zero-bit");
 	}
 
 	co_return 0;
@@ -818,8 +820,8 @@ async::result<uint32_t> FileSystem::allocateInode() {
 				// TODO: Make sure we never return reserved inodes.
 				// TODO: Make sure we never return inodes higher than the max. inode in the SB.
 				auto ino = bg_idx * inodesPerGroup + i * 32 + j + 1;
-				assert(ino != 0);
-				assert(ino < inodesPerGroup);
+				assert(ino);
+				assert(ino < inodesCount);
 				words[i] |= static_cast<uint32_t>(1) << j;
 				co_return ino;
 			}

@@ -285,6 +285,8 @@ struct FileSystem {
 	uint32_t numBlockGroups;
 	uint32_t blocksPerGroup;
 	uint32_t inodesPerGroup;
+	uint32_t blocksCount;
+	uint32_t inodesCount;
 	void *blockGroupDescriptorBuffer;
 
 	helix::UniqueDescriptor blockBitmap;
