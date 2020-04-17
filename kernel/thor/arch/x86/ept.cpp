@@ -168,7 +168,7 @@ PageStatus EptSpace::unmap(uint64_t guestAddress) {
 
 	size_t* pdpte;
 	if(!(pml4e[pml4eIdx] & (1 << EPT_READ))) {
-		return -1;
+		return 0;
 	} else {
 		PageAccessor pdpteAccessor{(pml4e[pml4eIdx] >> EPT_PHYSADDR) << 12};
 		pdpte = reinterpret_cast<size_t*>(pdpteAccessor.get());
@@ -176,7 +176,7 @@ PageStatus EptSpace::unmap(uint64_t guestAddress) {
 
 	size_t* pde;
 	if(!(pdpte[pdpteIdx] & (1 << EPT_READ))) {
-		return -1;
+		return 0;
 	} else {
 		PageAccessor pdpteAccessor{(pdpte[pdpteIdx] >> EPT_PHYSADDR) << 12};
 		pde = reinterpret_cast<size_t*>(pdpteAccessor.get());
@@ -184,13 +184,18 @@ PageStatus EptSpace::unmap(uint64_t guestAddress) {
 
 	size_t* pte;
 	if(!(pde[pdeIdx] & (1 << EPT_READ))) {
-		return -1;
+		return 0;
 	} else {
 		PageAccessor pdpteAccessor{(pde[pdeIdx] >> EPT_PHYSADDR) << 12};
 		pte = reinterpret_cast<size_t*>(pdpteAccessor.get());
 	}
 
-	pte[pteIdx] = page_status::present;
+	PageStatus status = page_status::present;
+	if(pte[pteIdx] & (1 << 9)) {
+		status |= page_status::dirty;
+	}
+	pte[pteIdx] = 0;
+	return status;
 }
 
 Error EptSpace::store(uintptr_t guestAddress, size_t size, const void* buffer) {
