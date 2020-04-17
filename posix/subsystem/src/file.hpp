@@ -222,6 +222,9 @@ public:
 	// Note that this might not be the only link that can be used
 	// to reach the file's inode.
 	std::shared_ptr<FsLink> associatedLink() {
+		if(!_link)
+			std::cout << "posix \e[1;34m" << structName()
+					<< "\e[0m: Object does not support associatedLink()" << std::endl;
 		return _link;
 	}
 
