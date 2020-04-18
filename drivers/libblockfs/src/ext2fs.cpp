@@ -146,12 +146,10 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 			auto target = fs.accessInode(ino);
 			co_await target->readyJump.async_wait();
 			target->diskInode()->linksCount++;
-
-			// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
-			auto inode_address = (target->number - 1) * fs.inodeSize;
-			target->diskMapping = helix::Mapping{fs.inodeTable,
-					inode_address, fs.inodeSize,
-					kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+			auto syncInode = co_await helix_ng::synchronizeSpace(
+					helix::BorrowedDescriptor{kHelNullHandle},
+					target->diskMapping.get(), fs.inodeSize);
+			HEL_CHECK(syncInode.error());
 
 			DirEntry entry;
 			entry.inode = ino;
@@ -237,6 +235,10 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	// XXX: this is a hack to make the directory accessible under
 	// OSes that respect the permissions, this means "drwxr-xr-x"
 	dir_node->diskInode()->mode = 0x41ED;
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			dir_node->diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
 
 	size_t offset = 0;
 
@@ -257,11 +259,6 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	dot_dot_entry->nameLength = 2;
 	dot_dot_entry->fileType = EXT2_FT_DIR;
 	memcpy(dot_dot_entry->name, "..", 2);
-
-	auto inode_address = (dir_node->number - 1) * fs.inodeSize;
-	dir_node->diskMapping = helix::Mapping{fs.inodeTable,
-			inode_address, fs.inodeSize,
-			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 
 	co_return co_await link(name, dir_node->number, kTypeDirectory);
 }
@@ -545,14 +542,10 @@ async::result<void> FileSystem::write(Inode *inode, uint64_t offset,
 		HEL_CHECK(helResizeMemory(inode->backingMemory,
 				(offset + length + 0xFFF) & ~size_t(0xFFF)));
 		inode->setFileSize(offset + length);
-
-		// Notify the kernel that the inode might have changed.
-		// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
-		auto inode_address = (inode->number - 1) * inodeSize;
-
-		inode->diskMapping = helix::Mapping{inodeTable,
-				inode_address, inodeSize,
-				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+		auto syncInode = co_await helix_ng::synchronizeSpace(
+				helix::BorrowedDescriptor{kHelNullHandle},
+				inode->diskMapping.get(), inodeSize);
+		HEL_CHECK(syncInode.error());
 	}
 
 	auto map_offset = offset & ~size_t(0xFFF);
@@ -905,13 +898,10 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 		}
 	}
 
-	// Notify the kernel that the inode might have changed.
-	// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
-	auto inode_address = (inode->number - 1) * inodeSize;
-
-	inode->diskMapping = helix::Mapping{inodeTable,
-			inode_address, inodeSize,
-			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			inode->diskMapping.get(), inodeSize);
+	HEL_CHECK(syncInode.error());
 }
 
 async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
@@ -1095,14 +1085,10 @@ async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
 	HEL_CHECK(helResizeMemory(inode->backingMemory,
 			(size + 0xFFF) & ~size_t(0xFFF)));
 	inode->setFileSize(size);
-
-	// Notify the kernel that the inode might have changed.
-	// Hack: For now, we just remap the inode to make sure the dirty bit is checked.
-	auto inode_address = (inode->number - 1) * inodeSize;
-
-	inode->diskMapping = helix::Mapping{inodeTable,
-			inode_address, inodeSize,
-			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			inode->diskMapping.get(), inodeSize);
+	HEL_CHECK(syncInode.error());
 	co_return;
 }
 
