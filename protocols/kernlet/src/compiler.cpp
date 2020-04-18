@@ -50,8 +50,8 @@ async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 	}
 
 	auto ser = req.SerializeAsString();
-	auto [req_error, offer, send_req, send_code, recv_resp, pull_kernlet]
-			= co_await helix_ng::exchangeMsgs(kernletCompilerLane, helix::Dispatcher::global(),
+	auto [offer, send_req, send_code, recv_resp, pull_kernlet]
+			= co_await helix_ng::exchangeMsgs(kernletCompilerLane,
 		helix_ng::offer(
 			helix_ng::sendBuffer(ser.data(), ser.size()),
 			helix_ng::sendBuffer(code, size),
@@ -59,7 +59,6 @@ async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 			helix_ng::pullDescriptor()
 		)
 	);
-	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(send_code.error());

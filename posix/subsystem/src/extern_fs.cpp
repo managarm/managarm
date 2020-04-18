@@ -595,8 +595,8 @@ async::result<std::shared_ptr<FsLink>> Superblock::rename(FsLink *source,
 	req.set_new_name(name);
 
 	auto ser = req.SerializeAsString();
-	auto [error, offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-        _lane, helix::Dispatcher::global(),
+	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+        _lane,
         helix_ng::offer(
             helix_ng::sendBuffer(ser.data(), ser.size()),
             helix_ng::recvInline()

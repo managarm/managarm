@@ -90,14 +90,13 @@ async::result<void> populateRootView() {
 			req.set_req_type(managarm::fs::CntReqType::PT_READ_ENTRIES);
 
 			auto ser = req.SerializeAsString();
-			auto [req_error, offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-					lane, helix::Dispatcher::global(),
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+				lane,
 				helix_ng::offer(
 					helix_ng::sendBuffer(ser.data(), ser.size()),
 					helix_ng::recvInline()
 				)
 			);
-			HEL_CHECK(req_error);
 			HEL_CHECK(offer.error());
 			HEL_CHECK(send_req.error());
 			HEL_CHECK(recv_resp.error());

@@ -1459,16 +1459,11 @@ inline auto createResultsTuple(T &&...args) {
 
 template <typename Results, typename Actions>
 struct Transmission : private Context {
-	Transmission(BorrowedDescriptor descriptor, Dispatcher &dispatcher,
-			Results, Actions actions)
-	: _transmissionError{0} {
+	Transmission(BorrowedDescriptor descriptor, Results, Actions actions) {
 		auto context = static_cast<Context *>(this);
-		_transmissionError = helSubmitAsync(descriptor.getHandle(),
-				actions.data(), actions.size(), dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context), 0);
-
-		if (_transmissionError)
-			_resultsPromise.set_value(std::tuple_cat(std::tuple<HelError>(_transmissionError), Results{}));
+		HEL_CHECK(helSubmitAsync(descriptor.getHandle(),
+				actions.data(), actions.size(), Dispatcher::global().acquire(),
+				reinterpret_cast<uintptr_t>(context), 0));
 	}
 
 	auto operator co_await() {
@@ -1485,18 +1480,16 @@ private:
 			(std::get<p>(results).parse(ptr, element), ...);
 		} (std::make_index_sequence<std::tuple_size<Results>::value>{});
 
-		_resultsPromise.set_value(std::tuple_cat(std::tuple<HelError>{_transmissionError},
-					std::move(results)));
+		_resultsPromise.set_value(std::move(results));
 	}
 
-	async::promise<decltype(std::tuple_cat(std::tuple<HelError>{}, Results{}))> _resultsPromise;
-	HelError _transmissionError;
+	async::promise<decltype(Results{})> _resultsPromise;
 };
 
 template <typename ...Args>
-auto exchangeMsgs(BorrowedDescriptor descriptor, Dispatcher &dispatcher, Args &&...args) {
+auto exchangeMsgs(BorrowedDescriptor descriptor, Args &&...args) {
 	return Transmission{
-		std::move(descriptor), dispatcher,
+		std::move(descriptor),
 		createResultsTuple(args...),
 		chainActionArrays(args...)
 	};

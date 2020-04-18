@@ -341,9 +341,8 @@ async::detached servePartition(helix::UniqueLane lane) {
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
-				auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBuffer(ser.data(), ser.size()));
-				HEL_CHECK(resp_error);
 				HEL_CHECK(send_resp.error());
 			}
 
@@ -353,9 +352,8 @@ async::detached servePartition(helix::UniqueLane lane) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto [resp_error, send_resp] = co_await helix_ng::exchangeMsgs(conversation, helix::Dispatcher::global(),
-					helix_ng::sendBuffer(ser.data(), ser.size()));
-			HEL_CHECK(resp_error);
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");

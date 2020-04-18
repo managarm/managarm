@@ -87,15 +87,14 @@ async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	req.set_size(buffer.size() * sizeof(uint64_t));
 
 	auto ser = req.SerializeAsString();
-	auto [req_error, offer, send_req, recv_resp, recv_data]
-			= co_await helix_ng::exchangeMsgs(lane, helix::Dispatcher::global(),
+	auto [offer, send_req, recv_resp, recv_data]
+			= co_await helix_ng::exchangeMsgs(lane,
 		helix_ng::offer(
 			helix_ng::sendBuffer(ser.data(), ser.size()),
 			helix_ng::recvInline(),
 			helix_ng::recvBuffer(buffer.data(), buffer.size() * sizeof(uint64_t))
 		)
 	);
-	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

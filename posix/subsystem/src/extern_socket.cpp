@@ -28,15 +28,14 @@ async::result<smarter::shared_ptr<File, FileHandle>> createSocket(helix::Borrowe
 	auto req_data = req.SerializeAsString();
 	char buffer[128];
 
-	auto [req_error, offer, send_req, recv_resp, recv_lane] = co_await helix_ng::exchangeMsgs(
-			lane, helix::Dispatcher::global(),
+	auto [offer, send_req, recv_resp, recv_lane] = co_await helix_ng::exchangeMsgs(
+		lane,
 		helix_ng::offer(
 			helix_ng::sendBuffer(req_data.data(), req_data.size()),
 			helix_ng::recvBuffer(buffer, sizeof(buffer)),
 			helix_ng::pullDescriptor()
 		)
 	);
-	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

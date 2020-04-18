@@ -22,15 +22,14 @@ async::detached fetchTrackerPage() {
 	req.set_req_type(managarm::clock::CntReqType::ACCESS_PAGE);
 
 	auto ser = req.SerializeAsString();
-	auto [req_error, offer, send_req, recv_resp, pull_memory] = co_await helix_ng::exchangeMsgs(
-			trackerLane, helix::Dispatcher::global(),
+	auto [offer, send_req, recv_resp, pull_memory] = co_await helix_ng::exchangeMsgs(
+		trackerLane,
 		helix_ng::offer(
 			helix_ng::sendBuffer(ser.data(), ser.size()),
 			helix_ng::recvInline(),
 			helix_ng::pullDescriptor()
 		)
 	);
-	HEL_CHECK(req_error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

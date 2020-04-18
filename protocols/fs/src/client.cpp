@@ -18,16 +18,15 @@ async::result<void> File::seekAbsolute(int64_t offset) {
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
 
-	auto [error, offer, send_req, recv_resp] =
+	auto [offer, send_req, recv_resp] =
 		co_await helix_ng::exchangeMsgs(
-			_lane, helix::Dispatcher::global(),
+			_lane,
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
 				helix_ng::recvBuffer(buffer, 128)
 			)
 		);
 
-	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -45,9 +44,9 @@ async::result<size_t> File::readSome(void *data, size_t max_length) {
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
 
-	auto [error, offer, send_req, imbue_creds, recv_resp, recv_data] =
+	auto [offer, send_req, imbue_creds, recv_resp, recv_data] =
 		co_await helix_ng::exchangeMsgs(
-			_lane, helix::Dispatcher::global(),
+			_lane,
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
 				helix_ng::imbueCredentials(),
@@ -56,7 +55,6 @@ async::result<size_t> File::readSome(void *data, size_t max_length) {
 			)
 		);
 
-	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(imbue_creds.error());
@@ -90,9 +88,9 @@ async::result<PollResult> File::poll(uint64_t sequence,
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
 
-	auto [error, offer, send_req, push_cancel, recv_resp] =
+	auto [offer, send_req, push_cancel, recv_resp] =
 		co_await helix_ng::exchangeMsgs(
-			_lane, helix::Dispatcher::global(),
+			_lane,
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
 				helix_ng::pushDescriptor(cancel_event),
@@ -100,7 +98,6 @@ async::result<PollResult> File::poll(uint64_t sequence,
 			)
 		);
 
-	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(push_cancel.error());
@@ -121,9 +118,9 @@ async::result<helix::UniqueDescriptor> File::accessMemory() {
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
 
-	auto [error, offer, send_req, recv_resp, recv_memory] =
+	auto [offer, send_req, recv_resp, recv_memory] =
 		co_await helix_ng::exchangeMsgs(
-			_lane, helix::Dispatcher::global(),
+			_lane,
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
 				helix_ng::recvBuffer(buffer, 128),
@@ -131,7 +128,6 @@ async::result<helix::UniqueDescriptor> File::accessMemory() {
 			)
 		);
 
-	HEL_CHECK(error);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
