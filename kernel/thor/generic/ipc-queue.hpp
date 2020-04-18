@@ -119,6 +119,60 @@ public:
 
 	void submit(IpcNode *node);
 
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for submit()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct SubmitOperation;
+
+	struct [[nodiscard]] SubmitSender {
+		template<typename R>
+		friend SubmitOperation<R>
+		connect(SubmitSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		IpcQueue *self;
+		QueueSource *source;
+		uintptr_t context;
+	};
+
+	SubmitSender submit(QueueSource *source, uintptr_t context) {
+		return {this, source, context};
+	}
+
+	template<typename R>
+	struct SubmitOperation : private IpcNode {
+		SubmitOperation(SubmitSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		SubmitOperation(const SubmitOperation &) = delete;
+
+		SubmitOperation &operator= (const SubmitOperation &) = delete;
+
+		void start() {
+			setupSource(s_.source);
+			setupContext(s_.context);
+			s_.self->submit(this);
+		}
+
+	private:
+		void complete() override {
+			receiver_.set_done();
+		}
+
+		SubmitSender s_;
+		R receiver_;
+	};
+
+	friend execution::sender_awaiter<SubmitSender>
+	operator co_await(SubmitSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
+
 private:
 	void _progress();
 	bool _advanceChunk();
