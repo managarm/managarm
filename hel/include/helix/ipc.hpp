@@ -1495,8 +1495,63 @@ auto exchangeMsgs(BorrowedDescriptor descriptor, Args &&...args) {
 	};
 }
 
+// --------------------------------------------------------------------
+// Operations other than exchangeMsgs().
+// --------------------------------------------------------------------
+
+struct SynchronizeSpaceResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		error_ = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+};
+
+struct [[nodiscard]] SynchronizeSpaceOperation : private Context {
+	SynchronizeSpaceOperation(helix::BorrowedDescriptor spaceDescriptor,
+			void *pointer, size_t size) {
+		auto context = static_cast<Context *>(this);
+		HEL_CHECK(helSubmitSynchronizeSpace(spaceDescriptor.getHandle(),
+				pointer, size,
+				Dispatcher::global().acquire(),
+				reinterpret_cast<uintptr_t>(context)));
+	}
+
+	SynchronizeSpaceOperation(const SynchronizeSpaceOperation &) = delete;
+
+	SynchronizeSpaceOperation &operator= (const SynchronizeSpaceOperation &) = delete;
+
+	auto operator co_await() {
+		using async::operator co_await;
+		return operator co_await(promise_.async_get());
+	}
+
+private:
+	void complete(ElementHandle element) override {
+		SynchronizeSpaceResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		promise_.set_value(std::move(result));
+	}
+
+	async::promise<SynchronizeSpaceResult> promise_;
+};
+
+inline SynchronizeSpaceOperation synchronizeSpace(helix::BorrowedDescriptor spaceDescriptor,
+		void *pointer, size_t size) {
+	return {spaceDescriptor, pointer, size};
+}
+
 } // namespace helix_ng
 
-
 #endif // HELIX_HPP
-

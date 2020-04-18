@@ -906,6 +906,49 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	return kHelErrNone;
 }
 
+HelError helSubmitSynchronizeSpace(HelHandle spaceHandle, void *pointer, size_t length,
+		HelHandle queueHandle, uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	frigg::SharedPtr<IpcQueue> queue;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		Universe::Guard universeGuard(&thisUniverse->lock);
+
+		if(spaceHandle == kHelNullHandle) {
+			space = thisThread->getAddressSpace().lock();
+		}else{
+			auto spaceWrapper = thisUniverse->getDescriptor(universeGuard, spaceHandle);
+			if(!spaceWrapper)
+				return kHelErrNoDescriptor;
+			if(!spaceWrapper->is<AddressSpaceDescriptor>())
+				return kHelErrBadDescriptor;
+			space = spaceWrapper->get<AddressSpaceDescriptor>().space;
+		}
+
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, queueHandle);
+		if(!queueWrapper)
+			return kHelErrNoDescriptor;
+		if(!queueWrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queueWrapper->get<QueueDescriptor>().queue;
+	}
+
+	execution::detach([] (smarter::shared_ptr<AddressSpace, BindableHandle> space,
+			void *pointer, size_t length,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		co_await space->synchronize((VirtualAddr)pointer, length);
+
+		HelSimpleResult helResult{kHelErrNone};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(space), pointer, length, std::move(queue), context));
+
+	return kHelErrNone;
+}
+
 HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	auto this_thread = getCurrentThread();
 

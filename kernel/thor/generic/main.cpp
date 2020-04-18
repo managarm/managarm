@@ -645,6 +645,10 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallUnmapMemory: {
 		*image.error() = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
 	} break;
+	case kHelCallSubmitSynchronizeSpace: {
+		*image.error() = helSubmitSynchronizeSpace((HelHandle)arg0, (void *)arg1, (size_t)arg2,
+				(HelHandle)arg3, (uintptr_t)arg4);
+	} break;
 	case kHelCallPointerPhysical: {
 		uintptr_t physical;
 		*image.error() = helPointerPhysical((void *)arg0, &physical);

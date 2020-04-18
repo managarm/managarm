@@ -193,6 +193,14 @@ extern inline __attribute__ (( always_inline )) HelError helUnmapMemory(HelHandl
 	return helSyscall3(kHelCallUnmapMemory, (HelWord)space, (HelWord)pointer, (HelWord)size);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helSubmitSynchronizeSpace(
+		HelHandle space, void *pointer, size_t size,
+		HelHandle queue, uintptr_t context) {
+	return helSyscall5(kHelCallSubmitSynchronizeSpace,
+			(HelWord)space, (HelWord)pointer, (HelWord)size,
+			(HelWord)queue, (HelWord)context);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(void *pointer, 
 		uintptr_t *physical) {
 	HelWord handle_word;

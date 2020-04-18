@@ -1,5 +1,4 @@
-#ifndef THOR_ARCH_X86_PAGING_HPP
-#define THOR_ARCH_X86_PAGING_HPP
+#pragma once
 
 #include <atomic>
 #include <frg/list.hpp>
@@ -307,6 +306,7 @@ public:
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access,
 			uint32_t flags, CachingMode caching_mode);
 	PageStatus unmapSingle4k(VirtualAddr pointer);
+	PageStatus cleanSingle4k(VirtualAddr pointer);
 	void unmapRange(VirtualAddr pointer, size_t size, PageMode mode);
 	bool isMapped(VirtualAddr pointer);
 
@@ -319,5 +319,3 @@ void invalidatePage(const void *address);
 void invalidateFullTlb();
 
 } // namespace thor
-
-#endif // THOR_ARCH_X86_PAGING_HPP

@@ -16,6 +16,7 @@ struct VirtualOperations {
 	virtual void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 			uint32_t flags, CachingMode cachingMode) = 0;
 	virtual PageStatus unmapSingle4k(VirtualAddr pointer) = 0;
+	virtual PageStatus cleanSingle4k(VirtualAddr pointer) = 0;
 	virtual bool isMapped(VirtualAddr pointer) = 0;
 
 	// ----------------------------------------------------------------------------------
@@ -239,6 +240,7 @@ struct Mapping : MemoryObserver {
 
 	void install();
 	void reinstall();
+	void synchronize(uintptr_t offset, size_t length);
 	void uninstall();
 	void retire();
 
@@ -565,12 +567,61 @@ public:
 
 	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
+	void synchronize(VirtualAddr address, size_t length,
+			execution::any_receiver<void> receiver);
+
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
 	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
 
 	size_t rss() {
 		return _residuentSize;
+	}
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for synchronize()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct SynchronizeOperation;
+
+	struct [[nodiscard]] SynchronizeSender {
+		template<typename R>
+		friend SynchronizeOperation<R>
+		connect(SynchronizeSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		VirtualSpace *self;
+		VirtualAddr address;
+		size_t size;
+	};
+
+	SynchronizeSender synchronize(VirtualAddr address, size_t size) {
+		return {this, address, size};
+	}
+
+	template<typename R>
+	struct SynchronizeOperation {
+		SynchronizeOperation(SynchronizeSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		SynchronizeOperation(const SynchronizeOperation &) = delete;
+
+		SynchronizeOperation &operator= (const SynchronizeOperation &) = delete;
+
+		void start() {
+			s_.self->synchronize(s_.address, s_.size, std::move(receiver_));
+		}
+
+	private:
+		SynchronizeSender s_;
+		R receiver_;
+	};
+
+	friend execution::sender_awaiter<SynchronizeSender>
+	operator co_await(SynchronizeSender sender) {
+		return {sender};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -677,6 +728,10 @@ struct AddressSpace : VirtualSpace, smarter::crtp_counter<AddressSpace, Bindable
 
 		PageStatus unmapSingle4k(VirtualAddr pointer) override {
 			return space_->pageSpace_.unmapSingle4k(pointer);
+		}
+
+		PageStatus cleanSingle4k(VirtualAddr pointer) override {
+			return space_->pageSpace_.cleanSingle4k(pointer);
 		}
 
 		bool isMapped(VirtualAddr pointer) override {

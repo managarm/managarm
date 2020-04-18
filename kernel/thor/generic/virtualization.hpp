@@ -60,6 +60,12 @@ namespace thor {
 				return space_->unmap(pointer);
 			}
 
+			PageStatus cleanSingle4k(VirtualAddr pointer) override {
+				frigg::infoLogger() << "\e[31m" "thor: VirtualizedPageSpace::cleanSingle4k()"
+						" is not properly supported" "\e[39m" << frigg::endLog;
+				return 0;
+			}
+
 			bool isMapped(VirtualAddr pointer) override {
 				return space_->isMapped(pointer);
 			}

@@ -43,6 +43,7 @@ enum {
 	kHelCallAlterMemoryIndirection = 52,
 	kHelCallMapMemory = 44,
 	kHelCallSubmitProtectMemory = 99,
+	kHelCallSubmitSynchronizeSpace = 53,
 	kHelCallUnmapMemory = 36,
 	kHelCallPointerPhysical = 43,
 	kHelCallLoadForeign = 77,
@@ -474,6 +475,8 @@ HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
 		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actual_pointer);
 HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle space,
 		void *pointer, size_t size, uint32_t flags,
+		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError helSubmitSynchronizeSpace(HelHandle space, void *pointer, size_t size,
 		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helUnmapMemory(HelHandle space, void *pointer, size_t size);
 HEL_C_LINKAGE HelError helPointerPhysical(void *pointer, uintptr_t *physical);

@@ -276,6 +276,26 @@ void Mapping::reinstall() {
 	}
 }
 
+void Mapping::synchronize(uintptr_t offset, size_t size) {
+	assert(_state == MappingState::active);
+	assert(offset + size <= length());
+
+	// Synchronize with observeEviction().
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_evictMutex);
+
+	for(size_t progress = 0; progress < size; progress += kPageSize) {
+		auto physicalRange = _view->peekRange(_viewOffset + progress);
+
+		VirtualAddr vaddr = address() + offset + progress;
+		auto status = owner()->_ops->cleanSingle4k(vaddr);
+		if(!(status & page_status::present))
+			continue;
+		if(status & page_status::dirty)
+			_view->markDirty(_viewOffset + progress, kPageSize);
+	}
+}
+
 void Mapping::uninstall() {
 	assert(_state == MappingState::active);
 	_state = MappingState::zombie;
@@ -667,6 +687,36 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	deleteMapping(this, mapping.get());
 	closeHole(this, address, length);
 	return true;
+}
+
+void VirtualSpace::synchronize(VirtualAddr address, size_t size,
+		execution::any_receiver<void> receiver) {
+	auto misalign = address & (kPageSize - 1);
+	auto alignedAddress = address & ~(kPageSize - 1);
+	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
+
+	execution::detach([] (VirtualSpace *self, VirtualAddr alignedAddress, size_t alignedSize,
+			execution::any_receiver<void> receiver) -> coroutine<void> {
+		size_t progress = 0;
+		while(progress < alignedSize) {
+			smarter::shared_ptr<Mapping> mapping;
+			{
+				auto irqLock = frigg::guard(&irqMutex());
+				auto spaceGuard = frigg::guard(&self->_mutex);
+
+				mapping = self->_findMapping(alignedAddress + progress);
+			}
+			assert(mapping);
+
+			auto offset = alignedAddress + progress - mapping->address();
+			auto chunk = frg::min(alignedSize - progress, mapping->length() - offset);
+			mapping->synchronize(offset, chunk);
+			progress += chunk;
+		}
+		co_await self->_ops->shootdown(alignedAddress, alignedSize);
+
+		receiver.set_done();
+	}(this, alignedAddress, alignedSize, std::move(receiver)));
 }
 
 bool VirtualSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {
