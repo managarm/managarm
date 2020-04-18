@@ -17,6 +17,64 @@ struct VirtualOperations {
 			uint32_t flags, CachingMode cachingMode) = 0;
 	virtual PageStatus unmapSingle4k(VirtualAddr pointer) = 0;
 	virtual bool isMapped(VirtualAddr pointer) = 0;
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for shootdown()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct ShootdownOperation;
+
+	struct [[nodiscard]] ShootdownSender {
+		template<typename R>
+		friend ShootdownOperation<R>
+		connect(ShootdownSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		VirtualOperations *self;
+		VirtualAddr address;
+		size_t size;
+	};
+
+	ShootdownSender shootdown(VirtualAddr address, size_t size) {
+		return {this, address, size};
+	}
+
+	template<typename R>
+	struct ShootdownOperation {
+		ShootdownOperation(ShootdownSender s, R receiver)
+		: s_{s}, receiver_{std::move(receiver)} { }
+
+		ShootdownOperation(const ShootdownOperation &) = delete;
+
+		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &ShootdownOperation::worklet_);
+				op->receiver_.set_done();
+			});
+			node_.address = s_.address;
+			node_.size = s_.size;
+			node_.setup(&worklet_);
+			if(s_.self->submitShootdown(&node_))
+				receiver_.set_done();
+		}
+
+	private:
+		ShootdownSender s_;
+		R receiver_;
+		ShootNode node_;
+		Worklet worklet_;
+	};
+
+	friend execution::sender_awaiter<ShootdownSender>
+	operator co_await(ShootdownSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
 };
 
 struct Hole {
