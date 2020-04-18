@@ -203,24 +203,18 @@ FutureMaybe<SharedFilePtr> openExternalDevice(helix::BorrowedLane lane,
 	if(semantic_flags & semanticNonBlock)
 		open_flags |= managarm::fs::OF_NONBLOCK;
 
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_pt;
-	helix::PullDescriptor pull_page;
-
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::DEV_OPEN);
 	req.set_flags(open_flags);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_pt, kHelItemChain),
-			helix::action(&pull_page));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_resp, pull_pt, pull_page] = co_await helix_ng::exchangeMsgs(lane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor(),
+			helix_ng::pullDescriptor())
+	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -243,21 +237,16 @@ FutureMaybe<SharedFilePtr> openExternalDevice(helix::BorrowedLane lane,
 }
 
 FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_node;
-
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::DEV_MOUNT);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_node));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(lane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor())
+	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
