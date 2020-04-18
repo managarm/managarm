@@ -43,13 +43,10 @@ async::detached serveDevice(std::shared_ptr<drm_core::Device> device, helix::Uni
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
+		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(lane,
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -59,10 +56,6 @@ async::detached serveDevice(std::shared_ptr<drm_core::Device> device, helix::Uni
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			assert(!req.flags());
 
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_pt;
-			helix::PushDescriptor push_page;
-			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto file = smarter::make_shared<drm_core::File>(device);
@@ -74,11 +67,11 @@ async::detached serveDevice(std::shared_ptr<drm_core::Device> device, helix::Uni
 			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_pt, remote_lane, kHelItemChain),
-					helix::action(&push_page, file->statusPageMemory()));
-			co_await transmit.async_wait();
+			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_lane),
+				helix_ng::pushDescriptor(file->statusPageMemory())
+			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
