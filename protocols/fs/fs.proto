@@ -12,6 +12,7 @@ enum Errors {
 	WOULD_BLOCK = 5;
 	SEEK_ON_PIPE = 6;
 	BROKEN_PIPE = 7;
+	ACCESS_DENIED = 8;
 }
 
 enum FileType {

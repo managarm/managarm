@@ -114,11 +114,11 @@ async::result<void> File::ptBind(void *object, const char *credentials,
 	return self->bind(process.get(), addr_ptr, addr_length);
 }
 
-async::result<void> File::ptConnect(void *object, const char *credentials,
-		const void *addr_ptr, size_t addr_length) {
+async::result<protocols::fs::Error> File::ptConnect(void *object,
+		const char *credentials, const void *addr, size_t addr_len) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
-	return self->connect(process.get(), addr_ptr, addr_length);
+	return self->connect(process.get(), addr, addr_len);
 }
 
 async::result<size_t> File::ptSockname(void *object, void *addr_ptr, size_t max_addr_length) {
@@ -302,7 +302,7 @@ async::result<void> File::bind(Process *, const void *, size_t) {
 	throw std::runtime_error("posix: Object has no File::bind()");
 }
 
-async::result<void> File::connect(Process *, const void *, size_t) {
+async::result<protocols::fs::Error> File::connect(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement connect()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::connect()");

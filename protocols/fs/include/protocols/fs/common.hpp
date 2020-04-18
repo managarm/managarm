@@ -13,7 +13,8 @@ enum class Error {
 	wouldBlock,
 	illegalArguments,
 	seekOnPipe,
-	brokenPipe
+	brokenPipe,
+	accessDenied
 };
 
 using ReadResult = std::variant<Error, size_t>;

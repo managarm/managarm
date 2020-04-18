@@ -120,7 +120,7 @@ struct FileOperations {
 		bind = f;
 		return *this;
 	}
-	constexpr FileOperations &withConnect(async::result<void> (*f)(void *object,
+	constexpr FileOperations &withConnect(async::result<Error> (*f)(void *object,
 			const char *, const void *addr_ptr, size_t addr_length)) {
 		connect = f;
 		return *this;
@@ -154,7 +154,7 @@ struct FileOperations {
 	async::result<void> (*bind)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<void> (*listen)(void *object);
-	async::result<void> (*connect)(void *object, const char *credentials,
+	async::result<Error> (*connect)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length);
 	async::result<int> (*getFileFlags)(void *object);
