@@ -44,7 +44,7 @@ public:
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &File::fileOperations));
+				file, &File::fileOperations, file->_cancelServe));
 	}
 
 	OpenFile(int protocol)
@@ -55,6 +55,12 @@ public:
 		_recvQueue.push_back(std::move(packet));
 		_inSeq = ++_currentSeq;
 		_statusBell.ring();
+	}
+
+	void handleClose() override {
+		_isClosed = true;
+		_statusBell.ring();
+		_cancelServe.cancel();
 	}
 
 public:
@@ -146,9 +152,15 @@ public:
 	
 	expected<PollResult> poll(Process *, uint64_t past_seq,
 			async::cancellation_token cancellation) override {
+		if(_isClosed)
+			co_return Error::fileClosed;
+
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
 			co_await _statusBell.async_wait(cancellation);
+
+		if(_isClosed)
+			co_return Error::fileClosed;
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
@@ -184,9 +196,11 @@ private:
 
 	int _protocol;
 	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
 
 	// Status management for poll().
 	async::doorbell _statusBell;
+	bool _isClosed = false;
 	uint64_t _currentSeq;
 	uint64_t _inSeq;
 

@@ -251,6 +251,9 @@ public:
 		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
 			co_await _statusBell.async_wait(cancellation);
 
+		if(_currentState == State::closed)
+			co_return Error::fileClosed;
+
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
 		if(_hupSeq > past_seq)
