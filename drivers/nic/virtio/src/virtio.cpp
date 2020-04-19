@@ -50,7 +50,7 @@ private:
 };
 
 VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
-	: m_transport { std::move(transport) }
+	: nic::Link(1500), m_transport { std::move(transport) }
 {
 	if(m_transport->checkDeviceFeature(VIRTIO_NET_F_MAC)) {
 		for (int i = 0; i < 6; i++) {

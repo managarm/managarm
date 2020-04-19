@@ -14,6 +14,7 @@ private:
 // TODO(arsen): Expose interface for csum offloading, constructing frames, and
 // other features of NICs
 struct Link {
+	inline Link(unsigned int mtu) : mtu(mtu) {}
 	virtual ~Link() = default;
 	//! Receives an entire frame from the network
 	virtual async::result<void> receive(arch::dma_buffer_view) = 0;
@@ -22,6 +23,7 @@ struct Link {
 	virtual arch::dma_pool *dmaPool() = 0;
 
 	MacAddress deviceMac();
+	unsigned int mtu;
 protected:
 	MacAddress mac_;
 };
