@@ -39,12 +39,6 @@ async::result<void> enumerateCtl() {
 
 async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 		std::vector<BindType> bind_types) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::SendBuffer send_data;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_kernlet;
-
 	managarm::kernlet::CntRequest req;
 	req.set_req_type(managarm::kernlet::CntReqType::UPLOAD);
 
@@ -62,15 +56,17 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 	}
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(kernletCtlLane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, elf, size, kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_kernlet));
-	co_await transmit.async_wait();
+	auto [offer, send_req, send_data, recv_resp, pull_kernlet] = co_await helix_ng::exchangeMsgs(
+		kernletCtlLane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(elf, size),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor())
+	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
+	HEL_CHECK(send_data.error());
 	HEL_CHECK(recv_resp.error());
 	HEL_CHECK(pull_kernlet.error());
 
@@ -88,15 +84,12 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 
 async::detached serveCompiler(helix::UniqueLane lane) {
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-		helix::RecvInline recv_code;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req, kHelItemChain),
-				helix::action(&recv_code));
-		co_await header.async_wait();
+		auto [accept, recv_req, recv_code] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::accept(
+				helix_ng::recvInline(),
+				helix_ng::recvInline())
+		);
 		if(accept.error() == kHelErrEndOfLane) {
 			std::cout << "kernletcc: Client closed its connection" << std::endl;
 			co_return;
@@ -110,9 +103,6 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 		managarm::kernlet::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::kernlet::CntReqType::COMPILE) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_kernlet;
-
 			std::vector<BindType> bind_types;
 			for(int i = 0; i < req.bind_types_size(); i++) {
 				auto proto = req.bind_types(i);
@@ -147,16 +137,18 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 			resp.set_error(managarm::kernlet::Error::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_kernlet, object));
-			co_await transmit.async_wait();
+			auto [send_resp, push_kernlet] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(object)
+			);
 			if(send_resp.error() == kHelErrEndOfLane) {
 				std::cout << "\e[31m" "kernletcc: Client unexpectedly closed its connection"
 						"\e[39m" << std::endl;
 				co_return;
 			}
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_kernlet.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
