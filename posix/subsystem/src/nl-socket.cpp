@@ -48,7 +48,7 @@ public:
 	}
 
 	OpenFile(int protocol)
-	: File{StructName::get("nl-socket")}, _protocol{protocol},
+	: File{StructName::get("nl-socket"), File::defaultPipeLikeSeek}, _protocol{protocol},
 			_currentSeq{1}, _inSeq{0}, _socketPort{0}, _passCreds{false} { }
 
 	void deliver(Packet packet) {

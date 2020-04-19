@@ -66,7 +66,7 @@ public:
 	}
 
 	OpenFile(Process *process = nullptr)
-	: File{StructName::get("un-socket")}, _currentState{State::null},
+	: File{StructName::get("un-socket"), File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
 			_remote{nullptr}, _passCreds{false} {
 		if(process)
