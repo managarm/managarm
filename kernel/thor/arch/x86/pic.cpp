@@ -363,10 +363,10 @@ constexpr arch::scalar_register<uint32_t> apicData(0x10);
 namespace pin_word1 {
 	constexpr arch::field<uint32_t, unsigned int> vector(0, 8);
 	constexpr arch::field<uint32_t, unsigned int> deliveryMode(8, 3);
-	constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
-	constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
+//	constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
+//	constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
 	constexpr arch::field<uint32_t, bool> activeLow(13, 1);
-	constexpr arch::field<uint32_t, bool> remotePending(14, 1);
+//	constexpr arch::field<uint32_t, bool> remotePending(14, 1);
 	constexpr arch::field<uint32_t, bool> levelTriggered(15, 1);
 	constexpr arch::field<uint32_t, bool> masked(16, 1);
 };
