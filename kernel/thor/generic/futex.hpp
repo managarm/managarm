@@ -103,6 +103,65 @@ struct Futex {
 			WorkQueue::post(node->_woken);
 	}
 
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for wait()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R, typename Condition>
+	struct WaitOperation;
+
+	template<typename Condition>
+	struct [[nodiscard]] WaitSender {
+		template<typename R>
+		friend WaitOperation<R, Condition>
+		connect(WaitSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		Futex *self;
+		Address address;
+		Condition c;
+		cancellation_token cancellation;
+	};
+
+	template<typename Condition>
+	WaitSender<Condition> wait(Address address, Condition c, cancellation_token cancellation = {}) {
+		return {this, address, std::move(c), cancellation};
+	}
+
+	template<typename R, typename Condition>
+	struct WaitOperation {
+		WaitOperation(WaitSender<Condition> s, R receiver)
+		: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+
+		WaitOperation(const WaitOperation &) = delete;
+
+		WaitOperation &operator= (const WaitOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &WaitOperation::worklet_);
+				op->receiver_.set_done();
+			});
+			node_.setup(&worklet_);
+			if(!s_.self->checkSubmitWait(s_.address, std::move(s_.c), &node_, s_.cancellation))
+				receiver_.set_done();
+		}
+
+	private:
+		WaitSender<Condition> s_;
+		R receiver_;
+		FutexNode node_;
+		Worklet worklet_;
+	};
+
+	template<typename Condition>
+	friend execution::sender_awaiter<WaitSender<Condition>>
+	operator co_await(WaitSender<Condition> sender) {
+		return {std::move(sender)};
+	}
+
+	// ----------------------------------------------------------------------------------
 
 private:
 	void cancel(FutexNode *node) {
