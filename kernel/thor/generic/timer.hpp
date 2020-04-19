@@ -3,10 +3,12 @@
 
 #include <atomic>
 
+#include <frg/container_of.hpp>
 #include <frg/pairing_heap.hpp>
 #include <frg/intrusive.hpp>
 #include <frigg/atomic.hpp>
 #include "cancel.hpp"
+#include "execution/basics.hpp"
 #include "execution/cancellation.hpp"
 #include "work-queue.hpp"
 
@@ -114,6 +116,61 @@ public:
 	PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm);
 	
 	void installTimer(PrecisionTimerNode *timer);
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for sleep()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct SleepOperation;
+
+	struct [[nodiscard]] SleepSender {
+		template<typename R>
+		friend SleepOperation<R>
+		connect(SleepSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		PrecisionTimerEngine *self;
+		uint64_t deadline;
+		cancellation_token cancellation;
+	};
+
+	SleepSender sleep(uint64_t deadline, cancellation_token cancellation = {}) {
+		return {this, deadline, cancellation};
+	}
+
+	template<typename R>
+	struct SleepOperation {
+		SleepOperation(SleepSender s, R receiver)
+		: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+
+		SleepOperation(const SleepOperation &) = delete;
+
+		SleepOperation &operator= (const SleepOperation &) = delete;
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &SleepOperation::worklet_);
+				op->receiver_.set_done();
+			});
+			node_.setup(s_.deadline, &worklet_);
+			s_.self->installTimer(&node_);
+		}
+
+	private:
+		SleepSender s_;
+		R receiver_;
+		PrecisionTimerNode node_;
+		Worklet worklet_;
+	};
+
+	friend execution::sender_awaiter<SleepSender>
+	operator co_await(SleepSender sender) {
+		return {std::move(sender)};
+	}
+
+	// ----------------------------------------------------------------------------------
 
 private:
 	void cancelTimer(PrecisionTimerNode *timer);
