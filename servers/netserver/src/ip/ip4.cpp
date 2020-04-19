@@ -12,9 +12,35 @@
 
 using namespace protocols::fs;
 
+using Route = Ip4Router::Route;
+
+Ip4Router &ip4Router() {
+	static Ip4Router inst;
+	return inst;
+}
+
 Ip4 &ip4() {
 	static Ip4 inst;
 	return inst;
+}
+
+bool Ip4Router::addRoute(Route r) {
+	return routes.emplace(std::move(r)).second;
+}
+
+std::optional<Route> Ip4Router::resolveRoute(uint32_t ip) const {
+	for (const auto &r : routes) {
+		if ((ip & r.mask()) == r.ip) {
+			return { r };
+		}
+	}
+	return {};
+}
+
+bool operator<(const Route &lhs, const Route &rhs) {
+	// bigger MTU is better
+	return std::tie(lhs.prefix, lhs.ip, lhs.metric, rhs.mtu) <
+		std::tie(rhs.prefix, rhs.ip, rhs.metric, lhs.mtu);
 }
 
 class Ip4Packet {
