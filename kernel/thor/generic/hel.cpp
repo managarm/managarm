@@ -2,6 +2,7 @@
 
 #include <frg/container_of.hpp>
 #include "event.hpp"
+#include "execution/algorithm.hpp"
 #include "execution/cancellation.hpp"
 #include "execution/coroutine.hpp"
 #include "kernel.hpp"
@@ -2219,44 +2220,37 @@ HelError helShutdownLane(HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helFutexWait(int *pointer, int expected) {
-	auto this_thread = getCurrentThread();
-	auto space = this_thread->getAddressSpace();
+HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
+	auto thisThread = getCurrentThread();
+	auto space = thisThread->getAddressSpace();
 
-	struct Closure final {
-		ThreadBlocker blocker;
-		Worklet worklet;
-		FutexNode futex;
-	} closure;
-
-	// TODO: Support physical (i.e. non-private) futexes.
-	closure.worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		Thread::unblockOther(&closure->blocker);
-	});
-	closure.futex.setup(&closure.worklet);
-	closure.blocker.setup();
-	space->futexSpace.submitWait(VirtualAddr(pointer), [&] () -> bool {
+	auto condition = [&] () -> bool {
 		enableUserAccess();
 		auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
 		disableUserAccess();
 		return expected == v;
-	}, &closure.futex);
+	};
 
-/*
-	frigg::infoLogger() << "thor: "
-			<< " " << this_thread->credentials()[0] << " " << this_thread->credentials()[1]
-			<< " " << this_thread->credentials()[2] << " " << this_thread->credentials()[3]
-			<< " " << this_thread->credentials()[4] << " " << this_thread->credentials()[5]
-			<< " " << this_thread->credentials()[6] << " " << this_thread->credentials()[7]
-			<< " " << this_thread->credentials()[8] << " " << this_thread->credentials()[9]
-			<< " " << this_thread->credentials()[10] << " " << this_thread->credentials()[11]
-			<< " " << this_thread->credentials()[12] << " " << this_thread->credentials()[13]
-			<< " " << this_thread->credentials()[14] << " " << this_thread->credentials()[15]
-			<< " Thread blocked on futex" << frigg::endLog;
-*/
+	if(deadline < 0) {
+		if(deadline != -1)
+			return kHelErrIllegalArgs;
 
-	Thread::blockCurrent(&closure.blocker);
+		Thread::asyncBlockCurrent(
+			space->futexSpace.wait(reinterpret_cast<uintptr_t>(pointer), condition)
+		);
+	}else{
+		Thread::asyncBlockCurrent(
+			race_and_cancel(
+				[=] (cancellation_token cancellation) {
+					return space->futexSpace.wait(
+						reinterpret_cast<uintptr_t>(pointer), condition, cancellation);
+				},
+				[=] (cancellation_token cancellation) {
+					return generalTimerEngine()->sleep(deadline, cancellation);
+				}
+			)
+		);
+	}
 
 	return kHelErrNone;
 }

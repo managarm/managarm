@@ -75,7 +75,7 @@ enum {
 	kHelCallSubmitAsync = 79,
 	kHelCallShutdownLane = 91,
 
-	kHelCallFutexWait = 70,
+	kHelCallFutexWait = 73,
 	kHelCallFutexWake = 71,
 
 	kHelCallCreateOneshotEvent = 96,
@@ -518,7 +518,7 @@ HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions
 		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 
-HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
+HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected, int64_t deadline);
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
 
 HEL_C_LINKAGE HelError helCreateOneshotEvent(HelHandle *handle);

@@ -765,7 +765,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 
 	case kHelCallFutexWait: {
-		*image.error() = helFutexWait((int *)arg0, (int)arg1);
+		*image.error() = helFutexWait((int *)arg0, (int)arg1, (int64_t)arg2);
 	} break;
 	case kHelCallFutexWake: {
 		*image.error() = helFutexWake((int *)arg0);

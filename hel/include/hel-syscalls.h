@@ -345,8 +345,9 @@ extern inline __attribute__ (( always_inline )) HelError helShutdownLane(HelHand
 };
 
 extern inline __attribute__ (( always_inline )) HelError helFutexWait(int *pointer,
-		int expected) {
-	return helSyscall2(kHelCallFutexWait, (HelWord)pointer, (HelWord)expected);
+		int expected, int64_t deadline) {
+	return helSyscall3(kHelCallFutexWait, (HelWord)pointer, (HelWord)expected,
+			(HelWord)deadline);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helFutexWake(int *pointer) {
