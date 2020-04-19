@@ -37,19 +37,16 @@ async::result<void> enumerateRtc() {
 }
 
 async::result<RtcTime> getRtcTime() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-
 	managarm::clock::CntRequest req;
 	req.set_req_type(managarm::clock::CntReqType::RTC_GET_TIME);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(rtcLane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+		rtcLane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline())
+	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -78,13 +75,11 @@ TrackerPage *accessPage() {
 
 async::detached serve(helix::UniqueLane lane) {
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
+		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -93,18 +88,17 @@ async::detached serve(helix::UniqueLane lane) {
 		managarm::clock::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::clock::CntReqType::ACCESS_PAGE) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor send_memory;
-
 			managarm::clock::SvrResponse resp;
 			resp.set_error(managarm::clock::Error::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_memory, trackerPageMemory));
-			co_await transmit.async_wait();
+			auto [send_resp, send_memory] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(trackerPageMemory)
+			);
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_memory.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
