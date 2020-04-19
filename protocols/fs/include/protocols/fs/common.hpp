@@ -17,6 +17,11 @@ enum class Error {
 	wouldBlock = 5,
 	seekOnPipe = 6,
 	brokenPipe = 7,
+	accessDenied = 8,
+	afNotSupported = 9,
+	destAddrRequired = 10,
+	netUnreachable = 11,
+	messageSize = 12,
 };
 
 using ReadResult = std::variant<Error, size_t>;

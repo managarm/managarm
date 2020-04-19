@@ -345,11 +345,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(recv_addr.error());
 
 		assert(file_ops->connect);
-		co_await file_ops->connect(file.get(), extract_creds.credentials(),
-				recv_addr.data(), recv_addr.length());
+		auto error = co_await file_ops->connect(file.get(),
+			extract_creds.credentials(),
+			recv_addr.data(), recv_addr.length());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_error(static_cast<int32_t>(error));
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -427,8 +428,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		resp.set_error(managarm::fs::SUCCESS);
 
 		if (error) {
-			assert(*error == Error::wouldBlock && "libfs_protocol: TODO: handle other errors");
-			resp.set_error(managarm::fs::WOULD_BLOCK);
+			resp.set_error(static_cast<int32_t>(*error));
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -478,8 +478,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		managarm::fs::SvrResponse resp;
 
 		auto error = std::get_if<Error>(&result_or_error);
-		if(error && *error == Error::brokenPipe) {
-			resp.set_error(managarm::fs::Errors::BROKEN_PIPE);
+		if(error) {
+			resp.set_error(static_cast<int32_t>(*error));
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -488,8 +488,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			);
 			HEL_CHECK(send_resp.error());
 			co_return;
-		} else {
-			assert(!error);
 		}
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
