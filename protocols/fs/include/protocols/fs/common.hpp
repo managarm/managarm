@@ -9,12 +9,14 @@ namespace protocols {
 namespace fs {
 
 enum class Error {
-	none,
-	wouldBlock,
-	illegalArguments,
-	seekOnPipe,
-	brokenPipe,
-	accessDenied
+	none = 0,
+	illegalRequest = 3,
+	fileNotFound = 1,
+	endOfFile = 2,
+	illegalArguments = 4,
+	wouldBlock = 5,
+	seekOnPipe = 6,
+	brokenPipe = 7,
 };
 
 using ReadResult = std::variant<Error, size_t>;
