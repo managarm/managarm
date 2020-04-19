@@ -2,29 +2,53 @@
 #define THOR_GENERIC_FUTEX_HPP
 
 #include <frg/hash_map.hpp>
+#include <frg/functional.hpp>
 #include <frg/list.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/linked.hpp>
 #include "cancel.hpp"
+#include "execution/cancellation.hpp"
 #include "kernel_heap.hpp"
 #include "work-queue.hpp"
 #include "../arch/x86/ints.hpp"
 
 namespace thor {
 
+struct Futex;
+
+enum class FutexState {
+	none,
+	waiting,
+	woken,
+	retired
+};
+
 struct FutexNode {
 	friend struct Futex;
+
+	FutexNode()
+	: _cancelCb{this} { }
 
 	void setup(Worklet *woken) {
 		_woken = woken;
 	}
 
 private:
+	void onCancel();
+
+	Futex *_futex = nullptr;
+	uintptr_t _address;
 	Worklet *_woken;
+	cancellation_token _cancellation;
+	FutexState _state = FutexState::none;
+	bool _wasCancelled = false;
+	transient_cancellation_callback<frg::bound_mem_fn<&FutexNode::onCancel>> _cancelCb;
 	frg::default_list_hook<FutexNode> _queueNode;
 };
 
 struct Futex {
+	friend struct FutexNode;
+
 	using Address = uintptr_t;
 
 	Futex()
@@ -33,23 +57,43 @@ struct Futex {
 	bool empty() {
 		return _slots.empty();
 	}
-	
+
 	template<typename C>
-	bool checkSubmitWait(Address address, C condition, FutexNode *node) {
-		auto irq_lock = frigg::guard(&irqMutex());
+	bool checkSubmitWait(Address address, C condition, FutexNode *node,
+			cancellation_token cancellation = {}) {
+		// TODO: avoid reuse of FutexNode and remove this condition.
+		if(node->_state == FutexState::retired) {
+			node->_futex = nullptr;
+			node->_state = FutexState::none;
+		}
+		assert(!node->_futex);
+		node->_futex = this;
+		node->_address = address;
+		node->_cancellation = cancellation;
+
+		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
+		assert(node->_state == FutexState::none);
 
-		if(!condition())
+		if(!condition()) {
+			node->_state = FutexState::retired;
 			return false;
+		}
+		if(!node->_cancelCb.try_set(node->_cancellation)) {
+			node->_wasCancelled = true;
+			node->_state = FutexState::retired;
+			return false;
+		}
 
-		auto it = _slots.get(address);
-		if(!it) {
+		auto sit = _slots.get(address);
+		if(!sit) {
 			_slots.insert(address, Slot());
-			it = _slots.get(address);
+			sit = _slots.get(address);
 		}
 
 		assert(!node->_queueNode.in_list);
-		it->queue.push_back(node);
+		sit->queue.push_back(node);
+		node->_state = FutexState::waiting;
 		return true;
 	}
 
@@ -59,17 +103,34 @@ struct Futex {
 			WorkQueue::post(node->_woken);
 	}
 
-	void wake(Address address) {
-		auto irq_lock = frigg::guard(&irqMutex());
+
+private:
+	void cancel(FutexNode *node) {
+		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
-		auto it = _slots.get(address);
-		if(!it)
-			return;
-		
-		// Invariant: If the slot exists then its queue is not empty.
-		assert(!it->queue.empty());
+		if(node->_state == FutexState::waiting) {
+			auto sit = _slots.get(node->_address);
+			// Invariant: If the slot exists then its queue is not empty.
+			assert(!sit->queue.empty());
 
+			auto nit = sit->queue.iterator_to(node);
+			sit->queue.erase(nit);
+			node->_wasCancelled = true;
+
+			if(sit->queue.empty())
+				_slots.remove(node->_address);
+		}else{
+			// Let the cancellation handler invoke the continuation.
+			assert(node->_state == FutexState::woken);
+		}
+
+		node->_state = FutexState::retired;
+		WorkQueue::post(node->_woken);
+	}
+
+public:
+	void wake(Address address) {
 		frg::intrusive_list<
 			FutexNode,
 			frg::locate_member<
@@ -77,23 +138,42 @@ struct Futex {
 				frg::default_list_hook<FutexNode>,
 				&FutexNode::_queueNode
 			>
-		> wake_queue;
+		> pending;
+		{
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_mutex);
 
-		// TODO: Enable users to only wake a certain number of waiters.
-		wake_queue.splice(wake_queue.end(), it->queue);
-		
-		_slots.remove(address);
+			auto sit = _slots.get(address);
+			if(!sit)
+				return;
+			// Invariant: If the slot exists then its queue is not empty.
+			assert(!sit->queue.empty());
 
-		lock.unlock();
-		irq_lock.unlock();
+			// TODO: Enable users to only wake a certain number of waiters.
+			while(!sit->queue.empty()) {
+				auto node = sit->queue.front();
+				assert(node->_state == FutexState::waiting);
+				sit->queue.pop_front();
 
-		while(!wake_queue.empty()) {
-			auto node = wake_queue.pop_front();
+				if(node->_cancelCb.try_reset()) {
+					node->_state = FutexState::retired;
+					pending.push_back(node);
+				}else{
+					node->_state = FutexState::woken;
+				}
+			}
+
+			if(sit->queue.empty())
+				_slots.remove(address);
+		}
+
+		while(!pending.empty()) {
+			auto node = pending.pop_front();
 			WorkQueue::post(node->_woken);
 		}
 	}
 
-private:	
+private:
 	using Mutex = frigg::TicketLock;
 
 	struct Slot {
@@ -118,6 +198,11 @@ private:
 		KernelAlloc
 	> _slots;
 };
+
+inline void FutexNode::onCancel() {
+	assert(_futex);
+	_futex->cancel(this);
+}
 
 } // namespace thor
 
