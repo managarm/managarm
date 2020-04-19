@@ -4,14 +4,17 @@
 
 void Checksum::update(uint16_t word)  {
 	state_ += word;
+	while (state_ >> 16 != 0) {
+		state_ = (state_ >> 16) + (state_ & 0xffff);
+	}
 }
 
 void Checksum::update(void *data, size_t size) {
 	using namespace arch;
 	auto iter = static_cast<unsigned char*>(data);
 	if (size % 2 != 0) {
-		iter--;
-		update(iter[size - 1] << 8);
+		size--;
+		update(iter[size] << 8);
 	}
 	auto end = iter + size;
 	for (; iter < end; iter += 2) {
@@ -25,8 +28,5 @@ void Checksum::update(arch::dma_buffer_view view) {
 
 uint16_t Checksum::finalize() {
 	auto state_ = this->state_;
-	while (state_ >> 16 != 0) {
-		state_ = (state_ >> 16) + (state_ & 0xffff);
-	}
 	return ~state_;
 }

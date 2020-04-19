@@ -42,6 +42,10 @@ public:
 		return data.subview(header.ihl * 4);
 	}
 
+	arch::dma_buffer_view header_view() const {
+		return data.subview(0, header.ihl * 4);
+	}
+
 	// assumes frame is a valid view into owner
 	bool parse(arch::dma_buffer owner, arch::dma_buffer_view frame) {
 		auto nendian = [] (auto x) -> decltype(x) {
@@ -76,9 +80,9 @@ public:
 		header.destination = nendian(header.destination);
 
 		Checksum csum;
-		csum.update(data);
+		csum.update(header_view());
 		auto sum = csum.finalize();
-		if (sum != 0) {
+		if (sum != 0 && sum != 0xFFFF) {
 			std::cout << "netserver: wrong sum: " << sum << std::endl;
 			return false;
 		}
