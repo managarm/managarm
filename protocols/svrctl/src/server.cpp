@@ -27,14 +27,11 @@ serveControl(const ControlOperations *ops) {
 	helix::UniqueLane lane{sd.controlLane};
 
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await initiate.async_wait();
-
+		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
 		if(accept.error() == kHelErrEndOfLane)
 			co_return;
 		HEL_CHECK(accept.error());
@@ -45,8 +42,6 @@ serveControl(const ControlOperations *ops) {
 		managarm::svrctl::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::svrctl::CntReqType::CTL_BIND) {
-			helix::SendBuffer send_resp;
-
 			assert(ops->bind);
 			auto error = co_await ops->bind(req.mbus_id());
 
@@ -54,20 +49,20 @@ serveControl(const ControlOperations *ops) {
 			resp.set_error(static_cast<managarm::svrctl::Error>(error));
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
 			HEL_CHECK(send_resp.error());
 		}else{
-			helix::SendBuffer send_resp;
-
 			managarm::svrctl::SvrResponse resp;
 			resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
 			HEL_CHECK(send_resp.error());
 		}
 	}
