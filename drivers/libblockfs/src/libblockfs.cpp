@@ -270,13 +270,11 @@ async::detached servePartition(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
+		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 
@@ -285,9 +283,6 @@ async::detached servePartition(helix::UniqueLane lane) {
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
@@ -297,16 +292,14 @@ async::detached servePartition(helix::UniqueLane lane) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
-			co_await transmit.async_wait();
+			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_lane)
+			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-
 			auto inode = co_await fs->createRegular();
 
 			helix::UniqueLane local_lane, remote_lane;
@@ -320,10 +313,11 @@ async::detached servePartition(helix::UniqueLane lane) {
 			resp.set_file_type(managarm::fs::FileType::REGULAR);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
-			co_await transmit.async_wait();
+			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_lane)
+			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::RENAME) {
