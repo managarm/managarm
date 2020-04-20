@@ -69,22 +69,18 @@ async::result<void> enumerateSvrctl() {
 }
 
 async::result<helix::UniqueLane> runServer(const char *name) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_server;
-
 	managarm::svrctl::CntRequest req;
 	req.set_req_type(managarm::svrctl::CntReqType::SVR_RUN);
 	req.set_name(name);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(svrctlLane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_server));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_resp, pull_server] = co_await helix_ng::exchangeMsgs(
+		svrctlLane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor())
+	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -100,20 +96,17 @@ async::result<void> uploadFile(const char *name) {
 	std::vector<std::byte> buffer;
 
 	auto optimisticUpload = [&] () -> async::result<bool> {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
 		managarm::svrctl::CntRequest req;
 		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD);
 		req.set_name(name);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(svrctlLane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			svrctlLane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline())
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -127,24 +120,21 @@ async::result<void> uploadFile(const char *name) {
 	};
 
 	auto uploadWithData = [&] () -> async::result<void> {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::SendBuffer send_data;
-		helix::RecvInline recv_resp;
-
 		managarm::svrctl::CntRequest req;
 		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD_DATA);
 		req.set_name(name);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(svrctlLane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, buffer.data(), buffer.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		co_await transmit.async_wait();
+		auto [offer, send_req, send_data, recv_resp] = co_await helix_ng::exchangeMsgs(
+			svrctlLane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(buffer.data(), buffer.size()),
+				helix_ng::recvInline())
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_data.error());
 		HEL_CHECK(recv_resp.error());
 
 		managarm::svrctl::SvrResponse resp;
@@ -209,20 +199,17 @@ async::detached asyncMain(const char **args) {
 
 		auto lane = co_await runServer(desc.exec().c_str());
 
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
 		managarm::svrctl::CntRequest req;
 		req.set_req_type(managarm::svrctl::CntReqType::CTL_BIND);
 		req.set_mbus_id(std::stoi(id_str));
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline())
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
