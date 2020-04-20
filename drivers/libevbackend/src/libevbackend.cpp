@@ -49,19 +49,16 @@ async::detached issueReset() {
 	co_await pmFound.async_wait();
 
 	// Send the actual request.
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-
 	managarm::hw::CntRequest req;
 	req.set_req_type(managarm::hw::CntReqType::PM_RESET);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(pmLane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+		pmLane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline())
+	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -163,18 +160,17 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		if(logRequests)
 			std::cout << "EVIOCGBIT()" << std::endl;
 
-		helix::SendBuffer send_resp;
-		helix::SendBuffer send_data;
 		managarm::fs::SvrResponse resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
 		auto chunk = std::min(size_t(req.size()), self->_device->_typeBits.size());
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, self->_device->_typeBits.data(), chunk));
-		co_await transmit.async_wait();
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(self->_device->_typeBits.data(), chunk)
+		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
 	}else if(req.command() == EVIOCGBIT(1, 0)) {
@@ -182,8 +178,6 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		if(logRequests)
 			std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
 
-		helix::SendBuffer send_resp;
-		helix::SendBuffer send_data;
 		managarm::fs::SvrResponse resp;
 
 		std::pair<const uint8_t *, size_t> p;
@@ -203,14 +197,14 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		auto ser = resp.SerializeAsString();
 		auto chunk = std::min(size_t(req.size()), p.second);
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, p.first, chunk));
-		co_await transmit.async_wait();
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(p.first, chunk)
+		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
 	}else if(req.command() == EVIOSCLOCKID) {
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
 		// TODO: Does this setting affect already queued events in Linux?
@@ -225,12 +219,12 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		}
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == EVIOCGABS(0)) {
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 		if(logRequests)
 			std::cout << "EVIOCGABS(" << req.input_type() << ")" << std::endl;
@@ -246,9 +240,10 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		resp.set_input_resolution(1);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
 		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
@@ -289,13 +284,11 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
+		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 
@@ -303,10 +296,6 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_pt;
-			helix::PushDescriptor push_page;
-
 			auto file = smarter::make_shared<File>(device.get(),
 					req.flags() & managarm::fs::OF_NONBLOCK);
 			device->_files.push_back(*file.get());
@@ -317,11 +306,12 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_pt, remote_lane, kHelItemChain),
-					helix::action(&push_page, file->_statusPage.getMemory()));
-			co_await transmit.async_wait();
+			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_lane),
+				helix_ng::pushDescriptor(file->_statusPage.getMemory())
+			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
