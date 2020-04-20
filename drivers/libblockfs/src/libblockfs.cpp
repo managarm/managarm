@@ -3,6 +3,7 @@
 #include <string.h>
 #include <iostream>
 #include <algorithm>
+#include <sys/epoll.h>
 
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -113,6 +114,25 @@ truncate(void *object, size_t size) {
 	co_return co_await self->inode->fs.truncate(self->inode.get(), size);
 }
 
+async::result<int> getFileFlags(void *) {
+	std::cout << "libblockfs: getFileFlags is stubbed" << std::endl;
+    co_return 0;
+}
+
+async::result<void> setFileFlags(void *, int) {
+	std::cout << "libblockfs: setFileFlags is stubbed" << std::endl;
+    co_return;
+}
+
+async::result<protocols::fs::PollResult>
+poll(void *, uint64_t pastSeq, async::cancellation_token cancellation) {
+	co_return protocols::fs::PollResult{
+		1,
+		EPOLLIN | EPOLLOUT,
+		0
+	};
+}
+
 constexpr protocols::fs::FileOperations fileOperations {
 	.seekAbs      = &seekAbs,
 	.seekRel      = &seekRel,
@@ -122,7 +142,10 @@ constexpr protocols::fs::FileOperations fileOperations {
 	.flock        = &flock,
 	.readEntries  = &readEntries,
 	.accessMemory = &accessMemory,
-	.truncate     = &truncate
+	.truncate     = &truncate,
+	.getFileFlags = &getFileFlags,
+	.setFileFlags = &setFileFlags,
+	.poll		  = &poll
 };
 
 async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object,
