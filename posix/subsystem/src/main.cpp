@@ -886,32 +886,52 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
+		}else if(req.request_type() == managarm::posix::CntReqType::ACCESSAT) {
 			if(logRequests || logPaths)
-				std::cout << "posix: ACCESS " << req.path() << std::endl;
+				std::cout << "posix: ACCESSAT " << req.path() << std::endl;
 
-			helix::SendBuffer send_resp;
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+			
+			if(req.flags()) {
+				if(req.flags() & AT_SYMLINK_NOFOLLOW) {
+					std::cout << "posix: ACCESSAT flag handling AT_SYMLINK_NOFOLLOW is unimplemented" << std::endl;
+				} else if(req.flags() & AT_EACCESS) {
+					std::cout << "posix: ACCESSAT flag handling AT_EACCESS is unimplemented" << std::endl;
+				} else {
+					std::cout << "posix: ACCESSAT unknown flag is unimplemented: " << req.flags() << std::endl;
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+			}
+
+			if(req.fd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.fd());
+
+				if(!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
 
 			auto path = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
+					relative_to, req.path());
+
 			if(path.second) {
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
 				HEL_CHECK(send_resp.error());
 			}else{
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::MKDIR) {
 			if(logRequests || logPaths)
@@ -1589,7 +1609,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			std::shared_ptr<FsLink> target_link;
 
 			if(req.flags()) {
-				if(req.flags() & 8) {
+				if(req.flags() & AT_REMOVEDIR) {
 					std::cout << "posix: UNLINKAT flag AT_REMOVEDIR handling unimplemented" << std::endl;
 				} else {
 					std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req.flags() << std::endl;
