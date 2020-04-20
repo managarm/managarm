@@ -390,19 +390,18 @@ expected<PollResult> MasterFile::poll(Process *, uint64_t past_seq,
 async::result<void> MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation) {
 	if(req.command() == TIOCGPTN) {
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 		resp.set_pts_index(_channel->ptsIndex);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == TIOCSWINSZ) {
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
 		if(logAttrs)
@@ -420,9 +419,10 @@ async::result<void> MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
 		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("posix: Unknown PTS master ioctl() with ID "
@@ -529,8 +529,6 @@ expected<PollResult> SlaveFile::poll(Process *, uint64_t past_seq,
 async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation) {
 	if(req.command() == TCGETS) {
-		helix::SendBuffer send_resp;
-		helix::SendBuffer send_attrs;
 		managarm::fs::SvrResponse resp;
 		struct termios attrs;
 
@@ -546,21 +544,21 @@ async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_attrs, &attrs, sizeof(struct termios)));
-		co_await transmit.async_wait();
+		auto [send_resp, send_attrs] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(&attrs, sizeof(struct termios))
+		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_attrs.error());
 	}else if(req.command() == TCSETS) {
-		helix::RecvBuffer recv_attrs;
-		helix::SendBuffer send_resp;
 		struct termios attrs;
 		managarm::fs::SvrResponse resp;
 
-		auto &&in_transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&recv_attrs, &attrs, sizeof(struct termios)));
-		co_await in_transmit.async_wait();
+		auto [recv_attrs] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(&attrs, sizeof(struct termios))
+		);
 		HEL_CHECK(recv_attrs.error());
 
 		if(logAttrs) {
@@ -581,12 +579,12 @@ async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&out_transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await out_transmit.async_wait();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == TIOCGWINSZ) {
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -596,12 +594,12 @@ async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
 		resp.set_pts_pixel_height(_channel->pixelHeight);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == TIOCSWINSZ) {
-		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
 		if(logAttrs)
@@ -619,9 +617,10 @@ async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
 		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("posix: Unknown PTS slave ioctl() with ID "
