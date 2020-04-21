@@ -281,6 +281,20 @@ enum class NotifyType {
 	terminated
 };
 
+struct TerminationByExit {
+	int code;
+};
+
+struct TerminationBySignal {
+	int signo;
+};
+
+using TerminationState = std::variant<
+	std::monostate,
+	TerminationByExit,
+	TerminationBySignal
+>;
+
 struct ResourceUsage {
 	uint64_t userTime;
 };
@@ -367,10 +381,9 @@ public:
 	// Preconditon: the thread has to be stopped!
 	bool checkOrRequestSignalRaise();
 
-	void terminate(int signo = -1);
-	void notify();
+	void terminate(TerminationState state);
 
-	async::result<int> wait(int pid, bool non_blocking, int *signo);
+	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state);
 
 	ResourceUsage accumulatedUsage() {
 		return _childrenUsage;
@@ -400,7 +413,7 @@ private:
 
 	// The following intrusive queue stores notifications for wait(). 
 	NotifyType _notifyType;
-	int _terminationSignal;
+	TerminationState _state;
 
 	boost::intrusive::list_member_hook<> _notifyHook;
 

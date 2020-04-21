@@ -540,7 +540,7 @@ void SignalContext::raiseContext(SignalItem *item, Process *process, Generation 
 		}else{
 			std::cout << "posix: Thread killed as the result of a signal" << std::endl;
 			// TODO: Make sure that we are in the current generation?
-			process->terminate(item->signalNumber);
+			process->terminate(TerminationBySignal{item->signalNumber});
 			return;
 		}
 	}
@@ -891,7 +891,7 @@ void Process::retire(Process *process) {
 	process->_parent->_childrenUsage.userTime += process->_generationUsage.userTime;
 }
 
-void Process::terminate(int signo) {
+void Process::terminate(TerminationState state) {
 	auto parent = getParent();
 	assert(parent);
 
@@ -913,7 +913,7 @@ void Process::terminate(int signo) {
 	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);
 	_notifyType = NotifyType::terminated;
-	_terminationSignal = signo;
+	_state = std::move(state);
 	parent->_notifyQueue.push_back(*this);
 	parent->_notifyBell.ring();
 
@@ -923,24 +923,24 @@ void Process::terminate(int signo) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<int> Process::wait(int pid, bool non_blocking, int *signo) {
+async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state) {
 	assert(pid == -1 || pid > 0);
 
 	int result = 0;
-	int termination_signo = -1;
+	TerminationState resultState;
 	while(true) {
 		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
 			if(pid > 0 && pid != it->pid())
 				continue;
 			_notifyQueue.erase(it);
 			result = it->pid();
-			termination_signo = it->_terminationSignal;
+			resultState = it->_state;
 			Process::retire(&(*it));
 			break;
 		}
 
-		if(result > 0 || non_blocking) {
-			*signo = termination_signo;
+		if(result > 0 || nonBlocking) {
+			*state = resultState;
 			co_return result;
 		}
 		co_await _notifyBell.async_wait();

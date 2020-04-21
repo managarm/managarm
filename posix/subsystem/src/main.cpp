@@ -324,7 +324,11 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
 
-			self->terminate();
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			auto code = gprs[kHelRegRsi];
+
+			self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
@@ -561,8 +565,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			assert(!(req.flags() & ~WNOHANG));
 
-			int signo;
-			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &signo);
+			TerminationState state;
+			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state);
 
 			helix::SendBuffer send_resp;
 
@@ -570,9 +574,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(pid);
 
-			uint32_t mode = 0x200; // 0x200 means exited.
-			if(signo >= 0)
-				mode |= 0x400 | (signo << 24);
+			uint32_t mode = 0;
+			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
+				mode |= 0x200 | byExit->code; // 0x200 = normal exit().
+			}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
+				mode |= 0x400 | (bySignal->signo << 24); // 0x400 = killed by signal.
+			}else{
+				assert(std::holds_alternative<std::monostate>(state));
+			}
 			resp.set_mode(mode);
 
 			auto ser = resp.SerializeAsString();
@@ -892,7 +901,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
-			
+
 			if(req.flags()) {
 				if(req.flags() & AT_SYMLINK_NOFOLLOW) {
 					std::cout << "posix: ACCESSAT flag handling AT_SYMLINK_NOFOLLOW is unimplemented" << std::endl;
