@@ -35,7 +35,7 @@ enum CntReqType {
 	CHDIR = 58;
 	FCHDIR = 61;
 	ACCESSAT = 20;
-	MKDIR = 46;
+	MKDIRAT = 46;
 	SYMLINK = 47;
 	RENAME = 51;
 	FSTATAT = 63;

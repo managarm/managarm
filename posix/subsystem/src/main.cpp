@@ -942,12 +942,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
-		}else if(req.request_type() == managarm::posix::CntReqType::MKDIR) {
+		}else if(req.request_type() == managarm::posix::CntReqType::MKDIRAT) {
 			if(logRequests || logPaths)
-				std::cout << "posix: MKDIR " << req.path() << std::endl;
+				std::cout << "posix: MKDIRAT " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
+
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
 
 			if (!req.path().size()) {
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -960,9 +963,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			if(req.fd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.fd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
+
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
+					relative_to, req.path());
 			co_await resolver.resolve(resolvePrefix);
 			assert(resolver.currentLink());
 
