@@ -112,7 +112,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}
-	}else if(req.req_type() == managarm::fs::CntReqType::PREAD) {
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials()

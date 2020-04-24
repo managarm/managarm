@@ -99,7 +99,7 @@ enum CntReqType {
 
 	RENAME = 36;
 
-	PREAD = 37;
+	PT_PREAD = 37;
 }
 
 message Rect {
