@@ -136,6 +136,8 @@ struct FileOperations {
 	async::result<SeekResult> (*seekEof)(void *object, int64_t offset);
 	async::result<ReadResult> (*read)(void *object, const char *credentials,
 			void *buffer, size_t length);
+	async::result<ReadResult> (*pread)(void *object, int64_t offset, const char *credentials,
+			void *buffer, size_t length);
 	async::result<void> (*write)(void *object, const char *credentials,
 			const void *buffer, size_t length);
 	async::result<ReadEntriesResult> (*readEntries)(void *object);
