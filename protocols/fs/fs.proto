@@ -98,6 +98,8 @@ enum CntReqType {
 	FLOCK = 73;
 
 	RENAME = 36;
+
+	PREAD = 37;
 }
 
 message Rect {
@@ -195,6 +197,8 @@ message CntRequest {
 
 	optional int32 input_type = 40;
 	optional int32 input_clock = 41;
+
+	optional int64 offset = 58;
 }
 
 message SvrResponse {

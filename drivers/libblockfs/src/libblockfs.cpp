@@ -86,6 +86,39 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	co_return chunk_size;
 }
 
+async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, const char *,
+		void *buffer, size_t length) {
+	assert(length);
+
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	co_await self->inode->readyJump.async_wait();
+
+	assert(self->offset <= self->inode->fileSize());
+	auto remaining = self->inode->fileSize() - offset;
+	auto chunk_size = std::min(length, remaining);
+	if(!chunk_size)
+		co_return 0; // TODO: Return an explicit end-of-file error?
+
+	auto chunk_offset = offset;
+	auto map_offset = chunk_offset & ~size_t(0xFFF);
+	auto map_size = (((chunk_offset & size_t(0xFFF)) + chunk_size + 0xFFF) & ~size_t(0xFFF));
+
+	helix::LockMemoryView lock_memory;
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
+			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	// Map the page cache into the address space.
+	helix::Mapping file_map{helix::BorrowedDescriptor{self->inode->frontalMemory},
+			static_cast<ptrdiff_t>(map_offset), map_size,
+			kHelMapProtRead | kHelMapDontRequireBacking};
+
+	memcpy(buffer, reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
+			chunk_size);
+	co_return chunk_size;
+}
+
 async::result<void> write(void *object, const char *,
 		const void *buffer, size_t length) {
 	assert(length);
@@ -145,7 +178,8 @@ constexpr protocols::fs::FileOperations fileOperations {
 	.truncate     = &truncate,
 	.getFileFlags = &getFileFlags,
 	.setFileFlags = &setFileFlags,
-	.poll		  = &poll
+	.poll		  = &poll,
+	.pread 		  = &pread
 };
 
 async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object,
