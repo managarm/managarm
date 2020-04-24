@@ -61,15 +61,15 @@ struct Node : FsNode {
 		stats.inodeNumber = getInode(); // TODO: Move this out of FileStats.
 		stats.fileSize = resp.file_size();
 		stats.numLinks = resp.num_links();
-		stats.mode = 0; //resp.mode(); // TODO: Fix this after fixing modes in mlibc.
+		stats.mode = resp.mode();
 		stats.uid = resp.uid();
 		stats.gid = resp.gid();
 		stats.atimeSecs = resp.atime_secs();
 		stats.atimeNanos = resp.atime_nanos();
-		stats.ctimeSecs = resp.mtime_secs();
-		stats.atimeNanos = resp.mtime_nanos();
+		stats.mtimeSecs = resp.mtime_secs();
+		stats.mtimeNanos = resp.mtime_nanos();
 		stats.ctimeSecs = resp.ctime_secs();
-		stats.atimeNanos = resp.ctime_nanos();
+		stats.ctimeNanos = resp.ctime_nanos();
 
 		co_return stats;
 	}
