@@ -1037,17 +1037,33 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::RENAME) {
+		}else if(req.request_type() == managarm::posix::CntReqType::RENAMEAT) {
 			if(logRequests || logPaths)
-				std::cout << "posix: RENAME " << req.path()
+				std::cout << "posix: RENAMEAT " << req.path()
 						<< " to " << req.target_path() << std::endl;
 
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+
+			if (req.fd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.fd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
+
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
+					relative_to, req.path());
 			co_await resolver.resolve();
 			if(!resolver.currentLink()) {
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1060,9 +1076,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			if (req.newfd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.newfd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
+
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.target_path());
+					relative_to, req.target_path());
 			co_await new_resolver.resolve(resolvePrefix);
 			assert(new_resolver.currentLink());
 
