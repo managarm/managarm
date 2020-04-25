@@ -233,7 +233,7 @@ struct CurrentDispatcherToken {
 
 inline constexpr CurrentDispatcherToken currentDispatcher;
 
-struct Dispatcher : async::io_service {
+struct Dispatcher {
 	friend struct ElementHandle;
 
 private:
@@ -274,7 +274,7 @@ public:
 		return _handle;
 	}
 
-	void wait() override {
+	void wait() {
 		while(true) {
 			if(_retrieveIndex == _nextIndex) {
 				assert(_activeChunks < (1 << sizeShift));

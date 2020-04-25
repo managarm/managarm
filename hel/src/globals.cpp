@@ -13,7 +13,7 @@ Dispatcher &Dispatcher::global() {
 }
 
 async::run_queue *globalQueue() {
-	static async::run_queue queue{&Dispatcher::global()};
+	static async::run_queue queue;
 	return &queue;
 }
 
