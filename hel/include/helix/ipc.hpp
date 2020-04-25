@@ -227,6 +227,12 @@ struct Context {
 	virtual void complete(ElementHandle element) = 0;
 };
 
+struct CurrentDispatcherToken {
+	void wait();
+};
+
+inline constexpr CurrentDispatcherToken currentDispatcher;
+
 struct Dispatcher : async::io_service {
 	friend struct ElementHandle;
 
@@ -411,6 +417,10 @@ private:
 	// Per-chunk reference counts.
 	int _refCounts[1 << sizeShift];
 };
+
+inline void CurrentDispatcherToken::wait() {
+	Dispatcher::global().wait();
+}
 
 inline ElementHandle::~ElementHandle() {
 	if(_dispatcher)

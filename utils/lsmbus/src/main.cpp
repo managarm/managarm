@@ -41,5 +41,5 @@ int main() {
 		enumerateBus();
 	}
 
-	helix::globalQueue()->run();
+	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
 }

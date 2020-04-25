@@ -2385,5 +2385,5 @@ int main() {
 		runInit();
 	}
 
-	helix::globalQueue()->run();
+	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
 }

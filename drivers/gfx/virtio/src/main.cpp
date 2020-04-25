@@ -629,7 +629,7 @@ int main() {
 		async::detach(protocols::svrctl::serveControl(&controlOps));
 	}
 
-	helix::globalQueue()->run();
+	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
 
 	return 0;
 }

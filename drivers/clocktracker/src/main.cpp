@@ -160,8 +160,8 @@ int main() {
 		initializeDriver();
 	}
 
-	helix::globalQueue()->run();
-	
+	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
+
 	return 0;
 }
 
