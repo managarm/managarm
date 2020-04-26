@@ -27,6 +27,10 @@ MacAddress Link::deviceMac() {
 	return mac_;
 }
 
+arch::dma_pool *Link::dmaPool() {
+	return dmaPool_;
+}
+
 async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 	using namespace arch;
 	while(true) {

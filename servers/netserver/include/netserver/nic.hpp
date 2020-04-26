@@ -37,17 +37,19 @@ enum EtherType : uint16_t {
 // TODO(arsen): Expose interface for csum offloading, constructing frames, and
 // other features of NICs
 struct Link {
-	inline Link(unsigned int mtu) : mtu(mtu) {}
+	inline Link(unsigned int mtu, arch::dma_pool *dmaPool)
+		: mtu(mtu), dmaPool_(dmaPool) {}
 	virtual ~Link() = default;
 	//! Receives an entire frame from the network
 	virtual async::result<void> receive(arch::dma_buffer_view) = 0;
 	//! Sends an entire ethernet frame
 	virtual async::result<void> send(const arch::dma_buffer_view) = 0;
-	virtual arch::dma_pool *dmaPool() = 0;
+	arch::dma_pool *dmaPool();
 
 	MacAddress deviceMac();
 	unsigned int mtu;
 protected:
+	arch::dma_pool *dmaPool_;
 	MacAddress mac_;
 };
 
