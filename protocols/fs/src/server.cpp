@@ -419,10 +419,11 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		std::vector<char> addr;
 		addr.resize(req.addr_size());
 
-		auto result = co_await file_ops->recvMsg(file.get(), extract_creds.credentials(), req.flags(),
-				buffer.data(), buffer.size(),
-				addr.data(), addr.size(),
-				req.ctrl_size());
+		auto result = co_await file_ops->recvMsg(file.get(),
+			extract_creds.credentials(), req.flags(),
+			buffer.data(), buffer.size(),
+			addr.data(), addr.size(),
+			req.ctrl_size());
 		auto error = std::get_if<Error>(&result);
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::SUCCESS);
@@ -440,11 +441,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		}
 
 		auto data = std::get<RecvData>(result);
+		resp.set_addr_size(data.addressLength);
 		auto ser = resp.SerializeAsString();
 		auto [send_resp, send_addr, send_data, send_ctrl]
 				= co_await helix_ng::exchangeMsgs(conversation,
 			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::sendBuffer(addr.data(), data.addressLength),
+			helix_ng::sendBuffer(addr.data(), addr.size()),
 			helix_ng::sendBuffer(buffer.data(), data.dataLength),
 			helix_ng::sendBuffer(data.ctrl.data(), data.ctrl.size())
 		);

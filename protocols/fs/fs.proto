@@ -266,6 +266,9 @@ message SvrResponse {
 	// returned by PT_SENDMSG
 	optional int64 size = 76;
 
+	// returned by PT_RECVMSG
+	optional int64 addr_size = 78;
+
 	// PTS and TTY ioctls.
 	optional int32 pts_index = 63;
 	optional int32 pts_width = 72;
