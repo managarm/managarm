@@ -22,6 +22,7 @@ enum class Error {
 	destAddrRequired = 10,
 	netUnreachable = 11,
 	messageSize = 12,
+	hostUnreachable = 13,
 };
 
 using ReadResult = std::variant<Error, size_t>;
