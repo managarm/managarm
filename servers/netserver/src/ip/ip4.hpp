@@ -19,26 +19,6 @@ struct Ip4Router {
 		inline Route(uint32_t ip, std::weak_ptr<nic::Link> link,
 			uint8_t prefix) : ip(ip), link(link), prefix(prefix) {}
 
-		inline Route &setMtu(unsigned int mtu) {
-			this->mtu = mtu;
-			return *this;
-		}
-
-		inline Route &setGateway(uint32_t gateway) {
-			this->gateway = gateway;
-			return *this;
-		}
-
-		inline Route &setMetric(unsigned int metric) {
-			this->metric = metric;
-			return *this;
-		}
-
-		inline Route &setSource(uint32_t source) {
-			this->source = source;
-			return *this;
-		}
-
 		inline uint32_t mask() const {
 			return (uint64_t(0xFFFFFFFF) << (32 - prefix))
 				& 0xFFFFFFFF;
