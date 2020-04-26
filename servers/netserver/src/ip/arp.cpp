@@ -47,24 +47,15 @@ async::result<void> sendArp(uint16_t op,
 	ensureEndian(sender);
 	ensureEndian(targetProto);
 
-	arch::dma_buffer buf { link->dmaPool(),
-		// 14 bytes for eth header, + arp "leader" + 2 hw + 2 proto
-		// addresses
-		14 + sizeof(leader)
-		+ 2 * sizeof(nic::MacAddress) + 2 * sizeof(uint32_t)
-	};
-	std::memset(buf.data(), 0, buf.size());
-	arch::dma_buffer_view bufv { buf };
+	auto buffer = link->allocateFrame(targetMac, nic::ETHER_TYPE_ARP,
+		sizeof(leader)
+		+ 2 * sizeof(nic::MacAddress)
+		+ 2 * sizeof(uint32_t));
+	arch::dma_buffer_view bufv { buffer.payload };
 	auto appendData = [&bufv] (auto data) {
 		std::memcpy(bufv.data(), &data, sizeof(data));
 		bufv = bufv.subview(sizeof(data));
 	};
-	uint16_t ethertype = nic::ETHER_TYPE_ARP;
-	ensureEndian(ethertype);
-
-	appendData(targetMac);
-	appendData(link->deviceMac());
-	appendData(ethertype);
 
 	appendData(leader);
 
@@ -73,7 +64,7 @@ async::result<void> sendArp(uint16_t op,
 
 	appendData(targetHw);
 	appendData(targetProto);
-	co_await link->send(std::move(buf));
+	co_await link->send(std::move(buffer.frame));
 }
 }
 
