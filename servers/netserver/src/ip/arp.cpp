@@ -154,20 +154,22 @@ void Neighbours::updateTable(uint32_t ip, nic::MacAddress mac) {
 
 namespace {
 async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) {
+	e.state = Neighbours::State::probe;
 	for (int i = 0; i < 3; i++) {
+		co_await sendArp(1, sender, {}, ip);
+		std::cout << "netserver: sent arp req" << std::endl;
+
 		async::cancellation_event ev;
 		helix::TimeoutCancellation timer { 1'000'000'000, ev };
 		co_await e.change.async_wait(ev);
 		co_await timer.retire();
-
-		std::cout << "netserver: send arp req" << std::endl;
-		co_await sendArp(1, sender, {}, ip);
 
 		if (e.state != Neighbours::State::probe) {
 			co_return;
 		}
 	}
 	e.state = Neighbours::State::failed;
+	e.change.ring();
 }
 } // namespace
 
