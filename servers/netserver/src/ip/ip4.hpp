@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 
+#include <netserver/nic.hpp>
 #include "fs.pb.h"
 
 struct Ip4Socket;
@@ -33,6 +34,11 @@ struct Ip4Router {
 			return *this;
 		}
 
+		inline Route &setSource(uint32_t source) {
+			this->source = source;
+			return *this;
+		}
+
 		inline uint32_t mask() const {
 			return (uint64_t(0xFFFFFFFF) << (32 - prefix))
 				& 0xFFFFFFFF;
@@ -45,6 +51,7 @@ struct Ip4Router {
 		unsigned int mtu = 0;
 		uint32_t gateway = 0;
 		unsigned int metric = 0;
+		uint32_t source = 0;
 
 		friend bool operator<(const Route &, const Route &);
 	};
@@ -65,9 +72,13 @@ struct Ip4 {
 	Ip4Router &router() {
 		return router_;
 	}
+
+	std::shared_ptr<nic::Link> getLink(uint32_t ip);
+	void setLink(uint32_t ip, std::weak_ptr<nic::Link> link);
 private:
 	Ip4Router router_;
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
+	std::map<uint32_t, std::weak_ptr<nic::Link>> ips;
 };
 
 Ip4 &ip4();

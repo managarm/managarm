@@ -169,6 +169,23 @@ void Ip4::feedPacket(nic::MacAddress dest, nic::MacAddress src,
 	}
 }
 
+void Ip4::setLink(uint32_t addr, std::weak_ptr<nic::Link> l) {
+	ips.emplace(addr, std::move(l));
+}
+
+std::shared_ptr<nic::Link> Ip4::getLink(uint32_t addr) {
+	auto iter = ips.find(addr);
+	if (iter == ips.end()) {
+		return { nullptr };
+	}
+	auto ptr = iter->second.lock();
+	if (!ptr) {
+		ips.erase(iter);
+		return {};
+	}
+	return ptr;
+}
+
 managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int proto) {
 	using namespace protocols::fs;
 	switch (type) {
