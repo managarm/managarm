@@ -154,6 +154,10 @@ void Neighbours::updateTable(uint32_t ip, nic::MacAddress mac) {
 
 namespace {
 async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) {
+	if (e.state == Neighbours::State::probe) {
+		// probing already, no need to run
+		co_return;
+	}
 	e.state = Neighbours::State::probe;
 	for (int i = 0; i < 3; i++) {
 		co_await sendArp(1, sender, {}, ip);
