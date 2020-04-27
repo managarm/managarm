@@ -39,7 +39,6 @@ struct VirtioNic : nic::Link {
 
 	virtual async::result<void> receive(arch::dma_buffer_view) override;
 	virtual async::result<void> send(const arch::dma_buffer_view) override;
-	virtual arch::dma_pool *dmaPool() override;
 
 	virtual ~VirtioNic() override = default;
 private:
@@ -50,7 +49,7 @@ private:
 };
 
 VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
-	: nic::Link(1500), m_transport { std::move(transport) }
+	: nic::Link(1500, &m_dmaPool), m_transport { std::move(transport) }
 {
 	if(m_transport->checkDeviceFeature(VIRTIO_NET_F_MAC)) {
 		for (int i = 0; i < 6; i++) {
@@ -86,10 +85,6 @@ async::result<void> VirtioNic::receive(arch::dma_buffer_view frame) {
 	co_await m_receiveVq->submitDescriptor(chain.front());
 
 	co_return;
-}
-
-arch::dma_pool *VirtioNic::dmaPool() {
-	return &m_dmaPool;
 }
 
 async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {

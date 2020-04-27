@@ -170,128 +170,7 @@ struct Ip4Socket {
 			const char *creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
-			std::vector<uint32_t> fds) {
-		using namespace arch;
-		auto self = static_cast<Ip4Socket *>(obj);
-		uint32_t address;
-		if (addr_size != 0) {
-			if (auto e = checkAddress(addr_ptr, addr_size, address);
-				e != protocols::fs::Error::none) {
-				co_return e;
-			}
-		} else {
-			address = self->remote;
-		}
-
-		address = convert_endian<endian::big>(address);
-
-		if (address == 0) {
-			std::cout << "netserver: needs destination" << std::endl;
-			co_return protocols::fs::Error::destAddrRequired;
-		}
-
-		if (address == INADDR_ANY) {
-			co_return protocols::fs::Error::accessDenied;
-		}
-
-		auto oroute = ip4Router().resolveRoute(address);
-		if (!oroute) {
-			std::cout << "netserver: net unreachable" << std::endl;
-			co_return protocols::fs::Error::netUnreachable;
-		}
-
-		// TODO(arsen): fragmentation
-		// calculate header size
-		size_t header_size = sizeof(Ip4Packet::Header);
-		size_t packet_size = len + header_size;
-		// TODO(arsen): options
-		if (oroute->mtu != 0 && oroute->mtu < packet_size) {
-			std::cout << "netserver: cant fragment 1" << std::endl;
-			co_return protocols::fs::Error::messageSize;
-		}
-
-		auto target = oroute->link.lock();
-		if (!target) {
-			std::cout << "netserver: route link disappeared"
-				<< std::endl;
-			// TODO(arsen): remove route too
-			co_return protocols::fs::Error::netUnreachable;
-		}
-		if (target->mtu < packet_size) {
-			std::cout << "netserver: cant fragment 2" << std::endl;
-			co_return protocols::fs::Error::messageSize;
-		}
-
-		std::cout << "netserver: resolved route:" << std::hex << std::endl;
-		std::cout << std::setfill('0') << std::showbase;
-		std::cout << "\tip: " << std::setw(8) << oroute->ip << '/'
-			<< std::dec << size_t(oroute->prefix) << std::endl;
-		std::cout << "\tmask: " << std::hex << std::setw(8)
-			<< oroute->mask() << std::endl;
-		std::cout << "\tmtu: " << std::dec << oroute->mtu << ", link: "
-			<< target->mtu << std::endl;
-		std::cout << "\tgateway: " << std::hex << std::setw(8)
-			<< oroute->gateway
-			<< std::endl;
-		std::cout << "\tmetric: " << std::dec << oroute->metric << std::endl;
-		std::cout << "\tsource: " << std::hex << std::setw(8)
-			<< oroute->source
-			<< std::endl;
-
-		auto source = oroute->source;
-		if (source == 0) {
-			std::cout << "netserver: TODO(arsen): assign IPs to links" << std::endl;
-			co_return protocols::fs::Error::netUnreachable;
-		}
-
-		arch::dma_buffer frame { target->dmaPool(), 14 + packet_size };
-		auto packet = frame.subview(14);
-		Ip4Packet::Header hdr;
-		// TODO(arsen): options
-		hdr.ihl = 0x45;
-		hdr.tos = 0;
-		hdr.length = packet_size;
-		// TODO(arsen): fragmentation
-		hdr.flags_offset = 0;
-		hdr.ttl = 64;
-		hdr.protocol = self->proto;
-		// filled out later, 0 for purposes of computation
-		hdr.checksum = 0;
-		hdr.source = source;
-		hdr.destination = address;
-
-		hdr.ensureEndian();
-
-		Checksum chk;
-		// TODO(arsen): accomodate for options
-		chk.update(reinterpret_cast<void *>(&hdr), sizeof(hdr));
-		hdr.checksum = arch::convert_endian<
-			arch::endian::big>(chk.finalize());
-		std::memcpy(packet.data(), &hdr, sizeof(hdr));
-		std::memcpy(packet.subview(header_size).byte_data(), data, len);
-
-		auto macTarget = address;
-		if (oroute->gateway != 0) {
-			macTarget = oroute->gateway;
-		}
-
-		auto entry = co_await neigh4().tryResolve(macTarget, source);
-		if (entry->state != Neighbours::State::reachable) {
-			co_return protocols::fs::Error::hostUnreachable;
-		}
-
-		std::memcpy(frame.data(), entry->mac.data(), 6);
-		std::memcpy(frame.subview(6).data(),
-			target->deviceMac().data(), 6);
-		uint16_t ethertype = arch::convert_endian<arch::endian::big>(
-			static_cast<uint16_t>(nic::ETHER_TYPE_IP4));
-		std::memcpy(frame.subview(12).data(),
-			&ethertype, sizeof(ethertype));
-
-		co_await target->send(frame);
-
-		co_return len;
-	}
+			std::vector<uint32_t> fds);
 
 	static async::result<Error> connect(void* obj,
 			const char *creds,
@@ -325,6 +204,110 @@ private:
 	std::queue<smarter::shared_ptr<const Ip4Packet>> pqueue;
 	async::doorbell bell;
 };
+
+async::result<SendResult> Ip4Socket::sendmsg(void *obj,
+		const char *creds, uint32_t flags,
+		void *data, size_t len,
+		void *addr_ptr, size_t addr_size,
+		std::vector<uint32_t> fds) {
+	using namespace arch;
+	auto self = static_cast<Ip4Socket *>(obj);
+	uint32_t address;
+	if (addr_size != 0) {
+		if (auto e = checkAddress(addr_ptr, addr_size, address);
+			e != protocols::fs::Error::none) {
+			co_return e;
+		}
+	} else {
+		address = self->remote;
+	}
+
+	address = convert_endian<endian::big>(address);
+
+	if (address == 0) {
+		std::cout << "netserver: needs destination" << std::endl;
+		co_return protocols::fs::Error::destAddrRequired;
+	}
+
+	if (address == INADDR_ANY) {
+		co_return protocols::fs::Error::accessDenied;
+	}
+
+	auto oroute = ip4Router().resolveRoute(address);
+	if (!oroute) {
+		std::cout << "netserver: net unreachable" << std::endl;
+		co_return protocols::fs::Error::netUnreachable;
+	}
+
+	// TODO(arsen): fragmentation
+	// calculate header size
+	size_t header_size = sizeof(Ip4Packet::Header);
+	size_t packet_size = len + header_size;
+	// TODO(arsen): options
+	if (oroute->mtu != 0 && oroute->mtu < packet_size) {
+		std::cout << "netserver: cant fragment 1" << std::endl;
+		co_return protocols::fs::Error::messageSize;
+	}
+
+	auto target = oroute->link.lock();
+	if (!target) {
+		std::cout << "netserver: route link disappeared"
+			<< std::endl;
+		// TODO(arsen): remove route too
+		co_return protocols::fs::Error::netUnreachable;
+	}
+	if (target->mtu < packet_size) {
+		std::cout << "netserver: cant fragment 2" << std::endl;
+		co_return protocols::fs::Error::messageSize;
+	}
+
+	auto source = oroute->source;
+	if (source == 0) {
+		std::cout << "netserver: TODO(arsen): assign IPs to links" << std::endl;
+		co_return protocols::fs::Error::netUnreachable;
+	}
+
+	auto macTarget = address;
+	if (oroute->gateway != 0) {
+		macTarget = oroute->gateway;
+	}
+
+	auto entry = co_await neigh4().tryResolve(macTarget, source);
+	if (entry->state != Neighbours::State::reachable) {
+		co_return protocols::fs::Error::hostUnreachable;
+	}
+
+	Ip4Packet::Header hdr;
+	// TODO(arsen): options
+	hdr.ihl = 0x45;
+	hdr.tos = 0;
+	hdr.length = packet_size;
+	// TODO(arsen): fragmentation
+	hdr.flags_offset = 0;
+	hdr.ttl = 64;
+	hdr.protocol = self->proto;
+	// filled out later, 0 for purposes of computation
+	hdr.checksum = 0;
+	hdr.source = source;
+	hdr.destination = address;
+
+	hdr.ensureEndian();
+
+	Checksum chk;
+	// TODO(arsen): accomodate for options
+	chk.update(reinterpret_cast<void *>(&hdr), sizeof(hdr));
+	hdr.checksum = convert_endian<endian::big>(chk.finalize());
+
+	auto fb = target->allocateFrame(entry->mac, nic::ETHER_TYPE_IP4,
+		packet_size);
+
+	std::memcpy(fb.payload.data(), &hdr, sizeof(hdr));
+	std::memcpy(fb.payload.subview(header_size).byte_data(), data, len);
+
+	co_await target->send(std::move(fb.frame));
+
+	co_return len;
+}
 
 void Ip4::feedPacket(nic::MacAddress dest, nic::MacAddress src,
 		arch::dma_buffer owner, arch::dma_buffer_view frame) {
