@@ -1,6 +1,6 @@
 #include <netserver/nic.hpp>
 
-#include <iomanip>
+#include <algorithm>
 #include <arch/bit.hpp>
 #include "ip/ip4.hpp"
 
@@ -11,6 +11,15 @@ uint8_t &MacAddress::operator[](size_t idx) {
 
 const uint8_t &MacAddress::operator[](size_t idx) const {
 	return mac_[idx];
+}
+
+bool operator==(const MacAddress &l, const MacAddress &r) {
+	return std::equal(std::begin(l.mac_), std::end(l.mac_),
+		std::begin(r.mac_));
+}
+
+bool operator!=(const MacAddress &l, const MacAddress &r) {
+	return !operator==(l, r);
 }
 
 MacAddress Link::deviceMac() {
@@ -29,7 +38,7 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 		std::memcpy(dstsrc, data, sizeof(dstsrc));
 
 		switch (ethertype) {
-		case 0x0800: // IPv4
+		case ETHER_TYPE_IP4:
 			ip4().feedPacket(dstsrc[0], dstsrc[1],
 				std::move(frameBuffer), capsule);
 			break;
