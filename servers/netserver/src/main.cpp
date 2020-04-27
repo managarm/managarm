@@ -16,24 +16,28 @@
 #include <protocols/hw/client.hpp>
 #include <protocols/svrctl/server.hpp>
 #include <protocols/fs/server.hpp>
+#include <sys/socket.h>
 #include "fs.pb.h"
 
-#include "net.hpp"
+#include "ip/ip4.hpp"
+
+#include <netserver/nic.hpp>
+#include <nic/virtio/virtio.hpp>
 
 // Maps mbus IDs to device objects
-std::unordered_map<int64_t, std::shared_ptr<nic::virtio::Device>> baseDeviceMap;
+std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 
 async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
 	protocols::hw::Device hw_device(co_await base_entity.bind());
 	auto transport = co_await virtio_core::discover(std::move(hw_device), discover_mode);
 
-	auto device = std::make_shared<nic::virtio::Device>(std::move(transport));
+	auto device = nic::virtio::makeShared(std::move(transport));
 	baseDeviceMap.insert({base_entity.getId(), device});
-	device->runDevice();
+	nic::runDevice(device);
 }
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
-	std::cout << "nic-virtio: Binding to device " << base_id << std::endl;
+	std::cout << "netserver: Binding to device " << base_id << std::endl;
 	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
 
 	// Do not bind to devices that are already bound to this driver.
@@ -62,72 +66,67 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	co_return protocols::svrctl::Error::success;
 }
 
-namespace {
-async::result<protocols::fs::ReadResult> noopRead(void *, const char *, void *buffer, size_t length) {
-	memset(buffer, 0, length);
-	co_return length;
-}
-
-async::result<void> noopWrite(void*, const char*, const void *, size_t) {
-	co_return;
-}
-}
-
-constexpr protocols::fs::FileOperations fileOps {
-	.read  = &noopRead,
-	.write = &noopWrite
-};
-
 async::detached serve(helix::UniqueLane lane) {
 	while (true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
+		auto [accept, recv_req] =
+			co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::accept(
+					helix_ng::recvInline()
+					)
+				);
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 
 		auto conversation = accept.descriptor();
+		auto sendError = [&conversation] (managarm::fs::Errors err)
+				-> async::result<void> {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(err);
+			auto buff = resp.SerializeAsString();
+			auto [send] =
+				co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(
+						buff.data(), buff.size())
+				);
+			HEL_CHECK(send.error());
+		};
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 
 		if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_socket;
 			auto [local_lane, remote_lane] = helix::createStream();
-			std::cout << "netserver: proto " << req.protocol()
-				  << " type " << req.type() << std::endl;
-
-			async::detach(protocols::fs::servePassthrough(
-						std::move(local_lane), nullptr, &fileOps));
 
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_error(managarm::fs::SUCCESS);
+			if (req.domain() != AF_INET
+				|| req.type() != SOCK_RAW) {
+				co_await sendError(managarm::fs::ILLEGAL_ARGUMENT);
+				continue;
+			}
+
+			auto err = ip4().serveSocket(std::move(local_lane),
+				req.type(), req.protocol());
+			if (err != managarm::fs::SUCCESS) {
+				co_await sendError(err);
+				continue;
+			}
 
 			auto ser = resp.SerializeAsString();
-			auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_socket, remote_lane));
-			co_await transmit.async_wait();
+			auto [send_resp, push_socket] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(
+						ser.data(), ser.size()),
+					helix_ng::pushDescriptor(remote_lane)
+				);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_socket.error());
 		} else {
-			helix::SendBuffer send_resp;
 			std::cout << "netserver: received unknown request type: "
 				<< req.req_type() << std::endl;
-
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
-
-			auto ser = resp.SerializeAsString();
-			auto transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			co_await sendError(managarm::fs::Errors::ILLEGAL_REQUEST);
 		}
 	}
 }
@@ -159,7 +158,7 @@ static constexpr protocols::svrctl::ControlOperations controlOps = {
 // --------------------------------------------------------
 
 int main() {
-	printf("nic-virtio: Starting driver\n");
+	printf("netserver: Starting driver\n");
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 3));
 

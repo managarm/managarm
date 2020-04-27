@@ -78,7 +78,6 @@ if get_option('build_drivers')
 	subdir('drivers/gfx/plainfb/')
 	subdir('drivers/gfx/vmware/')
 	subdir('drivers/kbd/')
-	subdir('drivers/nic/virtio/')
 	subdir('drivers/uart/')
 	subdir('drivers/usb/hcds/uhci/')
 	subdir('drivers/usb/hcds/ehci/')
@@ -90,6 +89,10 @@ if get_option('build_drivers')
 	subdir('utils/lsmbus/')
 	subdir('testsuites/posix-torture/')
 	subdir('testsuites/posix-tests/')
+
+	netserver_inc = include_directories('servers/netserver/include/')
+	subdir('drivers/nic/virtio/')
+	subdir('servers/netserver/')
 
 	subdir('drivers/clocktracker')
 
