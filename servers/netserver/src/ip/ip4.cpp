@@ -1,9 +1,11 @@
 #include "ip4.hpp"
 
+#include "arp.hpp"
 #include "checksum.hpp"
 #include <async/doorbell.hpp>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <algorithm>
 #include <iostream>
 #include <iomanip>
 #include <arch/bit.hpp>
@@ -38,7 +40,7 @@ std::optional<Route> Ip4Router::resolveRoute(uint32_t ip) const {
 }
 
 bool operator<(const Route &lhs, const Route &rhs) {
-	// bigger MTU is better
+	// bigger MTU is better, and hence sorts lower
 	return std::tie(lhs.prefix, lhs.ip, lhs.metric, rhs.mtu) <
 		std::tie(rhs.prefix, rhs.ip, rhs.metric, lhs.mtu);
 }
@@ -46,7 +48,7 @@ bool operator<(const Route &lhs, const Route &rhs) {
 class Ip4Packet {
 	arch::dma_buffer buffer_;
 public:
-	struct {
+	struct Header {
 		uint8_t ihl;
 		uint8_t tos;
 		uint16_t length;
@@ -60,6 +62,20 @@ public:
 
 		uint32_t source;
 		uint32_t destination;
+
+		void ensureEndian() {
+			auto nendian = [] (auto x) -> decltype(x) {
+				return arch::convert_endian<
+					arch::endian::big,
+					arch::endian::native>(x);
+			};
+			length = nendian(length);
+			ident = nendian(ident);
+			flags_offset = nendian(flags_offset);
+			checksum = nendian(checksum);
+			source = nendian(source);
+			destination = nendian(destination);
+		}
 	} header;
 	static_assert(sizeof(header) == 20, "bad header size");
 	arch::dma_buffer_view data;
@@ -74,10 +90,6 @@ public:
 
 	// assumes frame is a valid view into owner
 	bool parse(arch::dma_buffer owner, arch::dma_buffer_view frame) {
-		auto nendian = [] (auto x) -> decltype(x) {
-			return arch::convert_endian<
-				arch::endian::big, arch::endian::native>(x);
-		};
 		buffer_ = std::move(owner);
 		data = frame;
 		if (data.size() < sizeof(header)) {
@@ -89,21 +101,11 @@ public:
 			return false;
 		}
 
-		header.ihl = nendian(header.ihl & 0x0f);
-		header.tos = nendian(header.tos);
-		header.length = nendian(header.length);
+		header.ensureEndian();
+
+		header.ihl = header.ihl & 0x0f;
 		// ensure we only access the correct parts of the buffer
 		data = data.subview(0, header.length);
-
-		header.ident = nendian(header.ident);
-		header.flags_offset = nendian(header.flags_offset);
-
-		header.ttl = nendian(header.ttl);
-		header.protocol = nendian(header.protocol);
-		header.checksum = nendian(header.checksum);
-
-		header.source = nendian(header.source);
-		header.destination = nendian(header.destination);
 
 		Checksum csum;
 		csum.update(header_view());
@@ -119,6 +121,21 @@ public:
 	Ip4Packet() {}
 };
 
+namespace {
+auto checkAddress(const void *addr_ptr, size_t addr_len, uint32_t &ip) {
+	struct sockaddr_in addr;
+	if (addr_len < sizeof(addr)) {
+		return protocols::fs::Error::illegalArguments;
+	}
+	std::memcpy(&addr, addr_ptr, sizeof(addr));
+	if (addr.sin_family != AF_INET) {
+		return protocols::fs::Error::afNotSupported;
+	}
+	ip = addr.sin_addr.s_addr;
+	return protocols::fs::Error::none;
+}
+}
+
 struct Ip4Socket {
 	explicit Ip4Socket(int proto) : proto(proto) {}
 
@@ -126,6 +143,10 @@ struct Ip4Socket {
 			const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
+		auto hton = [] (auto x) -> decltype(x) {
+			using namespace arch;
+			return convert_endian<endian::big>(x);
+		};
 		auto self = static_cast<Ip4Socket *>(obj);
 		while (self->pqueue.empty()) {
 			co_await self->bell.async_wait();
@@ -135,15 +156,172 @@ struct Ip4Socket {
 		auto packet = element->data;
 		auto copy_size = std::min(packet.size(), len);
 		std::memcpy(data, packet.data(), copy_size);
-		co_return RecvData { copy_size, 0, {} };
+		sockaddr_in addr {
+			.sin_family = AF_INET,
+			.sin_port = hton(element->header.protocol),
+			.sin_addr = { hton(element->header.source) }
+		};
+		std::memset(addr_buf, 0, addr_size);
+		std::memcpy(addr_buf, &addr, std::min(addr_size, sizeof(addr)));
+		co_return RecvData { copy_size, sizeof(addr), {} };
 	}
 
+	static async::result<SendResult> sendmsg(void *obj,
+			const char *creds, uint32_t flags,
+			void *data, size_t len,
+			void *addr_ptr, size_t addr_size,
+			std::vector<uint32_t> fds) {
+		using namespace arch;
+		auto self = static_cast<Ip4Socket *>(obj);
+		uint32_t address;
+		if (addr_size != 0) {
+			if (auto e = checkAddress(addr_ptr, addr_size, address);
+				e != protocols::fs::Error::none) {
+				co_return e;
+			}
+		} else {
+			address = self->remote;
+		}
+
+		address = convert_endian<endian::big>(address);
+
+		if (address == 0) {
+			std::cout << "netserver: needs destination" << std::endl;
+			co_return protocols::fs::Error::destAddrRequired;
+		}
+
+		if (address == INADDR_ANY) {
+			co_return protocols::fs::Error::accessDenied;
+		}
+
+		auto oroute = ip4Router().resolveRoute(address);
+		if (!oroute) {
+			std::cout << "netserver: net unreachable" << std::endl;
+			co_return protocols::fs::Error::netUnreachable;
+		}
+
+		// TODO(arsen): fragmentation
+		// calculate header size
+		size_t header_size = sizeof(Ip4Packet::Header);
+		size_t packet_size = len + header_size;
+		// TODO(arsen): options
+		if (oroute->mtu != 0 && oroute->mtu < packet_size) {
+			std::cout << "netserver: cant fragment 1" << std::endl;
+			co_return protocols::fs::Error::messageSize;
+		}
+
+		auto target = oroute->link.lock();
+		if (!target) {
+			std::cout << "netserver: route link disappeared"
+				<< std::endl;
+			// TODO(arsen): remove route too
+			co_return protocols::fs::Error::netUnreachable;
+		}
+		if (target->mtu < packet_size) {
+			std::cout << "netserver: cant fragment 2" << std::endl;
+			co_return protocols::fs::Error::messageSize;
+		}
+
+		std::cout << "netserver: resolved route:" << std::hex << std::endl;
+		std::cout << std::setfill('0') << std::showbase;
+		std::cout << "\tip: " << std::setw(8) << oroute->ip << '/'
+			<< std::dec << size_t(oroute->prefix) << std::endl;
+		std::cout << "\tmask: " << std::hex << std::setw(8)
+			<< oroute->mask() << std::endl;
+		std::cout << "\tmtu: " << std::dec << oroute->mtu << ", link: "
+			<< target->mtu << std::endl;
+		std::cout << "\tgateway: " << std::hex << std::setw(8)
+			<< oroute->gateway
+			<< std::endl;
+		std::cout << "\tmetric: " << std::dec << oroute->metric << std::endl;
+		std::cout << "\tsource: " << std::hex << std::setw(8)
+			<< oroute->source
+			<< std::endl;
+
+		auto source = oroute->source;
+		if (source == 0) {
+			std::cout << "netserver: TODO(arsen): assign IPs to links" << std::endl;
+			co_return protocols::fs::Error::netUnreachable;
+		}
+
+		arch::dma_buffer frame { target->dmaPool(), 14 + packet_size };
+		auto packet = frame.subview(14);
+		Ip4Packet::Header hdr;
+		// TODO(arsen): options
+		hdr.ihl = 0x45;
+		hdr.tos = 0;
+		hdr.length = packet_size;
+		// TODO(arsen): fragmentation
+		hdr.flags_offset = 0;
+		hdr.ttl = 64;
+		hdr.protocol = self->proto;
+		// filled out later, 0 for purposes of computation
+		hdr.checksum = 0;
+		hdr.source = source;
+		hdr.destination = address;
+
+		hdr.ensureEndian();
+
+		Checksum chk;
+		// TODO(arsen): accomodate for options
+		chk.update(reinterpret_cast<void *>(&hdr), sizeof(hdr));
+		hdr.checksum = arch::convert_endian<
+			arch::endian::big>(chk.finalize());
+		std::memcpy(packet.data(), &hdr, sizeof(hdr));
+		std::memcpy(packet.subview(header_size).byte_data(), data, len);
+
+		auto macTarget = address;
+		if (oroute->gateway != 0) {
+			macTarget = oroute->gateway;
+		}
+
+		auto entry = co_await neigh4().tryResolve(macTarget, source);
+		if (entry->state != Neighbours::State::reachable) {
+			co_return protocols::fs::Error::hostUnreachable;
+		}
+
+		std::memcpy(frame.data(), entry->mac.data(), 6);
+		std::memcpy(frame.subview(6).data(),
+			target->deviceMac().data(), 6);
+		uint16_t ethertype = arch::convert_endian<arch::endian::big>(
+			static_cast<uint16_t>(nic::ETHER_TYPE_IP4));
+		std::memcpy(frame.subview(12).data(),
+			&ethertype, sizeof(ethertype));
+
+		co_await target->send(frame);
+
+		co_return len;
+	}
+
+	static async::result<Error> connect(void* obj,
+			const char *creds,
+			const void *addr_ptr, size_t addr_size) {
+		auto self = static_cast<Ip4Socket *>(obj);
+		uint32_t ip;
+		if (auto e = checkAddress(addr_ptr, addr_size, ip);
+			e != protocols::fs::Error::none) {
+			co_return e;
+		}
+		
+		// TODO(arsen): check other broadcast addresses too
+		if (ip == INADDR_ANY) {
+			co_return protocols::fs::Error::accessDenied;
+		}
+		self->remote = ip;
+		co_return protocols::fs::Error::none;
+	}
+
+#undef check_addr
+
 	constexpr static FileOperations ops {
-		.recvMsg = &recvmsg
+		.recvMsg = &recvmsg,
+		.sendMsg = &sendmsg,
+		.connect = &connect,
 	};
 private:
 	friend struct Ip4;
 	int proto;
+	uint32_t remote = 0;
 	std::queue<smarter::shared_ptr<const Ip4Packet>> pqueue;
 	async::doorbell bell;
 };
