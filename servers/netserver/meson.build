@@ -12,6 +12,7 @@ executable('netserver',
 		'src/nic.cpp',
 		'src/ip/ip4.cpp',
 		'src/ip/checksum.cpp',
+		'src/ip/arp.cpp',
 		fs_pb
 	],
 	dependencies: [

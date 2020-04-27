@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <arch/bit.hpp>
 #include "ip/ip4.hpp"
+#include "ip/arp.hpp"
 
 namespace nic {
 uint8_t &MacAddress::operator[](size_t idx) {
@@ -41,6 +42,9 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 		case ETHER_TYPE_IP4:
 			ip4().feedPacket(dstsrc[0], dstsrc[1],
 				std::move(frameBuffer), capsule);
+			break;
+		case ETHER_TYPE_ARP:
+			neigh4().feedArp(dstsrc[0], capsule);
 			break;
 		default:
 			break;
