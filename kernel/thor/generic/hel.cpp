@@ -16,16 +16,31 @@
 
 using namespace thor;
 
-void readUserMemory(void *kern_ptr, const void *user_ptr, size_t size) {
+extern "C" int doCopyFromUser(void *dest, const void *src, size_t size);
+extern "C" int doCopyToUser(void *dest, const void *src, size_t size);
+
+bool readUserMemory(void *kernelPtr, const void *userPtr, size_t size) {
+	uintptr_t limit;
+	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(userPtr), size, &limit))
+		return false;
+	if(inHigherHalf(limit))
+		return false;
 	enableUserAccess();
-	memcpy(kern_ptr, user_ptr, size);
+	int e = doCopyFromUser(kernelPtr, userPtr, size);
 	disableUserAccess();
+	return !e;
 }
 
-void writeUserMemory(void *user_ptr, const void *kern_ptr, size_t size) {
+bool writeUserMemory(void *userPtr, const void *kernelPtr, size_t size) {
+	uintptr_t limit;
+	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(userPtr), size, &limit))
+		return false;
+	if(inHigherHalf(limit))
+		return false;
 	enableUserAccess();
-	memcpy(user_ptr, kern_ptr, size);
+	int e = doCopyToUser(userPtr, kernelPtr, size);
 	disableUserAccess();
+	return !e;
 }
 
 template<typename T>
@@ -253,7 +268,8 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 		}
 	}
 
-	writeUserMemory(credentials, thread->credentials(), 16);
+	if(!writeUserMemory(credentials, thread->credentials(), 16))
+		return kHelErrFault;
 
 	return kHelErrNone;
 }
@@ -353,7 +369,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 		.addressBits = 64
 	};
 	if(restrictions)
-		readUserMemory(&effective, restrictions, sizeof(HelAllocRestrictions));
+		if(!readUserMemory(&effective, restrictions, sizeof(HelAllocRestrictions)))
+			return kHelErrFault;
 
 	frigg::SharedPtr<MemoryView> memory;
 	if(flags & kHelAllocContinuous) {
@@ -2101,7 +2118,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		} break;
 		case kHelActionSendFromBuffer: {
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
-			readUserMemory(buffer.data(), action.buffer, action.length);
+			if(!readUserMemory(buffer.data(), action.buffer, action.length))
+				return kHelErrFault;
 
 			closure->items[i].transmit.setup(kTagSendFromBuffer, &closure->packet);
 			closure->items[i].transmit._inBuffer = std::move(buffer);
@@ -2110,16 +2128,19 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			size_t length = 0;
 			auto sglist = reinterpret_cast<HelSgItem *>(action.buffer);
 			for(size_t j = 0; j < action.length; j++) {
-				auto item = readUserObject(sglist + j);
+				HelSgItem item;
+				readUserObject(sglist + j, item);
 				length += item.length;
 			}
 
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, length);
 			size_t offset = 0;
 			for(size_t j = 0; j < action.length; j++) {
-				auto item = readUserObject(sglist + j);
-				readUserMemory(reinterpret_cast<char *>(buffer.data()) + offset,
-						reinterpret_cast<char *>(item.buffer), item.length);
+				HelSgItem item;
+				readUserObject(sglist + j, item);
+				if(!readUserMemory(reinterpret_cast<char *>(buffer.data()) + offset,
+						reinterpret_cast<char *>(item.buffer), item.length))
+					return kHelErrFault;
 				offset += item.length;
 			}
 
