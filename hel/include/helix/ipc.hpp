@@ -418,7 +418,10 @@ private:
 	int _refCounts[1 << sizeShift];
 };
 
+async::run_queue *globalQueue();
+
 inline void CurrentDispatcherToken::wait() {
+	async::queue_scope qs{globalQueue()};
 	Dispatcher::global().wait();
 }
 
@@ -952,8 +955,6 @@ inline Submission submitAwaitEvent(BorrowedDescriptor descriptor, AwaitEvent *op
 		uint64_t sequence, Dispatcher &dispatcher) {
 	return {descriptor, operation, sequence, dispatcher};
 }
-
-async::run_queue *globalQueue();
 
 } // namespace helix
 
