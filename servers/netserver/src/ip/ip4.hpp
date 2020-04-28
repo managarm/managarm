@@ -12,22 +12,25 @@
 #include <netserver/nic.hpp>
 #include "fs.pb.h"
 
-struct Ip4Socket;
+struct CidrAddress {
+	uint32_t ip;
+	uint8_t prefix;
+
+	inline uint32_t mask() const {
+		return (uint64_t(0xFFFFFFFF) << (32 - prefix))
+			& 0xFFFFFFFF;
+	}
+
+	friend bool operator<(const CidrAddress &, const CidrAddress &);
+};
 
 struct Ip4Router {
 	struct Route {
-		inline Route(uint32_t ip, std::weak_ptr<nic::Link> link,
-			uint8_t prefix) : ip(ip), link(link), prefix(prefix) {}
+		inline Route(CidrAddress net, std::weak_ptr<nic::Link> link)
+			: network(net), link(link) {}
 
-		inline uint32_t mask() const {
-			return (uint64_t(0xFFFFFFFF) << (32 - prefix))
-				& 0xFFFFFFFF;
-		}
-
-		uint32_t ip;
+		CidrAddress network;
 		std::weak_ptr<nic::Link> link;
-		uint8_t prefix;
-
 		unsigned int mtu = 0;
 		uint32_t gateway = 0;
 		unsigned int metric = 0;
@@ -43,6 +46,8 @@ private:
 	std::set<Route> routes;
 };
 
+struct Ip4Socket;
+
 struct Ip4 {
 	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto);
 	// frame is a view into the owner buffer, stripping away eth bits
@@ -54,11 +59,11 @@ struct Ip4 {
 	}
 
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
-	void setLink(uint32_t ip, std::weak_ptr<nic::Link> link);
+	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
 private:
 	Ip4Router router_;
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
-	std::map<uint32_t, std::weak_ptr<nic::Link>> ips;
+	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
 };
 
 Ip4 &ip4();

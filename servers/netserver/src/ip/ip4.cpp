@@ -32,17 +32,21 @@ bool Ip4Router::addRoute(Route r) {
 
 std::optional<Route> Ip4Router::resolveRoute(uint32_t ip) const {
 	for (const auto &r : routes) {
-		if ((ip & r.mask()) == r.ip) {
+		if (r.network.sameNet(ip)) {
 			return { r };
 		}
 	}
 	return {};
 }
 
+bool operator<(const CidrAddress &lhs, const CidrAddress &rhs) {
+	return std::tie(lhs.prefix, lhs.ip) < std::tie(lhs.prefix, lhs.ip);
+}
+
 bool operator<(const Route &lhs, const Route &rhs) {
 	// bigger MTU is better, and hence sorts lower
-	return std::tie(lhs.prefix, lhs.ip, lhs.metric, rhs.mtu) <
-		std::tie(rhs.prefix, rhs.ip, rhs.metric, lhs.mtu);
+	return std::tie(lhs.network, lhs.metric, rhs.mtu) <
+		std::tie(rhs.network, rhs.metric, lhs.mtu);
 }
 
 class Ip4Packet {
@@ -261,7 +265,9 @@ async::result<SendResult> Ip4Socket::sendmsg(void *obj,
 
 	auto source = oroute->source;
 	if (source == 0) {
-		std::cout << "netserver: TODO(arsen): assign IPs to links" << std::endl;
+		source = ip4().findLinkIp(address, target.get()).value_or(0);
+	}
+	if (source == 0) {
 		co_return protocols::fs::Error::netUnreachable;
 	}
 
@@ -328,14 +334,15 @@ void Ip4::feedPacket(nic::MacAddress dest, nic::MacAddress src,
 	}
 }
 
-void Ip4::setLink(uint32_t addr, std::weak_ptr<nic::Link> l) {
+void Ip4::setLink(CidrAddress addr, std::weak_ptr<nic::Link> l) {
 	ips.emplace(addr, std::move(l));
 }
 
 std::shared_ptr<nic::Link> Ip4::getLink(uint32_t addr) {
-	auto iter = ips.find(addr);
+	auto iter = std::find_if(ips.begin(), ips.end(),
+		[addr] (const auto &e) { return e.first.ip == addr; });
 	if (iter == ips.end()) {
-		return { nullptr };
+		return {};
 	}
 	auto ptr = iter->second.lock();
 	if (!ptr) {
