@@ -3,6 +3,7 @@
 #include <sys/epoll.h>
 #include <iostream>
 #include <deque>
+#include <map>
 
 #include <async/doorbell.hpp>
 #include <helix/ipc.hpp>
@@ -25,7 +26,7 @@ struct Packet {
 
 struct Channel {
 	Channel()
-	: writerCount{0} { }
+	: writerCount{0}, readerCount{0} { }
 
 	// Status management for poll().
 	async::doorbell statusBell;
@@ -33,6 +34,10 @@ struct Channel {
 	uint64_t hupSeq = 0;
 	uint64_t inSeq = 1;
 	int writerCount;
+	int readerCount;
+
+	async::doorbell readerPresent;
+	async::doorbell writerPresent;
 
 	// The actual queue of this pipe.
 	std::deque<Packet> packetQueue;
@@ -52,9 +57,18 @@ public:
 	ReaderFile()
 	: File{StructName::get("fifo.read"), File::defaultPipeLikeSeek} { }
 
+	ReaderFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{StructName::get("fifo.read"), mount, link, File::defaultPipeLikeSeek} { }
+
 	void connectChannel(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
 		_channel = std::move(channel);
+		_channel->readerCount++;
+	}
+
+	void handleClose() override {
+		_channel->readerCount--;
+		_channel = nullptr;
 	}
 
 	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
@@ -130,6 +144,9 @@ public:
 	WriterFile()
 	: File{StructName::get("fifo.write"), File::defaultPipeLikeSeek} { }
 
+	WriterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{StructName::get("fifo.write"), mount, link, File::defaultPipeLikeSeek} { }
+
 	void connectChannel(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
 		_channel = std::move(channel);
@@ -177,6 +194,58 @@ private:
 };
 
 } // anonymous namespace
+
+// This maps FsNodes to Channels for named pipes (FIFOs)
+std::map<FsNode *, std::shared_ptr<Channel>> globalChannelMap;
+
+void createNamedChannel(FsNode *node) {
+	assert(globalChannelMap.find(node) == globalChannelMap.end());
+	globalChannelMap[node] = std::make_shared<Channel>();
+}
+
+void unlinkNamedChannel(FsNode *node) {
+	assert(globalChannelMap.find(node) != globalChannelMap.end());
+	globalChannelMap.erase(node);
+}
+
+async::result<smarter::shared_ptr<File, FileHandle>>
+openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, FsNode *node, SemanticFlags flags) {
+	if (globalChannelMap.find(node) == globalChannelMap.end())
+		co_return nullptr;
+
+	auto channel = globalChannelMap.at(node);
+
+	if (flags & semanticRead) {
+		assert(!(flags & semanticWrite));
+
+		auto r_file = smarter::make_shared<ReaderFile>(mount, link);
+		r_file->setupWeakFile(r_file);
+		r_file->connectChannel(channel);
+
+		channel->readerPresent.ring();
+		if (!channel->writerCount && !(flags & semanticNonBlock))
+			co_await channel->writerPresent.async_wait();
+
+		ReaderFile::serve(r_file);
+
+		co_return File::constructHandle(std::move(r_file));
+	} else {
+		assert(flags & semanticWrite);
+		assert(!(flags & semanticRead));
+
+		auto w_file = smarter::make_shared<WriterFile>(mount, link);
+		w_file->setupWeakFile(w_file);
+		w_file->connectChannel(channel);
+
+		channel->writerPresent.ring();
+		if (!channel->readerCount && !(flags & semanticNonBlock))
+			co_await channel->readerPresent.async_wait();
+
+		WriterFile::serve(w_file);
+
+		co_return File::constructHandle(std::move(w_file));
+	}
+}
 
 std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair() {
 	auto channel = std::make_shared<Channel>();

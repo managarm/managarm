@@ -197,7 +197,7 @@ private:
 FutureMaybe<SharedFilePtr> openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticNonBlock)));
+	assert(!(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)));
 
 	uint32_t open_flags = 0;
 	if(semantic_flags & semanticNonBlock)

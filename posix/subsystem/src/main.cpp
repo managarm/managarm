@@ -1014,6 +1014,54 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.request_type() == managarm::posix::CntReqType::MKFIFOAT) {
+			if(logRequests || logPaths)
+				std::cout << "posix: MKFIFOAT " << req.fd() << " " << req.path() << std::endl;
+
+			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+
+			if (!req.path().size()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+			std::shared_ptr<FsLink> target_link;
+
+			if (req.fd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.fd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(),
+					relative_to, req.path());
+			co_await resolver.resolve(resolvePrefix);
+
+			if (!resolver.currentLink()) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
+
+			auto parent = resolver.currentLink()->getTarget();
+			if(co_await parent->getLink(resolver.nextComponent())) {
+				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+				continue;
+			}
+
+			co_await parent->mkfifo(resolver.nextComponent(), req.mode());
+
+			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINK) {
 			if(logRequests || logPaths)
 				std::cout << "posix: SYMLINK " << req.path() << std::endl;
@@ -1254,11 +1302,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(!(req.flags() & ~(managarm::posix::OF_CREATE
 					| managarm::posix::OF_EXCLUSIVE
 					| managarm::posix::OF_NONBLOCK
-					| managarm::posix::OF_CLOEXEC)));
+					| managarm::posix::OF_CLOEXEC
+					| managarm::posix::OF_RDONLY
+					| managarm::posix::OF_WRONLY
+					| managarm::posix::OF_RDWR)));
 
 			SemanticFlags semantic_flags = 0;
 			if(req.flags() & managarm::posix::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
+
+			if (req.flags() & managarm::posix::OF_RDONLY)
+				semantic_flags |= semanticRead;
+			else if (req.flags() & managarm::posix::OF_WRONLY)
+				semantic_flags |= semanticWrite;
+			else if (req.flags() & managarm::posix::OF_RDWR)
+				semantic_flags |= semanticRead | semanticWrite;
 
 			smarter::shared_ptr<File, FileHandle> file;
 
@@ -1354,7 +1412,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if((req.flags() & ~(managarm::posix::OF_CREATE
 					| managarm::posix::OF_EXCLUSIVE
 					| managarm::posix::OF_NONBLOCK
-					| managarm::posix::OF_CLOEXEC))) {
+					| managarm::posix::OF_CLOEXEC
+					| managarm::posix::OF_RDONLY
+					| managarm::posix::OF_WRONLY
+					| managarm::posix::OF_RDWR))) {
 				std::cout << "posix: OPENAT flags not recognized: " << req.flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
@@ -1363,6 +1424,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			SemanticFlags semantic_flags = 0;
 			if(req.flags() & managarm::posix::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
+
+			if (req.flags() & managarm::posix::OF_RDONLY)
+				semantic_flags |= semanticRead;
+			else if (req.flags() & managarm::posix::OF_WRONLY)
+				semantic_flags |= semanticWrite;
+			else if (req.flags() & managarm::posix::OF_RDWR)
+				semantic_flags |= semanticRead | semanticWrite;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;

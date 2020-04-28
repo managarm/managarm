@@ -189,7 +189,7 @@ FutureMaybe<FileStats> AttributeNode::getStats() {
 
 FutureMaybe<SharedFilePtr> AttributeNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!semantic_flags);
+	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 
 	auto file = smarter::make_shared<AttributeFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
@@ -299,7 +299,7 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 
 FutureMaybe<SharedFilePtr> DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!semantic_flags);
+	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 
 	auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);

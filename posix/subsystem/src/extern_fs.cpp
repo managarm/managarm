@@ -168,7 +168,7 @@ private:
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
 
-		assert(!semantic_flags);
+		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -488,7 +488,7 @@ private:
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
 
-		assert(!semantic_flags);
+		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;

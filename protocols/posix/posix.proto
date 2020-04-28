@@ -94,6 +94,8 @@ enum CntReqType {
 
 	// eventfd()-specific calls
 	EVENTFD_CREATE = 60;
+
+	MKFIFOAT = 65;
 };
 
 enum OpenMode {
@@ -117,6 +119,9 @@ enum OpenFlags {
 	OF_EXCLUSIVE = 2;
 	OF_NONBLOCK = 4;
 	OF_CLOEXEC = 256;
+	OF_RDONLY = 8;
+	OF_WRONLY = 16;
+	OF_RDWR = 32;
 };
 
 message CntRequest {

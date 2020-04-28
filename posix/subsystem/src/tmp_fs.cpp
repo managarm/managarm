@@ -9,6 +9,7 @@
 #include "common.hpp"
 #include "device.hpp"
 #include "tmp_fs.hpp"
+#include "fifo.hpp"
 
 // TODO: Remove dependency on those functions.
 #include "extern_fs.hpp"
@@ -85,6 +86,31 @@ struct SocketNode final : Node {
 	VfsType getType() override {
 		return VfsType::socket;
 	}
+};
+
+struct FifoNode final : Node {
+private:
+	VfsType getType() override {
+		return VfsType::fifo;
+	}
+
+	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override {
+		co_return co_await fifo::openNamedChannel(mount, link, this, semantic_flags);
+	}
+
+public:
+	FifoNode(Superblock *superblock, mode_t mode)
+	:Node{superblock}, mode_{mode} {
+		fifo::createNamedChannel(this);
+	}
+
+	~FifoNode() {
+		fifo::unlinkNamedChannel(this);
+	}
+
+private:
+	mode_t mode_;
 };
 
 struct Link final : FsLink {
@@ -174,7 +200,7 @@ private:
 	FutureMaybe<SharedFilePtr>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!semantic_flags);
+		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 
 		auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
@@ -205,6 +231,8 @@ private:
 	async::result<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id) override;
 
+	async::result<std::shared_ptr<FsLink>> mkfifo(std::string name, mode_t mode) override;
+
 	FutureMaybe<void> unlink(std::string name) override {
 		auto it = _entries.find(name);
 		assert(it != _entries.end());
@@ -233,7 +261,7 @@ private:
 	FutureMaybe<SharedFilePtr>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!semantic_flags);
+		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
@@ -299,7 +327,7 @@ struct MemoryNode final : Node {
 	FutureMaybe<SharedFilePtr>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!semantic_flags);
+		assert(!(semantic_flags & ~(semanticRead | semanticWrite | semanticNonBlock)));
 		auto file = smarter::make_shared<MemoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		MemoryFile::serve(file);
@@ -569,6 +597,16 @@ DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 	_entries.insert(link);
 	co_return link;
 }
+
+async::result<std::shared_ptr<FsLink>>
+DirectoryNode::mkfifo(std::string name, mode_t mode) {
+	assert(_entries.find(name) == _entries.end());
+	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
+	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	_entries.insert(link);
+	co_return link;
+}
+
 
 // TODO: File system should not have global superblocks.
 static Superblock globalSuperblock;
