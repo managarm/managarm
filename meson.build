@@ -88,6 +88,7 @@ if get_option('build_drivers')
 	subdir('drivers/kernletcc')
 	subdir('utils/runsvr/')
 	subdir('utils/lsmbus/')
+	subdir('testsuites/kernel-tests/')
 	subdir('testsuites/posix-torture/')
 	subdir('testsuites/posix-tests/')
 
