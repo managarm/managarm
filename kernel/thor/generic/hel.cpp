@@ -712,9 +712,8 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 		return kHelErrBadDescriptor;
 	auto cpu = wrapper->get<VirtualizedCpuDescriptor>();
 	auto info = cpu.vcpu->run();
-	enableUserAccess();
-	memcpy(exitInfo, &info, sizeof(HelVmexitReason));
-	disableUserAccess();
+	if(!writeUserObject(exitInfo, info))
+		return kHelErrFault;
 
 	return kHelErrNone;
 }
@@ -1684,12 +1683,11 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
 		}
-		Universe::Guard universe_guard(&this_universe->lock);
-		enableUserAccess();
-		HelX86VirtualizationRegs* regs = (HelX86VirtualizationRegs*)image;
-		vcpu.vcpu->loadRegs(regs);
-		disableUserAccess();
-		return kHelErrNone;
+		HelX86VirtualizationRegs regs;
+		memset(&regs, 0, sizeof(HelX86VirtualizationRegs));
+		vcpu.vcpu->loadRegs(&regs);
+		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
+			return kHelErrFault;
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1773,11 +1771,10 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
 		}
-		Universe::Guard universe_guard(&this_universe->lock);
-		enableUserAccess();
-		vcpu.vcpu->storeRegs((HelX86VirtualizationRegs*)image);
-		disableUserAccess();
-		return kHelErrNone;
+		HelX86VirtualizationRegs regs;
+		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
+			return kHelErrFault;
+		vcpu.vcpu->storeRegs(&regs);
 	}else{
 		return kHelErrIllegalArgs;
 	}
