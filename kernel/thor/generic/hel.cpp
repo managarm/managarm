@@ -1059,10 +1059,21 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 	if(!accessor.acquire(&closure.acquire))
 		Thread::blockCurrent(&closure.blocker);
 
-	// TODO: This enableUserAccess() should be replaced by a writeUserMemory().
-	enableUserAccess();
-	accessor.load(0, buffer, length);
-	disableUserAccess();
+	// Make sure that the pointer arithmetic below does not overflow.
+	uintptr_t limit;
+	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit))
+		return false;
+	(void)limit;
+
+	char temp[128];
+	size_t progress = 0;
+	while(progress < length) {
+		auto chunk = frigg::min(length - progress, size_t{128});
+		accessor.load(progress, temp, chunk);
+		if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk))
+			return kHelErrFault;
+		progress += chunk;
+	}
 
 	return kHelErrNone;
 }
@@ -1118,11 +1129,21 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 	if(!accessor.acquire(&closure.acquire))
 		Thread::blockCurrent(&closure.blocker);
 
-	// TODO: This enableUserAccess() should be replaced by a readUserMemory().
-	enableUserAccess();
-	auto error = accessor.write(0, buffer, length);
-	assert(!error);
-	disableUserAccess();
+	// Make sure that the pointer arithmetic below does not overflow.
+	uintptr_t limit;
+	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit))
+		return false;
+	(void)limit;
+
+	char temp[128];
+	size_t progress = 0;
+	while(progress < length) {
+		auto chunk = frigg::min(length - progress, size_t{128});
+		if(!readUserMemory(temp, reinterpret_cast<const char *>(buffer) + progress, chunk))
+			return kHelErrFault;
+		accessor.write(progress, temp, chunk);
+		progress += chunk;
+	}
 
 	return kHelErrNone;
 }
