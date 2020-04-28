@@ -54,15 +54,19 @@ bool writeUserObject(T *pointer, T object) {
 }
 
 template<typename T>
-void readUserArray(const T *pointer, T *array, size_t count) {
-	for(size_t i = 0; i < count; ++i)
-		array[i] = readUserObject(pointer + i);
+bool readUserArray(const T *pointer, T *array, size_t count) {
+	size_t size;
+	if(__builtin_mul_overflow(sizeof(T), count, &size))
+		return false;
+	return readUserMemory(array, pointer, size);
 }
 
 template<typename T>
-void writeUserArray(T *pointer, const T *array, size_t count) {
-	for(size_t i = 0; i < count; ++i)
-		writeUserObject(pointer + i, array[i]);
+bool writeUserArray(T *pointer, const T *array, size_t count) {
+	size_t size;
+	if(__builtin_mul_overflow(sizeof(T), count, &size))
+		return false;
+	return writeUserMemory(pointer, array, size);
 }
 
 size_t ipcSourceSize(size_t size) {
@@ -157,7 +161,8 @@ HelError helLog(const char *string, size_t length) {
 		auto chunk = frigg::min(length - offset, size_t{100});
 
 		char buffer[100];
-		readUserArray(string + offset, buffer, chunk);
+		if(!readUserArray(string + offset, buffer, chunk))
+			return kHelErrFault;
 		{
 			auto p = frigg::infoLogger();
 			for(size_t i = 0; i < chunk; i++)
@@ -1642,7 +1647,8 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		uintptr_t regs[2];
 		regs[0] = *thread->_executor.ip();
 		regs[1] = *thread->_executor.sp();
-		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2);
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
+			return kHelErrFault;
 	}else if(set == kHelRegsGeneral) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -1663,7 +1669,8 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[12] = thread->_executor.general()->r14;
 		regs[13] = thread->_executor.general()->r15;
 		regs[14] = thread->_executor.general()->rbp;
-		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15);
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15))
+			return kHelErrFault;
 	}else if(set == kHelRegsThread) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -1671,7 +1678,8 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		uintptr_t regs[2];
 		regs[0] = thread->_executor.general()->clientFs;
 		regs[1] = thread->_executor.general()->clientGs;
-		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2);
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
+			return kHelErrFault;
 	}else if(set == kHelRegsVirtualization) {
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
@@ -1721,7 +1729,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrIllegalArgs;
 		}
 		uintptr_t regs[2];
-		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2);
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2))
+			return kHelErrFault;
 		*thread->_executor.ip() = regs[0];
 		*thread->_executor.sp() = regs[1];
 	}else if(set == kHelRegsGeneral) {
@@ -1729,7 +1738,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrIllegalArgs;
 		}
 		uintptr_t regs[15];
-		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 15);
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 15))
+			return kHelErrFault;
 		thread->_executor.general()->rax = regs[0];
 		thread->_executor.general()->rbx = regs[1];
 		thread->_executor.general()->rcx = regs[2];
@@ -1750,7 +1760,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
-		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2);
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2))
+			return kHelErrFault;
 		thread->_executor.general()->clientFs = regs[0];
 		thread->_executor.general()->clientGs = regs[1];
 	}else if(set == kHelRegsDebug) {
