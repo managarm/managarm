@@ -59,6 +59,11 @@ FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkdev(std::string, VfsType, DeviceI
 	throw std::runtime_error("mkdev() is not implemented for this FsNode");
 }
 
+FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkfifo(std::string, mode_t) {
+	throw std::runtime_error("mkfifo() is not implemented for this FsNode");
+}
+
+
 FutureMaybe<void> FsNode::unlink(std::string) {
 	throw std::runtime_error("unlink() is not implemented for this FsNode");
 }

@@ -53,7 +53,7 @@ struct HeloutDevice final : UnixDevice {
 	
 	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!semantic_flags);
+		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 		auto file = smarter::make_shared<HeloutFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		co_return File::constructHandle(std::move(file));

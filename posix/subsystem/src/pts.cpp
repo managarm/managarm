@@ -311,7 +311,7 @@ private:
 FutureMaybe<SharedFilePtr>
 MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~semanticNonBlock));
+	assert(!(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)));
 	auto file = smarter::make_shared<MasterFile>(std::move(mount), std::move(link),
 			semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
@@ -442,7 +442,7 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 FutureMaybe<SharedFilePtr>
 SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!semantic_flags);
+	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel);
 	file->setupWeakFile(file);
 	SlaveFile::serve(file);

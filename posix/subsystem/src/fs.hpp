@@ -10,6 +10,8 @@
 #include <boost/intrusive/rbtree.hpp>
 #include <hel.h>
 
+#include <fcntl.h>
+
 #include "file.hpp"
 
 using DeviceId = std::pair<int, int>;
@@ -79,6 +81,8 @@ public:
 
 using SemanticFlags = uint32_t;
 inline constexpr SemanticFlags semanticNonBlock = 1;
+inline constexpr SemanticFlags semanticRead = 2;
+inline constexpr SemanticFlags semanticWrite = 4;
 
 // Represents an inode on an actual file system (i.e. not in the VFS).
 struct FsNode {
@@ -129,6 +133,8 @@ public:
 	//! Creates a new device file (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id);
+
+	virtual FutureMaybe<std::shared_ptr<FsLink>> mkfifo(std::string name, mode_t mode);
 	
 	virtual FutureMaybe<void> unlink(std::string name);
 
