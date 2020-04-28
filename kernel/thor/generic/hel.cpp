@@ -44,15 +44,13 @@ bool writeUserMemory(void *userPtr, const void *kernelPtr, size_t size) {
 }
 
 template<typename T>
-T readUserObject(const T *pointer) {
-	T object;
-	readUserMemory(&object, pointer, sizeof(T));
-	return object;
+bool readUserObject(const T *pointer, T &object) {
+	return readUserMemory(&object, pointer, sizeof(T));
 }
 
 template<typename T>
-void writeUserObject(T *pointer, T object) {
-	writeUserMemory(pointer, &object, sizeof(T));
+bool writeUserObject(T *pointer, T object) {
+	return writeUserMemory(pointer, &object, sizeof(T));
 }
 
 template<typename T>
@@ -1471,7 +1469,8 @@ HelError helQueryThreadStats(HelHandle handle, HelThreadStats *user_stats) {
 	memset(&stats, 0, sizeof(HelThreadStats));
 	stats.userTime = thread->runTime();
 
-	writeUserObject(user_stats, stats);
+	if(!writeUserObject(user_stats, stats))
+		return kHelErrFault;
 
 	return kHelErrNone;
 }
@@ -1756,7 +1755,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread->_executor.general()->clientGs = regs[1];
 	}else if(set == kHelRegsDebug) {
 		// FIXME: Make those registers thread-specific.
-		auto reg = readUserObject(reinterpret_cast<uint32_t *const *>(image));
+		uint32_t *reg;
+		readUserObject(reinterpret_cast<uint32_t *const *>(image), reg);
 		breakOnWrite(reg);
 	}else if(set == kHelRegsVirtualization) {
 		if(!vcpu.vcpu) {
@@ -1912,7 +1912,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 	size_t node_size = 0;
 	for(size_t i = 0; i < count; i++) {
-		HelAction action = readUserObject(actions + i);
+		HelAction action;
+		readUserObject(actions + i, action);
 
 		switch(action.type) {
 		case kHelActionOffer:
@@ -2096,7 +2097,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	ancillary_stack.push_back(nullptr);
 
 	for(size_t i = 0; i < count; i++) {
-		HelAction action = readUserObject(actions + i);
+		HelAction action;
+		readUserObject(actions + i, action);
 
 		// TODO: Turn this into an error return.
 		assert(!ancillary_stack.empty() && "expected end of chain");
@@ -2581,8 +2583,11 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 
 	// TODO: check userspace page access rights
 	auto io_space = frigg::makeShared<IoSpace>(*kernelAlloc);
-	for(size_t i = 0; i < num_ports; i++)
-		io_space->addPort(readUserObject<uintptr_t>(port_array + i));
+	for(size_t i = 0; i < num_ports; i++) {
+		uintptr_t port;
+		readUserObject<uintptr_t>(port_array + i, port);
+		io_space->addPort(port);
+	}
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
