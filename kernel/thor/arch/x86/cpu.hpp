@@ -553,11 +553,26 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor);
 
 frigg::UnsafePtr<Thread> activeExecutor();
 
+// Note: These constants we mirrored in assembly.
+// Do not change their values!
+inline constexpr unsigned int uarRead = 1;
+inline constexpr unsigned int uarWrite = 2;
+
+// Note: This struct is accessed from assembly.
+// Do not change the field offsets!
+struct UserAccessRegion {
+	void *startIp;
+	void *endIp;
+	void *faultIp;
+	unsigned int flags;
+};
+
 // Note: This struct is accessed from assembly.
 // Do not change the field offsets!
 struct AssemblyCpuData {
 	AssemblyCpuData *selfPointer;
 	void *syscallStack;
+	UserAccessRegion *currentUar;
 };
 
 struct PlatformCpuData : public AssemblyCpuData {
@@ -590,8 +605,13 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 PlatformCpuData *getPlatformCpuData();
 
+inline bool inHigherHalf(uintptr_t address) {
+	return address & (static_cast<uintptr_t>(1) << 63);
+}
+
 void enableUserAccess();
 void disableUserAccess();
+bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor);
 
 bool intsAreAllowed();
 void allowInts();

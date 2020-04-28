@@ -374,6 +374,13 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 
 	if(handled)
 		return;
+
+	if(image.inKernelDomain()) {
+		assert(!(*image.code() & kPfUser));
+		if(handleUserAccessFault(address, *image.code() & kPfWrite, image))
+			return;
+	}
+
 	frigg::infoLogger() << "thor: Unhandled page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)*image.ip() << frigg::endLog;

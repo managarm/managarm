@@ -42,6 +42,7 @@ thor_sources = files(
 	'../common/font-8x16.cpp',
 	'arch/x86/early_stubs.S',
 	'arch/x86/stubs.S',
+	'arch/x86/user-access.S',
 	'arch/x86/vmx_stubs.S',
 	'arch/x86/cpu.cpp',
 	'arch/x86/entry.S',
