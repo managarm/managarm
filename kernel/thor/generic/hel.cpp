@@ -18,6 +18,7 @@ using namespace thor;
 
 extern "C" int doCopyFromUser(void *dest, const void *src, size_t size);
 extern "C" int doCopyToUser(void *dest, const void *src, size_t size);
+extern "C" int doAtomicUserLoad(unsigned int *out, const unsigned int *p);
 
 bool readUserMemory(void *kernelPtr, const void *userPtr, size_t size) {
 	uintptr_t limit;
@@ -2282,8 +2283,11 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 
 	auto condition = [&] () -> bool {
 		enableUserAccess();
-		auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
+		unsigned int v;
+		auto e = doAtomicUserLoad(&v, reinterpret_cast<unsigned int *>(pointer));
 		disableUserAccess();
+		if(e)
+			return false;
 		return expected == v;
 	};
 
