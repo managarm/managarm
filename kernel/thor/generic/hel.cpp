@@ -2665,19 +2665,19 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	for(size_t i = 0; i < object->numberOfBindParameters(); i++) {
 		const auto &defn = object->defnOfBindParameter(i);
 
-		enableUserAccess();
-		auto x = data[i].handle;
-		disableUserAccess();
+		HelKernletData d;
+		if(!readUserObject(data + i, d))
+			return kHelErrFault;
 
 		if(defn.type == KernletParameterType::offset) {
-			bound->setupOffsetBinding(i, x);
+			bound->setupOffsetBinding(i, d.handle);
 		}else if(defn.type == KernletParameterType::memoryView) {
 			frigg::SharedPtr<MemoryView> memory;
 			{
 				auto irq_lock = frigg::guard(&irqMutex());
 				Universe::Guard universe_guard(&this_universe->lock);
 
-				auto wrapper = this_universe->getDescriptor(universe_guard, x);
+				auto wrapper = this_universe->getDescriptor(universe_guard, d.handle);
 				if(!wrapper)
 					return kHelErrNoDescriptor;
 				if(!wrapper->is<MemoryViewDescriptor>())
@@ -2704,7 +2704,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 				auto irq_lock = frigg::guard(&irqMutex());
 				Universe::Guard universe_guard(&this_universe->lock);
 
-				auto wrapper = this_universe->getDescriptor(universe_guard, x);
+				auto wrapper = this_universe->getDescriptor(universe_guard, d.handle);
 				if(!wrapper)
 					return kHelErrNoDescriptor;
 				if(!wrapper->is<BitsetEventDescriptor>())
