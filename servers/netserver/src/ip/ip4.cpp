@@ -80,7 +80,7 @@ public:
 	static_assert(sizeof(header) == 20, "bad header size");
 	arch::dma_buffer_view data;
 
-	arch::dma_buffer_view capsule() const {
+	arch::dma_buffer_view payload() const {
 		return data.subview(header.ihl * 4);
 	}
 
@@ -143,10 +143,8 @@ struct Ip4Socket {
 			const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
-		auto hton = [] (auto x) -> decltype(x) {
-			using namespace arch;
-			return convert_endian<endian::big>(x);
-		};
+		using arch::convert_endian;
+		using arch::endian;
 		auto self = static_cast<Ip4Socket *>(obj);
 		while (self->pqueue.empty()) {
 			co_await self->bell.async_wait();
@@ -158,8 +156,8 @@ struct Ip4Socket {
 		std::memcpy(data, packet.data(), copy_size);
 		sockaddr_in addr {
 			.sin_family = AF_INET,
-			.sin_port = hton(element->header.protocol),
-			.sin_addr = { hton(element->header.source) }
+			.sin_port = convert_endian<endian::big>(element->header.protocol),
+			.sin_addr = { convert_endian<endian::big>(element->header.source) }
 		};
 		std::memset(addr_buf, 0, addr_size);
 		std::memcpy(addr_buf, &addr, std::min(addr_size, sizeof(addr)));

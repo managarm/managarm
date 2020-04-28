@@ -6,14 +6,14 @@
 #include <iomanip>
 #include "ip4.hpp"
 
-struct ArpLeader {
+struct ArpHeader {
 	uint16_t hrd;
 	uint16_t pro;
 	uint8_t hln;
 	uint8_t pln;
 	uint16_t op;
 };
-static_assert(sizeof(ArpLeader) == 8, "ARP leader struct must be 8 bytes");
+static_assert(sizeof(ArpHeader) == 8, "ARP leader struct must be 8 bytes");
 
 namespace {
 async::result<void> sendArp(uint16_t op,
@@ -23,7 +23,7 @@ async::result<void> sendArp(uint16_t op,
 		using namespace arch;
 		x = convert_endian<endian::big, endian::native>(x);
 	};
-	ArpLeader leader {
+	ArpHeader leader {
 		1, static_cast<uint16_t>(nic::ETHER_TYPE_IP4),
 		6, 4,
 		op
@@ -74,7 +74,7 @@ void Neighbours::feedArp(nic::MacAddress dst, arch::dma_buffer_view view) {
 		using namespace arch;
 		x = convert_endian<endian::big, endian::native>(x);
 	};
-	ArpLeader leader;
+	ArpHeader leader;
 
 	if (view.size() < sizeof(leader)) {
 		return;
@@ -154,10 +154,6 @@ void Neighbours::updateTable(uint32_t ip, nic::MacAddress mac) {
 
 namespace {
 async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) {
-	if (e.state == Neighbours::State::probe) {
-		// probing already, no need to run
-		co_return;
-	}
 	e.state = Neighbours::State::probe;
 	for (int i = 0; i < 3; i++) {
 		co_await sendArp(1, sender, {}, ip);

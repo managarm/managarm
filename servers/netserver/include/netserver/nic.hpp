@@ -49,7 +49,7 @@ struct Link {
 	//! Sends an entire ethernet frame
 	virtual async::result<void> send(const arch::dma_buffer_view) = 0;
 	arch::dma_pool *dmaPool();
-	virtual AllocatedBuffer allocateFrame(MacAddress to, EtherType type,
+	AllocatedBuffer allocateFrame(MacAddress to, EtherType type,
 		size_t payloadSize);
 
 	MacAddress deviceMac();
