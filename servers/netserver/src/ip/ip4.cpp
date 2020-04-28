@@ -352,6 +352,18 @@ std::shared_ptr<nic::Link> Ip4::getLink(uint32_t addr) {
 	return ptr;
 }
 
+std::optional<uint32_t> Ip4::findLinkIp(uint32_t ipOnNet, nic::Link *link) {
+	for (auto &entry : ips) {
+		if (!entry.second.expired() && entry.first.sameNet(ipOnNet)) {
+			auto o = entry.second.lock();
+			if (o.get() == link) {
+				return entry.first.ip;
+			}
+		}
+	}
+	return {};
+}
+
 managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int proto) {
 	using namespace protocols::fs;
 	switch (type) {

@@ -33,9 +33,7 @@ async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode d
 
 	auto device = nic::virtio::makeShared(std::move(transport));
 	if (baseDeviceMap.empty()) {
-		Ip4Router::Route r { { 0 }, device };
-		r.source = 0x0a0a020f;
-		ip4Router().addRoute(std::move(r));
+		ip4Router().addRoute({ { 0 }, device });
 		ip4().setLink({ 0x0a0a020f, 24 }, device);
 	}
 	baseDeviceMap.insert({base_entity.getId(), device});

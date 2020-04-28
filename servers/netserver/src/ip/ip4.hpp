@@ -21,6 +21,10 @@ struct CidrAddress {
 			& 0xFFFFFFFF;
 	}
 
+	inline bool sameNet(uint32_t other) const {
+		return (other & mask()) == (ip & mask());
+	}
+
 	friend bool operator<(const CidrAddress &, const CidrAddress &);
 };
 
@@ -60,6 +64,7 @@ struct Ip4 {
 
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
+	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 private:
 	Ip4Router router_;
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
