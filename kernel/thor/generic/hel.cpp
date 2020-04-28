@@ -232,21 +232,25 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *info) {
 }
 
 HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 	assert(!flags);
 
 	frigg::SharedPtr<Thread> thread;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		Universe::Guard universe_guard(&this_universe->lock);
+		auto irqLock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&thisUniverse->lock);
 
-		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
-		if(!thread_wrapper)
-			return kHelErrNoDescriptor;
-		if(!thread_wrapper->is<ThreadDescriptor>())
-			return kHelErrBadDescriptor;
-		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+		if(handle == kHelThisThread) {
+			thread = thisThread.toShared();
+		}else{
+			auto threadWrapper = thisUniverse->getDescriptor(universe_guard, handle);
+			if(!threadWrapper)
+				return kHelErrNoDescriptor;
+			if(!threadWrapper->is<ThreadDescriptor>())
+				return kHelErrBadDescriptor;
+			thread = threadWrapper->get<ThreadDescriptor>().thread;
+		}
 	}
 
 	writeUserMemory(credentials, thread->credentials(), 16);
