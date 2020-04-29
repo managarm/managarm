@@ -25,6 +25,7 @@ private:
 	static constexpr State stateActive = 1;
 	static constexpr State statePolling = 2;
 	static constexpr State statePending = 4;
+	static constexpr State stateInitial = 8;
 
 	struct Item : boost::intrusive::list_base_hook<> {
 		Item(smarter::shared_ptr<OpenFile> epoll, Process *process,
@@ -74,7 +75,7 @@ private:
 
 		// TODO: Ignore items that are already pending.
 		// This will happen once we implement modifyItem().
-		assert(!(item->state & statePending));
+		assert(!(item->state & (stateInitial | statePending)));
 
 		// Note that items only become pending if there is an edge.
 		// This is the correct behavior for edge-triggered items.
@@ -126,14 +127,13 @@ public:
 		assert(_fileMap.find(file.get()) == _fileMap.end());
 		auto item = new Item{smarter::static_pointer_cast<OpenFile>(weakFile().lock()),
 				process, std::move(file), mask, cookie};
-
-		item->state |= statePolling;
-		item->pollFuture = item->file->checkStatus(item->process);
-		item->pollFuture.then([item] {
-			_awaitPoll(item);
-		});
+		item->state |= stateInitial;
 
 		_fileMap.insert({item->file.get(), item});
+
+		_pendingQueue.push_back(*item);
+		_currentSeq++;
+		_statusBell.ring();
 	}
 
 	void modifyItem(File *file, int mask, uint64_t cookie) {
@@ -176,7 +176,7 @@ public:
 			while(!_pendingQueue.empty()) {
 				auto item = &_pendingQueue.front();
 				_pendingQueue.pop_front();
-				assert(item->state & statePending);
+				assert(item->state & (stateInitial | statePending));
 
 				// Discard non-alive items without returning them.
 				if(!(item->state & stateActive)) {
@@ -184,7 +184,7 @@ public:
 						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
 								" inactive item \e[1;34m" << item->file->structName() << "\e[0m"
 								<< std::endl;
-					item->state &= ~statePending;
+					item->state &= ~(stateInitial | statePending);
 					if(!item->state)
 						delete item;
 					continue;
@@ -203,7 +203,7 @@ public:
 						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
 								" closed item \e[1;34m" << item->file->structName() << "\e[0m"
 								<< std::endl;
-					item->state &= ~statePending;
+					item->state &= ~(stateInitial | statePending);
 					if(!item->state)
 						delete item;
 					continue;
@@ -223,7 +223,7 @@ public:
 					// polling and pending at the same time. In this case, only poll
 					// if we are not already polling.
 					assert(!(item->state & statePolling));
-					item->state &= ~statePending;
+					item->state &= ~(stateInitial | statePending);
 					item->state |= statePolling;
 
 					// Once an item is not pending anymore, we continue watching it.
@@ -297,10 +297,10 @@ public:
 			if(item->state & statePolling)
 				item->cancelPoll.cancel();
 
-			if(item->state & statePending) {
+			if(item->state & (stateInitial | statePending)) {
 				auto qit = _pendingQueue.iterator_to(*item);
 				_pendingQueue.erase(qit);
-				item->state &= ~statePending;
+				item->state &= ~(stateInitial | statePending);
 			}
 
 			if(!item->state)
