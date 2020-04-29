@@ -58,15 +58,10 @@ struct Ip4 {
 	void feedPacket(nic::MacAddress dest, nic::MacAddress src,
 		arch::dma_buffer owner, arch::dma_buffer_view frame);
 
-	Ip4Router &router() {
-		return router_;
-	}
-
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 private:
-	Ip4Router router_;
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
 	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
 };
