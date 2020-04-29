@@ -446,7 +446,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto [send_resp, send_addr, send_data, send_ctrl]
 				= co_await helix_ng::exchangeMsgs(conversation,
 			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::sendBuffer(addr.data(), addr.size()),
+			helix_ng::sendBuffer(addr.data(),
+				std::min(addr.size(), data.addressLength)),
 			helix_ng::sendBuffer(buffer.data(), data.dataLength),
 			helix_ng::sendBuffer(data.ctrl.data(), data.ctrl.size())
 		);
