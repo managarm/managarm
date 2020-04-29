@@ -1,4 +1,3 @@
-
 #include <fcntl.h>
 #include <unistd.h>
 #include <set>
@@ -238,7 +237,7 @@ private:
 		assert(it != _entries.end());
 		_entries.erase(it);
 
-		notifyObservers();
+		notifyObservers(FsObserver::deleteEvent, name, 0);
 		co_return;
 	}
 
@@ -623,4 +622,3 @@ std::shared_ptr<FsLink> createRoot() {
 }
 
 } // namespace tmp_fs
-

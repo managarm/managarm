@@ -83,10 +83,10 @@ DeviceId FsNode::readDevice() {
 	throw std::runtime_error("readDevice() is not implemented for this FsNode");
 }
 
-void FsNode::notifyObservers() {
+void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie) {
 	assert(_defaultOps & defaultSupportsObservers);
 	for(const auto &[borrowed, observer] : _observers) {
-		borrowed->observeNotification();
+		borrowed->observeNotification(events, name, cookie);
 		(void)observer;
 	}
 }

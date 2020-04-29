@@ -2320,7 +2320,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto wd = inotify::addWatch(ifile.get(), resolver.currentLink()->getTarget());
+			auto wd = inotify::addWatch(ifile.get(), resolver.currentLink()->getTarget(),
+					req.flags());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_wd(wd);

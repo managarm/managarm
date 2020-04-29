@@ -1,6 +1,6 @@
-
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/inotify.h>
 #include <iostream>
 
 #include <async/doorbell.hpp>
@@ -17,20 +17,31 @@ namespace {
 struct OpenFile : File {
 public:
 	struct Packet {
-		// TODO: Keep track of the event mask and file name.
+		int descriptor;
+		uint32_t events;
+		std::string name;
+		uint32_t cookie;
 	};
 
 	struct Watch final : FsObserver {
-		Watch(OpenFile *file_)
-		: file{file_} { }
+		Watch(OpenFile *file_, int descriptor, uint32_t mask)
+		: file{file_}, descriptor{descriptor}, mask{mask} { }
 
-		void observeNotification() override {
-			file->_queue.push_back(Packet{});
+		void observeNotification(uint32_t events,
+				const std::string &name, uint32_t cookie) override {
+			uint32_t inotifyEvents = 0;
+			if(events & FsObserver::deleteEvent)
+				inotifyEvents |= IN_DELETE;
+			if(!(inotifyEvents & mask))
+				return;
+			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
 			file->_inSeq = ++file->_currentSeq;
 			file->_statusBell.ring();
 		}
 
 		OpenFile *file;
+		int descriptor;
+		uint32_t mask;
 	};
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -48,8 +59,25 @@ public:
 		std::cout << "\e[31m" "posix: Destruction of inotify leaks watches" "\e[39m" << std::endl;
 	}
 
-	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
-		throw std::runtime_error("read() from inotify is not implemented");
+	expected<size_t> readSome(Process *, void *data, size_t maxLength) override {
+		// TODO: As an optimization, we could return multiple events at the same time.
+		Packet packet = std::move(_queue.front());
+		_queue.pop_front();
+
+		if(maxLength < sizeof(inotify_event) + packet.name.size() + 1)
+			co_return Error::illegalArguments;
+
+		inotify_event e;
+		memset(&e, 0, sizeof(inotify_event));
+		e.wd = packet.descriptor;
+		e.mask = packet.events;
+		e.cookie = packet.cookie;
+		e.len = packet.name.size();
+
+		memcpy(data, &e, sizeof(inotify_event));
+		memcpy(reinterpret_cast<char *>(data) + sizeof(inotify_event),
+				packet.name.c_str(), packet.name.size() + 1);
+		co_return sizeof(inotify_event) + packet.name.size() + 1;
 	}
 
 	expected<PollResult> poll(Process *, uint64_t sequence, async::cancellation_token cancellation) override {
@@ -75,11 +103,14 @@ public:
 		return _passthrough;
 	}
 
-	int addWatch(std::shared_ptr<FsNode> node) {
+	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
 		// TODO: Coalesce watch descriptors for the same inode.
-		auto watch = std::make_shared<Watch>(this);
+		if(mask & ~(IN_DELETE))
+			std::cout << "posix: inotify mask " << mask << " is partially ignored" << std::endl;
+		auto descriptor = _nextDescriptor++;
+		auto watch = std::make_shared<Watch>(this, descriptor, mask);
 		node->addObserver(watch);
-		return _nextDescriptor++;
+		return descriptor;
 	}
 
 private:
@@ -103,10 +134,9 @@ smarter::shared_ptr<File, FileHandle> createFile() {
 	return File::constructHandle(std::move(file));
 }
 
-int addWatch(File *base, std::shared_ptr<FsNode> node) {
+int addWatch(File *base, std::shared_ptr<FsNode> node, uint32_t mask) {
 	auto file = static_cast<OpenFile *>(base);
-	return file->addWatch(std::move(node));
+	return file->addWatch(std::move(node), mask);
 }
 
 } // namespace inotify
-

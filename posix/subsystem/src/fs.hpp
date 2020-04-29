@@ -72,7 +72,10 @@ protected:
 	~FsObserver() = default;
 
 public:
-	virtual void observeNotification() = 0;
+	static constexpr uint32_t deleteEvent = 1;
+
+	virtual void observeNotification(uint32_t events,
+			const std::string &name, uint32_t cookie) = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -152,7 +155,7 @@ public:
 	virtual DeviceId readDevice();
 
 protected:
-	void notifyObservers();
+	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie);
 
 private:
 	FsSuperblock *_superblock;
