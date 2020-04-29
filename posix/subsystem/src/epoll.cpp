@@ -81,8 +81,8 @@ private:
 		// This is the correct behavior for edge-triggered items.
 		// Level-triggered items stay pending until the event disappears.
 		auto result = std::get<PollResult>(result_or_error);
-		if((std::get<1>(result) & (item->eventMask | EPOLLHUP))
-				&& (std::get<2>(result) & (item->eventMask | EPOLLHUP))) {
+		if((std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP))
+				&& (std::get<2>(result) & (item->eventMask | EPOLLERR | EPOLLHUP))) {
 			if(logEpoll)
 				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
 						<< ": Item \e[1;34m" << item->file->structName()
@@ -217,7 +217,7 @@ public:
 							<< " is active" << std::endl;
 
 				// Abort early (i.e before requeuing) if the item is not pending.
-				auto status = std::get<2>(result) & (item->eventMask | EPOLLHUP);
+				auto status = std::get<2>(result) & (item->eventMask | EPOLLERR | EPOLLHUP);
 				if(!status) {
 					// TODO: Once we implement modifyItem(), items can be both
 					// polling and pending at the same time. In this case, only poll
