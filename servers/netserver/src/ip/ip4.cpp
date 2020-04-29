@@ -281,8 +281,8 @@ async::result<SendResult> Ip4Socket::sendmsg(void *obj,
 		macTarget = oroute->gateway;
 	}
 
-	auto entry = co_await neigh4().tryResolve(macTarget, source);
-	if (entry->state != Neighbours::State::reachable) {
+	auto mac = co_await neigh4().tryResolve(macTarget, source);
+	if (!mac) {
 		co_return protocols::fs::Error::hostUnreachable;
 	}
 
@@ -307,8 +307,7 @@ async::result<SendResult> Ip4Socket::sendmsg(void *obj,
 	chk.update(reinterpret_cast<void *>(&hdr), sizeof(hdr));
 	hdr.checksum = convert_endian<endian::big>(chk.finalize());
 
-	auto fb = target->allocateFrame(entry->mac, nic::ETHER_TYPE_IP4,
-		packet_size);
+	auto fb = target->allocateFrame(*mac, nic::ETHER_TYPE_IP4, packet_size);
 
 	std::memcpy(fb.payload.data(), &hdr, sizeof(hdr));
 	std::memcpy(fb.payload.subview(header_size).byte_data(), data, len);

@@ -173,17 +173,17 @@ async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) 
 }
 } // namespace
 
-async::result<Neighbours::Entry*> Neighbours::tryResolve(uint32_t ip,
+async::result<std::optional<nic::MacAddress>> Neighbours::tryResolve(uint32_t ip,
 		uint32_t sender) {
 	auto &entry = getEntry(ip);
 	if (entry.state == State::reachable) {
-		co_return &entry;
+		co_return entry.mac;
 	}
 	if (entry.state != State::probe) {
 		entryProber(ip, entry, sender);
 	}
 	co_await entry.change.async_wait();
-	co_return &entry;
+	co_return entry.mac;
 }
 
 Neighbours &neigh4() {
