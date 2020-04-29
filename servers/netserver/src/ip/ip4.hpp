@@ -45,7 +45,7 @@ struct Ip4Router {
 
 	// false if insertion fails
 	bool addRoute(Route r);
-	std::optional<Route> resolveRoute(uint32_t ip) const;
+	std::optional<Route> resolveRoute(uint32_t ip);
 private:
 	std::set<Route> routes;
 };

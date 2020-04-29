@@ -30,9 +30,14 @@ bool Ip4Router::addRoute(Route r) {
 	return routes.emplace(std::move(r)).second;
 }
 
-std::optional<Route> Ip4Router::resolveRoute(uint32_t ip) const {
-	for (const auto &r : routes) {
+std::optional<Route> Ip4Router::resolveRoute(uint32_t ip) {
+	for (auto i = routes.begin(); i != routes.end(); i++) {
+		const auto &r = *i;
 		if (r.network.sameNet(ip)) {
+			if (r.link.expired()) {
+				i = routes.erase(i);
+				continue;
+			}
 			return { r };
 		}
 	}
