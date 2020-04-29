@@ -21,10 +21,10 @@ struct Neighbours {
 	};
 	async::result<std::optional<nic::MacAddress>> tryResolve(uint32_t addr,
 		uint32_t sender);
-	Entry &getEntry(uint32_t addr);
 	void feedArp(nic::MacAddress destination, arch::dma_buffer_view arpData);
 	void updateTable(uint32_t proto, nic::MacAddress hardware);
 private:
+	Entry &getEntry(uint32_t addr);
 	std::map<uint32_t, Entry> table_;
 };
 
