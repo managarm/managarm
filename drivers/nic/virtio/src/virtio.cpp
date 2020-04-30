@@ -42,18 +42,18 @@ struct VirtioNic : nic::Link {
 
 	virtual ~VirtioNic() override = default;
 private:
-	std::unique_ptr<virtio_core::Transport> m_transport;
-	arch::contiguous_pool m_dmaPool;
-	virtio_core::Queue *m_receiveVq;
-	virtio_core::Queue *m_transmitVq;
+	std::unique_ptr<virtio_core::Transport> transport_;
+	arch::contiguous_pool dmaPool_;
+	virtio_core::Queue *receiveVq_;
+	virtio_core::Queue *transmitVq_;
 };
 
 VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
-	: nic::Link(1500, &m_dmaPool), m_transport { std::move(transport) }
+	: nic::Link(1500, &dmaPool_), transport_ { std::move(transport) }
 {
-	if(m_transport->checkDeviceFeature(VIRTIO_NET_F_MAC)) {
+	if(transport_->checkDeviceFeature(VIRTIO_NET_F_MAC)) {
 		for (int i = 0; i < 6; i++) {
-			mac_[i] = m_transport->loadConfig8(i);
+			mac_[i] = transport_->loadConfig8(i);
 		}
 		char ms[3 * 6 + 1];
 		sprintf(ms, "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x",
@@ -61,28 +61,28 @@ VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
 				mac_[3], mac_[4], mac_[5]);
 		std::cout << "virtio-driver: Device has a hardware MAC: "
 			<< ms << std::endl;
-		m_transport->acknowledgeDriverFeature(VIRTIO_NET_F_MAC);
+		transport_->acknowledgeDriverFeature(VIRTIO_NET_F_MAC);
 	}
 
-	m_transport->finalizeFeatures();
-	m_transport->claimQueues(2);
-	m_receiveVq = m_transport->setupQueue(0);
-	m_transmitVq = m_transport->setupQueue(1);
+	transport_->finalizeFeatures();
+	transport_->claimQueues(2);
+	receiveVq_ = transport_->setupQueue(0);
+	transmitVq_ = transport_->setupQueue(1);
 
-	m_transport->runDevice();
+	transport_->runDevice();
 }
 
 async::result<void> VirtioNic::receive(arch::dma_buffer_view frame) {
-	arch::dma_object<VirtHeader> header { &m_dmaPool };
+	arch::dma_object<VirtHeader> header { &dmaPool_ };
 
 	virtio_core::Chain chain;
-	chain.append(co_await m_receiveVq->obtainDescriptor());
+	chain.append(co_await receiveVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::deviceToHost,
 			header.view_buffer().subview(0, legacyHeaderSize));
-	chain.append(co_await m_receiveVq->obtainDescriptor());
+	chain.append(co_await receiveVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::deviceToHost, frame);
 
-	co_await m_receiveVq->submitDescriptor(chain.front());
+	co_await receiveVq_->submitDescriptor(chain.front());
 
 	co_return;
 }
@@ -92,18 +92,18 @@ async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {
 		throw std::runtime_error("data exceeds mtu");
 	}
 
-	arch::dma_object<VirtHeader> header { &m_dmaPool };
+	arch::dma_object<VirtHeader> header { &dmaPool_ };
 	memset(header.data(), 0, sizeof(VirtHeader));
 
 	virtio_core::Chain chain;
-	chain.append(co_await m_transmitVq->obtainDescriptor());
+	chain.append(co_await transmitVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::hostToDevice,
 			header.view_buffer().subview(0, legacyHeaderSize));
-	chain.append(co_await m_transmitVq->obtainDescriptor());
+	chain.append(co_await transmitVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::hostToDevice, payload);
 
 	std::cout << "virtio-driver: sending frame" << std::endl;
-	co_await m_transmitVq->submitDescriptor(chain.front());
+	co_await transmitVq_->submitDescriptor(chain.front());
 	std::cout << "virtio-driver: sent frame" << std::endl;
 }
 } // namespace
