@@ -30,9 +30,11 @@ struct Channel {
 
 	// Status management for poll().
 	async::doorbell statusBell;
-	uint64_t currentSeq = 0;
-	uint64_t hupSeq = 0;
-	uint64_t inSeq = 1;
+	// Start at currentSeq = 1 since the pipe is always writable.
+	uint64_t currentSeq = 1;
+	uint64_t noWriterSeq = 0;
+	uint64_t noReaderSeq = 0;
+	uint64_t inSeq = 0;
 	int writerCount;
 	int readerCount;
 
@@ -67,7 +69,10 @@ public:
 	}
 
 	void handleClose() override {
-		_channel->readerCount--;
+		if(_channel->readerCount-- == 1) {
+			_channel->noReaderSeq = ++_channel->currentSeq;
+			_channel->statusBell.ring();
+		}
 		_channel = nullptr;
 	}
 
@@ -93,11 +98,11 @@ public:
 		co_return size;
 	}
 
-	expected<PollResult> poll(Process *, uint64_t past_seq,
+	expected<PollResult> poll(Process *, uint64_t pastSeq,
 			async::cancellation_token cancellation) override {
 		// TODO: Return Error::fileClosed as appropriate.
-		assert(past_seq <= _channel->currentSeq);
-		while(past_seq == _channel->currentSeq
+		assert(pastSeq <= _channel->currentSeq);
+		while(pastSeq == _channel->currentSeq
 				&& !cancellation.is_cancellation_requested())
 			co_await _channel->statusBell.async_wait(cancellation);
 
@@ -105,15 +110,14 @@ public:
 			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
 
 		int edges = 0;
-		if(_channel->hupSeq > past_seq)
+		if(_channel->noWriterSeq > pastSeq)
 			edges |= EPOLLHUP;
-		if(_channel->inSeq > past_seq)
+		if(_channel->inSeq > pastSeq)
 			edges |= EPOLLIN;
 
 		int events = 0;
-		if(!_channel->writerCount) {
+		if(!_channel->writerCount)
 			events |= EPOLLHUP;
-		}
 		if(!_channel->packetQueue.empty())
 			events |= EPOLLIN;
 
@@ -157,7 +161,7 @@ public:
 		std::cout << "\e[35mposix: Cancel passthrough on fifo WriterFile::handleClose()\e[39m"
 				<< std::endl;
 		if(_channel->writerCount-- == 1) {
-			_channel->hupSeq = ++_channel->currentSeq;
+			_channel->noWriterSeq = ++_channel->currentSeq;
 			_channel->statusBell.ring();
 		}
 		_channel = nullptr;
@@ -177,10 +181,26 @@ public:
 		co_return;
 	}
 
-	expected<PollResult> poll(Process *, uint64_t, async::cancellation_token) override {
-		std::cout << "posix: Fix fifo WriterFile::poll()" << std::endl;
-		co_await std::experimental::suspend_always{};
-		__builtin_unreachable();
+	expected<PollResult> poll(Process *, uint64_t pastSeq,
+			async::cancellation_token cancellation) override {
+		// TODO: Return Error::fileClosed as appropriate.
+		assert(pastSeq <= _channel->currentSeq);
+		while(pastSeq == _channel->currentSeq
+				&& !cancellation.is_cancellation_requested())
+			co_await _channel->statusBell.async_wait(cancellation);
+
+		if(cancellation.is_cancellation_requested())
+			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
+
+		int edges = EPOLLOUT;
+		if(_channel->noReaderSeq > pastSeq)
+			edges |= EPOLLERR;
+
+		int events = EPOLLOUT;
+		if(!_channel->readerCount)
+			events |= EPOLLERR;
+
+		co_return PollResult(_channel->currentSeq, edges, events);
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
