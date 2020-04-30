@@ -27,7 +27,7 @@ executable('netserver',
 		nic_virtio_dep,
 	],
 	include_directories: [
-		netserver_inc,
+		include_directories('include'),
 		nic_virtio_inc,
 	],
 	install: true)

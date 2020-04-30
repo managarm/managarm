@@ -90,7 +90,6 @@ if get_option('build_drivers')
 	subdir('testsuites/posix-torture/')
 	subdir('testsuites/posix-tests/')
 
-	netserver_inc = include_directories('servers/netserver/include/')
 	subdir('drivers/nic/virtio/')
 	subdir('servers/netserver/')
 

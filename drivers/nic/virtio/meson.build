@@ -1,6 +1,9 @@
 nic_virtio_inc = include_directories('include')
 nic_virtio_lib = static_library('nic-virtio', 'src/virtio.cpp',
-	include_directories: [netserver_inc, nic_virtio_inc],
+	include_directories: [
+		include_directories('../../../servers/netserver/include'),
+		nic_virtio_inc
+	],
 	dependencies: [
 		virtio_core_dep,
 		libarch_dep,
