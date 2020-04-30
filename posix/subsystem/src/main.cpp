@@ -1959,15 +1959,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(req.socktype() == SOCK_RAW || req.socktype() == SOCK_DGRAM);
 				file = nl_socket::createSocketFile(req.protocol());
 			} else if (req.domain() == AF_INET) {
-				if (req.socktype() != SOCK_DGRAM || req.protocol()) {
+				if (req.socktype() != SOCK_RAW) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
 
-				// TODO(arsen) Support SOCK_STREAM and SOCK_RAW
-				//             + proto
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
+					req.domain(),
 					req.socktype(), req.protocol());
 			}else{
 				throw std::runtime_error("posix: Handle unknown protocol families");

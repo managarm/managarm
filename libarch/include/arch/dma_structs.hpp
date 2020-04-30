@@ -2,7 +2,8 @@
 #define LIBARCH_DMA_HPP
 
 #include <assert.h>
-#include <stddef.h>
+#include <cstddef>
+#include <iostream>
 
 namespace arch {
 
@@ -26,7 +27,7 @@ struct dma_buffer_view {
 	: _pool{nullptr}, _data{nullptr}, _size{0} { }
 
 	explicit dma_buffer_view(dma_pool *pool, void *data, size_t size)
-	: _pool{pool}, _data{data}, _size{size} { }
+	: _pool{pool}, _data{data}, _size{size} {}
 
 	size_t size() const {
 		return _size;
@@ -34,6 +35,10 @@ struct dma_buffer_view {
 
 	void *data() const {
 		return _data;
+	}
+
+	std::byte *byte_data() {
+		return static_cast<std::byte *>(_data);
 	}
 
 	dma_buffer_view subview(size_t offset, size_t chunk) const {
@@ -160,6 +165,11 @@ struct dma_buffer {
 
 	dma_buffer_view subview(size_t offset, size_t chunk) {
 		return dma_buffer_view{_pool, (char *)_data + offset, chunk};
+	}
+
+	dma_buffer_view subview(size_t offset) {
+		return dma_buffer_view{_pool, (char *)_data + offset,
+			_size - offset};
 	}
 
 private:

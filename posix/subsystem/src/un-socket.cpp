@@ -301,7 +301,7 @@ public:
 		assert(res.second);
 	}
 
-	async::result<void>
+	async::result<protocols::fs::Error>
 	connect(Process *process, const void *addr_ptr, size_t addr_length) override {
 		// Resolve the socket node in the FS.
 		struct sockaddr_un sa;
@@ -332,6 +332,7 @@ public:
 		while(_currentState == State::null)
 			co_await _statusBell.async_wait();
 		assert(_currentState == State::connected);
+		co_return protocols::fs::Error::none;
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {

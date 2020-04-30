@@ -114,7 +114,7 @@ public:
 	ptBind(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 
-	static async::result<void>
+	static async::result<protocols::fs::Error>
 	ptConnect(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 
@@ -274,7 +274,7 @@ public:
 	virtual async::result<void> bind(Process *process,
 			const void *addr_ptr, size_t addr_length);
 
-	virtual async::result<void> connect(Process *process,
+	virtual async::result<protocols::fs::Error> connect(Process *process,
 			const void *addr_ptr, size_t addr_length);
 
 	virtual async::result<size_t> sockname(void *addr_ptr, size_t max_addr_length);

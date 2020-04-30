@@ -12,6 +12,12 @@ enum Errors {
 	WOULD_BLOCK = 5;
 	SEEK_ON_PIPE = 6;
 	BROKEN_PIPE = 7;
+	ACCESS_DENIED = 8;
+	AF_NOT_SUPPORTED = 9;
+	DESTINATION_ADDRESS_REQUIRED = 10;
+	NETWORK_UNREACHABLE = 11;
+	MESSAGE_TOO_LARGE = 12;
+	HOST_UNREACHABLE = 13;
 }
 
 enum FileType {
@@ -118,6 +124,7 @@ message CntRequest {
 	// used by SOCKET_CREATE
 	optional int64 type = 49;
 	optional int64 protocol = 50;
+	optional int64 domain = 59;
 
 	// used by DEV_OPEN
 	optional uint32 flags = 39;
@@ -259,6 +266,9 @@ message SvrResponse {
 
 	// returned by PT_SENDMSG
 	optional int64 size = 76;
+
+	// returned by PT_RECVMSG
+	optional int64 addr_size = 78;
 
 	// PTS and TTY ioctls.
 	optional int32 pts_index = 63;
