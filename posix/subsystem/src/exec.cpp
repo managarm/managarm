@@ -33,6 +33,7 @@ expected<ImageInfo> load(SharedFilePtr file,
 
 	// Read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
+	co_await file->seek(0, VfsSeek::absolute);
 	co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr));
 
 	if(!(ehdr.e_ident[0] == 0x7F
@@ -137,12 +138,67 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 	auto execFile = co_await open(root, workdir, path);
 	if(!execFile)
 		co_return Error::noSuchFile;
-	auto execResult = co_await load(execFile, vmContext.get(), 0);
-	if(auto error = std::get_if<Error>(&execResult); error)
-		co_return *error;
-	auto execInfo = std::get<ImageInfo>(execResult);
 
-	// TODO: Should we really look up the dynamic linker in the current source dir?
+	int nRecursions = 0;
+	while(true) {
+		if(nRecursions > 8) {
+			std::cout << "posix: More than 8 shebang recursions" << std::endl;
+			co_return Error::badExecutable;
+		}
+
+		char shebangPrefix[2];
+		co_await execFile->readExactly(nullptr, shebangPrefix, 2);
+		if(shebangPrefix[0] != '#' && shebangPrefix[1] != '!')
+			break;
+
+		std::string shebangString;
+		while(true) {
+			if(shebangString.size() > 128) {
+				std::cout << "posix: Shebang line of excessive length" << std::endl;
+				co_return Error::badExecutable;
+			}
+
+			char buffer[128];
+			auto readResult = co_await execFile->readSome(nullptr, buffer, 128);
+			if(auto error = std::get_if<Error>(&readResult); error) {
+				std::cout << "posix: Failed to read executable" << std::endl;
+				co_return Error::badExecutable;
+			}
+			size_t chunk = std::get<size_t>(readResult);
+			if(!chunk) {
+				std::cout << "posix: EOF in shebang line" << std::endl;
+				co_return Error::badExecutable;
+			}
+			auto nlPtr = std::find(buffer, buffer + 128, '\n');
+			shebangString.insert(shebangString.end(), buffer, nlPtr);
+			if(nlPtr != buffer + 128)
+				break;
+		}
+
+		if(std::find(shebangString.begin(), shebangString.end(), ' ') != shebangString.end())
+			std::cout << "\e[31m" "posix: Shebang arguments are not handled correctly"
+					"\e[39m" << std::endl;
+
+		// TODO: Should we really look up the interpreter in the current working dir?
+		auto shebangFile = co_await open(root, workdir, shebangString);
+		if(!shebangFile)
+			co_return Error::noSuchFile;
+
+		if(!args.empty()) // Handle exec() without arguments.
+			args.erase(args.begin());
+		args.insert(args.begin(), path);
+		args.insert(args.begin(), shebangString);
+		execFile = std::move(shebangFile);
+		nRecursions++;
+	}
+
+	auto binaryFile = std::move(execFile);
+	auto binaryResult = co_await load(binaryFile, vmContext.get(), 0);
+	if(auto error = std::get_if<Error>(&binaryResult); error)
+		co_return *error;
+	auto binaryInfo = std::get<ImageInfo>(binaryResult);
+
+	// TODO: Should we really look up the dynamic linker in the current working dir?
 	auto interpFile = co_await open(root, workdir, "/lib/ld-init.so");
 	assert(interpFile);
 	auto interpResult = co_await load(interpFile, vmContext.get(), 0x40000000);
@@ -200,13 +256,13 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
-		uintptr_t(execInfo.entryIp),
+		uintptr_t(binaryInfo.entryIp),
 		AT_PHDR,
-		uintptr_t(execInfo.phdrPtr),
+		uintptr_t(binaryInfo.phdrPtr),
 		AT_PHENT,
-		execInfo.phdrEntrySize,
+		binaryInfo.phdrEntrySize,
 		AT_PHNUM,
-		execInfo.phdrCount,
+		binaryInfo.phdrCount,
 		AT_MBUS_SERVER,
 		static_cast<uintptr_t>(mbusHandle),
 		AT_NULL,
