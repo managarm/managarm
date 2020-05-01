@@ -151,9 +151,9 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 		if(shebangPrefix[0] != '#' && shebangPrefix[1] != '!')
 			break;
 
-		std::string shebangString;
+		std::string shebangStr;
 		while(true) {
-			if(shebangString.size() > 128) {
+			if(shebangStr.size() > 128) {
 				std::cout << "posix: Shebang line of excessive length" << std::endl;
 				co_return Error::badExecutable;
 			}
@@ -170,25 +170,34 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 				co_return Error::badExecutable;
 			}
 			auto nlPtr = std::find(buffer, buffer + 128, '\n');
-			shebangString.insert(shebangString.end(), buffer, nlPtr);
+			shebangStr.insert(shebangStr.end(), buffer, nlPtr);
 			if(nlPtr != buffer + 128)
 				break;
 		}
 
-		if(std::find(shebangString.begin(), shebangString.end(), ' ') != shebangString.end())
-			std::cout << "\e[31m" "posix: Shebang arguments are not handled correctly"
-					"\e[39m" << std::endl;
+		// The path is the first whitespace-separated word of the line.
+		// Trim spaces from the left and the right.
+		auto beginPath = std::find_if_not(shebangStr.begin(), shebangStr.end(), isspace);
+		auto endPath = std::find_if(beginPath, shebangStr.end(), isspace);
 
-		// TODO: Should we really look up the interpreter in the current working dir?
-		auto shebangFile = co_await open(root, workdir, shebangString);
-		if(!shebangFile)
+		// Trim space from the argument, too.
+		auto beginArg = std::find_if_not(endPath, shebangStr.end(), isspace);
+		auto endArg = std::find_if_not(shebangStr.rbegin(), shebangStr.rend(), isspace).base();
+
+		// Linux looks up the interpreter in the current working directory.
+		std::string interpreterPath{beginPath, endPath};
+		auto interpreterFile = co_await open(root, workdir, interpreterPath);
+		if(!interpreterFile)
 			co_return Error::noSuchFile;
 
 		if(!args.empty()) // Handle exec() without arguments.
 			args.erase(args.begin());
+		if(beginArg != endArg)
+			args.insert(args.begin(), std::string{beginArg, endArg});
 		args.insert(args.begin(), path);
-		args.insert(args.begin(), shebangString);
-		execFile = std::move(shebangFile);
+		args.insert(args.begin(), interpreterPath);
+		path = std::move(interpreterPath);
+		execFile = std::move(interpreterFile);
 		nRecursions++;
 	}
 
@@ -199,12 +208,12 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 	auto binaryInfo = std::get<ImageInfo>(binaryResult);
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
-	auto interpFile = co_await open(root, workdir, "/lib/ld-init.so");
-	assert(interpFile);
-	auto interpResult = co_await load(interpFile, vmContext.get(), 0x40000000);
-	if(auto error = std::get_if<Error>(&interpResult); error)
+	auto ldsoFile = co_await open(root, workdir, "/lib/ld-init.so");
+	assert(ldsoFile);
+	auto ldsoResult = co_await load(ldsoFile, vmContext.get(), 0x40000000);
+	if(auto error = std::get_if<Error>(&ldsoResult); error)
 		co_return *error;
-	auto interpInfo = std::get<ImageInfo>(interpResult);
+	auto ldsoInfo = std::get<ImageInfo>(ldsoResult);
 
 	constexpr size_t stackSize = 0x10000;
 
@@ -287,7 +296,7 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe.getHandle(),
 			vmContext->getSpace().getHandle(), kHelAbiSystemV,
-			(void *)interpInfo.entryIp, (char *)stackBase + d, 0, &thread));
+			(void *)ldsoInfo.entryIp, (char *)stackBase + d, 0, &thread));
 
 	co_return helix::UniqueDescriptor{thread};
 }
