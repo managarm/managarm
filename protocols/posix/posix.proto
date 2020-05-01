@@ -96,6 +96,7 @@ enum CntReqType {
 	EVENTFD_CREATE = 60;
 
 	MKFIFOAT = 65;
+	LINKAT = 66;
 };
 
 enum OpenMode {
