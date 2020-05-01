@@ -159,10 +159,17 @@ async::result<void> setFileFlags(void *, int) {
 
 async::result<protocols::fs::PollResult>
 poll(void *, uint64_t pastSeq, async::cancellation_token cancellation) {
+	if(pastSeq)
+		co_await async::suspend_indefinitely(cancellation);
+
+	int edges = 0;
+	if(!pastSeq)
+		edges = EPOLLIN | EPOLLOUT;
+
 	co_return protocols::fs::PollResult{
 		1,
-		EPOLLIN | EPOLLOUT,
-		0
+		edges,
+		EPOLLIN | EPOLLOUT
 	};
 }
 
