@@ -1,4 +1,3 @@
-
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -26,13 +25,13 @@ struct ImageInfo {
 
 expected<ImageInfo> load(SharedFilePtr file,
 		VmContext *vmContext, uintptr_t base) {
-	assert(base % kPageSize == 0);
+	assert(!(base & (kPageSize - 1)));
 	ImageInfo info;
 
-	// get a handle to the file's memory.
-	auto file_memory = co_await file->accessMemory();
+	// Get a handle to the file's memory.
+	auto fileMemory = co_await file->accessMemory();
 
-	// read the elf file header and verify the signature.
+	// Read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
 	co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr));
 
@@ -48,35 +47,34 @@ expected<ImageInfo> load(SharedFilePtr file,
 	info.phdrEntrySize = ehdr.e_phentsize;
 	info.phdrCount = ehdr.e_phnum;
 
-	// read the elf program headers and load them into the address space.
-	auto phdr_buffer = (char *)malloc(ehdr.e_phnum * ehdr.e_phentsize);
+	// Read the elf program headers and load them into the address space.
+	std::vector<char> phdrBuffer;
+	phdrBuffer.resize(ehdr.e_phnum * ehdr.e_phentsize);
 	co_await file->seek(ehdr.e_phoff, VfsSeek::absolute);
-	co_await file->readExactly(nullptr, phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
+	co_await file->readExactly(nullptr, phdrBuffer.data(), ehdr.e_phnum * size_t(ehdr.e_phentsize));
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
-		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
+		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
 
 		if(phdr->p_type == PT_LOAD) {
 			assert(phdr->p_memsz > 0);
 
-			size_t misalign = phdr->p_vaddr % kPageSize;
-			uintptr_t map_address = base + phdr->p_vaddr - misalign;
-			size_t map_length = phdr->p_memsz + misalign;
-			if((map_length % kPageSize) != 0)
-				map_length += kPageSize - (map_length % kPageSize);
+			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
+			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
+			size_t mapLength = (phdr->p_memsz + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
-			// check if we can share the segment.
+			// Check if we can share the segment.
 			if(!(phdr->p_flags & PF_W)) {
-				assert(misalign == 0);
-				assert(phdr->p_offset % kPageSize == 0);
+				assert(!misalign);
+				assert(!(phdr->p_offset & (kPageSize - 1)));
 
-				// map the segment with correct permissions into the process.
+				// Map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-					HEL_CHECK(helLoadahead(file_memory.getHandle(), phdr->p_offset, map_length));
+					HEL_CHECK(helLoadahead(fileMemory.getHandle(), phdr->p_offset, mapLength));
 
-					co_await vmContext->mapFile(map_address,
-							file_memory.dup(), file,
-							phdr->p_offset, map_length, true,
+					co_await vmContext->mapFile(mapAddress,
+							fileMemory.dup(), file,
+							phdr->p_offset, mapLength, true,
 							kHelMapProtRead | kHelMapProtExecute);
 				}else{
 					throw std::runtime_error("Illegal combination of segment permissions");
@@ -84,27 +82,27 @@ expected<ImageInfo> load(SharedFilePtr file,
 			}else{
 				// map the segment with write permission into this address space.
 				HelHandle segmentHandle;
-				HEL_CHECK(helAllocateMemory(map_length, 0, nullptr, &segmentHandle));
+				HEL_CHECK(helAllocateMemory(mapLength, 0, nullptr, &segmentHandle));
 
 				void *window;
 				HEL_CHECK(helMapMemory(segmentHandle, kHelNullHandle, nullptr,
-						0, map_length, kHelMapProtRead | kHelMapProtWrite, &window));
+						0, mapLength, kHelMapProtRead | kHelMapProtWrite, &window));
 
 				// map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-					co_await vmContext->mapFile(map_address,
+					co_await vmContext->mapFile(mapAddress,
 							helix::UniqueDescriptor{segmentHandle}, file,
-							0, map_length, true,
+							0, mapLength, true,
 							kHelMapProtRead | kHelMapProtWrite);
 				}else{
 					throw std::runtime_error("Illegal combination of segment permissions");
 				}
 
 				// read the segment contents from the file.
-				memset(window, 0, map_length);
+				memset(window, 0, mapLength);
 				co_await file->seek(phdr->p_offset, VfsSeek::absolute);
 				co_await file->readExactly(nullptr, (char *)window + misalign, phdr->p_filesz);
-				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, map_length));
+				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr->p_vaddr;
@@ -125,7 +123,7 @@ template<typename T, size_t N>
 void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	assert(d >= alignof(T) + sizeof(T) * N);
 	d -= sizeof(T) * N;
-	d -= d % alignof(T);
+	d -= d & (alignof(T) - 1);
 	void *ptr = (char *)window + d;
 	memcpy(ptr, &value, sizeof(T) * N);
 	return ptr;
@@ -135,40 +133,40 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 		std::string path,
 		std::vector<std::string> args, std::vector<std::string> env,
 		std::shared_ptr<VmContext> vmContext, helix::BorrowedDescriptor universe,
-		HelHandle mbus_handle) {
-	auto exec_file = co_await open(root, workdir, path);
-	if(!exec_file)
+		HelHandle mbusHandle) {
+	auto execFile = co_await open(root, workdir, path);
+	if(!execFile)
 		co_return Error::noSuchFile;
-	auto exec_result = co_await load(exec_file, vmContext.get(), 0);
-	if(auto error = std::get_if<Error>(&exec_result); error)
+	auto execResult = co_await load(execFile, vmContext.get(), 0);
+	if(auto error = std::get_if<Error>(&execResult); error)
 		co_return *error;
-	auto exec_info = std::get<ImageInfo>(exec_result);
+	auto execInfo = std::get<ImageInfo>(execResult);
 
 	// TODO: Should we really look up the dynamic linker in the current source dir?
-	auto interp_file = co_await open(root, workdir, "/lib/ld-init.so");
-	assert(interp_file);
-	auto interp_result = co_await load(interp_file, vmContext.get(), 0x40000000);
-	if(auto error = std::get_if<Error>(&interp_result); error)
+	auto interpFile = co_await open(root, workdir, "/lib/ld-init.so");
+	assert(interpFile);
+	auto interpResult = co_await load(interpFile, vmContext.get(), 0x40000000);
+	if(auto error = std::get_if<Error>(&interpResult); error)
 		co_return *error;
-	auto interp_info = std::get<ImageInfo>(interp_result);
+	auto interpInfo = std::get<ImageInfo>(interpResult);
 
-	constexpr size_t stack_size = 0x10000;
+	constexpr size_t stackSize = 0x10000;
 
 	// Allocate memory for the stack.
 	HelHandle stackHandle;
-	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, nullptr, &stackHandle));
+	HEL_CHECK(helAllocateMemory(stackSize, kHelAllocOnDemand, nullptr, &stackHandle));
 
 	void *window;
 	HEL_CHECK(helMapMemory(stackHandle, kHelNullHandle, nullptr,
-			0, stack_size, kHelMapProtRead | kHelMapProtWrite, &window));
+			0, stackSize, kHelMapProtRead | kHelMapProtWrite, &window));
 
 	// Map the stack into the new process and set it up.
 	void *stackBase = co_await vmContext->mapFile(0,
 			helix::UniqueDescriptor{stackHandle}, nullptr,
-			0, stack_size, true, kHelMapProtRead | kHelMapProtWrite);
+			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite);
 
 	// the offset at which the stack image starts.
-	size_t d = stack_size;
+	size_t d = stackSize;
 
 	// Copy argument and environment strings to the stack.
 	auto pushString = [&] (const std::string &str) -> uintptr_t {
@@ -177,64 +175,63 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 		return reinterpret_cast<uintptr_t>(stackBase) + d;
 	};
 
-	std::vector<uintptr_t> args_ptrs;
+	std::vector<uintptr_t> argsPtrs;
 	for(const auto &str : args)
-		args_ptrs.push_back(pushString(str));
+		argsPtrs.push_back(pushString(str));
 
-	std::vector<uintptr_t> env_ptrs;
+	std::vector<uintptr_t> envPtrs;
 	for(const auto &str : env)
-		env_ptrs.push_back(pushString(str));
+		envPtrs.push_back(pushString(str));
 
 	// Align the stack before pushing the args, environment and auxiliary words.
-	d -= d % 16;
+	d -= d & size_t(15);
 
 	// Pad the stack so that it is aligned after pushing all words.
 	auto pushWord = [&] (uintptr_t w) {
-		assert(!(d % alignof(uintptr_t)));
+		assert(!(d & (alignof(uintptr_t) - 1)));
 		d -= sizeof(uintptr_t);
 		memcpy(reinterpret_cast<char *>(window) + d, &w, sizeof(uintptr_t));
 	};
 
-	size_t word_parity = 1 + args_ptrs.size() + 1 // Words representing argc and args.
-			+ env_ptrs.size() + 1; // Words representing the environment.
-	if(word_parity % 2)
+	size_t wordParity = 1 + argsPtrs.size() + 1 // Words representing argc and args.
+			+ envPtrs.size() + 1; // Words representing the environment.
+	if(wordParity & 1)
 		pushWord(0);
 
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
-		uintptr_t(exec_info.entryIp),
+		uintptr_t(execInfo.entryIp),
 		AT_PHDR,
-		uintptr_t(exec_info.phdrPtr),
+		uintptr_t(execInfo.phdrPtr),
 		AT_PHENT,
-		exec_info.phdrEntrySize,
+		execInfo.phdrEntrySize,
 		AT_PHNUM,
-		exec_info.phdrCount,
+		execInfo.phdrCount,
 		AT_MBUS_SERVER,
-		static_cast<uintptr_t>(mbus_handle),
+		static_cast<uintptr_t>(mbusHandle),
 		AT_NULL,
 		0
 	});
 
 	// Push the environment pointers and arguments.
 	pushWord(0); // End of environment.
-	for(auto it = env_ptrs.rbegin(); it != env_ptrs.rend(); ++it)
+	for(auto it = envPtrs.rbegin(); it != envPtrs.rend(); ++it)
 		pushWord(*it);
 
 	pushWord(0); // End of args.
-	for(auto it = args_ptrs.rbegin(); it != args_ptrs.rend(); ++it)
+	for(auto it = argsPtrs.rbegin(); it != argsPtrs.rend(); ++it)
 		pushWord(*it);
-	pushWord(args_ptrs.size()); // argc.
+	pushWord(argsPtrs.size()); // argc.
 
 	// Stack has to be aligned at entry.
-	assert(!(d % 16));
+	assert(!(d & size_t(15)));
 
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stack_size));
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stackSize));
 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe.getHandle(),
 			vmContext->getSpace().getHandle(), kHelAbiSystemV,
-			(void *)interp_info.entryIp, (char *)stackBase + d, 0, &thread));
+			(void *)interpInfo.entryIp, (char *)stackBase + d, 0, &thread));
 
 	co_return helix::UniqueDescriptor{thread};
 }
-
