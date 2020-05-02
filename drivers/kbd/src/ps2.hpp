@@ -10,6 +10,16 @@
 #include <variant>
 #include <type_traits>
 
+struct stl_allocator {
+	void *allocate(size_t size) {
+		return operator new(size);
+	}
+
+	void deallocate(void *p, size_t) {
+		return operator delete(p);
+	}
+};
+
 struct NoDevice {};
 
 namespace controller_cmd {
@@ -92,8 +102,8 @@ struct Controller {
 		DeviceType _deviceType;
 		bool _exists;
 
-		async::queue<uint8_t> _responseQueue;
-		async::queue<uint8_t> _reportQueue;
+		async::queue<uint8_t, stl_allocator> _responseQueue;
+		async::queue<uint8_t, stl_allocator> _reportQueue;
 		bool _awaitingResponse;
 
 		std::shared_ptr<libevbackend::EventDevice> _evDev;
