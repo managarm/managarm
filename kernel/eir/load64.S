@@ -22,4 +22,5 @@ eirRtEnterKernel:
 	or $0x00010000, %rax # Enable WP
 	mov %rax, %cr0
 
+	xor %ebp, %ebp
 	jmp *%rsi

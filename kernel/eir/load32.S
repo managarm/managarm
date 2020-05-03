@@ -90,6 +90,7 @@ eirRtEnterKernel:
 	shl $32, %rcx
 	or %rbx, %rcx
 	mov %rcx, %rsp
-	
+
+	xor %ebp, %ebp
 	jmp *%rdx
 
