@@ -2,4 +2,5 @@
 option('build_kernel', type: 'boolean', value: false)
 option('build_drivers', type: 'boolean', value: false)
 option('build_tools', type: 'boolean', value: false)
+option('kernel_log_allocations', type: 'boolean', value: false)
 

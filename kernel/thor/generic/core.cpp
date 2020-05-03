@@ -122,6 +122,12 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 		invalidatePage(reinterpret_cast<char *>(address) + offset);
 }
 
+void sendByteSerial(uint8_t val);
+
+void KernelVirtualAlloc::output_trace(uint8_t val) {
+	sendByteSerial(val);
+}
+
 frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 
 frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;

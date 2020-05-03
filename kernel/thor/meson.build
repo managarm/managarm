@@ -100,11 +100,20 @@ embed_trampoline = custom_target('embed-trampoline',
 	input: trampoline,
 	output: 'embed-trampoline.o')
 
+extra_c_args = []
+extra_cpp_args = []
+
+if get_option('kernel_log_allocations')
+	extra_c_args = ['-fno-omit-frame-pointer']
+	extra_cpp_args = ['-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS']
+endif
+
 lai_lib = static_library('lai', lai_sources,
 	include_directories: lai_includes,
 	c_args: [
 		'-mcmodel=kernel',
-		'-mno-red-zone'
+		'-mno-red-zone',
+		extra_c_args
 	],
 	pic: false
 )
@@ -135,7 +144,8 @@ executable('thor', pb_sources, thor_sources, embed_trampoline,
 		'-DCXXSHIM_INTEGRATE_GCC',
 		'-DFRIGG_NO_LIBC',
 		'-Wall',
-		'-Wno-non-virtual-dtor'
+		'-Wno-non-virtual-dtor',
+		extra_cpp_args
 	],
 	link_with: lai_lib,
 	link_args: [

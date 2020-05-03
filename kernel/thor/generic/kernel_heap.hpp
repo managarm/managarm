@@ -6,6 +6,8 @@
 #include <frigg/physical_buddy.hpp>
 #include <frg/slab.hpp>
 
+#include <arch/x86/stack.hpp>
+
 namespace thor {
 
 struct IrqSpinlock {
@@ -41,6 +43,21 @@ public:
 
 	uintptr_t map(size_t length);
 	void unmap(uintptr_t address, size_t length);
+
+	bool enable_trace() {
+#ifdef KERNEL_LOG_ALLOCATIONS
+		return true;
+#else
+		return false;
+#endif // KERNEL_LOG_ALLOCATIONS
+	}
+
+	template <typename F>
+	void walk_stack(F functor) {
+		walkThisStack(functor);
+	}
+
+	void output_trace(uint8_t val);
 };
 
 using KernelAlloc = frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock>;
