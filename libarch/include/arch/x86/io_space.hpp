@@ -22,6 +22,15 @@ namespace _detail {
 			asm volatile ("inb %1, %0" : "=a"(v) : "d"(addr) : "memory");
 			return v;
 		}
+
+		static void store_iterative(uint16_t addr, const uint8_t *p, size_t n) {
+			asm volatile ("cld\n"
+				"\trep outsb" : "+c"(n), "+S"(p) : "d"(addr) : "memory");
+		}
+		static void load_iterative(uint16_t addr, uint8_t *p, size_t n) {
+			asm volatile ("cld\n"
+				"\trep insb" : "+c"(n), "+D"(p) : "d"(addr) : "memory");
+		}
 	};
 
 	template<>
