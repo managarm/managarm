@@ -111,6 +111,24 @@ void disableLogHandler(LogHandler *sink) {
 }
 
 namespace {
+	int serialBufferIndex = 0;
+	uint8_t serialBuffer[16];
+} // namespace anonymous
+
+void sendByteSerial(uint8_t val) {
+	auto base = arch::global_io.subspace(0x3F8);
+
+	serialBuffer[serialBufferIndex++] = val;
+	if (serialBufferIndex == 16) {
+		while(!(base.load(lineStatus) & txReady)) {
+			// do nothing until the UART is ready to transmit.
+		}
+		base.store_iterative(data, serialBuffer, 16);
+		serialBufferIndex = 0;
+	}
+}
+
+namespace {
 
 void callLegacy(char c) {
 	// --------------------------------------------------------
@@ -138,19 +156,11 @@ void callLegacy(char c) {
 	// Serial console
 	// --------------------------------------------------------
 	if(debugToSerial) {
-		auto base = arch::global_io.subspace(0x3F8);
-
 		if(c == '\n') {
-			while(!(base.load(lineStatus) & txReady)) {
-				// do nothing until the UART is ready to transmit.
-			}
-			base.store(data, '\r');
+			sendByteSerial('\r');
 		}
 
-		while(!(base.load(lineStatus) & txReady)) {
-			// do nothing until the UART is ready to transmit.
-		}
-		base.store(data, c);
+		sendByteSerial(c);
 	}
 
 	// --------------------------------------------------------
