@@ -14,4 +14,7 @@ nic_virtio_lib = static_library('nic-virtio', 'src/virtio.cpp',
 
 nic_virtio_dep = declare_dependency(
 	include_directories: nic_virtio_inc,
+	dependencies: [
+		virtio_core_dep,
+	],
 	link_with: nic_virtio_lib)
