@@ -333,6 +333,13 @@ struct MemoryNode final : Node {
 		co_return File::constructHandle(std::move(file));
 	}
 
+	FutureMaybe<FileStats> getStats() override {
+		std::cout << "\e[31mposix: Fix tmpfs getStats() in MemoryNode\e[39m" << std::endl;
+		FileStats stats{};
+		stats.fileSize = _fileSize;
+		co_return stats;
+	}
+
 private:
 	void _resizeFile(size_t new_size) {
 		_fileSize = new_size;

@@ -95,7 +95,9 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	co_await self->inode->readyJump.async_wait();
 
-	assert(self->offset <= self->inode->fileSize());
+	if(self->offset >= self->inode->fileSize())
+		co_return 0;
+	
 	auto remaining = self->inode->fileSize() - offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
