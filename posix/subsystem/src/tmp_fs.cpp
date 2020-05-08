@@ -32,11 +32,61 @@ public:
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = _inodeNumber;
+		stats.fileSize = 0;
+		stats.numLinks = _numLinks;
+		stats.mode = _mode;
+		stats.uid = _uid;
+		stats.gid = _gid;
+		stats.atimeSecs = _atime.tv_sec;
+		stats.atimeNanos = _atime.tv_nsec;
+		stats.mtimeSecs = _mtime.tv_sec;
+		stats.mtimeNanos = _mtime.tv_nsec;
+		stats.ctimeSecs = _ctime.tv_sec;
+		stats.ctimeNanos = _ctime.tv_nsec;
 		co_return stats;
+	}
+
+	int64_t inodeNumber() {
+		return _inodeNumber;
+	}
+
+	int numLinks() {
+		return _numLinks;
+	}
+
+	mode_t mode() {
+		return _mode;
+	}
+
+	uid_t uid() {
+		return _uid;
+	}
+
+	gid_t gid() {
+		return _gid;
+	}
+
+	timespec atime() {
+		return _atime;
+	}
+
+	timespec mtime() {
+		return _mtime;
+	}
+
+	timespec ctime() {
+		return _ctime;
 	}
 
 private:
 	int64_t _inodeNumber;
+	int _numLinks = 0;
+	mode_t _mode = 0;
+	uid_t _uid = 0;
+	gid_t _gid = 0;
+	timespec _atime = {0};
+	timespec _mtime = {0};
+	timespec _ctime = {0};
 };
 
 struct SymlinkNode final : Node {
@@ -336,7 +386,18 @@ struct MemoryNode final : Node {
 	FutureMaybe<FileStats> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats() in MemoryNode\e[39m" << std::endl;
 		FileStats stats{};
+		stats.inodeNumber = inodeNumber();
 		stats.fileSize = _fileSize;
+		stats.numLinks = numLinks();
+		stats.mode = mode();
+		stats.uid = uid();
+		stats.gid = gid();
+		stats.atimeSecs = atime().tv_sec;
+		stats.atimeNanos = atime().tv_nsec;
+		stats.mtimeSecs = mtime().tv_sec;
+		stats.mtimeNanos = mtime().tv_nsec;
+		stats.ctimeSecs = ctime().tv_sec;
+		stats.ctimeNanos = ctime().tv_nsec;
 		co_return stats;
 	}
 

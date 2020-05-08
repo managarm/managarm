@@ -478,7 +478,17 @@ async::detached observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}else{
-			throw std::runtime_error("Unexpected observation");
+			printf("\e[31mposix: Unexpected observation in process %s\n", self->path().c_str());
+			dumpRegisters(self);
+			printf("\e[39m");
+			fflush(stdout);
+
+			auto item = new SignalItem;
+			item->signalNumber = SIGILL;
+			if(!self->checkSignalRaise())
+				std::cout << "\e[33m" "posix: Ignoring global signal flag "
+						"during synchronous SIGILL" "\e[39m" << std::endl;
+			self->signalContext()->raiseContext(item, self.get(), generation.get());
 		}
 	}
 }
@@ -1923,7 +1933,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SIG_ACTION" << std::endl;
 
-			if(req.flags() & ~(SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART)) {
+			if(req.flags() & ~(SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART | SA_NOCLDSTOP)) {
 				std::cout << "\e[31mposix: Unknown SIG_ACTION flags: 0x"
 						<< std::hex << req.flags()
 						<< std::dec << "\e[39m" << std::endl;
@@ -1954,6 +1964,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					handler.flags |= signalReentrant;
 				if(req.flags() & SA_RESTART)
 					std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
+				if(req.flags() & SA_NOCLDSTOP)
+					std::cout << "\e[31mposix: Ignoring SA_NOCLDSTOP\e[39m" << std::endl;
 
 				saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
 			}else{
