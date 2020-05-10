@@ -5,13 +5,13 @@
 
 template<typename T>
 struct coroutine_continuation {
-	virtual void set_done(T value) = 0;
+	virtual void set_value(T value) = 0;
 };
 
 // Specialization for coroutines without results.
 template<>
 struct coroutine_continuation<void> {
-	virtual void set_done() = 0;
+	virtual void set_value() = 0;
 };
 
 template<typename T, typename R>
@@ -79,7 +79,7 @@ struct coroutine {
 				}
 
 				void await_suspend(std::experimental::coroutine_handle<void>) {
-					promise_->cont_->set_done(std::move(*promise_->value_));
+					promise_->cont_->set_value(std::move(*promise_->value_));
 				}
 
 				void await_resume() {
@@ -188,7 +188,7 @@ struct coroutine<void> {
 				}
 
 				void await_suspend(std::experimental::coroutine_handle<void>) {
-					promise_->cont_->set_done();
+					promise_->cont_->set_value();
 				}
 
 				void await_resume() {
@@ -248,8 +248,8 @@ struct coroutine_operation : private coroutine_continuation<T> {
 	}
 
 private:
-	void set_done(T value) override {
-		receiver_.set_done(std::move(value));
+	void set_value(T value) override {
+		receiver_.set_value(std::move(value));
 	}
 
 private:
@@ -274,8 +274,8 @@ struct coroutine_operation<void, R> : private coroutine_continuation<void> {
 	}
 
 private:
-	void set_done() override {
-		receiver_.set_done();
+	void set_value() override {
+		receiver_.set_value();
 	}
 
 private:

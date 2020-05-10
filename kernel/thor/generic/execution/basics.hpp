@@ -24,7 +24,7 @@ namespace execution {
 	struct [[nodiscard]] sender_awaiter {
 	private:
 		struct receiver {
-			void set_done(T result) {
+			void set_value(T result) {
 				p_->result_ = std::move(result);
 				p_->h_.resume();
 			}
@@ -60,7 +60,7 @@ namespace execution {
 	struct sender_awaiter<S, void> {
 	private:
 		struct receiver {
-			void set_done() {
+			void set_value() {
 				p_->h_.resume();
 			}
 
@@ -101,7 +101,7 @@ namespace execution {
 			receiver(control_block<S> *cb)
 			: cb_{cb} { }
 
-			void set_done() {
+			void set_value() {
 				finalize(cb_);
 			}
 
@@ -138,19 +138,19 @@ namespace execution {
 		any_receiver(R receiver) {
 			static_assert(std::is_trivially_copyable_v<R>);
 			new (stor_) R(receiver);
-			set_done_fptr_ = [] (void *p, T value) {
+			set_value_fptr_ = [] (void *p, T value) {
 				auto *rp = static_cast<R *>(p);
-				rp->set_done(std::move(value));
+				rp->set_value(std::move(value));
 			};
 		}
 
-		void set_done(T value) {
-			set_done_fptr_(stor_, std::move(value));
+		void set_value(T value) {
+			set_value_fptr_(stor_, std::move(value));
 		}
 
 	private:
 		alignas(alignof(void *)) char stor_[sizeof(void *)];
-		void (*set_done_fptr_) (void *, T);
+		void (*set_value_fptr_) (void *, T);
 	};
 
 	template<>
@@ -159,18 +159,18 @@ namespace execution {
 		any_receiver(R receiver) {
 			static_assert(std::is_trivially_copyable_v<R>);
 			new (stor_) R(receiver);
-			set_done_fptr_ = [] (void *p) {
+			set_value_fptr_ = [] (void *p) {
 				auto *rp = static_cast<R *>(p);
-				rp->set_done();
+				rp->set_value();
 			};
 		}
 
-		void set_done() {
-			set_done_fptr_(stor_);
+		void set_value() {
+			set_value_fptr_(stor_);
 		}
 
 	private:
 		alignas(alignof(void *)) char stor_[sizeof(void *)];
-		void (*set_done_fptr_) (void *);
+		void (*set_value_fptr_) (void *);
 	};
 }

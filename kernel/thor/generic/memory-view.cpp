@@ -179,12 +179,12 @@ void MemoryView::resize(size_t newSize, execution::any_receiver<void> receiver) 
 }
 
 void MemoryView::fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
-	receiver.set_done({kErrIllegalObject, nullptr});
+	receiver.set_value({kErrIllegalObject, nullptr});
 }
 
 void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
 		execution::any_receiver<Error> receiver) {
-	receiver.set_done(lockRange(offset, size));
+	receiver.set_value(lockRange(offset, size));
 }
 
 Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
@@ -524,7 +524,7 @@ void AllocatedMemory::resize(size_t newSize, execution::any_receiver<void> recei
 	size_t num_chunks = newSize / _chunkSize;
 	assert(num_chunks >= _physicalChunks.size());
 	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
-	receiver.set_done();
+	receiver.set_value();
 }
 
 void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
@@ -860,7 +860,7 @@ void BackingMemory::resize(size_t newSize, execution::any_receiver<void> receive
 		}
 		self->_managed->numPages = newPages;
 
-		receiver.set_done();
+		receiver.set_value();
 	}(this, newPages, std::move(receiver)));
 }
 
@@ -1368,7 +1368,7 @@ void CopyOnWriteMemory::fork(execution::any_receiver<frg::tuple<Error, frigg::Sh
 	execution::detach([] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
 			execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) -> coroutine<void> {
 			co_await self->_evictQueue.evictRange(0, self->_length);
-			receiver.set_done({kErrSuccess, std::move(forked)});
+			receiver.set_value({kErrSuccess, std::move(forked)});
 	}(this, std::move(forked), receiver));
 }
 
@@ -1465,7 +1465,7 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			progress += kPageSize;
 		}
 
-		receiver.set_done(kErrSuccess);
+		receiver.set_value(kErrSuccess);
 	}(this, offset, size, receiver));
 }
 

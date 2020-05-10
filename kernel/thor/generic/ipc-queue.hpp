@@ -159,7 +159,7 @@ public:
 
 	private:
 		void complete() override {
-			receiver_.set_done();
+			receiver_.set_value();
 		}
 
 		SubmitSender s_;

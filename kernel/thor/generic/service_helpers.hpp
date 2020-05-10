@@ -29,7 +29,7 @@ template<typename R>
 struct OfferOperation {
 	void start() {
 		auto cb = [this] (Error error, LaneHandle handle) {
-			receiver_.set_done(frg::tuple<Error, LaneHandle>{error, std::move(handle)});
+			receiver_.set_value(frg::tuple<Error, LaneHandle>{error, std::move(handle)});
 		};
 		submitOffer(s_.lane, cb);
 	}
@@ -65,7 +65,7 @@ template<typename R>
 struct AcceptOperation {
 	void start() {
 		auto cb = [this] (Error error, LaneHandle handle) {
-			receiver_.set_done(frg::tuple<Error, LaneHandle>{error, std::move(handle)});
+			receiver_.set_value(frg::tuple<Error, LaneHandle>{error, std::move(handle)});
 		};
 		submitAccept(s_.lane, cb);
 	}
@@ -103,7 +103,7 @@ template<typename R>
 struct SendBufferOperation {
 	void start() {
 		auto cb = [this] (Error error) {
-			receiver_.set_done(error);
+			receiver_.set_value(error);
 		};
 		submitSendBuffer(s_.lane, std::move(s_.buffer), cb);
 	}
@@ -136,7 +136,7 @@ template<typename R>
 struct RecvBufferOperation {
 	void start() {
 		auto cb = [this] (Error error, frigg::UniqueMemory<KernelAlloc> buffer) {
-			receiver_.set_done(frg::tuple<Error, frigg::UniqueMemory<KernelAlloc>>{
+			receiver_.set_value(frg::tuple<Error, frigg::UniqueMemory<KernelAlloc>>{
 					error, std::move(buffer)});
 		};
 		submitRecvInline(s_.lane, cb);
@@ -171,7 +171,7 @@ template<typename R>
 struct PushDescriptorOperation {
 	void start() {
 		auto cb = [this] (Error error) {
-			receiver_.set_done(error);
+			receiver_.set_value(error);
 		};
 		submitPushDescriptor(s_.lane, std::move(s_.descriptor), cb);
 	}
@@ -204,7 +204,7 @@ template<typename R>
 struct PullDescriptorOperation {
 	void start() {
 		auto cb = [this] (Error error, AnyDescriptor desc) {
-			receiver_.set_done(frg::tuple<Error, AnyDescriptor>{error, std::move(desc)});
+			receiver_.set_value(frg::tuple<Error, AnyDescriptor>{error, std::move(desc)});
 		};
 		submitPullDescriptor(s_.lane, cb);
 	}

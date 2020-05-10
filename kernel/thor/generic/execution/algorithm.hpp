@@ -46,7 +46,7 @@ private:
 		internal_receiver(race_and_cancel_operation *self)
 		: self_{self} { }
 
-		void set_done() {
+		void set_value() {
 			auto n = self_->n_done_.fetch_add(1, std::memory_order_acq_rel);
 			if(!n) {
 				for(unsigned int j = 0; j < sizeof...(Is); ++j)
@@ -54,7 +54,7 @@ private:
 						self_->cs_[j].cancel();
 			}
 			if(n + 1 == sizeof...(Is))
-				self_->r_.set_done();
+				self_->r_.set_value();
 		}
 
 	private:

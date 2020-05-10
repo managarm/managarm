@@ -611,7 +611,7 @@ HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
 	} closure;
 
 	struct Receiver {
-		void set_done(frg::tuple<Error, frigg::SharedPtr<MemoryView>> result) {
+		void set_value(frg::tuple<Error, frigg::SharedPtr<MemoryView>> result) {
 			closure->error = result.get<0>();
 			closure->forkedView = std::move(result.get<1>());
 			Thread::unblockOther(&closure->blocker);

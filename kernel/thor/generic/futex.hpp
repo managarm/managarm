@@ -141,11 +141,11 @@ struct Futex {
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &WaitOperation::worklet_);
-				op->receiver_.set_done();
+				op->receiver_.set_value();
 			});
 			node_.setup(&worklet_);
 			if(!s_.self->checkSubmitWait(s_.address, std::move(s_.c), &node_, s_.cancellation))
-				receiver_.set_done();
+				receiver_.set_value();
 		}
 
 	private:

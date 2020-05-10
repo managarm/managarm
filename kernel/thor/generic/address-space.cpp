@@ -153,7 +153,7 @@ uint32_t Mapping::compilePageFlags() {
 
 bool Mapping::lockVirtualRange(LockVirtualNode *node) {
 	struct Receiver {
-		void set_done(Error e) {
+		void set_value(Error e) {
 			assert(!e);
 			LockVirtualNode::post(continuation);
 		}
@@ -715,7 +715,7 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 		}
 		co_await self->_ops->shootdown(alignedAddress, alignedSize);
 
-		receiver.set_done();
+		receiver.set_value();
 	}(this, alignedAddress, alignedSize, std::move(receiver)));
 }
 

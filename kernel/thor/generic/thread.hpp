@@ -95,7 +95,7 @@ public:
 		} closure;
 
 		struct Receiver {
-			void set_done() {
+			void set_value() {
 				Thread::unblockOther(&closure->blocker);
 			}
 
