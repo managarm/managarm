@@ -27,6 +27,11 @@ eir64_dependencies = [cxxshim_dep, frigg_dep]
 eir64_extra_objects = []
 eir64_link_depends = files('generic64_link.x')
 
+if get_option('kernel_log_allocations')
+	eir64_cpp_args += '-DKERNEL_LOG_ALLOCATIONS'
+	eir32_cpp_args += '-DKERNEL_LOG_ALLOCATIONS'
+endif
+
 subdir('multiboot1/')
 subdir('multiboot2/')
 subdir('stivale/')
