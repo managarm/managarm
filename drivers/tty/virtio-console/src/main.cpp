@@ -13,6 +13,7 @@
 
 async::detached bindDevice(mbus::Entity entity) {
 	protocols::hw::Device hwDevice(co_await entity.bind());
+	co_await hwDevice.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::transitional);
 
@@ -44,7 +45,7 @@ async::detached observeDevices() {
 int main() {
 	printf("virtio-console: Starting driver\n");
 
-//	HEL_CHECK(helSetPriority(kHelThisThread, 3));
+	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
 	{
 		async::queue_scope scope{helix::globalQueue()};
