@@ -109,6 +109,7 @@ namespace stdio {
 
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
+			frigg::destruct(*kernelAlloc, this);
 		}
 
 		LaneHandle _lane;

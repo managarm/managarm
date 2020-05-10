@@ -1,6 +1,8 @@
 
 #include "kernel.hpp"
 
+#include <generic/ring-buffer.hpp>
+
 // This is required for virtual destructors. It should not be called though.
 void operator delete(void *, size_t) {
 	frigg::panicLogger() << "thor: operator delete() called" << frigg::endLog;
@@ -122,10 +124,13 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 		invalidatePage(reinterpret_cast<char *>(address) + offset);
 }
 
-void sendByteSerial(uint8_t val);
+frigg::LazyInitializer<LogRingBuffer> allocLog;
 
 void KernelVirtualAlloc::output_trace(uint8_t val) {
-	sendByteSerial(val);
+	if (!allocLog)
+		allocLog.initialize(0xFFFF'F000'0000'0000, 268435456);
+
+	allocLog->enqueue(val);
 }
 
 frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;

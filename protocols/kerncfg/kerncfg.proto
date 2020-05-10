@@ -11,14 +11,19 @@ enum Error {
 enum CntReqType {
 	NONE = 0;
 	GET_CMDLINE = 1;
+	GET_BUFFER_CONTENTS = 2;
 }
 
 message CntRequest {
 	optional CntReqType req_type = 1;
+	optional uint64 size = 2;
+	optional uint64 dequeue = 3;
 }
 
 message SvrResponse {
 	optional Error error = 1;
 	optional uint64 size = 2;
+	optional uint64 new_dequeue = 3;
+	optional uint64 enqueue = 4;
 }
 
