@@ -1,0 +1,5 @@
+name: tty-virtio-console
+exec: /usr/bin/virtio-console
+files:
+  - /usr/bin/virtio-console
+
