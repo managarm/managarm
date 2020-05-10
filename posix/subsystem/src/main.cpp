@@ -569,6 +569,39 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::GET_UID) {
+			if(logRequests)
+				std::cout << "posix: GET_UID" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_uid(self->uid());
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SET_UID) {
+			if(logRequests)
+				std::cout << "posix: SET_UID" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			if(!self->setUid(req.uid())) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::posix::Errors::ACCESS_DENIED);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
 			if(logRequests)
 				std::cout << "posix: WAIT" << std::endl;

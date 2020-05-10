@@ -341,6 +341,18 @@ public:
 	 	return _pid;
 	}
 
+	int setUid(int uid) {
+		if(uid == _uid || _uid == 0) {
+			_uid = uid;
+			return 0;
+		}
+		return -1;
+	}
+
+	int uid() {
+		return _uid;
+	}
+
 	std::shared_ptr<Generation> currentGeneration() {
 		return _currentGeneration;
 	}
@@ -393,6 +405,7 @@ private:
 	Process *_parent;
 
 	int _pid;
+	int _uid;
 	std::shared_ptr<Generation> _currentGeneration;
 	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;

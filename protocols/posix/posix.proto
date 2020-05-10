@@ -97,6 +97,8 @@ enum CntReqType {
 
 	MKFIFOAT = 65;
 	LINKAT = 66;
+	GET_UID = 67;
+	SET_UID = 68;
 };
 
 enum OpenMode {
@@ -200,6 +202,9 @@ message CntRequest {
 
 	// used by EVENTFD
 	optional uint32 initval = 39;
+
+	// used by {GET/SET}UID
+	optional int64 uid = 41;
 }
 
 message SvrResponse {
