@@ -27,6 +27,7 @@ enum CntReqType {
 
 	CLAIM_DEVICE = 10;
 	BUSIRQ_ENABLE = 12;
+	BUSMASTER_ENABLE = 13;
 
 	PM_RESET = 8;
 
