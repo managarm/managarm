@@ -591,10 +591,49 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
-			if(!self->setUid(req.uid())) {
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-			} else {
+			Error err = self->setUid(req.uid());
+			if(err == Error::accessDenied) {
 				resp.set_error(managarm::posix::Errors::ACCESS_DENIED);
+			} else if(err == Error::illegalArguments) {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			} else {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::GET_EUID) {
+			if(logRequests)
+				std::cout << "posix: GET_EUID" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_uid(self->euid());
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SET_EUID) {
+			if(logRequests)
+				std::cout << "posix: SET_EUID" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			Error err = self->setEuid(req.uid());
+			if(err == Error::accessDenied) {
+				resp.set_error(managarm::posix::Errors::ACCESS_DENIED);
+			} else if(err == Error::illegalArguments) {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			} else {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
 			}
 
 			auto ser = resp.SerializeAsString();

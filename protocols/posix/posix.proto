@@ -99,6 +99,8 @@ enum CntReqType {
 	LINKAT = 66;
 	GET_UID = 67;
 	SET_UID = 68;
+	GET_EUID = 69;
+	SET_EUID = 70;
 };
 
 enum OpenMode {

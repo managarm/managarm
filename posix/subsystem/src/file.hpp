@@ -40,7 +40,9 @@ enum class Error {
 
 	brokenPipe,
 
-	illegalArguments
+	illegalArguments,
+
+	accessDenied
 };
 
 // TODO: Rename this enum as is not part of the VFS.

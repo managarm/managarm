@@ -632,7 +632,7 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 }
 
 Process::Process(Process *parent)
-: _parent{parent}, _pid{0}, /*_uid{0},*/ _clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
+: _parent{parent}, _pid{0}, _clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
 		_notifyType{NotifyType::null} { }
 
 Process::~Process() {
@@ -698,6 +698,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	assert(globalPidMap.find(1) == globalPidMap.end());
 	process->_pid = 1;
 	process->_uid = 0;
+	process->_euid = 0;
 	globalPidMap.insert({1, process.get()});
 
 	// TODO: Do not pass an empty argument vector?
@@ -759,6 +760,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	assert(globalPidMap.find(pid) == globalPidMap.end());
 	process->_pid = pid;
 	process->_uid = original->_uid;
+	process->_euid = original->_euid;
 	original->_children.push_back(process);
 	globalPidMap.insert({pid, process.get()});
 
@@ -809,6 +811,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	assert(globalPidMap.find(pid) == globalPidMap.end());
 	process->_pid = pid;
 	process->_uid = original->_uid;
+	process->_euid = original->_euid;
 	original->_children.push_back(process);
 	globalPidMap.insert({pid, process.get()});
 
