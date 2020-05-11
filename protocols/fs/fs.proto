@@ -106,6 +106,8 @@ enum CntReqType {
 	RENAME = 36;
 
 	PT_PREAD = 37;
+
+	NODE_CHMOD = 38;
 }
 
 message Rect {
@@ -206,6 +208,8 @@ message CntRequest {
 	optional int32 input_clock = 41;
 
 	optional int64 offset = 58;
+
+	optional int32 mode = 60;
 }
 
 message SvrResponse {

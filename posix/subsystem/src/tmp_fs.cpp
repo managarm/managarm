@@ -78,6 +78,12 @@ public:
 		return _ctime;
 	}
 
+	async::result<int> chmod(int mode) override {
+		// Unimplemented
+		std::cout << "posix: Fix chmod on tmpfs" << std::endl;
+		co_return 0;
+	}
+
 private:
 	int64_t _inodeNumber;
 	int _numLinks = 0;

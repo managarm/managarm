@@ -199,6 +199,8 @@ struct NodeOperations {
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
 
 	async::result<MkdirResult> (*mkdir)(std::shared_ptr<void> object, std::string name);
+
+	async::result<int> (*chmod)(std::shared_ptr<void> object, int mode, int64_t ino);
 };
 
 async::result<void>

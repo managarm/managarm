@@ -17,6 +17,7 @@ enum Errors {
 	BAD_FD = 8;
 	WOULD_BLOCK = 10;
 	BROKEN_PIPE = 11;
+	NOT_SUPPORTED = 12;
 }
 
 enum CntReqType {
@@ -105,6 +106,7 @@ enum CntReqType {
 	GET_EGID = 72;
 	SET_GID = 73;
 	SET_EGID = 74;
+	FCHMODAT = 75;
 };
 
 enum OpenMode {

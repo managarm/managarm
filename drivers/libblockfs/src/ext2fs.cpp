@@ -263,6 +263,23 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	co_return co_await link(name, dir_node->number, kTypeDirectory);
 }
 
+async::result<int> Inode::chmod(int mode, int64_t ino) {
+	assert(ino);
+
+	co_await this->readyJump.async_wait();
+
+	auto self = fs.accessInode(ino);
+
+	self->diskInode()->mode = (self->diskInode()->mode & 0xFFFFF000) | mode;
+
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			self->diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	co_return 0;
+}
+
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------

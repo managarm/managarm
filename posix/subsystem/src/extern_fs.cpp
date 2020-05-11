@@ -74,6 +74,33 @@ struct Node : FsNode {
 		co_return stats;
 	}
 
+	async::result<int> chmod(int mode) override {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_CHMOD);
+		req.set_mode(mode);
+		req.set_fd(getInode());
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		co_await transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+		co_return 0;
+	}
+
 public:
 	Node(uint64_t inode, helix::UniqueLane lane, Superblock *sb = nullptr)
 	: FsNode{sb}, _inode{inode}, _lane{std::move(lane)} { }
