@@ -375,6 +375,40 @@ public:
 		return _euid;
 	}
 
+	Error setGid(int gid) {
+		if(gid < 0) {
+			return Error::illegalArguments;
+		}
+		if(_gid == 0 || _egid == 0) {
+			_gid = gid;
+			_egid = gid;
+			return Error::success;
+		} else if(gid == _gid) {
+			_egid = gid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	int gid() {
+		return _gid;
+	}
+
+	Error setEgid(int egid) {
+		if(egid < 0) {
+			return Error::illegalArguments;
+		}
+		if(_gid == 0 || _egid == 0 || _gid == egid || _egid == egid) {
+			_egid = egid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	int egid() {
+		return _egid;
+	}
+
 	std::shared_ptr<Generation> currentGeneration() {
 		return _currentGeneration;
 	}
@@ -429,6 +463,8 @@ private:
 	int _pid;
 	int _uid;
 	int _euid;
+	int _gid;
+	int _egid;
 	std::shared_ptr<Generation> _currentGeneration;
 	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;

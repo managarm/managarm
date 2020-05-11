@@ -699,6 +699,8 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_pid = 1;
 	process->_uid = 0;
 	process->_euid = 0;
+	process->_gid = 0;
+	process->_egid = 0;
 	globalPidMap.insert({1, process.get()});
 
 	// TODO: Do not pass an empty argument vector?
@@ -761,6 +763,8 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_pid = pid;
 	process->_uid = original->_uid;
 	process->_euid = original->_euid;
+	process->_gid = original->_gid;
+	process->_egid = original->_egid;
 	original->_children.push_back(process);
 	globalPidMap.insert({pid, process.get()});
 
@@ -812,6 +816,8 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_pid = pid;
 	process->_uid = original->_uid;
 	process->_euid = original->_euid;
+	process->_gid = original->_gid;
+	process->_egid = original->_egid;
 	original->_children.push_back(process);
 	globalPidMap.insert({pid, process.get()});
 

@@ -101,6 +101,10 @@ enum CntReqType {
 	SET_UID = 68;
 	GET_EUID = 69;
 	SET_EUID = 70;
+	GET_GID = 71;
+	GET_EGID = 72;
+	SET_GID = 73;
+	SET_EGID = 74;
 };
 
 enum OpenMode {
