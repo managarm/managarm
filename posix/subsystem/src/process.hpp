@@ -341,6 +341,74 @@ public:
 	 	return _pid;
 	}
 
+	Error setUid(int uid) {
+		if(uid < 0) {
+			return Error::illegalArguments;
+		}
+		if(_uid == 0 || _euid == 0) {
+			_uid = uid;
+			_euid = uid;
+			return Error::success;
+		} else if(uid == _uid) {
+			_uid = uid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	int uid() {
+		return _uid;
+	}
+
+	Error setEuid(int euid) {
+		if(euid < 0) {
+			return Error::illegalArguments;
+		}
+		if(_uid == 0 || _euid == 0 || euid == _uid) {
+			_euid = euid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	int euid() {
+		return _euid;
+	}
+
+	Error setGid(int gid) {
+		if(gid < 0) {
+			return Error::illegalArguments;
+		}
+		if(_gid == 0 || _egid == 0) {
+			_gid = gid;
+			_egid = gid;
+			return Error::success;
+		} else if(gid == _gid) {
+			_egid = gid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	int gid() {
+		return _gid;
+	}
+
+	Error setEgid(int egid) {
+		if(egid < 0) {
+			return Error::illegalArguments;
+		}
+		if(_gid == 0 || _egid == 0 || _gid == egid || _egid == egid) {
+			_egid = egid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	int egid() {
+		return _egid;
+	}
+
 	std::shared_ptr<Generation> currentGeneration() {
 		return _currentGeneration;
 	}
@@ -393,6 +461,10 @@ private:
 	Process *_parent;
 
 	int _pid;
+	int _uid;
+	int _euid;
+	int _gid;
+	int _egid;
 	std::shared_ptr<Generation> _currentGeneration;
 	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;
