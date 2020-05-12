@@ -83,8 +83,8 @@ DeviceId FsNode::readDevice() {
 	throw std::runtime_error("readDevice() is not implemented for this FsNode");
 }
 
-async::result<int> FsNode::chmod(int mode) {
-	throw std::runtime_error("chmod() is not implemented for this FsNode");
+async::result<Error> FsNode::chmod(int mode) {
+	co_return Error::accessDenied;
 }
 
 void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie) {

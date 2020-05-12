@@ -155,7 +155,7 @@ public:
 	virtual DeviceId readDevice();
 
 	// Changes permissions on a node
-	virtual async::result<int> chmod(int mode);
+	virtual async::result<Error> chmod(int mode);
 
 protected:
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie);

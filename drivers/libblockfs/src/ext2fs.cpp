@@ -263,18 +263,14 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	co_return co_await link(name, dir_node->number, kTypeDirectory);
 }
 
-async::result<int> Inode::chmod(int mode, int64_t ino) {
-	assert(ino);
+async::result<int> Inode::chmod(int mode) {
+	co_await readyJump.async_wait();
 
-	co_await this->readyJump.async_wait();
-
-	auto self = fs.accessInode(ino);
-
-	self->diskInode()->mode = (self->diskInode()->mode & 0xFFFFF000) | mode;
+	diskInode()->mode = (diskInode()->mode & 0xFFFFF000) | mode;
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			self->diskMapping.get(), fs.inodeSize);
+			diskMapping.get(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
 	co_return 0;
@@ -618,7 +614,7 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 
 	// filter out the file type from the mode
 	// TODO: ext2fs stores a 32-bit mode
-	inode->mode = disk_inode->mode & 0x0FFF;
+	inode->diskInode()->mode = disk_inode->mode & 0x0FFF;
 
 	inode->numLinks = disk_inode->linksCount;
 	// TODO: support large uid / gids

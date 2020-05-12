@@ -74,7 +74,7 @@ struct Node : FsNode {
 		co_return stats;
 	}
 
-	async::result<int> chmod(int mode) override {
+	async::result<Error> chmod(int mode) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -82,7 +82,6 @@ struct Node : FsNode {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_CHMOD);
 		req.set_mode(mode);
-		req.set_fd(getInode());
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
@@ -98,7 +97,7 @@ struct Node : FsNode {
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-		co_return 0;
+		co_return Error::success;
 	}
 
 public:

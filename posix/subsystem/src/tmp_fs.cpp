@@ -78,10 +78,10 @@ public:
 		return _ctime;
 	}
 
-	async::result<int> chmod(int mode) override {
+	async::result<Error> chmod(int mode) override {
 		// Unimplemented
 		std::cout << "posix: Fix chmod on tmpfs" << std::endl;
-		co_return 0;
+		co_return Error::accessDenied;
 	}
 
 private:
