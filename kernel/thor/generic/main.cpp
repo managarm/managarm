@@ -257,6 +257,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		runServer("sbin/kernletcc");
 		runServer("sbin/clocktracker");
 		runServer("sbin/posix-subsystem");
+		runServer("sbin/virtio-console");
 	});
 
 	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;

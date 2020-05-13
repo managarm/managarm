@@ -11,15 +11,20 @@ Thor uses the following PHYSICAL memory regions:
 
 Thor uses the following VIRTUAL memory regions:
 
-FFFF'8001'0000'0000 to FFFF'8001'FFFF'FFFF
-	Length: 1 GiB
+FFFF'8000'0000'0000
+	Length: (unlimited)
 	Physical memory window
 	Referenced in eir/src/main.cpp, thor/src/paging.cpp
 
-FFFF'8002'0000'0000
-	Length: (unlimited)
+FFFF'E000'0000'0000
+	Length: 1 GiB
 	Kernel heap
 	Referenced in thor/src/core.cpp
+
+FFFF'F000'0000'0000
+	Length: 256MiB
+	Log ring buffer memory
+	Referenced in eir/main.cpp, thor/generic/core.cpp
 
 FFFF'FFFF'8000'0000
 	Length: (unlimited)

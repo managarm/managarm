@@ -401,6 +401,13 @@ void mapRegionsAndStructs() {
 	}
 }
 
+void allocLogRingBuffer() {
+	// 256 MiB
+	for (size_t i = 0; i < 268435456; i += kPageSize)
+		mapSingle4kPage(0xFFFF'F000'0000'0000 + i,
+				allocPage(), kAccessWrite | kAccessGlobal);
+}
+
 // ----------------------------------------------------------------------------
 // Bootstrap information handling.
 // ----------------------------------------------------------------------------
@@ -512,6 +519,9 @@ void initProcessorPaging(void *kernel_start, uint64_t& kernel_entry){
 		mapSingle4kPage(addr, addr, kAccessWrite | kAccessExecute);
 
 	mapRegionsAndStructs();
+#ifdef KERNEL_LOG_ALLOCATIONS
+	allocLogRingBuffer();
+#endif
 
 	// Setup the kernel image.
 	loadKernelImage(kernel_start, &kernel_entry);

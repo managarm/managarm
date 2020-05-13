@@ -129,6 +129,17 @@ namespace {
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
+		}else if(req.req_type() == managarm::hw::CntReqType::BUSMASTER_ENABLE) {
+			auto command = readPciHalf(device->bus, device->slot, device->function, kPciCommand);
+			writePciHalf(device->bus, device->slot, device->function,
+					kPciCommand, command | 0x0004);
+
+			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
 			// TODO: Perform some sanity checks on the offset.
 			uint32_t word;

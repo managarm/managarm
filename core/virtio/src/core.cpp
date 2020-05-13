@@ -761,9 +761,9 @@ void Queue::notify() {
 void Queue::processInterrupt() {
 	while(true) {
 		auto used_head = _usedRing->headIndex.load();
-		// TODO: I think this assertion is incorrect once we issue more than 2^16 requests.
-		assert(_progressHead <= used_head);
-		if(_progressHead == used_head)
+
+		assert((_progressHead & 0xFFFF) <= used_head);
+		if((_progressHead & 0xFFFF) == used_head)
 			break;
 		
 		asm volatile ( "" : : : "memory" );
