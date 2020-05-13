@@ -191,6 +191,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<void> unlink(std::string name);
 	async::result<std::optional<DirEntry>> mkdir(std::string name);
+	async::result<protocols::fs::Error> chmod(int mode);
 
 	FileSystem &fs;
 
@@ -229,7 +230,6 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	FileData fileData; // block references / small symlink data
 
 	int numLinks; // number of links to this file
-	uint32_t mode; // POSIX file mode
 	int uid, gid;
 	struct timespec accessTime;
 	struct timespec dataModifyTime;

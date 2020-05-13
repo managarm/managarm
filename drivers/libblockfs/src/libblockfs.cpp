@@ -274,7 +274,7 @@ getStats(std::shared_ptr<void> object) {
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->numLinks;
 	stats.fileSize = self->fileSize();
-	stats.mode = self->mode;
+	stats.mode = self->diskInode()->mode & 0xFFF;
 	stats.uid = self->uid;
 	stats.gid = self->gid;
 	stats.accessTime = self->accessTime;
@@ -319,6 +319,13 @@ mkdir(std::shared_ptr<void> object, std::string name) {
 	co_return protocols::fs::MkdirResult{fs->accessInode(entry->inode), entry->inode};
 }
 
+async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode) {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto result = co_await self->chmod(mode);
+
+	co_return result;
+}
+
 constexpr protocols::fs::NodeOperations nodeOperations{
 	&getStats,
 	&getLink,
@@ -326,7 +333,8 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 	&unlink,
 	&open,
 	&readSymlink,
-	&mkdir
+	&mkdir,
+	&chmod
 };
 
 } // anonymous namespace
