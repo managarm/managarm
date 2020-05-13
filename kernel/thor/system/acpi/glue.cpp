@@ -1,3 +1,4 @@
+#include <limits.h>
 
 #include <frigg/debug.hpp>
 #include <frigg/printf.hpp>

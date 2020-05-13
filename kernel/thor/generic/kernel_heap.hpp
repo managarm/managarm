@@ -3,7 +3,6 @@
 
 #include <frigg/atomic.hpp>
 #include <frigg/initializer.hpp>
-#include <frigg/physical_buddy.hpp>
 #include <frg/slab.hpp>
 
 #include <arch/x86/stack.hpp>
