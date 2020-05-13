@@ -75,20 +75,18 @@ struct Node : FsNode {
 	}
 
 	async::result<Error> chmod(int mode) override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_CHMOD);
 		req.set_mode(mode);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());

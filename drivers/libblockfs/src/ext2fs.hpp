@@ -191,7 +191,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<void> unlink(std::string name);
 	async::result<std::optional<DirEntry>> mkdir(std::string name);
-	async::result<int> chmod(int mode);
+	async::result<protocols::fs::Error> chmod(int mode);
 
 	FileSystem &fs;
 

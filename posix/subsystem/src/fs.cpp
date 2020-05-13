@@ -84,6 +84,7 @@ DeviceId FsNode::readDevice() {
 }
 
 async::result<Error> FsNode::chmod(int mode) {
+	std::cout << "\e[31m" "posix: chmod() is not implemented for this FsNode" "\e[39m" << std::endl;
 	co_return Error::accessDenied;
 }
 

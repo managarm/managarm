@@ -200,7 +200,7 @@ struct NodeOperations {
 
 	async::result<MkdirResult> (*mkdir)(std::shared_ptr<void> object, std::string name);
 
-	async::result<int> (*chmod)(std::shared_ptr<void> object, int mode);
+	async::result<Error> (*chmod)(std::shared_ptr<void> object, int mode);
 };
 
 async::result<void>
