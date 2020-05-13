@@ -7,6 +7,7 @@
 #include <frg/slab.hpp>
 
 #include <arch/x86/stack.hpp>
+#include <physical-buddy.hpp>
 
 namespace thor {
 
@@ -33,8 +34,8 @@ public:
 	void *allocate(size_t length);
 
 private:
-	Mutex _mutex;
-	frigg::BuddyAllocator _buddy;
+	Mutex mutex_;
+	BuddyAccessor buddy_;
 };
 
 class KernelVirtualAlloc {

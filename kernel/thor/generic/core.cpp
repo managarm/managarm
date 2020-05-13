@@ -39,46 +39,46 @@ void IrqSpinlock::unlock() {
 // --------------------------------------------------------
 
 KernelVirtualMemory::KernelVirtualMemory() {
-	// the size is chosen arbitrarily here; 1 GiB of kernel heap is sufficient for now.
-	uintptr_t original_base = 0xFFFF'E000'0000'0000;
-	size_t original_size = 0x4000'0000;
-	
-	size_t fine_shift = kPageShift + 4, coarse_shift = kPageShift + 12;
-	size_t overhead = frigg::BuddyAllocator::computeOverhead(original_size,
-			fine_shift, coarse_shift);
-	
-	uintptr_t base = original_base + overhead;
-	size_t length = original_size - overhead;
+	// The size is chosen arbitrarily here; 1 GiB of kernel heap is sufficient for now.
+	uintptr_t vmBase = 0xFFFF'E000'0000'0000;
+	size_t desiredSize = 0x4000'0000;
 
-	// align the base to the next coarse boundary.
-	uintptr_t misalign = base % (uintptr_t(1) << coarse_shift);
-	if(misalign) {
-		base += (uintptr_t(1) << coarse_shift) - misalign;
-		length -= misalign;
+	// Setup a buddy allocator.
+	auto tableOrder = BuddyAccessor::suitableOrder(desiredSize >> kPageShift);
+	auto guessedRoots = desiredSize >> (kPageShift + tableOrder);
+	auto overhead = BuddyAccessor::determineSize(guessedRoots, tableOrder);
+	overhead = (overhead + (kPageSize - 1)) & ~(kPageSize - 1);
+
+	size_t availableSize = desiredSize - overhead;
+	auto availableRoots = availableSize >> (kPageShift + tableOrder);
+
+	for(size_t pg = 0; pg < overhead; pg += kPageSize) {
+		PhysicalAddr physical = physicalAllocator->allocate(0x1000);
+		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
+		KernelPageSpace::global().mapSingle4k(vmBase + availableSize + pg, physical,
+				page_access::write, CachingMode::null);
 	}
+	auto tablePtr = reinterpret_cast<int8_t *>(vmBase + availableSize);
+	BuddyAccessor::initialize(tablePtr, availableRoots, tableOrder);
 
-	// shrink the length to the next coarse boundary.
-	length -= length % (size_t(1) << coarse_shift);
-
-	frigg::infoLogger() << "Kernel virtual memory overhead: 0x"
-			<< frigg::logHex(overhead) << frigg::endLog;
-	{
-		for(size_t offset = 0; offset < overhead; offset += kPageSize) {
-			PhysicalAddr physical = physicalAllocator->allocate(0x1000);
-			assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
-			KernelPageSpace::global().mapSingle4k(original_base + offset, physical,
-					page_access::write, CachingMode::null);
-		}
-	}
-
-	_buddy.addChunk(base, length, fine_shift, coarse_shift, (void *)original_base);
+	buddy_ = BuddyAccessor{vmBase, kPageShift,
+				tablePtr, availableRoots, tableOrder};
 }
 
 void *KernelVirtualMemory::allocate(size_t length) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
 
-	return (void *)_buddy.allocate(length);
+	// TODO: use a smarter implementation here.
+	int order = 0;
+	while(length > (size_t{1} << (kPageShift + order)))
+		++order;
+
+	auto address = buddy_.allocate(order, 64);
+	if(address == BuddyAccessor::illegalAddress)
+		frigg::panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
+				<< frigg::endLog;
+	return reinterpret_cast<void *>(address);
 }
 
 frigg::LazyInitializer<KernelVirtualMemory> kernelVirtualMemory;
