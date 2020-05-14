@@ -10,6 +10,7 @@ void operator delete(void *, size_t) {
 
 namespace thor {
 
+size_t kernelVirtualUsage = 0;
 size_t kernelMemoryUsage = 0;
 
 namespace {
@@ -77,9 +78,19 @@ void *KernelVirtualMemory::allocate(size_t length) {
 		++order;
 
 	auto address = buddy_.allocate(order, 64);
-	if(address == BuddyAccessor::illegalAddress)
+	if(address == BuddyAccessor::illegalAddress) {
+		frigg::infoLogger() << "thor: Failed to allocate 0x" << frigg::logHex(length)
+				<< " bytes of kernel virtual memory" << frigg::endLog;
+		frigg::infoLogger() << "thor:"
+				" Physical usage: " << (physicalAllocator->numUsedPages() * 4) << " KiB,"
+				" kernel VM: " << (kernelVirtualUsage / 1024) << " KiB"
+				" kernel RSS: " << (kernelMemoryUsage / 1024) << " KiB"
+				<< frigg::endLog;
 		frigg::panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
 				<< frigg::endLog;
+	}
+	kernelVirtualUsage += length;
+
 	return reinterpret_cast<void *>(address);
 }
 

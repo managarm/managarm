@@ -72,7 +72,9 @@ public:
 	int tableOrder() { return tableOrder_; }
 
 	AddressType allocate(int order, int addressBits) {
-		assert(order >= 0 && order <= tableOrder_);
+		assert(order >= 0);
+		if(order > tableOrder_)
+			return illegalAddress;
 
 		int currentOrder = tableOrder_;
 		int8_t *slice = buddyPointer_;
