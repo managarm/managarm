@@ -74,6 +74,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
 	KernelPageSpace::initialize(pml4_ptr);
+	getCpuData()->globalBinding.bind();
 
 	SkeletalRegion::initialize();
 	physicalAllocator.initialize();

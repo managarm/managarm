@@ -591,6 +591,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	PageContext pageContext;
 	PageBinding pcidBindings[maxPcidCount];
+	GlobalPageBinding globalBinding;
 
 	bool haveSmap;
 	bool havePcids;

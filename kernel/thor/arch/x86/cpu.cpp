@@ -936,6 +936,9 @@ void bootSecondary(unsigned int apic_id) {
 	auto context = frigg::construct<CpuData>(*kernelAlloc);
 	context->localApicId = apic_id;
 
+	// Participate in global TLB invalidation *before* paging is used by the target CPU.
+	context->globalBinding.bind();
+
 	// Setup a status block to communicate information to the AP.
 	auto status_block = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
 			+ (kPageSize - sizeof(StatusBlock)));

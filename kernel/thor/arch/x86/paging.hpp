@@ -34,14 +34,14 @@ struct PageAccessor {
 	}
 
 	PageAccessor(const PageAccessor &) = delete;
-	
+
 	PageAccessor(PageAccessor &&other)
 	: PageAccessor{} {
 		swap(*this, other);
 	}
 
 	~PageAccessor() { }
-	
+
 	PageAccessor &operator= (PageAccessor other) {
 		swap(*this, other);
 		return *this;
@@ -74,6 +74,8 @@ private:
 struct ShootNode {
 	friend struct PageSpace;
 	friend struct PageBinding;
+	friend struct KernelPageSpace;
+	friend struct GlobalPageBinding;
 
 	VirtualAddr address;
 	size_t size;
@@ -114,7 +116,7 @@ struct PageContext {
 	PageContext();
 
 	PageContext(const PageContext &) = delete;
-	
+
 	PageContext &operator= (const PageContext &) = delete;
 
 private:
@@ -129,7 +131,7 @@ struct PageBinding {
 	PageBinding();
 
 	PageBinding(const PageBinding &) = delete;
-	
+
 	PageBinding &operator= (const PageBinding &) = delete;
 
 	smarter::shared_ptr<PageSpace> boundSpace() {
@@ -172,6 +174,21 @@ private:
 	uint64_t _alreadyShotSequence;
 };
 
+struct GlobalPageBinding {
+	GlobalPageBinding();
+
+	GlobalPageBinding(const GlobalPageBinding &) = delete;
+
+	GlobalPageBinding &operator= (const GlobalPageBinding &) = delete;
+
+	void bind();
+
+	void shootdown();
+
+private:
+	uint64_t _alreadyShotSequence;
+};
+
 struct PageSpace {
 	static void activate(smarter::shared_ptr<PageSpace> space);
 
@@ -197,7 +214,7 @@ private:
 	RetireNode * _retireNode = nullptr;
 
 	frigg::TicketLock _mutex;
-	
+
 	unsigned int _numBindings;
 
 	uint64_t _shootSequence;
@@ -244,7 +261,8 @@ enum class CachingMode {
 	writeBack,
 };
 
-struct KernelPageSpace : PageSpace {
+struct KernelPageSpace {
+	friend struct GlobalPageBinding;
 public:
 	static void initialize(PhysicalAddr pml4_address);
 
@@ -252,17 +270,40 @@ public:
 
 	// TODO: This should be private.
 	explicit KernelPageSpace(PhysicalAddr pml4_address);
-	
+
 	KernelPageSpace(const KernelPageSpace &) = delete;
-	
+
 	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
+
+	PhysicalAddr rootTable() {
+		return _rootTable;
+	}
+
+	bool submitShootdown(ShootNode *node);
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 			uint32_t flags, CachingMode caching_mode);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 private:
+	PhysicalAddr _rootTable;
+
 	frigg::TicketLock _mutex;
+
+	frigg::TicketLock _shootMutex;
+
+	unsigned int _numBindings;
+
+	uint64_t _shootSequence;
+
+	frg::intrusive_list<
+		ShootNode,
+		frg::locate_member<
+			ShootNode,
+			frg::default_list_hook<ShootNode>,
+			&ShootNode::_queueNode
+		>
+	> _shootQueue;
 };
 
 struct ClientPageSpace : PageSpace {
@@ -296,9 +337,9 @@ public:
 	};
 
 	ClientPageSpace();
-	
+
 	ClientPageSpace(const ClientPageSpace &) = delete;
-	
+
 	~ClientPageSpace();
 
 	ClientPageSpace &operator= (const ClientPageSpace &) = delete;

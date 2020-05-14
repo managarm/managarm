@@ -321,6 +321,79 @@ void PageBinding::shootdown() {
 }
 
 // --------------------------------------------------------
+
+GlobalPageBinding::GlobalPageBinding()
+: _alreadyShotSequence{0} { }
+
+void GlobalPageBinding::bind() {
+	assert(!intsAreEnabled());
+
+	auto space = &KernelPageSpace::global();
+
+	uint64_t targetSeq;
+	{
+		auto lock = frigg::guard(&space->_shootMutex);
+
+		targetSeq = space->_shootSequence;
+		space->_numBindings++;
+	}
+
+	_alreadyShotSequence = targetSeq;
+}
+
+void GlobalPageBinding::shootdown() {
+	assert(!intsAreEnabled());
+
+	auto space = &KernelPageSpace::global();
+
+	frg::intrusive_list<
+		ShootNode,
+		frg::locate_member<
+			ShootNode,
+			frg::default_list_hook<ShootNode>,
+			&ShootNode::_queueNode
+		>
+	> complete;
+
+	uint64_t targetSeq;
+	{
+		auto lock = frigg::guard(&space->_shootMutex);
+
+		if(!space->_shootQueue.empty()) {
+			auto current = space->_shootQueue.back();
+			while(current->_sequence > _alreadyShotSequence) {
+				auto predecessor = current->_queueNode.previous;
+
+				if(current->_initiatorCpu != getCpuData()) {
+					// Perform the actual shootdown.
+					for(size_t pg = 0; pg < current->size; pg += kPageSize)
+						invalidatePage(reinterpret_cast<void *>(current->address + pg));
+
+					// Signal completion of the shootdown.
+					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+						auto it = space->_shootQueue.iterator_to(current);
+						space->_shootQueue.erase(it);
+						complete.push_front(current);
+					}
+				}
+
+				if(!predecessor)
+					break;
+				current = predecessor;
+			}
+		}
+		targetSeq = space->_shootSequence;
+	}
+
+	_alreadyShotSequence = targetSeq;
+
+	while(!complete.empty()) {
+		auto current = complete.pop_front();
+		WorkQueue::post(current->_worklet);
+	}
+}
+
+// --------------------------------------------------------
 // PageSpace.
 // --------------------------------------------------------
 
@@ -437,7 +510,36 @@ KernelPageSpace &KernelPageSpace::global() {
 }
 
 KernelPageSpace::KernelPageSpace(PhysicalAddr pml4_address)
-: PageSpace{pml4_address} { }
+: _rootTable{pml4_address} { }
+
+bool KernelPageSpace::submitShootdown(ShootNode *node) {
+	assert(!(node->address & (kPageSize - 1)));
+	assert(!(node->size & (kPageSize - 1)));
+
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+
+		auto unshotBindings = _numBindings;
+
+		// Perform synchronous shootdown.
+		assert(unshotBindings);
+		for(size_t pg = 0; pg < node->size; pg += kPageSize)
+			invalidatePage(reinterpret_cast<void *>(node->address + pg));
+		unshotBindings--;
+
+		if(!unshotBindings)
+			return true;
+
+		node->_initiatorCpu = getCpuData();
+		node->_sequence = ++_shootSequence;
+		node->_bindingsToShoot = unshotBindings;
+		_shootQueue.push_back(node);
+	}
+
+	sendShootdownIpi();
+	return false;
+}
 
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		uint32_t flags, CachingMode caching_mode) {
