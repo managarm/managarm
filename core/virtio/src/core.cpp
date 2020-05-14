@@ -32,7 +32,7 @@ struct Mapping {
 	}
 
 	Mapping(const Mapping &) = delete;
-	
+
 	Mapping(Mapping &&other)
 	: Mapping() {
 		swap(*this, other);
@@ -198,7 +198,7 @@ Queue *LegacyPciTransport::setupQueue(unsigned int queue_index) {
 	auto used = reinterpret_cast<spec::UsedRing *>((char *)window + used_offset);
 	_queues[queue_index] = std::make_unique<LegacyPciQueue>(this, queue_index, queue_size,
 			table, available, used);
-	
+
 	// Hand the queue to the device.
 	uintptr_t table_physical;
 	HEL_CHECK(helPointerPhysical(table, &table_physical));
@@ -279,7 +279,7 @@ struct StandardPciTransport : Transport {
 	protocols::hw::Device &hwDevice() override {
 		return _hwDevice;
 	}
-	
+
 	uint8_t loadConfig8(size_t offset) override;
 	uint16_t loadConfig16(size_t offset) override;
 	uint32_t loadConfig32(size_t offset) override;
@@ -556,7 +556,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			auto length = co_await hw_device.loadPciCapability(i, 12, 4);
 			std::cout << "virtio: Subtype: " << subtype << ", BAR index: " << bir
 					<< ", offset: " << offset << ", length: " << length << std::endl;
-		
+
 			assert(info.barInfo[bir].ioType == protocols::hw::IoType::kIoTypeMemory);
 			auto bar = co_await hw_device.accessBar(bir);
 			Mapping mapping{std::move(bar), info.barInfo[bir].offset + offset, length};
@@ -572,7 +572,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 				device_mapping = std::move(mapping);
 			}
 		}
-		
+
 		if(common_mapping && notify_mapping && isr_mapping && device_mapping) {
 			// Reset the device.
 			arch::mem_space common_space{common_mapping->get()};
@@ -598,7 +598,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 		if(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort) {
 			auto bar = co_await hw_device.accessBar(0);
 			HEL_CHECK(helEnableIo(bar.getHandle()));
-			
+
 			// Reset the device.
 			arch::io_space legacy_space{static_cast<uint16_t>(info.barInfo[0].address)};
 			legacy_space.store(PCI_L_DEVICE_STATUS, 0);
@@ -632,7 +632,7 @@ void Handle::setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
 
 	uintptr_t physical;
 	HEL_CHECK(helPointerPhysical(view.data(), &physical));
-	
+
 	auto descriptor = _queue->_table + _tableIndex;
 	descriptor->address.store(physical);
 	descriptor->length.store(view.size());
@@ -643,7 +643,7 @@ void Handle::setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
 
 	uintptr_t physical;
 	HEL_CHECK(helPointerPhysical(view.data(), &physical));
-	
+
 	auto descriptor = _queue->_table + _tableIndex;
 	descriptor->address.store(physical);
 	descriptor->length.store(view.size());
@@ -710,7 +710,7 @@ Queue::Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *tabl
 	for(size_t i = 0; i < _queueSize; i++)
 		_usedRing->elements[i].tableIndex.store(0xFFFF);
 	_usedExtra->eventIndex.store(0);
-	
+
 	// Construct the software state.
 	for(size_t i = 0; i < _queueSize; i++)
 		_descriptorStack.push_back(i);
@@ -726,7 +726,7 @@ async::result<Handle> Queue::obtainDescriptor() {
 
 		size_t table_index = _descriptorStack.back();
 		_descriptorStack.pop_back();
-		
+
 		auto descriptor = _table + table_index;
 		descriptor->address.store(0);
 		descriptor->length.store(0);
@@ -762,10 +762,9 @@ void Queue::processInterrupt() {
 	while(true) {
 		auto used_head = _usedRing->headIndex.load();
 
-		assert((_progressHead & 0xFFFF) <= used_head);
 		if((_progressHead & 0xFFFF) == used_head)
 			break;
-		
+
 		asm volatile ( "" : : : "memory" );
 
 		auto ring_index = _progressHead & (_queueSize - 1);
