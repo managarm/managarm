@@ -550,6 +550,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		auto &&initiate = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_req));
 		co_await initiate.async_wait();
+		if(recv_req.error() == kHelErrBufferTooSmall) {
+			std::cout << "posix: Rejecting request due to RecvInline overflow" << std::endl;
+			continue;
+		}
 		HEL_CHECK(recv_req.error());
 
 		managarm::posix::CntRequest req;
