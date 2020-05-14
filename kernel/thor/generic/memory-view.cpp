@@ -631,8 +631,6 @@ size_t AllocatedMemory::getLength() {
 ManagedSpace::ManagedSpace(size_t length)
 : pages{*kernelAlloc}, numPages{length >> kPageShift} {
 	assert(!(length & (kPageSize - 1)));
-	for(size_t i = 0; i < (length >> kPageShift); i++)
-		pages.insert(i, this, i);
 }
 
 ManagedSpace::~ManagedSpace() {
@@ -689,7 +687,7 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
-		auto pit = pages.find(index);
+		auto [pit, wasInserted] = pages.find_or_insert(index, this, index);
 		assert(pit);
 		pit->lockCount++;
 		if(pit->lockCount == 1) {
@@ -851,8 +849,7 @@ void BackingMemory::resize(size_t newSize, execution::any_receiver<void> receive
 		auto lock = frigg::guard(&self->_managed->mutex);
 
 		if(newPages > self->_managed->numPages) {
-			for(size_t i = self->_managed->numPages; i < newPages; i++)
-				self->_managed->pages.find_or_insert(i, self->_managed.get(), i);
+			// Do nothing for now.
 		}else if(newPages < self->_managed->numPages) {
 			co_await self->_managed->_evictQueue.evictRange(newPages << kPageShift,
 					self->_managed->numPages << kPageShift);
@@ -889,8 +886,9 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 	auto index = offset / kPageSize;
 	assert(index < _managed->numPages);
 	auto pit = _managed->pages.find(index);
-	assert(pit);
 
+	if(!pit)
+		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
@@ -901,7 +899,7 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 	assert(index < _managed->numPages);
-	auto pit = _managed->pages.find(index);
+	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
 	assert(pit);
 
 	if(pit->physical == PhysicalAddr(-1)) {
@@ -1012,9 +1010,8 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 	auto index = offset / kPageSize;
 	assert(index < _managed->numPages);
 	auto pit = _managed->pages.find(index);
-	assert(pit);
 
-	if(pit->loadState != ManagedSpace::kStatePresent)
+	if(!pit || pit->loadState != ManagedSpace::kStatePresent)
 		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
@@ -1028,7 +1025,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(index < _managed->numPages);
 
 	// Try the fast-paths first.
-	auto pit = _managed->pages.find(index);
+	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
 	assert(pit);
 	if(pit->loadState == ManagedSpace::kStatePresent
 			|| pit->loadState == ManagedSpace::kStateWantWriteback
@@ -1160,7 +1157,7 @@ void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
 	assert(node->length % kPageSize == 0);
 	for(size_t pg = 0; pg < node->length; pg += kPageSize) {
 		auto index = (node->offset + pg) >> kPageShift;
-		auto pit = _managed->pages.find(index);
+		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
 		assert(pit);
 		if(pit->loadState == ManagedSpace::kStateMissing) {
 			pit->loadState = ManagedSpace::kStateWantInitialization;
