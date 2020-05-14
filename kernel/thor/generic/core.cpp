@@ -89,9 +89,23 @@ void *KernelVirtualMemory::allocate(size_t length) {
 		frigg::panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
 				<< frigg::endLog;
 	}
-	kernelVirtualUsage += length;
+	kernelVirtualUsage += (size_t{1} << (kPageShift + order));
 
 	return reinterpret_cast<void *>(address);
+}
+
+void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	// TODO: use a smarter implementation here.
+	int order = 0;
+	while(length > (size_t{1} << (kPageShift + order)))
+		++order;
+
+	buddy_.free(reinterpret_cast<uintptr_t>(pointer), order);
+	assert(kernelVirtualUsage >= (size_t{1} << (kPageShift + order)));
+	kernelVirtualUsage -= (size_t{1} << (kPageShift + order));
 }
 
 frigg::LazyInitializer<KernelVirtualMemory> kernelVirtualMemory;
@@ -130,9 +144,38 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	}
 	kernelMemoryUsage -= length;
 
-	// TODO: Perform proper shootdown here.
-	for(size_t offset = 0; offset < length; offset += kPageSize)
-		invalidatePage(reinterpret_cast<char *>(address) + offset);
+	struct Closure {
+		PhysicalAddr thisPage;
+		size_t address;
+		size_t length;
+		Worklet worklet;
+		ShootNode shootNode;
+	};
+	static_assert(sizeof(Closure) <= kPageSize);
+
+	// We need some memory to store the closure that waits until shootdown completes.
+	// For now, our stategy consists of allocating one page of *physical* memory
+	// and accessing it through the global physical mapping.
+	auto physical = physicalAllocator->allocate(kPageSize);
+	PageAccessor accessor{physical};
+	auto p = new (accessor.get()) Closure;
+	p->thisPage = physical;
+	p->address = address;
+	p->length = length;
+	p->worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(closure->address),
+				closure->length);
+		auto physical = closure->thisPage;
+		closure->~Closure();
+		asm volatile ("" : : : "memory");
+		physicalAllocator->free(physical, kPageSize);
+	});
+	p->shootNode.address = address;
+	p->shootNode.size = length;
+	p->shootNode.setup(&p->worklet);
+	if(KernelPageSpace::global().submitShootdown(&p->shootNode))
+		WorkQueue::post(&p->worklet);
 }
 
 frigg::LazyInitializer<LogRingBuffer> allocLog;
