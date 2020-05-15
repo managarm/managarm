@@ -1,7 +1,7 @@
 #pragma once
 
+#include <async/basic.hpp>
 #include <frigg/debug.hpp>
-#include "basics.hpp"
 
 template<typename T>
 struct coroutine_continuation {
@@ -289,6 +289,6 @@ coroutine_operation<T, R> connect(coroutine<T> s, R receiver) {
 };
 
 template<typename T>
-execution::sender_awaiter<coroutine<T>, T> operator co_await(coroutine<T> s) {
+async::sender_awaiter<coroutine<T>, T> operator co_await(coroutine<T> s) {
 	return {std::move(s)};
 }

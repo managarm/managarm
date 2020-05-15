@@ -198,7 +198,7 @@ coroutine<void> initializeAtaDevice() {
 void initializeDevices() {
 	// For now, we only need the kernel fiber to make sure mbusClient is already initialized.
 	KernelFiber::run([=] {
-		execution::detach(initializeAtaDevice());
+		async::detach_with_allocator(*kernelAlloc, initializeAtaDevice());
 	});
 }
 

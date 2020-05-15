@@ -166,7 +166,7 @@ public:
 		R receiver_;
 	};
 
-	friend execution::sender_awaiter<SubmitSender>
+	friend async::sender_awaiter<SubmitSender>
 	operator co_await(SubmitSender sender) {
 		return {sender};
 	}

@@ -683,7 +683,7 @@ namespace initrd {
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
 			}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
-				execution::detach([] (Process *process, LaneHandle lane,
+				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
 						posix::CntRequest<KernelAlloc> req) -> coroutine<void> {
 					if(!req.size()) {
 						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -820,7 +820,7 @@ namespace initrd {
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 				(*this)();
 			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
-				execution::detach([] (ObserveClosure *self) -> coroutine<void> {
+				async::detach_with_allocator(*kernelAlloc, [] (ObserveClosure *self) -> coroutine<void> {
 					auto address = self->_thread->_executor.general()->rsi;
 					auto size = self->_thread->_executor.general()->rdx;
 					auto space = self->_thread->getAddressSpace();

@@ -3,13 +3,13 @@
 
 #include <atomic>
 
+#include <async/basic.hpp>
+#include <async/cancellation.hpp>
 #include <frg/container_of.hpp>
 #include <frg/pairing_heap.hpp>
 #include <frg/intrusive.hpp>
 #include <frigg/atomic.hpp>
 #include "cancel.hpp"
-#include "execution/basics.hpp"
-#include "execution/cancellation.hpp"
 #include "work-queue.hpp"
 
 namespace thor {
@@ -75,7 +75,7 @@ struct PrecisionTimerNode {
 		_elapsed = elapsed;
 	}
 
-	void setup(uint64_t deadline, cancellation_token cancelToken, Worklet *elapsed) {
+	void setup(uint64_t deadline, async::cancellation_token cancelToken, Worklet *elapsed) {
 		_deadline = deadline;
 		_cancelToken = cancelToken;
 		_elapsed = elapsed;
@@ -89,7 +89,7 @@ struct PrecisionTimerNode {
 
 private:
 	uint64_t _deadline;
-	cancellation_token _cancelToken;
+	async::cancellation_token _cancelToken;
 	Worklet *_elapsed;
 
 	// TODO: If we allow timer engines to be destructed, this needs to be refcounted.
@@ -97,7 +97,7 @@ private:
 
 	TimerState _state = TimerState::none;
 	bool _wasCancelled = false;
-	transient_cancellation_callback<CancelFunctor> _cancelCb;
+	async::cancellation_observer<CancelFunctor> _cancelCb;
 };
 
 struct CompareTimer {
@@ -133,10 +133,10 @@ public:
 
 		PrecisionTimerEngine *self;
 		uint64_t deadline;
-		cancellation_token cancellation;
+		async::cancellation_token cancellation;
 	};
 
-	SleepSender sleep(uint64_t deadline, cancellation_token cancellation = {}) {
+	SleepSender sleep(uint64_t deadline, async::cancellation_token cancellation = {}) {
 		return {this, deadline, cancellation};
 	}
 
@@ -165,7 +165,7 @@ public:
 		Worklet worklet_;
 	};
 
-	friend execution::sender_awaiter<SleepSender>
+	friend async::sender_awaiter<SleepSender>
 	operator co_await(SleepSender sender) {
 		return {std::move(sender)};
 	}

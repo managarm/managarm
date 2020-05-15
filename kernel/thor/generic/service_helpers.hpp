@@ -1,6 +1,6 @@
 #pragma once
 
-#include "execution/basics.hpp"
+#include <async/basic.hpp>
 #include "stream.hpp"
 
 namespace thor {
@@ -51,7 +51,7 @@ inline OfferOperation<R> connect(OfferSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline execution::sender_awaiter<OfferSender, frg::tuple<Error, LaneHandle>>
+inline async::sender_awaiter<OfferSender, frg::tuple<Error, LaneHandle>>
 operator co_await(OfferSender s) {
 	return {std::move(s)};
 }
@@ -87,7 +87,7 @@ inline AcceptOperation<R> connect(AcceptSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline execution::sender_awaiter<AcceptSender, frg::tuple<Error, LaneHandle>>
+inline async::sender_awaiter<AcceptSender, frg::tuple<Error, LaneHandle>>
 operator co_await(AcceptSender s) {
 	return {std::move(s)};
 }
@@ -121,7 +121,7 @@ inline SendBufferOperation<R> connect(SendBufferSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline execution::sender_awaiter<SendBufferSender, Error>
+inline async::sender_awaiter<SendBufferSender, Error>
 operator co_await(SendBufferSender s) {
 	return {std::move(s)};
 }
@@ -155,7 +155,7 @@ inline RecvBufferOperation<R> connect(RecvBufferSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline execution::sender_awaiter<RecvBufferSender, frg::tuple<Error, frigg::UniqueMemory<KernelAlloc>>>
+inline async::sender_awaiter<RecvBufferSender, frg::tuple<Error, frigg::UniqueMemory<KernelAlloc>>>
 operator co_await(RecvBufferSender s) {
 	return {std::move(s)};
 }
@@ -189,7 +189,7 @@ inline PushDescriptorOperation<R> connect(PushDescriptorSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline execution::sender_awaiter<PushDescriptorSender, Error>
+inline async::sender_awaiter<PushDescriptorSender, Error>
 operator co_await(PushDescriptorSender s) {
 	return {std::move(s)};
 }
@@ -222,7 +222,7 @@ inline PullDescriptorOperation<R> connect(PullDescriptorSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline execution::sender_awaiter<PullDescriptorSender, frg::tuple<Error, AnyDescriptor>>
+inline async::sender_awaiter<PullDescriptorSender, frg::tuple<Error, AnyDescriptor>>
 operator co_await(PullDescriptorSender s) {
 	return {std::move(s)};
 }

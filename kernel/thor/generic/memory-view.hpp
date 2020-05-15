@@ -304,7 +304,7 @@ struct EvictionQueue {
 		EvictNode node_;
 	};
 
-	friend execution::sender_awaiter<EvictRangeSender, void>
+	friend async::sender_awaiter<EvictRangeSender, void>
 	operator co_await(EvictRangeSender sender) {
 		return {sender};
 	}
@@ -345,11 +345,11 @@ protected:
 public:
 	virtual size_t getLength() = 0;
 
-	virtual void resize(size_t newLength, execution::any_receiver<void> receiver);
+	virtual void resize(size_t newLength, async::any_receiver<void> receiver);
 
 	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
 
-	virtual void fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver);
+	virtual void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver);
 
 	// Add/remove memory observers. These will be notified of page evictions.
 	virtual void addObserver(smarter::shared_ptr<MemoryObserver> observer) = 0;
@@ -361,7 +361,7 @@ public:
 	// (e.g. due to fetchRange()), it cannot be evicted until the lock is released.
 	virtual Error lockRange(uintptr_t offset, size_t size) = 0;
 	virtual void asyncLockRange(uintptr_t offset, size_t size,
-			execution::any_receiver<Error> receiver);
+			async::any_receiver<Error> receiver);
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
@@ -427,7 +427,7 @@ public:
 		R receiver_;
 	};
 
-	friend execution::sender_awaiter<ResizeSender>
+	friend async::sender_awaiter<ResizeSender>
 	operator co_await(ResizeSender sender) {
 		return {sender};
 	}
@@ -473,7 +473,7 @@ public:
 		R receiver_;
 	};
 
-	friend execution::sender_awaiter<LockRangeSender, Error>
+	friend async::sender_awaiter<LockRangeSender, Error>
 	operator co_await(LockRangeSender sender) {
 		return {sender};
 	}
@@ -526,7 +526,7 @@ public:
 		Worklet worklet_;
 	};
 
-	friend execution::sender_awaiter<FetchRangeSender, frg::tuple<Error, PhysicalRange, uint32_t>>
+	friend async::sender_awaiter<FetchRangeSender, frg::tuple<Error, PhysicalRange, uint32_t>>
 	operator co_await(FetchRangeSender sender) {
 		return {sender};
 	}
@@ -664,7 +664,7 @@ private:
 	CopyFromBundleNode node_;
 };
 
-inline execution::sender_awaiter<CopyFromViewSender, void>
+inline async::sender_awaiter<CopyFromViewSender, void>
 operator co_await(CopyFromViewSender sender) {
 	return {sender};
 }
@@ -704,7 +704,7 @@ struct AllocatedMemory final : MemoryView {
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
 	size_t getLength() override;
-	void resize(size_t newLength, execution::any_receiver<void> receiver) override;
+	void resize(size_t newLength, async::any_receiver<void> receiver) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -804,7 +804,7 @@ public:
 	BackingMemory &operator= (const BackingMemory &) = delete;
 
 	size_t getLength() override;
-	void resize(size_t newLength, execution::any_receiver<void> receiver) override;
+	void resize(size_t newLength, async::any_receiver<void> receiver) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -903,12 +903,12 @@ public:
 	CopyOnWriteMemory &operator= (const CopyOnWriteMemory &) = delete;
 
 	size_t getLength() override;
-	void fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) override;
+	void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) override;
 	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
 	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void asyncLockRange(uintptr_t offset, size_t size,
-			execution::any_receiver<Error> receiver) override;
+			async::any_receiver<Error> receiver) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;

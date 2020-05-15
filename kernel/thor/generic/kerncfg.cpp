@@ -224,7 +224,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 	assert(!boundError && "Unexpected mbus transaction");
 	auto boundLane = stream.get<0>();
 
-	execution::detach(([] (LaneHandle boundLane) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, ([] (LaneHandle boundLane) -> coroutine<void> {
 		while(true) {
 			auto error = co_await handleReq(boundLane);
 			if(error == kErrEndOfLane)
@@ -263,7 +263,7 @@ coroutine<void> handleByteRingBind(LaneHandle objectLane) {
 	assert(!boundError && "Unexpected mbus transaction");
 	auto boundLane = stream.get<0>();
 
-	execution::detach(([] (LaneHandle boundLane) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, ([] (LaneHandle boundLane) -> coroutine<void> {
 		while(true) {
 			auto error = co_await handleByteRingReq(boundLane);
 			if(error == kErrEndOfLane)
@@ -281,11 +281,11 @@ coroutine<void> handleByteRingBind(LaneHandle objectLane) {
 void initializeKerncfg() {
 	// Create a fiber to manage requests to the kerncfg mbus object.
 	KernelFiber::run([=] {
-		execution::detach(createObject(*mbusClient));
+		async::detach_with_allocator(*kernelAlloc, createObject(*mbusClient));
 	});
 
 	KernelFiber::run([=] {
-		execution::detach(createByteRingObject(*mbusClient, "heap-trace"));
+		async::detach_with_allocator(*kernelAlloc, createByteRingObject(*mbusClient, "heap-trace"));
 	});
 }
 

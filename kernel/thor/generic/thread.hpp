@@ -103,8 +103,8 @@ public:
 		};
 
 		closure.blocker.setup();
-		auto operation = connect(std::move(s), Receiver{&closure});
-		operation.start();
+		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
+		async::execution::start(operation);
 		Thread::blockCurrent(&closure.blocker);
 	}
 

@@ -1,13 +1,13 @@
 #ifndef THOR_GENERIC_FUTEX_HPP
 #define THOR_GENERIC_FUTEX_HPP
 
+#include <async/cancellation.hpp>
 #include <frg/hash_map.hpp>
 #include <frg/functional.hpp>
 #include <frg/list.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/linked.hpp>
 #include "cancel.hpp"
-#include "execution/cancellation.hpp"
 #include "kernel_heap.hpp"
 #include "work-queue.hpp"
 #include "../arch/x86/ints.hpp"
@@ -39,10 +39,10 @@ private:
 	Futex *_futex = nullptr;
 	uintptr_t _address;
 	Worklet *_woken;
-	cancellation_token _cancellation;
+	async::cancellation_token _cancellation;
 	FutexState _state = FutexState::none;
 	bool _wasCancelled = false;
-	transient_cancellation_callback<frg::bound_mem_fn<&FutexNode::onCancel>> _cancelCb;
+	async::cancellation_observer<frg::bound_mem_fn<&FutexNode::onCancel>> _cancelCb;
 	frg::default_list_hook<FutexNode> _queueNode;
 };
 
@@ -60,7 +60,7 @@ struct Futex {
 
 	template<typename C>
 	bool checkSubmitWait(Address address, C condition, FutexNode *node,
-			cancellation_token cancellation = {}) {
+			async::cancellation_token cancellation = {}) {
 		// TODO: avoid reuse of FutexNode and remove this condition.
 		if(node->_state == FutexState::retired) {
 			node->_futex = nullptr;
@@ -121,11 +121,11 @@ struct Futex {
 		Futex *self;
 		Address address;
 		Condition c;
-		cancellation_token cancellation;
+		async::cancellation_token cancellation;
 	};
 
 	template<typename Condition>
-	WaitSender<Condition> wait(Address address, Condition c, cancellation_token cancellation = {}) {
+	WaitSender<Condition> wait(Address address, Condition c, async::cancellation_token cancellation = {}) {
 		return {this, address, std::move(c), cancellation};
 	}
 
@@ -156,7 +156,7 @@ struct Futex {
 	};
 
 	template<typename Condition>
-	friend execution::sender_awaiter<WaitSender<Condition>>
+	friend async::sender_awaiter<WaitSender<Condition>>
 	operator co_await(WaitSender<Condition> sender) {
 		return {std::move(sender)};
 	}

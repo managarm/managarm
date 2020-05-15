@@ -1,7 +1,7 @@
 #pragma once
 
+#include <async/basic.hpp>
 #include <frg/container_of.hpp>
-#include "execution/basics.hpp"
 #include "memory-view.hpp"
 
 namespace thor {
@@ -70,7 +70,7 @@ struct VirtualOperations {
 		Worklet worklet_;
 	};
 
-	friend execution::sender_awaiter<ShootdownSender>
+	friend async::sender_awaiter<ShootdownSender>
 	operator co_await(ShootdownSender sender) {
 		return {sender};
 	}
@@ -295,7 +295,7 @@ struct Mapping : MemoryObserver {
 		Worklet worklet_;
 	};
 
-	friend execution::sender_awaiter<LockVirtualRangeSender>
+	friend async::sender_awaiter<LockVirtualRangeSender>
 	operator co_await(LockVirtualRangeSender sender) {
 		return {sender};
 	}
@@ -348,7 +348,7 @@ struct Mapping : MemoryObserver {
 		Worklet worklet_;
 	};
 
-	friend execution::sender_awaiter<TouchVirtualPageSender, frg::tuple<Error, PhysicalRange, bool>>
+	friend async::sender_awaiter<TouchVirtualPageSender, frg::tuple<Error, PhysicalRange, bool>>
 	operator co_await(TouchVirtualPageSender sender) {
 		return {sender};
 	}
@@ -402,7 +402,7 @@ struct Mapping : MemoryObserver {
 		Worklet worklet_;
 	};
 
-	friend execution::sender_awaiter<PopulateVirtualRangeSender>
+	friend async::sender_awaiter<PopulateVirtualRangeSender>
 	operator co_await(PopulateVirtualRangeSender sender) {
 		return {sender};
 	}
@@ -568,7 +568,7 @@ public:
 	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
 	void synchronize(VirtualAddr address, size_t length,
-			execution::any_receiver<void> receiver);
+			async::any_receiver<void> receiver);
 
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
@@ -619,7 +619,7 @@ public:
 		R receiver_;
 	};
 
-	friend execution::sender_awaiter<SynchronizeSender>
+	friend async::sender_awaiter<SynchronizeSender>
 	operator co_await(SynchronizeSender sender) {
 		return {sender};
 	}
@@ -673,7 +673,7 @@ public:
 		Worklet worklet_;
 	};
 
-	friend execution::sender_awaiter<UnmapSender>
+	friend async::sender_awaiter<UnmapSender>
 	operator co_await(UnmapSender sender) {
 		return {sender};
 	}

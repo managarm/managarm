@@ -600,7 +600,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 	assert(!boundError && "Unexpected mbus transaction");
 	auto boundLane = stream.get<0>();
 
-	execution::detach(([] (LaneHandle boundLane) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, ([] (LaneHandle boundLane) -> coroutine<void> {
 		while(true) {
 			auto error = co_await handleReq(boundLane);
 			if(error == kErrEndOfLane)
@@ -620,7 +620,7 @@ void initializeSvrctl() {
 
 	// Create a fiber to manage requests to the svrctl mbus object.
 	KernelFiber::run([=] {
-		execution::detach(createObject(*mbusClient));
+		async::detach_with_allocator(*kernelAlloc, createObject(*mbusClient));
 	});
 }
 

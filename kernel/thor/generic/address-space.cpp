@@ -127,7 +127,7 @@ void Mapping::protect(MappingFlags flags) {
 }
 
 bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
-	execution::detach([] (Mapping *self, PopulateVirtualNode *continuation) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, PopulateVirtualNode *continuation) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < continuation->_size) {
 			auto [error, range, spurious] = co_await self->touchVirtualPage(continuation->_offset
@@ -183,7 +183,7 @@ Mapping::resolveRange(ptrdiff_t offset) {
 bool Mapping::touchVirtualPage(TouchVirtualNode *continuation) {
 	assert(_state == MappingState::active);
 
-	execution::detach([] (Mapping *self, TouchVirtualNode *continuation) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, TouchVirtualNode *continuation) -> coroutine<void> {
 		FetchFlags fetchFlags = 0;
 		if(self->flags() & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
@@ -690,13 +690,13 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 }
 
 void VirtualSpace::synchronize(VirtualAddr address, size_t size,
-		execution::any_receiver<void> receiver) {
+		async::any_receiver<void> receiver) {
 	auto misalign = address & (kPageSize - 1);
 	auto alignedAddress = address & ~(kPageSize - 1);
 	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
-	execution::detach([] (VirtualSpace *self, VirtualAddr alignedAddress, size_t alignedSize,
-			execution::any_receiver<void> receiver) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (VirtualSpace *self, VirtualAddr alignedAddress, size_t alignedSize,
+			async::any_receiver<void> receiver) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < alignedSize) {
 			smarter::shared_ptr<Mapping> mapping;
@@ -951,7 +951,7 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 		return true;
 	}
 
-	execution::detach([] (AddressSpaceLockHandle *self, AcquireNode *node) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (AddressSpaceLockHandle *self, AcquireNode *node) -> coroutine<void> {
 		auto misalign = self->_address & (kPageSize - 1);
 		co_await self->_mapping->lockVirtualRange((self->_address - self->_mapping->address())
 					& ~(kPageSize - 1),

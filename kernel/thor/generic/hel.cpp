@@ -1,9 +1,9 @@
 #include <string.h>
 
+#include <async/algorithm.hpp>
+#include <async/cancellation.hpp>
 #include <frg/container_of.hpp>
 #include "event.hpp"
-#include "execution/algorithm.hpp"
-#include "execution/cancellation.hpp"
 #include "execution/coroutine.hpp"
 #include "kernel.hpp"
 #include "ipc-queue.hpp"
@@ -976,7 +976,7 @@ HelError helSubmitSynchronizeSpace(HelHandle spaceHandle, void *pointer, size_t 
 		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
-	execution::detach([] (smarter::shared_ptr<AddressSpace, BindableHandle> space,
+	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<AddressSpace, BindableHandle> space,
 			void *pointer, size_t length,
 			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
 		co_await space->synchronize((VirtualAddr)pointer, length);
@@ -1870,7 +1870,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		}
 
 		Worklet worklet;
-		cancellation_event cancelEvent;
+		async::cancellation_event cancelEvent;
 		frigg::SharedPtr<IpcQueue> queue;
 		QueueSource source;
 		HelSimpleResult result;
@@ -2315,12 +2315,12 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		);
 	}else{
 		Thread::asyncBlockCurrent(
-			race_and_cancel(
-				[=] (cancellation_token cancellation) {
+			async::race_and_cancel(
+				[=] (async::cancellation_token cancellation) {
 					return space->futexSpace.wait(
 						reinterpret_cast<uintptr_t>(pointer), condition, cancellation);
 				},
-				[=] (cancellation_token cancellation) {
+				[=] (async::cancellation_token cancellation) {
 					return generalTimerEngine()->sleep(deadline, cancellation);
 				}
 			)

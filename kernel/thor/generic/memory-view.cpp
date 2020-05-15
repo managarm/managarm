@@ -172,18 +172,18 @@ void MemoryView::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t si
 	frigg::panicLogger() << "MemoryView does not support synchronous operations!" << frigg::endLog;
 }
 
-void MemoryView::resize(size_t newSize, execution::any_receiver<void> receiver) {
+void MemoryView::resize(size_t newSize, async::any_receiver<void> receiver) {
 	(void)newSize;
 	(void)receiver;
 	frigg::panicLogger() << "MemoryView does not support resize!" << frigg::endLog;
 }
 
-void MemoryView::fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+void MemoryView::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
 	receiver.set_value({kErrIllegalObject, nullptr});
 }
 
 void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
-		execution::any_receiver<Error> receiver) {
+		async::any_receiver<Error> receiver) {
 	receiver.set_value(lockRange(offset, size));
 }
 
@@ -516,7 +516,7 @@ AllocatedMemory::~AllocatedMemory() {
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
 }
 
-void AllocatedMemory::resize(size_t newSize, execution::any_receiver<void> receiver) {
+void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -650,7 +650,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	pit->loadState = kStateEvicting;
 	globalReclaimer->removePage(&pit->cachePage);
 
-	execution::detach([] (ManagedSpace *self, CachePage *page, ManagedPage *pit,
+	async::detach_with_allocator(*kernelAlloc, [] (ManagedSpace *self, CachePage *page, ManagedPage *pit,
 			ReclaimNode *continuation) -> coroutine<void> {
 		co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
 
@@ -839,12 +839,12 @@ void ManagedSpace::_progressMonitors() {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::resize(size_t newSize, execution::any_receiver<void> receiver) {
+void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 	assert(!(newSize & (kPageSize - 1)));
 	auto newPages = newSize >> kPageShift;
 
-	execution::detach([] (BackingMemory *self, size_t newPages,
-			execution::any_receiver<void> receiver) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (BackingMemory *self, size_t newPages,
+			async::any_receiver<void> receiver) -> coroutine<void> {
 		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&self->_managed->mutex);
 
@@ -1306,7 +1306,7 @@ size_t CopyOnWriteMemory::getLength() {
 	return _length;
 }
 
-void CopyOnWriteMemory::fork(execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
 	// Note that locked pages require special attention during CoW: as we cannot
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
@@ -1362,8 +1362,8 @@ void CopyOnWriteMemory::fork(execution::any_receiver<frg::tuple<Error, frigg::Sh
 		}
 	}
 
-	execution::detach([] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
-			execution::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
+			async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) -> coroutine<void> {
 			co_await self->_evictQueue.evictRange(0, self->_length);
 			receiver.set_value({kErrSuccess, std::move(forked)});
 	}(this, std::move(forked), receiver));
@@ -1384,11 +1384,11 @@ Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
 }
 
 void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
-		execution::any_receiver<Error> receiver) {
+		async::any_receiver<Error> receiver) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
-	execution::detach([] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
-			execution::any_receiver<Error> receiver) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
+			async::any_receiver<Error> receiver) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
 			auto offset = overallOffset + progress;
@@ -1492,7 +1492,7 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 }
 
 bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	execution::detach([] (CopyOnWriteMemory *self, uintptr_t offset,
+	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t offset,
 			FetchNode *node) -> coroutine<void> {
 		frigg::SharedPtr<CowChain> chain;
 		frigg::SharedPtr<MemoryView> view;
