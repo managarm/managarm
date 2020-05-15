@@ -365,6 +365,8 @@ void FileContext::closeFile(int fd) {
 		return;
 	}
 
+	HEL_CHECK(helCloseDescriptor(_universe.getHandle(), _fileTableWindow[fd]));
+
 	_fileTableWindow[fd] = 0;
 	_fileTable.erase(it);
 }
@@ -373,6 +375,8 @@ void FileContext::closeOnExec() {
 	auto it = _fileTable.begin();
 	while(it != _fileTable.end()) {
 		if(it->second.closeOnExec) {
+			HEL_CHECK(helCloseDescriptor(_universe.getHandle(), _fileTableWindow[it->first]));
+
 			_fileTableWindow[it->first] = 0;
 			it = _fileTable.erase(it);
 		}else{
