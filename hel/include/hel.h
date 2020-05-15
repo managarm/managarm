@@ -25,7 +25,7 @@ enum {
 	kHelCallTransferDescriptor = 66,
 	kHelCallDescriptorInfo = 32,
 	kHelCallGetCredentials = 84,
-	kHelCallCloseDescriptor = 20,
+	kHelCallCloseDescriptor = 21,
 
 	kHelCallCreateQueue = 89,
 	kHelCallSetupChunk = 90,
@@ -445,7 +445,7 @@ HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle univers
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
 		char *credentials);
-HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
+HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle);
 
 //! size_shift:    Size of the indexQueue array.
 //! element_limit: Maximum size of a single element in bytes.

@@ -574,8 +574,7 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helGetCredentials((HelHandle)arg0, (uint32_t)arg1, (char *)arg2);
 	} break;
 	case kHelCallCloseDescriptor: {
-//		frigg::infoLogger() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::endLog;
-		*image.error() = helCloseDescriptor((HelHandle)arg0);
+		*image.error() = helCloseDescriptor((HelHandle)arg0, (HelHandle)arg1);
 	} break;
 
 	case kHelCallCreateQueue: {

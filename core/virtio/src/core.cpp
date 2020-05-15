@@ -190,7 +190,7 @@ Queue *LegacyPciTransport::setupQueue(unsigned int queue_index) {
 	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, nullptr, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
 			0, 0x4000, kHelMapProtRead | kHelMapProtWrite, &window));
-	HEL_CHECK(helCloseDescriptor(memory));
+	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
 
 	// Setup the memory region.
 	auto table = reinterpret_cast<spec::Descriptor *>((char *)window);
@@ -404,7 +404,7 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, nullptr, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
 			0, 0x4000, kHelMapProtRead | kHelMapProtWrite, &window));
-	HEL_CHECK(helCloseDescriptor(memory));
+	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
 
 	// Setup the memory region.
 	auto table = reinterpret_cast<spec::Descriptor *>((char *)window);

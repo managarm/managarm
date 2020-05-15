@@ -42,8 +42,9 @@ extern inline __attribute__ (( always_inline )) HelError helGetCredentials(HelHa
 			(HelWord)credentials);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(HelHandle handle) {
-	return helSyscall1(kHelCallCloseDescriptor, (HelWord)handle);
+extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(
+		HelHandle universeHandle, HelHandle handle) {
+	return helSyscall2(kHelCallCloseDescriptor, (HelWord)universeHandle, (HelWord)handle);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helCreateQueue(HelQueue *head,

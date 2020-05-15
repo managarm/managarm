@@ -37,7 +37,7 @@ struct UniqueDescriptor {
 
 	~UniqueDescriptor() {
 		if(_handle != kHelNullHandle)
-			HEL_CHECK(helCloseDescriptor(_handle));
+			HEL_CHECK(helCloseDescriptor(kHelThisUniverse, _handle));
 	}
 
 	explicit operator bool () const {

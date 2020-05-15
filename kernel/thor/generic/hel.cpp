@@ -278,14 +278,29 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 	return kHelErrNone;
 }
 
-HelError helCloseDescriptor(HelHandle handle) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	Universe::Guard universe_guard(&this_universe->lock);
+	frigg::SharedPtr<Universe> universe;
+	if(universeHandle == kHelThisUniverse) {
+		universe = thisUniverse.toShared();
+	}else{
+		auto irqLock = frigg::guard(&irqMutex());
+		Universe::Guard universeLock(&thisUniverse->lock);
 
-	if(!this_universe->detachDescriptor(universe_guard, handle))
+		auto universeIt = thisUniverse->getDescriptor(universeLock, universeHandle);
+		if(!universeIt)
+			return kHelErrNoDescriptor;
+		if(!universeIt->is<UniverseDescriptor>())
+			return kHelErrBadDescriptor;
+		universe = universeIt->get<UniverseDescriptor>().universe;
+	}
+
+	auto irqLock = frigg::guard(&irqMutex());
+	Universe::Guard otherUniverseLock(&universe->lock);
+
+	if(!universe->detachDescriptor(otherUniverseLock, handle))
 		return kHelErrNoDescriptor;
 
 	return kHelErrNone;
