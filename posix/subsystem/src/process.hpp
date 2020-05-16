@@ -321,7 +321,7 @@ struct ThreadPage {
 
 // This struct own the PID.
 // It remains alive until the PID can be recycled.
-struct PidHull {
+struct PidHull : std::enable_shared_from_this<PidHull> {
 	PidHull(pid_t pid);
 
 	PidHull(const PidHull &) = delete;
@@ -335,12 +335,15 @@ struct PidHull {
 	}
 
 	void initializeProcess(Process *process);
+	void initializeTerminalSession(TerminalSession *session);
 
 	std::shared_ptr<Process> getProcess();
+	std::shared_ptr<TerminalSession> getTerminalSession();
 
 private:
 	pid_t pid_;
 	std::weak_ptr<Process> process_;
+	std::weak_ptr<TerminalSession> terminalSession_;
 };
 
 struct Process : std::enable_shared_from_this<Process> {
@@ -368,6 +371,10 @@ public:
 
 	Process *getParent() {
 		return _parent;
+	}
+
+	PidHull *getHull() {
+		return _hull.get();
 	}
 
 	int pid() {
@@ -580,6 +587,8 @@ private:
 struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 	friend struct ControllingTerminalState;
 
+	TerminalSession(std::shared_ptr<PidHull> hull);
+
 	~TerminalSession();
 
 	pid_t getSessionId();
@@ -591,6 +600,8 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 	void dropGroup(ProcessGroup *group);
 
 private:
+	std::shared_ptr<PidHull> hull_;
+
 	boost::intrusive::list<
 		ProcessGroup,
 		boost::intrusive::member_hook<
@@ -599,8 +610,6 @@ private:
 			&ProcessGroup::sessionHook_
 		>
 	> groups_;
-
-	ProcessGroup *leaderGroup_ = nullptr;
 
 	ProcessGroup *foregroundGroup_ = nullptr;
 

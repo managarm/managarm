@@ -645,8 +645,17 @@ void PidHull::initializeProcess(Process *process) {
 	process_ = process->weak_from_this();
 }
 
+void PidHull::initializeTerminalSession(TerminalSession *session) {
+	// TODO: verify that no terminal session is associated with this PidHull.
+	terminalSession_ = session->weak_from_this();
+}
+
 std::shared_ptr<Process> PidHull::getProcess() {
 	return process_.lock();
+}
+
+std::shared_ptr<TerminalSession> PidHull::getTerminalSession() {
+	return terminalSession_.lock();
 }
 
 std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
@@ -1022,24 +1031,23 @@ void ProcessGroup::issueSignalToGroup(int sn, SignalInfo info) {
 		processRef.signalContext()->issueSignal(sn, info);
 }
 
+TerminalSession::TerminalSession(std::shared_ptr<PidHull> hull)
+: hull_{std::move(hull)} { }
+
 TerminalSession::~TerminalSession() {
 	if(ctsPointer_)
 		ctsPointer_->dropSession(this);
 }
 
 pid_t TerminalSession::getSessionId() {
-	// If these assertions fail, the session leader has exited.
-	// TODO: sanely handle this situation.
-	assert(leaderGroup_);
-	assert(leaderGroup_->leaderProcess_);
-	return leaderGroup_->leaderProcess_->pid();
+	return hull_->getPid();
 }
 
 std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(Process *sessionLeader) {
-	auto session = std::make_shared<TerminalSession>();
+	auto session = std::make_shared<TerminalSession>(sessionLeader->getHull()->shared_from_this());
 	auto group = session->spawnProcessGroup(sessionLeader);
-	session->leaderGroup_ = group.get();
 	session->foregroundGroup_ = group.get();
+	session->hull_->initializeTerminalSession(session.get());
 	return session;
 }
 
@@ -1054,9 +1062,6 @@ std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(Process *groupL
 
 void TerminalSession::dropGroup(ProcessGroup *group) {
 	assert(group->sessionPointer_.get() == this);
-	// TODO: ensure that the PID cannot be reused until the session is destroyed.
-	if(leaderGroup_ == group)
-		leaderGroup_ = nullptr;
 	if(foregroundGroup_ == group)
 		foregroundGroup_ = nullptr;
 	groups_.erase(groups_.iterator_to(*group));
@@ -1066,11 +1071,9 @@ void TerminalSession::dropGroup(ProcessGroup *group) {
 
 Error ControllingTerminalState::assignSessionOf(Process *process) {
 	auto group = process->_pgPointer.get();
-	if(group->leaderProcess_ != process)
-		return Error::illegalArguments;
 	auto session = group->sessionPointer_.get();
-	if(session->leaderGroup_ != group)
-		return Error::illegalArguments;
+	if(process->getHull() != session->hull_.get())
+		return Error::illegalArguments; // Process is not a session leader.
 	if(associatedSession_)
 		return Error::insufficientPermissions;
 	if(session->ctsPointer_)
