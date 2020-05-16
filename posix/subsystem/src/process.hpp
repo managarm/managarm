@@ -558,6 +558,8 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 
 	~TerminalSession();
 
+	pid_t getSessionId();
+
 	static std::shared_ptr<TerminalSession> initializeNewSession(Process *sessionLeader);
 
 	std::shared_ptr<ProcessGroup> spawnProcessGroup(Process *groupLeader);

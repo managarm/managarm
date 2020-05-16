@@ -980,8 +980,12 @@ ProcessGroup::~ProcessGroup() {
 }
 
 void ProcessGroup::reassociateProcess(Process *process) {
-	// TODO: implement moving processes from one group to another.
-	assert(!process->_pgPointer);
+	if(process->_pgPointer) {
+		auto oldGroup = process->_pgPointer.get();
+		// TODO: implement the following case or disallow it (by returning an error):
+		assert(oldGroup->leaderProcess_ != process);
+		oldGroup->members_.erase(oldGroup->members_.iterator_to(*process));
+	}
 	process->_pgPointer = shared_from_this();
 	members_.push_back(*process);
 }
@@ -1004,6 +1008,14 @@ void ProcessGroup::issueSignalToGroup(int sn, SignalInfo info) {
 TerminalSession::~TerminalSession() {
 	if(ctsPointer_)
 		ctsPointer_->dropSession(this);
+}
+
+pid_t TerminalSession::getSessionId() {
+	// If these assertions fail, the session leader has exited.
+	// TODO: sanely handle this situation.
+	assert(leaderGroup_);
+	assert(leaderGroup_->leaderProcess_);
+	return leaderGroup_->leaderProcess_->pid();
 }
 
 std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(Process *sessionLeader) {

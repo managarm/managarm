@@ -60,6 +60,9 @@ enum CntReqType {
 	FD_SET_FLAGS = 45;
 	GET_RESOURCE_USAGE = 57;
 
+	// Session and process group calls.
+	SETSID = 76;
+
 	// Signal-specific calls.
 	SIG_ACTION = 55;
 
@@ -260,6 +263,9 @@ message SvrResponse {
 
 	// returned by SEEK_ABS, SEEK_REL
 	optional uint64 offset = 6;
+
+	// Returned by SETSID.
+	optional int64 sid = 31;
 
 	// returned by TTY_NAME
 	optional string path = 19;
