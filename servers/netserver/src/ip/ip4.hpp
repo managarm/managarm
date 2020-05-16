@@ -1,16 +1,27 @@
 #pragma once
 
+#include <arch/bit.hpp>
+#include <arch/dma_structs.hpp>
 #include <helix/ipc.hpp>
 #include <map>
 #include <smarter.hpp>
 #include <netserver/nic.hpp>
+#include <protocols/fs/common.hpp>
 #include <set>
 #include <cstdint>
 #include <memory>
 #include <optional>
 
+#include "udp4.hpp"
+
 #include <netserver/nic.hpp>
 #include "fs.pb.h"
+
+enum class IpProto : uint16_t {
+	icmp = 1,
+	tcp = 6,
+	udp = 17,
+};
 
 struct CidrAddress {
 	uint32_t ip;
@@ -50,8 +61,61 @@ private:
 	std::set<Route> routes;
 };
 
-struct Ip4Socket;
+class Ip4Packet {
+	arch::dma_buffer buffer_;
+public:
+	struct Header {
+		uint8_t ihl;
+		uint8_t tos;
+		uint16_t length;
 
+		uint16_t ident;
+		uint16_t flags_offset;
+
+		uint8_t ttl;
+		uint8_t protocol;
+		uint16_t checksum;
+
+		uint32_t source;
+		uint32_t destination;
+
+		inline void ensureEndian() {
+			auto nendian = [] (auto &x) {
+				x = arch::convert_endian<
+					arch::endian::big,
+					arch::endian::native>(x);
+			};
+			nendian(length);
+			nendian(ident);
+			nendian(flags_offset);
+			nendian(checksum);
+			nendian(source);
+			nendian(destination);
+		}
+	} header;
+	static_assert(sizeof(header) == 20, "bad header size");
+	arch::dma_buffer_view data;
+
+	inline arch::dma_buffer_view payload() const {
+		return data.subview(header.ihl * 4);
+	}
+
+	inline arch::dma_buffer_view header_view() const {
+		return data.subview(0, header.ihl * 4);
+	}
+
+	// assumes frame is a valid view into owner
+	bool parse(arch::dma_buffer owner, arch::dma_buffer_view frame);
+};
+
+struct Ip4TargetInfo {
+	uint32_t remote;
+	uint32_t source;
+	Ip4Router::Route route;
+	std::shared_ptr<nic::Link> link;
+};
+
+struct Ip4Socket;
 struct Ip4 {
 	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto);
 	// frame is a view into the owner buffer, stripping away eth bits
@@ -61,9 +125,16 @@ struct Ip4 {
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
+
+	async::result<std::optional<Ip4TargetInfo>> targetByRemote(uint32_t);
+	async::result<protocols::fs::Error> sendFrame(Ip4TargetInfo,
+		void*, size_t,
+		uint16_t);
 private:
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
 	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
+
+	Udp4 udp;
 };
 
 Ip4 &ip4();
