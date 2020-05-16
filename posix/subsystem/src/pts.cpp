@@ -1,4 +1,3 @@
-
 #include <asm/ioctls.h>
 #include <termios.h>
 #include <sys/epoll.h>
@@ -7,6 +6,7 @@
 #include <async/doorbell.hpp>
 
 #include "file.hpp"
+#include "process.hpp"
 #include "pts.hpp"
 #include "fs.pb.h"
 
@@ -61,6 +61,7 @@ struct Channel {
 	}
 
 	int ptsIndex;
+	ControllingTerminalState cts;
 
 	struct termios activeSettings;
 
@@ -425,8 +426,8 @@ async::result<void> MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
 		);
 		HEL_CHECK(send_resp.error());
 	}else{
-		throw std::runtime_error("posix: Unknown PTS master ioctl() with ID "
-				+ std::to_string(req.command()));
+		std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req.command()
+				<< "\e[39m" << std::endl;
 	}
 }
 
@@ -526,7 +527,7 @@ expected<PollResult> SlaveFile::poll(Process *, uint64_t past_seq,
 	co_return PollResult{_channel->currentSeq, edges, events};
 }
 
-async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
+async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation) {
 	if(req.command() == TCGETS) {
 		managarm::fs::SvrResponse resp;
@@ -584,6 +585,31 @@ async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCSCTTY) {
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
+
+		auto process = findProcessWithCredentials(extractCreds.credentials());
+
+		managarm::fs::SvrResponse resp;
+		if(auto e = _channel->cts.assignSessionOf(process.get()); e == Error::illegalArguments) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}else if(e == Error::insufficientPermissions) {
+			resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
+		}else{
+			assert(e == Error::success);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [sendResp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(sendResp.error());
 	}else if(req.command() == TIOCGWINSZ) {
 		managarm::fs::SvrResponse resp;
 
@@ -623,8 +649,8 @@ async::result<void> SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
 		);
 		HEL_CHECK(send_resp.error());
 	}else{
-		throw std::runtime_error("posix: Unknown PTS slave ioctl() with ID "
-				+ std::to_string(req.command()));
+		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req.command()
+				<< "\e[39m" << std::endl;
 	}
 }
 
@@ -664,4 +690,3 @@ std::shared_ptr<FsLink> getFsRoot() {
 }
 
 } // namespace pts
-

@@ -976,7 +976,7 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 // --------------------------------------------------------------------------------------
 
 ProcessGroup::~ProcessGroup() {
-	sessionPtr_->dropGroup(this);
+	sessionPointer_->dropGroup(this);
 }
 
 void ProcessGroup::reassociateProcess(Process *process) {
@@ -988,28 +988,66 @@ void ProcessGroup::reassociateProcess(Process *process) {
 
 void ProcessGroup::dropProcess(Process *process) {
 	assert(process->_pgPointer.get() == this);
+	// TODO: ensure that the PID cannot be reused until the process group is destroyed.
+	if(leaderProcess_ == process)
+		leaderProcess_ = nullptr;
 	members_.erase(members_.iterator_to(*process));
 	// Note: this assignment can destruct 'this'.
 	process->_pgPointer = nullptr;
 }
 
+TerminalSession::~TerminalSession() {
+	if(ctsPointer_)
+		ctsPointer_->dropSession(this);
+}
+
 std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(Process *sessionLeader) {
 	auto session = std::make_shared<TerminalSession>();
-	session->spawnProcessGroup(sessionLeader);
+	auto group = session->spawnProcessGroup(sessionLeader);
+	session->leaderGroup_ = group.get();
+	session->foregroundGroup_ = group.get();
 	return session;
 }
 
 std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(Process *groupLeader) {
 	auto group = std::make_shared<ProcessGroup>();
 	group->reassociateProcess(groupLeader);
-	group->sessionPtr_ = shared_from_this();
+	group->leaderProcess_ = groupLeader;
+	group->sessionPointer_ = shared_from_this();
 	groups_.push_back(*group);
 	return group;
 }
 
 void TerminalSession::dropGroup(ProcessGroup *group) {
-	assert(group->sessionPtr_.get() == this);
+	assert(group->sessionPointer_.get() == this);
+	// TODO: ensure that the PID cannot be reused until the session is destroyed.
+	if(leaderGroup_ == group)
+		leaderGroup_ = nullptr;
+	if(foregroundGroup_ == group)
+		foregroundGroup_ = nullptr;
 	groups_.erase(groups_.iterator_to(*group));
 	// Note: this assignment can destruct 'this'.
-	group->sessionPtr_ = nullptr;
+	group->sessionPointer_ = nullptr;
+}
+
+Error ControllingTerminalState::assignSessionOf(Process *process) {
+	auto group = process->_pgPointer.get();
+	if(group->leaderProcess_ != process)
+		return Error::illegalArguments;
+	auto session = group->sessionPointer_.get();
+	if(session->leaderGroup_ != group)
+		return Error::illegalArguments;
+	if(associatedSession_)
+		return Error::insufficientPermissions;
+	if(session->ctsPointer_)
+		return Error::insufficientPermissions;
+	associatedSession_ = session;
+	session->ctsPointer_ = this;
+	return Error::success;
+}
+
+void ControllingTerminalState::dropSession(TerminalSession *session) {
+	assert(associatedSession_ == session);
+	associatedSession_ = nullptr;
+	session->ctsPointer_ = nullptr;
 }

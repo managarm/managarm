@@ -17,6 +17,7 @@ enum class Error {
 	wouldBlock = 5,
 	seekOnPipe = 6,
 	brokenPipe = 7,
+	insufficientPermissions = 14,
 	accessDenied = 8,
 	afNotSupported = 9,
 	destAddrRequired = 10,

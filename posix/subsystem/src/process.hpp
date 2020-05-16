@@ -14,6 +14,7 @@ struct Generation;
 struct Process;
 struct ProcessGroup;
 struct TerminalSession;
+struct ControllingTerminalState;
 
 typedef int ProcessId;
 
@@ -320,6 +321,8 @@ struct ThreadPage {
 
 struct Process : std::enable_shared_from_this<Process> {
 	friend struct ProcessGroup;
+	friend struct TerminalSession;
+	friend struct ControllingTerminalState;
 
 	static std::shared_ptr<Process> findProcess(ProcessId pid);
 
@@ -524,6 +527,7 @@ std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);
 
 struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 	friend struct TerminalSession;
+	friend struct ControllingTerminalState;
 
 	~ProcessGroup();
 
@@ -541,11 +545,17 @@ private:
 		>
 	> members_;
 
-	std::shared_ptr<TerminalSession> sessionPtr_;
+	Process *leaderProcess_ = nullptr;
+
+	std::shared_ptr<TerminalSession> sessionPointer_;
 	boost::intrusive::list_member_hook<> sessionHook_;
 };
 
 struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
+	friend struct ControllingTerminalState;
+
+	~TerminalSession();
+
 	static std::shared_ptr<TerminalSession> initializeNewSession(Process *sessionLeader);
 
 	std::shared_ptr<ProcessGroup> spawnProcessGroup(Process *groupLeader);
@@ -561,4 +571,19 @@ private:
 			&ProcessGroup::sessionHook_
 		>
 	> groups_;
+
+	ProcessGroup *leaderGroup_ = nullptr;
+
+	ProcessGroup *foregroundGroup_ = nullptr;
+
+	ControllingTerminalState *ctsPointer_ = nullptr;
+};
+
+struct ControllingTerminalState {
+	Error assignSessionOf(Process *process);
+
+	void dropSession(TerminalSession *session);
+
+private:
+	TerminalSession *associatedSession_ = nullptr;
 };

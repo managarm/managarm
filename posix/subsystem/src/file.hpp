@@ -42,6 +42,8 @@ enum class Error {
 
 	illegalArguments,
 
+	insufficientPermissions,
+
 	accessDenied
 };
 
