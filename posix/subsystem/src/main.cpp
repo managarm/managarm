@@ -369,7 +369,11 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
 				self->signalContext()->raiseContext(active, self.get(), generation.get());
-			HEL_CHECK(helResume(thread.getHandle()));
+			if(auto e = helResume(thread.getHandle()); e) {
+				if(e == kHelErrThreadTerminated)
+					continue;
+				HEL_CHECK(e);
+			}
 		}else if(observe.observation() == kHelObserveSuperCall + 6) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
@@ -415,7 +419,11 @@ async::detached observeThread(std::shared_ptr<Process> self,
 				if(active)
 					self->signalContext()->raiseContext(active, self.get(), generation.get());
 			}
-			HEL_CHECK(helResume(thread.getHandle()));
+			if(auto e = helResume(thread.getHandle()); e) {
+				if(e == kHelErrThreadTerminated)
+					continue;
+				HEL_CHECK(e);
+			}
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			if(self->checkOrRequestSignalRaise()) {
@@ -423,7 +431,11 @@ async::detached observeThread(std::shared_ptr<Process> self,
 				if(active)
 					self->signalContext()->raiseContext(active, self.get(), generation.get());
 			}
-			HEL_CHECK(helResume(thread.getHandle()));
+			if(auto e = helResume(thread.getHandle()); e) {
+				if(e == kHelErrThreadTerminated)
+					continue;
+				HEL_CHECK(e);
+			}
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mposix: User space panic in process %s\n", self->path().c_str());
 			dumpRegisters(self);

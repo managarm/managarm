@@ -552,6 +552,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "No such descriptor";
 	case kHelErrBadDescriptor:
 		return "Illegal descriptor for this operation";
+	case kHelErrThreadTerminated:
+		return "Thread terminated already";
 	case kHelErrLaneShutdown:
 		return "Lane shutdown";
 	case kHelErrEndOfLane:
