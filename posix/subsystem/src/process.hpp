@@ -335,14 +335,17 @@ struct PidHull : std::enable_shared_from_this<PidHull> {
 	}
 
 	void initializeProcess(Process *process);
+	void initializeProcessGroup(ProcessGroup *group);
 	void initializeTerminalSession(TerminalSession *session);
 
 	std::shared_ptr<Process> getProcess();
+	std::shared_ptr<ProcessGroup> getProcessGroup();
 	std::shared_ptr<TerminalSession> getTerminalSession();
 
 private:
 	pid_t pid_;
 	std::weak_ptr<Process> process_;
+	std::weak_ptr<ProcessGroup> processGroup_;
 	std::weak_ptr<TerminalSession> terminalSession_;
 };
 
@@ -560,6 +563,8 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 	friend struct TerminalSession;
 	friend struct ControllingTerminalState;
 
+	ProcessGroup(std::shared_ptr<PidHull> hull);
+
 	~ProcessGroup();
 
 	void reassociateProcess(Process *process);
@@ -569,6 +574,8 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 	void issueSignalToGroup(int sn, SignalInfo info);
 
 private:
+	std::shared_ptr<PidHull> hull_;
+
 	boost::intrusive::list<
 		Process,
 		boost::intrusive::member_hook<
@@ -577,8 +584,6 @@ private:
 			&Process::_pgHook
 		>
 	> members_;
-
-	Process *leaderProcess_ = nullptr;
 
 	std::shared_ptr<TerminalSession> sessionPointer_;
 	boost::intrusive::list_member_hook<> sessionHook_;

@@ -650,8 +650,17 @@ void PidHull::initializeTerminalSession(TerminalSession *session) {
 	terminalSession_ = session->weak_from_this();
 }
 
+void PidHull::initializeProcessGroup(ProcessGroup *group) {
+	// TODO: verify that no process group is associated with this PidHull.
+	processGroup_ = group->weak_from_this();
+}
+
 std::shared_ptr<Process> PidHull::getProcess() {
 	return process_.lock();
+}
+
+std::shared_ptr<ProcessGroup> PidHull::getProcessGroup() {
+	return processGroup_.lock();
 }
 
 std::shared_ptr<TerminalSession> PidHull::getTerminalSession() {
@@ -1001,6 +1010,9 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 // Process groups and sessions.
 // --------------------------------------------------------------------------------------
 
+ProcessGroup::ProcessGroup(std::shared_ptr<PidHull> hull)
+: hull_{std::move(hull)} { }
+
 ProcessGroup::~ProcessGroup() {
 	sessionPointer_->dropGroup(this);
 }
@@ -1008,8 +1020,6 @@ ProcessGroup::~ProcessGroup() {
 void ProcessGroup::reassociateProcess(Process *process) {
 	if(process->_pgPointer) {
 		auto oldGroup = process->_pgPointer.get();
-		// TODO: implement the following case or disallow it (by returning an error):
-		assert(oldGroup->leaderProcess_ != process);
 		oldGroup->members_.erase(oldGroup->members_.iterator_to(*process));
 	}
 	process->_pgPointer = shared_from_this();
@@ -1018,9 +1028,6 @@ void ProcessGroup::reassociateProcess(Process *process) {
 
 void ProcessGroup::dropProcess(Process *process) {
 	assert(process->_pgPointer.get() == this);
-	// TODO: ensure that the PID cannot be reused until the process group is destroyed.
-	if(leaderProcess_ == process)
-		leaderProcess_ = nullptr;
 	members_.erase(members_.iterator_to(*process));
 	// Note: this assignment can destruct 'this'.
 	process->_pgPointer = nullptr;
@@ -1052,11 +1059,11 @@ std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(Process *
 }
 
 std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(Process *groupLeader) {
-	auto group = std::make_shared<ProcessGroup>();
+	auto group = std::make_shared<ProcessGroup>(groupLeader->getHull()->shared_from_this());
 	group->reassociateProcess(groupLeader);
-	group->leaderProcess_ = groupLeader;
 	group->sessionPointer_ = shared_from_this();
 	groups_.push_back(*group);
+	group->hull_->initializeProcessGroup(group.get());
 	return group;
 }
 
