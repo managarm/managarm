@@ -178,7 +178,8 @@ public:
 		co_return PollResult(_currentSeq, edges, events);
 	}
 	
-	async::result<void> bind(Process *, const void *, size_t) override;
+	async::result<protocols::fs::Error>
+	bind(Process *, const void *, size_t) override;
 	
 	async::result<size_t> sockname(void *, size_t) override;
 
@@ -281,7 +282,8 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	co_return max_length;
 }
 
-async::result<void> OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length) {
+async::result<protocols::fs::Error> OpenFile::bind(Process *,
+		const void *addr_ptr, size_t addr_length) {
 	struct sockaddr_nl sa;
 	assert(addr_length <= sizeof(struct sockaddr_nl));
 	memcpy(&sa, addr_ptr, addr_length);
@@ -304,7 +306,7 @@ async::result<void> OpenFile::bind(Process *, const void *addr_ptr, size_t addr_
 	}
 
 	// Do nothing for now.
-	co_return;
+	co_return protocols::fs::Error::none;
 }
 
 async::result<size_t> OpenFile::sockname(void *addr_ptr, size_t max_addr_length) {

@@ -115,7 +115,7 @@ struct FileOperations {
 		poll = f;
 		return *this;
 	}
-	constexpr FileOperations &withBind(async::result<void> (*f)(void *object,
+	constexpr FileOperations &withBind(async::result<Error> (*f)(void *object,
 			const char *, const void *addr_ptr, size_t addr_length)) {
 		bind = f;
 		return *this;
@@ -151,7 +151,7 @@ struct FileOperations {
 	async::result<void> (*setOption)(void *object, int option, int value);
 	async::result<PollResult> (*poll)(void *object, uint64_t sequence,
 			async::cancellation_token cancellation);
-	async::result<void> (*bind)(void *object, const char *credentials,
+	async::result<Error> (*bind)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<void> (*listen)(void *object);
 	async::result<Error> (*connect)(void *object, const char *credentials,

@@ -274,7 +274,7 @@ public:
 		co_return PollResult{_currentSeq, edges, events};
 	}
 
-	async::result<void>
+	async::result<protocols::fs::Error>
 	bind(Process *process, const void *addr_ptr, size_t addr_length) override {
 		// Create a new socket node in the FS.
 		struct sockaddr_un sa;
@@ -299,6 +299,7 @@ public:
 		// Associate the current socket with the node.
 		auto res = globalBindMap.insert({std::weak_ptr<FsNode>{node}, this});
 		assert(res.second);
+		co_return protocols::fs::Error::none;
 	}
 
 	async::result<protocols::fs::Error>

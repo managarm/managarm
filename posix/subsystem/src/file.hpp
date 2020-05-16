@@ -114,7 +114,7 @@ public:
 	static async::result<void>
 	ptSetOption(void *object, int option, int value);
 
-	static async::result<void>
+	static async::result<protocols::fs::Error>
 	ptBind(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 
@@ -275,7 +275,7 @@ public:
 
 	virtual async::result<AcceptResult> accept(Process *process);
 
-	virtual async::result<void> bind(Process *process,
+	virtual async::result<protocols::fs::Error> bind(Process *process,
 			const void *addr_ptr, size_t addr_length);
 
 	virtual async::result<protocols::fs::Error> connect(Process *process,

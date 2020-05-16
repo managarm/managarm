@@ -107,7 +107,8 @@ async::result<void> File::ptSetOption(void *object, int option, int value) {
 	return self->setOption(option, value);
 }
 
-async::result<void> File::ptBind(void *object, const char *credentials,
+async::result<protocols::fs::Error> File::ptBind(void *object,
+		const char *credentials,
 		const void *addr_ptr, size_t addr_length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
@@ -296,7 +297,7 @@ async::result<AcceptResult> File::accept(Process *) {
 	throw std::runtime_error("posix: Object has no File::accept()");
 }
 
-async::result<void> File::bind(Process *, const void *, size_t) {
+async::result<protocols::fs::Error> File::bind(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement bind()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::bind()");
