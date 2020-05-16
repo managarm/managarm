@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_PROCESS_HPP
-#define POSIX_SUBSYSTEM_PROCESS_HPP
+#pragma once
 
 #include <map>
 #include <memory>
@@ -13,6 +12,7 @@
 
 struct Generation;
 struct Process;
+struct ProcessGroup;
 
 typedef int ProcessId;
 
@@ -313,7 +313,13 @@ struct ThreadPage {
 	int globalSignalFlag;
 };
 
+// --------------------------------------------------------------------------------------
+// The 'Process' class.
+// --------------------------------------------------------------------------------------
+
 struct Process : std::enable_shared_from_this<Process> {
+	friend struct ProcessGroup;
+
 	static std::shared_ptr<Process> findProcess(ProcessId pid);
 
 	static async::result<std::shared_ptr<Process>> init(std::string path);
@@ -472,6 +478,9 @@ private:
 	std::shared_ptr<FileContext> _fileContext;
 	std::shared_ptr<SignalContext> _signalContext;
 
+	std::shared_ptr<ProcessGroup> _pgPointer;
+	boost::intrusive::list_member_hook<> _pgHook;
+
 	helix::UniqueDescriptor _threadPageMemory;
 	helix::Mapping _threadPageMapping;
 
@@ -508,4 +517,20 @@ private:
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);
 
-#endif // POSIX_SUBSYSTEM_PROCESS_HPP
+// --------------------------------------------------------------------------------------
+// Process groups and sessions.
+// --------------------------------------------------------------------------------------
+
+struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
+	void associateProcess(Process *process);
+
+private:
+	boost::intrusive::list<
+		Process,
+		boost::intrusive::member_hook<
+			Process,
+			boost::intrusive::list_member_hook<>,
+			&Process::_pgHook
+		>
+	> members_;
+};

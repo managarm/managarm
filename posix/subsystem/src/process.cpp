@@ -673,6 +673,9 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_fileContext = FileContext::create();
 	process->_signalContext = SignalContext::create();
 
+	auto processGroup = std::make_shared<ProcessGroup>();
+	processGroup->associateProcess(process.get());
+
 	HelHandle thread_memory;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
@@ -736,6 +739,8 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_fileContext = FileContext::clone(original->_fileContext);
 	process->_signalContext = SignalContext::clone(original->_signalContext);
 
+	original->_pgPointer->associateProcess(process.get());
+
 	HelHandle thread_memory;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
@@ -793,6 +798,9 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_fsContext = original->_fsContext;
 	process->_fileContext = original->_fileContext;
 	process->_signalContext = original->_signalContext;
+
+	// TODO: ProcessGroups should probably store ThreadGroups and not processes.
+	original->_pgPointer->associateProcess(process.get());
 
 	HelHandle thread_memory;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
@@ -963,3 +971,13 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 	}
 }
 
+// --------------------------------------------------------------------------------------
+// Process groups and sessions.
+// --------------------------------------------------------------------------------------
+
+void ProcessGroup::associateProcess(Process *process) {
+	// TODO: implement moving processes from one group to another.
+	assert(!process->_pgPointer);
+	process->_pgPointer = shared_from_this();
+	members_.push_back(*process);
+}
