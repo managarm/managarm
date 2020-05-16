@@ -191,8 +191,8 @@ private:
 };
 
 struct UserSignal {
-	int pid;
-	int uid;
+	int pid = 0;
+	int uid = 0;
 };
 
 using SignalInfo = std::variant<
@@ -535,6 +535,8 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 
 	void dropProcess(Process *process);
 
+	void issueSignalToGroup(int sn, SignalInfo info);
+
 private:
 	boost::intrusive::list<
 		Process,
@@ -583,6 +585,8 @@ struct ControllingTerminalState {
 	Error assignSessionOf(Process *process);
 
 	void dropSession(TerminalSession *session);
+
+	void issueSignalToForegroundGroup(int sn, SignalInfo info);
 
 private:
 	TerminalSession *associatedSession_ = nullptr;

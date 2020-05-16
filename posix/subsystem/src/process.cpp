@@ -996,6 +996,11 @@ void ProcessGroup::dropProcess(Process *process) {
 	process->_pgPointer = nullptr;
 }
 
+void ProcessGroup::issueSignalToGroup(int sn, SignalInfo info) {
+	for(auto &processRef : members_)
+		processRef.signalContext()->issueSignal(sn, info);
+}
+
 TerminalSession::~TerminalSession() {
 	if(ctsPointer_)
 		ctsPointer_->dropSession(this);
@@ -1050,4 +1055,12 @@ void ControllingTerminalState::dropSession(TerminalSession *session) {
 	assert(associatedSession_ == session);
 	associatedSession_ = nullptr;
 	session->ctsPointer_ = nullptr;
+}
+
+void ControllingTerminalState::issueSignalToForegroundGroup(int sn, SignalInfo info) {
+	if(!associatedSession_)
+		return;
+	if(!associatedSession_->foregroundGroup_)
+		return;
+	associatedSession_->foregroundGroup_->issueSignalToGroup(sn, info);
 }

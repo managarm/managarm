@@ -358,13 +358,29 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 		std::cout << "posix: Write to tty " << structName() << std::endl;
 
 	Packet packet;
-	packet.buffer.resize(length);
-	memcpy(packet.buffer.data(), data, length);
+	packet.buffer.reserve(length);
 	packet.offset = 0;
 
-	_channel->slaveQueue.push_back(std::move(packet));
-	_channel->slaveInSeq = ++_channel->currentSeq;
-	_channel->statusBell.ring();
+	auto s = reinterpret_cast<const char *>(data);
+	for(size_t i = 0; i < length; i++) {
+		if(_channel->activeSettings.c_lflag & ISIG) {
+			if(s[i] == _channel->activeSettings.c_cc[VINTR]) {
+				UserSignal info;
+				_channel->cts.issueSignalToForegroundGroup(SIGINT, info);
+				continue;
+			}
+		}
+
+		// Not a special character. Emit to the slave.
+		packet.buffer.push_back(s[i]);
+	}
+
+	// Check whether all data was discarded above.
+	if(packet.buffer.size()) {
+		_channel->slaveQueue.push_back(std::move(packet));
+		_channel->slaveInSeq = ++_channel->currentSeq;
+		_channel->statusBell.ring();
+	}
 	co_return;
 }
 
