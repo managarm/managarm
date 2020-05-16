@@ -13,6 +13,7 @@
 struct Generation;
 struct Process;
 struct ProcessGroup;
+struct TerminalSession;
 
 typedef int ProcessId;
 
@@ -522,7 +523,13 @@ std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);
 // --------------------------------------------------------------------------------------
 
 struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
-	void associateProcess(Process *process);
+	friend struct TerminalSession;
+
+	~ProcessGroup();
+
+	void reassociateProcess(Process *process);
+
+	void dropProcess(Process *process);
 
 private:
 	boost::intrusive::list<
@@ -533,4 +540,25 @@ private:
 			&Process::_pgHook
 		>
 	> members_;
+
+	std::shared_ptr<TerminalSession> sessionPtr_;
+	boost::intrusive::list_member_hook<> sessionHook_;
+};
+
+struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
+	static std::shared_ptr<TerminalSession> initializeNewSession(Process *sessionLeader);
+
+	std::shared_ptr<ProcessGroup> spawnProcessGroup(Process *groupLeader);
+
+	void dropGroup(ProcessGroup *group);
+
+private:
+	boost::intrusive::list<
+		ProcessGroup,
+		boost::intrusive::member_hook<
+			ProcessGroup,
+			boost::intrusive::list_member_hook<>,
+			&ProcessGroup::sessionHook_
+		>
+	> groups_;
 };
