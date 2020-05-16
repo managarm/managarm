@@ -236,6 +236,13 @@ Ip4::targetByRemote(uint32_t remote) {
 	co_return Ip4TargetInfo { remote, source, *oroute, std::move(target) };
 }
 
+bool Ip4::hasIp(uint32_t addr) {
+	return std::any_of(ips.cbegin(), ips.cend(),
+		[addr] (auto &x) {
+			return x.first.ip == addr;
+		});
+}
+
 async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 		void *data, size_t len, uint16_t proto) {
 	using arch::convert_endian;

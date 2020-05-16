@@ -196,10 +196,14 @@ struct Udp4Socket {
 			co_return protocols::fs::Error::accessDenied;
 		}
 
+		if (!ip4().hasIp(local.addr)) {
+			co_return protocols::fs::Error::addressNotAvailable;
+		}
+
 		if (local.port == 0) {
 			if (!self->bindAvailable(local.addr)) {
 				std::cout << "netserver: no source port" << std::endl;
-				co_return protocols::fs::Error::addressNotAvailable;
+				co_return protocols::fs::Error::addressInUse;
 			}
 		} else if (!self->parent->tryBind(self->holder.lock(), local)) {
 			co_return protocols::fs::Error::addressInUse;
@@ -219,7 +223,7 @@ struct Udp4Socket {
 		if (self->local.port == 0
 				&& !self->bindAvailable()) {
 			std::cout << "netserver: no source port" << std::endl;
-			co_return protocols::fs::Error::addressNotAvailable;
+			co_return protocols::fs::Error::addressInUse;
 		}
 		auto element = co_await self->queue.async_get();
 		auto packet = element->payload();

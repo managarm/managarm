@@ -122,6 +122,7 @@ struct Ip4 {
 	void feedPacket(nic::MacAddress dest, nic::MacAddress src,
 		arch::dma_buffer owner, arch::dma_buffer_view frame);
 
+	bool hasIp(uint32_t ip);
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
