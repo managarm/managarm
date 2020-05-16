@@ -626,17 +626,39 @@ Generation::~Generation() {
 
 // PID 1 is reserved for the init process, therefore we start at 2.
 ProcessId nextPid = 2;
-std::map<ProcessId, Process *> globalPidMap;
+std::map<ProcessId, PidHull *> globalPidMap;
+
+PidHull::PidHull(pid_t pid)
+: pid_{pid} {
+	auto [it, success] = globalPidMap.insert({pid_, this});
+	assert(success);
+	(void)it;
+}
+
+PidHull::~PidHull() {
+	auto it = globalPidMap.find(pid_);
+	assert(it != globalPidMap.end());
+	globalPidMap.erase(it);
+}
+
+void PidHull::initializeProcess(Process *process) {
+	process_ = process->weak_from_this();
+}
+
+std::shared_ptr<Process> PidHull::getProcess() {
+	return process_.lock();
+}
 
 std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 	auto it = globalPidMap.find(pid);
 	if(it == globalPidMap.end())
 		return nullptr;
-	return it->second->shared_from_this();
+	return it->second->getProcess();
 }
 
-Process::Process(Process *parent)
-: _parent{parent}, _pid{0}, _clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
+Process::Process(std::shared_ptr<PidHull> hull, Process *parent)
+: _parent{parent}, _hull{std::move(hull)},
+		_clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
 		_notifyType{NotifyType::null} { }
 
 Process::~Process() {
@@ -667,7 +689,8 @@ bool Process::checkOrRequestSignalRaise() {
 }
 
 async::result<std::shared_ptr<Process>> Process::init(std::string path) {
-	auto process = std::make_shared<Process>(nullptr);
+	auto hull = std::make_shared<PidHull>(1);
+	auto process = std::make_shared<Process>(std::move(hull), nullptr);
 	process->_path = path;
 	process->_vmContext = VmContext::create();
 	process->_fsContext = FsContext::create();
@@ -702,13 +725,11 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
-	assert(globalPidMap.find(1) == globalPidMap.end());
-	process->_pid = 1;
 	process->_uid = 0;
 	process->_euid = 0;
 	process->_gid = 0;
 	process->_egid = 0;
-	globalPidMap.insert({1, process.get()});
+	process->_hull->initializeProcess(process.get());
 
 	// TODO: Do not pass an empty argument vector?
 	auto thread_or_error = co_await execute(process->_fsContext->getRoot(),
@@ -732,7 +753,8 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 }
 
 std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
-	auto process = std::make_shared<Process>(original.get());
+	auto hull = std::make_shared<PidHull>(nextPid++);
+	auto process = std::make_shared<Process>(std::move(hull), original.get());
 	process->_path = original->path();
 	process->_vmContext = VmContext::clone(original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
@@ -767,15 +789,12 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
-	ProcessId pid = nextPid++;
-	assert(globalPidMap.find(pid) == globalPidMap.end());
-	process->_pid = pid;
 	process->_uid = original->_uid;
 	process->_euid = original->_euid;
 	process->_gid = original->_gid;
 	process->_egid = original->_egid;
 	original->_children.push_back(process);
-	globalPidMap.insert({pid, process.get()});
+	process->_hull->initializeProcess(process.get());
 
 	auto generation = std::make_shared<Generation>();
 	HelHandle new_thread;
@@ -792,7 +811,8 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 }
 
 std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void *ip, void *sp) {
-	auto process = std::make_shared<Process>(original.get());
+	auto hull = std::make_shared<PidHull>(nextPid++);
+	auto process = std::make_shared<Process>(std::move(hull), original.get());
 	process->_path = original->path();
 	process->_vmContext = original->_vmContext;
 	process->_fsContext = original->_fsContext;
@@ -823,15 +843,12 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_clientFileTable = original->_clientFileTable;
 	process->_clientClkTrackerPage = original->_clientClkTrackerPage;
 
-	ProcessId pid = nextPid++;
-	assert(globalPidMap.find(pid) == globalPidMap.end());
-	process->_pid = pid;
 	process->_uid = original->_uid;
 	process->_euid = original->_euid;
 	process->_gid = original->_gid;
 	process->_egid = original->_egid;
 	original->_children.push_back(process);
-	globalPidMap.insert({pid, process.get()});
+	process->_hull->initializeProcess(process.get());
 
 	auto generation = std::make_shared<Generation>();
 	HelHandle new_thread;

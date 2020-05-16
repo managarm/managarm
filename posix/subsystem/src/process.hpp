@@ -319,6 +319,30 @@ struct ThreadPage {
 // The 'Process' class.
 // --------------------------------------------------------------------------------------
 
+// This struct own the PID.
+// It remains alive until the PID can be recycled.
+struct PidHull {
+	PidHull(pid_t pid);
+
+	PidHull(const PidHull &) = delete;
+
+	~PidHull();
+
+	PidHull &operator= (const PidHull &) = delete;
+
+	pid_t getPid() {
+		return pid_;
+	}
+
+	void initializeProcess(Process *process);
+
+	std::shared_ptr<Process> getProcess();
+
+private:
+	pid_t pid_;
+	std::weak_ptr<Process> process_;
+};
+
 struct Process : std::enable_shared_from_this<Process> {
 	friend struct ProcessGroup;
 	friend struct TerminalSession;
@@ -338,7 +362,7 @@ struct Process : std::enable_shared_from_this<Process> {
 	static void retire(Process *process);
 
 public:
-	Process(Process *parent);
+	Process(std::shared_ptr<PidHull> hull, Process *parent);
 
 	~Process();
 
@@ -347,8 +371,8 @@ public:
 	}
 
 	int pid() {
-		assert(_pid); // Do not return uninitialized information.
-	 	return _pid;
+		assert(_hull);
+		return _hull->getPid();
 	}
 
 	Error setUid(int uid) {
@@ -470,7 +494,7 @@ public:
 private:
 	Process *_parent;
 
-	int _pid;
+	std::shared_ptr<PidHull> _hull;
 	int _uid;
 	int _euid;
 	int _gid;
