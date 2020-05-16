@@ -104,8 +104,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::SUCCESS);
-			if (req.domain() != AF_INET
-				|| req.type() != SOCK_RAW) {
+			if (req.domain() != AF_INET) {
 				co_await sendError(managarm::fs::ILLEGAL_ARGUMENT);
 				continue;
 			}
