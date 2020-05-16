@@ -2444,8 +2444,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
-			assert(epfile && "Illegal FD for EPOLL_ADD");
-			assert(file && "Illegal FD for EPOLL_ADD item");
+			if(!file || !epfile) {
+				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				continue;
+			}
 
 			auto locked = file->weakFile().lock();
 			assert(locked);
