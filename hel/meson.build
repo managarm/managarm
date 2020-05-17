@@ -18,14 +18,17 @@ lib_helix_dep = declare_dependency(
 	include_directories: include_directories('include/'),
 	link_with: helix)
 
-# TODO: Adapt the documentation build from the old makefile:
-#
-# $(BUILD_PATH)/$c/Doxyfile: $(TREE_PATH)/$c/Doxyfile.in
-# 	sed 's|@ROOTDIR@|$(TREE_PATH)/$d|' $< > $@
-# 
-# .PHONY: $c-doc
-# $(call decl_targets,$c-doc)
-# $c-doc: $(BUILD_PATH)/$c/Doxyfile
-# 	mkdir -p $(BUILD_PATH)/$d/doc
-# 	doxygen $(BUILD_PATH)/$d/Doxyfile
+doxyfile = configure_file(
+	input: 'Doxyfile.in',
+	output: 'Doxyfile',
+	configuration: {
+		'ROOTDIR': meson.source_root() / 'hel'
+	}
+)
 
+custom_target('hel-doxygen',
+	input: doxyfile,
+	output: 'doc',
+	depend_files: 'include/hel.h',
+	command: [find_program('doxygen'), doxyfile]
+)
