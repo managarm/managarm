@@ -137,15 +137,15 @@ auto checkAddress(const void *addr_ptr, size_t addr_len, Endpoint &e) {
 using namespace protocols::fs;
 
 struct Udp4Socket {
-	Udp4Socket(Udp4 *parent) : parent(parent) {}
+	Udp4Socket(Udp4 *parent) : parent_(parent) {}
 
 	~Udp4Socket() {
-		parent->unbind(local);
+		parent_->unbind(local_);
 	}
 
 	static auto make_socket(Udp4 *parent) {
 		auto s = smarter::make_shared<Udp4Socket>(parent);
-		s->holder = s;
+		s->holder_ = s;
 		return s;
 	}
 
@@ -160,7 +160,7 @@ struct Udp4Socket {
 			co_return e;
 		}
 
-		if (self->local.port == 0
+		if (self->local_.port == 0
 				&& !self->bindAvailable()) {
 			std::cout << "netserver: no source port" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
@@ -171,7 +171,7 @@ struct Udp4Socket {
 			co_return protocols::fs::Error::accessDenied;
 		}
 
-		self->remote = remote;
+		self->remote_ = remote;
 		co_return protocols::fs::Error::none;
 	}
 
@@ -181,7 +181,7 @@ struct Udp4Socket {
 		auto self = static_cast<Udp4Socket *>(obj);
 		Endpoint local;
 
-		if (self->local.port != 0) {
+		if (self->local_.port != 0) {
 			co_return protocols::fs::Error::illegalArguments;
 		}
 
@@ -205,11 +205,11 @@ struct Udp4Socket {
 				std::cout << "netserver: no source port" << std::endl;
 				co_return protocols::fs::Error::addressInUse;
 			}
-		} else if (!self->parent->tryBind(self->holder.lock(), local)) {
+		} else if (!self->parent_->tryBind(self->holder_.lock(), local)) {
 			co_return protocols::fs::Error::addressInUse;
 		}
 
-		self->local = local;
+		self->local_ = local;
 		co_return protocols::fs::Error::none;
 	}
 
@@ -220,12 +220,12 @@ struct Udp4Socket {
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);
-		if (self->local.port == 0
+		if (self->local_.port == 0
 				&& !self->bindAvailable()) {
 			std::cout << "netserver: no source port" << std::endl;
 			co_return protocols::fs::Error::addressInUse;
 		}
-		auto element = co_await self->queue.async_get();
+		auto element = co_await self->queue_.async_get();
 		auto packet = element->payload();
 		auto copy_size = std::min(packet.size(), len);
 		std::memcpy(data, packet.data(), copy_size);
@@ -250,7 +250,7 @@ struct Udp4Socket {
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);
 		Endpoint target;
-		auto source = self->local;
+		auto source = self->local_;
 		if (addr_size != 0) {
 			if (auto e = checkAddress(addr_ptr, addr_size, target);
 				e != protocols::fs::Error::none) {
@@ -258,7 +258,7 @@ struct Udp4Socket {
 				co_return e;
 			}
 		} else {
-			target = self->remote;
+			target = self->remote_;
 		}
 
 		if (target.port == 0 || target.addr == 0) {
@@ -349,11 +349,11 @@ struct Udp4Socket {
 private:
 	friend struct Udp4;
 
-	async::queue<Udp, stl_allocator> queue;
-	Endpoint remote;
-	Endpoint local;
-	Udp4 *parent;
-	smarter::weak_ptr<Udp4Socket> holder;
+	async::queue<Udp, stl_allocator> queue_;
+	Endpoint remote_;
+	Endpoint local_;
+	Udp4 *parent_;
+	smarter::weak_ptr<Udp4Socket> holder_;
 };
 
 void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
@@ -370,7 +370,7 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 		auto ep = i->first;
 		if (ep.addr == udp.packet->header.destination
 			|| ep.addr == INADDR_ANY) {
-			i->second->queue.emplace(std::move(udp));
+			i->second->queue_.emplace(std::move(udp));
 			break;
 		}
 	}
