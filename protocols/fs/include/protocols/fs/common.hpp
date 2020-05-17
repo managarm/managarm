@@ -17,13 +17,15 @@ enum class Error {
 	wouldBlock = 5,
 	seekOnPipe = 6,
 	brokenPipe = 7,
-	insufficientPermissions = 14,
 	accessDenied = 8,
 	afNotSupported = 9,
 	destAddrRequired = 10,
 	netUnreachable = 11,
 	messageSize = 12,
 	hostUnreachable = 13,
+	insufficientPermissions = 14,
+	addressInUse = 15,
+	addressNotAvailable = 16,
 };
 
 using ReadResult = std::variant<Error, size_t>;

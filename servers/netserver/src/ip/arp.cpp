@@ -183,6 +183,9 @@ async::result<std::optional<nic::MacAddress>> Neighbours::tryResolve(uint32_t ip
 		entryProber(ip, entry, sender);
 	}
 	co_await entry.change.async_wait();
+	if (entry.state != State::reachable) {
+		co_return std::nullopt;
+	}
 	co_return entry.mac;
 }
 

@@ -323,11 +323,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(recv_addr.error());
 
 		assert(file_ops->bind);
-		co_await file_ops->bind(file.get(), extract_creds.credentials(),
-				recv_addr.data(), recv_addr.length());
+		auto error = co_await file_ops->bind(file.get(),
+			extract_creds.credentials(),
+			recv_addr.data(), recv_addr.length());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_error(static_cast<int32_t>(error));
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
