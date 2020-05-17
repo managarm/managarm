@@ -53,9 +53,11 @@ if get_option('build_drivers')
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
 
+	libarch = subproject('libarch', default_options: 'install_headers=true')
+	libarch_dep = libarch.get_variable('libarch_dep')
+
 	subdir('hel')
 
-	subdir('libarch/')
 	subdir('protocols/clock/')
 	subdir('protocols/fs/')
 	subdir('protocols/hw/')
