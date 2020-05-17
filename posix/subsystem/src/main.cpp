@@ -1315,15 +1315,33 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 
-		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINK) {
+		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINKAT) {
 			if(logRequests || logPaths)
 				std::cout << "posix: SYMLINK " << req.path() << std::endl;
 
-			helix::SendBuffer send_resp;
+			ViewPath relativeTo;
+			smarter::shared_ptr<File, FileHandle> file;
+
+			if (!req.path().size()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			if(req.fd() == AT_FDCWD) {
+				relativeTo = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req.fd());
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relativeTo = {file->associatedMount(), file->associatedLink()};
+			}
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
+					relativeTo, req.path());
 			co_await resolver.resolve(resolvePrefix);
 			assert(resolver.currentLink());
 
@@ -1334,10 +1352,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::RENAMEAT) {
 			if(logRequests || logPaths)
 				std::cout << "posix: RENAMEAT " << req.path()
