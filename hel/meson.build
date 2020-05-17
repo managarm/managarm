@@ -30,5 +30,5 @@ custom_target('hel-doxygen',
 	input: doxyfile,
 	output: 'doc',
 	depend_files: 'include/hel.h',
-	command: [find_program('doxygen'), doxyfile]
+	command: [find_program('doxygen', required: false), doxyfile]
 )
