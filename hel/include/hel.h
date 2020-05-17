@@ -490,53 +490,239 @@ HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle);
 
 //! @}
+//! @name Management of IPC Queues
+//! @{
 
 //! size_shift:    Size of the indexQueue array.
 //! element_limit: Maximum size of a single element in bytes.
 //!                Does not include the per-element HelElement header.
 HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags,
 		unsigned int size_shift, size_t element_limit, HelHandle *handle);
-HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, HelChunk *chunk, uint32_t flags);
-HEL_C_LINKAGE HelError helCancelAsync(HelHandle queue, uint64_t async_id);
 
+HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, HelChunk *chunk, uint32_t flags);
+
+//! Cancels an ongoing asynchronous operation.
+//! @param[in] queueHandle
+//!    	Handle to the queue that the operation was submitted to.
+//! @param[in] asyncId
+//!    	ID identifying the operation.
+HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
+
+//! @}
+//! @name Memory Management
+//! @{
+
+//! Creates a memory object consisting of unmanaged RAM.
+//! @param[in] size
+//!    	Size of the memory object in bytes.
+//!    	Must be aligned to the system's page size.
+//! @param[in] restrictions
+//!    	Specifies restrictions for the kernel's memory allocator.
+//!    	May be @p NULL if there are no restrictions.
+//! @param[out] handle
+//!    	Handle to the new memory object.
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags,
 		struct HelAllocRestrictions *restrictions, HelHandle *handle);
-HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t new_size);
+
+//! Resizes a memory object.
+//! @param[in] handle
+//!    	Handle to the memory object.
+//!    	Must be aligned to the system's page size.
+//! @param[in] newSize
+//!    	New size in bytes.
+HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
+
+//! Creates a memory object that is managed by userspace.
+//!
+//!    The @p backingHandle is used to manage the memory object, while
+//! the @p frontalHandle provides a view on the memory object for consumers.
+//! @param[in] size
+//!    	Size of the memory object in bytes.
+//!    	Must be aligned to the system's page size.
+//! @param[out] backingHandle
+//!    	Handle to the new memory object (for management)
+//! @param[out] frontalHandle
+//!    	Handle to the new memory object (for consumers).
 HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
-		HelHandle *backing_handle, HelHandle *frontal_handle);
+		HelHandle *backingHandle, HelHandle *frontalHandle);
+
+//! Creates memory object that obtains its memory by copy-on-write from another memory object.
+//! @param[in] memory
+//!    	Handle to the source memory object.
+//! @param[in] offset
+//!    	Offset in byte relative to @p memory.
+//! @param[in] size
+//!    	Size of the memory object in bytes.
+//!    	Must be aligned to the system's page size.
+//! @param[out] handle
+//!    	Handle to the new memory object.
 HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle memory,
 		uintptr_t offset, size_t size, HelHandle *handle);
+
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
 		size_t size, HelHandle *handle);
+
+//! Creates a memory object that obtains its memory by delegating to other memory objects.
+//! @param[in] numSlots
+//! 	Number of slots, i.e., other memory objects that the indirect memory object refers to.
+//! @param[out] handle
+//!    	Handle to the new memory object.
 HEL_C_LINKAGE HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle);
+
+//! Modifies indirect memory objects.
+//!
+//! @param[in] indirectHandle
+//!    	Handle to the indirect memory object to be modified.
+//!    	Must refer to a memory object created by ::helCreateIndirectMemory.
+//! @param[in] slotIndex
+//!    	Index of the slot to be modified. Must be a non-negative integer smaller than
+//!    	@p numSlots (see ::helCreateIndirectMemory).
+//! @param[in] memoryHandle
+//!    	Handle to the memory object that @p indirectHandle should delegate to.
+//! @param[in] offset
+//!    	Offset in bytes, relative to @p memoryHandle.
+//!    	Must be aligned to the system's page size.
+//! @param[in] size
+//!    	Size of the indirection in bytes.
+//!    	Must be aligned to the system's page size.
 HEL_C_LINKAGE HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slotIndex,
 		HelHandle memoryHandle, uintptr_t offset, size_t size);
+
 HEL_C_LINKAGE HelError helCreateSliceView(HelHandle bundle, uintptr_t offset, size_t size,
 		uint32_t flags, HelHandle *handle);
-HEL_C_LINKAGE HelError helForkMemory(HelHandle handle, HelHandle *forked);
+
+//! Forks memory objects, i.e., copies them using copy-on-write.
+//!
+//! @param[in] indirectHandle
+//!    	Handle to the memory object to be forked.
+//!    	Must refer to a memory object created by ::helCopyOnWrite.
+//! @param[out] handle
+//!    	Handle to the new (i.e., forked) memory object.
+HEL_C_LINKAGE HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle);
+
+//! Creates a virtual address space that threads can run in.
+//! @param[out] handle
+//!     Handle to the new address space.
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
-HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
-		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actual_pointer);
-HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle space,
+
+//! Maps memory objects into an address space.
+//! @param[in] memoryHandle
+//!     Handle to the memory object.
+//! @param[in] spaceHandle
+//!     Handle to the address space (see ::helCreateSpace).
+//! @param[in] pointer
+//!     Pointer to which the memory is mapped.
+//!    	Can be specified as @p NULL to let the kernel pick a pointer.
+//! @param[in] offset
+//!    	Offset in bytes, relative to @p memoryHandle.
+//!    	Must be aligned to the system's page size.
+//! @param[in] size
+//!    	Size of the mappping in bytes.
+//!    	Must be aligned to the system's page size.
+//! @param[out] actualPointer
+//!    	Pointer to which the memory is mapped.
+//!     Differs from @p pointer only if @p pointer was specified as @p NULL.
+HEL_C_LINKAGE HelError helMapMemory(HelHandle memoryHandle, HelHandle spaceHandle,
+		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actualPointer);
+
+//! Changes protection attributes of a memory mapping.
+//!
+//! This is an asynchronous operation.
+//! @param[in] spaceHandle
+//!     Handle to the address space containing @p pointer.
+//! @param[in] pointer
+//!     Pointer to the mapping that is modified.
+//!    	Must be aligned to the system's page size.
+//! @param[in] size
+//!    	Size of the mapping that is modified.
+//!    	Must be aligned to the system's page size.
+HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle spaceHandle,
 		void *pointer, size_t size, uint32_t flags,
-		HelHandle queue, uintptr_t context);
-HEL_C_LINKAGE HelError helSubmitSynchronizeSpace(HelHandle space, void *pointer, size_t size,
-		HelHandle queue, uintptr_t context);
-HEL_C_LINKAGE HelError helUnmapMemory(HelHandle space, void *pointer, size_t size);
+		HelHandle queueHandle, uintptr_t context);
+
+//! Notifies the kernel of dirty pages in a memory mapping.
+//!
+//! This system call returns after the kernel has scanned all specified pages
+//! and determined whether they are dirty
+//! or not. It does *not* wait until the pages are clean again.
+//!
+//! This is an asynchronous operation.
+//! @param[in] spaceHandle
+//!     Handle to the address space containing @p pointer.
+//! @param[in] pointer
+//!     Pointer to the mapping that is synchronized.
+//!    	Must be aligned to the system's page size.
+//! @param[in] size
+//!    	Size of the mapping that is synchronized.
+//!    	Must be aligned to the system's page size.
+HEL_C_LINKAGE HelError helSubmitSynchronizeSpace(HelHandle spaceHandle,
+		void *pointer, size_t size,
+		HelHandle queueHandle, uintptr_t context);
+
+//! Unmaps memory from an address space.
+//!
+//! @param[in] spaceHandle
+//!     Handle to the address space containing @p pointer.
+//! @param[in] pointer
+//!     Pointer to the mapping that is unmapped.
+//!    	Must be aligned to the system's page size.
+//! @param[in] size
+//!    	Size of the mapping that is unmapped.
+//!    	Must be aligned to the system's page size.
+HEL_C_LINKAGE HelError helUnmapMemory(HelHandle spaceHandle, void *pointer, size_t size);
+
 HEL_C_LINKAGE HelError helPointerPhysical(void *pointer, uintptr_t *physical);
+
+//! Load memory (i.e., bytes) from a descriptor.
+//! @param[in] handle
+//!     Handle to the descriptor. This system call supports
+//!     address spaces (see ::helCreateAddressSpace)
+//!     and virtualized spaces (see ::helCreateVirtualizedSpace).
+//! @param[in] address
+//!     Address that is accessed, relative to @p handle.
+//! @param[in] length
+//!     Length of the copied memory region.
 HEL_C_LINKAGE HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		size_t length, void *buffer);
+
+//! Store memory (i.e., bytes) to a descriptor.
+//! @param[in] handle
+//!     Handle to the descriptor. This system call supports
+//!     address spaces (see ::helCreateAddressSpace)
+//!     and virtualized spaces (see ::helCreateVirtualizedSpace).
+//! @param[in] address
+//!     Address that is accessed, relative to @p handle.
+//! @param[in] length
+//!     Length of the copied memory region.
 HEL_C_LINKAGE HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		size_t length, const void *buffer);
+
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
+
 HEL_C_LINKAGE HelError helSubmitManageMemory(HelHandle handle,
 		HelHandle queue, uintptr_t context);
+
 HEL_C_LINKAGE HelError helUpdateMemory(HelHandle handle, int type, uintptr_t offset, size_t length);
+
 HEL_C_LINKAGE HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size,
 		HelHandle queue, uintptr_t context);
+
+//! Notifies the kernel that a certain range of memory should be preloaded.
+//!
+//! This acts as a hint to the kernel and is meant purely as a performance optimization.
+//! The kernel is free to ignore it.
+//! @param[in] handle
+//!     Handle to the memory object.
+//! @param[in] offset
+//!     Offset in bytes, relative to @p handle.
+//! @param[in] length
+//!     Length of the memory range that is preloaded.
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
+
 HEL_C_LINKAGE HelError helCreateVirtualizedSpace(HelHandle *handle);
+
+//! @}
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
