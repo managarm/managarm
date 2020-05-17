@@ -17,6 +17,8 @@
 using DeviceId = std::pair<int, int>;
 
 enum class VfsType {
+	// null means that the file type is undefined in stat().
+	// Avoid using null in favor of a more appropriate type.
 	null, directory, regular, symlink, charDevice, blockDevice, socket, fifo
 };
 

@@ -1465,6 +1465,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			case VfsType::directory:
 				resp.set_file_type(managarm::posix::FT_DIRECTORY);
 				break;
+			case VfsType::symlink:
+				resp.set_file_type(managarm::posix::FT_SYMLINK);
+				break;
 			case VfsType::charDevice:
 				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
 				devnum = target_link->getTarget()->readDevice();
@@ -1475,9 +1478,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				devnum = target_link->getTarget()->readDevice();
 				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
 				break;
-			default:
+			case VfsType::socket:
+				resp.set_file_type(managarm::posix::FT_SOCKET);
 				break;
+			case VfsType::fifo:
+				resp.set_file_type(managarm::posix::FT_FIFO);
+				break;
+			default:
+				assert(target_link->getTarget()->getType() == VfsType::null);
 			}
+
+			if(stats.mode & ~0xFFFu)
+				std::cout << "\e[31m" "posix: FsNode::getStats() returned illegal mode of "
+						<< stats.mode << "\e[39m" << std::endl;
 
 			resp.set_fs_inode(stats.inodeNumber);
 			resp.set_mode(stats.mode);
