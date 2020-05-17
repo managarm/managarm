@@ -1,0 +1,14 @@
+[book]
+authors = ["unpause"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Managarm Handbook"
+
+[output.html]
+git-repository-url = "https://github.com/managarm/managarm"
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-boolean-and = true
