@@ -454,14 +454,42 @@ HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
 
 //! @}
+//! @name Management of Descriptors and Universes
+//! @{
 
+//! Creates a new universe descriptor.
+//! @param[out] handle
+//!    	Handle to the new universe descriptor.
 HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
-HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
-		HelHandle *out_handle);
+
+//! Copies descriptors from the current universe to another universe.
+//! @param[in] handle
+//!    	Handle the descriptor to transfer.
+//! @param[in] universeHandle
+//!    	Handle to the destination universe.
+//! @param[out] outHandle
+//!    	Handle to the copied descriptor (valid in the universe specified by @p universeHandle).
+HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universeHandle,
+		HelHandle *outHandle);
+
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
+
+//! Returns the credentials associated with a given descriptor.
+//! @param[in] handle
+//!    	Handle to the descriptor.
+//!    @param[out] credentials
+//!    	Credentials, i.e., a 16-byte binary string.
 HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
 		char *credentials);
+
+//! Closes a descriptor.
+//! @param[in] universeHandle
+//!    	Handle to the universe containing @p handle.
+//! @param[in] handle
+//!    	Handle to be closed.
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle);
+
+//! @}
 
 //! size_shift:    Size of the indexQueue array.
 //! element_limit: Maximum size of a single element in bytes.
