@@ -126,8 +126,7 @@ executable('thor', pb_sources, thor_sources, embed_trampoline,
 			'../common',
 			'../../frigg/include',
 			'../../libarch/include',
-			'../../tools/pb2frigg/include',
-			'../../subprojects/acpica/source/include'
+			'../../tools/pb2frigg/include'
 		),
 		lai_includes
 	],
