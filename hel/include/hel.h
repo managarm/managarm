@@ -435,9 +435,25 @@ struct HelVmexitReason {
 	size_t flags;
 };
 
+//! @name Logging
+//! @{
+
+//! Writes a text message (e.g., a line of text) to the kernel's log.
+//! @param[in] string
+//!    	Text to be written.
+//! @param[in] length
+//! 	Size of the text in bytes.
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
+
+//! Kills the current thread and writes an error message to the kernel's log.
+//! @param[in] string
+//!    	Text to be written.
+//! @param[in] length
+//! 	Size of the text in bytes.
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
+
+//! @}
 
 HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
