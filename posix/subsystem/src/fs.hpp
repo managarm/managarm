@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_FS_HPP
-#define POSIX_SUBSYSTEM_FS_HPP
+#pragma once
 
 #include <iostream>
 #include <set>
@@ -8,6 +7,7 @@
 
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
+#include <frg/container_of.hpp>
 #include <hel.h>
 
 #include <fcntl.h>
@@ -170,4 +170,62 @@ private:
 	std::unordered_map<FsObserver *, std::shared_ptr<FsObserver>> _observers;
 };
 
-#endif // POSIX_SUBSYSTEM_FS_HPP
+// ----------------------------------------------------------------------------
+// SpecialLink class.
+// ----------------------------------------------------------------------------
+
+// This class can be used to construct FsLinks for anonymous special files
+// such as epoll, signalfd, timerfd, etc.
+struct SpecialLink final : FsLink, std::enable_shared_from_this<SpecialLink> {
+private:
+	struct PrivateTag { }; // To tag-dispatch to private methods.
+
+public:
+	static std::shared_ptr<SpecialLink> makeSpecialLink(VfsType fileType, int mode) {
+		return std::make_shared<SpecialLink>(PrivateTag{}, fileType, mode);
+	}
+
+	SpecialLink(PrivateTag, VfsType fileType, int mode)
+	: fileType_{fileType}, mode_{mode} { }
+
+public:
+	std::shared_ptr<FsNode> getTarget() override {
+		return {shared_from_this(), &embeddedNode_};
+	}
+
+	std::shared_ptr<FsNode> getOwner() override {
+		return nullptr;
+	}
+
+	std::string getName() override {
+		throw std::runtime_error("SpecialLink has no name");
+	}
+
+private:
+	// SpecialLinks can never be linked into "real" file systems,
+	// hence the can only ever be one link per node.
+	struct EmbeddedNode final : FsNode {
+		VfsType getType() override {
+			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
+			return node->fileType_;
+		}
+
+		async::result<FileStats> getStats() override {
+			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
+			FileStats stats{};
+			// TODO: Allocate an inode number.
+			stats.inodeNumber = 1;
+			stats.fileSize = 0;
+			stats.numLinks = 1;
+			stats.mode = node->mode_;
+			stats.uid = 0;
+			stats.gid = 0;
+			// TODO: Linux returns the current time for all timestamps.
+			co_return stats;
+		}
+	};
+
+	VfsType fileType_;
+	int mode_;
+	[[no_unique_address]] EmbeddedNode embeddedNode_;
+};

@@ -56,9 +56,6 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
-	ReaderFile()
-	: File{StructName::get("fifo.read"), File::defaultPipeLikeSeek} { }
-
 	ReaderFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
 	: File{StructName::get("fifo.read"), mount, link, File::defaultPipeLikeSeek} { }
 
@@ -144,9 +141,6 @@ public:
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
-
-	WriterFile()
-	: File{StructName::get("fifo.write"), File::defaultPipeLikeSeek} { }
 
 	WriterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
 	: File{StructName::get("fifo.write"), mount, link, File::defaultPipeLikeSeek} { }
@@ -268,9 +262,10 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 }
 
 std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair() {
+	auto link = SpecialLink::makeSpecialLink(VfsType::fifo, 0777);
 	auto channel = std::make_shared<Channel>();
-	auto r_file = smarter::make_shared<ReaderFile>();
-	auto w_file = smarter::make_shared<WriterFile>();
+	auto r_file = smarter::make_shared<ReaderFile>(nullptr, link);
+	auto w_file = smarter::make_shared<WriterFile>(nullptr, link);
 	r_file->setupWeakFile(r_file);
 	w_file->setupWeakFile(w_file);
 	r_file->connectChannel(channel);
