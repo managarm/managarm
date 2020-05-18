@@ -723,24 +723,114 @@ HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t l
 HEL_C_LINKAGE HelError helCreateVirtualizedSpace(HelHandle *handle);
 
 //! @}
+//! @name Thread Management
+//! @{
 
-HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
+//! Create a new thread.
+//! @param[in] universeHandle
+//!     Handle to universe of the new thread.
+//! @param[in] spaceHandle
+//!     Handle to universe of the new thread.
+//! @param[in] abi
+//!     ABI that the new thread should adhere to.
+//! @param[in] ip
+//!     Instruction pointer of the new thread.
+//! @param[in] sp
+//!     Stack pointer of the new thread.
+//! @param[out] handle
+//!     Handle to the new thread.
+HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle spaceHandle,
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
+
+//! Query run-time statistics of a thread.
+//! @param[in] handle
+//!     Handle to the thread.
+//! @param[out] stats
+//!     Statistics related to the thread.
 HEL_C_LINKAGE HelError helQueryThreadStats(HelHandle handle, HelThreadStats *stats);
+
+//! Set the priority of a thread.
+//!
+//! Managarm always runs the runnable thread with highest priority.
+//! The default priority of a thread is zero.
+//! @param[in] handle
+//!     Handle to the thread.
+//! @param[in] priority
+//!     New priority value of the thread.
 HEL_C_LINKAGE HelError helSetPriority(HelHandle handle, int priority);
+
+//! Yields the current thread.
 HEL_C_LINKAGE HelError helYield();
-HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
+
+//! Observe whether a thread changes its state.
+//!
+//! This is an asynchronous operation.
+//! @param[in] handle
+//!     Handle to the thread.
+//! @param[in] sequence
+//!     Previous sequence number.
+HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, uint64_t sequence,
 		HelHandle queue, uintptr_t context);
+
+//! Kill (i.e., terminate) a thread.
+//! @param[in] handle
+//!     Handle to the thread.
 HEL_C_LINKAGE HelError helKillThread(HelHandle handle);
+
+//! Interrupt a thread.
+//!
+//! This system call temporarily suspends a thread.
+//! The thread can later be resumed through the use of ::helResume.
+//! @param[in] handle
+//!     Handle to the thread.
 HEL_C_LINKAGE HelError helInterruptThread(HelHandle handle);
+
+//! Resume a suspended thread.
+//!
+//! Threads can explicitly be suspended through the use of ::helInterruptThread.
+//! They are also suspended on faults and supercalls.
+//! @param[in] handle
+//!     Handle to the thread.
 HEL_C_LINKAGE HelError helResume(HelHandle handle);
+
+//! Load a register image (e.g., from a thread).
+//! @param[in] handle
+//!     Handle to the thread.
+//! @param[in] set
+//!     Register set that will be accessed.
+//! @param[out] image
+//!     Copy of the register image.
 HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image);
+
+//! Store a register image (e.g., to a thread).
+//! @param[in] handle
+//!     Handle to the thread.
+//! @param[in] set
+//!     Register set that will be accessed.
+//! @param[in] image
+//!     Copy of the register image.
 HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);
+
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
+
+//! Read the system-wide monotone clock.
+//!
+//! @param[out] counter
+//!     Current value of the system-wide clock in nanoseconds since boot.
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
+
+//! Wait until time passes.
+//!
+//! This is an asynchronous operation.
+//! @param[in] counter
+//!     Deadline (absolute, see ::helGetClock).
+//! @param[out] asyncId
+//!     ID to identify the asynchronous operation (absolute, see ::helCancelAsync).
 HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context, uint64_t *async_id);
+		HelHandle queue, uintptr_t context, uint64_t *asyncId);
+
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
+
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *reason);
 
 //! @}
