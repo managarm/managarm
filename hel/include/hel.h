@@ -767,15 +767,41 @@ HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected, int64_t deadline
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
 
 //! @}
+//! @name Event Handling
+//! @{
 
+//! Create an event that fires at most once.
+//! @param[out] handle
+//!     Handle to the new event.
 HEL_C_LINKAGE HelError helCreateOneshotEvent(HelHandle *handle);
+
+//! Create an event consisting of multiple bits that can fire independently.
+//! @param[out] handle
+//!     Handle to the new event.
 HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
+
+//! Raise an event.
+//! @param[in] handle
+//!     Handle to the event that will be raised.
 HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
+
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
+
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
+
+//! Wait for an event.
+//!
+//! This is an asynchronous operation.
+//! @param[in] handle
+//!     Handle to the event that will be awaited.
+//! @param[in] sequence
+//!     Previous sequence number.
 HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue, uintptr_t context);
+
 HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet);
+
+//! @}
 
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
