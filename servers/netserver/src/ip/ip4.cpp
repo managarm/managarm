@@ -149,8 +149,6 @@ struct Ip4Socket {
 		co_return protocols::fs::Error::none;
 	}
 
-#undef check_addr
-
 	constexpr static FileOperations ops {
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
@@ -225,7 +223,7 @@ Ip4::targetByRemote(uint32_t remote) {
 
 	auto source = oroute->source;
 	if (source == 0) {
-		source = ip4().findLinkIp(remote, target.get()).value_or(0);
+		source = this->findLinkIp(remote, target.get()).value_or(0);
 	}
 	if (source == 0) {
 		std::cout << "netserver: could not find same network ip for "
