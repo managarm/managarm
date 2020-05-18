@@ -802,12 +802,20 @@ HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet);
 
 //! @}
+//! @name Input/Output
+//! @{
 
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
+
+//! Enable userspace access to hardware I/O resources.
+//! @param[in] handle
+//!     Handle to the hardware I/O resource.
 HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
+
 HEL_C_LINKAGE HelError helEnableFullIo();
 
+//! @}
 //! @name Kernlet Management
 //! @{
 
