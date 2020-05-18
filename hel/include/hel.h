@@ -808,8 +808,22 @@ HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
 HEL_C_LINKAGE HelError helEnableFullIo();
 
+//! @name Kernlet Management
+//! @{
+
+//! Bind parameters to a kernlet.
+//! @param[in] handle
+//!     Handle to the unbound kernlet.
+//! @param[in] data
+//!     Pointer to an array of binding parameters.
+//! @param[in] numData
+//!     Number of binding parameters in @p data.
+//! @param[out] boundHandle
+//!     Handle to the bound kernlet.
 HEL_C_LINKAGE HelError helBindKernlet(HelHandle handle,
-		const HelKernletData *data, size_t num_data, HelHandle *bound_handle);
+		const HelKernletData *data, size_t numData, HelHandle *boundHandle);
+
+//! @}
 
 extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelError code) {
 	switch(code) {
