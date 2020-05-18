@@ -743,11 +743,30 @@ HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *reason);
 
+//! @}
+//! @name Message Passing
+//! @{
+
+//! Create a stream (which always consists of two lanes).
+//! @param[out] lane1
+//!     Handle to the first lane of the new stream.
+//! @param[out] lane2
+//!     Handle to the second lane of the new stream.
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
+
+//! Pass messages on a stream.
+//! @param[in] handle
+//!     Handle to the lane that messages will be passed to.
+//! @param[in] actions
+//!     Pointer to array of message items.
+//! @param[in] count
+//!     Number of elements in @p actions.
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
 		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
+
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 
+//! @}
 //! @name Inter-Thread Synchronization
 //! @{
 
