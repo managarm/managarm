@@ -223,7 +223,8 @@ Ip4::targetByRemote(uint32_t remote) {
 
 	auto source = oroute->source;
 	if (source == 0) {
-		source = this->findLinkIp(remote, target.get()).value_or(0);
+		auto elvis = oroute->gateway ? oroute->gateway : remote;
+		source = findLinkIp(elvis, target.get()).value_or(0);
 	}
 	if (source == 0) {
 		std::cout << "netserver: could not find same network ip for "
@@ -262,9 +263,9 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 		co_return protocols::fs::Error::messageSize;
 	}
 
-	auto macTarget = ti.remote;
-	if (ti.route.gateway != 0) {
-		macTarget = ti.route.gateway;
+	auto macTarget = ti.route.gateway;
+	if (macTarget == 0) {
+		macTarget = ti.remote;
 	}
 
 	auto mac = co_await neigh4().tryResolve(macTarget, ti.source);
