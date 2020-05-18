@@ -748,8 +748,25 @@ HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions
 		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 
+//! @name Inter-Thread Synchronization
+//! @{
+
+//! Waits on a futex.
+//! @param[in] pointer
+//!     Pointer that identifies the futex.
+//! @param[in] expected
+//!     Expected value of the futex. This function does nothing when the
+//!     futex pointed to by @pointer matches this value.
+//! @param[in] deadline
+//!     Timeout (in absolute monotone time, see ::helGetClock).
 HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected, int64_t deadline);
+
+//! Wakes up all waiters of a futex.
+//! @param[in] pointer
+//!     Pointer that identifies the futex.
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
+
+//! @}
 
 HEL_C_LINKAGE HelError helCreateOneshotEvent(HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateBitsetEvent(HelHandle *handle);
