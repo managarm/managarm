@@ -53,8 +53,10 @@ FsNode::mkdir(std::string) {
 	co_return Error::illegalOperationTarget;
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::symlink(std::string, std::string) {
-	throw std::runtime_error("symlink() is not implemented for this FsNode");
+FutureMaybe<std::variant<Error, std::shared_ptr<FsLink>>>
+FsNode::symlink(std::string, std::string) {
+	std::cout << "posix: symlink() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkdev(std::string, VfsType, DeviceId) {
@@ -76,9 +78,7 @@ FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags)
 }
 
 expected<std::string> FsNode::readSymlink(FsLink *link) {
-	async::promise<std::variant<Error, std::string>> p;
-	p.set_value(Error::illegalOperationTarget);
-	return p.async_get();
+	co_return Error::illegalOperationTarget;
 }
 
 DeviceId FsNode::readDevice() {

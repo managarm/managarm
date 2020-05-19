@@ -381,11 +381,41 @@ private:
 		}
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> symlink(std::string name, std::string link) override {
-		(void)name;
-		(void)link;
-		assert(!"symlink is not implemented for extern_fs");
-		__builtin_unreachable();
+	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	symlink(std::string name, std::string path) override {
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_SYMLINK);
+		req.set_name_length(name.size());
+		req.set_target_length(path.size());
+
+		auto ser = req.SerializeAsString();
+		auto [offer, sendReq, sendName, sendTarget, recvResp, pullNode]
+			= co_await helix_ng::exchangeMsgs(getLane(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(name.data(), name.size()),
+				helix_ng::sendBuffer(path.data(), path.size()),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(sendReq.error());
+		HEL_CHECK(sendName.error());
+		HEL_CHECK(sendTarget.error());
+		HEL_CHECK(recvResp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recvResp.data(), recvResp.length());
+		if(resp.error() == managarm::fs::Errors::SUCCESS) {
+			HEL_CHECK(pullNode.error());
+
+			auto child = _sb->internalizeStructural(this, name,
+					resp.id(), pullNode.descriptor());
+			co_return child->treeLink();
+		} else {
+			co_return Error::illegalOperationTarget; // TODO
+		}
 	}
 
 	FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name, VfsType type, DeviceId id) override {

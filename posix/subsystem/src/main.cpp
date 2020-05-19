@@ -1346,7 +1346,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
-			co_await parent->symlink(resolver.nextComponent(), req.target_path());
+			auto result = co_await parent->symlink(resolver.nextComponent(), req.target_path());
+			if(auto error = std::get_if<Error>(&result); error) {
+				assert(*error == Error::illegalOperationTarget);
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

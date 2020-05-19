@@ -282,7 +282,8 @@ private:
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	mkdir(std::string name) override;
 
-	async::result<std::shared_ptr<FsLink>> symlink(std::string name, std::string path) override;
+	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	symlink(std::string name, std::string path) override;
 
 	async::result<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id) override;
@@ -652,7 +653,7 @@ DirectoryNode::mkdir(std::string name) {
 	co_return link;
 }
 
-async::result<std::shared_ptr<FsLink>>
+async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::symlink(std::string name, std::string path) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<SymlinkNode>(static_cast<Superblock *>(superblock()),

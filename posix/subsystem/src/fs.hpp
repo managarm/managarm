@@ -134,8 +134,9 @@ public:
 	mkdir(std::string name);
 
 	//! Creates a new symlink (directories only).
-	virtual FutureMaybe<std::shared_ptr<FsLink>> symlink(std::string name, std::string path);
-	
+	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	symlink(std::string name, std::string path);
+
 	//! Creates a new device file (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id);
