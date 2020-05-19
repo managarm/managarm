@@ -702,6 +702,50 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_SYMLINK) {
+			std::string name;
+			std::string target;
+			name.resize(req.name_length());
+			target.resize(req.target_length());
+
+			auto [recvName, recvTarget] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(name.data(), name.size()),
+				helix_ng::recvBuffer(target.data(), target.size())
+			);
+			HEL_CHECK(recvName.error());
+			HEL_CHECK(recvTarget.error());
+
+			auto result = co_await node_ops->symlink(node, std::move(name), std::move(target));
+
+			if (std::get<0>(result)) {
+				helix::UniqueLane local_lane, remote_lane;
+				std::tie(local_lane, remote_lane) = helix::createStream();
+				serveNode(std::move(local_lane), std::move(std::get<0>(result)), node_ops);
+
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				resp.set_id(std::get<1>(result));
+
+				auto ser = resp.SerializeAsString();
+				auto [sendResp, pushNode] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::pushDescriptor(remote_lane)
+				);
+				HEL_CHECK(sendResp.error());
+				HEL_CHECK(pushNode.error());
+			}else{
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT); // TODO
+
+				auto ser = resp.SerializeAsString();
+				auto [sendResp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(sendResp.error());
+			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_LINK) {
 			auto result = co_await node_ops->link(node, req.path(), req.fd());
 			if(std::get<0>(result)) {

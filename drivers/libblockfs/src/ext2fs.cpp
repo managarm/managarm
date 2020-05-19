@@ -134,6 +134,9 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 				case kTypeDirectory:
 					disk_entry->fileType = EXT2_FT_DIR;
 					break;
+				case kTypeSymlink:
+					disk_entry->fileType = EXT2_FT_SYMLINK;
+					break;
 				default:
 					throw std::runtime_error("unexpected type");
 			}
@@ -261,6 +264,26 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	memcpy(dot_dot_entry->name, "..", 2);
 
 	co_return co_await link(name, dir_node->number, kTypeDirectory);
+}
+
+async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
+	assert(!name.empty() && name != "." && name != "..");
+
+	co_await readyJump.async_wait();
+
+	auto newNode = co_await fs.createSymlink();
+	co_await newNode->readyJump.async_wait();
+
+	assert(target.size() <= 60); // TODO: implement this case!
+	newNode->setFileSize(target.size());
+	memcpy(newNode->diskInode()->data.embedded, target.data(), target.size());
+
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			newNode->diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	co_return co_await link(name, newNode->number, kTypeSymlink);
 }
 
 async::result<protocols::fs::Error> Inode::chmod(int mode) {
@@ -541,6 +564,34 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	co_return accessInode(ino);
 }
 
+async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
+	auto ino = co_await allocateInode();
+	assert(ino);
+
+	// Lock and map the inode table.
+	auto inode_address = (ino - 1) * inodeSize;
+
+	helix::LockMemoryView lock_inode;
+	auto &&submit = helix::submitLockMemoryView(inodeTable,
+			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lock_inode.error());
+
+	helix::Mapping inode_map{inodeTable,
+				inode_address, inodeSize,
+				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
+	// TODO: Set the UID, GID, timestamps.
+	auto disk_inode = reinterpret_cast<DiskInode *>(inode_map.get());
+	auto generation = disk_inode->generation;
+	memset(disk_inode, 0, inodeSize);
+	disk_inode->mode = EXT2_S_IFLNK;
+	disk_inode->generation = generation + 1;
+
+	co_return accessInode(ino);
+}
+
 async::result<void> FileSystem::write(Inode *inode, uint64_t offset,
 		const void *buffer, size_t length) {
 	co_await inode->readyJump.async_wait();
@@ -608,12 +659,6 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 				<< " for inode " << inode->number << std::endl;
 		abort();
 	}
-
-	// TODO: support large files
-	inode->fileData = disk_inode->data;
-
-	// filter out the file type from the mode
-	// TODO: ext2fs stores a 32-bit mode
 
 	inode->numLinks = disk_inode->linksCount;
 	// TODO: support large uid / gids

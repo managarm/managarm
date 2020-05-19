@@ -303,8 +303,8 @@ async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	co_await self->readyJump.async_wait();
 
 	assert(self->fileSize() <= 60);
-	std::string link(self->fileData.embedded, self->fileData.embedded + self->fileSize());
-	co_return link;
+	co_return std::string{self->diskInode()->data.embedded,
+			self->diskInode()->data.embedded + self->fileSize()};
 }
 
 async::result<protocols::fs::MkdirResult>
@@ -319,6 +319,18 @@ mkdir(std::shared_ptr<void> object, std::string name) {
 	co_return protocols::fs::MkdirResult{fs->accessInode(entry->inode), entry->inode};
 }
 
+async::result<protocols::fs::SymlinkResult>
+symlink(std::shared_ptr<void> object, std::string name, std::string target) {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto entry = co_await self->symlink(std::move(name), std::move(target));
+
+	if(!entry)
+		co_return protocols::fs::SymlinkResult{nullptr, -1};
+
+	assert(entry->inode);
+	co_return protocols::fs::SymlinkResult{fs->accessInode(entry->inode), entry->inode};
+}
+
 async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto result = co_await self->chmod(mode);
@@ -327,14 +339,15 @@ async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode
 }
 
 constexpr protocols::fs::NodeOperations nodeOperations{
-	&getStats,
-	&getLink,
-	&link,
-	&unlink,
-	&open,
-	&readSymlink,
-	&mkdir,
-	&chmod
+	.getStats = &getStats,
+	.getLink = &getLink,
+	.link = &link,
+	.unlink = &unlink,
+	.open = &open,
+	.readSymlink = &readSymlink,
+	.mkdir = &mkdir,
+	.symlink = &symlink,
+	.chmod = &chmod
 };
 
 } // anonymous namespace
