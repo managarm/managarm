@@ -182,15 +182,15 @@ constexpr protocols::fs::FileOperations fileOperations {
 	.seekRel      = &seekRel,
 	.seekEof      = &seekEof,
 	.read         = &read,
+	.pread        = &pread,
 	.write        = &write,
-	.flock        = &flock,
 	.readEntries  = &readEntries,
 	.accessMemory = &accessMemory,
 	.truncate     = &truncate,
+	.flock        = &flock,
+	.poll         = &poll,
 	.getFileFlags = &getFileFlags,
 	.setFileFlags = &setFileFlags,
-	.poll		  = &poll,
-	.pread 		  = &pread
 };
 
 async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object,
