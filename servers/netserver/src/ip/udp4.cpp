@@ -222,11 +222,6 @@ struct Udp4Socket {
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);
-		if (self->local_.port == 0
-				&& !self->bindAvailable()) {
-			std::cout << "netserver: no source port" << std::endl;
-			co_return protocols::fs::Error::wouldBlock;
-		}
 		auto element = co_await self->queue_.async_get();
 		auto packet = element->payload();
 		auto copy_size = std::min(packet.size(), len);
