@@ -124,14 +124,15 @@ public:
 
 	//! Resolves a file in a directory (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name);
-	
+
 	//! Links an existing node to this directory (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
 			std::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
-	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>> mkdir(std::string name);
-	
+	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	mkdir(std::string name);
+
 	//! Creates a new symlink (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> symlink(std::string name, std::string path);
 	
@@ -140,7 +141,7 @@ public:
 			VfsType type, DeviceId id);
 
 	virtual FutureMaybe<std::shared_ptr<FsLink>> mkfifo(std::string name, mode_t mode);
-	
+
 	virtual FutureMaybe<void> unlink(std::string name);
 
 	//! Opens the file (regular files only).
@@ -148,7 +149,7 @@ public:
 	virtual FutureMaybe<smarter::shared_ptr<File, FileHandle>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags);
-	
+
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.
 	virtual expected<std::string> readSymlink(FsLink *link);

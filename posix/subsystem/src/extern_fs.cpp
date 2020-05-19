@@ -351,33 +351,30 @@ private:
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	mkdir(std::string name) override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::PullDescriptor pull_node;
-
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_MKDIR);
 		req.set_path(name);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&pull_node));
-		co_await transmit.async_wait();
+		auto [offer, sendReq, recvResp, pullNode] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
 		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(sendReq.error());
+		HEL_CHECK(recvResp.error());
 
 		managarm::fs::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		resp.ParseFromArray(recvResp.data(), recvResp.length());
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
-			HEL_CHECK(pull_node.error());
+			HEL_CHECK(pullNode.error());
 
 			auto child = _sb->internalizeStructural(this, name,
-					resp.id(), pull_node.descriptor());
+					resp.id(), pullNode.descriptor());
 			co_return child->treeLink();
 		} else {
 			co_return Error::illegalOperationTarget; // TODO

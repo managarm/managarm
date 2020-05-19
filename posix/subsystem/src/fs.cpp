@@ -47,8 +47,10 @@ FutureMaybe<std::shared_ptr<FsLink>> FsNode::link(std::string, std::shared_ptr<F
 	throw std::runtime_error("link() is not implemented for this FsNode");
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>> FsNode::mkdir(std::string) {
-	throw std::runtime_error("mkdir() is not implemented for this FsNode");
+async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+FsNode::mkdir(std::string) {
+	std::cout << "posix: mkdir() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 FutureMaybe<std::shared_ptr<FsLink>> FsNode::symlink(std::string, std::string) {

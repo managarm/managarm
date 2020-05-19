@@ -279,7 +279,8 @@ private:
 		co_return link;
 	}
 
-	async::result<std::variant<Error, std::shared_ptr<FsLink>>> mkdir(std::string name) override;
+	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	mkdir(std::string name) override;
 
 	async::result<std::shared_ptr<FsLink>> symlink(std::string name, std::string path) override;
 
