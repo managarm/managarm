@@ -14,6 +14,7 @@ executable('netserver',
 		'src/ip/checksum.cpp',
 		'src/ip/arp.cpp',
 		'src/ip/udp4.cpp',
+		'src/ip/tcp4.cpp',
 		fs_pb
 	],
 	dependencies: [
