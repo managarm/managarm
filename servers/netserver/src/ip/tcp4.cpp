@@ -8,6 +8,7 @@
 #include <deque>
 #include <iomanip>
 #include <random>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
@@ -317,7 +318,40 @@ struct Tcp4Socket {
 		co_return size;
 	}
 
+	static async::result<protocols::fs::PollResult>
+	poll(void *object, uint64_t pastSeq, async::cancellation_token cancellation) {
+		auto self = static_cast<Tcp4Socket *>(object);
+
+		// TODO: Return an error in this case.
+		if(pastSeq > self->currentSeq_) {
+			std::cout << "netserver: Illegal pastSeq in TCP poll()" << std::endl;
+			pastSeq = self->currentSeq_;
+		}
+
+		while(pastSeq == self->currentSeq_ && !cancellation.is_cancellation_requested())
+			co_await self->pollEvent_.async_wait(cancellation);
+
+		int edges = 0;
+		if(self->inSeq_ > pastSeq)
+			edges |= EPOLLIN;
+		if(self->outSeq_ > pastSeq)
+			edges |= EPOLLOUT;
+
+		int active = 0;
+		if(self->recvRing_.availableToDequeue())
+			active |= EPOLLIN;
+		if(self->sendRing_.spaceForEnqueue())
+			active |= EPOLLOUT;
+
+		co_return protocols::fs::PollResult{
+			self->currentSeq_,
+			edges,
+			active
+		};
+	}
+
 	constexpr static protocols::fs::FileOperations ops {
+		.poll = &poll,
 		.bind = &bind,
 		.connect = &connect,
 		.recvMsg = &recvMsg,
@@ -380,6 +414,13 @@ private:
 	async::doorbell inEvent_;
 	async::doorbell flushEvent_;
 	async::doorbell settleEvent_;
+
+	// The following sequence numbers are *not* TCP sequence numbers,
+	// they implement the poll() function.
+	uint64_t currentSeq_ = 1;
+	uint64_t inSeq_ = 1;
+	uint64_t outSeq_ = 0;
+	async::doorbell pollEvent_;
 };
 
 async::result<void> Tcp4Socket::flushOutPackets_() {
@@ -561,6 +602,7 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 			size_t chunk = std::min(payload.size(), recvRing_.spaceForEnqueue());
 			if(chunk) {
 				recvRing_.enqueue(payload.data(), chunk);
+				inSeq_ = ++currentSeq_;
 				remoteKnownSn_ += chunk;
 				if(announcedWindow_ < chunk) {
 					announcedWindow_ = 0;
@@ -569,6 +611,7 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 				}
 				inEvent_.ring();
 				flushEvent_.ring();
+				pollEvent_.ring();
 			}
 		}
 
@@ -579,7 +622,9 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 				localSettledSn_ += ackPointer;
 				localWindowSn_ = localSettledSn_ + packet.header.window.load();
 				sendRing_.dequeueAdvance(ackPointer);
+				outSeq_ = ++currentSeq_;
 				settleEvent_.ring();
+				pollEvent_.ring();
 			}else{
 				std::cout << "netserver: Rejecting ack-number outside of valid window"
 						<< std::endl;
