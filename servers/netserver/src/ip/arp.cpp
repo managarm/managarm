@@ -3,6 +3,7 @@
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
 #include <arch/bit.hpp>
+#include <cstring>
 #include <iomanip>
 #include "ip4.hpp"
 

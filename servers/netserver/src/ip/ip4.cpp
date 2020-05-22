@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <iomanip>
 #include <protocols/fs/server.hpp>

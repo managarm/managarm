@@ -1,6 +1,7 @@
 #include <netserver/nic.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <arch/bit.hpp>
 #include "ip/ip4.hpp"
 #include "ip/arp.hpp"
