@@ -28,8 +28,9 @@
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 
 async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
-	protocols::hw::Device hw_device(co_await base_entity.bind());
-	auto transport = co_await virtio_core::discover(std::move(hw_device), discover_mode);
+	protocols::hw::Device hwDevice(co_await base_entity.bind());
+	co_await hwDevice.enableBusmaster();
+	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
 	auto device = nic::virtio::makeShared(std::move(transport));
 	if (baseDeviceMap.empty()) {
