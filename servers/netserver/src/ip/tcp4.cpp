@@ -265,6 +265,19 @@ struct Tcp4Socket {
 		co_return protocols::fs::Error::none;
 	}
 
+	static async::result<protocols::fs::ReadResult> read(void *object, const char *creds,
+			void *data, size_t size) {
+		auto result = co_await recvMsg(object, creds, 0, data, size, nullptr, 0, {});
+		if(auto e = std::get_if<protocols::fs::Error>(&result); e)
+			co_return *e;
+		co_return std::get<protocols::fs::RecvData>(result).dataLength;
+	}
+
+	static async::result<void> write(void *object, const char *creds,
+			const void *data, size_t size) {
+		co_await sendMsg(object, creds, 0, const_cast<void *>(data), size, nullptr, 0, {});
+	}
+
 	static async::result<protocols::fs::RecvResult> recvMsg(void *object,
 			const char *creds, uint32_t flags,
 			void *data, size_t size,
@@ -351,6 +364,8 @@ struct Tcp4Socket {
 	}
 
 	constexpr static protocols::fs::FileOperations ops {
+		.read = &read,
+		.write = &write,
 		.poll = &poll,
 		.bind = &bind,
 		.connect = &connect,
