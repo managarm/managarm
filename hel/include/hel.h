@@ -950,6 +950,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Illegal syscall";
 	case kHelErrIllegalArgs:
 		return "Illegal arguments";
+	case kHelErrIllegalState:
+		return "Illegal state";
 	case kHelErrUnsupportedOperation:
 		return "Unsupported operation";
 	case kHelErrNoDescriptor:
@@ -964,12 +966,20 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "End of lane";
 	case kHelErrBufferTooSmall:
 		return "Buffer too small";
+	case kHelErrQueueTooSmall:
+		return "Buffer too small";
 	case kHelErrFault:
 		return "Segfault";
 	case kHelErrNoHardwareSupport:
 		return "Missing hardware support for this feature";
 	case kHelErrNoMemory:
 		return "Out of memory";
+	case kHelErrTransmissionMismatch:
+		return "Transmission mismatch";
+	case kHelErrCancelled:
+		return "Cancelled";
+	case kHelErrOutOfBounds:
+		return "Cancelled";
 	default:
 		return 0;
 	}
