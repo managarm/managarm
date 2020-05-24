@@ -10,6 +10,7 @@
 #include <protocols/fs/server.hpp>
 #include <cstring>
 #include <iomanip>
+#include <random>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
@@ -197,19 +198,20 @@ struct Udp4Socket {
 		}
 
 		if (!ip4().hasIp(local.addr)) {
+			std::cout << "netserver: not local ip" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		if (local.port == 0) {
 			if (!self->bindAvailable(local.addr)) {
-				std::cout << "netserver: no source port" << std::endl;
 				co_return protocols::fs::Error::addressInUse;
 			}
+			std::cout << "netserver: no source port" << std::endl;
 		} else if (!self->parent_->tryBind(self->holder_.lock(), local)) {
+			std::cout << "netserver: address in use" << std::endl;
 			co_return protocols::fs::Error::addressInUse;
 		}
 
-		self->local_ = local;
 		co_return protocols::fs::Error::none;
 	}
 
@@ -220,11 +222,6 @@ struct Udp4Socket {
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);
-		if (self->local_.port == 0
-				&& !self->bindAvailable()) {
-			std::cout << "netserver: no source port" << std::endl;
-			co_return protocols::fs::Error::addressInUse;
-		}
 		auto element = co_await self->queue_.async_get();
 		auto packet = element->payload();
 		auto copy_size = std::min(packet.size(), len);
@@ -270,6 +267,8 @@ struct Udp4Socket {
 			std::cout << "netserver: no source port" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
+
+		source = self->local_;
 
 		if (target.addr == INADDR_BROADCAST) {
 			std::cout << "netserver: broadcast" << std::endl;
@@ -342,7 +341,27 @@ struct Udp4Socket {
 	};
 
 	bool bindAvailable(uint32_t addr = INADDR_ANY) {
-		// TODO(arsen): ephemeral ports
+		static std::mt19937 rng;
+		static std::uniform_int_distribution<uint16_t> dist {
+			32768, 60999
+		};
+		// TODO(arsen): this rng probably is suboptimal, at some point
+		// in the future replace it with a CSRNG or a hash function
+		// see also: RFC6056, Section 3.3.3
+		auto number = dist(rng);
+		auto range_size = dist.b() - dist.a();
+		auto shared_from_this = holder_.lock();
+		// TODO(arsen): optimize to not call lower_bound every time?
+		// I believe that such a thing is not needed right now: nearly
+		// (read: absolutely) every case is is an immediate miss: we are
+		// using next to nothing in this region, or any other region for
+		// that manner
+		for (size_t i = 0; i < range_size; i++) {
+			uint16_t port = dist.a() + ((number + i) % range_size);
+			if (parent_->tryBind(shared_from_this, { addr, port })) {
+				return true;
+			}
+		}
 		return false;
 	}
 
@@ -385,6 +404,7 @@ bool Udp4::tryBind(smarter::shared_ptr<Udp4Socket> socket, Endpoint addr) {
 			return false;
 		}
 	}
+	socket->local_ = addr;
 	binds.emplace(addr, std::move(socket));
 	return true;
 }
