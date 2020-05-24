@@ -5,17 +5,22 @@
 
 namespace {
 struct Socket : File {
-	Socket(helix::UniqueLane sock_lane)
-		: File { StructName::get("socket") },
-		_lane { std::move(sock_lane) } {
+	Socket(helix::UniqueLane sockLane)
+	: File{StructName::get("extern-socket")},
+		_file{std::move(sockLane)} { }
+
+	expected<PollResult> poll(Process *, uint64_t sequence,
+			async::cancellation_token cancellation) override {
+		auto result = co_await _file.poll(sequence, cancellation);
+		co_return result;
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _lane;
+		return _file.getLane();
 	}
 
 private:
-	helix::UniqueLane _lane;
+	protocols::fs::File _file;
 };
 }
 
@@ -46,7 +51,8 @@ async::result<smarter::shared_ptr<File, FileHandle>> createSocket(helix::Borrowe
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-	co_return File::constructHandle(
-		smarter::make_shared<Socket>(recv_lane.descriptor()));
+	auto file = smarter::make_shared<Socket>(recv_lane.descriptor());
+	file->setupWeakFile(file);
+	co_return File::constructHandle(file);
 }
 }

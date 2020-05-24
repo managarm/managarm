@@ -316,7 +316,8 @@ void Ip4::feedPacket(nic::MacAddress dest, nic::MacAddress src,
 
 	auto begin = sockets.lower_bound(proto);
 	if (begin == sockets.end()
-		&& proto != static_cast<uint16_t>(IpProto::udp)) {
+			&& proto != static_cast<uint16_t>(IpProto::udp)
+			&& proto != static_cast<uint16_t>(IpProto::tcp)) {
 		return;
 	}
 
@@ -324,6 +325,7 @@ void Ip4::feedPacket(nic::MacAddress dest, nic::MacAddress src,
 
 	switch (static_cast<IpProto>(proto)) {
 	case IpProto::udp: udp.feedDatagram(hdrs); break;
+	case IpProto::tcp: tcp.feedDatagram(hdrs); break;
 	default: break;
 	}
 
@@ -385,6 +387,9 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int prot
 	}
 	case SOCK_DGRAM:
 		udp.serveSocket(std::move(lane));
+		return managarm::fs::Errors::SUCCESS;
+	case SOCK_STREAM:
+		tcp.serveSocket(std::move(lane));
 		return managarm::fs::Errors::SUCCESS;
 	default:
 		return managarm::fs::Errors::ILLEGAL_ARGUMENT;

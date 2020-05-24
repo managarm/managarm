@@ -13,6 +13,7 @@
 #include <optional>
 
 #include "udp4.hpp"
+#include "tcp4.hpp"
 
 #include <netserver/nic.hpp>
 #include "fs.pb.h"
@@ -136,6 +137,7 @@ private:
 	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
 
 	Udp4 udp;
+	Tcp4 tcp;
 };
 
 Ip4 &ip4();
