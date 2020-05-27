@@ -8,6 +8,7 @@
 #include "error.hpp"
 #include "../arch/x86/cpu.hpp"
 #include "schedule.hpp"
+#include "ring-buffer.hpp"
 
 namespace thor {
 
@@ -63,6 +64,11 @@ struct ExecutorContext {
 	WorkQueue *associatedWorkQueue;
 };
 
+enum class ProfileMechanism {
+	none,
+	amdPmc
+};
+
 struct CpuData : public PlatformCpuData {
 	CpuData();
 
@@ -77,6 +83,10 @@ struct CpuData : public PlatformCpuData {
 	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;
 	std::atomic<uint64_t> heartbeat;
+
+	std::atomic<ProfileMechanism> profileMechanism{};
+	// TODO: This should be a unique_ptr instead.
+	SingleContextRecordRing *localProfileRing = nullptr;
 };
 
 inline CpuData *getCpuData() {

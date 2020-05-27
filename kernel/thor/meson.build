@@ -75,6 +75,7 @@ thor_sources = files(
 	'generic/io.cpp',
 	'generic/kerncfg.cpp',
 	'generic/kernlet.cpp',
+	'generic/profile.cpp',
 	'generic/servers.cpp',
 	'generic/service_helpers.cpp',
 	'generic/work-queue.cpp',

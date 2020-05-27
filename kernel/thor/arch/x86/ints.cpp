@@ -1,5 +1,7 @@
 
 #include "generic/kernel.hpp"
+#include "generic/profile.hpp"
+#include "pmc-amd.hpp"
 
 extern char stubsPtr[], stubsLimit[];
 
@@ -475,17 +477,30 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
 			reinterpret_cast<uintptr_t>(*image.expectedGs()));
 
-	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-			<< "]: NMI triggered at heartbeat "
-			<< getCpuData()->heartbeat.load(std::memory_order_relaxed) << frigg::endLog;
-	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-			<< "]: From CS: 0x" << frigg::logHex(*image.cs())
-			<< ", IP: " << (void *)*image.ip() << frigg::endLog;
-	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-			<< "]: RFLAGS is " << (void *)*image.rflags() << frigg::endLog;
+	auto cpuData = getCpuData();
 
-	if(!getLocalApicId())
-		sendGlobalNmi();
+	bool explained = false;
+	if(cpuData->profileMechanism.load(std::memory_order_acquire) == ProfileMechanism::amdPmc
+			&& checkAmdPmcOverflow()) {
+		uintptr_t ip = *image.ip();
+		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
+		setAmdPmc();
+		explained = true;
+	}
+
+	if(!explained) {
+		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+				<< "]: NMI triggered at heartbeat "
+				<< cpuData->heartbeat.load(std::memory_order_relaxed) << frigg::endLog;
+		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+				<< "]: From CS: 0x" << frigg::logHex(*image.cs())
+				<< ", IP: " << (void *)*image.ip() << frigg::endLog;
+		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+				<< "]: RFLAGS is " << (void *)*image.rflags() << frigg::endLog;
+
+		if(!getLocalApicId())
+			sendGlobalNmi();
+	}
 
 	// Restore the old value of GS.
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,

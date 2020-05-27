@@ -7,6 +7,7 @@
 #include "fiber.hpp"
 #include "kerncfg.hpp"
 #include "kernlet.hpp"
+#include "profile.hpp"
 #include "servers.hpp"
 #include "service_helpers.hpp"
 #include <frg/string.hpp>
@@ -59,7 +60,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			reinterpret_cast<void *>(info->frameBuffer.fbEarlyWindow));
 	
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
-	
+
 	initializeProcessorEarly();
 
 	if(info->signature == eirSignatureValue) {
@@ -114,6 +115,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	for(auto it = earlyFibers->begin(); it != earlyFibers->end(); ++it)
 		Scheduler::resume(*it);
+
+	// This has to be done after the scheduler is available.
+	initializeProfile();
 
 	KernelFiber::run([=] () mutable {
 		// Complete the system initialization.
@@ -473,7 +477,6 @@ void handleIrq(IrqImageAccessor image, int number) {
 		frigg::infoLogger() << "thor: IRQ slot #" << number << frigg::endLog;
 
 	globalIrqSlots[number]->raise();
-
 	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
 	if(!noScheduleOnIrq && localScheduler()->wantSchedule()) {

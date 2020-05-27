@@ -576,6 +576,9 @@ struct AssemblyCpuData {
 };
 
 struct PlatformCpuData : public AssemblyCpuData {
+	static constexpr uint32_t profileIntelSupported = 1;
+	static constexpr uint32_t profileAmdSupported = 2;
+
 	PlatformCpuData();
 
 	int localApicId;
@@ -596,6 +599,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	bool haveSmap;
 	bool havePcids;
 	bool haveXsave;
+	uint32_t profileFlags = 0;
 	size_t xsaveRegionSize;
 
 	LocalApicContext apicContext;

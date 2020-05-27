@@ -19,6 +19,7 @@ arch::bit_register<uint32_t> lApicSpurious(0x00F0);
 arch::bit_register<uint32_t> lApicIcrLow(0x0300);
 arch::bit_register<uint32_t> lApicIcrHigh(0x0310);
 arch::bit_register<uint32_t> lApicLvtTimer(0x0320);
+arch::bit_register<uint32_t> lApicLvtPerfCount(0x0340);
 arch::bit_register<uint32_t> lApicLvtLocal0(0x0350);
 arch::bit_register<uint32_t> lApicLvtLocal1(0x0360);
 arch::scalar_register<uint32_t> lApicInitCount(0x0380);
@@ -211,8 +212,10 @@ void initLocalApicPerCpu() {
 	dumpLocalInt(1);
 	
 	// Setup a timer interrupt for scheduling.
-	uint32_t schedule_vector = 0xFF;
-	picBase.store(lApicLvtTimer, apicLvtVector(schedule_vector));
+	picBase.store(lApicLvtTimer, apicLvtVector(0xFF));
+
+	// Setup the PMI.
+	picBase.store(lApicLvtPerfCount, apicLvtMode(4));
 }
 
 uint32_t getLocalApicId() {

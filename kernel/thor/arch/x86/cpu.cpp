@@ -88,7 +88,7 @@ frigg::LazyInitializer<frg::intrusive_list<
 void setupDebugging() {
 	if(debugToSerial) {
 		auto base = arch::global_io.subspace(0x3F8);
-		
+
 		// Set the baud rate.
 		base.store(lineControl, dlab(true));
 		base.store(baudLow, 0x01);
@@ -134,7 +134,7 @@ void callLegacy(char c) {
 	// --------------------------------------------------------
 	// Text-mode video output
 	// --------------------------------------------------------
-	
+
 	if(debugToVga) {
 		if(c == '\n') {
 			advanceY();
@@ -293,7 +293,7 @@ size_t Executor::determineSize() {
 		return sizeof(General) + 0x10 + cpu_data->xsaveRegionSize;
 	}else{
 		return sizeof(General) + 0x10 + sizeof(FxState);
-	}	
+	}
 }
 
 Executor::Executor()
@@ -385,7 +385,7 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->r13 = accessor._frame()->r13;
 	executor->general()->r14 = accessor._frame()->r14;
 	executor->general()->r15 = accessor._frame()->r15;
-	
+
 	executor->general()->rip = accessor._frame()->rip;
 	executor->general()->cs = accessor._frame()->cs;
 	executor->general()->rflags = accessor._frame()->rflags;
@@ -418,7 +418,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->r13 = accessor._frame()->r13;
 	executor->general()->r14 = accessor._frame()->r14;
 	executor->general()->r15 = accessor._frame()->r15;
-	
+
 	executor->general()->rip = accessor._frame()->rip;
 	executor->general()->cs = accessor._frame()->cs;
 	executor->general()->rflags = accessor._frame()->rflags;
@@ -426,7 +426,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->ss = accessor._frame()->ss;
 	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
 	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
-	
+
 
 	if(getCpuData()->haveXsave){
 		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
@@ -524,7 +524,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 			|| cs == kSelClientUserCode || cs == kSelSystemFiberCode);
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
-	
+
 	_restoreExecutorRegisters(executor->general());
 }
 
@@ -589,9 +589,9 @@ PlatformCpuData::PlatformCpuData()
 	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemFiberCode);
-	
+
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemNmiCode);
-	
+
 	// Setup the per-CPU TSS. This TSS is used by system code.
 	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&tss);
@@ -661,7 +661,7 @@ void doRunDetached(void (*function) (void *), void *argument) {
 	assert(!intsAreEnabled());
 
 	CpuData *cpu_data = getCpuData();
-	
+
 	uintptr_t stack_ptr = (uintptr_t)cpu_data->detachedStack.base();
 	asm volatile ( "mov %%rsp, %%rbp\n"
 			"\tmov %2, %%rsp\n"
@@ -697,7 +697,7 @@ void initializeThisProcessor() {
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
 	auto cpu_data = getCpuData();
-	
+
 	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
 	allCpuContexts->push(cpu_data);
 
@@ -731,7 +731,7 @@ void initializeThisProcessor() {
 
 	// We need a valid TSS in case an NMI or fault happens here.
 	activateTss(&cpu_data->tss);
-	
+
 	// setup the idt
 	for(int i = 0; i < 256; i++)
 		frigg::arch_x86::makeIdt64NullGate(cpu_data->idt, i);
@@ -756,7 +756,7 @@ void initializeThisProcessor() {
 //			& frigg::arch_x86::kCpuFlagFsGsBase))
 //		frigg::panicLogger() << "CPU does not support wrfsbase / wrgsbase"
 //				<< frigg::endLog;
-	
+
 //	uint64_t cr4;
 //	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
 //	cr4 |= 0x10000;
@@ -862,6 +862,19 @@ void initializeThisProcessor() {
 		frigg::infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frigg::endLog;
 	}
 
+	auto intelPmLeaf = frigg::arch_x86::cpuid(0xA)[0];
+	if(intelPmLeaf & 0xFF) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports Intel performance counters\e[39m"
+				<< frigg::endLog;
+		cpu_data->profileFlags |= PlatformCpuData::profileIntelSupported;
+	}
+	auto amdPmLeaf = frigg::arch_x86::cpuid(0x8000'0001)[2];
+	if(amdPmLeaf & (1 << 23)) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports AMD performance counters\e[39m"
+				<< frigg::endLog;
+		cpu_data->profileFlags |= PlatformCpuData::profileAmdSupported;
+	}
+
 	//Check that both vmx and ept are supported.
 	bool vmxSupported = (frigg::arch_x86::cpuid(0x1)[2] >> 5) & 1 && frigg::arch_x86::rdmsr(0x0000048CU) * (1 << 6);
 	if(!vmxSupported) {
@@ -911,7 +924,7 @@ void secondaryMain(StatusBlock *status_block) {
 	initializeThisProcessor();
 	__atomic_store_n(&status_block->targetStage, 2, __ATOMIC_RELEASE);
 
-	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;	
+	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;
 	localScheduler()->reschedule();
 }
 
@@ -928,11 +941,11 @@ void bootSecondary(unsigned int apic_id) {
 	assert(image_size <= kPageSize);
 	PageAccessor accessor{pma};
 	memcpy(accessor.get(), _binary_kernel_thor_trampoline_bin_start, image_size);
-	
+
 	// Allocate a stack for the initialization code.
 	constexpr size_t stack_size = 0x10000;
 	void *stack_ptr = kernelAlloc->allocate(stack_size);
-	
+
 	auto context = frigg::construct<CpuData>(*kernelAlloc);
 	context->localApicId = apic_id;
 
@@ -963,7 +976,7 @@ void bootSecondary(unsigned int apic_id) {
 	fiberSleep(200000); // Wait for 200us.
 	raiseStartupIpi(apic_id, pma);
 	fiberSleep(200000); // Wait for 200us.
-	
+
 	// Wait until the AP wakes up.
 	while(__atomic_load_n(&status_block->targetStage, __ATOMIC_ACQUIRE) < 1) {
 		frigg::pause();
@@ -974,7 +987,7 @@ void bootSecondary(unsigned int apic_id) {
 	// This ensures that the AP does not execute boot code twice (e.g. in case
 	// it already wakes up after a single SIPI).
 	__atomic_store_n(&status_block->initiatorStage, 1, __ATOMIC_RELEASE);
-	
+
 	// Wait until the AP exits the boot code.
 	while(__atomic_load_n(&status_block->targetStage, __ATOMIC_ACQUIRE) < 2) {
 		frigg::pause();
