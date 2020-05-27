@@ -2542,9 +2542,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
+			uint64_t former = self->signalMask();
 
 			auto epfile = self->fileContext()->getFile(req.fd());
-			assert(epfile && "Illegal FD for EPOLL_WAIT");
+			if(!epfile) {
+				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				continue;
+			}
+			if(req.sigmask_needed()) {
+				self->setSignalMask(req.sigmask());
+			}
 
 			struct epoll_event events[16];
 			size_t k;
@@ -2565,6 +2572,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else{
 				assert(!"posix: Illegal timeout for EPOLL_WAIT");
 				__builtin_unreachable();
+			}
+			if(req.sigmask_needed()) {
+				self->setSignalMask(former);
 			}
 
 			managarm::posix::SvrResponse resp;
