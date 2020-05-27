@@ -117,6 +117,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		Scheduler::resume(*it);
 
 	// This has to be done after the scheduler is available.
+	if(info->debugFlags & eirDebugKernelProfile)
+		wantKernelProfile = true;
 	initializeProfile();
 
 	KernelFiber::run([=] () mutable {

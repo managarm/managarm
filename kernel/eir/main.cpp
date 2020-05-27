@@ -581,6 +581,8 @@ EirInfo *generateInfo(const char* cmdline){
 			info_ptr->debugFlags |= eirDebugSerial;
 		}else if(token == "bochs") {
 			info_ptr->debugFlags |= eirDebugBochs;
+		}else if(token == "kernel-profile") {
+			info_ptr->debugFlags |= eirDebugKernelProfile;
 		}
 		l = s;
 	}
