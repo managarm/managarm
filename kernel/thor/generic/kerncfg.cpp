@@ -4,6 +4,7 @@
 #include "execution/coroutine.hpp"
 #include "fiber.hpp"
 #include "kerncfg.hpp"
+#include "profile.hpp"
 #include "service_helpers.hpp"
 
 #include "kerncfg.frigg_pb.hpp"
@@ -59,7 +60,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 	co_return kErrSuccess;
 }
 
-coroutine<Error> handleByteRingReq(LaneHandle boundLane) {
+coroutine<Error> handleByteRingReq(LogRingBuffer *ringBuffer, LaneHandle boundLane) {
 	auto [acceptError, lane] = co_await AcceptSender{boundLane};
 	if(acceptError)
 		co_return acceptError;
@@ -71,22 +72,22 @@ coroutine<Error> handleByteRingReq(LaneHandle boundLane) {
 
 	if(req.req_type() == managarm::kerncfg::CntReqType::GET_BUFFER_CONTENTS) {
 		size_t oldDequeue = req.dequeue();
-		size_t wantedSize = allocLog->wantedSize(oldDequeue, req.size());;
+		size_t wantedSize = ringBuffer->wantedSize(oldDequeue, req.size());;
 
 		constexpr uint64_t nanos = 100000000;
-		constexpr size_t minSize = 1024 * 1024; // 1M
-		while (!allocLog->hasEnoughBytes(oldDequeue, minSize))
+		size_t minSize = req.watermark();
+		while (!ringBuffer->hasEnoughBytes(oldDequeue, minSize))
 			co_await generalTimerEngine()->sleep(systemClockSource()->currentNanos() + nanos);
 
 		frigg::UniqueMemory<KernelAlloc> dataBuffer{*kernelAlloc, wantedSize};
 		auto [newDequeue, actualSize] =
-			allocLog->dequeueInto(dataBuffer.data(), oldDequeue, wantedSize);
+			ringBuffer->dequeueInto(dataBuffer.data(), oldDequeue, wantedSize);
 
 		managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::kerncfg::Error::SUCCESS);
 		resp.set_size(actualSize);
 		resp.set_new_dequeue(newDequeue);
-		resp.set_enqueue(allocLog->enqueueIndex());
+		resp.set_enqueue(ringBuffer->enqueueIndex());
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
@@ -121,7 +122,7 @@ coroutine<Error> handleByteRingReq(LaneHandle boundLane) {
 namespace {
 
 coroutine<void> handleBind(LaneHandle objectLane);
-coroutine<void> handleByteRingBind(LaneHandle objectLane);
+coroutine<void> handleByteRingBind(LogRingBuffer *ringBuffer, LaneHandle objectLane);
 
 coroutine<void> createObject(LaneHandle mbusLane) {
 	auto [offerError, lane] = co_await OfferSender{mbusLane};
@@ -158,7 +159,8 @@ coroutine<void> createObject(LaneHandle mbusLane) {
 		co_await handleBind(objectLane);
 }
 
-coroutine<void> createByteRingObject(LaneHandle mbusLane, const char *purpose) {
+coroutine<void> createByteRingObject(LogRingBuffer *ringBuffer,
+		LaneHandle mbusLane, const char *purpose) {
 	auto [offerError, lane] = co_await OfferSender{mbusLane};
 	assert(!offerError && "Unexpected mbus transaction");
 
@@ -196,7 +198,7 @@ coroutine<void> createByteRingObject(LaneHandle mbusLane, const char *purpose) {
 	assert(objectDescriptor.is<LaneDescriptor>());
 	auto objectLane = objectDescriptor.get<LaneDescriptor>().handle;
 	while(true)
-		co_await handleByteRingBind(objectLane);
+		co_await handleByteRingBind(ringBuffer, objectLane);
 }
 
 coroutine<void> handleBind(LaneHandle objectLane) {
@@ -238,7 +240,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 }
 
 // TODO: maybe don't completely duplicate this function twice?
-coroutine<void> handleByteRingBind(LaneHandle objectLane) {
+coroutine<void> handleByteRingBind(LogRingBuffer *ringBuffer, LaneHandle objectLane) {
 	auto [acceptError, lane] = co_await AcceptSender{objectLane};
 	assert(!acceptError && "Unexpected mbus transaction");
 
@@ -263,9 +265,10 @@ coroutine<void> handleByteRingBind(LaneHandle objectLane) {
 	assert(!boundError && "Unexpected mbus transaction");
 	auto boundLane = stream.get<0>();
 
-	async::detach_with_allocator(*kernelAlloc, ([] (LaneHandle boundLane) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, ([] (LogRingBuffer *ringBuffer,
+			LaneHandle boundLane) -> coroutine<void> {
 		while(true) {
-			auto error = co_await handleByteRingReq(boundLane);
+			auto error = co_await handleByteRingReq(ringBuffer, boundLane);
 			if(error == kErrEndOfLane)
 				break;
 			if(isRemoteIpcError(error))
@@ -273,7 +276,7 @@ coroutine<void> handleByteRingBind(LaneHandle objectLane) {
 						" after remote violated the protocol" << frigg::endLog;
 			assert(!error);
 		}
-	})(boundLane));
+	})(ringBuffer, boundLane));
 }
 
 } // anonymous namespace
@@ -282,10 +285,15 @@ void initializeKerncfg() {
 	// Create a fiber to manage requests to the kerncfg mbus object.
 	KernelFiber::run([=] {
 		async::detach_with_allocator(*kernelAlloc, createObject(*mbusClient));
-	});
 
-	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, createByteRingObject(*mbusClient, "heap-trace"));
+#ifdef KERNEL_LOG_ALLOCATIONS
+		async::detach_with_allocator(*kernelAlloc,
+				createByteRingObject(allocLog.get(), *mbusClient, "heap-trace"));
+#endif
+
+		if(wantKernelProfile)
+			async::detach_with_allocator(*kernelAlloc,
+					createByteRingObject(getGlobalProfileRing(), *mbusClient, "kernel-profile"));
 	});
 }
 
