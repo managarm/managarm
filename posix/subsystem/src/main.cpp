@@ -1239,7 +1239,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
-			if(!(req.flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW))) {
+			if(!(req.flags() & (AT_EMPTY_PATH | AT_SYMLINK_FOLLOW))) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
