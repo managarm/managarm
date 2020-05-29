@@ -110,6 +110,7 @@ enum CntReqType {
 	SET_GID = 73;
 	SET_EGID = 74;
 	FCHMODAT = 75;
+	RMDIR = 77;
 };
 
 enum OpenMode {

@@ -2133,6 +2133,36 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.request_type() == managarm::posix::CntReqType::RMDIR) {
+			if(logRequests || logPaths)
+				std::cout << "posix: RMDIR " << req.path() << std::endl;
+
+			std::cout << "\e[31mposix: RMDIR: always removes the directory, even when not empty\e[39m" << std::endl;
+			std::shared_ptr<FsLink> target_link;
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
+					req.path());
+
+			co_await resolver.resolve();
+
+			target_link = resolver.currentLink();
+
+			if(!target_link) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			} else {
+				auto owner = target_link->getOwner();
+				co_await owner->unlink(target_link->getName());
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
 			if(logRequests)
 				std::cout << "posix: FD_GET_FLAGS" << std::endl;
