@@ -2153,7 +2153,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			} else {
 				auto owner = target_link->getOwner();
-				co_await owner->unlink(target_link->getName());
+				co_await owner->rmdir(target_link->getName());
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);

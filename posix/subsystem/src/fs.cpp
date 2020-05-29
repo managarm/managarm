@@ -72,6 +72,11 @@ FutureMaybe<void> FsNode::unlink(std::string) {
 	throw std::runtime_error("unlink() is not implemented for this FsNode");
 }
 
+async::result<Error> FsNode::rmdir(std::string) {
+	std::cout << "posix: rmdir() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
+}
+
 FutureMaybe<smarter::shared_ptr<File, FileHandle>>
 FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
 	throw std::runtime_error("open() is not implemented for this FsNode");
