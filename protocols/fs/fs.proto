@@ -112,6 +112,8 @@ enum CntReqType {
 	PT_PREAD = 37;
 
 	NODE_CHMOD = 38;
+
+	NODE_RMDIR = 40;
 }
 
 message Rect {
