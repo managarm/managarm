@@ -3,6 +3,8 @@
 
 #include <atomic>
 
+#include <async/basic.hpp>
+#include <frg/container_of.hpp>
 #include <frg/list.hpp>
 #include <frigg/atomic.hpp>
 
@@ -53,6 +55,48 @@ struct WorkQueue {
 	bool check();
 
 	void run();
+
+	// ----------------------------------------------------------------------------------
+	// schedule() and its boilerplate.
+	// ----------------------------------------------------------------------------------
+
+	template<typename Receiver>
+	struct ScheduleOperation {
+		ScheduleOperation(WorkQueue *wq, Receiver r)
+		: wq_{wq}, r_{std::move(r)} { }
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto self = frg::container_of(base, &ScheduleOperation::worklet_);
+				self->r_.set_value();
+			}, wq_);
+			post(&worklet_);
+		}
+
+	private:
+		WorkQueue *wq_;
+		Receiver r_;
+		Worklet worklet_;
+	};
+
+	struct ScheduleSender {
+		using value_type = void;
+
+		template<typename Receiver>
+		friend ScheduleOperation<Receiver> connect(ScheduleSender s, Receiver r) {
+			return {s.wq, std::move(r)};
+		}
+
+		friend async::sender_awaiter<ScheduleSender> operator co_await (ScheduleSender s) {
+			return {s};
+		}
+
+		WorkQueue *wq;
+	};
+
+	ScheduleSender schedule() {
+		return {this};
+	}
 
 protected:
 	virtual void wakeup() = 0;
