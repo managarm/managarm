@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/recurring-event.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/vector.hpp>
 #include "error.hpp"
@@ -934,6 +935,7 @@ private:
 	size_t _length;
 	frigg::SharedPtr<CowChain> _copyChain;
 	frg::rcu_radixtree<CowPage, KernelAlloc> _ownedPages;
+	async::recurring_event _copyEvent;
 	EvictionQueue _evictQueue;
 };
 
