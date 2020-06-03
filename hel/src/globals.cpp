@@ -8,12 +8,12 @@
 namespace helix {
 
 Dispatcher &Dispatcher::global() {
-	static Dispatcher dispatcher;
+	thread_local static Dispatcher dispatcher;
 	return dispatcher;
 }
 
 async::run_queue *globalQueue() {
-	static async::run_queue queue;
+	thread_local static async::run_queue queue;
 	return &queue;
 }
 
