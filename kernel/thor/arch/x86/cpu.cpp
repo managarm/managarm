@@ -950,7 +950,11 @@ void bootSecondary(unsigned int apic_id) {
 	context->localApicId = apic_id;
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
-	context->globalBinding.bind();
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+
+		context->globalBinding.bind();
+	}
 
 	// Setup a status block to communicate information to the AP.
 	auto status_block = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
