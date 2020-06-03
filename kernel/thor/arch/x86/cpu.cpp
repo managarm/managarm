@@ -663,10 +663,14 @@ void doRunDetached(void (*function) (void *), void *argument) {
 	CpuData *cpu_data = getCpuData();
 
 	uintptr_t stack_ptr = (uintptr_t)cpu_data->detachedStack.base();
-	asm volatile ( "mov %%rsp, %%rbp\n"
+	asm volatile (
+			"mov %%rsp, %%rbp\n"
 			"\tmov %2, %%rsp\n"
 			"\tcall *%1\n"
-			"\tmov %%rbp, %%rsp" : : "D" (argument), "r" (function), "r" (stack_ptr) : "rbp" );
+			"\tmov %%rbp, %%rsp"
+			:
+			: "D" (argument), "r" (function), "r" (stack_ptr)
+			: "rbp", "memory");
 }
 
 extern "C" void syscallStub();

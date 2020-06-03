@@ -540,15 +540,15 @@ doForkExecutor:
 	mov .L_executorImagePtr(%rdi), %rdi
 	mov %rdx, %r11
 	
-	# save the fs segment
+	# Save the fs segment.
 	mov $.L_msrIndexFsBase, %rcx
 	rdmsr
 	shl $32, %rdx
 	or %rdx, %rax
 	mov %rax, .L_imageClientFs(%rdi)
 	
-	# save the gs segment.
-	# we are sure that this function is only called from system code
+	# Save the gs segment.
+	# We are sure that this function is only called from system code
 	# so that the client gs is currently swapped to the kernel MSR.
 	mov $.L_msrIndexKernelGsBase, %rcx
 	rdmsr
@@ -556,7 +556,7 @@ doForkExecutor:
 	or %rdx, %rax
 	mov %rax, .L_imageClientGs(%rdi)
 
-	# only save the registers that are callee-saved by system v
+	# Only save the registers that are callee-saved by System-V.
 	mov %rbx, .L_imageRbx(%rdi)
 	mov %rbp, .L_imageRbp(%rdi)
 	mov %r12, .L_imageR12(%rdi)
@@ -564,7 +564,7 @@ doForkExecutor:
 	mov %r14, .L_imageR14(%rdi)
 	mov %r15, .L_imageR15(%rdi)
 
-	# setup the state for the second return
+	# Setup the state for the return.
 	mov (%rsp), %rdx
 	mov %rdx, .L_imageRip(%rdi)
 	mov %cs, %rax
@@ -578,7 +578,7 @@ doForkExecutor:
 
 	mov %r11, %rdi
 	call *%rsi
-	ret
+	ud2
 
 # arguments: void *pointer
 .section .text.stubs
