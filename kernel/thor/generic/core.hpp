@@ -66,6 +66,7 @@ struct ExecutorContext {
 
 enum class ProfileMechanism {
 	none,
+	intelPmc,
 	amdPmc
 };
 

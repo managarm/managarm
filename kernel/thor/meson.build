@@ -54,6 +54,7 @@ thor_sources = files(
 	'arch/x86/rtc.cpp',
 	'arch/x86/ept.cpp',
 	'arch/x86/pmc-amd.cpp',
+	'arch/x86/pmc-intel.cpp',
 	'arch/x86/vmx.cpp',
 	'generic/address-space.cpp',
 	'generic/physical.cpp',

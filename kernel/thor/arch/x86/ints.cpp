@@ -2,6 +2,7 @@
 #include "generic/kernel.hpp"
 #include "generic/profile.hpp"
 #include "pmc-amd.hpp"
+#include "pmc-intel.hpp"
 
 extern char stubsPtr[], stubsLimit[];
 
@@ -480,8 +481,13 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	auto cpuData = getCpuData();
 
 	bool explained = false;
-	if(cpuData->profileMechanism.load(std::memory_order_acquire) == ProfileMechanism::amdPmc
-			&& checkAmdPmcOverflow()) {
+	auto pmcMechanism = cpuData->profileMechanism.load(std::memory_order_acquire);
+	if(pmcMechanism == ProfileMechanism::intelPmc && checkIntelPmcOverflow()) {
+		uintptr_t ip = *image.ip();
+		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
+		setIntelPmc();
+		explained = true;
+	}else if(pmcMechanism == ProfileMechanism::amdPmc && checkAmdPmcOverflow()) {
 		uintptr_t ip = *image.ip();
 		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
 		setAmdPmc();

@@ -1,4 +1,5 @@
 #include "../arch/x86/pmc-amd.hpp"
+#include "../arch/x86/pmc-intel.hpp"
 #include "fiber.hpp"
 #include "profile.hpp"
 #include "service_helpers.hpp"
@@ -12,7 +13,8 @@ void initializeProfile() {
 	if(!wantKernelProfile)
 		return;
 
-	if(!(getCpuData()->profileFlags & PlatformCpuData::profileAmdSupported)) {
+	if(!(getCpuData()->profileFlags & PlatformCpuData::profileIntelSupported)
+			&& !(getCpuData()->profileFlags & PlatformCpuData::profileAmdSupported)) {
 		frigg::infoLogger() << "\e[31m" "thor: Kernel profiling was requested but"
 				" no hardware support is available" "\e[39m" << frigg::endLog;
 		return;
@@ -24,11 +26,19 @@ void initializeProfile() {
 	// Dump the per-CPU profiling data to the global ring buffer.
 	// TODO: Start one such fiber per CPU.
 	KernelFiber::run([=] {
-		assert(getCpuData()->profileFlags & PlatformCpuData::profileAmdSupported);
 		getCpuData()->localProfileRing = frg::construct<SingleContextRecordRing>(*kernelAlloc);
-		getCpuData()->profileMechanism.store(ProfileMechanism::amdPmc,
-				std::memory_order_release);
-		setAmdPmc();
+
+		if(getCpuData()->profileFlags & PlatformCpuData::profileIntelSupported) {
+			initializeIntelPmc();
+			getCpuData()->profileMechanism.store(ProfileMechanism::intelPmc,
+					std::memory_order_release);
+			setIntelPmc();
+		}else{
+			assert(getCpuData()->profileFlags & PlatformCpuData::profileAmdSupported);
+			getCpuData()->profileMechanism.store(ProfileMechanism::amdPmc,
+					std::memory_order_release);
+			setAmdPmc();
+		}
 
 		uint64_t deqPtr = 0;
 		while(true) {
