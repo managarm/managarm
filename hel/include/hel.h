@@ -16,7 +16,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 100,
+	kHelNumCalls = 101,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -92,6 +92,8 @@ enum {
 
 	kHelCallBindKernlet = 93,
 
+	kHelCallSetAffinity = 100,
+
 	kHelCallSuper = 0x80000000
 };
 
@@ -109,9 +111,7 @@ enum {
 	kHelErrThreadTerminated = 11,
 	kHelErrTransmissionMismatch = 13,
 	kHelErrLaneShutdown = 8,
-	kHelErrClosedLocally = 8, // Deprecated name.
 	kHelErrEndOfLane = 9,
-	kHelErrClosedRemotely = 9, // Deprecated name.
 	kHelErrBufferTooSmall = 1,
 	kHelErrFault = 10,
 	kHelErrNoHardwareSupport = 16,
@@ -832,6 +832,16 @@ HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *reason);
+
+//! Set a thread's CPU affinity mask.
+//! @param[in] handle
+//!     Handle to the thread.
+//! @param[in] mask
+//!     Pointer to a bit mask of CPUs to schedule on.
+//! @param[in] size
+//!     Size of bit mask.
+HEL_C_LINKAGE HelError helSetAffinity(HelHandle thread,
+		uint8_t *mask, size_t size);
 
 //! @}
 //! @name Message Passing

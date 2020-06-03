@@ -2766,3 +2766,32 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 
 	return kHelErrNone;
 }
+
+HelError helSetAffinity(HelHandle thread, uint8_t *mask, size_t size) {
+	if (thread != kHelThisThread)
+		return kHelErrIllegalArgs;
+
+	frg::vector<uint8_t, KernelAlloc> buf{*kernelAlloc};
+	buf.resize(size);
+
+	if (!readUserArray(mask, buf.data(), size))
+		return kHelErrFault;
+
+	size_t n = 0;
+	for (auto i : buf) {
+		n += __builtin_popcount(i);
+	}
+
+	// TODO: support allowing to run on multiple CPUs
+	if (n != 1) {
+		return kHelErrIllegalArgs;
+	}
+
+	auto this_thread = getCurrentThread();
+
+	this_thread->setAffinityMask(std::move(buf));
+	Thread::migrateCurrent();
+
+	return kHelErrNone;
+}
+

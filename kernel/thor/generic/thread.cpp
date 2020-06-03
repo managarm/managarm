@@ -5,6 +5,8 @@
 #include <frg/container_of.hpp>
 #include "kernel.hpp"
 
+#include <generic/core.hpp>
+
 namespace thor {
 
 static std::atomic<uint64_t> globalThreadId;
@@ -18,6 +20,44 @@ namespace {
 // --------------------------------------------------------
 // Thread
 // --------------------------------------------------------
+
+void Thread::migrateCurrent() {
+	auto this_thread = getCurrentThread().get();
+
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_thread->_mutex);
+
+	assert(this_thread->_runState == kRunActive);
+	Scheduler::suspendCurrent();
+	this_thread->_runState = kRunDeferred;
+	this_thread->_uninvoke();
+
+	Scheduler::unassociate(this_thread);
+
+	size_t n = -1;
+	for (size_t i = 0; i < getCpuCount(); i++) {
+		bool bit = 0;
+		if ((i + 7) / 8 < this_thread->_affinityMask.size())
+			bit = this_thread->_affinityMask[(i + 7) / 8] & (1 << (i % 8));
+
+		if (bit) {
+			n = i;
+			break;
+		}
+	}
+
+	auto new_scheduler = &getCpuData(n)->scheduler;
+
+	Scheduler::associate(this_thread, new_scheduler);
+	Scheduler::resume(this_thread);
+
+	forkExecutor([&] {
+		runDetached([] (frigg::LockGuard<Mutex> lock) {
+			lock.unlock();
+			localScheduler()->reschedule();
+		}, frigg::move(lock));
+	}, &this_thread->_executor);
+}
 
 void Thread::blockCurrent(ThreadBlocker *blocker) {
 	auto this_thread = getCurrentThread();
@@ -315,7 +355,8 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 		_numTicks{0}, _activationTick{0},
 		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},
-		_universe{frigg::move(universe)}, _addressSpace{frigg::move(address_space)} {
+		_universe{frigg::move(universe)}, _addressSpace{frigg::move(address_space)},
+		_affinityMask{*kernelAlloc} {
 	// TODO: Generate real UUIDs instead of ascending numbers.
 	uint64_t id = globalThreadId.fetch_add(1, std::memory_order_relaxed) + 1;
 	memset(_credentials, 0, 16);

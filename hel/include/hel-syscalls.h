@@ -425,6 +425,11 @@ extern inline __attribute__ (( always_inline )) HelError helBindKernlet(HelHandl
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helSetAffinity(HelHandle thread,
+		uint8_t *mask, size_t size) {
+	return helSyscall3(kHelCallSetAffinity, (HelWord)thread,
+			(HelWord)mask, (HelWord)size);
+};
 
 #endif // HEL_SYSCALLS_H
 

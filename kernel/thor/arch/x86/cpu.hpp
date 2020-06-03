@@ -363,8 +363,6 @@ private:
 
 // CpuData is some high-level struct that inherits from PlatformCpuData.
 struct CpuData;
-CpuData *getCpuData(size_t k);
-int getCpuCount();
 
 struct AbiParameters {
 	uintptr_t ip;

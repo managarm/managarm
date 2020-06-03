@@ -110,6 +110,7 @@ public:
 
 	// State transitions that apply to the current thread only.
 	static void blockCurrent(ThreadBlocker *blocker);
+	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
 	static void suspendCurrent(IrqImageAccessor image);
@@ -183,6 +184,10 @@ private:
 
 public:
 	void doSubmitObserve(uint64_t in_seq, ObserveBase *observe);
+	void setAffinityMask(frg::vector<uint8_t, KernelAlloc> &&mask) {
+		auto lock = frigg::guard(&_mutex);
+		_affinityMask = std::move(mask);
+	}
 
 	// TODO: Tidy this up.
 	frigg::UnsafePtr<Thread> self;
@@ -267,6 +272,7 @@ private:
 	>;
 
 	ObserveQueue _observeQueue;
+	frg::vector<uint8_t, KernelAlloc> _affinityMask;
 };
 
 } // namespace thor

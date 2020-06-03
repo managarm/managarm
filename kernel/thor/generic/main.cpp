@@ -832,6 +832,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = bound_handle;
 	} break;
 
+	case kHelCallSetAffinity: {
+		*image.error() = helSetAffinity((HelHandle)arg0, (uint8_t *)arg1, (size_t)arg2);
+	} break;
+
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}

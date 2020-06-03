@@ -90,6 +90,8 @@ struct CpuData : public PlatformCpuData {
 	SingleContextRecordRing *localProfileRing = nullptr;
 };
 
+CpuData *getCpuData(size_t k);
+int getCpuCount();
 inline CpuData *getCpuData() {
 	return static_cast<CpuData *>(getPlatformCpuData());
 }
