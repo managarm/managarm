@@ -30,7 +30,7 @@ namespace _detail {
 		EqualsFilter,
 		Conjunction
 	>;
-	
+
 	struct NoFilter { };
 
 	struct EqualsFilter {
@@ -76,16 +76,15 @@ namespace _detail {
 	};
 
 	using Properties = std::unordered_map<std::string, AnyItem>;
-	
+
 	// ------------------------------------------------------------------------
 	// Private state object.
 	// ------------------------------------------------------------------------
-	
-	struct Connection {
-		Connection(helix::Dispatcher *dispatcher, helix::UniqueLane lane)
-		: dispatcher(dispatcher), lane(std::move(lane)) { }
 
-		helix::Dispatcher *dispatcher;
+	struct Connection {
+		Connection(helix::UniqueLane lane)
+		: lane(std::move(lane)) { }
+
 		helix::UniqueLane lane;
 	};
 
@@ -97,9 +96,9 @@ namespace _detail {
 
 	struct Instance {
 		static Instance global();
-		
-		Instance(helix::Dispatcher *dispatcher, helix::UniqueLane lane)
-		: _connection(std::make_shared<Connection>(dispatcher, std::move(lane))) { }
+
+		Instance(helix::UniqueLane lane)
+		: _connection(std::make_shared<Connection>(std::move(lane))) { }
 
 		// Returns the mbus root entity.
 		async::result<Entity> getRoot();
@@ -110,7 +109,7 @@ namespace _detail {
 	private:
 		std::shared_ptr<Connection> _connection;
 	};
-	
+
 	// ------------------------------------------------------------------------
 	// Entity related code.
 	// ------------------------------------------------------------------------
@@ -135,8 +134,8 @@ namespace _detail {
 
 		std::function<void(Entity, Properties)> attach;
 	};
-	
-	struct Entity {	
+
+	struct Entity {
 		explicit Entity(std::shared_ptr<Connection> connection, EntityId id)
 		: _connection(std::move(connection)), _id(id) { }
 
@@ -164,7 +163,7 @@ namespace _detail {
 		std::shared_ptr<Connection> _connection;
 		EntityId _id;
 	};
-	
+
 	// ------------------------------------------------------------------------
 	// Observer related code.
 	// ------------------------------------------------------------------------

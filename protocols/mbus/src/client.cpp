@@ -12,7 +12,7 @@ static Instance makeGlobal() {
 	unsigned long server;
 	if(peekauxval(AT_MBUS_SERVER, &server))
 		throw std::runtime_error("No AT_MBUS_SERVER specified");
-	return Instance(&helix::Dispatcher::global(), helix::BorrowedLane(server).dup());
+	return Instance(helix::BorrowedLane(server).dup());
 }
 
 Instance Instance::global() {
@@ -30,7 +30,7 @@ async::result<Entity> Instance::getRoot() {
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
+	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024));
@@ -57,7 +57,7 @@ async::detached handleObject(std::shared_ptr<Connection> connection,
 		helix::RecvBuffer recv_req;
 
 		char buffer[1024];
-		auto &&header = helix::submitAsync(lane, *connection->dispatcher,
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
 				helix::action(&recv_req, buffer, 1024));
 		co_await header.async_wait();
@@ -78,7 +78,7 @@ async::detached handleObject(std::shared_ptr<Connection> connection,
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, *connection->dispatcher,
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&push_desc, descriptor));
 			co_await transmit.async_wait();
@@ -101,7 +101,7 @@ async::result<Properties> Entity::getProperties() const {
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
+	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024));
@@ -138,7 +138,7 @@ async::result<Entity> Entity::createObject(std::string name,
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
+	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
@@ -164,7 +164,7 @@ async::detached handleObserver(std::shared_ptr<Connection> connection,
 		helix::RecvBuffer recv_req;
 
 		char buffer[1024];
-		auto &&header = helix::submitAsync(lane, *connection->dispatcher,
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&recv_req, buffer, 1024));
 		co_await header.async_wait();
 		HEL_CHECK(recv_req.error());
@@ -211,7 +211,7 @@ async::result<Observer> Entity::linkObserver(const AnyFilter &filter,
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
+	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
@@ -243,7 +243,7 @@ async::result<helix::UniqueDescriptor> Entity::bind() const {
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, *_connection->dispatcher,
+	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
