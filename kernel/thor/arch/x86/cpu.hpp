@@ -606,7 +606,11 @@ struct PlatformCpuData : public AssemblyCpuData {
 	frigg::UnsafePtr<Thread> activeExecutor;
 };
 
-PlatformCpuData *getPlatformCpuData();
+inline PlatformCpuData *getPlatformCpuData() {
+	AssemblyCpuData *cpu_data;
+	asm ("mov %%gs:0, %0" : "=r"(cpu_data));
+	return static_cast<PlatformCpuData *>(cpu_data);
+}
 
 inline bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
