@@ -15,30 +15,30 @@ namespace {
 	constexpr bool force32BitHpet = false;
 }
 
-arch::bit_register<uint64_t> genCapsAndId(0);
-arch::bit_register<uint64_t> genConfig(16);
-arch::scalar_register<uint64_t> mainCounter(240);
-arch::bit_register<uint64_t> timerConfig0(256);
-arch::scalar_register<uint64_t> timerComparator0(264);
+inline constexpr arch::bit_register<uint64_t> genCapsAndId(0);
+inline constexpr arch::bit_register<uint64_t> genConfig(16);
+inline constexpr arch::scalar_register<uint64_t> mainCounter(240);
+inline constexpr arch::bit_register<uint64_t> timerConfig0(256);
+inline constexpr arch::scalar_register<uint64_t> timerComparator0(264);
 
 // genCapsAndId register.
-arch::field<uint64_t, bool> has64BitCounter(13, 1);
-arch::field<uint64_t, bool> supportsLegacyIrqs(15, 1);
-arch::field<uint64_t, uint32_t> counterPeriod(32, 32);
+inline constexpr arch::field<uint64_t, bool> has64BitCounter(13, 1);
+inline constexpr arch::field<uint64_t, bool> supportsLegacyIrqs(15, 1);
+inline constexpr arch::field<uint64_t, uint32_t> counterPeriod(32, 32);
 
 // genConfig register
-arch::field<uint64_t, bool> enableCounter(0, 1);
-arch::field<uint64_t, bool> enableLegacyIrqs(1, 1);
+inline constexpr arch::field<uint64_t, bool> enableCounter(0, 1);
+inline constexpr arch::field<uint64_t, bool> enableLegacyIrqs(1, 1);
 
 // timerConfig registers
 namespace timer_bits {
-	arch::field<uint64_t, bool> enableInt(2, 1);
-	arch::field<uint64_t, bool> has64BitComparator(5, 1);
-	arch::field<uint64_t, bool> forceTo32Bit(8, 1);
-	arch::field<uint64_t, unsigned int> activeIrq(9, 5);
-	arch::field<uint64_t, bool> fsbEnabled(14, 1);
-	arch::field<uint64_t, bool> fsbCapable(15, 1);
-	arch::field<uint64_t, unsigned int> possibleIrqs(32, 32);
+	inline constexpr arch::field<uint64_t, bool> enableInt(2, 1);
+	inline constexpr arch::field<uint64_t, bool> has64BitComparator(5, 1);
+	inline constexpr arch::field<uint64_t, bool> forceTo32Bit(8, 1);
+	inline constexpr arch::field<uint64_t, unsigned int> activeIrq(9, 5);
+	inline constexpr arch::field<uint64_t, bool> fsbEnabled(14, 1);
+	inline constexpr arch::field<uint64_t, bool> fsbCapable(15, 1);
+	inline constexpr arch::field<uint64_t, unsigned int> possibleIrqs(32, 32);
 };
 
 enum : uint64_t {
@@ -52,11 +52,11 @@ arch::mem_space hpetBase;
 uint64_t hpetPeriod;
 bool hpetAvailable;
 
-arch::scalar_register<uint8_t> channel0(64);
-arch::bit_register<uint8_t> command(67);
+inline constexpr arch::scalar_register<uint8_t> channel0(64);
+inline constexpr arch::bit_register<uint8_t> command(67);
 
-arch::field<uint8_t, int> operatingMode(1, 3);
-arch::field<uint8_t, int> accessMode(4, 2);
+inline constexpr arch::field<uint8_t, int> operatingMode(1, 3);
+inline constexpr arch::field<uint8_t, int> accessMode(4, 2);
 
 struct HpetDevice : IrqSink, ClockSource, AlarmTracker {
 	friend void setupHpet(PhysicalAddr);

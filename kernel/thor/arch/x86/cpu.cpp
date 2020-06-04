@@ -43,18 +43,18 @@ void advanceY() {
 	}
 }
 
-arch::scalar_register<uint8_t> data(0);
-arch::scalar_register<uint8_t> baudLow(0);
-arch::scalar_register<uint8_t> baudHigh(1);
-arch::bit_register<uint8_t> lineControl(3);
-arch::bit_register<uint8_t> lineStatus(5);
+inline constexpr arch::scalar_register<uint8_t> data(0);
+inline constexpr arch::scalar_register<uint8_t> baudLow(0);
+inline constexpr arch::scalar_register<uint8_t> baudHigh(1);
+inline constexpr arch::bit_register<uint8_t> lineControl(3);
+inline constexpr arch::bit_register<uint8_t> lineStatus(5);
 
-arch::field<uint8_t, bool> txReady(5, 1);
+inline constexpr arch::field<uint8_t, bool> txReady(5, 1);
 
-arch::field<uint8_t, int> dataBits(0, 2);
-arch::field<uint8_t, bool> stopBit(2, 1);
-arch::field<uint8_t, int> parityBits(3, 3);
-arch::field<uint8_t, bool> dlab(7, 1);
+inline constexpr arch::field<uint8_t, int> dataBits(0, 2);
+inline constexpr arch::field<uint8_t, bool> stopBit(2, 1);
+inline constexpr arch::field<uint8_t, int> parityBits(3, 3);
+inline constexpr arch::field<uint8_t, bool> dlab(7, 1);
 
 extern bool debugToVga;
 extern bool debugToSerial;

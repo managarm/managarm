@@ -17,8 +17,8 @@ extern frigg::LazyInitializer<LaneHandle> mbusClient;
 
 namespace {
 
-arch::scalar_register<uint8_t> cmosIndex(0x70);
-arch::scalar_register<uint8_t> cmosData(0x71);
+inline constexpr arch::scalar_register<uint8_t> cmosIndex(0x70);
+inline constexpr arch::scalar_register<uint8_t> cmosData(0x71);
 
 constexpr unsigned int rtcSeconds = 0x00;
 constexpr unsigned int rtcMinutes = 0x02;

@@ -13,43 +13,43 @@ namespace thor {
 
 extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
-arch::bit_register<uint32_t> lApicId(0x0020);
-arch::scalar_register<uint32_t> lApicEoi(0x00B0);
-arch::bit_register<uint32_t> lApicSpurious(0x00F0);
-arch::bit_register<uint32_t> lApicIcrLow(0x0300);
-arch::bit_register<uint32_t> lApicIcrHigh(0x0310);
-arch::bit_register<uint32_t> lApicLvtTimer(0x0320);
-arch::bit_register<uint32_t> lApicLvtPerfCount(0x0340);
-arch::bit_register<uint32_t> lApicLvtLocal0(0x0350);
-arch::bit_register<uint32_t> lApicLvtLocal1(0x0360);
-arch::scalar_register<uint32_t> lApicInitCount(0x0380);
-arch::scalar_register<uint32_t> lApicCurCount(0x0390);
+inline constexpr arch::bit_register<uint32_t> lApicId(0x0020);
+inline constexpr arch::scalar_register<uint32_t> lApicEoi(0x00B0);
+inline constexpr arch::bit_register<uint32_t> lApicSpurious(0x00F0);
+inline constexpr arch::bit_register<uint32_t> lApicIcrLow(0x0300);
+inline constexpr arch::bit_register<uint32_t> lApicIcrHigh(0x0310);
+inline constexpr arch::bit_register<uint32_t> lApicLvtTimer(0x0320);
+inline constexpr arch::bit_register<uint32_t> lApicLvtPerfCount(0x0340);
+inline constexpr arch::bit_register<uint32_t> lApicLvtLocal0(0x0350);
+inline constexpr arch::bit_register<uint32_t> lApicLvtLocal1(0x0360);
+inline constexpr arch::scalar_register<uint32_t> lApicInitCount(0x0380);
+inline constexpr arch::scalar_register<uint32_t> lApicCurCount(0x0390);
 
 // lApicId registers
-arch::field<uint32_t, uint8_t> apicId(24, 8);
+inline constexpr arch::field<uint32_t, uint8_t> apicId(24, 8);
 
 // lApicSpurious registers
-arch::field<uint32_t, uint8_t> apicSpuriousVector(0, 8);
-arch::field<uint32_t, bool> apicSpuriousSwEnable(8, 1);
-arch::field<uint32_t, bool> apicSpuriousFocusProcessor(9, 1);
-arch::field<uint32_t, bool> apicSpuriousEoiBroadcastSuppression(12, 1);
+inline constexpr arch::field<uint32_t, uint8_t> apicSpuriousVector(0, 8);
+inline constexpr arch::field<uint32_t, bool> apicSpuriousSwEnable(8, 1);
+inline constexpr arch::field<uint32_t, bool> apicSpuriousFocusProcessor(9, 1);
+inline constexpr arch::field<uint32_t, bool> apicSpuriousEoiBroadcastSuppression(12, 1);
 
 // lApicIcrLow registers
-arch::field<uint32_t, uint8_t> apicIcrLowVector(0, 8);
-arch::field<uint32_t, uint8_t> apicIcrLowDelivMode(8, 3);
-arch::field<uint32_t, bool> apicIcrLowDestMode(11, 1);
-arch::field<uint32_t, bool> apicIcrLowDelivStatus(12, 1);
-arch::field<uint32_t, bool> apicIcrLowLevel(14, 1);
-arch::field<uint32_t, bool> apicIcrLowTriggerMode(15, 1);
-arch::field<uint32_t, uint8_t> apicIcrLowShorthand(18, 2);
+inline constexpr arch::field<uint32_t, uint8_t> apicIcrLowVector(0, 8);
+inline constexpr arch::field<uint32_t, uint8_t> apicIcrLowDelivMode(8, 3);
+inline constexpr arch::field<uint32_t, bool> apicIcrLowDestMode(11, 1);
+inline constexpr arch::field<uint32_t, bool> apicIcrLowDelivStatus(12, 1);
+inline constexpr arch::field<uint32_t, bool> apicIcrLowLevel(14, 1);
+inline constexpr arch::field<uint32_t, bool> apicIcrLowTriggerMode(15, 1);
+inline constexpr arch::field<uint32_t, uint8_t> apicIcrLowShorthand(18, 2);
 
 // lApicIcrHigh registers
-arch::field<uint32_t, uint8_t> apicIcrHighDestField(24, 8);
+inline constexpr arch::field<uint32_t, uint8_t> apicIcrHighDestField(24, 8);
 
 // lApicLvtTimer registers
-arch::field<uint32_t, uint8_t> apicLvtVector(0, 8);
-arch::field<uint32_t, bool> apicLvtMask(16, 1);
-arch::field<uint32_t, uint8_t> apicLvtMode(8, 3);
+inline constexpr arch::field<uint32_t, uint8_t> apicLvtVector(0, 8);
+inline constexpr arch::field<uint32_t, bool> apicLvtMask(16, 1);
+inline constexpr arch::field<uint32_t, uint8_t> apicLvtMode(8, 3);
 
 arch::mem_space picBase;
 
@@ -360,22 +360,22 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 // TODO: Replace this by proper IRQ allocation.
 extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[64];
 
-constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
-constexpr arch::scalar_register<uint32_t> apicData(0x10);
+inline constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
+inline constexpr arch::scalar_register<uint32_t> apicData(0x10);
 
 namespace pin_word1 {
-	constexpr arch::field<uint32_t, unsigned int> vector(0, 8);
-	constexpr arch::field<uint32_t, unsigned int> deliveryMode(8, 3);
-//	constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
-//	constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
-	constexpr arch::field<uint32_t, bool> activeLow(13, 1);
-//	constexpr arch::field<uint32_t, bool> remotePending(14, 1);
-	constexpr arch::field<uint32_t, bool> levelTriggered(15, 1);
-	constexpr arch::field<uint32_t, bool> masked(16, 1);
+	inline constexpr arch::field<uint32_t, unsigned int> vector(0, 8);
+	inline constexpr arch::field<uint32_t, unsigned int> deliveryMode(8, 3);
+//	inline constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
+//	inline constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
+	inline constexpr arch::field<uint32_t, bool> activeLow(13, 1);
+//	inline constexpr arch::field<uint32_t, bool> remotePending(14, 1);
+	inline constexpr arch::field<uint32_t, bool> levelTriggered(15, 1);
+	inline constexpr arch::field<uint32_t, bool> masked(16, 1);
 };
 
 namespace pin_word2 {
-	constexpr arch::field<uint32_t, unsigned int> destination(24, 8);
+	inline constexpr arch::field<uint32_t, unsigned int> destination(24, 8);
 };
 
 namespace {

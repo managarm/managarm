@@ -19,7 +19,7 @@ namespace thor {
 
 namespace thor::acpi {
 
-arch::scalar_register<uint8_t> ps2Command(0x64);
+inline constexpr arch::scalar_register<uint8_t> ps2Command(0x64);
 
 constexpr uint8_t ps2Reset = 0xFE;
 
