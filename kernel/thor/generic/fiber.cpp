@@ -8,7 +8,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 	auto this_fiber = thisFiber();
 	while(true) {
 		// Run the WQ outside of the locks.
-		this_fiber->_associatedWorkQueue.run();
+		this_fiber->_associatedWorkQueue->run();
 
 		StatelessIrqLock irq_lock;
 		auto lock = frigg::guard(&this_fiber->_mutex);
@@ -16,7 +16,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		// Those are the important tests; they are protected by the fiber's mutex.
 		if(blocker->_done)
 			break;
-		if(this_fiber->_associatedWorkQueue.check())
+		if(this_fiber->_associatedWorkQueue->check())
 			continue;
 
 		assert(!this_fiber->_blocked);
@@ -81,7 +81,9 @@ KernelFiber *KernelFiber::post(UniqueKernelStack stack,
 
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
 : _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} {
-	_executorContext.associatedWorkQueue = &_associatedWorkQueue;
+	_associatedWorkQueue = frigg::makeShared<AssociatedWorkQueue>(*kernelAlloc, this);
+	_associatedWorkQueue->selfPtr = frigg::SharedPtr<WorkQueue>{_associatedWorkQueue};
+	_executorContext.associatedWorkQueue = _associatedWorkQueue.get();
 }
 
 void KernelFiber::invoke() {
@@ -93,15 +95,14 @@ void KernelFiber::invoke() {
 }
 
 void KernelFiber::AssociatedWorkQueue::wakeup() {
-	auto self = frg::container_of(this, &KernelFiber::_associatedWorkQueue);
 	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&self->_mutex);
+	auto lock = frigg::guard(&fiber_->_mutex);
 
-	if(!self->_blocked)
+	if(!fiber_->_blocked)
 		return;
 
-	self->_blocked = false;
-	Scheduler::resume(self);
+	fiber_->_blocked = false;
+	Scheduler::resume(fiber_);
 }
 
 void FiberBlocker::setup() {

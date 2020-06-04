@@ -7,6 +7,7 @@
 #include <frg/container_of.hpp>
 #include <frg/list.hpp>
 #include <frigg/atomic.hpp>
+#include <frigg/smart_ptr.hpp>
 
 namespace thor {
 
@@ -15,15 +16,11 @@ struct WorkQueue;
 struct Worklet {
 	friend struct WorkQueue;
 
-	void setup(void (*run)(Worklet *), WorkQueue *wq) {
-		_run = run;
-		_workQueue = wq;
-	}
-
+	void setup(void (*run)(Worklet *), WorkQueue *wq);
 	void setup(void (*run)(Worklet *));
 
 private:
-	WorkQueue *_workQueue;
+	frigg::SharedPtr<WorkQueue> _workQueue;
 	void (*_run)(Worklet *);
 	frg::default_list_hook<Worklet> _hook;
 };
@@ -98,6 +95,10 @@ struct WorkQueue {
 		return {this};
 	}
 
+	// ----------------------------------------------------------------------------------
+
+	frigg::WeakPtr<WorkQueue> selfPtr;
+
 protected:
 	virtual void wakeup() = 0;
 
@@ -124,6 +125,13 @@ private:
 		>
 	> _posted;
 };
+
+inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
+	auto swq = wq->selfPtr.grab();
+	assert(swq);
+	_run = run;
+	_workQueue = std::move(swq);
+}
 
 inline void Worklet::setup(void (*run)(Worklet *)) {
 	setup(run, WorkQueue::localQueue());

@@ -16,8 +16,14 @@ KernelFiber *thisFiber();
 
 struct KernelFiber : ScheduleEntity {
 private:
-	struct AssociatedWorkQueue : WorkQueue {
+	struct AssociatedWorkQueue final : WorkQueue {
+		AssociatedWorkQueue(KernelFiber *fiber)
+		: fiber_{fiber} { }
+
 		void wakeup() override;
+
+	private:
+		KernelFiber *fiber_;
 	};
 
 public:
@@ -58,14 +64,14 @@ public:
 	[[ noreturn ]] void invoke() override;
 
 	WorkQueue *associatedWorkQueue() {
-		return &_associatedWorkQueue;
+		return _associatedWorkQueue.get();
 	}
 
 private:
 	frigg::TicketLock _mutex;
 	bool _blocked;
 
-	AssociatedWorkQueue _associatedWorkQueue;
+	frigg::SharedPtr<AssociatedWorkQueue> _associatedWorkQueue;
 	FiberContext _fiberContext;
 	ExecutorContext _executorContext;
 	Executor _executor;

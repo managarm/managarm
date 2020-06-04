@@ -84,8 +84,13 @@ public:
 			AbiParameters abi) {
 		auto thread = frigg::construct<Thread>(*kernelAlloc,
 				frigg::move(universe), frigg::move(address_space), abi);
-		return frigg::SharedPtr<Thread>{frigg::adoptShared, thread, 
+		frigg::SharedPtr<Thread> sptr{frigg::adoptShared, thread,
 				frigg::SharedControl{thread}};
+		thread->_mainWorkQueue.selfPtr = frigg::SharedPtr<WorkQueue>(sptr,
+				&thread->_mainWorkQueue);
+		thread->_pagingWorkQueue.selfPtr = frigg::SharedPtr<WorkQueue>(sptr,
+				&thread->_pagingWorkQueue);
+		return sptr;
 	}
 
 	template<typename Sender>
