@@ -6,6 +6,8 @@ import subprocess
 
 parser = argparse.ArgumentParser()
 parser.add_argument('profile_path', type=str)
+parser.add_argument('--line', action='store_true')
+parser.add_argument('--isn', action='store_true')
 
 args = parser.parse_args()
 
@@ -37,7 +39,12 @@ with open(args.profile_path, 'rb') as f:
 		addr2line.stdin.flush()
 		func = addr2line.stdout.readline().rstrip()
 		line = addr2line.stdout.readline().rstrip()
-		loc = (func, line.split(':')[0])
+		if args.line:
+			loc = (func, line)
+		elif args.isn:
+			loc = (func, line.split(':')[0] + ':' + hex(ip))
+		else:
+			loc = (func, line.split(':')[0])
 		if loc in profile:
 			profile[loc] += 1
 		else:
