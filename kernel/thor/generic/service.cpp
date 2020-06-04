@@ -670,7 +670,23 @@ namespace initrd {
 			posix::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(_buffer, length);
 
-			if(req.request_type() == managarm::posix::CntReqType::OPEN) {
+			if(req.request_type() == managarm::posix::CntReqType::GET_TID) {
+				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
+						posix::CntRequest<KernelAlloc> req) -> coroutine<void> {
+					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_pid(1);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(!respError);
+					co_return;
+				}(_process, std::move(_requestLane), std::move(req)));
+			}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 				auto closure = frigg::construct<OpenClosure>(*kernelAlloc,
 						_process, frigg::move(_requestLane), frigg::move(req));
 				(*closure)();

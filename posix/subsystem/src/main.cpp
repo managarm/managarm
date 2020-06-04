@@ -570,7 +570,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.request_type() == managarm::posix::CntReqType::GET_PID) {
+		if(req.request_type() == managarm::posix::CntReqType::GET_TID) {
+			if(logRequests)
+				std::cout << "posix: GET_TID" << std::endl;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(self->tid());
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::GET_PID) {
 			if(logRequests)
 				std::cout << "posix: GET_PID" << std::endl;
 

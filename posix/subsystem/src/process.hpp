@@ -385,6 +385,11 @@ public:
 		return _hull->getPid();
 	}
 
+	int tid() {
+		assert(_hull);
+		return _hull->getPid();
+	}
+
 	Error setUid(int uid) {
 		if(uid < 0) {
 			return Error::illegalArguments;
