@@ -163,6 +163,9 @@ public:
 	// Changes permissions on a node
 	virtual async::result<Error> chmod(int mode);
 
+	// Changes timestamps on a node
+	virtual async::result<Error> utimensat(uint64_t sec, uint64_t nsec);
+
 protected:
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie);
 

@@ -856,6 +856,18 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UTIMENSAT) {
+			co_await node_ops->utimensat(node, req.sec(), req.nsec());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		}else{
 			throw std::runtime_error("libfs_protocol: Unexpected request type in serveNode");
 		}

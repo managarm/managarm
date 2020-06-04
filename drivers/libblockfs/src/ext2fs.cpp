@@ -4,6 +4,7 @@
 #include <string.h>
 #include <algorithm>
 #include <iostream>
+#include <bits/posix/stat.h>
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
@@ -299,6 +300,31 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 	co_return protocols::fs::Error::none;
 }
 
+async::result<protocols::fs::Error> Inode::utimensat(uint64_t sec, uint64_t nsec) {
+	std::cout << "\e[31m" "ext2fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
+	
+	co_await readyJump.async_wait();
+
+	if(sec != UTIME_NOW || nsec != UTIME_NOW) {
+		// TODO: Properly implement it, also respect atime and mtime
+		std::cout << "\e[31m" "ext2fs: utimensat() unsupported mode called" "\e[39m" << std::endl;
+		co_return protocols::fs::Error::none;
+	}
+
+	struct timespec time;
+	// TODO: Move to CLOCK_REALTIME when supported
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	diskInode()->atime = time.tv_sec;
+	diskInode()->mtime = time.tv_sec;
+
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	co_return protocols::fs::Error::none;
+}
+
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------
@@ -531,6 +557,12 @@ async::result<std::shared_ptr<Inode>> FileSystem::createRegular() {
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFREG;
 	disk_inode->generation = generation + 1;
+	struct timespec time;
+	// TODO: Move to CLOCK_REALTIME when supported
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	disk_inode->atime = time.tv_sec;
+	disk_inode->ctime = time.tv_sec;
+	disk_inode->mtime = time.tv_sec;
 
 	co_return accessInode(ino);
 }
@@ -560,6 +592,12 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	disk_inode->mode = EXT2_S_IFDIR;
 	disk_inode->generation = generation + 1;
 	disk_inode->size = blockSize;
+	struct timespec time;
+	// TODO: Move to CLOCK_REALTIME when supported
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	disk_inode->atime = time.tv_sec;
+	disk_inode->ctime = time.tv_sec;
+	disk_inode->mtime = time.tv_sec;
 
 	co_return accessInode(ino);
 }
@@ -588,6 +626,12 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFLNK;
 	disk_inode->generation = generation + 1;
+	struct timespec time;
+	// TODO: Move to CLOCK_REALTIME when supported
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	disk_inode->atime = time.tv_sec;
+	disk_inode->ctime = time.tv_sec;
+	disk_inode->mtime = time.tv_sec;
 
 	co_return accessInode(ino);
 }
