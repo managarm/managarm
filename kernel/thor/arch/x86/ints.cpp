@@ -513,21 +513,6 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 			reinterpret_cast<uintptr_t>(gs));
 }
 
-bool intsAreEnabled() {
-	uint64_t rflags;
-	asm volatile ( "pushfq\n"
-			"\rpop %0" : "=r" (rflags) );
-	return (rflags & 0x200) != 0;
-}
-
-void enableInts() {
-	asm volatile ( "sti" );
-}
-
-void disableInts() {
-	asm volatile ( "cli" );
-}
-
 extern "C" void enableIntsAndHaltForever();
 
 void suspendSelf() {

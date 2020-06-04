@@ -11,14 +11,26 @@ void initializeProcessorEarly();
 
 void setupIdt(uint32_t *table);
 
-bool intsAreEnabled();
+inline bool intsAreEnabled() {
+	uint64_t rflags;
+	asm volatile (
+		"pushfq\n"
+		"\rpop %0"
+		: "=r" (rflags)
+	);
+	return (rflags & 0x200) != 0;
+}
 
-void enableInts();
+inline void enableInts() {
+	asm volatile ("sti");
+}
 
-void disableInts();
+inline void disableInts() {
+	asm volatile ("cli");
+}
 
 inline void halt() {
-	asm volatile ( "hlt" );
+	asm volatile ("hlt");
 }
 
 void suspendSelf();
