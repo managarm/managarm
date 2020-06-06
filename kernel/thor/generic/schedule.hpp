@@ -74,7 +74,6 @@ struct Scheduler {
 
 	static void resume(ScheduleEntity *entity);
 	static void suspendCurrent();
-	static void suspendWaiting(ScheduleEntity *entity);
 
 	Scheduler(CpuData *cpu_context);
 

@@ -118,37 +118,6 @@ void Scheduler::suspendCurrent() {
 	self->_current = nullptr;
 }
 
-void Scheduler::suspendWaiting(ScheduleEntity *entity) {
-	auto irq_lock = frigg::guard(&irqMutex());
-
-//	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
-	assert(entity->state == ScheduleState::active);
-	
-	auto self = entity->_scheduler;
-	assert(self);
-	auto lock = frigg::guard(&self->_mutex);
-	assert(entity != self->_current);
-
-	assert(!"This function is untested");
-	
-	self->_updateSystemProgress();
-
-	// Update the unfairness on suspend.
-	self->_updateWaitingEntity(entity);
-	self->_updateEntityStats(entity);
-	entity->state = ScheduleState::attached;
-
-	self->_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
-	self->_numWaiting--;
-
-	if(self == &getCpuData()->scheduler) {
-		if(self->_updatePreemption())
-			sendPingIpi(self->_cpuContext->localApicId);
-	}else{
-		sendPingIpi(self->_cpuContext->localApicId);
-	}
-}
-
 Scheduler::Scheduler(CpuData *cpu_context)
 : _cpuContext{cpu_context}, _current{nullptr},
 		_numWaiting{0}, _refClock{0}, _systemProgress{0} { }
