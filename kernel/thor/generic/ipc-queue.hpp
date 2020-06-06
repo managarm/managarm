@@ -159,7 +159,7 @@ public:
 
 	private:
 		void complete() override {
-			receiver_.set_value();
+			async::execution::set_value(receiver_);
 		}
 
 		SubmitSender s_;

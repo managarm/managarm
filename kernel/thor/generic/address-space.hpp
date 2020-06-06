@@ -54,13 +54,13 @@ struct VirtualOperations {
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &ShootdownOperation::worklet_);
-				op->receiver_.set_value();
+				async::execution::set_value(op->receiver_);
 			});
 			node_.address = s_.address;
 			node_.size = s_.size;
 			node_.setup(&worklet_);
 			if(s_.self->submitShootdown(&node_))
-				receiver_.set_value();
+				async::execution::set_value(receiver_);
 		}
 
 	private:
@@ -281,7 +281,7 @@ struct Mapping : MemoryObserver {
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &LockVirtualRangeOperation::worklet_);
-				op->receiver_.set_value();
+				async::execution::set_value(op->receiver_);
 			});
 			node_.setup(s_.offset, s_.size, &worklet_);
 			if(s_.self->lockVirtualRange(&node_))
@@ -334,7 +334,9 @@ struct Mapping : MemoryObserver {
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &TouchVirtualPageOperation::worklet_);
-				op->receiver_.set_value({op->node_.error(), op->node_.range(), op->node_.spurious()});
+				async::execution::set_value(op->receiver_,
+						frg::tuple<Error, PhysicalRange, bool>{op->node_.error(),
+								op->node_.range(), op->node_.spurious()});
 			});
 			node_.setup(s_.offset, &worklet_);
 			if(s_.self->touchVirtualPage(&node_))
@@ -388,7 +390,7 @@ struct Mapping : MemoryObserver {
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &PopulateVirtualRangeOperation::worklet_);
-				op->receiver_.set_value();
+				async::execution::set_value(op->receiver_);
 			});
 			node_.setup(s_.offset, s_.size, &worklet_);
 			if(s_.self->populateVirtualRange(&node_))
@@ -659,7 +661,7 @@ public:
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &UnmapOperation::worklet_);
-				op->receiver_.set_value();
+				async::execution::set_value(op->receiver_);
 			});
 			node_.setup(&worklet_);
 			if(s_.self->unmap(s_.address, s_.size, &node_))

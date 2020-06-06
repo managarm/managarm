@@ -273,7 +273,7 @@ struct EvictionQueue {
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &EvictRangeOperation::worklet_);
-				op->receiver_.set_value();
+				async::execution::set_value(op->receiver_);
 			});
 
 			// TODO: This needs to be called without holding a lock.
@@ -513,7 +513,9 @@ public:
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &FetchRangeOperation::worklet_);
-				op->receiver_.set_value({op->node_.error(), op->node_.range(), op->node_.flags()});
+				async::execution::set_value(op->receiver_,
+						frg::tuple<Error, PhysicalRange, uint32_t>{op->node_.error(),
+								op->node_.range(), op->node_.flags()});
 			});
 			node_.setup(&worklet_);
 			if(s_.self->fetchRange(s_.offset, &node_))
@@ -653,10 +655,10 @@ struct CopyFromViewOperation {
 	void start() {
 		auto complete = [] (CopyFromBundleNode *base) {
 			auto op = frg::container_of(base, &CopyFromViewOperation::node_);
-			op->receiver_.set_value();
+			async::execution::set_value(op->receiver_);
 		};
 		if(copyFromBundle(s_.view, s_.offset, s_.pointer, s_.size, &node_, complete))
-			receiver_.set_value();
+			async::execution::set_value(receiver_);
 	}
 
 private:
