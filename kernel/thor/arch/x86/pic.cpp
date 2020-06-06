@@ -11,6 +11,10 @@
 
 namespace thor {
 
+namespace {
+	constexpr bool debugTimer = false;
+}
+
 extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 inline constexpr arch::bit_register<uint32_t> lApicId(0x0020);
@@ -50,6 +54,7 @@ inline constexpr arch::field<uint32_t, uint8_t> apicIcrHighDestField(24, 8);
 inline constexpr arch::field<uint32_t, uint8_t> apicLvtVector(0, 8);
 inline constexpr arch::field<uint32_t, bool> apicLvtMask(16, 1);
 inline constexpr arch::field<uint32_t, uint8_t> apicLvtMode(8, 3);
+inline constexpr arch::field<uint32_t, uint8_t> apicLvtTimerMode(17, 2);
 
 arch::mem_space picBase;
 
@@ -60,13 +65,26 @@ enum {
 
 static int picModel = kModelLegacy;
 
+uint64_t rdtsc() {
+	uint32_t lsw, msw;
+	asm volatile ("rdtsc" : "=a"(lsw), "=d"(msw));
+	return (static_cast<uint64_t>(msw) << 32)
+			| static_cast<uint64_t>(lsw);
+}
+
+namespace {
+	uint64_t tscTicksPerMilli;
+}
+
 // --------------------------------------------------------
 // Local APIC timer
 // --------------------------------------------------------
 
-// TODO: APIC variables should be CPU-specific.
-uint32_t apicTicksPerMilli;
 namespace {
+	bool apicIsCalibrated = false;
+	// TODO: APIC variables should be CPU-specific.
+	uint32_t apicTicksPerMilli;
+
 	GlobalApicContext *globalApicContextInstance;
 
 	LocalApicContext *localApicContext() {
@@ -79,7 +97,7 @@ GlobalApicContext *globalApicContext() {
 }
 
 void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
-	assert(apicTicksPerMilli > 0);
+	assert(apicIsCalibrated);
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -93,15 +111,18 @@ LocalApicContext::LocalApicContext()
 : _preemptionDeadline{0}, _globalDeadline{0} { }
 
 void LocalApicContext::setPreemption(uint64_t nanos) {
-	assert(apicTicksPerMilli > 0);
-	
+	assert(apicIsCalibrated);
+
 	localApicContext()->_preemptionDeadline = nanos;
 	LocalApicContext::_updateLocalTimer();
 }
 
 void LocalApicContext::handleTimerIrq() {
-//	frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
-//			<< frigg::endLog;
+	assert(apicIsCalibrated);
+
+	if(debugTimer)
+		frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
+				<< frigg::endLog;
 	auto self = localApicContext();
 	auto now = systemClockSource()->currentNanos();
 
@@ -119,7 +140,7 @@ void LocalApicContext::handleTimerIrq() {
 			localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
 		}
 	}
-	
+
 	localApicContext()->_updateLocalTimer();
 }
 
@@ -141,28 +162,46 @@ void LocalApicContext::_updateLocalTimer() {
 
 	consider(localApicContext()->_preemptionDeadline);
 	consider(localApicContext()->_globalDeadline);
-	
-	if(!deadline) {
-		picBase.store(lApicInitCount, 0);
-		return;
-	}
 
-	auto now = systemClockSource()->currentNanos();
-	uint64_t ticks;
-	if(deadline < now) {
-//		frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting single tick timer"
-//				<< frigg::endLog;
-		ticks = 1;
-	}else{
-//		frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
-//				<< ((deadline - now)/1000) << " us in the future" << frigg::endLog;
-		auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
+	if(getCpuData()->haveTscDeadline) {
+		if(!deadline) {
+			frigg::arch_x86::wrmsr(0x6E0, 0);
+			return;
+		}
+
+		uint64_t ticks;
+		auto of = __builtin_mul_overflow(deadline, tscTicksPerMilli, &ticks);
 		assert(!of);
 		ticks /= 1'000'000;
-		if(!ticks)
+		frigg::arch_x86::wrmsr(0x6E0, ticks);
+		if(debugTimer)
+			frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting TSC deadline to "
+					<< ticks << frigg::endLog;
+	}else{
+		if(!deadline) {
+			picBase.store(lApicInitCount, 0);
+			return;
+		}
+
+		auto now = systemClockSource()->currentNanos();
+		uint64_t ticks;
+		if(deadline < now) {
+			if(debugTimer)
+				frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+						<< "]: Setting single tick timer" << frigg::endLog;
 			ticks = 1;
+		}else{
+			if(debugTimer)
+				frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
+						<< ((deadline - now)/1000) << " us in the future" << frigg::endLog;
+			auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
+			assert(!of);
+			ticks /= 1'000'000;
+			if(!ticks)
+				ticks = 1;
+		}
+		picBase.store(lApicInitCount, ticks);
 	}
-	picBase.store(lApicInitCount, ticks);
 }
 
 void armPreemption(uint64_t nanos) {
@@ -207,12 +246,18 @@ void initLocalApicPerCpu() {
 	uint32_t spurious_vector = 0x81;
 	picBase.store(lApicSpurious, apicSpuriousVector(spurious_vector)
 			| apicSpuriousSwEnable(true));
-	
+
 	dumpLocalInt(0);
 	dumpLocalInt(1);
-	
+
 	// Setup a timer interrupt for scheduling.
-	picBase.store(lApicLvtTimer, apicLvtVector(0xFF));
+	if(getCpuData()->haveTscDeadline) {
+		picBase.store(lApicLvtTimer, apicLvtVector(0xFF) | apicLvtTimerMode(2));
+		// The SDM requires this to order MMIO and MSR writes.
+		asm volatile ("mfence" : : : "memory");
+	}else{
+		picBase.store(lApicLvtTimer, apicLvtVector(0xFF));
+	}
 
 	// Setup the PMI.
 	picBase.store(lApicLvtPerfCount, apicLvtMode(4));
@@ -223,17 +268,9 @@ uint32_t getLocalApicId() {
 }
 
 uint64_t localTicks() {
+	assert(!getCpuData()->haveTscDeadline);
 	return picBase.load(lApicCurCount);
 }
-
-uint64_t rdtsc() {
-	uint32_t lsw, msw;
-	asm volatile ("rdtsc" : "=a"(lsw), "=d"(msw));
-	return (static_cast<uint64_t>(msw) << 32)
-			| static_cast<uint64_t>(lsw);
-}
-
-uint64_t tscTicksPerMilli;
 
 struct TimeStampCounter : ClockSource {
 	uint64_t currentNanos() override {
@@ -253,21 +290,27 @@ extern PrecisionTimerEngine *globalTimerEngine;
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
 
-	picBase.store(lApicInitCount, 0xFFFFFFFF);
-	pollSleepNano(millis * 1'000'000);
-	uint32_t elapsed = 0xFFFFFFFF
-			- picBase.load(lApicCurCount);
-	picBase.store(lApicInitCount, 0);
+	// Calibrate the local APIC timer.
+	if(!getCpuData()->haveTscDeadline) {
+		picBase.store(lApicInitCount, 0xFFFFFFFF);
+		pollSleepNano(millis * 1'000'000);
+		uint32_t elapsed = 0xFFFFFFFF
+				- picBase.load(lApicCurCount);
+		picBase.store(lApicInitCount, 0);
 
-	apicTicksPerMilli = elapsed / millis;
-	frigg::infoLogger() << "thor: Local APIC ticks/ms: " << apicTicksPerMilli << frigg::endLog;
-	
+		apicTicksPerMilli = elapsed / millis;
+		frigg::infoLogger() << "thor: Local APIC ticks/ms: " << apicTicksPerMilli << frigg::endLog;
+	}
+
+	// Calibrate the TSC.
 	auto tsc_start = rdtsc();
 	pollSleepNano(millis * 1'000'000);
 	auto tsc_elapsed = rdtsc() - tsc_start;
-	
+
 	tscTicksPerMilli = tsc_elapsed / millis;
 	frigg::infoLogger() << "thor: TSC ticks/ms: " << tscTicksPerMilli << frigg::endLog;
+
+	apicIsCalibrated = true;
 
 	globalTscInstance = frigg::construct<TimeStampCounter>(*kernelAlloc);
 	globalApicContextInstance = frigg::construct<GlobalApicContext>(*kernelAlloc);
@@ -399,7 +442,7 @@ namespace {
 			IoApic *_chip;
 			unsigned int _index;
 			int _vector = -1;
-			
+
 			// The following variables store the current pin configuration.
 			bool _levelTriggered;
 			bool _activeLow;
@@ -480,7 +523,7 @@ namespace {
 				| pin_word1::activeLow(_activeLow)));
 		return strategy;
 	}
-	
+
 	void IoApic::Pin::mask() {
 //		frigg::infoLogger() << "thor: Masking pin " << _index << frigg::endLog;
 		_chip->_storeRegister(kIoApicInts + _index * 2,
@@ -536,7 +579,7 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
 			page_access::write, CachingMode::null);
-	
+
 	picModel = kModelApic;
 
 	auto apic = frigg::construct<IoApic>(*kernelAlloc, apic_id, arch::mem_space{register_ptr});

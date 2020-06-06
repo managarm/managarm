@@ -597,6 +597,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	bool haveSmap;
 	bool havePcids;
 	bool haveXsave;
+	bool haveTscDeadline;
 	uint32_t profileFlags = 0;
 	size_t xsaveRegionSize;
 

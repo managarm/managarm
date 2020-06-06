@@ -860,6 +860,12 @@ void initializeThisProcessor() {
 		frigg::infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frigg::endLog;
 	}
 
+	if(frigg::arch_x86::cpuid(0x01)[2] & (1 << 24)) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports TSC deadline mode\e[39m"
+				<< frigg::endLog;
+		cpu_data->haveTscDeadline = true;
+	}
+
 	auto intelPmLeaf = frigg::arch_x86::cpuid(0xA)[0];
 	if(intelPmLeaf & 0xFF) {
 		frigg::infoLogger() << "\e[37mthor: CPU supports Intel performance counters\e[39m"
