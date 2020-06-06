@@ -11,6 +11,7 @@ struct Scheduler;
 enum class ScheduleState {
 	null,
 	attached,
+	pending,
 	active
 };
 
@@ -29,7 +30,7 @@ struct ScheduleEntity {
 	ScheduleEntity(const ScheduleEntity &) = delete;
 
 	~ScheduleEntity();
-	
+
 	ScheduleEntity &operator= (const ScheduleEntity &) = delete;
 
 	uint64_t runTime() {
@@ -44,8 +45,9 @@ private:
 
 	ScheduleState state;
 	int priority;
-	
-	frg::pairing_heap_hook<ScheduleEntity> hook;
+
+	frg::default_list_hook<ScheduleEntity> listHook;
+	frg::pairing_heap_hook<ScheduleEntity> heapHook;
 
 	uint64_t _refClock;
 	uint64_t _runTime;
@@ -108,13 +110,13 @@ private:
 	frigg::TicketLock _mutex;
 
 	ScheduleEntity *_current;
-	
+
 	frg::pairing_heap<
 		ScheduleEntity,
 		frg::locate_member<
 			ScheduleEntity,
 			frg::pairing_heap_hook<ScheduleEntity>,
-			&ScheduleEntity::hook
+			&ScheduleEntity::heapHook
 		>,
 		ScheduleGreater
 	> _waitQueue;
@@ -131,6 +133,15 @@ private:
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
 	Progress _systemProgress;
+
+	frg::intrusive_list<
+		ScheduleEntity,
+		frg::locate_member<
+			ScheduleEntity,
+			frg::default_list_hook<ScheduleEntity>,
+			&ScheduleEntity::listHook
+		>
+	> _pendingList;
 };
 
 Scheduler *localScheduler();

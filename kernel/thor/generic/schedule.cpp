@@ -44,7 +44,7 @@ void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
 
 void Scheduler::unassociate(ScheduleEntity *entity) {
 	auto irq_lock = frigg::guard(&irqMutex());
-	
+
 	auto self = entity->_scheduler;
 	assert(self);
 	auto lock = frigg::guard(&self->_mutex);
@@ -79,21 +79,12 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	auto lock = frigg::guard(&self->_mutex);
 	assert(entity != self->_current);
 
-	self->_updateSystemProgress();
+	entity->state = ScheduleState::pending;
 
-	// Update the unfairness reference on resume.
-	if(self->_current)
-		self->_updateCurrentEntity();
-	entity->refProgress = self->_systemProgress;
-	entity->_refClock = self->_refClock;
-	entity->state = ScheduleState::active;
-	
-	self->_waitQueue.push(entity);
-	self->_numWaiting++;
+	self->_pendingList.push_back(entity);
 
 	if(self == &getCpuData()->scheduler) {
-		if(self->_updatePreemption())
-			sendPingIpi(self->_cpuContext->localApicId);
+		sendPingIpi(self->_cpuContext->localApicId);
 	}else{
 		sendPingIpi(self->_cpuContext->localApicId);
 	}
@@ -107,11 +98,10 @@ void Scheduler::suspendCurrent() {
 	auto entity = self->_current;
 	assert(entity);
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
-	
+
 	self->_updateSystemProgress();
 
 	// Update the unfairness on suspend.
-	self->_updateCurrentEntity();
 	self->_updateEntityStats(entity);
 	entity->state = ScheduleState::attached;
 
@@ -158,9 +148,9 @@ void Scheduler::reschedule() {
 
 	if(_current)
 		_unschedule();
-	
+
 	_sliceClock = _refClock;
-	
+
 	if(_waitQueue.empty()) {
 		if(logScheduling)
 			frigg::infoLogger() << "System is idle" << frigg::endLog;
@@ -184,7 +174,6 @@ void Scheduler::_unschedule() {
 	assert(_current);
 
 	// Decrease the unfairness at the end of the time slice.
-	_updateCurrentEntity();
 	_updateEntityStats(_current);
 
 	if(_current->state == ScheduleState::active) {
@@ -239,10 +228,27 @@ void Scheduler::_updateSystemProgress() {
 
 	assert(haveTimer());
 	auto now = systemClockSource()->currentNanos();
-	auto delta_time = now - _refClock;
+	auto deltaTime = now - _refClock;
 	_refClock = now;
 	if(n)
-		_systemProgress += delta_time * fixedInverse(n);
+		_systemProgress += deltaTime * fixedInverse(n);
+
+	if(_current)
+		_updateCurrentEntity();
+
+	// Finally, process all pending entities.
+	while(!_pendingList.empty()) {
+		auto entity = _pendingList.pop_front();
+		assert(entity->state == ScheduleState::pending);
+
+		// Update the unfairness reference.
+		entity->refProgress = _systemProgress;
+		entity->_refClock = _refClock;
+		entity->state = ScheduleState::active;
+
+		_waitQueue.push(entity);
+		_numWaiting++;
+	}
 }
 
 // Returns true if preemption should be done immediately.
@@ -309,7 +315,7 @@ void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
 void Scheduler::_updateEntityStats(ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::active
 			|| entity == _current);
-	
+
 	if(entity == _current)
 		entity->_runTime += _refClock - entity->_refClock;
 	entity->_refClock = _refClock;
