@@ -69,6 +69,10 @@ struct ScheduleGreater {
 };
 
 struct Scheduler {
+	// Note: the scheduler's methods (e.g., associate, unassociate, resume, ...)
+	// may be called from any CPU, *however*, calling them on the same ScheduleEntity is
+	// *not* thread-safe without additional synchronization!
+
 	static void associate(ScheduleEntity *entity, Scheduler *scheduler);
 	static void unassociate(ScheduleEntity *entity);
 
@@ -107,8 +111,6 @@ private:
 
 	CpuData *_cpuContext;
 
-	frigg::TicketLock _mutex;
-
 	ScheduleEntity *_current;
 
 	frg::pairing_heap<
@@ -133,6 +135,13 @@ private:
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
 	Progress _systemProgress;
+
+	// ----------------------------------------------------------------------------------
+	// Management of pending entities.
+	// ----------------------------------------------------------------------------------
+
+	// Note that _mutex *only* protects _pendingList and nothing more!
+	frigg::TicketLock _mutex;
 
 	frg::intrusive_list<
 		ScheduleEntity,

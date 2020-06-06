@@ -33,9 +33,6 @@ ScheduleEntity::~ScheduleEntity() {
 }
 
 void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&scheduler->_mutex);
-
 //	frigg::infoLogger() << "associate " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::null);
 	entity->_scheduler = scheduler;
@@ -43,11 +40,11 @@ void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
 }
 
 void Scheduler::unassociate(ScheduleEntity *entity) {
-	auto irq_lock = frigg::guard(&irqMutex());
+	// TODO: This is only really need to assert against _current.
+	auto irqLock = frigg::guard(&irqMutex());
 
 	auto self = entity->_scheduler;
 	assert(self);
-	auto lock = frigg::guard(&self->_mutex);
 
 	assert(entity->state == ScheduleState::attached);
 	assert(entity != self->_current);
@@ -56,11 +53,10 @@ void Scheduler::unassociate(ScheduleEntity *entity) {
 }
 
 void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
-	auto irq_lock = frigg::guard(&irqMutex());
+	auto scheduleLock = frigg::guard(&irqMutex());
 
 	auto self = entity->_scheduler;
 	assert(self);
-	auto lock = frigg::guard(&self->_mutex);
 
 	// Otherwise, we would have to remove-reinsert into the queue.
 	assert(entity == self->_current);
@@ -69,19 +65,20 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
-	auto irq_lock = frigg::guard(&irqMutex());
-
 //	frigg::infoLogger() << "resume " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::attached);
 
 	auto self = entity->_scheduler;
 	assert(self);
-	auto lock = frigg::guard(&self->_mutex);
 	assert(entity != self->_current);
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&self->_mutex);
 
-	entity->state = ScheduleState::pending;
+		entity->state = ScheduleState::pending;
 
-	self->_pendingList.push_back(entity);
+		self->_pendingList.push_back(entity);
+	}
 
 	if(self == &getCpuData()->scheduler) {
 		sendPingIpi(self->_cpuContext->localApicId);
@@ -91,10 +88,9 @@ void Scheduler::resume(ScheduleEntity *entity) {
 }
 
 void Scheduler::suspendCurrent() {
-	auto irq_lock = frigg::guard(&irqMutex());
+	auto scheduleLock = frigg::guard(&irqMutex());
 
 	auto self = localScheduler();
-	auto lock = frigg::guard(&self->_mutex);
 	auto entity = self->_current;
 	assert(entity);
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
@@ -134,7 +130,6 @@ int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 
 bool Scheduler::wantSchedule() {
 	assert(!intsAreEnabled());
-	auto lock = frigg::guard(&_mutex);
 
 	_updateSystemProgress();
 	return _updatePreemption();
@@ -142,7 +137,6 @@ bool Scheduler::wantSchedule() {
 
 void Scheduler::reschedule() {
 	assert(!intsAreEnabled());
-	auto lock = frigg::guard(&_mutex);
 
 	_updateSystemProgress();
 
@@ -154,7 +148,6 @@ void Scheduler::reschedule() {
 	if(_waitQueue.empty()) {
 		if(logScheduling)
 			frigg::infoLogger() << "System is idle" << frigg::endLog;
-		lock.unlock();
 		suspendSelf();
 		frigg::panicLogger() << "Return from suspendSelf()" << frigg::endLog;
 	}
@@ -164,7 +157,6 @@ void Scheduler::reschedule() {
 
 	_updatePreemption();
 
-	lock.unlock();
 	_current->invoke();
 	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
 	__builtin_unreachable();
@@ -237,8 +229,22 @@ void Scheduler::_updateSystemProgress() {
 		_updateCurrentEntity();
 
 	// Finally, process all pending entities.
-	while(!_pendingList.empty()) {
-		auto entity = _pendingList.pop_front();
+	frg::intrusive_list<
+		ScheduleEntity,
+		frg::locate_member<
+			ScheduleEntity,
+			frg::default_list_hook<ScheduleEntity>,
+			&ScheduleEntity::listHook
+		>
+	> pendingSnapshot;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+
+		pendingSnapshot.splice(pendingSnapshot.end(), _pendingList);
+	}
+	while(!pendingSnapshot.empty()) {
+		auto entity = pendingSnapshot.pop_front();
 		assert(entity->state == ScheduleState::pending);
 
 		// Update the unfairness reference.
