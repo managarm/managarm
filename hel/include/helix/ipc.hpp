@@ -111,7 +111,7 @@ struct OperationBase {
 
 	OperationBase()
 	: _asyncId(0), _element(nullptr) { }
-	
+
 	virtual ~OperationBase() { }
 
 	void *element() {
@@ -183,7 +183,7 @@ public:
 			_activeChunks{0}, _retrieveIndex{0}, _nextIndex{0}, _lastProgress{0} { }
 
 	Dispatcher(const Dispatcher &) = delete;
-	
+
 	Dispatcher &operator= (const Dispatcher &) = delete;
 
 	HelHandle acquire() {
@@ -208,14 +208,14 @@ public:
 				auto chunk = reinterpret_cast<HelChunk *>(operator new(sizeof(HelChunk) + 4096));
 				_chunks[_activeChunks] = chunk;
 				HEL_CHECK(helSetupChunk(_handle, _activeChunks, chunk, 0));
-				
+
 				// Reset and enqueue the new chunk.
 				chunk->progressFutex = 0;
 
 				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
 				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
 				_wakeHeadFutex();
-				
+
 				_refCounts[_activeChunks] = 1;
 				_activeChunks++;
 				continue;
@@ -226,14 +226,14 @@ public:
 				auto chunk = reinterpret_cast<HelChunk *>(operator new(sizeof(HelChunk) + 4096));
 				_chunks[_activeChunks] = chunk;
 				HEL_CHECK(helSetupChunk(_handle, _activeChunks, chunk, 0));
-				
+
 				// Reset and enqueue the new chunk.
 				chunk->progressFutex = 0;
 
 				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
 				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
 				_wakeHeadFutex();
-				
+
 				_refCounts[_activeChunks] = 1;
 				_activeChunks++;
 				_hadWaiters = false;
@@ -253,7 +253,7 @@ public:
 			auto ptr = (char *)_retrieveChunk() + sizeof(HelChunk) + _lastProgress;
 			auto element = reinterpret_cast<HelElement *>(ptr);
 			_lastProgress += sizeof(HelElement) + element->length;
-			
+
 			auto context = reinterpret_cast<Context *>(element->context);
 			_refCounts[_numberOf(_retrieveIndex)]++;
 			context->complete(ElementHandle{this, _numberOf(_retrieveIndex),
@@ -316,7 +316,7 @@ private:
 			} while(!__atomic_compare_exchange_n(&_retrieveChunk()->progressFutex, &futex,
 						_lastProgress | kHelProgressWaiters,
 						false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
-			
+
 			HEL_CHECK(helFutexWait(&_retrieveChunk()->progressFutex,
 					_lastProgress | kHelProgressWaiters, -1));
 		}
@@ -326,7 +326,7 @@ private:
 	HelHandle _handle;
 	HelQueue *_queue;
 	HelChunk *_chunks[1 << sizeShift];
-	
+
 	int _activeChunks;
 	bool _hadWaiters;
 
@@ -450,7 +450,7 @@ struct Accept : Operation {
 	HelError error() {
 		return result()->error;
 	}
-	
+
 	UniqueDescriptor descriptor() {
 		HEL_CHECK(error());
 		return std::move(_descriptor);
@@ -511,7 +511,7 @@ struct RecvInline : Operation {
 	HelError error() {
 		return result()->error;
 	}
-	
+
 	void *data() {
 		HEL_CHECK(error());
 		return result()->data;
@@ -538,7 +538,7 @@ struct RecvBuffer : Operation {
 	HelError error() {
 		return result()->error;
 	}
-	
+
 	size_t actualLength() {
 		HEL_CHECK(error());
 		return result()->length;
@@ -559,7 +559,7 @@ struct PullDescriptor : Operation {
 	HelError error() {
 		return result()->error;
 	}
-	
+
 	UniqueDescriptor descriptor() {
 		HEL_CHECK(error());
 		return std::move(_descriptor);
@@ -886,21 +886,19 @@ namespace helix_ng {
 using namespace helix;
 
 // --------------------------------------------------------------------
-// Transmission
+// ExchangeMsgsSender
 // --------------------------------------------------------------------
 
-template <typename Results, typename Actions>
-struct Transmission : private Context {
-	Transmission(BorrowedDescriptor descriptor, Results, Actions actions) {
-		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitAsync(descriptor.getHandle(),
-				actions.data(), actions.size(), Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context), 0));
-	}
+template <typename Results, typename Actions, typename Receiver>
+struct ExchangeMsgsOperation : private Context {
+	ExchangeMsgsOperation(BorrowedDescriptor lane, Actions actions, Receiver receiver)
+	: lane_{std::move(lane)}, actions_{std::move(actions)}, receiver_{std::move(receiver)} { }
 
-	auto operator co_await() {
-		using async::operator co_await;
-		return operator co_await(_resultsPromise.async_get());
+	void start() {
+		auto context = static_cast<Context *>(this);
+		HEL_CHECK(helSubmitAsync(lane_.getHandle(),
+				actions_.data(), actions_.size(), Dispatcher::global().acquire(),
+				reinterpret_cast<uintptr_t>(context), 0));
 	}
 
 private:
@@ -912,15 +910,38 @@ private:
 			(results.template get<p>().parse(ptr, element), ...);
 		} (std::make_index_sequence<std::tuple_size<Results>::value>{});
 
-		_resultsPromise.set_value(std::move(results));
+		async::execution::set_value(receiver_, std::move(results));
 	}
 
-	async::promise<decltype(Results{})> _resultsPromise;
+	BorrowedDescriptor lane_;
+	Actions actions_;
+	Receiver receiver_;
 };
+
+template <typename Results, typename Actions>
+struct ExchangeMsgsSender {
+	ExchangeMsgsSender(BorrowedDescriptor lane, Results, Actions actions)
+	: lane_{std::move(lane)}, actions_{std::move(actions)} { }
+
+	template<typename Receiver>
+	ExchangeMsgsOperation<Results, Actions, Receiver> connect(Receiver receiver) {
+		return {std::move(lane_), std::move(actions_), std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor lane_;
+	Actions actions_;
+};
+
+template <typename Results, typename Actions>
+async::sender_awaiter<ExchangeMsgsSender<Results, Actions>, Results>
+operator co_await (ExchangeMsgsSender<Results, Actions> sender) {
+	return {std::move(sender)};
+}
 
 template <typename ...Args>
 auto exchangeMsgs(BorrowedDescriptor descriptor, Args &&...args) {
-	return Transmission{
+	return ExchangeMsgsSender{
 		std::move(descriptor),
 		createResultsTuple(args...),
 		chainActionArrays(args...)
