@@ -4,21 +4,24 @@
 
 - [Getting Started](getting-started/index.md)
     - [Trying Out](getting-started/trying-out.md)
-    - [Contributing](getting-started/contributing.md)
-    - [Support](getting-started/supported.md)
+    - [Supported Hardware and Software](getting-started/supported/index.md)
+        - [Temporary Package Index](getting-started/supported/package_index.md)
+
 
 - [Building](building.md)
 
 - [Design](design/index.md)
     - [Components](design/index.md)
         - [managarm](design/index.md)
-        - [hel and helix](design/index.md)
-        - [thor and eir](design/index.md)
-        - [frigg](design/index.md)
-        - [libasync](design/index.md)
-        
+        - [hel and helix](design/hel/index.md)
+        - [thor and eir](design/thoreir/index.md)
+        - [frigg](design/frigg/index.md)
+        - [libasync](design/libasync/index.md)
+        - [mbus](design/mbus/index.md)
+        - [bragi](design/bragi/index.md)
 
-- [Contribting](contributing/contributing.md)
+
+- [Contributing](contributing/contributing.md)
     - [Communication](contributing/communication.md)
     - [Direct Contributions](contributing/direct/direct.md)
         - [Fields](contributing/direct/direct.md)
