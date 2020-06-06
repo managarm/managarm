@@ -141,7 +141,6 @@ executable('thor', pb_sources, thor_sources, embed_trampoline,
 		libsmarter_dep
 	],
 	cpp_args: [
-		'-std=c++17',
 		'-mcmodel=kernel',
 		'-mno-red-zone',
 		'-DLIBASYNC_CUSTOM_PLATFORM',
