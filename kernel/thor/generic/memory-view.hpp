@@ -510,16 +510,21 @@ public:
 
 		FetchRangeOperation &operator= (const FetchRangeOperation &) = delete;
 
-		void start() {
+		bool start_inline() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &FetchRangeOperation::worklet_);
-				async::execution::set_value(op->receiver_,
+				async::execution::set_value_noinline(op->receiver_,
 						frg::tuple<Error, PhysicalRange, uint32_t>{op->node_.error(),
 								op->node_.range(), op->node_.flags()});
 			});
 			node_.setup(&worklet_);
-			if(s_.self->fetchRange(s_.offset, &node_))
-				WorkQueue::post(&worklet_); // Force into slow path for now.
+			if(s_.self->fetchRange(s_.offset, &node_)) {
+				async::execution::set_value_inline(receiver_,
+						frg::tuple<Error, PhysicalRange, uint32_t>{node_.error(),
+								node_.range(), node_.flags()});
+				return true;
+			}
+			return false;
 		}
 
 	private:
@@ -652,13 +657,16 @@ struct CopyFromViewOperation {
 
 	CopyFromViewOperation &operator= (const CopyFromViewOperation &) = delete;
 
-	void start() {
+	bool start_inline() {
 		auto complete = [] (CopyFromBundleNode *base) {
 			auto op = frg::container_of(base, &CopyFromViewOperation::node_);
-			async::execution::set_value(op->receiver_);
+			async::execution::set_value_noinline(op->receiver_);
 		};
-		if(copyFromBundle(s_.view, s_.offset, s_.pointer, s_.size, &node_, complete))
-			async::execution::set_value(receiver_);
+		if(copyFromBundle(s_.view, s_.offset, s_.pointer, s_.size, &node_, complete)) {
+			async::execution::set_value_inline(receiver_);
+			return true;
+		}
+		return false;
 	}
 
 private:

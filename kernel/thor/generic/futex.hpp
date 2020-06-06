@@ -138,14 +138,17 @@ struct Futex {
 
 		WaitOperation &operator= (const WaitOperation &) = delete;
 
-		void start() {
+		bool start_inline() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &WaitOperation::worklet_);
-				op->receiver_.set_value();
+				async::execution::set_value_noinline(op->receiver_);
 			});
 			node_.setup(&worklet_);
-			if(!s_.self->checkSubmitWait(s_.address, std::move(s_.c), &node_, s_.cancellation))
-				receiver_.set_value();
+			if(!s_.self->checkSubmitWait(s_.address, std::move(s_.c), &node_, s_.cancellation)) {
+				async::execution::set_value_inline(receiver_);
+				return true;
+			}
+			return false;
 		}
 
 	private:

@@ -51,16 +51,19 @@ struct VirtualOperations {
 
 		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
 
-		void start() {
+		bool start_inline() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &ShootdownOperation::worklet_);
-				async::execution::set_value(op->receiver_);
+				async::execution::set_value_noinline(op->receiver_);
 			});
 			node_.address = s_.address;
 			node_.size = s_.size;
 			node_.setup(&worklet_);
-			if(s_.self->submitShootdown(&node_))
-				async::execution::set_value(receiver_);
+			if(s_.self->submitShootdown(&node_)) {
+				async::execution::set_value_inline(receiver_);
+				return true;
+			}
+			return false;
 		}
 
 	private:
@@ -278,14 +281,17 @@ struct Mapping : MemoryObserver {
 
 		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
 
-		void start() {
+		bool start_inline() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &LockVirtualRangeOperation::worklet_);
-				async::execution::set_value(op->receiver_);
+				async::execution::set_value_noinline(op->receiver_);
 			});
 			node_.setup(s_.offset, s_.size, &worklet_);
-			if(s_.self->lockVirtualRange(&node_))
-				WorkQueue::post(&worklet_); // Force into slow path for now.
+			if(s_.self->lockVirtualRange(&node_)) {
+				async::execution::set_value_inline(receiver_);
+				return true;
+			}
+			return false;
 		}
 
 	private:
@@ -331,16 +337,21 @@ struct Mapping : MemoryObserver {
 
 		TouchVirtualPageOperation &operator= (const TouchVirtualPageOperation &) = delete;
 
-		void start() {
+		bool start_inline() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &TouchVirtualPageOperation::worklet_);
-				async::execution::set_value(op->receiver_,
+				async::execution::set_value_noinline(op->receiver_,
 						frg::tuple<Error, PhysicalRange, bool>{op->node_.error(),
 								op->node_.range(), op->node_.spurious()});
 			});
 			node_.setup(s_.offset, &worklet_);
-			if(s_.self->touchVirtualPage(&node_))
-				WorkQueue::post(&worklet_); // Force into slow path for now.
+			if(s_.self->touchVirtualPage(&node_)) {
+				async::execution::set_value_inline(receiver_,
+						frg::tuple<Error, PhysicalRange, bool>{node_.error(),
+								node_.range(), node_.spurious()});
+				return true;
+			}
+			return false;
 		}
 
 	private:
@@ -387,14 +398,17 @@ struct Mapping : MemoryObserver {
 
 		PopulateVirtualRangeOperation &operator= (const PopulateVirtualRangeOperation &) = delete;
 
-		void start() {
+		bool start_inline() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &PopulateVirtualRangeOperation::worklet_);
-				async::execution::set_value(op->receiver_);
+				async::execution::set_value_noinline(op->receiver_);
 			});
 			node_.setup(s_.offset, s_.size, &worklet_);
-			if(s_.self->populateVirtualRange(&node_))
-				WorkQueue::post(&worklet_); // Force into slow path for now.
+			if(s_.self->populateVirtualRange(&node_)) {
+				async::execution::set_value_inline(receiver_);
+				return true;
+			}
+			return false;
 		}
 
 	private:
@@ -658,14 +672,17 @@ public:
 
 		UnmapOperation &operator= (const UnmapOperation &) = delete;
 
-		void start() {
+		bool start_inline() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &UnmapOperation::worklet_);
-				async::execution::set_value(op->receiver_);
+				async::execution::set_value_noinline(op->receiver_);
 			});
 			node_.setup(&worklet_);
-			if(s_.self->unmap(s_.address, s_.size, &node_))
-				WorkQueue::post(&worklet_); // Force into slow path for now.
+			if(s_.self->unmap(s_.address, s_.size, &node_)) {
+				async::execution::set_value_inline(receiver_);
+				return true;
+			}
+			return false;
 		}
 
 	private:
