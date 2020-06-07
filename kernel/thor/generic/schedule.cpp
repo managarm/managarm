@@ -72,19 +72,23 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	auto self = entity->_scheduler;
 	assert(self);
 	assert(entity != self->_current);
+	bool wasEmpty;
 	{
 		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&self->_mutex);
 
 		entity->state = ScheduleState::pending;
 
+		wasEmpty = self->_pendingList.empty();
 		self->_pendingList.push_back(entity);
 	}
 
-	if(self == &getCpuData()->scheduler) {
-		sendPingIpi(self->_cpuContext->localApicId);
-	}else{
-		sendPingIpi(self->_cpuContext->localApicId);
+	if(wasEmpty) {
+		if(self == &getCpuData()->scheduler) {
+			sendPingIpi(self->_cpuContext->localApicId);
+		}else{
+			sendPingIpi(self->_cpuContext->localApicId);
+		}
 	}
 }
 
