@@ -56,7 +56,8 @@ void Thread::migrateCurrent() {
 	forkExecutor([&] {
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			lock.unlock();
-			localScheduler()->commitReschedule();
+			localScheduler()->commit();
+			localScheduler()->invoke();
 		}, frigg::move(lock));
 	}, &this_thread->_executor);
 }
@@ -90,7 +91,8 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 		forkExecutor([&] {
 			runDetached([] (frigg::LockGuard<Mutex> lock) {
 				lock.unlock();
-				localScheduler()->commitReschedule();
+				localScheduler()->commit();
+				localScheduler()->invoke();
 			}, frigg::move(lock));
 		}, &this_thread->_executor);
 	}
@@ -114,7 +116,8 @@ void Thread::deferCurrent() {
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		localScheduler()->commitReschedule();
+		localScheduler()->commit();
+		localScheduler()->invoke();
 	}, std::move(lock));
 }
 
@@ -136,7 +139,8 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		localScheduler()->commitReschedule();
+		localScheduler()->commit();
+		localScheduler()->invoke();
 	}, std::move(lock));
 }
 
@@ -158,7 +162,8 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		localScheduler()->commitReschedule();
+		localScheduler()->commit();
+		localScheduler()->invoke();
 	}, std::move(lock));
 }
 
@@ -196,7 +201,8 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 			WorkQueue::post(observe->triggered);
 		}
 
-		localScheduler()->commitReschedule();
+		localScheduler()->commit();
+		localScheduler()->invoke();
 	}, interrupt, this_thread.get(), std::move(lock));
 }
 
@@ -234,7 +240,8 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 			WorkQueue::post(observe->triggered);
 		}
 
-		localScheduler()->commitReschedule();
+		localScheduler()->commit();
+		localScheduler()->invoke();
 	}, interrupt, this_thread.get(), std::move(lock));
 }
 
@@ -276,7 +283,8 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				WorkQueue::post(observe->triggered);
 			}
 
-			localScheduler()->commitReschedule();
+			localScheduler()->commit();
+			localScheduler()->invoke();
 		}, this_thread.get(), std::move(lock));
 	}
 	
@@ -310,7 +318,8 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				WorkQueue::post(observe->triggered);
 			}
 
-			localScheduler()->commitReschedule();
+			localScheduler()->commit();
+			localScheduler()->invoke();
 		}, this_thread.get(), std::move(lock));
 	}
 }

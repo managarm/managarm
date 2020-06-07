@@ -93,12 +93,10 @@ private:
 
 public:
 	void update();
-
 	bool wantReschedule();
 	void reschedule();
-
-	[[ noreturn ]] void commitReschedule();
-	void commitNoReschedule();
+	void commit();
+	[[noreturn]] void invoke();
 
 private:
 	void _unschedule();

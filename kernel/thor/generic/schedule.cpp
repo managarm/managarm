@@ -223,33 +223,31 @@ void Scheduler::reschedule() {
 	_needPreemptionUpdate = true;
 }
 
-void Scheduler::commitReschedule() {
-	assert(!_current);
-	assert(_needPreemptionUpdate);
-
-	if(!_scheduled) {
-		if(logScheduling || logIdle)
-			frigg::infoLogger() << "System is idle" << frigg::endLog;
-		suspendSelf();
-		frigg::panicLogger() << "Return from suspendSelf()" << frigg::endLog;
+void Scheduler::commit() {
+	if(!_current) {
+		_current = _scheduled;
+		_scheduled = nullptr;
+		_sliceClock = _refClock;
+	}else{
+		assert(!_scheduled);
 	}
 
-	_current = _scheduled;
-	_scheduled = nullptr;
-	_sliceClock = _refClock;
-	_updatePreemption();
-	_needPreemptionUpdate = false;
-
-	_current->invoke();
-	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
-	__builtin_unreachable();
-}
-
-void Scheduler::commitNoReschedule() {
 	if(_needPreemptionUpdate) {
 		_updatePreemption();
 		_needPreemptionUpdate = false;
 	}
+}
+
+void Scheduler::invoke() {
+	if(!_current) {
+		if(logIdle)
+			frigg::infoLogger() << "System is idle" << frigg::endLog;
+		suspendSelf();
+	}else{
+		_current->invoke();
+	}
+	frigg::panicLogger() << "Return from scheduling invocation" << frigg::endLog;
+	__builtin_unreachable();
 }
 
 void Scheduler::_unschedule() {
@@ -270,8 +268,11 @@ void Scheduler::_schedule() {
 	assert(!_current);
 	assert(!_scheduled);
 
-	if(_waitQueue.empty())
+	if(_waitQueue.empty()) {
+		if(logScheduling)
+			frigg::infoLogger() << "No entities to schedule" << frigg::endLog;
 		return;
+	}
 
 	auto entity = _waitQueue.top();
 	_waitQueue.pop();

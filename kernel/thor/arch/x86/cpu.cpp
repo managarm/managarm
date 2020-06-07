@@ -931,7 +931,8 @@ void secondaryMain(StatusBlock *status_block) {
 	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;
 	localScheduler()->update();
 	localScheduler()->reschedule();
-	localScheduler()->commitReschedule();
+	localScheduler()->commit();
+	localScheduler()->invoke();
 }
 
 void bootSecondary(unsigned int apic_id) {

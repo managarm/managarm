@@ -270,7 +270,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;
 	localScheduler()->update();
 	localScheduler()->reschedule();
-	localScheduler()->commitReschedule();
+	localScheduler()->commit();
+	localScheduler()->invoke();
 }
 
 extern "C" void handleStubInterrupt() {
@@ -496,11 +497,12 @@ void handleIrq(IrqImageAccessor image, int number) {
 				assert(image.inIdleDomain());
 				localScheduler()->reschedule();
 				runDetached([] {
-					localScheduler()->commitReschedule();
+					localScheduler()->commit();
+					localScheduler()->invoke();
 				});
 			}
 		}else{
-			localScheduler()->commitNoReschedule();
+			localScheduler()->commit();
 		}
 	}
 }
@@ -527,11 +529,12 @@ void handlePreemption(IrqImageAccessor image) {
 			assert(image.inIdleDomain());
 			localScheduler()->reschedule();
 			runDetached([] {
-				localScheduler()->commitReschedule();
+				localScheduler()->commit();
+				localScheduler()->invoke();
 			});
 		}
 	}else{
-		localScheduler()->commitNoReschedule();
+		localScheduler()->commit();
 	}
 }
 
