@@ -22,6 +22,7 @@ enum Errors {
 
 enum CntReqType {
 	INIT = 7;
+	GET_TID = 29;
 	GET_PID = 17;
 	FORK = 8;
 	EXEC = 1;
