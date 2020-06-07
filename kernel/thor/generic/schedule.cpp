@@ -313,12 +313,12 @@ void Scheduler::_updatePreemption() {
 		assert(!po);
 	}
 
-	// If the entity exhausted its time slice already, switch threads immediately.
-	auto diff = _liveUnfairness(_current) - _liveUnfairness(_waitQueue.top());
-	if(diff < 0)
-		return;
+	auto diff = _liveUnfairness(_current) + sliceGranularity * 256
+			- _liveUnfairness(_waitQueue.top());
+	// If the unfairness was too small, we would have rescheduled.
+	assert(diff >= 0);
 
-	auto slice = frigg::max(diff / 256, sliceGranularity);
+	auto slice = diff / 256;
 	if(logTimeSlice)
 		frigg::infoLogger() << "Scheduling time slice: "
 				<< slice / 1000 << " us" << frigg::endLog;
