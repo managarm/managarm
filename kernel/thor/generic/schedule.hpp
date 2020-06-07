@@ -129,6 +129,8 @@ private:
 
 	size_t _numWaiting;
 
+	bool _needPreemptionUpdate = false;
+
 	// The last tick at which the scheduler's state (i.e. progress) was updated.
 	// In our model this is the time point at which slice T started.
 	uint64_t _refClock;

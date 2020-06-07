@@ -63,6 +63,7 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 	assert(entity == self->_current);
 
 	entity->priority = priority;
+	self->_needPreemptionUpdate = true;
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
@@ -105,6 +106,7 @@ void Scheduler::suspendCurrent() {
 	entity->state = ScheduleState::attached;
 
 	self->_current = nullptr;
+	self->_needPreemptionUpdate = true;
 }
 
 Scheduler::Scheduler(CpuData *cpu_context)
@@ -168,6 +170,8 @@ void Scheduler::update() {
 
 		pendingSnapshot.splice(pendingSnapshot.end(), _pendingList);
 	}
+	if(!pendingSnapshot.empty())
+		_needPreemptionUpdate = true;
 	while(!pendingSnapshot.empty()) {
 		auto entity = pendingSnapshot.pop_front();
 		assert(entity->state == ScheduleState::pending);
@@ -216,10 +220,12 @@ void Scheduler::reschedule() {
 	if(_current)
 		_unschedule();
 	_schedule();
+	_needPreemptionUpdate = true;
 }
 
 void Scheduler::commitReschedule() {
 	assert(!_current);
+	assert(_needPreemptionUpdate);
 
 	if(!_scheduled) {
 		if(logScheduling || logIdle)
@@ -232,6 +238,7 @@ void Scheduler::commitReschedule() {
 	_scheduled = nullptr;
 	_sliceClock = _refClock;
 	_updatePreemption();
+	_needPreemptionUpdate = false;
 
 	_current->invoke();
 	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
@@ -239,7 +246,10 @@ void Scheduler::commitReschedule() {
 }
 
 void Scheduler::commitNoReschedule() {
-	_updatePreemption();
+	if(_needPreemptionUpdate) {
+		_updatePreemption();
+		_needPreemptionUpdate = false;
+	}
 }
 
 void Scheduler::_unschedule() {
