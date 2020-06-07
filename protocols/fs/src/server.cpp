@@ -857,7 +857,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UTIMENSAT) {
-			co_await node_ops->utimensat(node, req.sec(), req.nsec());
+			co_await node_ops->utimensat(node, req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

@@ -193,7 +193,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	async::result<std::optional<DirEntry>> mkdir(std::string name);
 	async::result<std::optional<DirEntry>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
-	async::result<protocols::fs::Error> utimensat(uint64_t sec, uint64_t nsec);
+	async::result<protocols::fs::Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
 
 	FileSystem &fs;
 
@@ -232,9 +232,6 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	int numLinks; // number of links to this file
 	int uid, gid;
-	struct timespec accessTime;
-	struct timespec dataModifyTime;
-	struct timespec anyChangeTime;
 	FlockManager flockManager;
 };
 

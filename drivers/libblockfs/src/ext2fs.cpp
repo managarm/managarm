@@ -300,14 +300,14 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 	co_return protocols::fs::Error::none;
 }
 
-async::result<protocols::fs::Error> Inode::utimensat(uint64_t sec, uint64_t nsec) {
+async::result<protocols::fs::Error> Inode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
 	std::cout << "\e[31m" "ext2fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
 	
 	co_await readyJump.async_wait();
 
-	if(sec != UTIME_NOW || nsec != UTIME_NOW) {
-		// TODO: Properly implement it, also respect atime and mtime
-		std::cout << "\e[31m" "ext2fs: utimensat() unsupported mode called" "\e[39m" << std::endl;
+	if(atime_sec != UTIME_NOW || atime_nsec != UTIME_NOW || mtime_sec != UTIME_NOW || mtime_nsec != UTIME_NOW) {
+		// TODO: Properly implement setting the time to arbitrary values
+		std::cout << "\e[31m" "ext2fs: utimensat() unsupported mode called (not UTIME_NOW for all fields)" "\e[39m" << std::endl;
 		co_return protocols::fs::Error::none;
 	}
 
@@ -708,12 +708,6 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	// TODO: support large uid / gids
 	inode->uid = disk_inode->uid;
 	inode->gid = disk_inode->gid;
-	inode->accessTime.tv_sec = disk_inode->atime;
-	inode->accessTime.tv_nsec = 0;
-	inode->dataModifyTime.tv_sec = disk_inode->mtime;
-	inode->dataModifyTime.tv_nsec = 0;
-	inode->anyChangeTime.tv_sec = disk_inode->ctime;
-	inode->anyChangeTime.tv_nsec = 0;
 
 	// Allocate a page cache for the file.
 	auto cache_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);

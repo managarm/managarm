@@ -1626,10 +1626,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 
 				if(req.flags() & AT_SYMLINK_NOFOLLOW) {
-					std::cout << "posix: AT_SYMLINK_FOLLOW is unimplemented for linkat" << std::endl;
+					std::cout << "posix: AT_SYMLINK_FOLLOW is unimplemented for utimensat" << std::endl;
 				}
-
-				std::cout << "posix: UTIMENSAT called with: " << req.tv_sec() << " secs and " << req.tv_nsec() << " nsecs" << std::endl;
 
 				if(req.fd() == AT_FDCWD) {
 					relativeTo = self->fsContext()->getWorkingDirectory();
@@ -1652,7 +1650,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				target = resolver.currentLink()->getTarget();
 			}
 
-			co_await target->utimensat(req.tv_sec(), req.tv_nsec());
+			co_await target->utimensat(req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

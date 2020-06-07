@@ -223,8 +223,10 @@ message CntRequest {
 	optional int32 mode = 60;
 
 	// used by utimensat
-	optional uint64 sec = 63;
-	optional uint64 nsec = 64;
+	optional uint64 atime_sec = 63;
+	optional uint64 atime_nsec = 64;
+	optional uint64 mtime_sec = 65;
+	optional uint64 mtime_nsec = 66;
 }
 
 message SvrResponse {

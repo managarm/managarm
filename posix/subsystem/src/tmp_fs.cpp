@@ -84,8 +84,8 @@ public:
 		co_return Error::success;
 	}
 
-	async::result<Error> utimensat(uint64_t sec, uint64_t nsec) override {
-		if(sec != UTIME_NOW || nsec != UTIME_NOW) {
+	async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) override {
+		if(atime_sec != UTIME_NOW || atime_nsec != UTIME_NOW || mtime_sec != UTIME_NOW || mtime_nsec != UTIME_NOW) {
 			std::cout << "\e[31m" "tmp_fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
 			co_return Error::success;
 		}
