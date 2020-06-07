@@ -277,9 +277,9 @@ getStats(std::shared_ptr<void> object) {
 	stats.mode = self->diskInode()->mode & 0xFFF;
 	stats.uid = self->uid;
 	stats.gid = self->gid;
-	stats.accessTime = self->accessTime;
-	stats.dataModifyTime = self->dataModifyTime;
-	stats.anyChangeTime = self->anyChangeTime;
+	stats.accessTime.tv_sec = self->diskInode()->atime;
+	stats.dataModifyTime.tv_sec = self->diskInode()->mtime;;
+	stats.anyChangeTime.tv_sec = self->diskInode()->ctime;
 
 	co_return stats;
 }
@@ -288,11 +288,22 @@ async::result<protocols::fs::OpenResult>
 open(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto file = smarter::make_shared<ext2fs::OpenFile>(self);
+	co_await self->readyJump.async_wait();
 
 	helix::UniqueLane local_ctrl, remote_ctrl;
 	helix::UniqueLane local_pt, remote_pt;
 	std::tie(local_ctrl, remote_ctrl) = helix::createStream();
 	std::tie(local_pt, remote_pt) = helix::createStream();
+	struct timespec time;
+	// Use CLOCK_REALTIME when available
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	self->diskInode()->atime = time.tv_sec;
+
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			self->diskMapping.get(), self->fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
 	serve(file, std::move(local_ctrl), std::move(local_pt));
 
 	co_return protocols::fs::OpenResult{std::move(remote_ctrl), std::move(remote_pt)};
@@ -338,6 +349,13 @@ async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode
 	co_return result;
 }
 
+async::result<protocols::fs::Error> utimensat(std::shared_ptr<void> object, uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto result = co_await self->utimensat(atime_sec, atime_nsec, mtime_sec, mtime_nsec);
+
+	co_return result;
+}
+
 constexpr protocols::fs::NodeOperations nodeOperations{
 	.getStats = &getStats,
 	.getLink = &getLink,
@@ -347,7 +365,8 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 	.readSymlink = &readSymlink,
 	.mkdir = &mkdir,
 	.symlink = &symlink,
-	.chmod = &chmod
+	.chmod = &chmod,
+	.utimensat = &utimensat
 };
 
 } // anonymous namespace

@@ -114,6 +114,7 @@ enum CntReqType {
 	NODE_CHMOD = 38;
 
 	NODE_RMDIR = 40;
+	NODE_UTIMENSAT = 41;
 }
 
 message Rect {
@@ -220,6 +221,12 @@ message CntRequest {
 	optional int64 offset = 58;
 
 	optional int32 mode = 60;
+
+	// used by utimensat
+	optional uint64 atime_sec = 63;
+	optional uint64 atime_nsec = 64;
+	optional uint64 mtime_sec = 65;
+	optional uint64 mtime_nsec = 66;
 }
 
 message SvrResponse {

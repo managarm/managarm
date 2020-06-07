@@ -1609,6 +1609,58 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::UTIMENSAT) {
+			if(logRequests || logPaths)
+				std::cout << "posix: UTIMENSAT " << req.path() << std::endl;
+
+			ViewPath relativeTo;
+			smarter::shared_ptr<File, FileHandle> file;
+			std::shared_ptr<FsNode> target = nullptr;
+
+			if(!req.path().size()) {
+				target = self->fileContext()->getFile(req.fd())->associatedLink()->getTarget();
+			} else {
+				if(req.flags() & ~AT_SYMLINK_NOFOLLOW) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+
+				if(req.flags() & AT_SYMLINK_NOFOLLOW) {
+					std::cout << "posix: AT_SYMLINK_FOLLOW is unimplemented for utimensat" << std::endl;
+				}
+
+				if(req.fd() == AT_FDCWD) {
+					relativeTo = self->fsContext()->getWorkingDirectory();
+				} else {
+					file = self->fileContext()->getFile(req.fd());
+					if (!file) {
+						co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+						continue;
+					}
+
+					relativeTo = {file->associatedMount(), file->associatedLink()};
+				}
+
+				PathResolver resolver;
+				resolver.setup(self->fsContext()->getRoot(),
+						relativeTo, req.path());
+				co_await resolver.resolve(resolvePrefix);
+				assert(resolver.currentLink());
+
+				target = resolver.currentLink()->getTarget();
+			}
+
+			co_await target->utimensat(req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
 			if(logRequests || logPaths)
 				std::cout << "posix: READLINK path: " << req.path() << std::endl;

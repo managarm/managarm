@@ -98,6 +98,34 @@ struct Node : FsNode {
 		co_return Error::success;
 	}
 
+	async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) override {
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_UTIMENSAT);
+		req.set_atime_sec(atime_sec);
+		req.set_atime_nsec(atime_nsec);
+		req.set_mtime_sec(mtime_sec);
+		req.set_mtime_nsec(mtime_nsec);
+
+		auto ser = req.SerializeAsString();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+		co_return Error::success;
+	}
+
+
 public:
 	Node(uint64_t inode, helix::UniqueLane lane, Superblock *sb = nullptr)
 	: FsNode{sb}, _inode{inode}, _lane{std::move(lane)} { }

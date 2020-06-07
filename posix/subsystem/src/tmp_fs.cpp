@@ -9,6 +9,7 @@
 #include "device.hpp"
 #include "tmp_fs.hpp"
 #include "fifo.hpp"
+#include <bits/posix/stat.h>
 
 // TODO: Remove dependency on those functions.
 #include "extern_fs.hpp"
@@ -79,9 +80,23 @@ public:
 	}
 
 	async::result<Error> chmod(int mode) override {
-		// Unimplemented
-		std::cout << "posix: Fix chmod on tmpfs" << std::endl;
-		co_return Error::accessDenied;
+		_mode = (_mode & 0xFFFFF000) | mode;
+		co_return Error::success;
+	}
+
+	async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) override {
+		if(atime_sec != UTIME_NOW || atime_nsec != UTIME_NOW || mtime_sec != UTIME_NOW || mtime_nsec != UTIME_NOW) {
+			std::cout << "\e[31m" "tmp_fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
+			co_return Error::success;
+		}
+		struct timespec time;
+		// TODO: Move to CLOCK_REALTIME when supported
+		clock_gettime(CLOCK_MONOTONIC, &time);
+		_atime.tv_sec = time.tv_sec;
+		_atime.tv_nsec = time.tv_nsec;
+		_mtime.tv_sec = time.tv_sec;
+		_mtime.tv_nsec = time.tv_nsec;
+		co_return Error::success;
 	}
 
 private:
