@@ -26,9 +26,12 @@ doxyfile = configure_file(
 	}
 )
 
-custom_target('hel-doxygen',
-	input: doxyfile,
-	output: 'doc',
-	depend_files: 'include/hel.h',
-	command: [find_program('doxygen', required: false), doxyfile]
-)
+doxygen = find_program('doxygen', required: false)
+if doxygen.found()
+	custom_target('hel-doxygen',
+		input: doxyfile,
+		output: 'doc',
+		depend_files: 'include/hel.h',
+		command: [doxygen, doxyfile]
+	)
+endif
