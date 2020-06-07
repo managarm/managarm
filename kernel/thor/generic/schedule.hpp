@@ -63,7 +63,7 @@ private:
 struct ScheduleGreater {
 	bool operator() (const ScheduleEntity *a, const ScheduleEntity *b) {
 		if(int po = ScheduleEntity::orderPriority(a, b); po)
-			return -po;
+			return po > 0;
 		return !ScheduleEntity::scheduleBefore(a, b);
 	}
 };
@@ -92,17 +92,20 @@ private:
 	int64_t _liveRuntime(const ScheduleEntity *entity);
 
 public:
-	bool wantSchedule();
+	void update();
 
-	[[ noreturn ]] void reschedule();
+	bool wantReschedule();
+	void reschedule();
+
+	[[ noreturn ]] void commitReschedule();
+	void commitNoReschedule();
 
 private:
 	void _unschedule();
 	void _schedule();
 
 private:
-	void _updateSystemProgress();
-	bool _updatePreemption();
+	void _updatePreemption();
 
 	void _updateCurrentEntity();
 	void _updateWaitingEntity(ScheduleEntity *entity);
@@ -112,6 +115,7 @@ private:
 	CpuData *_cpuContext;
 
 	ScheduleEntity *_current;
+	ScheduleEntity *_scheduled;
 
 	frg::pairing_heap<
 		ScheduleEntity,

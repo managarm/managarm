@@ -28,6 +28,7 @@ void Thread::migrateCurrent() {
 	auto lock = frigg::guard(&this_thread->_mutex);
 
 	assert(this_thread->_runState == kRunActive);
+	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
 	this_thread->_runState = kRunDeferred;
 	this_thread->_uninvoke();
@@ -50,11 +51,12 @@ void Thread::migrateCurrent() {
 
 	Scheduler::associate(this_thread, new_scheduler);
 	Scheduler::resume(this_thread);
+	localScheduler()->reschedule();
 
 	forkExecutor([&] {
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			lock.unlock();
-			localScheduler()->reschedule();
+			localScheduler()->commitReschedule();
 		}, frigg::move(lock));
 	}, &this_thread->_executor);
 }
@@ -80,13 +82,15 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 
 		assert(this_thread->_runState == kRunActive);
 		this_thread->_runState = kRunBlocked;
+		getCpuData()->scheduler.update();
 		Scheduler::suspendCurrent();
+		getCpuData()->scheduler.reschedule();
 		this_thread->_uninvoke();
 
 		forkExecutor([&] {
 			runDetached([] (frigg::LockGuard<Mutex> lock) {
 				lock.unlock();
-				localScheduler()->reschedule();
+				localScheduler()->commitReschedule();
 			}, frigg::move(lock));
 		}, &this_thread->_executor);
 	}
@@ -104,11 +108,13 @@ void Thread::deferCurrent() {
 
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
+	getCpuData()->scheduler.update();
+	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		localScheduler()->reschedule();
+		localScheduler()->commitReschedule();
 	}, std::move(lock));
 }
 
@@ -124,11 +130,13 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
 	saveExecutor(&this_thread->_executor, image);
+	getCpuData()->scheduler.update();
+	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		localScheduler()->reschedule();
+		localScheduler()->commitReschedule();
 	}, std::move(lock));
 }
 
@@ -144,11 +152,13 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunSuspended;
 	saveExecutor(&this_thread->_executor, image);
+	getCpuData()->scheduler.update();
+	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		localScheduler()->reschedule();
+		localScheduler()->commitReschedule();
 	}, std::move(lock));
 }
 
@@ -166,7 +176,9 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	this_thread->_lastInterrupt = interrupt;
 	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
+	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
+	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
@@ -184,7 +196,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 			WorkQueue::post(observe->triggered);
 		}
 
-		localScheduler()->reschedule();
+		localScheduler()->commitReschedule();
 	}, interrupt, this_thread.get(), std::move(lock));
 }
 
@@ -202,7 +214,9 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	this_thread->_lastInterrupt = interrupt;
 	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
+	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
+	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
@@ -220,7 +234,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 			WorkQueue::post(observe->triggered);
 		}
 
-		localScheduler()->reschedule();
+		localScheduler()->commitReschedule();
 	}, interrupt, this_thread.get(), std::move(lock));
 }
 
@@ -242,8 +256,10 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		this_thread->_runState = kRunTerminated;
 		++this_thread->_stateSeq;
 		saveExecutor(&this_thread->_executor, image); // FIXME: Why do we save the state here?
+		getCpuData()->scheduler.update();
 		Scheduler::suspendCurrent();
 		Scheduler::unassociate(this_thread.get());
+		getCpuData()->scheduler.reschedule();
 		this_thread->_uninvoke();
 
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
@@ -260,7 +276,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				WorkQueue::post(observe->triggered);
 			}
 
-			localScheduler()->reschedule();
+			localScheduler()->commitReschedule();
 		}, this_thread.get(), std::move(lock));
 	}
 	
@@ -274,7 +290,9 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		++this_thread->_stateSeq;
 		this_thread->_pendingSignal = kSigNone;
 		saveExecutor(&this_thread->_executor, image);
+		getCpuData()->scheduler.update();
 		Scheduler::suspendCurrent();
+		getCpuData()->scheduler.reschedule();
 		this_thread->_uninvoke();
 
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
@@ -292,7 +310,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				WorkQueue::post(observe->triggered);
 			}
 
-			localScheduler()->reschedule();
+			localScheduler()->commitReschedule();
 		}, this_thread.get(), std::move(lock));
 	}
 }

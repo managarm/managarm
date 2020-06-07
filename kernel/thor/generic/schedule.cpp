@@ -7,6 +7,7 @@ namespace {
 	constexpr bool logScheduling = false;
 	constexpr bool logNextBest = false;
 	constexpr bool logUpdates = false;
+	constexpr bool logIdle = false;
 	constexpr bool logTimeSlice = false;
 
 	constexpr bool disablePreemption = false;
@@ -95,8 +96,6 @@ void Scheduler::suspendCurrent() {
 	assert(entity);
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
 
-	self->_updateSystemProgress();
-
 	// Update the unfairness on suspend.
 	self->_updateEntityStats(entity);
 	entity->state = ScheduleState::attached;
@@ -128,85 +127,7 @@ int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 	}
 }
 
-bool Scheduler::wantSchedule() {
-	assert(!intsAreEnabled());
-
-	_updateSystemProgress();
-	return _updatePreemption();
-}
-
-void Scheduler::reschedule() {
-	assert(!intsAreEnabled());
-
-	_updateSystemProgress();
-
-	if(_current)
-		_unschedule();
-
-	_sliceClock = _refClock;
-
-	if(_waitQueue.empty()) {
-		if(logScheduling)
-			frigg::infoLogger() << "System is idle" << frigg::endLog;
-		suspendSelf();
-		frigg::panicLogger() << "Return from suspendSelf()" << frigg::endLog;
-	}
-
-	_schedule();
-	assert(_current);
-
-	_updatePreemption();
-
-	_current->invoke();
-	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
-	__builtin_unreachable();
-}
-
-void Scheduler::_unschedule() {
-	assert(_current);
-
-	// Decrease the unfairness at the end of the time slice.
-	_updateEntityStats(_current);
-
-	if(_current->state == ScheduleState::active) {
-		_waitQueue.push(_current);
-		_numWaiting++;
-	}
-
-	_current = nullptr;
-}
-
-void Scheduler::_schedule() {
-	assert(!_current);
-
-	assert(!_waitQueue.empty());
-	auto entity = _waitQueue.top();
-	_waitQueue.pop();
-	_numWaiting--;
-
-	// Increase the unfairness at the start of the time slice.
-	assert(entity->state == ScheduleState::active);
-	_updateWaitingEntity(entity);
-	_updateEntityStats(entity);
-
-	if(logScheduling) {
-//		frigg::infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
-//				<< " ms" << frigg::endLog;
-		frigg::infoLogger() << "Running entity with priority: " << entity->priority
-				<< ", unfairness: " << (_liveUnfairness(entity) / 256) / (1000 * 1000)
-				<< " ms, runtime: " << _liveRuntime(entity) / (1000 * 1000)
-				<< " ms (" << (_numWaiting + 1) << " active threads)" << frigg::endLog;
-	}
-	if(logNextBest && !_waitQueue.empty())
-		frigg::infoLogger() << "    Next entity has priority: " << _waitQueue.top()->priority
-				<< ", unfairness: " << (_liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
-				<< " ms, runtime: " << _liveRuntime(_waitQueue.top()) / (1000 * 1000)
-				<< " ms" << frigg::endLog;
-
-	_current = entity;
-}
-
-void Scheduler::_updateSystemProgress() {
+void Scheduler::update() {
 	// Returns the reciprocal in 0.8 fixed point format.
 	auto fixedInverse = [] (uint32_t x) -> uint32_t {
 		assert(x < (1 << 6));
@@ -257,41 +178,148 @@ void Scheduler::_updateSystemProgress() {
 	}
 }
 
-// Returns true if preemption should be done immediately.
-bool Scheduler::_updatePreemption() {
-	if(disablePreemption)
+// Note: this function only returns true if there is a *strictly better* entity
+//       that we can schedule. In particular, if there are no waiters,
+//       this function returns false, *even if* no entity is currently running.
+bool Scheduler::wantReschedule() {
+	assert(!intsAreEnabled());
+
+	// If there are no waiters, we keep the current entity.
+	// Otherwise, if the current entity is not active anymore, we always switch.
+	if(_waitQueue.empty())
 		return false;
+
+	if(!_current)
+		return true;
+	assert(_current->state == ScheduleState::active);
+
+	// Switch based on entity priority.
+	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
+		return true;
+	}else if(po < 0) {
+		return false;
+	}
+
+	// Switch based on unfairness.
+	auto diff = _liveUnfairness(_current) + sliceGranularity * 256
+			- _liveUnfairness(_waitQueue.top());
+	return diff < 0;
+}
+
+void Scheduler::reschedule() {
+	assert(!intsAreEnabled());
+
+	if(_current)
+		_unschedule();
+	_schedule();
+}
+
+void Scheduler::commitReschedule() {
+	assert(!_current);
+
+	if(!_scheduled) {
+		if(logScheduling || logIdle)
+			frigg::infoLogger() << "System is idle" << frigg::endLog;
+		suspendSelf();
+		frigg::panicLogger() << "Return from suspendSelf()" << frigg::endLog;
+	}
+
+	_current = _scheduled;
+	_scheduled = nullptr;
+	_sliceClock = _refClock;
+	_updatePreemption();
+
+	_current->invoke();
+	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
+	__builtin_unreachable();
+}
+
+void Scheduler::commitNoReschedule() {
+	_updatePreemption();
+}
+
+void Scheduler::_unschedule() {
+	assert(_current);
+
+	// Decrease the unfairness at the end of the time slice.
+	_updateEntityStats(_current);
+
+	if(_current->state == ScheduleState::active) {
+		_waitQueue.push(_current);
+		_numWaiting++;
+	}
+
+	_current = nullptr;
+}
+
+void Scheduler::_schedule() {
+	assert(!_current);
+	assert(!_scheduled);
+
+	if(_waitQueue.empty())
+		return;
+
+	auto entity = _waitQueue.top();
+	_waitQueue.pop();
+	_numWaiting--;
+
+	// Increase the unfairness at the start of the time slice.
+	assert(entity->state == ScheduleState::active);
+	_updateWaitingEntity(entity);
+	_updateEntityStats(entity);
+
+	if(logScheduling) {
+//		frigg::infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
+//				<< " ms" << frigg::endLog;
+		frigg::infoLogger() << "Running entity with priority: " << entity->priority
+				<< ", unfairness: " << (_liveUnfairness(entity) / 256) / (1000 * 1000)
+				<< " ms, runtime: " << _liveRuntime(entity) / (1000 * 1000)
+				<< " ms (" << (_numWaiting + 1) << " active threads)" << frigg::endLog;
+	}
+	if(logNextBest && !_waitQueue.empty())
+		frigg::infoLogger() << "    Next entity has priority: " << _waitQueue.top()->priority
+				<< ", unfairness: " << (_liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
+				<< " ms, runtime: " << _liveRuntime(_waitQueue.top()) / (1000 * 1000)
+				<< " ms" << frigg::endLog;
+
+	_scheduled = entity;
+}
+
+// Returns true if preemption should be done immediately.
+void Scheduler::_updatePreemption() {
+	if(disablePreemption)
+		return;
 
 	// Disable preemption if there are no other threads.
 	if(_waitQueue.empty()) {
 		disarmPreemption();
-		return false;
+		return;
 	}
 
-	// If there is no active thread, switch threads immediately.
-	if(!_current || _current->state != ScheduleState::active)
-		return true;
+	// If there was no current entity, we would have rescheduled.
+	assert(_current);
+	assert(_current->state == ScheduleState::active);
 
-	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
-		// There is a thread with higher priority. Switch threads immediately.
-		return true;
-	}else if(po < 0) {
+	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po < 0) {
 		// Disable preemption if we have higher priority.
 		disarmPreemption();
-		return false;
+		return;
+	}else{
+		// If there was an entity with higher priority, we would have rescheduled.
+		assert(!po);
 	}
 
-	// If the thread exhausted its time slice already, switch threads immediately.
+	// If the entity exhausted its time slice already, switch threads immediately.
 	auto diff = _liveUnfairness(_current) - _liveUnfairness(_waitQueue.top());
 	if(diff < 0)
-		return true;
+		return;
 
 	auto slice = frigg::max(diff / 256, sliceGranularity);
 	if(logTimeSlice)
 		frigg::infoLogger() << "Scheduling time slice: "
 				<< slice / 1000 << " us" << frigg::endLog;
 	armPreemption(slice);
-	return false;
+	return;
 }
 
 void Scheduler::_updateCurrentEntity() {

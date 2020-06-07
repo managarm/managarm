@@ -23,12 +23,14 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		this_fiber->_blocked = true;
 		getCpuData()->executorContext = nullptr;
 		getCpuData()->activeFiber = nullptr;
+		getCpuData()->scheduler.update();
 		Scheduler::suspendCurrent();
+		localScheduler()->reschedule();
 
 		forkExecutor([&] {
 			runDetached([] (frigg::LockGuard<frigg::TicketLock> lock) {
 				lock.unlock();
-				localScheduler()->reschedule();
+				localScheduler()->commitReschedule();
 			}, frigg::move(lock));
 		}, &this_fiber->_executor);
 	}

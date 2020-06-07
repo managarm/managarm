@@ -929,7 +929,9 @@ void secondaryMain(StatusBlock *status_block) {
 	__atomic_store_n(&status_block->targetStage, 2, __ATOMIC_RELEASE);
 
 	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;
+	localScheduler()->update();
 	localScheduler()->reschedule();
+	localScheduler()->commitReschedule();
 }
 
 void bootSecondary(unsigned int apic_id) {

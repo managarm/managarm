@@ -268,7 +268,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	});
 
 	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;
+	localScheduler()->update();
 	localScheduler()->reschedule();
+	localScheduler()->commitReschedule();
 }
 
 extern "C" void handleStubInterrupt() {
@@ -479,20 +481,26 @@ void handleIrq(IrqImageAccessor image, int number) {
 	globalIrqSlots[number]->raise();
 	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
-	if(!noScheduleOnIrq && localScheduler()->wantSchedule()) {
-		if(image.inThreadDomain()) {
-			if(image.inManipulableDomain()) {
-				Thread::suspendCurrent(image);
+	if(!noScheduleOnIrq) {
+		localScheduler()->update();
+		if(localScheduler()->wantReschedule()) {
+			if(image.inThreadDomain()) {
+				if(image.inManipulableDomain()) {
+					Thread::suspendCurrent(image);
+				}else{
+					Thread::deferCurrent(image);
+				}
+			}else if(image.inFiberDomain()) {
+				// TODO: For now we do not defer kernel fibers.
 			}else{
-				Thread::deferCurrent(image);
-			}
-		}else if(image.inFiberDomain()) {
-			// TODO: For now we do not defer kernel fibers.
-		}else{
-			assert(image.inIdleDomain());
-			runDetached([] {
+				assert(image.inIdleDomain());
 				localScheduler()->reschedule();
-			});
+				runDetached([] {
+					localScheduler()->commitReschedule();
+				});
+			}
+		}else{
+			localScheduler()->commitNoReschedule();
 		}
 	}
 }
@@ -505,7 +513,8 @@ void handlePreemption(IrqImageAccessor image) {
 
 	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
-	if(localScheduler()->wantSchedule()) {
+	localScheduler()->update();
+	if(localScheduler()->wantReschedule()) {
 		if(image.inThreadDomain()) {
 			if(image.inManipulableDomain()) {
 				Thread::suspendCurrent(image);
@@ -516,10 +525,13 @@ void handlePreemption(IrqImageAccessor image) {
 			// TODO: For now we do not defer kernel fibers.
 		}else{
 			assert(image.inIdleDomain());
+			localScheduler()->reschedule();
 			runDetached([] {
-				localScheduler()->reschedule();
+				localScheduler()->commitReschedule();
 			});
 		}
+	}else{
+		localScheduler()->commitNoReschedule();
 	}
 }
 
