@@ -296,6 +296,13 @@ void handleDebugFault(FaultImageAccessor image) {
 }
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
+	// For page faults: we need to get the address *before* re-enabling IRQs.
+	uintptr_t pfAddress;
+	if(number == 14)
+		asm volatile ("mov %%cr2, %0" : "=r" (pfAddress));
+
+	enableInts();
+
 	uint16_t cs = *image.cs();
 	if(logEveryFault)
 		frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
@@ -309,6 +316,13 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 			&& cs != kSelExecutorFaultCode && cs != kSelExecutorSyscallCode)
 		frigg::panicLogger() << "Fault #" << number
 				<< ", from unexpected cs: 0x" << frigg::logHex(cs)
+				<< ", ip: " << (void *)*image.ip() << "\n"
+				<< "Error code: 0x" << frigg::logHex(*image.code())
+				<< ", SS: 0x" << frigg::logHex(*image.ss())
+				<< ", RSP: " << (void *)*image.sp() << frigg::endLog;
+	if(!(*image.rflags() & 0x200))
+		frigg::panicLogger() << "Fault #" << number
+				<< ", with IF=0, cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << "\n"
 				<< "Error code: 0x" << frigg::logHex(*image.code())
 				<< ", SS: 0x" << frigg::logHex(*image.ss())
@@ -330,9 +344,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handleOtherFault(image, kIntrGeneralFault);
 	} break;
 	case 14: {
-		uintptr_t address;
-		asm volatile ( "mov %%cr2, %0" : "=r" (address) );
-		handlePageFault(image, address);
+		handlePageFault(image, pfAddress);
 	} break;
 	default:
 		frigg::panicLogger() << "Unexpected fault number " << number
@@ -342,6 +354,8 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 				<< ", SS: 0x" << frigg::logHex(*image.ss())
 				<< ", RSP: " << (void *)*image.sp() << frigg::endLog;
 	}
+
+	disableInts();
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
@@ -352,7 +366,8 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelExecutorFaultCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -368,7 +383,8 @@ extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelExecutorFaultCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -395,7 +411,8 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelExecutorFaultCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -428,7 +445,8 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelExecutorFaultCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -447,7 +465,8 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelExecutorFaultCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
