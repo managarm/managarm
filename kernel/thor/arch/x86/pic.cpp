@@ -22,6 +22,7 @@ inline constexpr arch::scalar_register<uint32_t> lApicEoi(0x00B0);
 inline constexpr arch::bit_register<uint32_t> lApicSpurious(0x00F0);
 inline constexpr arch::bit_register<uint32_t> lApicIcrLow(0x0300);
 inline constexpr arch::bit_register<uint32_t> lApicIcrHigh(0x0310);
+inline constexpr arch::bit_register<uint64_t> lX2ApicIcr{0x0300};
 inline constexpr arch::bit_register<uint32_t> lApicLvtTimer(0x0320);
 inline constexpr arch::bit_register<uint32_t> lApicLvtPerfCount(0x0340);
 inline constexpr arch::bit_register<uint32_t> lApicLvtLocal0(0x0350);
@@ -50,13 +51,23 @@ inline constexpr arch::field<uint32_t, uint8_t> apicIcrLowShorthand(18, 2);
 // lApicIcrHigh registers
 inline constexpr arch::field<uint32_t, uint8_t> apicIcrHighDestField(24, 8);
 
+// lX2ApicIcr registers
+inline constexpr arch::field<uint64_t, uint8_t> x2apicIcrLowVector(0, 8);
+inline constexpr arch::field<uint64_t, uint8_t> x2apicIcrLowDelivMode(8, 3);
+inline constexpr arch::field<uint64_t, bool> x2apicIcrLowDestMode(11, 1);
+inline constexpr arch::field<uint64_t, bool> x2apicIcrLowDelivStatus(12, 1);
+inline constexpr arch::field<uint64_t, bool> x2apicIcrLowLevel(14, 1);
+inline constexpr arch::field<uint64_t, bool> x2apicIcrLowTriggerMode(15, 1);
+inline constexpr arch::field<uint64_t, uint8_t> x2apicIcrLowShorthand(18, 2);
+inline constexpr arch::field<uint64_t, uint32_t> x2apicIcrHighDestField(32, 32);
+
 // lApicLvtTimer registers
 inline constexpr arch::field<uint32_t, uint8_t> apicLvtVector(0, 8);
 inline constexpr arch::field<uint32_t, bool> apicLvtMask(16, 1);
 inline constexpr arch::field<uint32_t, uint8_t> apicLvtMode(8, 3);
 inline constexpr arch::field<uint32_t, uint8_t> apicLvtTimerMode(17, 2);
 
-arch::mem_space picBase;
+ApicRegisterSpace picBase;
 
 enum {
 	kModelLegacy = 1,
@@ -218,7 +229,18 @@ void disarmPreemption() {
 
 void initLocalApicOnTheSystem() {
 	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
-	assert(msr & (1 << 11)); // local APIC is enabled
+	msr |= (1 << 11); // Enable APIC
+
+	bool haveX2apic = false;
+	if(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 21)){
+		frigg::infoLogger() << "\e[37mthor: CPU supports x2apic\e[39m" << frigg::endLog;
+		msr |= (1 << 10);
+		haveX2apic = true;
+	} else {
+		frigg::infoLogger() << "\e[37mthor: CPU does not support x2apic\e[39m" << frigg::endLog;
+	}
+
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLocalApicBase, msr);
 
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
@@ -227,12 +249,22 @@ void initLocalApicOnTheSystem() {
 	// For now we just assume that they are zero.
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
 			page_access::write, CachingMode::null);
-	picBase = arch::mem_space(register_ptr);
+	picBase = ApicRegisterSpace(haveX2apic, register_ptr);
 
 	frigg::infoLogger() << "Booting on CPU #" << getLocalApicId() << frigg::endLog;
 }
 
 void initLocalApicPerCpu() {
+	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
+	msr |= (1 << 11); // Enable APIC
+
+	if(picBase.isUsingX2apic()){
+		assert(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 21));
+		msr |= (1 << 10);
+	}
+
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLocalApicBase, msr);
+
 	auto dumpLocalInt = [&] (int index) {
 		auto regstr = (index == 0 ? lApicLvtLocal0 : lApicLvtLocal1);
 		auto lvt = picBase.load(regstr);
@@ -327,63 +359,93 @@ void acknowledgeIpi() {
 }
 
 void raiseInitAssertIpi(uint32_t dest_apic_id) {
-	picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
-	// DM:init = 5, Level:assert = 1, TM:Level = 1
-	picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
-			| apicIcrLowLevel(true) | apicIcrLowTriggerMode(true));
-	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-		// Wait for IPI delivery.
+	if(picBase.isUsingX2apic()){
+		picBase.store(lX2ApicIcr, x2apicIcrLowDelivMode(5)
+			| x2apicIcrLowLevel(true) | x2apicIcrLowTriggerMode(true) | x2apicIcrHighDestField(dest_apic_id));
+	} else {
+		picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
+		// DM:init = 5, Level:assert = 1, TM:Level = 1
+		picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
+				| apicIcrLowLevel(true) | apicIcrLowTriggerMode(true));
+		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+			// Wait for IPI delivery.
+		}
 	}
 }
 
 void raiseInitDeassertIpi(uint32_t dest_apic_id) {
-	picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
-	// DM:init = 5, TM:Level = 1
-	picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
-			| apicIcrLowTriggerMode(true));
-	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-		// Wait for IPI delivery.
+	if(picBase.isUsingX2apic()) {
+		picBase.store(lX2ApicIcr, x2apicIcrLowDelivMode(5)
+			| x2apicIcrLowTriggerMode(true) | x2apicIcrHighDestField(dest_apic_id));
+	} else {
+		picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
+		// DM:init = 5, TM:Level = 1
+		picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
+				| apicIcrLowTriggerMode(true));
+		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+			// Wait for IPI delivery.
+		}
 	}
 }
 
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 	assert((page % 0x1000) == 0);
 	uint32_t vector = page / 0x1000; // determines the startup code page
-	picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
-	// DM:startup = 6
-	picBase.store(lApicIcrLow, apicIcrLowVector(vector)
-			| apicIcrLowDelivMode(6));
-	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-		// Wait for IPI delivery.
+	if(picBase.isUsingX2apic()) {
+		picBase.store(lX2ApicIcr, x2apicIcrLowVector(vector)
+				| x2apicIcrLowDelivMode(6) | x2apicIcrHighDestField(dest_apic_id));
+	} else {
+		picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
+		// DM:startup = 6
+		picBase.store(lApicIcrLow, apicIcrLowVector(vector)
+				| apicIcrLowDelivMode(6));
+		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+			// Wait for IPI delivery.
+		}
 	}
 }
 
 void sendShootdownIpi() {
-	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
-	picBase.store(lApicIcrLow, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
-	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-		// Wait for IPI delivery.
+	if(picBase.isUsingX2apic()) {
+		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF0) | x2apicIcrLowDelivMode(0)
+				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(2) | x2apicIcrHighDestField(0));
+	} else {
+		picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
+		picBase.store(lApicIcrLow, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
+				| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
+		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+			// Wait for IPI delivery.
+		}	
 	}
 }
 
 void sendPingIpi(uint32_t apic) {
 //	frigg::infoLogger() << "thor [CPU" << getLocalApicId() << "]: Sending ping" << frigg::endLog;
-	picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
-	picBase.store(lApicIcrLow, apicIcrLowVector(0xF1) | apicIcrLowDelivMode(0)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
-	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-		// Wait for IPI delivery.
+	if(picBase.isUsingX2apic()) {
+		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF1) | x2apicIcrLowDelivMode(0)
+				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(0) | x2apicIcrHighDestField(apic));
+	} else {
+		picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
+		picBase.store(lApicIcrLow, apicIcrLowVector(0xF1) | apicIcrLowDelivMode(0)
+				| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
+		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+			// Wait for IPI delivery.
+		}
 	}
 }
 
 void sendGlobalNmi() {
 	// Send the NMI to all /other/ CPUs but not to the current one.
-	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
-	picBase.store(lApicIcrLow, apicIcrLowVector(0) | apicIcrLowDelivMode(4)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
-	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
-		// Wait for IPI delivery.
+	if(picBase.isUsingX2apic()) {
+		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0) | x2apicIcrLowDelivMode(4)
+				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(3) | x2apicIcrHighDestField(0));
+	} else {
+		picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
+		picBase.store(lApicIcrLow, apicIcrLowVector(0) | apicIcrLowDelivMode(4)
+				| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
+		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+			// Wait for IPI delivery.
+		}
 	}
 }
 
