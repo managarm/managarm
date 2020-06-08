@@ -21,6 +21,15 @@ managarm does not share any source code (or binaries) with the Linux kernel.
 
 **Official Discord server:** https://discord.gg/7WB6Ur3
 
+## Features
+
+* 64-bit operating system with SMP (i.e., multicore) and ACPI support.
+* Fully asynchronous microkernel and servers.
+* Support for many modern hardware devices such as USB 3 controllers.
+* Networking support.
+* POSIX and Linux API compatibility.
+* Support for Linux-style special files (epoll, signalfd, ...) and pseudo file systems (`/sys`, `/proc`, ...).
+
 ## Trying out managarm
 
 We provide [nightly builds](https://ci.managarm.org/job/managarm-nightly/)
