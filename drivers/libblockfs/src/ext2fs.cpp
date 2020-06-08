@@ -4,7 +4,7 @@
 #include <string.h>
 #include <algorithm>
 #include <iostream>
-#include <bits/posix/stat.h>
+#include <sys/stat.h>
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>

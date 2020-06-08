@@ -9,7 +9,7 @@
 #include "device.hpp"
 #include "tmp_fs.hpp"
 #include "fifo.hpp"
-#include <bits/posix/stat.h>
+#include <sys/stat.h>
 
 // TODO: Remove dependency on those functions.
 #include "extern_fs.hpp"
