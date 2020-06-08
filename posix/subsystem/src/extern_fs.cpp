@@ -158,7 +158,7 @@ private:
 
 struct OpenFile final : File {
 private:
-	expected<off_t> seek(off_t offset, VfsSeek whence) override {
+	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override {
 		assert(whence == VfsSeek::absolute);
 		co_await _file.seekAbsolute(offset);
 		co_return offset;

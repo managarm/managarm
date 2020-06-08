@@ -364,7 +364,7 @@ public:
 
 	void handleClose() override;
 
-	expected<off_t> seek(off_t delta, VfsSeek whence) override;
+	async::result<frg::expected<Error, off_t>> seek(off_t delta, VfsSeek whence) override;
 
 	expected<size_t> readSome(Process *, void *buffer, size_t max_length) override;
 
@@ -501,7 +501,7 @@ void MemoryFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-expected<off_t>
+async::result<frg::expected<Error, off_t>>
 MemoryFile::seek(off_t delta, VfsSeek whence) {
 	if(whence == VfsSeek::absolute) {
 		_offset = delta;

@@ -32,7 +32,7 @@ public:
 
 	void handleClose() override;
 
-	expected<off_t> seek(off_t offset, VfsSeek whence) override;
+	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override;
 	expected<size_t> readSome(Process *, void *data, size_t max_length) override;
 	FutureMaybe<void> writeAll(Process *, const void *data, size_t length) override;
 	helix::BorrowedDescriptor getPassthroughLane() override;

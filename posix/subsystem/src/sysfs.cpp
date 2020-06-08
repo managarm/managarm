@@ -54,7 +54,7 @@ void AttributeFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-expected<off_t> AttributeFile::seek(off_t offset, VfsSeek whence) {
+async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, VfsSeek whence) {
 	// TODO: it's unclear whether we should allow seeks past the end.
 	// TODO: re-cache the file for seeks to zero.
 	assert(whence == VfsSeek::relative);

@@ -44,7 +44,7 @@ void RegularFile::handleClose() {
 	_cancelServe.cancel();
 }
 
-expected<off_t> RegularFile::seek(off_t offset, VfsSeek whence) {
+async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSeek whence) {
 	assert(whence == VfsSeek::relative && !offset);
 	co_return _offset;
 }

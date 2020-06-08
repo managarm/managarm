@@ -22,12 +22,11 @@ async::result<protocols::fs::SeekResult>
 File::ptSeekAbs(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
 	auto result = co_await self->seek(offset, VfsSeek::absolute);
-	auto error = std::get_if<Error>(&result);
-	if(error && *error == Error::seekOnPipe) {
+	if(!result) {
+		assert(result.error() == Error::seekOnPipe);
 		co_return protocols::fs::Error::seekOnPipe;
 	}else{
-		assert(!error);
-		co_return std::get<off_t>(result);
+		co_return result.value();
 	}
 }
 
@@ -35,12 +34,11 @@ async::result<protocols::fs::SeekResult>
 File::ptSeekRel(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
 	auto result = co_await self->seek(offset, VfsSeek::relative);
-	auto error = std::get_if<Error>(&result);
-	if(error && *error == Error::seekOnPipe) {
+	if(!result) {
+		assert(result.error() == Error::seekOnPipe);
 		co_return protocols::fs::Error::seekOnPipe;
 	}else{
-		assert(!error);
-		co_return std::get<off_t>(result);
+		co_return result.value();
 	}
 }
 
@@ -48,12 +46,11 @@ async::result<protocols::fs::SeekResult>
 File::ptSeekEof(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
 	auto result = co_await self->seek(offset, VfsSeek::eof);
-	auto error = std::get_if<Error>(&result);
-	if(error && *error == Error::seekOnPipe) {
+	if(!result) {
+		assert(result.error() == Error::seekOnPipe);
 		co_return protocols::fs::Error::seekOnPipe;
 	}else{
-		assert(!error);
-		co_return std::get<off_t>(result);
+		co_return result.value();
 	}
 }
 
@@ -257,9 +254,9 @@ async::result<void> File::allocate(int64_t, size_t) {
 	throw std::runtime_error("posix: Object has no File::allocate()");
 }
 
-expected<off_t> File::seek(off_t, VfsSeek) {
+async::result<frg::expected<Error, off_t>> File::seek(off_t, VfsSeek) {
 	if(_defaultOps & defaultPipeLikeSeek) {
-		async::promise<std::variant<Error, off_t>> promise;
+		async::promise<frg::expected<Error, off_t>> promise;
 		promise.set_value(Error::seekOnPipe);
 		return promise.async_get();
 	}else{

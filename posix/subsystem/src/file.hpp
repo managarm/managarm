@@ -7,6 +7,7 @@
 
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
+#include <frg/expected.hpp>
 #include <hel.h>
 #include <protocols/fs/server.hpp>
 #include "common.hpp"
@@ -236,7 +237,8 @@ public:
 
 	FutureMaybe<void> readExactly(Process *process, void *data, size_t length);
 
-	virtual expected<off_t> seek(off_t offset, VfsSeek whence);
+	virtual async::result<frg::expected<Error, off_t>>
+	seek(off_t offset, VfsSeek whence);
 
 	virtual expected<size_t> readSome(Process *process, void *data, size_t max_length);
 
