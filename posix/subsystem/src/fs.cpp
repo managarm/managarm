@@ -72,7 +72,7 @@ FutureMaybe<void> FsNode::unlink(std::string) {
 	throw std::runtime_error("unlink() is not implemented for this FsNode");
 }
 
-async::result<Error> FsNode::rmdir(std::string) {
+async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
 	std::cout << "posix: rmdir() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }

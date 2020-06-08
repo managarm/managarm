@@ -561,7 +561,7 @@ private:
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	}
 
-	async::result<Error> rmdir(std::string name) override {
+	async::result<frg::expected<Error>> rmdir(std::string name) override {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_RMDIR);
 		req.set_path(name);
@@ -582,7 +582,7 @@ private:
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-		co_return Error::success;
+		co_return {};
 	}
 
 	FutureMaybe<SharedFilePtr>

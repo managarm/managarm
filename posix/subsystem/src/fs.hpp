@@ -145,7 +145,7 @@ public:
 
 	virtual FutureMaybe<void> unlink(std::string name);
 
-	virtual async::result<Error> rmdir(std::string name);
+	virtual async::result<frg::expected<Error>> rmdir(std::string name);
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
