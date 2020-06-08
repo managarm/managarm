@@ -112,3 +112,4 @@ if get_option('build_tools')
 	subdir('tools/pb2frigg')
 endif
 
+subdir('docs')
