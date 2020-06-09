@@ -243,7 +243,7 @@ DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> li
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;

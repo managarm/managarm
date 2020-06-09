@@ -39,7 +39,7 @@ void FsNode::removeObserver(FsObserver *observer) {
 	_observers.erase(it);
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::getLink(std::string) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::getLink(std::string) {
 	throw std::runtime_error("getLink() is not implemented for this FsNode");
 }
 

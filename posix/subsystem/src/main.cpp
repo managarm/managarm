@@ -1170,7 +1170,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
-			if(co_await parent->getLink(resolver.nextComponent())) {
+			auto existsResult = co_await parent->getLink(resolver.nextComponent());
+			assert(existsResult);
+			auto exists = existsResult.value();
+			if(exists) {
 				resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
 
 				auto ser = resp.SerializeAsString();
@@ -1762,7 +1765,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
-				auto tail = co_await directory->getLink(resolver.nextComponent());
+				auto tailResult = co_await directory->getLink(resolver.nextComponent());
+				assert(tailResult);
+				auto tail = tailResult.value();
 				if(tail) {
 					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
 						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
@@ -1891,7 +1896,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
-				auto tail = co_await directory->getLink(resolver.nextComponent());
+				auto tailResult = co_await directory->getLink(resolver.nextComponent());
+				assert(tailResult);
+				auto tail = tailResult.value();
 				if(tail) {
 					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
 						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);

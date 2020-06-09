@@ -137,7 +137,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	FutureMaybe<smarter::shared_ptr<File, FileHandle>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
-	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 
 private:
 	Link *_treeLink;

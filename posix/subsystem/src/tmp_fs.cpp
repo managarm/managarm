@@ -279,7 +279,7 @@ private:
 	}
 
 
-	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override {
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
 			co_return *it;

@@ -123,7 +123,7 @@ public:
 	virtual void removeObserver(FsObserver *observer);
 
 	//! Resolves a file in a directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name);
 
 	//! Links an existing node to this directory (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,

@@ -293,7 +293,7 @@ public:
 		co_return FileStats{};
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>>
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	getLink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())

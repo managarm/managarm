@@ -454,7 +454,7 @@ private:
 		__builtin_unreachable();
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>>
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			getLink(std::string name) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;

@@ -236,7 +236,9 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
 			}
 		}else{
-			auto child = co_await _currentPath.second->getTarget()->getLink(std::move(name));
+			auto childResult = co_await _currentPath.second->getTarget()->getLink(std::move(name));
+			assert(childResult);
+			auto child = childResult.value();
 
 			if(!child) {
 				// TODO: Return an error code.
