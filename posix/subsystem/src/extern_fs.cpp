@@ -446,7 +446,7 @@ private:
 		}
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name, VfsType type, DeviceId id) override {
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name, VfsType type, DeviceId id) override {
 		(void)name;
 		(void)type;
 		(void)id;

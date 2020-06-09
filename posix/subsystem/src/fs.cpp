@@ -53,13 +53,13 @@ FsNode::mkdir(std::string) {
 	co_return Error::illegalOperationTarget;
 }
 
-FutureMaybe<std::variant<Error, std::shared_ptr<FsLink>>>
+async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 FsNode::symlink(std::string, std::string) {
 	std::cout << "posix: symlink() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkdev(std::string, VfsType, DeviceId) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkdev(std::string, VfsType, DeviceId) {
 	throw std::runtime_error("mkdev() is not implemented for this FsNode");
 }
 
