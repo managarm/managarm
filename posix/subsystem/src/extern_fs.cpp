@@ -495,7 +495,7 @@ private:
 		}
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;

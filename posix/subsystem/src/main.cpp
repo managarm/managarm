@@ -1791,7 +1791,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					// Due to races, link() can fail here.
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
-					auto link = co_await directory->link(resolver.nextComponent(), node);
+					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
+					assert(linkResult);
+					auto link = linkResult.value();
 					file = co_await node->open(resolver.currentView(), std::move(link),
 							semantic_flags);
 					assert(file);
@@ -1922,7 +1924,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					// Due to races, link() can fail here.
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
-					auto link = co_await directory->link(resolver.nextComponent(), node);
+					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
+					assert(linkResult);
+					auto link = linkResult.value();
 					file = co_await node->open(resolver.currentView(), std::move(link),
 							semantic_flags);
 					assert(file);

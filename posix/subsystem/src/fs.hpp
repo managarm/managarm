@@ -126,7 +126,7 @@ public:
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name);
 
 	//! Links an existing node to this directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).

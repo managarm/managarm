@@ -286,7 +286,7 @@ private:
 		co_return nullptr; // TODO: Return an error code.
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target) override {
 		assert(_entries.find(name) == _entries.end());
 		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(target));

@@ -43,7 +43,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::getLink(std
 	throw std::runtime_error("getLink() is not implemented for this FsNode");
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
 	throw std::runtime_error("link() is not implemented for this FsNode");
 }
 
