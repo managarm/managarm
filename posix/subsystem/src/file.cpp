@@ -115,6 +115,11 @@ async::result<protocols::fs::Error> File::ptBind(void *object,
 	return self->bind(process.get(), addr_ptr, addr_length);
 }
 
+async::result<protocols::fs::Error> File::ptListen(void *object) {
+	auto self = static_cast<File *>(object);
+	return self->listen();
+}
+
 async::result<protocols::fs::Error> File::ptConnect(void *object,
 		const char *credentials, const void *addr, size_t addr_len) {
 	auto self = static_cast<File *>(object);
@@ -311,6 +316,12 @@ async::result<protocols::fs::Error> File::connect(Process *, const void *, size_
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement connect()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::connect()");
+}
+
+async::result<protocols::fs::Error> File::listen() {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement listen()" << std::endl;
+	co_return protocols::fs::Error::none;
 }
 
 async::result<size_t> File::sockname(void *addr_ptr, size_t max_addr_length) {

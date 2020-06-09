@@ -131,6 +131,10 @@ struct FileOperations {
 		sockname = f;
 		return *this;
 	}
+	constexpr FileOperations &withListen(async::result<Error> (*f)(void *object)) {
+		listen = f;
+		return *this;
+	}
 
 	async::result<SeekResult> (*seekAbs)(void *object, int64_t offset);
 	async::result<SeekResult> (*seekRel)(void *object, int64_t offset);
@@ -154,7 +158,7 @@ struct FileOperations {
 			async::cancellation_token cancellation);
 	async::result<Error> (*bind)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
-	async::result<void> (*listen)(void *object);
+	async::result<Error> (*listen)(void *object);
 	async::result<Error> (*connect)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length);

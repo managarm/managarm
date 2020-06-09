@@ -148,6 +148,9 @@ public:
 			void *addr, size_t addr_len,
 			std::vector<uint32_t> fds);
 
+	static async::result<protocols::fs::Error>
+	ptListen(void *object);
+
 
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
@@ -162,6 +165,7 @@ public:
 		.getOption = &ptGetOption,
 		.setOption = &ptSetOption,
 		.bind = &ptBind,
+		.listen = &ptListen,
 		.connect = &ptConnect,
 		.sockname = &ptSockname,
 		.getFileFlags = &ptGetFileFlags,
@@ -283,6 +287,8 @@ public:
 
 	virtual async::result<protocols::fs::Error> connect(Process *process,
 			const void *addr_ptr, size_t addr_length);
+
+	virtual async::result<protocols::fs::Error> listen();
 
 	virtual async::result<size_t> sockname(void *addr_ptr, size_t max_addr_length);
 

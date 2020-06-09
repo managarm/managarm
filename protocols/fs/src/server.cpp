@@ -406,7 +406,20 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	} else if (req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_LISTEN) {
+		assert(file_ops->listen);
+		co_await file_ops->listen(file.get());
+
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials()
