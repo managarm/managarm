@@ -255,7 +255,7 @@ public:
 		return _type;
 	}
 
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix pts DeviceNode::getStats()\e[39m" << std::endl;
 		co_return FileStats{};
 	}
@@ -288,7 +288,7 @@ public:
 		_entries.insert(std::move(link));
 	}
 
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix pts RootNode::getStats()\e[39m" << std::endl;
 		co_return FileStats{};
 	}

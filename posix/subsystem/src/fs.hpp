@@ -112,7 +112,7 @@ public:
 	virtual VfsType getType();
 
 	// TODO: This should be async.
-	virtual FutureMaybe<FileStats> getStats();
+	virtual async::result<frg::expected<Error, FileStats>> getStats();
 
 	// For directories only: Returns a pointer to the link
 	// that links this directory from its parent.
@@ -217,7 +217,7 @@ private:
 			return node->fileType_;
 		}
 
-		async::result<FileStats> getStats() override {
+		async::result<frg::expected<Error, FileStats>> getStats() override {
 			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
 			FileStats stats{};
 			// TODO: Allocate an inode number.

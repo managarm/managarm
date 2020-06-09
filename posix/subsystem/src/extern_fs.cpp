@@ -35,7 +35,7 @@ private:
 };
 
 struct Node : FsNode {
-	async::result<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;

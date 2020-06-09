@@ -154,7 +154,7 @@ VfsType RegularNode::getType() {
 	return VfsType::regular;
 }
 
-FutureMaybe<FileStats> RegularNode::getStats() {
+async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	// TODO: Store a file creation time.
 	auto now = clk::getRealtime();
 
@@ -222,7 +222,7 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-FutureMaybe<FileStats> DirectoryNode::getStats() {
+async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	std::cout << "\e[31mposix: Fix procfs Directory::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }

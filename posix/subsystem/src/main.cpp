@@ -1493,7 +1493,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto stats = co_await target_link->getTarget()->getStats();
+			auto statsResult = co_await target_link->getTarget()->getStats();
+			assert(statsResult);
+			auto stats = statsResult.value();
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

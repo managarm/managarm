@@ -98,7 +98,7 @@ struct AttributeNode final : FsNode, std::enable_shared_from_this<AttributeNode>
 	AttributeNode(Object *object, Attribute *attr);
 
 	VfsType getType() override;
-	FutureMaybe<FileStats> getStats() override;
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 	FutureMaybe<smarter::shared_ptr<File, FileHandle>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
@@ -112,7 +112,7 @@ struct SymlinkNode final : FsNode, std::enable_shared_from_this<SymlinkNode> {
 	SymlinkNode(std::weak_ptr<Object> target);
 
 	VfsType getType() override;
-	FutureMaybe<FileStats> getStats() override;
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 	expected<std::string> readSymlink(FsLink *link) override;
 
 private:
@@ -131,7 +131,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	std::shared_ptr<Link> directMkdir(std::string name);
 
 	VfsType getType() override;
-	FutureMaybe<FileStats> getStats() override;
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
 	FutureMaybe<smarter::shared_ptr<File, FileHandle>>

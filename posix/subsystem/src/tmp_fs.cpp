@@ -29,7 +29,7 @@ protected:
 	~Node() = default;
 
 public:
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = _inodeNumber;
@@ -408,7 +408,7 @@ struct MemoryNode final : Node {
 		co_return File::constructHandle(std::move(file));
 	}
 
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats() in MemoryNode\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = inodeNumber();
