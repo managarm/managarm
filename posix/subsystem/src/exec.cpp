@@ -23,8 +23,8 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-expected<ImageInfo> load(SharedFilePtr file,
-		VmContext *vmContext, uintptr_t base) {
+async::result<frg::expected<Error, ImageInfo>>
+load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 	assert(!(base & (kPageSize - 1)));
 	ImageInfo info;
 
@@ -33,8 +33,8 @@ expected<ImageInfo> load(SharedFilePtr file,
 
 	// Read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
-	co_await file->seek(0, VfsSeek::absolute);
-	co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr));
+	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
+	FRG_CO_TRY(co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr)));
 
 	if(!(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -51,8 +51,9 @@ expected<ImageInfo> load(SharedFilePtr file,
 	// Read the elf program headers and load them into the address space.
 	std::vector<char> phdrBuffer;
 	phdrBuffer.resize(ehdr.e_phnum * ehdr.e_phentsize);
-	co_await file->seek(ehdr.e_phoff, VfsSeek::absolute);
-	co_await file->readExactly(nullptr, phdrBuffer.data(), ehdr.e_phnum * size_t(ehdr.e_phentsize));
+	FRG_CO_TRY(co_await file->seek(ehdr.e_phoff, VfsSeek::absolute));
+	FRG_CO_TRY(co_await file->readExactly(nullptr,
+			phdrBuffer.data(), ehdr.e_phnum * size_t(ehdr.e_phentsize)));
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
@@ -101,8 +102,9 @@ expected<ImageInfo> load(SharedFilePtr file,
 
 				// read the segment contents from the file.
 				memset(window, 0, mapLength);
-				co_await file->seek(phdr->p_offset, VfsSeek::absolute);
-				co_await file->readExactly(nullptr, (char *)window + misalign, phdr->p_filesz);
+				FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
+				FRG_CO_TRY(co_await file->readExactly(nullptr,
+						(char *)window + misalign, phdr->p_filesz));
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
@@ -130,7 +132,8 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
+async::result<frg::expected<Error, helix::UniqueDescriptor>>
+execute(ViewPath root, ViewPath workdir,
 		std::string path,
 		std::vector<std::string> args, std::vector<std::string> env,
 		std::shared_ptr<VmContext> vmContext, helix::BorrowedDescriptor universe,
@@ -147,7 +150,8 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 		}
 
 		char shebangPrefix[2];
-		co_await execFile->readExactly(nullptr, shebangPrefix, 2);
+		if(!(co_await execFile->readExactly(nullptr, shebangPrefix, 2)))
+			break;
 		if(shebangPrefix[0] != '#' && shebangPrefix[1] != '!')
 			break;
 
@@ -202,18 +206,12 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 	}
 
 	auto binaryFile = std::move(execFile);
-	auto binaryResult = co_await load(binaryFile, vmContext.get(), 0);
-	if(auto error = std::get_if<Error>(&binaryResult); error)
-		co_return *error;
-	auto binaryInfo = std::get<ImageInfo>(binaryResult);
+	auto binaryInfo = FRG_CO_TRY(co_await load(binaryFile, vmContext.get(), 0));
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
 	auto ldsoFile = co_await open(root, workdir, "/lib/ld-init.so");
 	assert(ldsoFile);
-	auto ldsoResult = co_await load(ldsoFile, vmContext.get(), 0x40000000);
-	if(auto error = std::get_if<Error>(&ldsoResult); error)
-		co_return *error;
-	auto ldsoInfo = std::get<ImageInfo>(ldsoResult);
+	auto ldsoInfo = FRG_CO_TRY(co_await load(ldsoFile, vmContext.get(), 0x40000000));
 
 	constexpr size_t stackSize = 0x10000;
 

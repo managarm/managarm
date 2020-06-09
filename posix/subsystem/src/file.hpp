@@ -235,7 +235,7 @@ public:
 
 	bool isTerminal();
 
-	FutureMaybe<void> readExactly(Process *process, void *data, size_t length);
+	async::result<frg::expected<Error>> readExactly(Process *process, void *data, size_t length);
 
 	virtual async::result<frg::expected<Error, off_t>>
 	seek(off_t offset, VfsSeek whence);

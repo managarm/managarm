@@ -202,15 +202,18 @@ bool File::isTerminal() {
 	return _defaultOps & defaultIsTerminal;
 }
 
-FutureMaybe<void> File::readExactly(Process *process,
+async::result<frg::expected<Error>> File::readExactly(Process *process,
 		void *data, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
-		auto result = co_await readSome(process, (char *)data + offset, length - offset);
-		assert(result);
-		assert(result.value() > 0);
-		offset += result.value();
+		auto result = FRG_CO_TRY(co_await readSome(process,
+				(char *)data + offset, length - offset));
+		if(!result)
+			co_return Error::wouldBlock;
+		offset += result;
 	}
+
+	co_return {};
 }
 
 async::result<frg::expected<Error, size_t>> File::readSome(Process *, void *, size_t) {

@@ -750,18 +750,17 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_hull->initializeProcess(process.get());
 
 	// TODO: Do not pass an empty argument vector?
-	auto thread_or_error = co_await execute(process->_fsContext->getRoot(),
+	auto threadResult = co_await execute(process->_fsContext->getRoot(),
 			process->_fsContext->getWorkingDirectory(),
 			path, std::vector<std::string>{}, std::vector<std::string>{},
 			process->_vmContext,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
-	auto error = std::get_if<Error>(&thread_or_error);
-	if(error)
+	if(!threadResult)
 		throw std::logic_error("Could not execute() init process");
 
 	auto generation = std::make_shared<Generation>();
-	generation->threadDescriptor = std::move(std::get<helix::UniqueDescriptor>(thread_or_error));
+	generation->threadDescriptor = std::move(threadResult.value());
 	generation->posixLane = std::move(server_lane);
 
 	process->_currentGeneration = generation;
@@ -913,16 +912,20 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
-	auto thread_or_error = co_await execute(process->_fsContext->getRoot(),
+	auto threadResult = co_await execute(process->_fsContext->getRoot(),
 			process->_fsContext->getWorkingDirectory(),
 			path, std::move(args), std::move(env), exec_vm_context,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
-	auto error = std::get_if<Error>(&thread_or_error);
-	if(error && (*error == Error::noSuchFile || *error == Error::badExecutable)) {
-		co_return *error;
-	}else if(error)
-		throw std::logic_error("Unexpected error from execute()");
+	if(!threadResult) {
+		switch(threadResult.error()) {
+		case Error::noSuchFile:
+		case Error::badExecutable:
+			co_return threadResult.error();
+		default:
+			throw std::logic_error("Unexpected error from execute()");
+		}
+	}
 
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
@@ -935,7 +938,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 
 	// TODO: execute() should return a stopped thread that we can start here.
 	auto generation = std::make_shared<Generation>();
-	generation->threadDescriptor = std::move(std::get<helix::UniqueDescriptor>(thread_or_error));
+	generation->threadDescriptor = std::move(threadResult.value());
 	generation->posixLane = std::move(server_lane);
 
 	auto previous = std::exchange(process->_currentGeneration, generation);
