@@ -49,7 +49,8 @@ async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSe
 	co_return _offset;
 }
 
-expected<size_t> RegularFile::readSome(Process *, void *data, size_t max_length) {
+async::result<frg::expected<Error, size_t>>
+RegularFile::readSome(Process *, void *data, size_t max_length) {
 	assert(max_length > 0);
 
 	if(!_cached) {

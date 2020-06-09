@@ -240,7 +240,8 @@ public:
 	virtual async::result<frg::expected<Error, off_t>>
 	seek(off_t offset, VfsSeek whence);
 
-	virtual expected<size_t> readSome(Process *process, void *data, size_t max_length);
+	virtual async::result<frg::expected<Error, size_t>>
+	readSome(Process *process, void *data, size_t max_length);
 
 	virtual FutureMaybe<void> writeAll(Process *process, const void *data, size_t length);
 

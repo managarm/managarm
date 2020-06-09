@@ -59,7 +59,8 @@ public:
 		std::cout << "\e[31m" "posix: Destruction of inotify leaks watches" "\e[39m" << std::endl;
 	}
 
-	expected<size_t> readSome(Process *, void *data, size_t maxLength) override {
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *, void *data, size_t maxLength) override {
 		// TODO: As an optimization, we could return multiple events at the same time.
 		Packet packet = std::move(_queue.front());
 		_queue.pop_front();

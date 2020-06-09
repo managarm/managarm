@@ -88,7 +88,7 @@ public:
 	}
 
 public:
-	expected<size_t>
+	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
 		assert(_currentState == State::connected);
 		if(logSockets)

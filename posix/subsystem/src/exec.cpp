@@ -160,11 +160,11 @@ expected<helix::UniqueDescriptor> execute(ViewPath root, ViewPath workdir,
 
 			char buffer[128];
 			auto readResult = co_await execFile->readSome(nullptr, buffer, 128);
-			if(auto error = std::get_if<Error>(&readResult); error) {
+			if(readResult) {
 				std::cout << "posix: Failed to read executable" << std::endl;
 				co_return Error::badExecutable;
 			}
-			size_t chunk = std::get<size_t>(readResult);
+			size_t chunk = readResult.value();
 			if(!chunk) {
 				std::cout << "posix: EOF in shebang line" << std::endl;
 				co_return Error::badExecutable;

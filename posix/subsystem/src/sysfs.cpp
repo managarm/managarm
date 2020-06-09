@@ -62,7 +62,8 @@ async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, Vfs
 	co_return _offset;
 }
 
-expected<size_t> AttributeFile::readSome(Process *, void *data, size_t max_length) {
+async::result<frg::expected<Error, size_t>>
+AttributeFile::readSome(Process *, void *data, size_t max_length) {
 	assert(max_length > 0);
 
 	if(!_cached) {

@@ -29,7 +29,8 @@ struct OpenFile : File {
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
-	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *, void *data, size_t max_length) override {
 		if (max_length < 8)
 			co_return Error::illegalArguments;
 

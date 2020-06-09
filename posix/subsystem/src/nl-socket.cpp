@@ -64,7 +64,8 @@ public:
 	}
 
 public:
-	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *, void *data, size_t max_length) override {
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
 

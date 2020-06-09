@@ -100,7 +100,8 @@ public:
 		_cancelServe.cancel();
 	}
 
-	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *, void *data, size_t max_length) override {
 		assert(max_length == sizeof(uint64_t));
 		assert(_expirations);
 

@@ -60,14 +60,17 @@ File::ptRead(void *object, const char *credentials,
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
 	auto result = co_await self->readSome(process.get(), buffer, length);
-	auto error = std::get_if<Error>(&result);
-	if(error && *error == Error::illegalOperationTarget) {
-		co_return protocols::fs::Error::illegalArguments;
-	}else if(error && *error == Error::wouldBlock) {
-		co_return protocols::fs::Error::wouldBlock;
+	if(!result) {
+		switch(result.error()) {
+		case Error::illegalOperationTarget:
+			co_return protocols::fs::Error::illegalArguments;
+		case Error::wouldBlock:
+			co_return protocols::fs::Error::wouldBlock;
+		default:
+			assert(!"Unexpected error from readSome()");
+		}
 	}else{
-		assert(!error);
-		co_return std::get<size_t>(result);
+		co_return result.value();
 	}
 }
 
@@ -204,12 +207,13 @@ FutureMaybe<void> File::readExactly(Process *process,
 	size_t offset = 0;
 	while(offset < length) {
 		auto result = co_await readSome(process, (char *)data + offset, length - offset);
-		assert(std::get<size_t>(result) > 0);
-		offset += std::get<size_t>(result);
+		assert(result);
+		assert(result.value() > 0);
+		offset += result.value();
 	}
 }
 
-expected<size_t> File::readSome(Process *, void *, size_t) {
+async::result<frg::expected<Error, size_t>> File::readSome(Process *, void *, size_t) {
 	std::cout << "\e[35mposix \e[1;34m" << structName()
 			<< "\e[0m\e[35m: File does not support read()\e[39m" << std::endl;
 	co_return Error::illegalOperationTarget;

@@ -73,7 +73,8 @@ public:
 		_channel = nullptr;
 	}
 
-	expected<size_t> readSome(Process *, void *data, size_t max_length) override {
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *, void *data, size_t max_length) override {
 		if(logFifos)
 			std::cout << "posix: Read from pipe " << this << std::endl;
 

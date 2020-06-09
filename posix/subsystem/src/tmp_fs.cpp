@@ -366,7 +366,8 @@ public:
 
 	async::result<frg::expected<Error, off_t>> seek(off_t delta, VfsSeek whence) override;
 
-	expected<size_t> readSome(Process *, void *buffer, size_t max_length) override;
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *, void *buffer, size_t max_length) override;
 
 	async::result<void> writeAll(Process *, const void *buffer, size_t length) override;
 
@@ -515,7 +516,7 @@ MemoryFile::seek(off_t delta, VfsSeek whence) {
 	co_return _offset;
 }
 
-expected<size_t>
+async::result<frg::expected<Error, size_t>>
 MemoryFile::readSome(Process *, void *buffer, size_t max_length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 

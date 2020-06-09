@@ -25,7 +25,8 @@ public:
 	OpenFile(uint64_t mask)
 	: File{StructName::get("signalfd")}, _mask{mask} { }
 
-	expected<size_t> readSome(Process *process, void *data, size_t max_length) override {
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *process, void *data, size_t max_length) override {
 		// TODO: Return an error otherwise.
 		assert(max_length >= sizeof(struct signalfd_siginfo));
 

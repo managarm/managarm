@@ -165,7 +165,7 @@ private:
 	}
 
 	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
-	expected<size_t>
+	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
 		size_t length = co_await _file.readSome(data, max_length);
 		co_return length;

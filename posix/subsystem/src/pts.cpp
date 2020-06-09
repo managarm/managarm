@@ -129,7 +129,7 @@ public:
 	MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			bool nonBlocking);
 
-	expected<size_t>
+	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override;
 
 	FutureMaybe<void>
@@ -167,7 +167,7 @@ public:
 	SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			std::shared_ptr<Channel> channel);
 
-	expected<size_t>
+	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override;
 
 	FutureMaybe<void>
@@ -331,7 +331,7 @@ MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink>
 			std::make_shared<DeviceNode>(DeviceId{136, _channel->ptsIndex}));
 }
 
-expected<size_t>
+async::result<frg::expected<Error, size_t>>
 MasterFile::readSome(Process *, void *data, size_t max_length) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
@@ -472,7 +472,7 @@ SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> l
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
 		_channel{std::move(channel)} { }
 
-expected<size_t>
+async::result<frg::expected<Error, size_t>>
 SlaveFile::readSome(Process *, void *data, size_t max_length) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
