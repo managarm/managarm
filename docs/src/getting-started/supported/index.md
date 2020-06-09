@@ -3,6 +3,8 @@
 ## Software
 Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/wayland/weston/) (the Wayland reference compositor), [kmscon](https://www.freedesktop.org/wiki/Software/kmscon/) (a system console), GNU coreutils, bash, nano and others.
 
+We are looking into building a managarm package index in the future.
+
 ## Hardware
 #### General
 - USB (UHCI, EHCI)
