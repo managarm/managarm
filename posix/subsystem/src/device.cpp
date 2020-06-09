@@ -45,8 +45,8 @@ std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 	return *it;
 }
 
-FutureMaybe<SharedFilePtr> openDevice(VfsType type, DeviceId id,
-		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> openDevice(VfsType type,
+		DeviceId id, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(type == VfsType::charDevice) {
 		auto device = charRegistry.get(id);

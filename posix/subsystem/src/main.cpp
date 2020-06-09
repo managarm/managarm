@@ -1780,9 +1780,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						HEL_CHECK(send_resp.error());
 						continue;
 					}else{
-						file = co_await tail->getTarget()->open(
-								resolver.currentView(), std::move(tail),
-								semantic_flags);
+						auto fileResult = co_await tail->getTarget()->open(
+											resolver.currentView(), std::move(tail),
+											semantic_flags);
+						assert(fileResult);
+						file = fileResult.value();
 						assert(file);
 					}
 				}else{
@@ -1794,8 +1796,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
 					assert(linkResult);
 					auto link = linkResult.value();
-					file = co_await node->open(resolver.currentView(), std::move(link),
-							semantic_flags);
+					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 					assert(file);
 				}
 			}else{
@@ -1803,8 +1807,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
-					file = co_await target->open(resolver.currentView(), resolver.currentLink(),
-							semantic_flags);
+					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 				}
 			}
 
@@ -1913,9 +1919,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						HEL_CHECK(send_resp.error());
 						continue;
 					}else{
-						file = co_await tail->getTarget()->open(
-								resolver.currentView(), std::move(tail),
-								semantic_flags);
+						auto fileResult = co_await tail->getTarget()->open(
+											resolver.currentView(), std::move(tail),
+											semantic_flags);
+						assert(fileResult);
+						file = fileResult.value();
 						assert(file);
 					}
 				}else{
@@ -1927,8 +1935,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
 					assert(linkResult);
 					auto link = linkResult.value();
-					file = co_await node->open(resolver.currentView(), std::move(link),
-							semantic_flags);
+					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 					assert(file);
 				}
 			}else{
@@ -1936,8 +1946,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
-					file = co_await target->open(resolver.currentView(), resolver.currentLink(),
-							semantic_flags);
+					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 				}
 			}
 

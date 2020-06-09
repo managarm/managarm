@@ -137,8 +137,8 @@ private:
 		return _id;
 	}
 
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
+			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
 
@@ -164,8 +164,8 @@ private:
 		return VfsType::fifo;
 	}
 
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
+			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		co_return co_await fifo::openNamedChannel(mount, link, this, semantic_flags);
 	}
 
@@ -267,7 +267,7 @@ private:
 		return _treeLink;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
@@ -330,7 +330,7 @@ private:
 		return VfsType::regular;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
@@ -398,7 +398,7 @@ struct MemoryNode final : Node {
 		return VfsType::regular;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite | semanticNonBlock)));

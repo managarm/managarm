@@ -138,7 +138,9 @@ execute(ViewPath root, ViewPath workdir,
 		std::vector<std::string> args, std::vector<std::string> env,
 		std::shared_ptr<VmContext> vmContext, helix::BorrowedDescriptor universe,
 		HelHandle mbusHandle) {
-	auto execFile = co_await open(root, workdir, path);
+	auto execFileResult = co_await open(root, workdir, path);
+	assert(execFileResult);
+	auto execFile = execFileResult.value();
 	if(!execFile)
 		co_return Error::noSuchFile;
 
@@ -190,7 +192,9 @@ execute(ViewPath root, ViewPath workdir,
 
 		// Linux looks up the interpreter in the current working directory.
 		std::string interpreterPath{beginPath, endPath};
-		auto interpreterFile = co_await open(root, workdir, interpreterPath);
+		auto interpreterFileResult = co_await open(root, workdir, interpreterPath);
+		assert(interpreterFileResult);
+		auto interpreterFile = interpreterFileResult.value();
 		if(!interpreterFile)
 			co_return Error::noSuchFile;
 
@@ -209,7 +213,9 @@ execute(ViewPath root, ViewPath workdir,
 	auto binaryInfo = FRG_CO_TRY(co_await load(binaryFile, vmContext.get(), 0));
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
-	auto ldsoFile = co_await open(root, workdir, "/lib/ld-init.so");
+	auto ldsoFileResult = co_await open(root, workdir, "/lib/ld-init.so");
+	assert(ldsoFileResult);
+	auto ldsoFile = ldsoFileResult.value();
 	assert(ldsoFile);
 	auto ldsoInfo = FRG_CO_TRY(co_await load(ldsoFile, vmContext.get(), 0x40000000));
 

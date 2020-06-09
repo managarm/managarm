@@ -174,7 +174,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	co_return stats;
 }
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
@@ -232,7 +232,7 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
 }
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));

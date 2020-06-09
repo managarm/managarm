@@ -214,7 +214,7 @@ private:
 		return VfsType::regular;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.
@@ -585,7 +585,7 @@ private:
 		co_return {};
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.

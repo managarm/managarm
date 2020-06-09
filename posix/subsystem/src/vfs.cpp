@@ -295,8 +295,9 @@ FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
 	co_return ViewPath(resolver.currentView(), resolver.currentLink());
 }
 
-FutureMaybe<SharedFilePtr> open(ViewPath root, ViewPath workdir,
-		std::string name, ResolveFlags resolve_flags, SemanticFlags semantic_flags) {
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
+		ViewPath workdir, std::string name, ResolveFlags resolve_flags,
+		SemanticFlags semantic_flags) {
 	ViewPath current = co_await resolve(std::move(root), std::move(workdir),
 			std::move(name), resolve_flags);
 	if(!current.second)

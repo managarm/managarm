@@ -96,7 +96,8 @@ ViewPath rootPath();
 FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
 		std::string name, ResolveFlags flags = 0);
 
-FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(ViewPath root, ViewPath workdir,
-		std::string name, ResolveFlags resolve_flags = 0, SemanticFlags semantic_flags = 0);
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
+		ViewPath workdir, std::string name, ResolveFlags resolve_flags = 0,
+		SemanticFlags semantic_flags = 0);
 
 #endif // POSIX_SUBSYSTEM_VFS_HPP

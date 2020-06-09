@@ -77,7 +77,7 @@ async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
 	co_return Error::illegalOperationTarget;
 }
 
-FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }
