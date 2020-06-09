@@ -63,7 +63,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkdev(std::
 	throw std::runtime_error("mkdev() is not implemented for this FsNode");
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkfifo(std::string, mode_t) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkfifo(std::string, mode_t) {
 	throw std::runtime_error("mkfifo() is not implemented for this FsNode");
 }
 

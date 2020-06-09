@@ -141,7 +141,7 @@ public:
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name,
 			VfsType type, DeviceId id);
 
-	virtual FutureMaybe<std::shared_ptr<FsLink>> mkfifo(std::string name, mode_t mode);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
 
 	virtual FutureMaybe<void> unlink(std::string name);
 

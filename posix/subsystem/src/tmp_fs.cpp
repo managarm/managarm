@@ -303,7 +303,7 @@ private:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name,
 			VfsType type, DeviceId id) override;
 
-	async::result<std::shared_ptr<FsLink>> mkfifo(std::string name, mode_t mode) override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode) override;
 
 	FutureMaybe<void> unlink(std::string name) override {
 		auto it = _entries.find(name);
@@ -690,7 +690,7 @@ DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 	co_return link;
 }
 
-async::result<std::shared_ptr<FsLink>>
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
