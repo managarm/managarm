@@ -143,7 +143,7 @@ public:
 
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
 
-	virtual FutureMaybe<void> unlink(std::string name);
+	virtual async::result<frg::expected<Error>> unlink(std::string name);
 
 	virtual async::result<frg::expected<Error>> rmdir(std::string name);
 

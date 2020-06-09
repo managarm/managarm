@@ -537,7 +537,7 @@ private:
 		}
 	}
 
-	FutureMaybe<void> unlink(std::string name) override {
+	async::result<frg::expected<Error>> unlink(std::string name) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;

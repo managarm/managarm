@@ -305,13 +305,13 @@ private:
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode) override;
 
-	FutureMaybe<void> unlink(std::string name) override {
+	async::result<frg::expected<Error>> unlink(std::string name) override {
 		auto it = _entries.find(name);
 		assert(it != _entries.end());
 		_entries.erase(it);
 
 		notifyObservers(FsObserver::deleteEvent, name, 0);
-		co_return;
+		co_return {};
 	}
 
 public:

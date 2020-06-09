@@ -68,7 +68,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkfifo(std:
 }
 
 
-FutureMaybe<void> FsNode::unlink(std::string) {
+async::result<frg::expected<Error>> FsNode::unlink(std::string) {
 	throw std::runtime_error("unlink() is not implemented for this FsNode");
 }
 
