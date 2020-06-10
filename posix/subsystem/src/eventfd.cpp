@@ -50,7 +50,8 @@ struct OpenFile : File {
 		}
 	}
 
-	virtual FutureMaybe<void> writeAll(Process *process, const void *data, size_t length) override {
+	async::result<frg::expected<Error>>
+	writeAll(Process *process, const void *data, size_t length) override {
 		assert(length >= 8); // TODO: return Error::illegalArguments to user instead
 
 		uint64_t num;
@@ -69,6 +70,7 @@ struct OpenFile : File {
 
 		_readableSeq = ++_currentSeq;
 		_doorbell.ring();
+		co_return {};
 	}
 
 	expected<PollResult> poll(Process *, uint64_t sequence,

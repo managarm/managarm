@@ -369,7 +369,8 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *buffer, size_t max_length) override;
 
-	async::result<void> writeAll(Process *, const void *buffer, size_t length) override;
+	async::result<frg::expected<Error>>
+	writeAll(Process *, const void *buffer, size_t length) override;
 
 	FutureMaybe<void> truncate(size_t size) override;
 
@@ -530,7 +531,7 @@ MemoryFile::readSome(Process *, void *buffer, size_t max_length) {
 	co_return chunk;
 }
 
-async::result<void>
+async::result<frg::expected<Error>>
 MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
@@ -539,7 +540,7 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 
 	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
 	_offset += length;
-	co_return;
+	co_return {};
 }
 
 async::result<void>

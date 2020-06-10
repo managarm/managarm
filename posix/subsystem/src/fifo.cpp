@@ -162,8 +162,8 @@ public:
 		_channel = nullptr;
 	}
 
-	FutureMaybe<void> writeAll(Process *process, const void *data, size_t max_length) override {
-
+	async::result<frg::expected<Error>>
+	writeAll(Process *process, const void *data, size_t max_length) override {
 		Packet packet;
 		packet.buffer.resize(max_length);
 		memcpy(packet.buffer.data(), data, max_length);
@@ -172,8 +172,7 @@ public:
 		_channel->packetQueue.push_back(std::move(packet));
 		_channel->inSeq = ++_channel->currentSeq;
 		_channel->statusBell.ring();
-
-		co_return;
+		co_return {};
 	}
 
 	expected<PollResult> poll(Process *, uint64_t pastSeq,

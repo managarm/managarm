@@ -67,11 +67,13 @@ RegularFile::readSome(Process *, void *data, size_t max_length) {
 	co_return chunk;
 }
 
-FutureMaybe<void> RegularFile::writeAll(Process *, const void *data, size_t length) {
+async::result<frg::expected<Error>>
+RegularFile::writeAll(Process *, const void *data, size_t length) {
 	assert(length > 0);
 
 	auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
 	co_await node->store(std::string{reinterpret_cast<const char *>(data), length});
+	co_return {};
 }
 
 helix::BorrowedDescriptor RegularFile::getPassthroughLane() {

@@ -81,7 +81,8 @@ public:
 		co_return size;
 	}
 	
-	FutureMaybe<void> writeAll(Process *, const void *data, size_t length) override {
+	async::result<frg::expected<Error>>
+	writeAll(Process *, const void *data, size_t length) override {
 		throw std::runtime_error("posix: Fix netlink send()");
 /*
 		if(logSockets)
@@ -94,7 +95,7 @@ public:
 		_remote->deliver(std::move(packet));
 */
 
-		co_return;
+		co_return {};
 	}
 
 	async::result<protocols::fs::RecvResult>

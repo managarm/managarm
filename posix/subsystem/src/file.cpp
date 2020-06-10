@@ -68,6 +68,7 @@ File::ptRead(void *object, const char *credentials,
 			co_return protocols::fs::Error::wouldBlock;
 		default:
 			assert(!"Unexpected error from readSome()");
+			__builtin_unreachable();
 		}
 	}else{
 		co_return result.value();
@@ -78,7 +79,8 @@ async::result<void> File::ptWrite(void *object, const char *credentials,
 		const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
-	return self->writeAll(process.get(), buffer, length);
+	auto result = co_await self->writeAll(process.get(), buffer, length);
+	assert(result || "Unexpected error from writeAll()");
 }
 
 async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
@@ -232,7 +234,7 @@ void File::handleClose() {
 			<< "\e[0m: Object does not implement handleClose()" << std::endl;
 }
 
-FutureMaybe<void> File::writeAll(Process *, const void *, size_t) {
+async::result<frg::expected<Error>> File::writeAll(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement writeAll()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::writeAll()");

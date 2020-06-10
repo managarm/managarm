@@ -41,7 +41,9 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override;
 
-	FutureMaybe<void> writeAll(Process *, const void *data, size_t length) override;
+	async::result<frg::expected<Error>>
+	writeAll(Process *, const void *data, size_t length) override;
+
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
