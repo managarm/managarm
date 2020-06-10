@@ -74,9 +74,11 @@ public:
 	}
 
 	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	readSome(Process *, void *data, size_t maxLength) override {
 		if(logFifos)
 			std::cout << "posix: Read from pipe " << this << std::endl;
+		if(!maxLength)
+			co_return 0;
 
 		while(_channel->packetQueue.empty() && _channel->writerCount)
 			co_await _channel->statusBell.async_wait();
@@ -88,12 +90,13 @@ public:
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_channel->packetQueue.front();
-		assert(!packet->offset);
-		auto size = packet->buffer.size();
-		assert(max_length >= size);
-		memcpy(data, packet->buffer.data(), size);
-		_channel->packetQueue.pop_front();
-		co_return size;
+		size_t chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
+		assert(chunk); // Otherwise we return above since !maxLength.
+		memcpy(data, packet->buffer.data() + packet->offset, chunk);
+		packet->offset += chunk;
+		if(packet->offset == packet->buffer.size())
+			_channel->packetQueue.pop_front();
+		co_return chunk;
 	}
 
 	expected<PollResult> poll(Process *, uint64_t pastSeq,
@@ -163,10 +166,10 @@ public:
 	}
 
 	async::result<frg::expected<Error>>
-	writeAll(Process *process, const void *data, size_t max_length) override {
+	writeAll(Process *process, const void *data, size_t maxLength) override {
 		Packet packet;
-		packet.buffer.resize(max_length);
-		memcpy(packet.buffer.data(), data, max_length);
+		packet.buffer.resize(maxLength);
+		memcpy(packet.buffer.data(), data, maxLength);
 		packet.offset = 0;
 
 		_channel->packetQueue.push_back(std::move(packet));
