@@ -345,7 +345,7 @@ MasterFile::readSome(Process *, void *data, size_t max_length) {
 	auto packet = &_channel->masterQueue.front();
 	size_t chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	assert(chunk);
-	memcpy(data, packet->buffer.data(), chunk);
+	memcpy(data, packet->buffer.data() + packet->offset, chunk);
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
 		_channel->masterQueue.pop_front();
