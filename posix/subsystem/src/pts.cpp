@@ -130,7 +130,7 @@ public:
 			bool nonBlocking);
 
 	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override;
+	readSome(Process *, void *data, size_t maxLength) override;
 
 	async::result<frg::expected<Error>>
 	writeAll(Process *, const void *data, size_t length) override;
@@ -168,7 +168,7 @@ public:
 			std::shared_ptr<Channel> channel);
 
 	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override;
+	readSome(Process *, void *data, size_t maxLength) override;
 
 	async::result<frg::expected<Error>>
 	writeAll(Process *, const void *data, size_t length) override;
@@ -332,9 +332,11 @@ MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink>
 }
 
 async::result<frg::expected<Error, size_t>>
-MasterFile::readSome(Process *, void *data, size_t max_length) {
+MasterFile::readSome(Process *, void *data, size_t maxLength) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
+	if(!maxLength)
+		co_return 0;
 
 	if (_channel->masterQueue.empty() && _nonBlocking)
 		co_return Error::wouldBlock;
@@ -343,8 +345,8 @@ MasterFile::readSome(Process *, void *data, size_t max_length) {
 		co_await _channel->statusBell.async_wait();
 
 	auto packet = &_channel->masterQueue.front();
-	size_t chunk = std::min(packet->buffer.size() - packet->offset, max_length);
-	assert(chunk);
+	size_t chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
+	assert(chunk); // Otherwise, we return above due to !maxLength.
 	memcpy(data, packet->buffer.data() + packet->offset, chunk);
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
@@ -473,16 +475,18 @@ SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> l
 		_channel{std::move(channel)} { }
 
 async::result<frg::expected<Error, size_t>>
-SlaveFile::readSome(Process *, void *data, size_t max_length) {
+SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
+	if(!maxLength)
+		co_return 0;
 
 	while(_channel->slaveQueue.empty())
 		co_await _channel->statusBell.async_wait();
 
 	auto packet = &_channel->slaveQueue.front();
-	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
-	assert(chunk);
+	auto chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
+	assert(chunk); // Otherwise, we return above due to !maxLength.
 	memcpy(data, packet->buffer.data() + packet->offset, chunk);
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
