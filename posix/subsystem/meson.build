@@ -4,10 +4,17 @@ gen = generator(protoc,
 			'@EXTRA_ARGS@',
 			'@INPUT@'])
 
+bragi_gen = generator(bragi, arguments: [
+		'-l', 'stdc++',
+		'--protobuf',
+		'@INPUT@',
+		'@OUTPUT@'
+	],
+	output: '@BASENAME@.bragi.hpp')
+
 fs_pb = gen.process(meson.current_source_dir() + '/../../protocols/fs/fs.proto',
 	extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/fs'])
-posix_pb = gen.process(meson.current_source_dir() + '/../../protocols/posix/posix.proto',
-	extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/posix'])
+posix_bragi = bragi_gen.process('../../protocols/posix/posix.bragi')
 
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
@@ -24,6 +31,7 @@ gen = generator(protoc,
 kerncfg_pb = gen.process('../../protocols/kerncfg/kerncfg.proto')
 
 posix_subsystem_inc = include_directories('../../frigg/include')
+bragi_inc = include_directories('../../subprojects/bragi/include')
 
 executable('posix-subsystem',
 		['src/clock.cpp',
@@ -58,7 +66,7 @@ executable('posix-subsystem',
 		clock_pb,
 		fs_pb,
 		kerncfg_pb,
-		posix_pb],
+		posix_bragi],
 	dependencies: [
 		clang_coroutine_dep,
 		lib_helix_dep,
@@ -66,5 +74,7 @@ executable('posix-subsystem',
 		libmbus_protocol_dep,
 		libfs_protocol_dep,
 		clock_protocol_dep],
-	include_directories: posix_subsystem_inc,
+	include_directories: [
+		posix_subsystem_inc,
+		bragi_inc],
 	install: true)

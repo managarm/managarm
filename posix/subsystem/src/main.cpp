@@ -45,7 +45,7 @@
 #include "eventfd.hpp"
 #include "tmp_fs.hpp"
 #include <kerncfg.pb.h>
-#include <posix.pb.h>
+#include <posix.bragi.hpp>
 
 namespace {
 	constexpr bool logRequests = false;
@@ -1498,29 +1498,29 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			DeviceId devnum;
 			switch(target_link->getTarget()->getType()) {
 			case VfsType::regular:
-				resp.set_file_type(managarm::posix::FT_REGULAR);
+				resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
 				break;
 			case VfsType::directory:
-				resp.set_file_type(managarm::posix::FT_DIRECTORY);
+				resp.set_file_type(managarm::posix::FileType::FT_DIRECTORY);
 				break;
 			case VfsType::symlink:
-				resp.set_file_type(managarm::posix::FT_SYMLINK);
+				resp.set_file_type(managarm::posix::FileType::FT_SYMLINK);
 				break;
 			case VfsType::charDevice:
-				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
+				resp.set_file_type(managarm::posix::FileType::FT_CHAR_DEVICE);
 				devnum = target_link->getTarget()->readDevice();
 				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
 				break;
 			case VfsType::blockDevice:
-				resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
+				resp.set_file_type(managarm::posix::FileType::FT_BLOCK_DEVICE);
 				devnum = target_link->getTarget()->readDevice();
 				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
 				break;
 			case VfsType::socket:
-				resp.set_file_type(managarm::posix::FT_SOCKET);
+				resp.set_file_type(managarm::posix::FileType::FT_SOCKET);
 				break;
 			case VfsType::fifo:
-				resp.set_file_type(managarm::posix::FT_FIFO);
+				resp.set_file_type(managarm::posix::FileType::FT_FIFO);
 				break;
 			default:
 				assert(target_link->getTarget()->getType() == VfsType::null);
@@ -1716,23 +1716,23 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
-			assert(!(req.flags() & ~(managarm::posix::OF_CREATE
-					| managarm::posix::OF_EXCLUSIVE
-					| managarm::posix::OF_NONBLOCK
-					| managarm::posix::OF_CLOEXEC
-					| managarm::posix::OF_RDONLY
-					| managarm::posix::OF_WRONLY
-					| managarm::posix::OF_RDWR)));
+			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CREATE
+					| managarm::posix::OpenFlags::OF_EXCLUSIVE
+					| managarm::posix::OpenFlags::OF_NONBLOCK
+					| managarm::posix::OpenFlags::OF_CLOEXEC
+					| managarm::posix::OpenFlags::OF_RDONLY
+					| managarm::posix::OpenFlags::OF_WRONLY
+					| managarm::posix::OpenFlags::OF_RDWR)));
 
 			SemanticFlags semantic_flags = 0;
-			if(req.flags() & managarm::posix::OF_NONBLOCK)
+			if(req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
 
-			if (req.flags() & managarm::posix::OF_RDONLY)
+			if (req.flags() & managarm::posix::OpenFlags::OF_RDONLY)
 				semantic_flags |= semanticRead;
-			else if (req.flags() & managarm::posix::OF_WRONLY)
+			else if (req.flags() & managarm::posix::OpenFlags::OF_WRONLY)
 				semantic_flags |= semanticWrite;
-			else if (req.flags() & managarm::posix::OF_RDWR)
+			else if (req.flags() & managarm::posix::OpenFlags::OF_RDWR)
 				semantic_flags |= semanticRead | semanticWrite;
 
 			smarter::shared_ptr<File, FileHandle> file;
@@ -1740,7 +1740,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
-			if(req.flags() & managarm::posix::OF_CREATE) {
+			if(req.flags() & managarm::posix::OpenFlags::OF_CREATE) {
 				co_await resolver.resolve(resolvePrefix);
 				if(!resolver.currentLink()) {
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1759,7 +1759,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto directory = resolver.currentLink()->getTarget();
 				auto tail = co_await directory->getLink(resolver.nextComponent());
 				if(tail) {
-					if(req.flags() & managarm::posix::OF_EXCLUSIVE) {
+					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
 						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
 
 						auto ser = resp.SerializeAsString();
@@ -1798,7 +1798,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			if(file) {
 				int fd = self->fileContext()->attachFile(file,
-						req.flags() & managarm::posix::OF_CLOEXEC);
+						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_fd(fd);
@@ -1826,27 +1826,27 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
-			if((req.flags() & ~(managarm::posix::OF_CREATE
-					| managarm::posix::OF_EXCLUSIVE
-					| managarm::posix::OF_NONBLOCK
-					| managarm::posix::OF_CLOEXEC
-					| managarm::posix::OF_RDONLY
-					| managarm::posix::OF_WRONLY
-					| managarm::posix::OF_RDWR))) {
+			if((req.flags() & ~(managarm::posix::OpenFlags::OF_CREATE
+					| managarm::posix::OpenFlags::OF_EXCLUSIVE
+					| managarm::posix::OpenFlags::OF_NONBLOCK
+					| managarm::posix::OpenFlags::OF_CLOEXEC
+					| managarm::posix::OpenFlags::OF_RDONLY
+					| managarm::posix::OpenFlags::OF_WRONLY
+					| managarm::posix::OpenFlags::OF_RDWR))) {
 				std::cout << "posix: OPENAT flags not recognized: " << req.flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
 			SemanticFlags semantic_flags = 0;
-			if(req.flags() & managarm::posix::OF_NONBLOCK)
+			if(req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
 
-			if (req.flags() & managarm::posix::OF_RDONLY)
+			if (req.flags() & managarm::posix::OpenFlags::OF_RDONLY)
 				semantic_flags |= semanticRead;
-			else if (req.flags() & managarm::posix::OF_WRONLY)
+			else if (req.flags() & managarm::posix::OpenFlags::OF_WRONLY)
 				semantic_flags |= semanticWrite;
-			else if (req.flags() & managarm::posix::OF_RDWR)
+			else if (req.flags() & managarm::posix::OpenFlags::OF_RDWR)
 				semantic_flags |= semanticRead | semanticWrite;
 
 			ViewPath relative_to;
@@ -1869,7 +1869,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req.path());
-			if(req.flags() & managarm::posix::OF_CREATE) {
+			if(req.flags() & managarm::posix::OpenFlags::OF_CREATE) {
 				co_await resolver.resolve(resolvePrefix);
 				if(!resolver.currentLink()) {
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1888,7 +1888,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto directory = resolver.currentLink()->getTarget();
 				auto tail = co_await directory->getLink(resolver.nextComponent());
 				if(tail) {
-					if(req.flags() & managarm::posix::OF_EXCLUSIVE) {
+					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
 						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
 
 						auto ser = resp.SerializeAsString();
@@ -1927,7 +1927,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			if(file) {
 				int fd = self->fileContext()->attachFile(file,
-						req.flags() & managarm::posix::OF_CLOEXEC);
+						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_fd(fd);
@@ -1984,7 +1984,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			if(req.flags() & ~(managarm::posix::OF_CLOEXEC)) {
+			if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)) {
 				helix::SendBuffer send_resp;
 
 				managarm::posix::SvrResponse resp;
@@ -1999,7 +1999,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			int newfd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OF_CLOEXEC);
+					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			helix::SendBuffer send_resp;
 
@@ -2375,8 +2375,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.mutable_fds()->Add(r_fd);
-			resp.mutable_fds()->Add(w_fd);
+			resp.add_fds(r_fd);
+			resp.add_fds(w_fd);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -2465,8 +2465,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.mutable_fds()->Add(fd0);
-			resp.mutable_fds()->Add(fd1);
+			resp.add_fds(fd0);
+			resp.add_fds(fd1);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -2549,11 +2549,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
+			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
 
 			auto file = epoll::createFile();
 			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OF_CLOEXEC);
+					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2728,11 +2728,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
+			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
 
 			auto file = createSignalFile(req.sigset());
 			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OF_CLOEXEC);
+					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2749,11 +2749,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
+			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
 
 			auto file = inotify::createFile();
 			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OF_CLOEXEC);
+					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2807,15 +2807,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
-			if (req.flags() & ~(managarm::posix::OF_CLOEXEC | managarm::posix::OF_NONBLOCK)) {
+			if (req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
 				std::cout << "posix: invalid flag specified (EFD_SEMAPHORE?)" << std::endl;
 				std::cout << "posix: flags specified: " << req.flags() << std::endl;
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			} else {
 
-				auto file = eventfd::createFile(req.initval(), req.flags() & managarm::posix::OF_NONBLOCK);
+				auto file = eventfd::createFile(req.initval(), req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
 				auto fd = self->fileContext()->attachFile(file,
-						req.flags() & managarm::posix::OF_CLOEXEC);
+						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_fd(fd);

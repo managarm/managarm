@@ -5,7 +5,7 @@
 #include <frg/string.hpp>
 #include <frigg/callback.hpp>
 
-#include <posix.frigg_pb.hpp>
+#include <posix.frigg_bragi.hpp>
 #include <fs.frigg_pb.hpp>
 
 #include "execution/coroutine.hpp"

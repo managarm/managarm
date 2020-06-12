@@ -1,0 +1,300 @@
+namespace "managarm::posix";
+
+
+enum Errors {
+	SUCCESS = 0,
+	DEAD_FORK = 6,
+	ILLEGAL_REQUEST = 4,
+	ILLEGAL_ARGUMENTS = 9,
+	FILE_NOT_FOUND = 1,
+	ACCESS_DENIED = 2,
+	ALREADY_EXISTS = 3,
+	NO_SUCH_FD = 5,
+	END_OF_FILE = 7,
+	BAD_FD = 8,
+	WOULD_BLOCK = 10,
+	BROKEN_PIPE = 11,
+	NOT_SUPPORTED = 12
+}
+
+consts CntReqType uint32 {
+	INIT = 7,
+	GET_TID = 29,
+	GET_PID = 17,
+	FORK = 8,
+	EXEC = 1,
+	WAIT = 56,
+	VM_MAP = 26,
+	VM_REMAP = 43,
+	VM_PROTECT = 62,
+	VM_UNMAP = 27,
+
+	MOUNT = 21,
+	CHROOT = 24,
+	CHDIR = 58,
+	FCHDIR = 61,
+	ACCESSAT = 20,
+	MKDIRAT = 46,
+	SYMLINKAT = 47,
+	RENAMEAT = 51,
+	FSTATAT = 63,
+	READLINK = 31,
+	OPEN = 2,
+	READ = 3,
+	WRITE = 4,
+	SEEK_ABS = 13,
+	SEEK_REL = 14,
+	SEEK_EOF = 15,
+	MMAP = 16,
+	CLOSE = 5,
+	DUP = 34,
+	DUP2 = 6,
+	IS_TTY = 22,
+	TTY_NAME = 18,
+	GETCWD = 59,
+	UNLINKAT = 40,
+	OPENAT = 64,
+	FD_GET_FLAGS = 44,
+	FD_SET_FLAGS = 45,
+	GET_RESOURCE_USAGE = 57,
+
+	// Session and process group calls.
+	SETSID = 76,
+
+	// Signal-specific calls.
+	SIG_ACTION = 55,
+
+	// FIFO- and pipe-specific calls.
+	PIPE_CREATE = 52,
+
+	// Socket-specific calls.
+	SOCKET = 35,
+	SOCKPAIR = 25,
+	ACCEPT = 19,
+
+	// epoll-specific calls.
+	EPOLL_CALL = 54,
+	EPOLL_CREATE = 28,
+	EPOLL_ADD = 37,
+	EPOLL_MODIFY = 38,
+	EPOLL_DELETE = 39,
+	EPOLL_WAIT = 30,
+
+	// signalfd()-specific calls
+	SIGNALFD_CREATE = 32,
+
+	TIMERFD_CREATE = 33,
+	TIMERFD_SETTIME = 36,
+
+	// inotify()-specific calls
+	INOTIFY_CREATE = 48,
+	INOTIFY_ADD = 49,
+	INOTIFY_DELETE = 50,
+
+	HELFD_ATTACH = 10,
+	HELFD_CLONE = 11,
+
+	// eventfd()-specific calls
+	EVENTFD_CREATE = 60,
+
+	MKFIFOAT = 65,
+	LINKAT = 66,
+	GET_UID = 67,
+	SET_UID = 68,
+	GET_EUID = 69,
+	SET_EUID = 70,
+	GET_GID = 71,
+	GET_EGID = 72,
+	SET_GID = 73,
+	SET_EGID = 74,
+	FCHMODAT = 75,
+	RMDIR = 77,
+	UTIMENSAT = 78
+}
+
+consts OpenMode uint32 {
+	REGULAR = 1,
+	HELFD = 2
+}
+
+consts FileType uint32 {
+	FT_UNKNOWN = 0,
+	FT_REGULAR = 1,
+	FT_DIRECTORY = 2,
+	FT_SYMLINK = 3,
+	FT_FIFO = 4,
+	FT_SOCKET = 5,
+	FT_CHAR_DEVICE = 6,
+	FT_BLOCK_DEVICE = 7
+}
+
+consts OpenFlags uint32 {
+	OF_CREATE = 1,
+	OF_EXCLUSIVE = 2,
+	OF_NONBLOCK = 4,
+	OF_CLOEXEC = 256,
+	OF_RDONLY = 8,
+	OF_WRONLY = 16,
+	OF_RDWR = 32
+}
+
+message CntRequest 1 {
+head(128):
+	CntReqType request_type;
+
+	tags {
+		// used by INIT, EXEC and OPEN
+		tag(2) string path;
+
+		tag(34) int64 pid;
+
+		// used by MOUNT
+		tag(12) string target_path;
+		tag(13) string fs_type;
+
+		// used by OPEN
+		tag(3) OpenFlags flags;
+		tag(10) OpenMode mode;
+
+		// used by READ, WRITE, SEEK_REL, SEEK_ABS, SEEK_END, MMAP, CLOSE, DUP2,
+		// HELFD_ATTACH, HELFD_CLONE
+		tag(4) int32 fd;
+
+		// used by DUP2
+		tag(7) int32 newfd;
+
+		// used by READ
+		tag(5) uint32 size;
+
+		// used by WRITE
+		tag(6) uint8[] buffer;
+
+		// used by SEEK_ABS, SEEK_REL
+		tag(11) int64 rel_offset;
+
+		// used by VM_MAP
+		tag(40) int64 address_hint;
+
+		// used by FORK
+		tag(8) uint64 child_sp;
+		tag(9) uint64 child_ip;
+
+		tag(24) uint64 address;
+		tag(23) uint32 new_size;
+
+		// Signal-specific stuff.
+		tag(29) uint64 sig_number;
+		tag(30) uint64 sig_mask;
+		tag(31) uint64 sig_handler;
+		tag(32) uint64 sig_restorer;
+
+		// used by socket functions
+		tag(14) int32 domain;
+		tag(15) int32 socktype;
+		tag(16) int32 protocol;
+
+		tag(26) uint64 addr_size;
+		tag(27) uint64 ctrl_size;
+
+		tag(22) int32[] fds;
+		tag(28) int32[] events;
+
+		// used by EPOLL_CTL
+		tag(17) uint64 cookie;
+
+		// used by EPOLL_WAIT
+		tag(25) int64 timeout;
+		tag(42) int64 sigmask;
+		tag(43) int32 sigmask_needed;
+
+		tag(18) uint64 time_secs;
+		tag(19) uint64 time_nanos;
+
+		tag(20) uint64 interval_secs;
+		tag(21) uint64 interval_nanos;
+
+		tag(33) uint64 sigset;
+
+		// used by EVENTFD
+		tag(39) uint32 initval;
+
+		// used by {GET/SET}UID
+		tag(41) int64 uid;
+
+		// used by utimensat
+		tag(44) uint64 atime_sec;
+		tag(45) uint64 atime_nsec;
+		tag(46) uint64 mtime_sec;
+		tag(47) uint64 mtime_nsec;
+	}
+}
+
+message SvrResponse 2 {
+head(128):
+	tags {
+		tag(3) Errors error;
+
+		tag(21) int64 size;
+
+		tag(24) int64 flags;
+
+		// returned by GET_PID
+		tag(18) int64 pid;
+
+		// returned by FSTAT
+		tag(5) FileType file_type;
+
+		// returned by FSTAT
+		tag(4) uint64 file_size;
+
+		// returned by FSTAT
+		tag(13) int32 mode;
+
+		// returned by FSTAT
+		tag(22) uint64 fs_devnum;
+		tag(14) uint64 fs_inode;
+
+		tag(23) uint64 ref_devnum;
+
+		// returned by FSTAT
+		tag(17) uint64 num_links;
+
+		// returned by FSTAT
+		tag(15) int64 uid;
+		tag(16) int64 gid;
+
+		// returned by FSTAT
+		tag(7) int64 atime_secs;
+		tag(8) int64 atime_nanos;
+		tag(9) int64 mtime_secs;
+		tag(10) int64 mtime_nanos;
+		tag(11) int64 ctime_secs;
+		tag(12) int64 ctime_nanos;
+
+		// return of OPEN
+		tag(1) int32 fd;
+
+		// returned by SEEK_ABS, SEEK_REL
+		tag(6) uint64 offset;
+
+		// Returned by SETSID.
+		tag(31) int64 sid;
+
+		// returned by TTY_NAME
+		tag(19) string path;
+
+		tag(20) int32[] fds;
+		tag(25) int32[] events;
+
+		// Returned by INOTIFY_ADD.
+		tag(30) int32 wd;
+
+		// Signal-specific stuff.
+		tag(26) uint64 sig_mask;
+		tag(27) uint64 sig_handler;
+		tag(28) uint64 sig_restorer;
+
+		// returned by GET_RESOURCE_USAGE
+		tag(29) uint64 ru_user_time;
+	}
+}

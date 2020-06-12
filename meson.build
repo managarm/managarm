@@ -5,6 +5,7 @@ c_compiler = meson.get_compiler('cpp')
 cpp_compiler = meson.get_compiler('cpp')
 
 protoc = find_program('protoc')
+bragi = find_program('bragi')
 
 # clang needs an additional flag to enable sized allocation/deallocation.
 if cpp_compiler.get_id() == 'clang'

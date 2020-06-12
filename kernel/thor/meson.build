@@ -6,6 +6,15 @@ gen = generator(protoc, arguments: [
 	],
 	output: '@BASENAME@.frigg_pb.hpp')
 
+bragi_gen = generator(bragi, arguments: [
+		'-l', 'frigg',
+		'--protobuf',
+		'@INPUT@',
+		'@OUTPUT@'
+	],
+	output: '@BASENAME@.frigg_bragi.hpp')
+
+
 pb_sources = [
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/fs/fs.proto',
@@ -13,9 +22,6 @@ pb_sources = [
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/mbus/mbus.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/mbus']),
-	gen.process(
-			meson.current_source_dir() + '/../../protocols/posix/posix.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/posix']),
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/clock/clock.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/clock']),
@@ -31,6 +37,10 @@ pb_sources = [
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/svrctl/svrctl.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/svrctl']),
+]
+
+bragi_sources = [
+	bragi_gen.process('../../protocols/posix/posix.bragi'),
 ]
 
 thor_sources = files(
@@ -121,7 +131,7 @@ lai_lib = static_library('lai', lai_sources,
 	pic: false
 )
 
-executable('thor', pb_sources, thor_sources, embed_trampoline,
+executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 	include_directories: [
 		include_directories(
 			'private-include/',
@@ -130,6 +140,7 @@ executable('thor', pb_sources, thor_sources, embed_trampoline,
 			'../../frigg/include',
 			'../../subprojects/libarch/include',
 			'../../subprojects/libasync/include',
+			'../../subprojects/bragi/include',
 			'../../tools/pb2frigg/include'
 		),
 		lai_includes
