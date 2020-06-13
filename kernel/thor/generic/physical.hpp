@@ -32,8 +32,15 @@ public:
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 	void free(PhysicalAddr address, size_t size);
 
-	size_t numUsedPages();
-	size_t numFreePages();
+	size_t numTotalPages() {
+		return _totalPages.load(std::memory_order_relaxed);
+	}
+	size_t numUsedPages() {
+		return _usedPages.load(std::memory_order_relaxed);
+	}
+	size_t numFreePages() {
+		return _freePages.load(std::memory_order_relaxed);
+	}
 
 private:
 	Mutex _mutex;
@@ -47,8 +54,9 @@ private:
 	Region _allRegions[8];
 	int _numRegions = 0;
 
-	size_t _usedPages = 0;
-	size_t _freePages = 0;
+	std::atomic<size_t> _totalPages{0};
+	std::atomic<size_t> _usedPages{0};
+	std::atomic<size_t> _freePages{0};
 };
 
 extern frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;

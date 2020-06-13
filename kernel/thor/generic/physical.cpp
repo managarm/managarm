@@ -44,16 +44,21 @@ void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 	_allRegions[n].buddyAccessor = BuddyAccessor{address, kPageShift,
 			buddyTree, numRoots, order};
 
-	_freePages += numRoots << order;
+	auto currentTotal = _totalPages.load(std::memory_order_relaxed);
+	auto currentFree = _freePages.load(std::memory_order_relaxed);
+	_totalPages.store(currentTotal + (numRoots << order), std::memory_order_relaxed);
+	_freePages.store(currentFree + (numRoots << order), std::memory_order_relaxed);
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	assert(_freePages > size / kPageSize);
-	_freePages -= size / kPageSize;
-	_usedPages += size / kPageSize;
+	auto currentFree = _freePages.load(std::memory_order_relaxed);
+	auto currentUsed = _usedPages.load(std::memory_order_relaxed);
+	assert(currentFree > size / kPageSize);
+	_freePages.store(currentFree - size / kPageSize, std::memory_order_relaxed);
+	_usedPages.store(currentUsed + size / kPageSize, std::memory_order_relaxed);
 
 	// TODO: This could be solved better.
 	int target = 0;
@@ -94,26 +99,15 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 			continue;
 
 		_allRegions[i].buddyAccessor.free(address, target);
-		assert(_usedPages > size / kPageSize);
-		_freePages += size / kPageSize;
-		_usedPages -= size / kPageSize;
+		auto currentFree = _freePages.load(std::memory_order_relaxed);
+		auto currentUsed = _usedPages.load(std::memory_order_relaxed);
+		assert(currentUsed > size / kPageSize);
+		_freePages.store(currentFree + size / kPageSize, std::memory_order_relaxed);
+		_usedPages.store(currentUsed - size / kPageSize, std::memory_order_relaxed);
 		return;
 	}
 
 	assert(!"Physical page is not part of any region");
-}
-
-size_t PhysicalChunkAllocator::numUsedPages() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-
-	return _usedPages;
-}
-size_t PhysicalChunkAllocator::numFreePages() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-
-	return _freePages;
 }
 
 } // namespace thor
