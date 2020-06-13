@@ -1120,7 +1120,7 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	assert(!(offset % kPageSize));
 	assert(!(size % kPageSize));
 
-	auto irq_lock = frigg::guard(&irqMutex());
+	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
 	// Put the pages into the dirty state.
@@ -1133,6 +1133,10 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 			pit->loadState = ManagedSpace::kStateWantWriteback;
 			if(!pit->lockCount)
 				globalReclaimer->removePage(&pit->cachePage);
+			_managed->_writebackList.push_back(&pit->cachePage);
+		}else if(pit->loadState == ManagedSpace::kStateEvicting) {
+			pit->loadState = ManagedSpace::kStateWantWriteback;
+			assert(!pit->lockCount);
 			_managed->_writebackList.push_back(&pit->cachePage);
 		}else if(pit->loadState == ManagedSpace::kStateWriteback) {
 			pit->loadState = ManagedSpace::kStateAnotherWriteback;
