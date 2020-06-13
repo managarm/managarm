@@ -118,7 +118,7 @@ struct Ip4TargetInfo {
 
 struct Ip4Socket;
 struct Ip4 {
-	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto);
+	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto, int flags);
 	// frame is a view into the owner buffer, stripping away eth bits
 	void feedPacket(nic::MacAddress dest, nic::MacAddress src,
 		arch::dma_buffer owner, arch::dma_buffer_view frame);

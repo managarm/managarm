@@ -365,7 +365,7 @@ std::optional<uint32_t> Ip4::findLinkIp(uint32_t ipOnNet, nic::Link *link) {
 	return {};
 }
 
-managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int proto) {
+managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int proto, int flags) {
 	using namespace protocols::fs;
 	switch (type) {
 	case SOCK_RAW: {
@@ -389,7 +389,7 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int prot
 		udp.serveSocket(std::move(lane));
 		return managarm::fs::Errors::SUCCESS;
 	case SOCK_STREAM:
-		tcp.serveSocket(std::move(lane));
+		tcp.serveSocket(flags, std::move(lane));
 		return managarm::fs::Errors::SUCCESS;
 	default:
 		return managarm::fs::Errors::ILLEGAL_ARGUMENT;

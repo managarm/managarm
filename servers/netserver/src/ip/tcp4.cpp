@@ -180,15 +180,15 @@ protocols::fs::Error checkAddress(const void *addrPtr, size_t addrLength, TcpEnd
 } // anonymous namespace
 
 struct Tcp4Socket {
-	Tcp4Socket(Tcp4 *parent)
-	: parent_(parent), recvRing_{4}, sendRing_{4} {}
+	Tcp4Socket(Tcp4 *parent, bool nonBlock)
+	: parent_(parent), nonBlock_{nonBlock}, recvRing_{4}, sendRing_{4} {}
 
 	~Tcp4Socket() {
 		parent_->unbind(localEp_);
 	}
 
-	static auto makeSocket(Tcp4 *parent) {
-		auto s = smarter::make_shared<Tcp4Socket>(parent);
+	static auto makeSocket(Tcp4 *parent, bool nonBlock) {
+		auto s = smarter::make_shared<Tcp4Socket>(parent, nonBlock);
 		s->holder_ = s;
 		async::detach(s->flushOutPackets_());
 		return s;
@@ -289,6 +289,10 @@ struct Tcp4Socket {
 		while(progress < size) {
 			size_t available = self->recvRing_.availableToDequeue();
 			if(!available) {
+				if(progress)
+					break;
+				if(self->nonBlock_)
+					co_return protocols::fs::Error::wouldBlock;
 				co_await self->inEvent_.async_wait();
 				continue;
 			}
@@ -304,7 +308,7 @@ struct Tcp4Socket {
 		sa.sin_addr.s_addr = arch::to_endian<arch::big_endian, uint32_t>(self->remoteEp_.ipAddress);
 		memcpy(addrPtr, &sa, std::min(sizeof(struct sockaddr_in), addrLength));
 
-		co_return protocols::fs::RecvData{size, sizeof(struct sockaddr_in), {}};
+		co_return protocols::fs::RecvData{progress, sizeof(struct sockaddr_in), {}};
 	}
 
 	static async::result<protocols::fs::SendResult> sendMsg(void *object,
@@ -319,6 +323,11 @@ struct Tcp4Socket {
 		while(progress < size) {
 			size_t space = self->sendRing_.spaceForEnqueue();
 			if(!space) {
+				if(self->nonBlock_) {
+					if(progress)
+						break;
+					co_return protocols::fs::Error::wouldBlock;
+				}
 				co_await self->settleEvent_.async_wait();
 				continue;
 			}
@@ -328,7 +337,7 @@ struct Tcp4Socket {
 			progress += chunk;
 		}
 
-		co_return size;
+		co_return progress;
 	}
 
 	static async::result<protocols::fs::PollResult>
@@ -404,6 +413,7 @@ private:
 	};
 
 	Tcp4 *parent_;
+	bool nonBlock_;
 	TcpEndpoint remoteEp_;
 	TcpEndpoint localEp_;
 	smarter::weak_ptr<Tcp4Socket> holder_;
@@ -688,9 +698,9 @@ bool Tcp4::unbind(TcpEndpoint e) {
 	return binds.erase(e) != 0;
 }
 
-void Tcp4::serveSocket(helix::UniqueLane lane) {
+void Tcp4::serveSocket(int flags, helix::UniqueLane lane) {
 	using protocols::fs::servePassthrough;
-	auto sock = Tcp4Socket::makeSocket(this);
+	auto sock = Tcp4Socket::makeSocket(this, flags & SOCK_NONBLOCK);
 	async::detach(servePassthrough(std::move(lane), std::move(sock),
 			&Tcp4Socket::ops));
 }

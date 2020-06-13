@@ -119,7 +119,7 @@ async::detached serve(helix::UniqueLane lane) {
 			}
 
 			auto err = ip4().serveSocket(std::move(local_lane),
-				req.type(), req.protocol());
+					req.type(), req.protocol(), req.flags());
 			if (err != managarm::fs::SUCCESS) {
 				co_await sendError(err);
 				continue;
