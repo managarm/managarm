@@ -640,17 +640,22 @@ ManagedSpace::~ManagedSpace() {
 }
 
 bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	ManagedPage *pit;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&mutex);
 
-	size_t index = page->identity;
-	auto pit = pages.find(index);
-	assert(pit);
-	assert(pit->loadState == kStatePresent);
-	pit->loadState = kStateEvicting;
-	globalReclaimer->removePage(&pit->cachePage);
+		size_t index = page->identity;
+		pit = pages.find(index);
+		assert(pit);
+		assert(pit->loadState == kStatePresent);
+		assert(!pit->lockCount);
+		pit->loadState = kStateEvicting;
+		globalReclaimer->removePage(&pit->cachePage);
+	}
 
-	async::detach_with_allocator(*kernelAlloc, [] (ManagedSpace *self, CachePage *page, ManagedPage *pit,
+	async::detach_with_allocator(*kernelAlloc, [] (
+			ManagedSpace *self, CachePage *page, ManagedPage *pit,
 			ReclaimNode *continuation) -> coroutine<void> {
 		co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
 
@@ -845,17 +850,22 @@ void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 
 	async::detach_with_allocator(*kernelAlloc, [] (BackingMemory *self, size_t newPages,
 			async::any_receiver<void> receiver) -> coroutine<void> {
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&self->_managed->mutex);
+		size_t oldPages;
+		{
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&self->_managed->mutex);
+
+			oldPages = self->_managed->numPages;
+			self->_managed->numPages = newPages;
+		}
 
 		if(newPages > self->_managed->numPages) {
 			// Do nothing for now.
 		}else if(newPages < self->_managed->numPages) {
-			co_await self->_managed->_evictQueue.evictRange(newPages << kPageShift,
-					self->_managed->numPages << kPageShift);
 			// TODO: also free the affected pages!
+			co_await self->_managed->_evictQueue.evictRange(newPages << kPageShift,
+					oldPages << kPageShift);
 		}
-		self->_managed->numPages = newPages;
 
 		receiver.set_value();
 	}(this, newPages, std::move(receiver)));
@@ -1314,62 +1324,66 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 	// Note that locked pages require special attention during CoW: as we cannot
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
+	frigg::SharedPtr<CopyOnWriteMemory> forked;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
 
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+		// Create a new CowChain for both the original and the forked mapping.
+		// To correct handle locks pages, we move only non-locked pages from
+		// the original mapping to the new chain.
+		auto newChain = frigg::makeShared<CowChain>(*kernelAlloc, _copyChain);
 
-	// Create a new CowChain for both the original and the forked mapping.
-	// To correct handle locks pages, we move only non-locked pages from
-	// the original mapping to the new chain.
-	auto newChain = frigg::makeShared<CowChain>(*kernelAlloc, _copyChain);
+		// Update the original mapping
+		_copyChain = newChain;
 
-	// Update the original mapping
-	_copyChain = newChain;
+		// Create a new mapping in the forked space.
+		forked = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+				_view, _viewOffset, _length, newChain);
 
-	// Create a new mapping in the forked space.
-	auto forked = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
-			_view, _viewOffset, _length, newChain);
+		// Finally, inspect all copied pages owned by the original mapping.
+		for(size_t pg = 0; pg < _length; pg += kPageSize) {
+			auto osIt = _ownedPages.find(pg >> kPageShift);
 
-	// Finally, inspect all copied pages owned by the original mapping.
-	for(size_t pg = 0; pg < _length; pg += kPageSize) {
-		auto osIt = _ownedPages.find(pg >> kPageShift);
+			if(!osIt)
+				continue;
+			assert(osIt->state == CowState::hasCopy);
 
-		if(!osIt)
-			continue;
-		assert(osIt->state == CowState::hasCopy);
+			// The page is locked. We *need* to keep it in the old address space.
+			if(osIt->lockCount /*|| disableCow */) {
+				// Allocate a new physical page for a copy.
+				auto copyPhysical = physicalAllocator->allocate(kPageSize);
+				assert(copyPhysical != PhysicalAddr(-1) && "OOM");
 
-		// The page is locked. We *need* to keep it in the old address space.
-		if(osIt->lockCount /*|| disableCow */) {
-			// Allocate a new physical page for a copy.
-			auto copyPhysical = physicalAllocator->allocate(kPageSize);
-			assert(copyPhysical != PhysicalAddr(-1) && "OOM");
+				// As the page is locked anyway, we can just copy it synchronously.
+				PageAccessor lockedAccessor{osIt->physical};
+				PageAccessor copyAccessor{copyPhysical};
+				memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
 
-			// As the page is locked anyway, we can just copy it synchronously.
-			PageAccessor lockedAccessor{osIt->physical};
-			PageAccessor copyAccessor{copyPhysical};
-			memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
+				// Update the chains.
+				auto fsIt = forked->_ownedPages.insert(pg >> kPageShift);
+				fsIt->state = CowState::hasCopy;
+				fsIt->physical = copyPhysical;
+			}else{
+				auto physical = osIt->physical;
+				assert(physical != PhysicalAddr(-1));
 
-			// Update the chains.
-			auto fsIt = forked->_ownedPages.insert(pg >> kPageShift);
-			fsIt->state = CowState::hasCopy;
-			fsIt->physical = copyPhysical;
-		}else{
-			auto physical = osIt->physical;
-			assert(physical != PhysicalAddr(-1));
-
-			// Update the chains.
-			auto pageOffset = _viewOffset + pg;
-			auto newIt = newChain->_pages.insert(pageOffset >> kPageShift,
-					PhysicalAddr(-1));
-			_ownedPages.erase(pg >> kPageShift);
-			newIt->store(physical, std::memory_order_relaxed);
+				// Update the chains.
+				auto pageOffset = _viewOffset + pg;
+				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift,
+						PhysicalAddr(-1));
+				_ownedPages.erase(pg >> kPageShift);
+				newIt->store(physical, std::memory_order_relaxed);
+			}
 		}
 	}
 
-	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
-			async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) -> coroutine<void> {
-			co_await self->_evictQueue.evictRange(0, self->_length);
-			receiver.set_value({kErrSuccess, std::move(forked)});
+	async::detach_with_allocator(*kernelAlloc,
+			[] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
+			async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver)
+			-> coroutine<void> {
+		co_await self->_evictQueue.evictRange(0, self->_length);
+		receiver.set_value({kErrSuccess, std::move(forked)});
 	}(this, std::move(forked), receiver));
 }
 
