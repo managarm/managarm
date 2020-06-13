@@ -285,6 +285,10 @@ struct Tcp4Socket {
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
 
+		if(flags & ~MSG_PEEK)
+			std::cout << "\e[31m" "netserver/tcp: Encountered unexpected recvMsg() flags: "
+					<< flags << "\e[39m" << std::endl;
+
 		size_t progress = 0;
 		while(progress < size) {
 			size_t available = self->recvRing_.availableToDequeue();
@@ -297,9 +301,12 @@ struct Tcp4Socket {
 				continue;
 			}
 			size_t chunk = std::min(available, size - progress);
-			self->recvRing_.dequeue(p + progress, chunk);
-			self->flushEvent_.ring();
+			self->recvRing_.dequeueLookahead(0, p + progress, chunk);
 			progress += chunk;
+			if(flags & MSG_PEEK)
+				break;
+			self->recvRing_.dequeueAdvance(chunk);
+			self->flushEvent_.ring();
 		}
 
 		struct sockaddr_in sa;
