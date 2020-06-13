@@ -9,6 +9,7 @@ namespace thor {
 namespace {
 	constexpr bool logUsage = false;
 	constexpr bool logUncaching = false;
+	constexpr bool tortureUncaching = false;
 
 	// The following flags are debugging options to debug the correctness of various components.
 	constexpr bool disableUncaching = false;
@@ -84,10 +85,21 @@ struct MemoryReclaimer {
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&_mutex);
 
-				if(_cachedSize <= (1 << 20))
-					return false;
 				if(_lruList.empty())
 					return false;
+
+				if(!tortureUncaching) {
+					auto pagesWatermark = physicalAllocator->numTotalPages() * 3 / 4;
+					auto usedPages = physicalAllocator->numUsedPages();
+					if(usedPages < pagesWatermark) {
+						return false;
+					}else{
+						if(logUncaching)
+							frigg::infoLogger() << "thor: Uncaching page. " << usedPages
+									<< " pages are in use (watermark: " << pagesWatermark << ")"
+									<< frigg::endLog;
+					}
+				}
 
 				page = _lruList.pop_front();
 
