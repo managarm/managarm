@@ -2425,7 +2425,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
 					req.domain(),
-					req.socktype(), req.protocol());
+					req.socktype(), req.protocol(),
+					req.flags() & SOCK_NONBLOCK);
 			}else{
 				throw std::runtime_error("posix: Handle unknown protocol families");
 			}
