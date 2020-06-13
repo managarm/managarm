@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "types.hpp"
 #include <physical-buddy.hpp>
 
