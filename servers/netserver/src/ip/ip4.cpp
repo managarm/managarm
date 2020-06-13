@@ -151,9 +151,9 @@ struct Ip4Socket {
 	}
 
 	constexpr static FileOperations ops {
+		.connect = &connect,
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
-		.connect = &connect,
 	};
 private:
 	friend struct Ip4;

@@ -334,8 +334,8 @@ struct Udp4Socket {
 
 
 	constexpr static FileOperations ops {
-		.connect = &connect,
 		.bind = &bind,
+		.connect = &connect,
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
 	};
