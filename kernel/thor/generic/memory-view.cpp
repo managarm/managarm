@@ -1153,7 +1153,6 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 		}else{
 			assert(pit->loadState == ManagedSpace::kStateWantWriteback
 					|| pit->loadState == ManagedSpace::kStateAnotherWriteback);
-			return;
 		}
 	}
 
