@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include <async/result.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/doorbell.hpp>
 #include <boost/intrusive/list.hpp>
 
@@ -23,6 +24,8 @@ typedef int ProcessId;
 struct VmContext {
 	static std::shared_ptr<VmContext> create();
 	static std::shared_ptr<VmContext> clone(std::shared_ptr<VmContext> original);
+
+	~VmContext();
 
 	helix::BorrowedDescriptor getSpace() {
 		return _space;
@@ -265,7 +268,7 @@ public:
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
 
-	void raiseContext(SignalItem *item, Process *process, Generation *generation);
+	async::result<void> raiseContext(SignalItem *item, Process *process);
 
 	void restoreContext(helix::BorrowedDescriptor thread);
 
@@ -301,14 +304,16 @@ struct ResourceUsage {
 	uint64_t userTime;
 };
 
-// Represents exactly the state of a process that is changed by execve().
-// In particular, stores the kernel thread.
+// This struct is mainly needed to coordinate the destruction of kernel threads
+// and request handelers during exec(). The exec() and terminate() implementations
+// use it to wait until all running request handlers are finished.
 struct Generation {
 	~Generation();
 
-	helix::UniqueLane posixLane;
-	helix::UniqueDescriptor threadDescriptor;
+	bool inTermination = false;
 	async::cancellation_event cancelServe;
+	async::oneshot_event signalsDone;
+	async::oneshot_event requestsDone;
 };
 
 struct ThreadPage {
@@ -458,12 +463,16 @@ public:
 		return _egid;
 	}
 
-	std::shared_ptr<Generation> currentGeneration() {
-		return _currentGeneration;
-	}
-
 	std::string path() {
 		return _path;
+	}
+
+	helix::BorrowedLane posixLane() {
+		return _posixLane;
+	}
+
+	helix::BorrowedDescriptor threadDescriptor() {
+		return _threadDescriptor;
 	}
 
 	// As the contexts associated with a process can change (e.g. when unshare() is implemented),
@@ -498,7 +507,7 @@ public:
 	// Preconditon: the thread has to be stopped!
 	bool checkOrRequestSignalRaise();
 
-	void terminate(TerminationState state);
+	async::result<void> terminate(TerminationState state);
 
 	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state);
 
@@ -514,8 +523,10 @@ private:
 	int _euid;
 	int _gid;
 	int _egid;
-	std::shared_ptr<Generation> _currentGeneration;
 	std::string _path;
+	helix::UniqueLane _posixLane;
+	helix::UniqueDescriptor _threadDescriptor;
+	std::shared_ptr<Generation> _currentGeneration;
 	std::shared_ptr<VmContext> _vmContext;
 	std::shared_ptr<FsContext> _fsContext;
 	std::shared_ptr<FileContext> _fileContext;

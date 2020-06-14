@@ -66,7 +66,7 @@ std::shared_ptr<Process> findProcessWithCredentials(const char *credentials) {
 }
 
 void dumpRegisters(std::shared_ptr<Process> proc) {
-	helix::BorrowedDescriptor thread = proc->currentGeneration()->threadDescriptor;
+	auto thread = proc->threadDescriptor();
 
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
@@ -143,19 +143,21 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 
 async::detached observeThread(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
-	helix::BorrowedDescriptor thread = generation->threadDescriptor;
+	auto thread = self->threadDescriptor();
 
 	uint64_t sequence = 1;
 	while(true) {
+		if(generation->inTermination)
+			break;
+
 		helix::Observe observe;
 		auto &&submit = helix::submitObserve(thread, &observe,
 				sequence, helix::Dispatcher::global());
 		co_await submit.async_wait();
 
+		// Usually, we should terminate via the generation->inTermination check above.
 		if(observe.error() == kHelErrThreadTerminated) {
-			if(logCleanup)
-				std::cout << "\e[33mposix: Thread was killed\e[39m" << std::endl;
-			generation->cancelServe.cancel();
+			std::cout << "\e[31m" "posix: Thread terminated unexpectedly" "\e[39m" << std::endl;
 			co_return;
 		}
 
@@ -219,7 +221,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			auto child = Process::fork(self);
 
 			// Copy registers from the current thread to the new one.
-			auto new_thread = child->currentGeneration()->threadDescriptor.getHandle();
+			auto new_thread = child->threadDescriptor().getHandle();
 			uintptr_t pcrs[2], gprs[15], thrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
@@ -249,7 +251,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 
 			auto child = Process::clone(self, ip, sp);
 
-			auto new_thread = child->currentGeneration()->threadDescriptor.getHandle();
+			auto new_thread = child->threadDescriptor().getHandle();
 
 			gprs[4] = kHelErrNone;
 			gprs[5] = child->pid();
@@ -328,7 +330,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto code = gprs[kHelRegRsi];
 
-			self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
+			co_await self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
@@ -368,7 +370,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
-				self->signalContext()->raiseContext(active, self.get(), generation.get());
+				co_await self->signalContext()->raiseContext(active, self.get());
 			if(auto e = helResume(thread.getHandle()); e) {
 				if(e == kHelErrThreadTerminated)
 					continue;
@@ -417,7 +419,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(self->checkOrRequestSignalRaise()) {
 				auto active = self->signalContext()->fetchSignal(~self->signalMask());
 				if(active)
-					self->signalContext()->raiseContext(active, self.get(), generation.get());
+					co_await self->signalContext()->raiseContext(active, self.get());
 			}
 			if(auto e = helResume(thread.getHandle()); e) {
 				if(e == kHelErrThreadTerminated)
@@ -429,7 +431,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(self->checkOrRequestSignalRaise()) {
 				auto active = self->signalContext()->fetchSignal(~self->signalMask());
 				if(active)
-					self->signalContext()->raiseContext(active, self.get(), generation.get());
+					co_await self->signalContext()->raiseContext(active, self.get());
 			}
 			if(auto e = helResume(thread.getHandle()); e) {
 				if(e == kHelErrThreadTerminated)
@@ -447,7 +449,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous user space panic" "\e[39m" << std::endl;
-			self->signalContext()->raiseContext(item, self.get(), generation.get());
+			co_await self->signalContext()->raiseContext(item, self.get());
 		}else if(observe.observation() == kHelObserveBreakpoint) {
 			printf("\e[35mposix: Breakpoint in process %s\n", self->path().c_str());
 			dumpRegisters(self);
@@ -464,7 +466,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
-			self->signalContext()->raiseContext(item, self.get(), generation.get());
+			co_await self->signalContext()->raiseContext(item, self.get());
 		}else if(observe.observation() == kHelObserveGeneralFault) {
 			printf("\e[31mposix: General fault in process %s\n", self->path().c_str());
 			dumpRegisters(self);
@@ -476,7 +478,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
-			self->signalContext()->raiseContext(item, self.get(), generation.get());
+			co_await self->signalContext()->raiseContext(item, self.get());
 		}else if(observe.observation() == kHelObserveIllegalInstruction) {
 			printf("\e[31mposix: Illegal instruction in process %s\n", self->path().c_str());
 			dumpRegisters(self);
@@ -488,7 +490,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
-			self->signalContext()->raiseContext(item, self.get(), generation.get());
+			co_await self->signalContext()->raiseContext(item, self.get());
 		}else{
 			printf("\e[31mposix: Unexpected observation in process %s\n", self->path().c_str());
 			dumpRegisters(self);
@@ -500,14 +502,14 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
-			self->signalContext()->raiseContext(item, self.get(), generation.get());
+			co_await self->signalContext()->raiseContext(item, self.get());
 		}
 	}
 }
 
 async::detached serveSignals(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
-	helix::BorrowedDescriptor thread = generation->threadDescriptor;
+	auto thread = self->threadDescriptor();
 	async::cancellation_token cancellation = generation->cancelServe;
 
 	uint64_t sequence = 1;
@@ -524,6 +526,7 @@ async::detached serveSignals(std::shared_ptr<Process> self,
 
 	if(logCleanup)
 		std::cout << "\e[33mposix: Exiting serveSignals()\e[39m" << std::endl;
+	generation->signalsDone.raise();
 }
 
 async::result<void> serveRequests(std::shared_ptr<Process> self,
@@ -531,14 +534,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 	async::cancellation_token cancellation = generation->cancelServe;
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
-		HEL_CHECK(helShutdownLane(generation->posixLane.getHandle()));
+		HEL_CHECK(helShutdownLane(self->posixLane().getHandle()));
 	}};
 
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(generation->posixLane, helix::Dispatcher::global(),
+		auto &&header = helix::submitAsync(self->posixLane(), helix::Dispatcher::global(),
 				helix::action(&accept));
 		co_await header.async_wait();
 
@@ -778,7 +781,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: GET_RESOURCE_USAGE" << std::endl;
 
 			HelThreadStats stats;
-			HEL_CHECK(helQueryThreadStats(generation->threadDescriptor.getHandle(), &stats));
+			HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
 
 			uint64_t user_time;
 			if(req.mode() == RUSAGE_SELF) {
@@ -2843,11 +2846,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 	}
 
 	if(logCleanup)
-		std::cout << "\e[33mposix: Existing serveRequests()\e[39m" << std::endl;
+		std::cout << "\e[33mposix: Exiting serveRequests()\e[39m" << std::endl;
+	generation->requestsDone.raise();
 }
 
 void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {
-	helix::BorrowedDescriptor thread = generation->threadDescriptor;
+	auto thread = self->threadDescriptor();
 
 	std::array<char, 16> creds;
 	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));

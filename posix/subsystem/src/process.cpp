@@ -68,6 +68,11 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 	return context;
 }
 
+VmContext::~VmContext() {
+	if(logCleanup)
+		std::cout << "\e[33mposix: VmContext is destructed\e[39m" << std::endl;
+}
+
 async::result<void *>
 VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		smarter::shared_ptr<File, FileHandle> file,
@@ -531,8 +536,8 @@ struct SignalFrame {
 	siginfo_t info;
 };
 
-void SignalContext::raiseContext(SignalItem *item, Process *process, Generation *generation) {
-	helix::BorrowedDescriptor thread = generation->threadDescriptor;
+async::result<void> SignalContext::raiseContext(SignalItem *item, Process *process) {
+	auto thread = process->threadDescriptor();
 
 	SignalHandler handler = _handlers[item->signalNumber];
 	assert(!(handler.flags & signalOnce));
@@ -540,12 +545,11 @@ void SignalContext::raiseContext(SignalItem *item, Process *process, Generation 
 	if(handler.disposition == SignalDisposition::none) {
 		if(item->signalNumber == SIGCHLD) { // TODO: Handle default actions generically.
 			// Ignore the signal.
-			return;
+			co_return;
 		}else{
 			std::cout << "posix: Thread killed as the result of a signal" << std::endl;
-			// TODO: Make sure that we are in the current generation?
-			process->terminate(TerminationBySignal{item->signalNumber});
-			return;
+			co_await process->terminate(TerminationBySignal{item->signalNumber});
+			co_return;
 		}
 	}
 
@@ -759,12 +763,12 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	if(!threadResult)
 		throw std::logic_error("Could not execute() init process");
 
-	auto generation = std::make_shared<Generation>();
-	generation->threadDescriptor = std::move(threadResult.value());
-	generation->posixLane = std::move(server_lane);
+	process->_threadDescriptor = std::move(threadResult.value());
+	process->_posixLane = std::move(server_lane);
 
+	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
-	helResume(generation->threadDescriptor.getHandle());
+	helResume(process->_threadDescriptor.getHandle());
 	serve(process, std::move(generation));
 
 	co_return process;
@@ -814,14 +818,14 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	original->_children.push_back(process);
 	process->_hull->initializeProcess(process.get());
 
-	auto generation = std::make_shared<Generation>();
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
 			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 			0, 0, kHelThreadStopped, &new_thread));
-	generation->threadDescriptor = helix::UniqueDescriptor{new_thread};
-	generation->posixLane = std::move(server_lane);
+	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
+	process->_posixLane = std::move(server_lane);
 
+	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
 	serve(process, std::move(generation));
 
@@ -868,14 +872,14 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	original->_children.push_back(process);
 	process->_hull->initializeProcess(process.get());
 
-	auto generation = std::make_shared<Generation>();
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
 			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 			ip, sp, kHelThreadStopped, &new_thread));
-	generation->threadDescriptor = helix::UniqueDescriptor{new_thread};
-	generation->posixLane = std::move(server_lane);
+	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
+	process->_posixLane = std::move(server_lane);
 
+	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
 	serve(process, std::move(generation));
 
@@ -903,6 +907,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 		}
 	}
 
+	// Allocate resources.
 	HelHandle exec_posix_lane;
 	auto [server_lane, client_lane] = helix::createStream();
 	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
@@ -925,11 +930,23 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 			nullptr, 0, 0x1000, kHelMapProtRead,
 			&exec_client_table));
 
-	process->_fileContext->closeOnExec();
+	// Kill the old thread.
+	// After this is done, we cannot roll back the exec() operation.
+	HEL_CHECK(helKillThread(process->_threadDescriptor.getHandle()));
+	auto previousGeneration = process->_currentGeneration;
+	previousGeneration->inTermination = true;
+	previousGeneration->cancelServe.cancel();
+	co_await previousGeneration->signalsDone.wait();
+	co_await previousGeneration->requestsDone.wait();
 
+	// Perform pre-exec() work.
+	// From here on, we can now release resources of the old process image.
+	process->_fileContext->closeOnExec();
 
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
+	process->_posixLane = std::move(server_lane);
+	process->_threadDescriptor = std::move(threadResult.value());
 	process->_vmContext = std::move(exec_vm_context);
 	process->_signalContext->resetHandlers();
 	process->_clientThreadPage = exec_thread_page;
@@ -938,12 +955,8 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
 
 	auto generation = std::make_shared<Generation>();
-	generation->threadDescriptor = std::move(threadResult.value());
-	generation->posixLane = std::move(server_lane);
-
-	auto previous = std::exchange(process->_currentGeneration, generation);
-	HEL_CHECK(helKillThread(previous->threadDescriptor.getHandle()));
-	helResume(generation->threadDescriptor.getHandle());
+	process->_currentGeneration = generation;
+	helResume(process->_threadDescriptor.getHandle());
 	serve(process, std::move(generation));
 
 	co_return Error::success;
@@ -954,19 +967,25 @@ void Process::retire(Process *process) {
 	process->_parent->_childrenUsage.userTime += process->_generationUsage.userTime;
 }
 
-void Process::terminate(TerminationState state) {
+async::result<void> Process::terminate(TerminationState state) {
 	auto parent = getParent();
 	assert(parent);
 
-	// Kill the current Generation and accumulate stats.
-	HEL_CHECK(helKillThread(_currentGeneration->threadDescriptor.getHandle()));
+	// Kill the current thread and accumulate stats.
+	HEL_CHECK(helKillThread(_threadDescriptor.getHandle()));
+	_currentGeneration->inTermination = true;
+	_currentGeneration->cancelServe.cancel();
+	co_await _currentGeneration->signalsDone.wait();
+	co_await _currentGeneration->requestsDone.wait();
 
 	// TODO: Also do this before switching to a new Generation in execve().
 	// TODO: Do the accumulation + _currentGeneration reset after the thread has really terminated?
 	HelThreadStats stats;
-	HEL_CHECK(helQueryThreadStats(_currentGeneration->threadDescriptor.getHandle(), &stats));
+	HEL_CHECK(helQueryThreadStats(_threadDescriptor.getHandle(), &stats));
 	_generationUsage.userTime += stats.userTime;
 
+	_posixLane = {};
+	_threadDescriptor = {};
 	_vmContext = nullptr;
 	_fsContext = nullptr;
 	_fileContext = nullptr;
