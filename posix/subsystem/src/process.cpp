@@ -886,6 +886,23 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 		std::string path, std::vector<std::string> args, std::vector<std::string> env) {
 	auto exec_vm_context = VmContext::create();
 
+	// Perform the exec() in a new VM context so that we
+	// can catch errors before trashing the calling process.
+	auto threadResult = co_await execute(process->_fsContext->getRoot(),
+			process->_fsContext->getWorkingDirectory(),
+			path, std::move(args), std::move(env), exec_vm_context,
+			process->_fileContext->getUniverse(),
+			process->_fileContext->clientMbusLane());
+	if(!threadResult) {
+		switch(threadResult.error()) {
+		case Error::noSuchFile:
+		case Error::badExecutable:
+			co_return threadResult.error();
+		default:
+			throw std::logic_error("Unexpected error from execute()");
+		}
+	}
+
 	HelHandle exec_posix_lane;
 	auto [server_lane, client_lane] = helix::createStream();
 	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
@@ -908,25 +925,8 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 			nullptr, 0, 0x1000, kHelMapProtRead,
 			&exec_client_table));
 
-	// TODO: We should only do this if the execute succeeds.
 	process->_fileContext->closeOnExec();
 
-	// Perform the exec() in a new VM context so that we
-	// can catch errors before trashing the calling process.
-	auto threadResult = co_await execute(process->_fsContext->getRoot(),
-			process->_fsContext->getWorkingDirectory(),
-			path, std::move(args), std::move(env), exec_vm_context,
-			process->_fileContext->getUniverse(),
-			process->_fileContext->clientMbusLane());
-	if(!threadResult) {
-		switch(threadResult.error()) {
-		case Error::noSuchFile:
-		case Error::badExecutable:
-			co_return threadResult.error();
-		default:
-			throw std::logic_error("Unexpected error from execute()");
-		}
-	}
 
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
