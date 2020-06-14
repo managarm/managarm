@@ -321,6 +321,9 @@ void Mapping::retire() {
 	assert(_state == MappingState::zombie);
 	_state = MappingState::retired;
 
+	if(_view->canEvictMemory())
+		_cancelEviction.cancel();
+
 	// TODO: It would be less ugly to run this in a non-detached way.
 	auto cleanUpObserver = [] (Mapping *self) -> coroutine<void> {
 		if(self->_view->canEvictMemory())
@@ -336,7 +339,9 @@ void Mapping::retire() {
 
 coroutine<void> Mapping::runEvictionLoop_() {
 	while(true) {
-		auto eviction = co_await _view->pollEviction(&_observer, {});
+		auto eviction = co_await _view->pollEviction(&_observer, _cancelEviction);
+		if(!eviction)
+			break;
 		if(eviction.offset() + eviction.size() <= _viewOffset
 				|| eviction.offset() >= _viewOffset + length()) {
 			eviction.done();

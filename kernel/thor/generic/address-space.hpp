@@ -442,6 +442,7 @@ private:
 
 	MappingState _state = MappingState::null;
 	MemoryObserver _observer;
+	async::cancellation_event _cancelEviction;
 	async::oneshot_event _evictionDoneEvent;
 	frigg::SharedPtr<MemorySlice> _slice;
 	frigg::SharedPtr<MemoryView> _view;

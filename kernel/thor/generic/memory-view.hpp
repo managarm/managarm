@@ -249,7 +249,7 @@ struct EvictionQueue {
 	}
 
 	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
-		return observer->agent_.poll();
+		return observer->agent_.poll(std::move(ct));
 	}
 
 	auto evictRange(uintptr_t offset, size_t size) {
@@ -345,7 +345,7 @@ public:
 	}
 
 	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
-		return async::transform(observer->agent_.poll(),
+		return async::transform(observer->agent_.poll(std::move(ct)),
 			[] (async::post_ack_handle<RangeToEvict> handle) {
 				return Eviction{std::move(handle)};
 			}
