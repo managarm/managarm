@@ -213,7 +213,7 @@ execute(ViewPath root, ViewPath workdir,
 	assert(ldsoFile);
 	auto ldsoInfo = FRG_CO_TRY(co_await load(ldsoFile, vmContext.get(), 0x40000000));
 
-	constexpr size_t stackSize = 0x10000;
+	constexpr size_t stackSize = 0x200000;
 
 	// Allocate memory for the stack.
 	HelHandle stackHandle;
