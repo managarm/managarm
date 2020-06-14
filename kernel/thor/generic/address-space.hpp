@@ -1,7 +1,9 @@
 #pragma once
 
 #include <async/basic.hpp>
+#include <async/oneshot-event.hpp>
 #include <frg/container_of.hpp>
+#include "execution/coroutine.hpp"
 #include "memory-view.hpp"
 
 namespace thor {
@@ -196,7 +198,7 @@ enum class MappingState {
 	retired
 };
 
-struct Mapping : MemoryObserver {
+struct Mapping {
 	Mapping(size_t length, MappingFlags flags,
 			frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
 
@@ -246,8 +248,6 @@ struct Mapping : MemoryObserver {
 	void synchronize(uintptr_t offset, size_t length);
 	void uninstall();
 	void retire();
-
-	bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) override;
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for lockVirtualRange()
@@ -433,12 +433,16 @@ protected:
 	uint32_t compilePageFlags();
 
 private:
+	coroutine<void> runEvictionLoop_();
+
 	smarter::shared_ptr<VirtualSpace> _owner;
 	VirtualAddr _address;
 	size_t _length;
 	MappingFlags _flags;
 
 	MappingState _state = MappingState::null;
+	MemoryObserver _observer;
+	async::oneshot_event _evictionDoneEvent;
 	frigg::SharedPtr<MemorySlice> _slice;
 	frigg::SharedPtr<MemoryView> _view;
 	size_t _viewOffset;

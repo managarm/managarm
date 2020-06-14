@@ -1,5 +1,7 @@
 #pragma once
 
+#include <async/algorithm.hpp>
+#include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/vector.hpp>
@@ -188,34 +190,40 @@ private:
 	PhysicalRange _range;
 };
 
-struct EvictNode {
-	void setup(Worklet *worklet, size_t pending) {
-		_pending.store(pending, std::memory_order_relaxed);
-		_worklet = worklet;
+struct RangeToEvict {
+	uintptr_t offset;
+	size_t size;
+};
+
+struct Eviction {
+	Eviction() = default;
+
+	Eviction(async::post_ack_handle<RangeToEvict> handle)
+	: handle_{std::move(handle)} { }
+
+	explicit operator bool () {
+		return static_cast<bool>(handle_);
 	}
+
+	uintptr_t offset() { return handle_->offset; }
+	uintptr_t size() { return handle_->size; }
 
 	void done() {
-		if(_pending.fetch_sub(1, std::memory_order_acq_rel) == 1)
-			WorkQueue::post(_worklet);
-	}
-
-	bool retirePending(size_t n) {
-		return _pending.fetch_sub(n, std::memory_order_acq_rel) == n;
+		handle_.ack();
 	}
 
 private:
-	std::atomic<size_t> _pending;
-	Worklet *_worklet;
+	async::post_ack_handle<RangeToEvict> handle_;
 };
 
 struct MemoryObserver {
-	// Called before pages from a MemoryView are evicted.
-	// *Important*: While the caller always calls this with a positive RC,
-	//              it does *not* keep a reference until EvictNode::complete() is called!
-	//              Thus, observeEviction() should increment/decrement the RC itself.
-	virtual bool observeEviction(uintptr_t offset, size_t length, EvictNode *node) = 0;
+	friend struct MemoryView;
+	friend struct EvictionQueue;
 
 	frg::default_list_hook<MemoryObserver> listHook;
+
+private:
+	async::post_ack_agent<RangeToEvict> agent_;
 };
 
 struct EvictionQueue {
@@ -223,6 +231,7 @@ struct EvictionQueue {
 		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&mutex_);
 
+		observer->agent_.attach(&mechanism_);
 		observers_.push_back(observer.get());
 		numObservers_++;
 		observer.release(); // Reference is now owned by the EvictionQueue.
@@ -232,85 +241,20 @@ struct EvictionQueue {
 		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&mutex_);
 
+		observer->agent_.detach();
 		auto it = observers_.iterator_to(observer.get());
 		observers_.erase(it);
 		numObservers_--;
 		observer.ctr()->decrement();
 	}
 
-	// ----------------------------------------------------------------------------------
-	// Sender-based implementation of evictRange()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct EvictRangeOperation;
-
-	struct [[nodiscard]] EvictRangeSender {
-		template<typename R>
-		friend EvictRangeOperation<R>
-		connect(EvictRangeSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		EvictionQueue *self;
-		uintptr_t offset;
-		size_t size;
-	};
-
-	EvictRangeSender evictRange(uintptr_t offset, size_t size) {
-		return {this, offset, size};
+	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
+		return observer->agent_.poll();
 	}
 
-	template<typename R>
-	struct EvictRangeOperation {
-		EvictRangeOperation(EvictRangeSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		EvictRangeOperation(const EvictRangeOperation &) = delete;
-
-		EvictRangeOperation &operator= (const EvictRangeOperation &) = delete;
-
-		void start() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &EvictRangeOperation::worklet_);
-				async::execution::set_value(op->receiver_);
-			});
-
-			// TODO: This needs to be called without holding a lock.
-			//       After all, Mapping often calls into this class, leading to deadlocks.
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&s_.self->mutex_);
-
-			if(!s_.self->numObservers_) {
-				WorkQueue::post(&worklet_); // Force into slow-path for now.
-				return;
-			}
-
-			size_t numFastPaths = 0;
-			node_.setup(&worklet_, s_.self->numObservers_);
-			for(auto observer : s_.self->observers_)
-				if(observer->observeEviction(s_.offset, s_.size, &node_))
-					numFastPaths++;
-			if(!numFastPaths)
-				return;
-			if(!node_.retirePending(numFastPaths))
-				return;
-			WorkQueue::post(&worklet_); // Force into slow-path for now.
-		}
-
-	private:
-		EvictRangeSender s_;
-		R receiver_;
-		Worklet worklet_;
-		EvictNode node_;
-	};
-
-	friend async::sender_awaiter<EvictRangeSender, void>
-	operator co_await(EvictRangeSender sender) {
-		return {sender};
+	auto evictRange(uintptr_t offset, size_t size) {
+		return mechanism_.post(RangeToEvict{offset, size});
 	}
-
-	// ----------------------------------------------------------------------------------
 
 private:
 	frigg::TicketLock mutex_;
@@ -325,6 +269,7 @@ private:
 	> observers_;
 
 	size_t numObservers_ = 0;
+	async::post_ack_mechanism<RangeToEvict> mechanism_;
 };
 
 // View on some pages of memory. This is the "frontend" part of a memory object.
@@ -342,6 +287,9 @@ protected:
 	static void callbackFetch(FetchNode *node) {
 		WorkQueue::post(node->_fetched);
 	}
+
+	MemoryView(EvictionQueue *associatedEvictionQueue = nullptr)
+	: associatedEvictionQueue_{associatedEvictionQueue} { }
 
 public:
 	virtual size_t getLength() = 0;
@@ -387,6 +335,22 @@ public:
 
 	virtual Error setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
 			uintptr_t offset, size_t size);
+
+	// ----------------------------------------------------------------------------------
+	// Memory eviction.
+	// ----------------------------------------------------------------------------------
+
+	bool canEvictMemory() {
+		return associatedEvictionQueue_;
+	}
+
+	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
+		return async::transform(observer->agent_.poll(),
+			[] (async::post_ack_handle<RangeToEvict> handle) {
+				return Eviction{std::move(handle)};
+			}
+		);
+	}
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for resize()
@@ -540,6 +504,9 @@ public:
 	}
 
 	// ----------------------------------------------------------------------------------
+
+private:
+	EvictionQueue *associatedEvictionQueue_;
 };
 
 struct SliceRange {
@@ -808,7 +775,7 @@ struct ManagedSpace : CacheBundle {
 struct BackingMemory final : MemoryView {
 public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
-	: _managed{std::move(managed)} { }
+	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	BackingMemory(const BackingMemory &) = delete;
 
@@ -833,7 +800,7 @@ private:
 struct FrontalMemory final : MemoryView {
 public:
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
-	: _managed{std::move(managed)} { }
+	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	FrontalMemory(const FrontalMemory &) = delete;
 
@@ -873,17 +840,13 @@ struct IndirectMemory final : MemoryView {
 			uintptr_t offset, size_t size) override;
 
 private:
-	struct SlotObserver : MemoryObserver {
-		bool observeEviction(uintptr_t offset, size_t length, EvictNode *node);
-	};
-
 	struct IndirectionSlot {
 		IndirectMemory *owner;
 		size_t slot;
 		frigg::SharedPtr<MemoryView> memory;
 		uintptr_t offset;
 		size_t size;
-		SlotObserver observer;
+		MemoryObserver observer;
 	};
 
 	frigg::TicketLock mutex_;

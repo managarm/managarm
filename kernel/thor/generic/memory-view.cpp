@@ -1294,15 +1294,10 @@ Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> m
 		return kErrOutOfBounds;
 	auto indirection = smarter::allocate_shared<IndirectionSlot>(*kernelAlloc,
 			this, slot, memory, offset, size);
+	// TODO: start a coroutine to observe evictions.
 	memory->addObserver(smarter::shared_ptr<MemoryObserver>{indirection, &indirection->observer});
 	indirections_[slot] = std::move(indirection);
 	return kErrSuccess;
-}
-
-bool IndirectMemory::SlotObserver::observeEviction(uintptr_t offset, size_t length,
-		EvictNode *node) {
-	assert(!"TODO: implement eviction of IndirectMemory");
-	__builtin_trap();
 }
 
 // --------------------------------------------------------
@@ -1312,7 +1307,8 @@ bool IndirectMemory::SlotObserver::observeEviction(uintptr_t offset, size_t leng
 CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<MemoryView> view,
 		uintptr_t offset, size_t length,
 		frigg::SharedPtr<CowChain> chain)
-: _view{std::move(view)}, _viewOffset{offset}, _length{length}, _copyChain{std::move(chain)},
+: MemoryView{&_evictQueue}, _view{std::move(view)},
+		_viewOffset{offset}, _length{length}, _copyChain{std::move(chain)},
 		_ownedPages{*kernelAlloc} {
 	assert(length);
 	assert(!(offset & (kPageSize - 1)));

@@ -215,7 +215,13 @@ bool Mapping::touchVirtualPage(TouchVirtualNode *continuation) {
 void Mapping::install() {
 	assert(_state == MappingState::null);
 	_state = MappingState::active;
-	_view->addObserver(smarter::static_pointer_cast<Mapping>(selfPtr.lock()));
+
+	_view->addObserver(smarter::shared_ptr<MemoryObserver>{
+			smarter::static_pointer_cast<Mapping>(selfPtr.lock()),
+			&_observer});
+
+	if(_view->canEvictMemory())
+		async::detach_with_allocator(*kernelAlloc, runEvictionLoop_());
 
 	uint32_t pageFlags = 0;
 	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
@@ -225,7 +231,7 @@ void Mapping::install() {
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-	// Synchronize with observeEviction().
+	// Synchronize with the eviction loop.
 	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_evictMutex);
 
@@ -254,7 +260,7 @@ void Mapping::reinstall() {
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-	// Synchronize with observeEviction().
+	// Synchronize with the eviction loop.
 	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_evictMutex);
 
@@ -280,7 +286,7 @@ void Mapping::synchronize(uintptr_t offset, size_t size) {
 	assert(_state == MappingState::active);
 	assert(offset + size <= length());
 
-	// Synchronize with observeEviction().
+	// Synchronize with the eviction loop.
 	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_evictMutex);
 
@@ -313,72 +319,89 @@ void Mapping::uninstall() {
 
 void Mapping::retire() {
 	assert(_state == MappingState::zombie);
-	_view->removeObserver(smarter::static_pointer_cast<Mapping>(selfPtr));
 	_state = MappingState::retired;
+
+	// TODO: It would be less ugly to run this in a non-detached way.
+	auto cleanUpObserver = [] (Mapping *self) -> coroutine<void> {
+		if(self->_view->canEvictMemory())
+			co_await self->_evictionDoneEvent.wait();
+		self->_view->removeObserver(smarter::shared_ptr<MemoryObserver>{
+				smarter::static_pointer_cast<Mapping>(self->selfPtr.lock()),
+				&self->_observer});
+		self->selfPtr.ctr()->decrement();
+	};
+	selfPtr.ctr()->increment(); // Keep this object alive until the coroutines completes.
+	async::detach_with_allocator(*kernelAlloc, cleanUpObserver(this));
 }
 
-bool Mapping::observeEviction(uintptr_t evict_offset, size_t evict_length,
-		EvictNode *continuation) {
-	assert(_state == MappingState::active);
-
-	if(evict_offset + evict_length <= _viewOffset
-			|| evict_offset >= _viewOffset + length())
-		return true;
-
-	// Begin and end offsets of the region that we need to unmap.
-	auto shoot_begin = frg::max(evict_offset, _viewOffset);
-	auto shoot_end = frg::min(evict_offset + evict_length, _viewOffset + length());
-
-	// Offset from the beginning of the mapping.
-	auto shoot_offset = shoot_begin - _viewOffset;
-	auto shoot_size = shoot_end - shoot_begin;
-	assert(shoot_size);
-	assert(!(shoot_offset & (kPageSize - 1)));
-	assert(!(shoot_size & (kPageSize - 1)));
-
-	// Wait until we are allowed to evict existing pages.
-	// TODO: invent a more specialized synchronization mechanism for this.
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_evictMutex);
-	}
-
-	// TODO: Perform proper locking here!
-
-	// Unmap the memory range.
-	for(size_t pg = 0; pg < shoot_size; pg += kPageSize) {
-		auto status = owner()->_ops->unmapSingle4k(address() + shoot_offset + pg);
-		if(!(status & page_status::present))
+coroutine<void> Mapping::runEvictionLoop_() {
+	while(true) {
+		auto eviction = co_await _view->pollEviction(&_observer, {});
+		if(eviction.offset() + eviction.size() <= _viewOffset
+				|| eviction.offset() >= _viewOffset + length()) {
+			eviction.done();
 			continue;
-		if(status & page_status::dirty)
-			_view->markDirty(_viewOffset + shoot_offset + pg, kPageSize);
-		owner()->_residuentSize -= kPageSize;
+		}
+
+		// Begin and end offsets of the region that we need to unmap.
+		auto shootBegin = frg::max(eviction.offset(), _viewOffset);
+		auto shootEnd = frg::min(eviction.offset() + eviction.size(),
+				_viewOffset + length());
+
+		// Offset from the beginning of the mapping.
+		auto shootOffset = shootBegin - _viewOffset;
+		auto shootSize = shootEnd - shootBegin;
+		assert(shootSize);
+		assert(!(shootOffset & (kPageSize - 1)));
+		assert(!(shootSize & (kPageSize - 1)));
+
+		// Wait until we are allowed to evict existing pages.
+		// TODO: invent a more specialized synchronization mechanism for this.
+		{
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_evictMutex);
+		}
+
+		// TODO: Perform proper locking here!
+
+		// Unmap the memory range.
+		for(size_t pg = 0; pg < shootSize; pg += kPageSize) {
+			auto status = owner()->_ops->unmapSingle4k(address() + shootOffset + pg);
+			if(!(status & page_status::present))
+				continue;
+			if(status & page_status::dirty)
+				_view->markDirty(_viewOffset + shootOffset + pg, kPageSize);
+			owner()->_residuentSize -= kPageSize;
+		}
+
+		// Perform shootdown.
+		struct Closure {
+			smarter::shared_ptr<Mapping> mapping; // Need to keep the Mapping alive.
+			Worklet worklet;
+			ShootNode node;
+			Eviction eviction;
+		} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+		closure->worklet.setup([] (Worklet *base) {
+			auto closure = frg::container_of(base, &Closure::worklet);
+			closure->eviction.done();
+			frigg::destruct(*kernelAlloc, closure);
+		});
+		closure->mapping = selfPtr.lock();
+		closure->eviction = std::move(eviction);
+
+		closure->node.address = address() + shootOffset;
+		closure->node.size = shootSize;
+		closure->node.setup(&closure->worklet);
+		if(!owner()->_ops->submitShootdown(&closure->node))
+			continue;
+
+		closure->eviction.done();
+		frigg::destruct(*kernelAlloc, closure);
+		continue;
 	}
 
-	// Perform shootdown.
-	struct Closure {
-		smarter::shared_ptr<Mapping> mapping; // Need to keep the Mapping alive.
-		Worklet worklet;
-		ShootNode node;
-		EvictNode *continuation;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	closure->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		closure->continuation->done();
-		frigg::destruct(*kernelAlloc, closure);
-	});
-	closure->mapping = selfPtr.lock();
-	closure->continuation = continuation;
-
-	closure->node.address = address() + shoot_offset;
-	closure->node.size = shoot_size;
-	closure->node.setup(&closure->worklet);
-	if(!owner()->_ops->submitShootdown(&closure->node))
-		return false;
-
-	frigg::destruct(*kernelAlloc, closure);
-	return true;
+	_evictionDoneEvent.raise();
 }
 
 // --------------------------------------------------------
