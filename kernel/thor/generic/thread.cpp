@@ -407,6 +407,8 @@ void Thread::destruct() {
 		frigg::infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m"
 				<< frigg::endLog;
 	_kill();
+	_mainWorkQueue.selfPtr = {};
+	_pagingWorkQueue.selfPtr = {};
 }
 
 void Thread::cleanup() {
