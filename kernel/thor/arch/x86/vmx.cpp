@@ -351,7 +351,6 @@ namespace thor::vmx {
 				exitInfo.exitReason = khelVmexitHlt;
 				return exitInfo;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
-				frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 				size_t address = vmread(EPT_VIOLATION_ADDRESS);
 				struct Closure {
 					ThreadBlocker blocker;

@@ -466,8 +466,9 @@ size_t computeBarLength(uintptr_t mask) {
 
 	assert(mask);
 	size_t length_bits = __builtin_ctzl(mask);
-	size_t decoded_bits = 64 - __builtin_clzl(mask);
-	//FIXME: assert(__builtin_popcountl(mask) == decoded_bits - length_bits);
+	// TODO: Bits decoded by the PCI device.
+	// size_t decoded_bits = 64 - __builtin_clzl(mask);
+	// FIXME: assert(__builtin_popcountl(mask) == decoded_bits - length_bits);
 
 	return size_t(1) << length_bits;
 }

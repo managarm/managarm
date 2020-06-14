@@ -33,6 +33,7 @@ Region *obtainRegion() {
 		return &regions[i];
 	}
 	frigg::panicLogger() << "Eir: Memory region limit exhausted" << frigg::endLog;
+	__builtin_unreachable();
 }
 
 void createInitialRegion(address_t base, address_t size) {
@@ -93,6 +94,7 @@ address_t cutFromRegion(size_t size) {
 	}
 	
 	frigg::panicLogger() << "Eir: Unable to cut memory from a region" << frigg::endLog;
+	__builtin_unreachable();
 }
 
 void setupRegionStructs() {
@@ -223,9 +225,8 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 	}
 
 	frigg::panicLogger() << "Eir: Out of memory" << frigg::endLog;
+	__builtin_unreachable();
 }
-
-
 
 uintptr_t allocPage() {
 	for(size_t i = 0; i < numRegions; ++i) {
@@ -244,6 +245,7 @@ uintptr_t allocPage() {
 	}
 
 	frigg::panicLogger() << "Eir: Out of memory" << frigg::endLog;
+	__builtin_unreachable();
 }
 
 uintptr_t eirPml4Pointer = 0;

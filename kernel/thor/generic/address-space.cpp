@@ -15,12 +15,6 @@ namespace {
 	constexpr bool logCleanup = false;
 	constexpr bool logUsage = false;
 
-	// Perform more rigorous checks on spurious page faults.
-	// Those checks should not be necessary if the code is correct but they help to catch bugs.
-	constexpr bool thoroughSpuriousAssertions = true;
-
-	constexpr bool disableCow = false;
-
 	void logRss(VirtualSpace *space) {
 		if(!logUsage)
 			return;
@@ -291,8 +285,6 @@ void Mapping::synchronize(uintptr_t offset, size_t size) {
 	auto lock = frigg::guard(&_evictMutex);
 
 	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto physicalRange = _view->peekRange(_viewOffset + progress);
-
 		VirtualAddr vaddr = address() + offset + progress;
 		auto status = owner()->_ops->cleanSingle4k(vaddr);
 		if(!(status & page_status::present))

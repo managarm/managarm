@@ -13,6 +13,7 @@ namespace frigg FRIGG_VISIBILITY {
 
 class VirtualSink {
 public:
+	virtual ~VirtualSink() { }
 	virtual void print(char c) = 0;
 	virtual void print(const char *str) = 0;
 };

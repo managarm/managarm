@@ -12,10 +12,6 @@
 #include <acpispec/tables.h>
 #include <lai/host.h>
 
-namespace {
-	constexpr bool logEverySci = false;
-}
-
 namespace thor {
 namespace acpi {
 	extern void *globalRsdtWindow;

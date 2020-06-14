@@ -87,7 +87,6 @@ bool EptSpace::isMapped(VirtualAddr guestAddress) {
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
 	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
 	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
-	int offset = (size_t)guestAddress & (0x1000 - 1);
 
 	PageAccessor spaceAccessor{spaceRoot};
 	size_t* pml4e = reinterpret_cast<size_t*>(spaceAccessor.get());
@@ -161,7 +160,6 @@ PageStatus EptSpace::unmap(uint64_t guestAddress) {
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
 	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
 	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
-	int offset = (size_t)guestAddress & (0x1000 - 1);
 
 	PageAccessor spaceAccessor{spaceRoot};
 	size_t* pml4e = reinterpret_cast<size_t*>(spaceAccessor.get());
@@ -242,12 +240,12 @@ Error EptSpace::load(uintptr_t guestAddress, size_t size, void* buffer) {
 
 bool EptSpace::submitShootdown(ShootNode *node) {
 	EptPtr ptr = {spaceRoot, 0};
-	auto addr = node->address;
 	asm volatile (
 		"invept (%0), %1;"
 		: : "r"(&ptr), "r"((uint64_t)1)
 	);
 	WorkQueue::post(node->_worklet);
+	return false;
 }
 
 void EptSpace::retire(RetireNode *node) {
