@@ -764,6 +764,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	generation->posixLane = std::move(server_lane);
 
 	process->_currentGeneration = generation;
+	helResume(generation->threadDescriptor.getHandle());
 	serve(process, std::move(generation));
 
 	co_return process;
@@ -936,13 +937,13 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
 
-	// TODO: execute() should return a stopped thread that we can start here.
 	auto generation = std::make_shared<Generation>();
 	generation->threadDescriptor = std::move(threadResult.value());
 	generation->posixLane = std::move(server_lane);
 
 	auto previous = std::exchange(process->_currentGeneration, generation);
 	HEL_CHECK(helKillThread(previous->threadDescriptor.getHandle()));
+	helResume(generation->threadDescriptor.getHandle());
 	serve(process, std::move(generation));
 
 	co_return Error::success;

@@ -294,7 +294,8 @@ execute(ViewPath root, ViewPath workdir,
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe.getHandle(),
 			vmContext->getSpace().getHandle(), kHelAbiSystemV,
-			(void *)ldsoInfo.entryIp, (char *)stackBase + d, 0, &thread));
+			(void *)ldsoInfo.entryIp, (char *)stackBase + d,
+			kHelThreadStopped, &thread));
 
 	co_return helix::UniqueDescriptor{thread};
 }
