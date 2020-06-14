@@ -238,6 +238,7 @@ execute(ViewPath root, ViewPath workdir,
 		return reinterpret_cast<uintptr_t>(stackBase) + d;
 	};
 
+	auto execfn = pushString(path);
 	std::vector<uintptr_t> argsPtrs;
 	for(const auto &str : args)
 		argsPtrs.push_back(pushString(str));
@@ -272,6 +273,8 @@ execute(ViewPath root, ViewPath workdir,
 		binaryInfo.phdrCount,
 		AT_MBUS_SERVER,
 		static_cast<uintptr_t>(mbusHandle),
+		AT_EXECFN,
+		execfn,
 		AT_NULL,
 		0
 	});
