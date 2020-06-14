@@ -53,8 +53,11 @@ void WorkQueue::run() {
 		_anyPosted.store(false, std::memory_order_relaxed);
 	}
 
+	// Keep this shared pointer to avoid destructing *this here.
+	frigg::SharedPtr<WorkQueue> self;
 	while(!_pending.empty()) {
 		auto worklet = _pending.pop_front();
+		self = std::move(worklet->_workQueue);
 		worklet->_run(worklet);
 	}
 }
