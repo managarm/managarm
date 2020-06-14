@@ -450,14 +450,6 @@ HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-void HardwareMemory::addObserver(smarter::shared_ptr<MemoryObserver>) {
-	// As we never evict memory, there is no need to handle observers.
-}
-
-void HardwareMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver>) {
-	// As we never evict memory, there is no need to handle observers.
-}
-
 Error HardwareMemory::lockRange(uintptr_t offset, size_t size) {
 	// Hardware memory is "always locked".
 	return kErrSuccess;
@@ -564,14 +556,6 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 	PageAccessor accessor{_physicalChunks[index]
 			+ ((offset % _chunkSize) / kPageSize)};
 	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
-}
-
-void AllocatedMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
-	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
-}
-
-void AllocatedMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
-	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
 Error AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
@@ -883,14 +867,6 @@ void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 	}(this, newPages, std::move(receiver)));
 }
 
-void BackingMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
-	_managed->_evictQueue.addObserver(std::move(observer));
-}
-
-void BackingMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
-	_managed->_evictQueue.removeObserver(observer);
-}
-
 Error BackingMemory::lockRange(uintptr_t offset, size_t size) {
 	return _managed->lockPages(offset, size);
 }
@@ -1006,14 +982,6 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 // --------------------------------------------------------
 // FrontalMemory
 // --------------------------------------------------------
-
-void FrontalMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
-	_managed->_evictQueue.addObserver(std::move(observer));
-}
-
-void FrontalMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
-	_managed->_evictQueue.removeObserver(observer);
-}
 
 Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
 	return _managed->lockPages(offset, size);
@@ -1207,14 +1175,6 @@ IndirectMemory::~IndirectMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-void IndirectMemory::addObserver(smarter::shared_ptr<MemoryObserver>) {
-	// As we never evict memory, there is no need to handle observers.
-}
-
-void IndirectMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver>) {
-	// As we never evict memory, there is no need to handle observers.
-}
-
 Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
 	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex_);
@@ -1295,7 +1255,7 @@ Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> m
 	auto indirection = smarter::allocate_shared<IndirectionSlot>(*kernelAlloc,
 			this, slot, memory, offset, size);
 	// TODO: start a coroutine to observe evictions.
-	memory->addObserver(smarter::shared_ptr<MemoryObserver>{indirection, &indirection->observer});
+	memory->addObserver(&indirection->observer);
 	indirections_[slot] = std::move(indirection);
 	return kErrSuccess;
 }
@@ -1392,14 +1352,6 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 		co_await self->_evictQueue.evictRange(0, self->_length);
 		receiver.set_value({kErrSuccess, std::move(forked)});
 	}(this, std::move(forked), receiver));
-}
-
-void CopyOnWriteMemory::addObserver(smarter::shared_ptr<MemoryObserver> observer) {
-	_evictQueue.addObserver(std::move(observer));
-}
-
-void CopyOnWriteMemory::removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
-	_evictQueue.removeObserver(observer);
 }
 
 Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {

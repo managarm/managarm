@@ -227,25 +227,23 @@ private:
 };
 
 struct EvictionQueue {
-	void addObserver(smarter::shared_ptr<MemoryObserver> observer) {
+	void addObserver(MemoryObserver *observer) {
 		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&mutex_);
 
 		observer->agent_.attach(&mechanism_);
-		observers_.push_back(observer.get());
+		observers_.push_back(observer);
 		numObservers_++;
-		observer.release(); // Reference is now owned by the EvictionQueue.
 	}
 
-	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) {
+	void removeObserver(MemoryObserver *observer) {
 		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&mutex_);
 
 		observer->agent_.detach();
-		auto it = observers_.iterator_to(observer.get());
+		auto it = observers_.iterator_to(observer);
 		observers_.erase(it);
 		numObservers_--;
-		observer.ctr()->decrement();
 	}
 
 	auto pollEviction(MemoryObserver *observer, async::cancellation_token ct) {
@@ -292,6 +290,17 @@ protected:
 	: associatedEvictionQueue_{associatedEvictionQueue} { }
 
 public:
+	// Add/remove memory observers. These will be notified of page evictions.
+	void addObserver(MemoryObserver *observer) {
+		if(associatedEvictionQueue_)
+			associatedEvictionQueue_->addObserver(observer);
+	}
+
+	void removeObserver(MemoryObserver *observer) {
+		if(associatedEvictionQueue_)
+			associatedEvictionQueue_->removeObserver(observer);
+	}
+
 	virtual size_t getLength() = 0;
 
 	virtual void resize(size_t newLength, async::any_receiver<void> receiver);
@@ -299,10 +308,6 @@ public:
 	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
 
 	virtual void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver);
-
-	// Add/remove memory observers. These will be notified of page evictions.
-	virtual void addObserver(smarter::shared_ptr<MemoryObserver> observer) = 0;
-	virtual void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) = 0;
 
 	// Acquire/release a lock on a memory range.
 	// While a lock is active, results of peekRange() and fetchRange() stay consistent.
@@ -657,8 +662,6 @@ struct HardwareMemory final : MemoryView {
 	HardwareMemory &operator= (const HardwareMemory &) = delete;
 
 	size_t getLength() override;
-	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
-	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -683,8 +686,6 @@ struct AllocatedMemory final : MemoryView {
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;
-	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
-	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -783,8 +784,6 @@ public:
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;
-	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
-	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -807,8 +806,6 @@ public:
 	FrontalMemory &operator= (const FrontalMemory &) = delete;
 
 	size_t getLength() override;
-	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
-	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -828,8 +825,6 @@ struct IndirectMemory final : MemoryView {
 	IndirectMemory &operator= (const IndirectMemory &) = delete;
 
 	size_t getLength() override;
-	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
-	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -878,8 +873,6 @@ public:
 
 	size_t getLength() override;
 	void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) override;
-	void addObserver(smarter::shared_ptr<MemoryObserver> observer) override;
-	void removeObserver(smarter::borrowed_ptr<MemoryObserver> observer) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void asyncLockRange(uintptr_t offset, size_t size,
 			async::any_receiver<Error> receiver) override;

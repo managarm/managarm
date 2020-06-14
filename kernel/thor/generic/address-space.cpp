@@ -210,9 +210,7 @@ void Mapping::install() {
 	assert(_state == MappingState::null);
 	_state = MappingState::active;
 
-	_view->addObserver(smarter::shared_ptr<MemoryObserver>{
-			smarter::static_pointer_cast<Mapping>(selfPtr.lock()),
-			&_observer});
+	_view->addObserver(&_observer);
 
 	if(_view->canEvictMemory())
 		async::detach_with_allocator(*kernelAlloc, runEvictionLoop_());
@@ -320,9 +318,7 @@ void Mapping::retire() {
 	auto cleanUpObserver = [] (Mapping *self) -> coroutine<void> {
 		if(self->_view->canEvictMemory())
 			co_await self->_evictionDoneEvent.wait();
-		self->_view->removeObserver(smarter::shared_ptr<MemoryObserver>{
-				smarter::static_pointer_cast<Mapping>(self->selfPtr.lock()),
-				&self->_observer});
+		self->_view->removeObserver(&self->_observer);
 		self->selfPtr.ctr()->decrement();
 	};
 	selfPtr.ctr()->increment(); // Keep this object alive until the coroutines completes.
