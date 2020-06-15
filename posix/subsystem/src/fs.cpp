@@ -14,7 +14,7 @@ VfsType FsNode::getType() {
 	throw std::runtime_error("getType() is not implemented for this FsNode");
 }
 
-FutureMaybe<FileStats> FsNode::getStats() {
+async::result<frg::expected<Error, FileStats>> FsNode::getStats() {
 	throw std::runtime_error("getStats() is not implemented for this FsNode");
 }
 
@@ -39,11 +39,11 @@ void FsNode::removeObserver(FsObserver *observer) {
 	_observers.erase(it);
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::getLink(std::string) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::getLink(std::string) {
 	throw std::runtime_error("getLink() is not implemented for this FsNode");
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
 	throw std::runtime_error("link() is not implemented for this FsNode");
 }
 
@@ -53,22 +53,22 @@ FsNode::mkdir(std::string) {
 	co_return Error::illegalOperationTarget;
 }
 
-FutureMaybe<std::variant<Error, std::shared_ptr<FsLink>>>
+async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 FsNode::symlink(std::string, std::string) {
 	std::cout << "posix: symlink() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkdev(std::string, VfsType, DeviceId) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkdev(std::string, VfsType, DeviceId) {
 	throw std::runtime_error("mkdev() is not implemented for this FsNode");
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkfifo(std::string, mode_t) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkfifo(std::string, mode_t) {
 	throw std::runtime_error("mkfifo() is not implemented for this FsNode");
 }
 
 
-FutureMaybe<void> FsNode::unlink(std::string) {
+async::result<frg::expected<Error>> FsNode::unlink(std::string) {
 	throw std::runtime_error("unlink() is not implemented for this FsNode");
 }
 
@@ -77,7 +77,7 @@ async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
 	co_return Error::illegalOperationTarget;
 }
 
-FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }

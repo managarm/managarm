@@ -45,8 +45,8 @@ std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 	return *it;
 }
 
-FutureMaybe<SharedFilePtr> openDevice(VfsType type, DeviceId id,
-		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> openDevice(VfsType type,
+		DeviceId id, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(type == VfsType::charDevice) {
 		auto device = charRegistry.get(id);
@@ -75,12 +75,15 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 	while(true) {
 		size_t s = path.find('/', k);
 		if(s == std::string::npos) {
-			co_await node->mkdev(path.substr(k), type, id);
+			auto result = co_await node->mkdev(path.substr(k), type, id);
+			assert(result);
 			break;
 		}else{
 			assert(s > k);
 			std::shared_ptr<FsLink> link;
-			link = co_await node->getLink(path.substr(k, s - k));
+			auto linkResult = co_await node->getLink(path.substr(k, s - k));
+			assert(linkResult);
+			link = linkResult.value();
 			// TODO: Check for errors from mkdir().
 			if(!link)
 				link = std::get<std::shared_ptr<FsLink>>(

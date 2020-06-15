@@ -1170,7 +1170,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
-			if(co_await parent->getLink(resolver.nextComponent())) {
+			auto existsResult = co_await parent->getLink(resolver.nextComponent());
+			assert(existsResult);
+			auto exists = existsResult.value();
+			if(exists) {
 				resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
 
 				auto ser = resp.SerializeAsString();
@@ -1246,7 +1249,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			co_await parent->mkfifo(resolver.nextComponent(), req.mode());
+			auto result = co_await parent->mkfifo(resolver.nextComponent(), req.mode());
+			if(!result) {
+				std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
+				co_return;
+			}
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::LINKAT) {
@@ -1322,7 +1329,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto target = resolver.currentLink()->getTarget();
 			auto directory = new_resolver.currentLink()->getTarget();
 			assert(target->superblock() == directory->superblock()); // Hard links across mount points are not allowed, return EXDEV
-			co_await directory->link(new_resolver.nextComponent(), target);
+			auto result = co_await directory->link(new_resolver.nextComponent(), target);
+			if(!result) {
+				std::cout << "posix: Unexpected failure from link()" << std::endl;
+				co_return;
+			}
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -1493,7 +1504,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto stats = co_await target_link->getTarget()->getStats();
+			auto statsResult = co_await target_link->getTarget()->getStats();
+			assert(statsResult);
+			auto stats = statsResult.value();
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -1760,7 +1773,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
-				auto tail = co_await directory->getLink(resolver.nextComponent());
+				auto tailResult = co_await directory->getLink(resolver.nextComponent());
+				assert(tailResult);
+				auto tail = tailResult.value();
 				if(tail) {
 					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
 						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
@@ -1773,9 +1788,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						HEL_CHECK(send_resp.error());
 						continue;
 					}else{
-						file = co_await tail->getTarget()->open(
-								resolver.currentView(), std::move(tail),
-								semantic_flags);
+						auto fileResult = co_await tail->getTarget()->open(
+											resolver.currentView(), std::move(tail),
+											semantic_flags);
+						assert(fileResult);
+						file = fileResult.value();
 						assert(file);
 					}
 				}else{
@@ -1784,9 +1801,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					// Due to races, link() can fail here.
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
-					auto link = co_await directory->link(resolver.nextComponent(), node);
-					file = co_await node->open(resolver.currentView(), std::move(link),
-							semantic_flags);
+					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
+					assert(linkResult);
+					auto link = linkResult.value();
+					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 					assert(file);
 				}
 			}else{
@@ -1794,8 +1815,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
-					file = co_await target->open(resolver.currentView(), resolver.currentLink(),
-							semantic_flags);
+					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 				}
 			}
 
@@ -1889,7 +1912,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
-				auto tail = co_await directory->getLink(resolver.nextComponent());
+				auto tailResult = co_await directory->getLink(resolver.nextComponent());
+				assert(tailResult);
+				auto tail = tailResult.value();
 				if(tail) {
 					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
 						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
@@ -1902,9 +1927,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						HEL_CHECK(send_resp.error());
 						continue;
 					}else{
-						file = co_await tail->getTarget()->open(
-								resolver.currentView(), std::move(tail),
-								semantic_flags);
+						auto fileResult = co_await tail->getTarget()->open(
+											resolver.currentView(), std::move(tail),
+											semantic_flags);
+						assert(fileResult);
+						file = fileResult.value();
 						assert(file);
 					}
 				}else{
@@ -1913,9 +1940,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					// Due to races, link() can fail here.
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
-					auto link = co_await directory->link(resolver.nextComponent(), node);
-					file = co_await node->open(resolver.currentView(), std::move(link),
-							semantic_flags);
+					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
+					assert(linkResult);
+					auto link = linkResult.value();
+					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 					assert(file);
 				}
 			}else{
@@ -1923,8 +1954,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
-					file = co_await target->open(resolver.currentView(), resolver.currentLink(),
-							semantic_flags);
+					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(),
+										semantic_flags);
+					assert(fileResult);
+					file = fileResult.value();
 				}
 			}
 
@@ -2191,7 +2224,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			} else {
 				auto owner = target_link->getOwner();
-				co_await owner->unlink(target_link->getName());
+				auto result = co_await owner->unlink(target_link->getName());
+				if(!result) {
+					std::cout << "posix: Unexpected failure from unlink()" << std::endl;
+					co_return;
+				}
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2222,7 +2259,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			} else {
 				auto owner = target_link->getOwner();
-				co_await owner->rmdir(target_link->getName());
+				auto result = co_await owner->rmdir(target_link->getName());
+				if(!result) {
+					std::cout << "posix: Unexpected failure from rmdir()" << std::endl;
+					co_return;
+				}
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);

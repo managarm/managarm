@@ -73,8 +73,8 @@ private:
 extern UnixDeviceRegistry charRegistry;
 extern UnixDeviceRegistry blockRegistry;
 
-FutureMaybe<smarter::shared_ptr<File, FileHandle>> openDevice(VfsType type, DeviceId id,
-		std::shared_ptr<MountView> mont, std::shared_ptr<FsLink> link,
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+openDevice(VfsType type, DeviceId id, std::shared_ptr<MountView> mont, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags);
 
 // --------------------------------------------------------

@@ -112,7 +112,7 @@ public:
 	virtual VfsType getType();
 
 	// TODO: This should be async.
-	virtual FutureMaybe<FileStats> getStats();
+	virtual async::result<frg::expected<Error, FileStats>> getStats();
 
 	// For directories only: Returns a pointer to the link
 	// that links this directory from its parent.
@@ -123,10 +123,10 @@ public:
 	virtual void removeObserver(FsObserver *observer);
 
 	//! Resolves a file in a directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name);
 
 	//! Links an existing node to this directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
@@ -138,18 +138,18 @@ public:
 	symlink(std::string name, std::string path);
 
 	//! Creates a new device file (directories only).
-	virtual FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name,
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name,
 			VfsType type, DeviceId id);
 
-	virtual FutureMaybe<std::shared_ptr<FsLink>> mkfifo(std::string name, mode_t mode);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
 
-	virtual FutureMaybe<void> unlink(std::string name);
+	virtual async::result<frg::expected<Error>> unlink(std::string name);
 
 	virtual async::result<frg::expected<Error>> rmdir(std::string name);
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
-	virtual FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags);
 
@@ -217,7 +217,7 @@ private:
 			return node->fileType_;
 		}
 
-		async::result<FileStats> getStats() override {
+		async::result<frg::expected<Error, FileStats>> getStats() override {
 			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
 			FileStats stats{};
 			// TODO: Allocate an inode number.

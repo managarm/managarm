@@ -294,7 +294,8 @@ public:
 
 		auto superblock = resolver.currentLink()->getTarget()->superblock();
 		auto node = co_await superblock->createSocket();
-		co_await resolver.currentLink()->getTarget()->link(resolver.nextComponent(), node);
+		auto result = co_await resolver.currentLink()->getTarget()->link(resolver.nextComponent(), node);
+		assert(result);
 
 		// Associate the current socket with the node.
 		auto res = globalBindMap.insert({std::weak_ptr<FsNode>{node}, this});

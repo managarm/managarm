@@ -119,7 +119,8 @@ async::result<void> populateRootView() {
 
 				auto file_path = "/" + item.second + "/" + resp.path();
 				auto node = tmp_fs::createMemoryNode(std::move(file_path));
-				co_await item.first->link(resp.path(), node);
+				auto result = co_await item.first->link(resp.path(), node);
+				assert(result);
 			}
 		}
 	}
@@ -236,7 +237,9 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
 			}
 		}else{
-			auto child = co_await _currentPath.second->getTarget()->getLink(std::move(name));
+			auto childResult = co_await _currentPath.second->getTarget()->getLink(std::move(name));
+			assert(childResult);
+			auto child = childResult.value();
 
 			if(!child) {
 				// TODO: Return an error code.
@@ -293,8 +296,9 @@ FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
 	co_return ViewPath(resolver.currentView(), resolver.currentLink());
 }
 
-FutureMaybe<SharedFilePtr> open(ViewPath root, ViewPath workdir,
-		std::string name, ResolveFlags resolve_flags, SemanticFlags semantic_flags) {
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
+		ViewPath workdir, std::string name, ResolveFlags resolve_flags,
+		SemanticFlags semantic_flags) {
 	ViewPath current = co_await resolve(std::move(root), std::move(workdir),
 			std::move(name), resolve_flags);
 	if(!current.second)

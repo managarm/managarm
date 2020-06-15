@@ -29,7 +29,7 @@ protected:
 	~Node() = default;
 
 public:
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = _inodeNumber;
@@ -137,8 +137,8 @@ private:
 		return _id;
 	}
 
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
+			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
 
@@ -164,8 +164,8 @@ private:
 		return VfsType::fifo;
 	}
 
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
+			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		co_return co_await fifo::openNamedChannel(mount, link, this, semantic_flags);
 	}
 
@@ -267,7 +267,7 @@ private:
 		return _treeLink;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
@@ -279,14 +279,14 @@ private:
 	}
 
 
-	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override {
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
 			co_return *it;
 		co_return nullptr; // TODO: Return an error code.
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target) override {
 		assert(_entries.find(name) == _entries.end());
 		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(target));
@@ -300,18 +300,18 @@ private:
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	symlink(std::string name, std::string path) override;
 
-	async::result<std::shared_ptr<FsLink>> mkdev(std::string name,
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name,
 			VfsType type, DeviceId id) override;
 
-	async::result<std::shared_ptr<FsLink>> mkfifo(std::string name, mode_t mode) override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode) override;
 
-	FutureMaybe<void> unlink(std::string name) override {
+	async::result<frg::expected<Error>> unlink(std::string name) override {
 		auto it = _entries.find(name);
 		assert(it != _entries.end());
 		_entries.erase(it);
 
 		notifyObservers(FsObserver::deleteEvent, name, 0);
-		co_return;
+		co_return {};
 	}
 
 public:
@@ -330,7 +330,7 @@ private:
 		return VfsType::regular;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
@@ -398,7 +398,7 @@ struct MemoryNode final : Node {
 		return VfsType::regular;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite | semanticNonBlock)));
@@ -408,7 +408,7 @@ struct MemoryNode final : Node {
 		co_return File::constructHandle(std::move(file));
 	}
 
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats() in MemoryNode\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = inodeNumber();
@@ -680,7 +680,7 @@ DirectoryNode::symlink(std::string name, std::string path) {
 	co_return link;
 }
 
-async::result<std::shared_ptr<FsLink>>
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<DeviceNode>(static_cast<Superblock *>(superblock()),
@@ -690,7 +690,7 @@ DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 	co_return link;
 }
 
-async::result<std::shared_ptr<FsLink>>
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);

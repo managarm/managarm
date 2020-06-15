@@ -255,7 +255,7 @@ public:
 		return _type;
 	}
 
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix pts DeviceNode::getStats()\e[39m" << std::endl;
 		co_return FileStats{};
 	}
@@ -264,7 +264,7 @@ public:
 		return _id;
 	}
 
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
@@ -288,12 +288,12 @@ public:
 		_entries.insert(std::move(link));
 	}
 
-	FutureMaybe<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix pts RootNode::getStats()\e[39m" << std::endl;
 		co_return FileStats{};
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>>
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	getLink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it != _entries.end())

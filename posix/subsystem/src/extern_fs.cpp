@@ -35,7 +35,7 @@ private:
 };
 
 struct Node : FsNode {
-	async::result<FileStats> getStats() override {
+	async::result<frg::expected<Error, FileStats>> getStats() override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -214,7 +214,7 @@ private:
 		return VfsType::regular;
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.
@@ -446,7 +446,7 @@ private:
 		}
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name, VfsType type, DeviceId id) override {
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name, VfsType type, DeviceId id) override {
 		(void)name;
 		(void)type;
 		(void)id;
@@ -454,7 +454,7 @@ private:
 		__builtin_unreachable();
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>>
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			getLink(std::string name) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -495,7 +495,7 @@ private:
 		}
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -537,7 +537,7 @@ private:
 		}
 	}
 
-	FutureMaybe<void> unlink(std::string name) override {
+	async::result<frg::expected<Error>> unlink(std::string name) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -559,6 +559,7 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		co_return {};
 	}
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
@@ -585,7 +586,7 @@ private:
 		co_return {};
 	}
 
-	FutureMaybe<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.

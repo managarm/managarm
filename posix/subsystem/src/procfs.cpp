@@ -154,7 +154,7 @@ VfsType RegularNode::getType() {
 	return VfsType::regular;
 }
 
-FutureMaybe<FileStats> RegularNode::getStats() {
+async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	// TODO: Store a file creation time.
 	auto now = clk::getRealtime();
 
@@ -174,7 +174,7 @@ FutureMaybe<FileStats> RegularNode::getStats() {
 	co_return stats;
 }
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
@@ -222,7 +222,7 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-FutureMaybe<FileStats> DirectoryNode::getStats() {
+async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	std::cout << "\e[31mposix: Fix procfs Directory::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }
@@ -232,7 +232,7 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
 }
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
@@ -243,7 +243,7 @@ DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> li
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;

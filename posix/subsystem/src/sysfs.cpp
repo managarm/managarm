@@ -170,7 +170,7 @@ VfsType AttributeNode::getType() {
 	return VfsType::regular;
 }
 
-FutureMaybe<FileStats> AttributeNode::getStats() {
+async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 	// TODO: Store a file creation time.
 	auto now = clk::getRealtime();
 	
@@ -190,8 +190,8 @@ FutureMaybe<FileStats> AttributeNode::getStats() {
 	co_return stats;
 }
 
-FutureMaybe<SharedFilePtr> AttributeNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags) {
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> AttributeNode::open(std::shared_ptr<MountView> mount,
+		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 
 	auto file = smarter::make_shared<AttributeFile>(std::move(mount), std::move(link));
@@ -211,7 +211,7 @@ VfsType SymlinkNode::getType() {
 	return VfsType::symlink;
 }
 
-FutureMaybe<FileStats> SymlinkNode::getStats() {
+async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
 	std::cout << "\e[31mposix: Fix sysfs SymlinkNode::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }
@@ -290,7 +290,7 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-FutureMaybe<FileStats> DirectoryNode::getStats() {
+async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	std::cout << "\e[31mposix: Fix sysfs Directory::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }
@@ -300,8 +300,8 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
 }
 
-FutureMaybe<SharedFilePtr> DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags) {
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> DirectoryNode::open(std::shared_ptr<MountView> mount,
+		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
 
 	auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
@@ -310,7 +310,7 @@ FutureMaybe<SharedFilePtr> DirectoryNode::open(std::shared_ptr<MountView> mount,
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
 	auto it = _entries.find(name);
 	if(it != _entries.end())
 		co_return *it;
