@@ -1250,7 +1250,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto result = co_await parent->mkfifo(resolver.nextComponent(), req.mode());
-			assert(result);
+			if(!result) {
+				std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
+				co_return;
+			}
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::LINKAT) {
@@ -1327,7 +1330,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto directory = new_resolver.currentLink()->getTarget();
 			assert(target->superblock() == directory->superblock()); // Hard links across mount points are not allowed, return EXDEV
 			auto result = co_await directory->link(new_resolver.nextComponent(), target);
-			assert(result);
+			if(!result) {
+				std::cout << "posix: Unexpected failure from link()" << std::endl;
+				co_return;
+			}
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -2219,7 +2225,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			} else {
 				auto owner = target_link->getOwner();
 				auto result = co_await owner->unlink(target_link->getName());
-				assert(result);
+				if(!result) {
+					std::cout << "posix: Unexpected failure from unlink()" << std::endl;
+					co_return;
+				}
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2251,7 +2260,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			} else {
 				auto owner = target_link->getOwner();
 				auto result = co_await owner->rmdir(target_link->getName());
-				assert(result);
+				if(!result) {
+					std::cout << "posix: Unexpected failure from rmdir()" << std::endl;
+					co_return;
+				}
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
