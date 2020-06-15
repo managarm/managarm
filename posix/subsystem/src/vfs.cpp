@@ -119,7 +119,8 @@ async::result<void> populateRootView() {
 
 				auto file_path = "/" + item.second + "/" + resp.path();
 				auto node = tmp_fs::createMemoryNode(std::move(file_path));
-				co_await item.first->link(resp.path(), node);
+				auto result = co_await item.first->link(resp.path(), node);
+				assert(result);
 			}
 		}
 	}

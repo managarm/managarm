@@ -75,7 +75,8 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 	while(true) {
 		size_t s = path.find('/', k);
 		if(s == std::string::npos) {
-			co_await node->mkdev(path.substr(k), type, id);
+			auto result = co_await node->mkdev(path.substr(k), type, id);
+			assert(result);
 			break;
 		}else{
 			assert(s > k);

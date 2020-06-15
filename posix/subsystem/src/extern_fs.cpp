@@ -559,6 +559,7 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		co_return {};
 	}
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
