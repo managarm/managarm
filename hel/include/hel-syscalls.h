@@ -210,16 +210,20 @@ extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(void
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helLoadForeign(HelHandle handle,
-		uintptr_t address, size_t length, void *buffer) {
-	return helSyscall4(kHelCallLoadForeign, (HelWord)handle, (HelWord)address,
-			(HelWord)length, (HelWord)buffer);
+extern inline __attribute__ (( always_inline )) HelError helSubmitReadMemory(HelHandle handle,
+		uintptr_t address, size_t length, void *buffer,
+		HelHandle queue, uintptr_t context) {
+	return helSyscall6(kHelCallSubmitReadMemory, (HelWord)handle, (HelWord)address,
+			(HelWord)length, (HelWord)buffer,
+			(HelWord)queue, (HelWord)context);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helStoreForeign(HelHandle handle,
-		uintptr_t address, size_t length, const void *buffer) {
-	return helSyscall4(kHelCallStoreForeign, (HelWord)handle, (HelWord)address,
-			(HelWord)length, (HelWord)buffer);
+extern inline __attribute__ (( always_inline )) HelError helSubmitWriteMemory(HelHandle handle,
+		uintptr_t address, size_t length, const void *buffer,
+		HelHandle queue, uintptr_t context) {
+	return helSyscall6(kHelCallSubmitWriteMemory, (HelWord)handle, (HelWord)address,
+			(HelWord)length, (HelWord)buffer,
+			(HelWord)queue, (HelWord)context);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helMemoryInfo(HelHandle handle, 

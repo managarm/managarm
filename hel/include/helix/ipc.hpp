@@ -1005,6 +1005,80 @@ inline SynchronizeSpaceOperation synchronizeSpace(helix::BorrowedDescriptor spac
 	return {spaceDescriptor, pointer, size};
 }
 
+// --------------------------------------------------------------------
+// Load/WriteMemory
+// --------------------------------------------------------------------
+
+struct [[nodiscard]] ReadMemoryOperation : private Context {
+	ReadMemoryOperation(helix::BorrowedDescriptor descriptor,
+			uintptr_t address, size_t length, void *buffer) {
+		auto context = static_cast<Context *>(this);
+		HEL_CHECK(helSubmitReadMemory(descriptor.getHandle(),
+				address, length, buffer,
+				Dispatcher::global().acquire(),
+				reinterpret_cast<uintptr_t>(context)));
+	}
+
+	ReadMemoryOperation(const ReadMemoryOperation &) = delete;
+
+	ReadMemoryOperation &operator= (const ReadMemoryOperation &) = delete;
+
+	auto operator co_await() {
+		using async::operator co_await;
+		return operator co_await(promise_.async_get());
+	}
+
+private:
+	void complete(ElementHandle element) override {
+		SynchronizeSpaceResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		promise_.set_value(std::move(result));
+	}
+
+	async::promise<SynchronizeSpaceResult> promise_;
+};
+
+inline ReadMemoryOperation readMemory(helix::BorrowedDescriptor descriptor,
+		uintptr_t address, size_t length, void *buffer) {
+	return {descriptor, address, length, buffer};
+}
+
+struct [[nodiscard]] WriteMemoryOperation : private Context {
+	WriteMemoryOperation(helix::BorrowedDescriptor descriptor,
+			uintptr_t address, size_t length, const void *buffer) {
+		auto context = static_cast<Context *>(this);
+		HEL_CHECK(helSubmitWriteMemory(descriptor.getHandle(),
+				address, length, buffer,
+				Dispatcher::global().acquire(),
+				reinterpret_cast<uintptr_t>(context)));
+	}
+
+	WriteMemoryOperation(const WriteMemoryOperation &) = delete;
+
+	WriteMemoryOperation &operator= (const WriteMemoryOperation &) = delete;
+
+	auto operator co_await() {
+		using async::operator co_await;
+		return operator co_await(promise_.async_get());
+	}
+
+private:
+	void complete(ElementHandle element) override {
+		SynchronizeSpaceResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		promise_.set_value(std::move(result));
+	}
+
+	async::promise<SynchronizeSpaceResult> promise_;
+};
+
+inline WriteMemoryOperation writeMemory(helix::BorrowedDescriptor descriptor,
+		uintptr_t address, size_t length, const void *buffer) {
+	return {descriptor, address, length, buffer};
+}
+
 } // namespace helix_ng
 
 #endif // HELIX_HPP

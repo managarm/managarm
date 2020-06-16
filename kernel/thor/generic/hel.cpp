@@ -1024,141 +1024,208 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	return kHelErrNone;
 }
 
-HelError helLoadForeign(HelHandle handle, uintptr_t address,
-		size_t length, void *buffer) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
+		size_t length, void *buffer,
+		HelHandle queueHandle, uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	AnyDescriptor descriptor;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
-		Universe::Guard universe_guard(&this_universe->lock);
+		Universe::Guard universeGuard(&thisUniverse->lock);
 
-		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		auto wrapper = thisUniverse->getDescriptor(universeGuard, handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(wrapper->is<AddressSpaceDescriptor>()) {
-			space = wrapper->get<AddressSpaceDescriptor>().space;
-		}else if(wrapper->is<ThreadDescriptor>()) {
-			auto thread = wrapper->get<ThreadDescriptor>().thread;
-			space = thread->getAddressSpace().lock();
-		}else if(wrapper->is<VirtualizedSpaceDescriptor>()) {
-			enableUserAccess();
-			auto vspace = wrapper->get<VirtualizedSpaceDescriptor>().space;
-			auto error = vspace->load(address, length, buffer);
-			if(error == kErrFault) {
-				disableUserAccess();
-				return kHelErrFault;
-			}
-			return kHelErrNone;
-		}else{
+		descriptor = *wrapper;
+
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, queueHandle);
+		if(!queueWrapper)
+			return kHelErrNoDescriptor;
+		if(!queueWrapper->is<QueueDescriptor>())
 			return kHelErrBadDescriptor;
-		}
+		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
-	auto accessor = AddressSpaceLockHandle{std::move(space),
-			(void *)address, length};
+	auto readAddressSpace = [] (frigg::SharedPtr<Thread> submitThread,
+			smarter::shared_ptr<AddressSpace, BindableHandle> space,
+			uintptr_t address, size_t length, void *buffer,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		// Make sure that the pointer arithmetic below does not overflow.
+		uintptr_t limit;
+		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+			HelSimpleResult helResult{kHelErrIllegalArgs};
+			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+		(void)limit;
 
-	// TODO: Instead of blocking, this function should be asynchronous.
-	struct Closure {
-		ThreadBlocker blocker;
-		Worklet worklet;
-		AcquireNode acquire;
-	} closure;
+		Error error = kErrSuccess;
+		{
+			auto lockHandle = AddressSpaceLockHandle{std::move(space),
+					(void *)address, length};
+			co_await lockHandle.acquire();
 
-	closure.worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		Thread::unblockOther(&closure->blocker);
-	});
-	closure.acquire.setup(&closure.worklet);
-	closure.blocker.setup();
-	if(!accessor.acquire(&closure.acquire))
-		Thread::blockCurrent(&closure.blocker);
+			// Enter the submitter's work-queue so that we can access memory directly.
+			co_await submitThread->mainWorkQueue()->schedule();
 
-	// Make sure that the pointer arithmetic below does not overflow.
-	uintptr_t limit;
-	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit))
-		return false;
-	(void)limit;
+			char temp[128];
+			size_t progress = 0;
+			while(progress < length) {
+				auto chunk = frigg::min(length - progress, size_t{128});
+				lockHandle.load(progress, temp, chunk);
+				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
+					error = kErrFault;
+					break;
+				}
+				progress += chunk;
+			}
+		}
 
-	char temp[128];
-	size_t progress = 0;
-	while(progress < length) {
-		auto chunk = frigg::min(length - progress, size_t{128});
-		accessor.load(progress, temp, chunk);
-		if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk))
-			return kHelErrFault;
-		progress += chunk;
+		HelSimpleResult helResult{translateError(error)};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	};
+
+	auto readVirtualizedSpace = [] (frigg::SharedPtr<Thread> submitThread,
+			smarter::shared_ptr<VirtualizedPageSpace> space,
+			uintptr_t address, size_t length, void *buffer,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		// Enter the submitter's work-queue so that we can access memory directly.
+		co_await submitThread->mainWorkQueue()->schedule();
+
+		enableUserAccess();
+		auto error = space->load(address, length, buffer);
+		disableUserAccess();
+		assert(!error || error == kErrFault);
+
+		HelSimpleResult helResult{translateError(error)};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	};
+
+	if(descriptor.is<AddressSpaceDescriptor>()) {
+		auto space = descriptor.get<AddressSpaceDescriptor>().space;
+		async::detach_with_allocator(*kernelAlloc, readAddressSpace(thisThread.toShared(),
+				std::move(space), address, length, buffer, std::move(queue), context));
+	}else if(descriptor.is<ThreadDescriptor>()) {
+		auto thread = descriptor.get<ThreadDescriptor>().thread;
+		auto space = thread->getAddressSpace().lock();
+		async::detach_with_allocator(*kernelAlloc, readAddressSpace(thisThread.toShared(),
+				std::move(space), address, length, buffer, std::move(queue), context));
+	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
+		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
+		async::detach_with_allocator(*kernelAlloc, readVirtualizedSpace(thisThread.toShared(),
+				std::move(space), address, length, buffer, std::move(queue), context));
+	}else{
+		return kHelErrBadDescriptor;
 	}
 
 	return kHelErrNone;
 }
 
-HelError helStoreForeign(HelHandle handle, uintptr_t address,
-		size_t length, const void *buffer) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
+		size_t length, const void *buffer,
+		HelHandle queueHandle, uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	AnyDescriptor descriptor;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		Universe::Guard universe_guard(&this_universe->lock);
+		auto irqLock = frigg::guard(&irqMutex());
+		Universe::Guard universeGuard(&thisUniverse->lock);
 
-		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		auto wrapper = thisUniverse->getDescriptor(universeGuard, handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(wrapper->is<AddressSpaceDescriptor>()) {
-			space = wrapper->get<AddressSpaceDescriptor>().space;
-		}else if(wrapper->is<ThreadDescriptor>()) {
-			auto thread = wrapper->get<ThreadDescriptor>().thread;
-			space = thread->getAddressSpace().lock();
-		}else if(wrapper->is<VirtualizedSpaceDescriptor>()) {
-			enableUserAccess();
-			auto vspace = wrapper->get<VirtualizedSpaceDescriptor>().space;
-			auto error = vspace->store(address, length, buffer);
-			if(error == kErrFault) {
-				disableUserAccess();
-				return kHelErrFault;
-			}
-			return kHelErrNone;
-		}else{
+		descriptor = *wrapper;
+
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, queueHandle);
+		if(!queueWrapper)
+			return kHelErrNoDescriptor;
+		if(!queueWrapper->is<QueueDescriptor>())
 			return kHelErrBadDescriptor;
-		}
+		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
-	auto accessor = AddressSpaceLockHandle{std::move(space),
-			(void *)address, length};
+	auto writeAddressSpace = [] (frigg::SharedPtr<Thread> submitThread,
+			smarter::shared_ptr<AddressSpace, BindableHandle> space,
+			uintptr_t address, size_t length, const void *buffer,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		// Make sure that the pointer arithmetic below does not overflow.
+		uintptr_t limit;
+		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+			HelSimpleResult helResult{kHelErrIllegalArgs};
+			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+		(void)limit;
 
-	// TODO: Instead of blocking, this function should be asynchronous.
-	struct Closure {
-		ThreadBlocker blocker;
-		Worklet worklet;
-		AcquireNode acquire;
-	} closure;
+		Error error = kErrSuccess;
+		{
+			auto lockHandle = AddressSpaceLockHandle{std::move(space),
+					(void *)address, length};
+			co_await lockHandle.acquire();
 
-	closure.worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		Thread::unblockOther(&closure->blocker);
-	});
-	closure.acquire.setup(&closure.worklet);
-	closure.blocker.setup();
-	if(!accessor.acquire(&closure.acquire))
-		Thread::blockCurrent(&closure.blocker);
+			// Enter the submitter's work-queue so that we can access memory directly.
+			co_await submitThread->mainWorkQueue()->schedule();
 
-	// Make sure that the pointer arithmetic below does not overflow.
-	uintptr_t limit;
-	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit))
-		return false;
-	(void)limit;
+			char temp[128];
+			size_t progress = 0;
+			while(progress < length) {
+				auto chunk = frigg::min(length - progress, size_t{128});
+				if(!readUserMemory(temp,
+						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
+					error = kErrFault;
+					break;
+				}
+				lockHandle.write(progress, temp, chunk);
+				progress += chunk;
+			}
+		}
 
-	char temp[128];
-	size_t progress = 0;
-	while(progress < length) {
-		auto chunk = frigg::min(length - progress, size_t{128});
-		if(!readUserMemory(temp, reinterpret_cast<const char *>(buffer) + progress, chunk))
-			return kHelErrFault;
-		accessor.write(progress, temp, chunk);
-		progress += chunk;
+		HelSimpleResult helResult{translateError(error)};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	};
+
+	auto writeVirtualizedSpace = [] (frigg::SharedPtr<Thread> submitThread,
+			smarter::shared_ptr<VirtualizedPageSpace> space,
+			uintptr_t address, size_t length, const void *buffer,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		// Enter the submitter's work-queue so that we can access memory directly.
+		co_await submitThread->mainWorkQueue()->schedule();
+
+		enableUserAccess();
+		auto error = space->store(address, length, buffer);
+		disableUserAccess();
+		assert(!error || error == kErrFault);
+
+		HelSimpleResult helResult{translateError(error)};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	};
+
+	if(descriptor.is<AddressSpaceDescriptor>()) {
+		auto space = descriptor.get<AddressSpaceDescriptor>().space;
+		async::detach_with_allocator(*kernelAlloc, writeAddressSpace(thisThread.toShared(),
+				std::move(space), address, length, buffer, std::move(queue), context));
+	}else if(descriptor.is<ThreadDescriptor>()) {
+		auto thread = descriptor.get<ThreadDescriptor>().thread;
+		auto space = thread->getAddressSpace().lock();
+		async::detach_with_allocator(*kernelAlloc, writeAddressSpace(thisThread.toShared(),
+				std::move(space), address, length, buffer, std::move(queue), context));
+	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
+		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
+		async::detach_with_allocator(*kernelAlloc, writeVirtualizedSpace(thisThread.toShared(),
+				std::move(space), address, length, buffer, std::move(queue), context));
+	}else{
+		return kHelErrBadDescriptor;
 	}
 
 	return kHelErrNone;

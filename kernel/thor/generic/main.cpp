@@ -682,13 +682,15 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helPointerPhysical((void *)arg0, &physical);
 		*image.out0() = physical;
 	} break;
-	case kHelCallLoadForeign: {
-		*image.error() = helLoadForeign((HelHandle)arg0, (uintptr_t)arg1,
-				(size_t)arg2, (void *)arg3);
+	case kHelCallSubmitReadMemory: {
+		*image.error() = helSubmitReadMemory((HelHandle)arg0, (uintptr_t)arg1,
+				(size_t)arg2, (void *)arg3,
+				(HelHandle)arg4, (uintptr_t)arg5);
 	} break;
-	case kHelCallStoreForeign: {
-		*image.error() = helStoreForeign((HelHandle)arg0, (uintptr_t)arg1,
-				(size_t)arg2, (const void *)arg3);
+	case kHelCallSubmitWriteMemory: {
+		*image.error() = helSubmitWriteMemory((HelHandle)arg0, (uintptr_t)arg1,
+				(size_t)arg2, (const void *)arg3,
+				(HelHandle)arg4, (uintptr_t)arg5);
 	} break;
 	case kHelCallMemoryInfo: {
 		size_t size;

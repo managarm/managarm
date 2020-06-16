@@ -579,8 +579,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	// Store the current register stack on the stack.
 	assert(alignof(SignalFrame) == 8);
 	auto frame = alignFrame(sizeof(SignalFrame));
-	HEL_CHECK(helStoreForeign(thread.getHandle(), frame,
-			sizeof(SignalFrame), &sf));
+	auto storeFrame = co_await helix_ng::writeMemory(thread, frame,
+			sizeof(SignalFrame), &sf);
+	HEL_CHECK(storeFrame.error());
 
 	std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
 	std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
@@ -600,7 +601,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	delete item;
 }
 
-void SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
+async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
 	uintptr_t pcrs[15];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 	auto frame = pcrs[kHelRegSp] - 8;
@@ -608,8 +609,9 @@ void SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
 	std::cout << "posix: Restoring post-signal stack from " << (void *)frame << std::endl;
 
 	SignalFrame sf;
-	HEL_CHECK(helLoadForeign(thread.getHandle(), frame,
-			sizeof(SignalFrame), &sf));
+	auto loadFrame = co_await helix_ng::readMemory(thread, frame,
+			sizeof(SignalFrame), &sf);
+	HEL_CHECK(loadFrame.error());
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));

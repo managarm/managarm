@@ -916,6 +916,58 @@ public:
 		return write(offset, &value, sizeof(T));
 	}
 
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for acquire()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct [[nodiscard]] AcquireOperation {
+		AcquireOperation(AddressSpaceLockHandle *handle, R receiver)
+		: handle_{handle}, receiver_{std::move(receiver)} { }
+
+		AcquireOperation(const AcquireOperation &) = delete;
+
+		AcquireOperation &operator= (const AcquireOperation &) = delete;
+
+		bool start_inline() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &AcquireOperation::worklet_);
+				async::execution::set_value_noinline(op->receiver_);
+			});
+			node_.setup(&worklet_);
+			if(handle_->acquire(&node_)) {
+				async::execution::set_value_inline(receiver_);
+				return true;
+			}
+			return false;
+		}
+
+	private:
+		AddressSpaceLockHandle *handle_;
+		R receiver_;
+		AcquireNode node_;
+		Worklet worklet_;
+	};
+
+	struct [[nodiscard]] AcquireSender {
+		template<typename R>
+		AcquireOperation<R> connect(R receiver) {
+			return {handle, std::move(receiver)};
+		}
+
+		async::sender_awaiter<AcquireSender> operator co_await() {
+			return {*this};
+		}
+
+		AddressSpaceLockHandle *handle;
+	};
+
+	AcquireSender acquire() {
+		return {this};
+	}
+
+	// ----------------------------------------------------------------------------------
+
 private:
 	PhysicalAddr _resolvePhysical(VirtualAddr vaddr);
 

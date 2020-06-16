@@ -46,8 +46,8 @@ enum {
 	kHelCallSubmitSynchronizeSpace = 53,
 	kHelCallUnmapMemory = 36,
 	kHelCallPointerPhysical = 43,
-	kHelCallLoadForeign = 77,
-	kHelCallStoreForeign = 78,
+	kHelCallSubmitReadMemory = 77,
+	kHelCallSubmitWriteMemory = 78,
 	kHelCallMemoryInfo = 26,
 	kHelCallSubmitManageMemory = 46,
 	kHelCallUpdateMemory = 47,
@@ -674,6 +674,8 @@ HEL_C_LINKAGE HelError helUnmapMemory(HelHandle spaceHandle, void *pointer, size
 HEL_C_LINKAGE HelError helPointerPhysical(void *pointer, uintptr_t *physical);
 
 //! Load memory (i.e., bytes) from a descriptor.
+//!
+//! This is an asynchronous operation.
 //! @param[in] handle
 //!     Handle to the descriptor. This system call supports
 //!     address spaces (see ::helCreateAddressSpace)
@@ -682,10 +684,13 @@ HEL_C_LINKAGE HelError helPointerPhysical(void *pointer, uintptr_t *physical);
 //!     Address that is accessed, relative to @p handle.
 //! @param[in] length
 //!     Length of the copied memory region.
-HEL_C_LINKAGE HelError helLoadForeign(HelHandle handle, uintptr_t address,
-		size_t length, void *buffer);
+HEL_C_LINKAGE HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
+		size_t length, void *buffer,
+		HelHandle queue, uintptr_t context);
 
 //! Store memory (i.e., bytes) to a descriptor.
+//!
+//! This is an asynchronous operation.
 //! @param[in] handle
 //!     Handle to the descriptor. This system call supports
 //!     address spaces (see ::helCreateAddressSpace)
@@ -694,8 +699,9 @@ HEL_C_LINKAGE HelError helLoadForeign(HelHandle handle, uintptr_t address,
 //!     Address that is accessed, relative to @p handle.
 //! @param[in] length
 //!     Length of the copied memory region.
-HEL_C_LINKAGE HelError helStoreForeign(HelHandle handle, uintptr_t address,
-		size_t length, const void *buffer);
+HEL_C_LINKAGE HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
+		size_t length, const void *buffer,
+		HelHandle queue, uintptr_t context);
 
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);

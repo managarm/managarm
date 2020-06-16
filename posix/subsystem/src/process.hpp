@@ -270,7 +270,7 @@ public:
 
 	async::result<void> raiseContext(SignalItem *item, Process *process);
 
-	void restoreContext(helix::BorrowedDescriptor thread);
+	async::result<void> restoreContext(helix::BorrowedDescriptor thread);
 
 private:
 	SignalHandler _handlers[64];

@@ -210,8 +210,9 @@ async::detached observeThread(std::shared_ptr<Process> self,
 				std::cout << "posix: GET_PROCESS_DATA supercall" << std::endl;
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			HEL_CHECK(helStoreForeign(thread.getHandle(), gprs[5],
-					sizeof(ManagarmProcessData), &data));
+			auto storeData = co_await helix_ng::writeMemory(thread, gprs[5],
+					sizeof(ManagarmProcessData), &data);
+			HEL_CHECK(storeData.error());
 			gprs[4] = kHelErrNone;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -267,18 +268,21 @@ async::detached observeThread(std::shared_ptr<Process> self,
 
 			std::string path;
 			path.resize(gprs[3]);
-			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
-					gprs[5], gprs[3], path.data()));
+			auto loadPath = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
+					gprs[5], gprs[3], path.data());
+			HEL_CHECK(loadPath.error());
 
 			std::string args_area;
 			args_area.resize(gprs[6]);
-			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
-					gprs[0], gprs[6], args_area.data()));
+			auto loadArgs = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
+					gprs[0], gprs[6], args_area.data());
+			HEL_CHECK(loadArgs.error());
 
 			std::string env_area;
 			env_area.resize(gprs[8]);
-			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
-					gprs[7], gprs[8], env_area.data()));
+			auto loadEnv = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
+					gprs[7], gprs[8], env_area.data());
+			HEL_CHECK(loadEnv.error());
 
 			if(logRequests || logPaths)
 				std::cout << "posix: execve path: " << path << std::endl;
@@ -380,7 +384,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 
-			self->signalContext()->restoreContext(thread);
+			co_await self->signalContext()->restoreContext(thread);
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 5) {
 			if(logRequests || logSignals)
