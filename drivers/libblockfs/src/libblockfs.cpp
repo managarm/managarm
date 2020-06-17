@@ -63,29 +63,39 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 		co_return 0;
 
 	auto remaining = self->inode->fileSize() - self->offset;
-	auto chunk_size = std::min(length, remaining);
-	if(!chunk_size)
+	auto chunkSize = std::min(length, remaining);
+	if(!chunkSize)
 		co_return 0; // TODO: Return an explicit end-of-file error?
 
 	auto chunk_offset = self->offset;
-	auto map_offset = chunk_offset & ~size_t(0xFFF);
-	auto map_size = (((chunk_offset & size_t(0xFFF)) + chunk_size + 0xFFF) & ~size_t(0xFFF));
-	self->offset += chunk_size;
+	self->offset += chunkSize;
 
-	helix::LockMemoryView lock_memory;
+	// TODO: If we *know* that the pages are already available,
+	//       we can also fall back to the following "old" mapping code.
+/*
+	auto mapOffset = chunk_offset & ~size_t(0xFFF);
+	auto mapSize = (((chunk_offset & size_t(0xFFF)) + chunkSize + 0xFFF) & ~size_t(0xFFF));
+
+	helix::LockMemoryView lockMemory;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
-			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
+			&lockMemory, mapOffset, mapSize, helix::Dispatcher::global());
 	co_await submit.async_wait();
-	HEL_CHECK(lock_memory.error());
+	HEL_CHECK(lockMemory.error());
 
 	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{self->inode->frontalMemory},
-			static_cast<ptrdiff_t>(map_offset), map_size,
+	helix::Mapping fileMap{helix::BorrowedDescriptor{self->inode->frontalMemory},
+			static_cast<ptrdiff_t>(mapOffset), mapSize,
 			kHelMapProtRead | kHelMapDontRequireBacking};
 
-	memcpy(buffer, reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
-			chunk_size);
-	co_return chunk_size;
+	memcpy(buffer, reinterpret_cast<char *>(fileMap.get()) + (chunk_offset - mapOffset),
+			chunkSize);
+*/
+
+	auto readMemory = co_await helix_ng::readMemory(
+			helix::BorrowedDescriptor(self->inode->frontalMemory),
+			chunk_offset, chunkSize, buffer);
+	HEL_CHECK(readMemory.error());
+	co_return chunkSize;
 }
 
 async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, const char *,

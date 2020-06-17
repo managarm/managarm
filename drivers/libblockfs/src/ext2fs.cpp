@@ -641,9 +641,9 @@ async::result<void> FileSystem::write(Inode *inode, uint64_t offset,
 	co_await inode->readyJump.async_wait();
 
 	// Make sure that data blocks are allocated.
-	auto block_offset = (offset & ~(blockSize - 1)) >> blockShift;
-	auto block_count = ((offset & (blockSize - 1)) + length + (blockSize - 1)) >> blockShift;
-	co_await assignDataBlocks(inode, block_offset, block_count);
+	auto blockOffset = (offset & ~(blockSize - 1)) >> blockShift;
+	auto blockCount = ((offset & (blockSize - 1)) + length + (blockSize - 1)) >> blockShift;
+	co_await assignDataBlocks(inode, blockOffset, blockCount);
 
 	// Resize the file if necessary.
 	if(offset + length > inode->fileSize()) {
@@ -656,22 +656,31 @@ async::result<void> FileSystem::write(Inode *inode, uint64_t offset,
 		HEL_CHECK(syncInode.error());
 	}
 
-	auto map_offset = offset & ~size_t(0xFFF);
-	auto map_size = ((offset & size_t(0xFFF)) + length + 0xFFF) & ~size_t(0xFFF);
+	// TODO: If we *know* that the pages are already available,
+	//       we can also fall back to the following "old" mapping code.
+/*
+	auto mapOffset = offset & ~size_t(0xFFF);
+	auto mapSize = ((offset & size_t(0xFFF)) + length + 0xFFF) & ~size_t(0xFFF);
 
-	helix::LockMemoryView lock_memory;
+	helix::LockMemoryView lockMemory;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
-			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
+			&lockMemory, mapOffset, mapSize, helix::Dispatcher::global());
 	co_await submit.async_wait();
-	HEL_CHECK(lock_memory.error());
+	HEL_CHECK(lockMemory.error());
 
 	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
-			static_cast<ptrdiff_t>(map_offset), map_size,
+	helix::Mapping fileMap{helix::BorrowedDescriptor{inode->frontalMemory},
+			static_cast<ptrdiff_t>(mapOffset), mapSize,
 			kHelMapProtWrite | kHelMapDontRequireBacking};
 
-	memcpy(reinterpret_cast<char *>(file_map.get()) + (offset - map_offset),
+	memcpy(reinterpret_cast<char *>(fileMap.get()) + (offset - mapOffset),
 			buffer, length);
+*/
+
+	auto writeMemory = co_await helix_ng::writeMemory(
+			helix::BorrowedDescriptor(inode->frontalMemory),
+			offset, length, buffer);
+	HEL_CHECK(writeMemory.error());
 }
 
 async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
