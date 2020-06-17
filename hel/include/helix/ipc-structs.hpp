@@ -19,7 +19,7 @@ struct UniqueDescriptor {
 
 	UniqueDescriptor()
 	: _handle(kHelNullHandle) { }
-	
+
 	UniqueDescriptor(const UniqueDescriptor &other) = delete;
 
 	UniqueDescriptor(UniqueDescriptor &&other)
@@ -246,7 +246,7 @@ private:
 struct RecvInlineResult {
 	RecvInlineResult() :_valid{false} {}
 
-	HelError error() {
+	HelError error() const {
 		FRG_ASSERT(_valid);
 		return _error;
 	}
@@ -257,10 +257,20 @@ struct RecvInlineResult {
 		return _data;
 	}
 
-	size_t length() {
+	const void *data() const {
+		FRG_ASSERT(_valid);
+		HEL_CHECK(error());
+		return _data;
+	}
+
+	size_t length() const {
 		FRG_ASSERT(_valid);
 		HEL_CHECK(error());
 		return _length;
+	}
+
+	size_t size() const {
+		return length();
 	}
 
 	void parse(void *&ptr, ElementHandle element) {
@@ -374,12 +384,12 @@ struct PullDescriptor { };
 
 template <typename ...T>
 inline auto offer(T &&...args) {
-	return Offer<T...>{frg::make_tuple(args...)};
+	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...)};
 }
 
 template <typename ...T>
 inline auto accept(T &&...args) {
-	return Accept<T...>{frg::make_tuple(args...)};
+	return Accept<T...>{frg::make_tuple(std::forward<T>(args)...)};
 }
 
 inline auto imbueCredentials() {
@@ -416,16 +426,16 @@ inline auto pullDescriptor() {
 
 struct {
 	template <typename T, typename ...Ts>
-	auto operator() (T &&arg, Ts &&...args) {
+	auto operator() (const T &arg, const Ts &...args) {
 		return frg::array_concat<HelAction>(
-			createActionsArrayFor(true, std::forward<T>(arg)),
-			this->operator()<Ts...>(std::forward<Ts>(args)...)
+			createActionsArrayFor(true, arg),
+			(*this)(args...)
 		);
 	}
 
 	template <typename T>
-	auto operator() (T &&arg) {
-		return createActionsArrayFor(false, std::forward<T>(arg));
+	auto operator() (const T &arg) {
+		return createActionsArrayFor(false, arg);
 	}
 
 	auto operator() () {
@@ -524,47 +534,51 @@ inline auto createActionsArrayFor(bool chain, const PullDescriptor &) {
 // Item -> Result type transformation
 // --------------------------------------------------------------------
 
+// Offer/Accept helper
+template <typename Type, typename ...T>
+using HelperResultTypeTuple = decltype(frg::tuple_cat(frg::tuple<Type>{}, resultTypeTuple(std::declval<T>())...));
+
 template <typename ...T>
-inline auto resultTypeTuple(Offer<T...> arg) {
-	return frg::tuple_cat(frg::tuple<OfferResult>{}, resultTypeTuple(T{})...);
+inline auto resultTypeTuple(const Offer<T...> &arg) {
+	return HelperResultTypeTuple<OfferResult, T...>{};
 }
 
 template <typename ...T>
-inline auto resultTypeTuple(Accept<T...> arg) {
-	return frg::tuple_cat(frg::tuple<AcceptResult>{}, resultTypeTuple(T{})...);
+inline auto resultTypeTuple(const Accept<T...> &arg) {
+	return HelperResultTypeTuple<AcceptResult, T...>{};
 }
 
-inline auto resultTypeTuple(ImbueCredentials arg) {
+inline auto resultTypeTuple(const ImbueCredentials &arg) {
 	return frg::tuple<ImbueCredentialsResult>{};
 }
 
-inline auto resultTypeTuple(ExtractCredentials arg) {
+inline auto resultTypeTuple(const ExtractCredentials &arg) {
 	return frg::tuple<ExtractCredentialsResult>{};
 }
 
-inline auto resultTypeTuple(SendBuffer arg) {
+inline auto resultTypeTuple(const SendBuffer &arg) {
 	return frg::tuple<SendBufferResult>{};
 }
 
-inline auto resultTypeTuple(RecvBuffer arg) {
+inline auto resultTypeTuple(const RecvBuffer &arg) {
 	return frg::tuple<RecvBufferResult>{};
 }
 
-inline auto resultTypeTuple(RecvInline arg) {
+inline auto resultTypeTuple(const RecvInline &arg) {
 	return frg::tuple<RecvInlineResult>{};
 }
 
-inline auto resultTypeTuple(PushDescriptor arg) {
+inline auto resultTypeTuple(const PushDescriptor &arg) {
 	return frg::tuple<PushDescriptorResult>{};
 }
 
-inline auto resultTypeTuple(PullDescriptor arg) {
+inline auto resultTypeTuple(const PullDescriptor &arg) {
 	return frg::tuple<PullDescriptorResult>{};
 }
 
 template <typename ...T>
 inline auto createResultsTuple(T &&...args) {
-	return frg::tuple_cat(resultTypeTuple(args)...);
+	return frg::tuple_cat(resultTypeTuple(std::forward<T>(args))...);
 }
 
 } // namespace helix_ng

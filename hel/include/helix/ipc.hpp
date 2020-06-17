@@ -895,9 +895,11 @@ struct ExchangeMsgsOperation : private Context {
 	: lane_{std::move(lane)}, actions_{std::move(actions)}, receiver_{std::move(receiver)} { }
 
 	void start() {
+		auto helActions = frg::apply(chainActionArrays, actions_);
+
 		auto context = static_cast<Context *>(this);
 		HEL_CHECK(helSubmitAsync(lane_.getHandle(),
-				actions_.data(), actions_.size(), Dispatcher::global().acquire(),
+				helActions.data(), helActions.size(), Dispatcher::global().acquire(),
 				reinterpret_cast<uintptr_t>(context), 0));
 	}
 
@@ -944,7 +946,7 @@ auto exchangeMsgs(BorrowedDescriptor descriptor, Args &&...args) {
 	return ExchangeMsgsSender{
 		std::move(descriptor),
 		createResultsTuple(args...),
-		chainActionArrays(args...)
+		frg::tuple{std::forward<Args>(args)...}
 	};
 }
 
