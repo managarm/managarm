@@ -3,11 +3,14 @@
 #include <type_traits>
 #include <frg/array.hpp>
 #include <frg/tuple.hpp>
+#include <frg/vector.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
 
 #include <frg/macros.hpp>
+
+#include <bragi/helpers-frigg.hpp>
 
 namespace helix {
 
@@ -378,6 +381,35 @@ struct PushDescriptor {
 
 struct PullDescriptor { };
 
+template <typename Allocator>
+struct SendBragiHeadTail {
+	SendBragiHeadTail(Allocator allocator)
+	: head{allocator}, tail{allocator} { }
+
+	SendBragiHeadTail(const SendBragiHeadTail &) = delete;
+	SendBragiHeadTail &operator=(const SendBragiHeadTail &) = delete;
+
+	SendBragiHeadTail(SendBragiHeadTail &&other) = default;
+	SendBragiHeadTail &operator=(SendBragiHeadTail &&other) = default;
+
+	frg::vector<uint8_t, Allocator> head;
+	frg::vector<uint8_t, Allocator> tail;
+};
+
+template <typename Allocator>
+struct SendBragiHeadOnly {
+	SendBragiHeadOnly(Allocator allocator)
+	: head{allocator} { }
+
+	SendBragiHeadOnly(const SendBragiHeadOnly &) = delete;
+	SendBragiHeadOnly &operator=(const SendBragiHeadOnly &) = delete;
+
+	SendBragiHeadOnly(SendBragiHeadOnly &&other) = default;
+	SendBragiHeadOnly &operator=(SendBragiHeadOnly &&other) = default;
+
+	frg::vector<uint8_t, Allocator> head;
+};
+
 // --------------------------------------------------------------------
 // Construction functions
 // --------------------------------------------------------------------
@@ -418,6 +450,28 @@ inline auto pushDescriptor(BorrowedDescriptor desc) {
 
 inline auto pullDescriptor() {
 	return PullDescriptor{};
+}
+
+template <typename Message, typename Allocator>
+inline auto sendBragiHeadTail(Message &msg, Allocator allocator = Allocator()) {
+	SendBragiHeadTail<Allocator> item{allocator};
+	item.head.resize(Message::head_size);
+	item.tail.resize(msg.size_of_tail());
+
+	bragi::write_head_tail(msg, item.head, item.tail);
+
+	return item;
+}
+
+template <typename Message, typename Allocator>
+inline auto sendBragiHeadOnly(Message &msg, Allocator allocator = Allocator()) {
+	SendBragiHeadOnly<Allocator> item{allocator};
+	item.head.resize(Message::head_size);
+	FRG_ASSERT(!msg.size_of_tail());
+
+	bragi::write_head_only(msg, item.head);
+
+	return item;
 }
 
 // --------------------------------------------------------------------
@@ -530,6 +584,34 @@ inline auto createActionsArrayFor(bool chain, const PullDescriptor &) {
 	return frg::array<HelAction, 1>{action};
 }
 
+template <typename Allocator>
+inline auto createActionsArrayFor(bool chain, const SendBragiHeadTail<Allocator> &item) {
+	HelAction headAction{}, tailAction{};
+	headAction.type = kHelActionSendFromBuffer;
+	headAction.flags = kHelItemChain;
+	headAction.buffer = const_cast<uint8_t *>(item.head.data());
+	headAction.length = item.head.size();
+
+	tailAction.type = kHelActionSendFromBuffer;
+	tailAction.flags = chain ? kHelItemChain : 0;
+	tailAction.buffer = const_cast<uint8_t *>(item.tail.data());
+	tailAction.length = item.tail.size();
+
+	return frg::array<HelAction, 2>{headAction, tailAction};
+}
+
+template <typename Allocator>
+inline auto createActionsArrayFor(bool chain, const SendBragiHeadOnly<Allocator> &item) {
+	HelAction action{};
+
+	action.type = kHelActionSendFromBuffer;
+	action.flags = chain ? kHelItemChain : 0;
+	action.buffer = const_cast<uint8_t *>(item.head.data());
+	action.length = item.head.size();
+
+	return frg::array<HelAction, 1>{action};
+}
+
 // --------------------------------------------------------------------
 // Item -> Result type transformation
 // --------------------------------------------------------------------
@@ -574,6 +656,16 @@ inline auto resultTypeTuple(const PushDescriptor &arg) {
 
 inline auto resultTypeTuple(const PullDescriptor &arg) {
 	return frg::tuple<PullDescriptorResult>{};
+}
+
+template <typename Allocator>
+inline auto resultTypeTuple(const SendBragiHeadTail<Allocator> &arg) {
+	return frg::tuple<SendBufferResult, SendBufferResult>{};
+}
+
+template <typename Allocator>
+inline auto resultTypeTuple(const SendBragiHeadOnly<Allocator> &arg) {
+	return frg::tuple<SendBufferResult>{};
 }
 
 template <typename ...T>
