@@ -567,6 +567,13 @@ struct CopyToBundleNode {
 		CopyToBundleNode *, void (*)(CopyToBundleNode *));
 
 private:
+	MemoryView *_view;
+	uintptr_t _viewOffset;
+	const void *_buffer;
+	size_t _size;
+	void (*_complete)(CopyToBundleNode *);
+
+	size_t _progress;
 	Worklet _worklet;
 	FetchNode _fetch;
 };
