@@ -603,6 +603,63 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *pointer, size_t si
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
 // ----------------------------------------------------------------------------------
+// Sender boilerplate for copyToView()
+// ----------------------------------------------------------------------------------
+
+template<typename R>
+struct CopyToViewOperation;
+
+struct [[nodiscard]] CopyToViewSender {
+	template<typename R>
+	friend CopyToViewOperation<R>
+	connect(CopyToViewSender sender, R receiver) {
+		return {sender, std::move(receiver)};
+	}
+
+	MemoryView *view;
+	uintptr_t offset;
+	const void *pointer;
+	size_t size;
+};
+
+inline CopyToViewSender copyToView(MemoryView *view, uintptr_t offset,
+		const void *pointer, size_t size) {
+	return {view, offset, pointer, size};
+}
+
+template<typename R>
+struct CopyToViewOperation {
+	CopyToViewOperation(CopyToViewSender s, R receiver)
+	: s_{s}, receiver_{std::move(receiver)} { }
+
+	CopyToViewOperation(const CopyToViewOperation &) = delete;
+
+	CopyToViewOperation &operator= (const CopyToViewOperation &) = delete;
+
+	bool start_inline() {
+		auto complete = [] (CopyToBundleNode *base) {
+			auto op = frg::container_of(base, &CopyToViewOperation::node_);
+			async::execution::set_value_noinline(op->receiver_);
+		};
+		if(copyToBundle(s_.view, s_.offset, s_.pointer, s_.size, &node_, complete)) {
+			async::execution::set_value_inline(receiver_);
+			return true;
+		}
+		return false;
+	}
+
+private:
+	CopyToViewSender s_;
+	R receiver_;
+	CopyToBundleNode node_;
+};
+
+inline async::sender_awaiter<CopyToViewSender, void>
+operator co_await(CopyToViewSender sender) {
+	return {sender};
+}
+
+// ----------------------------------------------------------------------------------
 // Sender boilerplate for copyFromView()
 // ----------------------------------------------------------------------------------
 
