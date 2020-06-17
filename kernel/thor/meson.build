@@ -14,7 +14,6 @@ bragi_gen = generator(bragi, arguments: [
 	],
 	output: '@BASENAME@.frigg_bragi.hpp')
 
-
 pb_sources = [
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/fs/fs.proto',
@@ -140,7 +139,6 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 			'../../frigg/include',
 			'../../subprojects/libarch/include',
 			'../../subprojects/libasync/include',
-			'../../subprojects/bragi/include',
 			'../../tools/pb2frigg/include'
 		),
 		lai_includes
@@ -149,7 +147,8 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 		clang_coroutine_dep,
 		cxxshim_dep,
 		frigg_dep,
-		libsmarter_dep
+		libsmarter_dep,
+		bragi_dep
 	],
 	cpp_args: [
 		'-mcmodel=kernel',

@@ -12,6 +12,8 @@ if cpp_compiler.get_id() == 'clang'
 	add_project_arguments('-fsized-deallocation', language: 'cpp')
 endif
 
+bragi_dep = declare_dependency(include_directories: include_directories('subprojects/bragi/include'))
+
 if get_option('build_kernel')
 	pb2frigg = find_program('pb2frigg')
 

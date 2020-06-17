@@ -31,7 +31,6 @@ gen = generator(protoc,
 kerncfg_pb = gen.process('../../protocols/kerncfg/kerncfg.proto')
 
 posix_subsystem_inc = include_directories('../../frigg/include')
-bragi_inc = include_directories('../../subprojects/bragi/include')
 
 executable('posix-subsystem',
 		['src/clock.cpp',
@@ -73,8 +72,8 @@ executable('posix-subsystem',
 		proto_lite_dep,
 		libmbus_protocol_dep,
 		libfs_protocol_dep,
+		bragi_dep,
 		clock_protocol_dep],
 	include_directories: [
-		posix_subsystem_inc,
-		bragi_inc],
+		posix_subsystem_inc],
 	install: true)
