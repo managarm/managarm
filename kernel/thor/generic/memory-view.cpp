@@ -1120,7 +1120,6 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	auto lock = frigg::guard(&_managed->mutex);
 
 	// Put the pages into the dirty state.
-	assert(size == kPageSize);
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		auto index = (offset + pg) >> kPageShift;
 		auto pit = _managed->pages.find(index);
