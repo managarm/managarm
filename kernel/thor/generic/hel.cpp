@@ -1049,6 +1049,44 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
+	auto readMemoryView = [] (frigg::SharedPtr<Thread> submitThread,
+			frigg::SharedPtr<MemoryView> view,
+			uintptr_t address, size_t length, void *buffer,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		// Make sure that the pointer arithmetic below does not overflow.
+		uintptr_t limit;
+		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+			HelSimpleResult helResult{kHelErrIllegalArgs};
+			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+		(void)limit;
+
+		Error error = kErrSuccess;
+		{
+			char temp[128];
+			size_t progress = 0;
+			while(progress < length) {
+				auto chunk = frigg::min(length - progress, size_t{128});
+				co_await copyFromView(view.get(), address + progress, temp, chunk);
+
+				// Enter the submitter's work-queue so that we can access memory directly.
+				co_await submitThread->mainWorkQueue()->schedule();
+
+				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
+					error = kErrFault;
+					break;
+				}
+				progress += chunk;
+			}
+		}
+
+		HelSimpleResult helResult{translateError(error)};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	};
+
 	auto readAddressSpace = [] (frigg::SharedPtr<Thread> submitThread,
 			smarter::shared_ptr<AddressSpace, BindableHandle> space,
 			uintptr_t address, size_t length, void *buffer,
@@ -1107,7 +1145,11 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	if(descriptor.is<AddressSpaceDescriptor>()) {
+	if(descriptor.is<MemoryViewDescriptor>()) {
+		auto view = descriptor.get<MemoryViewDescriptor>().memory;
+		async::detach_with_allocator(*kernelAlloc, readMemoryView(thisThread.toShared(),
+				std::move(view), address, length, buffer, std::move(queue), context));
+	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
 		async::detach_with_allocator(*kernelAlloc, readAddressSpace(thisThread.toShared(),
 				std::move(space), address, length, buffer, std::move(queue), context));
@@ -1151,6 +1193,46 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 			return kHelErrBadDescriptor;
 		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
+
+	auto writeMemoryView = [] (frigg::SharedPtr<Thread> submitThread,
+			frigg::SharedPtr<MemoryView> view,
+			uintptr_t address, size_t length, const void *buffer,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		// Make sure that the pointer arithmetic below does not overflow.
+		uintptr_t limit;
+		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+			HelSimpleResult helResult{kHelErrIllegalArgs};
+			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+		(void)limit;
+
+		Error error = kErrSuccess;
+		{
+			char temp[128];
+			size_t progress = 0;
+			while(progress < length) {
+				auto chunk = frigg::min(length - progress, size_t{128});
+
+				// Enter the submitter's work-queue so that we can access memory directly.
+				co_await submitThread->mainWorkQueue()->schedule();
+
+				if(!readUserMemory(temp,
+						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
+					error = kErrFault;
+					break;
+				}
+
+				co_await copyToView(view.get(), address + progress, temp, chunk);
+				progress += chunk;
+			}
+		}
+
+		HelSimpleResult helResult{translateError(error)};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	};
 
 	auto writeAddressSpace = [] (frigg::SharedPtr<Thread> submitThread,
 			smarter::shared_ptr<AddressSpace, BindableHandle> space,
@@ -1211,7 +1293,11 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	if(descriptor.is<AddressSpaceDescriptor>()) {
+	if(descriptor.is<MemoryViewDescriptor>()) {
+		auto view = descriptor.get<MemoryViewDescriptor>().memory;
+		async::detach_with_allocator(*kernelAlloc, writeMemoryView(thisThread.toShared(),
+				std::move(view), address, length, buffer, std::move(queue), context));
+	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
 		async::detach_with_allocator(*kernelAlloc, writeAddressSpace(thisThread.toShared(),
 				std::move(space), address, length, buffer, std::move(queue), context));
