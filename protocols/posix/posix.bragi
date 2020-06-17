@@ -1,6 +1,5 @@
 namespace "managarm::posix";
 
-
 enum Errors {
 	SUCCESS = 0,
 	DEAD_FORK = 6,
@@ -297,4 +296,13 @@ head(128):
 		// returned by GET_RESOURCE_USAGE
 		tag(29) uint64 ru_user_time;
 	}
+}
+
+message RenameAtRequest 3 {
+head(128):
+	int32 fd;
+	int32 newfd;
+tail:
+	string path;
+	string target_path;
 }

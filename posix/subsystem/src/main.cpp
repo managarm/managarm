@@ -45,7 +45,9 @@
 #include "eventfd.hpp"
 #include "tmp_fs.hpp"
 #include <kerncfg.pb.h>
+#include <bragi/helpers-frigg.hpp>
 #include <posix.bragi.hpp>
+#include <frg/std_compat.hpp>
 
 namespace {
 	constexpr bool logRequests = false;
@@ -542,41 +544,51 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 	}};
 
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(self->posixLane(), helix::Dispatcher::global(),
-				helix::action(&accept));
-		co_await header.async_wait();
+		auto [accept, recv_head] = co_await helix_ng::exchangeMsgs(
+				self->posixLane(),
+				helix_ng::accept(
+					helix_ng::recvInline()
+				)
+			);
 
 		if(accept.error() == kHelErrLaneShutdown)
 			break;
 		HEL_CHECK(accept.error());
-		auto conversation = accept.descriptor();
 
-		auto sendErrorResponse = [&conversation] (managarm::posix::Errors err) -> async::result<void> {
-			helix::SendBuffer send_resp;
-
-			managarm::posix::SvrResponse resp;
-			resp.set_error(err);
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		};
-
-		auto &&initiate = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&recv_req));
-		co_await initiate.async_wait();
-		if(recv_req.error() == kHelErrBufferTooSmall) {
+		if(recv_head.error() == kHelErrBufferTooSmall) {
 			std::cout << "posix: Rejecting request due to RecvInline overflow" << std::endl;
 			continue;
 		}
-		HEL_CHECK(recv_req.error());
+		HEL_CHECK(recv_head.error());
+
+		auto conversation = accept.descriptor();
+
+		auto sendErrorResponse = [&conversation] (managarm::posix::Errors err) -> async::result<void> {
+			managarm::posix::SvrResponse resp;
+			resp.set_error(err);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
+		};
+
+		auto preamble = bragi::read_preamble(recv_head);
+		assert(!preamble.error());
 
 		managarm::posix::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
+		if (preamble.id() == managarm::posix::CntRequest::message_id) {
+			auto o = bragi::parse_head_only<managarm::posix::CntRequest>(recv_head);
+			if (!o) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			req = *o;
+		}
+
 		if(req.request_type() == managarm::posix::CntReqType::GET_TID) {
 			if(logRequests)
 				std::cout << "posix: GET_TID" << std::endl;
@@ -1394,21 +1406,32 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(sendResp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::RENAMEAT) {
-			if(logRequests || logPaths)
-				std::cout << "posix: RENAMEAT " << req.path()
-						<< " to " << req.target_path() << std::endl;
+		}else if(preamble.id() == managarm::posix::RenameAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
 
-			helix::SendBuffer send_resp;
-			managarm::posix::SvrResponse resp;
+			auto req = bragi::parse_head_tail<managarm::posix::RenameAtRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests || logPaths)
+				std::cout << "posix: RENAMEAT " << req->path()
+						<< " to " << req->target_path() << std::endl;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 
-			if (req.fd() == AT_FDCWD) {
+			if (req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -1420,23 +1443,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.path());
+					relative_to, req->path());
 			co_await resolver.resolve();
 			if(!resolver.currentLink()) {
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
 
-			if (req.newfd() == AT_FDCWD) {
+			if (req->newfd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.newfd());
+				file = self->fileContext()->getFile(req->newfd());
 
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -1448,7 +1465,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.target_path());
+					relative_to, req->target_path());
 			co_await new_resolver.resolve(resolvePrefix);
 			assert(new_resolver.currentLink());
 
@@ -1458,13 +1475,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await superblock->rename(resolver.currentLink().get(),
 					directory.get(), new_resolver.nextComponent());
 
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTATAT) {
 			if(logRequests)
 				std::cout << "posix: FSTATAT request" << std::endl;
