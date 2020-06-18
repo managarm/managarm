@@ -336,3 +336,8 @@ tail:
 message GetUidRequest 4 {
 head(128):
 }
+
+message SetUidRequest 5 {
+head(128):
+	uint64 uid;
+}
