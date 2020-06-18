@@ -92,14 +92,6 @@ consts CntReqType uint32 {
 
 	MKFIFOAT = 65,
 	LINKAT = 66,
-	GET_UID = 67,
-	SET_UID = 68,
-	GET_EUID = 69,
-	SET_EUID = 70,
-	GET_GID = 71,
-	GET_EGID = 72,
-	SET_GID = 73,
-	SET_EGID = 74,
 	FCHMODAT = 75,
 	RMDIR = 77,
 	UTIMENSAT = 78
@@ -208,9 +200,6 @@ head(128):
 
 		// used by EVENTFD
 		tag(39) uint32 initval;
-
-		// used by {GET/SET}UID
-		tag(41) int64 uid;
 
 		// used by utimensat
 		tag(44) uint64 atime_sec;
@@ -360,6 +349,11 @@ head(128):
 }
 
 message SetGidRequest 10 {
+head(128):
+	uint64 uid;
+}
+
+message SetEgidRequest 11 {
 head(128):
 	uint64 uid;
 }
