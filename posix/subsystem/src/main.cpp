@@ -563,8 +563,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 		auto conversation = accept.descriptor();
 
-		auto sendErrorResponse = [&conversation] (managarm::posix::Errors err) -> async::result<void> {
-			managarm::posix::SvrResponse resp;
+		auto sendErrorResponse = [&conversation]<typename Message = managarm::posix::SvrResponse>(managarm::posix::Errors err) -> async::result<void> {
+			Message resp;
 			resp.set_error(err);
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
