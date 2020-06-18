@@ -1680,30 +1680,44 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await target_link->getTarget()->chmod(req->mode());
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
-		}else if(req.request_type() == managarm::posix::CntReqType::UTIMENSAT) {
+		}else if(preamble.id() == managarm::posix::UtimensAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::UtimensAtRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests || logPaths)
-				std::cout << "posix: UTIMENSAT " << req.path() << std::endl;
+				std::cout << "posix: UTIMENSAT " << req->path() << std::endl;
 
 			ViewPath relativeTo;
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsNode> target = nullptr;
 
-			if(!req.path().size()) {
-				target = self->fileContext()->getFile(req.fd())->associatedLink()->getTarget();
+			if(!req->path().size()) {
+				target = self->fileContext()->getFile(req->fd())->associatedLink()->getTarget();
 			} else {
-				if(req.flags() & ~AT_SYMLINK_NOFOLLOW) {
+				if(req->flags() & ~AT_SYMLINK_NOFOLLOW) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
 
-				if(req.flags() & AT_SYMLINK_NOFOLLOW) {
+				if(req->flags() & AT_SYMLINK_NOFOLLOW) {
 					std::cout << "posix: AT_SYMLINK_FOLLOW is unimplemented for utimensat" << std::endl;
 				}
 
-				if(req.fd() == AT_FDCWD) {
+				if(req->fd() == AT_FDCWD) {
 					relativeTo = self->fsContext()->getWorkingDirectory();
 				} else {
-					file = self->fileContext()->getFile(req.fd());
+					file = self->fileContext()->getFile(req->fd());
 					if (!file) {
 						co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
 						continue;
@@ -1714,24 +1728,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
-						relativeTo, req.path());
+						relativeTo, req->path());
 				co_await resolver.resolve(resolvePrefix);
 				assert(resolver.currentLink());
 
 				target = resolver.currentLink()->getTarget();
 			}
 
-			co_await target->utimensat(req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
+			co_await target->utimensat(req->atimeSec(), req->atimeNsec(), req->mtimeSec(), req->mtimeNsec());
 
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto [sendResp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(sendResp.error());
+			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
 			if(logRequests || logPaths)
 				std::cout << "posix: READLINK path: " << req.path() << std::endl;
