@@ -373,3 +373,11 @@ head(128):
 tail:
 	string path;
 }
+
+message MkfifoAtRequest 14 {
+head(128):
+	int32 fd;
+	int32 mode;
+tail:
+	string path;
+}
