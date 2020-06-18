@@ -1618,7 +1618,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::FCHMODAT) {
+		}else if(preamble.id() == managarm::posix::FchmodAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::FchmodAtRequest>(recv_head, tail);
+
 			if(logRequests)
 				std::cout << "posix: FCHMODAT request" << std::endl;
 
@@ -1626,10 +1635,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
 
-			if(req.fd() == AT_FDCWD) {
+			if(req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -1639,11 +1648,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				relative_to = {file->associatedMount(), file->associatedLink()};
 			}
 
-			if(req.flags()) {
-				if(req.flags() & AT_SYMLINK_NOFOLLOW) {
+			if(req->flags()) {
+				if(req->flags() & AT_SYMLINK_NOFOLLOW) {
 					co_await sendErrorResponse(managarm::posix::Errors::NOT_SUPPORTED);
 					continue;
-				} else if(req.flags() & AT_EMPTY_PATH) {
+				} else if(req->flags() & AT_EMPTY_PATH) {
 					// Allowed, managarm extension
 				} else {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -1651,12 +1660,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
-			if(req.flags() & AT_EMPTY_PATH) {
+			if(req->flags() & AT_EMPTY_PATH) {
 				target_link = file->associatedLink();
 			} else {
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.path());
+					relative_to, req->path());
 
 				co_await resolver.resolve();
 
@@ -1668,17 +1677,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			co_await target_link->getTarget()->chmod(req.mode());
+			co_await target_link->getTarget()->chmod(req->mode());
 
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
+			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::UTIMENSAT) {
 			if(logRequests || logPaths)
 				std::cout << "posix: UTIMENSAT " << req.path() << std::endl;

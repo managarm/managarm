@@ -391,3 +391,12 @@ tail:
 	string path;
 	string target_path;
 }
+
+message FchmodAtRequest 16 {
+head(128):
+	int32 fd;
+	int32 flags;
+	int32 mode;
+tail:
+	string path;
+}
