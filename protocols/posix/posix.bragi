@@ -332,3 +332,7 @@ tail:
 	string path;
 	string target_path;
 }
+
+message GetUidRequest 4 {
+head(128):
+}
