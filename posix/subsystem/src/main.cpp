@@ -1303,33 +1303,39 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
-		}else if(req.request_type() == managarm::posix::CntReqType::LINKAT) {
+		}else if(preamble.id() == managarm::posix::LinkAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::LinkAtRequest>(recv_head, tail);
+
 			if(logRequests)
 				std::cout << "posix: LINKAT" << std::endl;
 
-			helix::SendBuffer send_resp;
-			managarm::posix::SvrResponse resp;
-
-			if(req.flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW)) {
+			if(req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW)) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
-			if(req.flags() & AT_EMPTY_PATH) {
+			if(req->flags() & AT_EMPTY_PATH) {
 				std::cout << "posix: AT_EMPTY_PATH is unimplemented for linkat" << std::endl;
 			}
 
-			if(req.flags() & AT_SYMLINK_FOLLOW) {
+			if(req->flags() & AT_SYMLINK_FOLLOW) {
 				std::cout << "posix: AT_SYMLINK_FOLLOW is unimplemented for linkat" << std::endl;
 			}
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 
-			if(req.fd() == AT_FDCWD) {
+			if(req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if(!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -1341,23 +1347,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.path());
+					relative_to, req->path());
 			co_await resolver.resolve();
 			if(!resolver.currentLink()) {
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
 
-			if (req.newfd() == AT_FDCWD) {
+			if (req->newfd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.newfd());
+				file = self->fileContext()->getFile(req->newfd());
 
 				if(!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -1369,7 +1369,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.target_path());
+					relative_to, req->target_path());
 			co_await new_resolver.resolve(resolvePrefix);
 			assert(new_resolver.currentLink());
 
@@ -1382,14 +1382,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_return;
 			}
 
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-
+			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINKAT) {
 			if(logRequests || logPaths)
 				std::cout << "posix: SYMLINK " << req.path() << std::endl;

@@ -381,3 +381,13 @@ head(128):
 tail:
 	string path;
 }
+
+message LinkAtRequest 15 {
+head(128):
+	int32 fd;
+	int32 newfd;
+	int32 flags;
+tail:
+	string path;
+	string target_path;
+}
