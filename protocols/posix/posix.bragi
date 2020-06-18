@@ -413,3 +413,9 @@ head(128):
 tail:
 	string path;
 }
+
+message RmdirRequest 18 {
+head(128):
+tail:
+	string path;
+}

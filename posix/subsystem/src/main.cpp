@@ -2186,16 +2186,30 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 				continue;
 			}
-		}else if(req.request_type() == managarm::posix::CntReqType::RMDIR) {
+		}else if(preamble.id() == managarm::posix::RmdirRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::RmdirRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests || logPaths)
-				std::cout << "posix: RMDIR " << req.path() << std::endl;
+				std::cout << "posix: RMDIR " << req->path() << std::endl;
 
 			std::cout << "\e[31mposix: RMDIR: always removes the directory, even when not empty\e[39m" << std::endl;
 			std::shared_ptr<FsLink> target_link;
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
-					req.path());
+					req->path());
 
 			co_await resolver.resolve();
 
@@ -2212,13 +2226,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					co_return;
 				}
 
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size()));
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
 			if(logRequests)
