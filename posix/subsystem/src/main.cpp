@@ -2094,29 +2094,41 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_path.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::UNLINKAT) {
-			if(logRequests || logPaths)
-				std::cout << "posix: UNLINKAT path: " << req.path() << std::endl;
+		}else if(preamble.id() == managarm::posix::UnlinkAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
 
-			helix::SendBuffer send_resp;
+			auto req = bragi::parse_head_tail<managarm::posix::UnlinkAtRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests || logPaths)
+				std::cout << "posix: UNLINKAT path: " << req->path() << std::endl;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
 
-			if(req.flags()) {
-				if(req.flags() & AT_REMOVEDIR) {
+			if(req->flags()) {
+				if(req->flags() & AT_REMOVEDIR) {
 					std::cout << "posix: UNLINKAT flag AT_REMOVEDIR handling unimplemented" << std::endl;
 				} else {
-					std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req.flags() << std::endl;
+					std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req->flags() << std::endl;
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				}
 			} 
 
-			if(req.fd() == AT_FDCWD) {
+			if(req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -2128,21 +2140,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.path());
+					relative_to, req->path());
 
 			co_await resolver.resolve();
 
 			target_link = resolver.currentLink();
 
 			if (!target_link) {
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
 			} else {
 				auto owner = target_link->getOwner();
 				auto result = co_await owner->unlink(target_link->getName());
@@ -2151,14 +2157,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					co_return;
 				}
 
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
+				continue;
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::RMDIR) {
 			if(logRequests || logPaths)

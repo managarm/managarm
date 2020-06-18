@@ -357,3 +357,11 @@ message SetEgidRequest 11 {
 head(128):
 	uint64 uid;
 }
+
+message UnlinkAtRequest 12 {
+head(128):
+	int32 fd;
+	int32 flags;
+tail:
+	string path;
+}
