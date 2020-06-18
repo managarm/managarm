@@ -1751,6 +1751,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_EXCLUSIVE
 					| managarm::posix::OpenFlags::OF_NONBLOCK
 					| managarm::posix::OpenFlags::OF_CLOEXEC
+					| managarm::posix::OpenFlags::OF_TRUNC
 					| managarm::posix::OpenFlags::OF_RDONLY
 					| managarm::posix::OpenFlags::OF_WRONLY
 					| managarm::posix::OpenFlags::OF_RDWR)));
@@ -1838,6 +1839,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			if(file) {
+				if(req.flags() & managarm::posix::OpenFlags::OF_TRUNC)
+					co_await file->truncate(0);
 				int fd = self->fileContext()->attachFile(file,
 						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
@@ -1871,6 +1874,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_EXCLUSIVE
 					| managarm::posix::OpenFlags::OF_NONBLOCK
 					| managarm::posix::OpenFlags::OF_CLOEXEC
+					| managarm::posix::OpenFlags::OF_TRUNC
 					| managarm::posix::OpenFlags::OF_RDONLY
 					| managarm::posix::OpenFlags::OF_WRONLY
 					| managarm::posix::OpenFlags::OF_RDWR))) {
@@ -1977,6 +1981,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			if(file) {
+				if(req.flags() & managarm::posix::OpenFlags::OF_TRUNC)
+					co_await file->truncate(0);
 				int fd = self->fileContext()->attachFile(file,
 						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 

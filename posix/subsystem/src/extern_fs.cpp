@@ -203,6 +203,29 @@ public:
 		_control = helix::UniqueLane{};
 	}
 
+	async::result<void> truncate(size_t size) override {
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::PT_TRUNCATE);
+		req.set_size(size);
+
+		auto ser = req.SerializeAsString();
+		auto [offer, send_req, recv_resp]
+				= co_await helix_ng::exchangeMsgs(getPassthroughLane(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		co_return;
+	}
+
 private:
 	helix::UniqueLane _control;
 	protocols::fs::File _file;

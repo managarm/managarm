@@ -134,7 +134,8 @@ consts OpenFlags uint32 {
 	OF_CLOEXEC = 256,
 	OF_RDONLY = 8,
 	OF_WRONLY = 16,
-	OF_RDWR = 32
+	OF_RDWR = 32,
+	OF_TRUNC = 64
 }
 
 message CntRequest 1 {
