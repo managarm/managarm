@@ -345,3 +345,8 @@ head(128):
 message GetEuidRequest 6 {
 head(128):
 }
+
+message SetEuidRequest 7 {
+head(128):
+	uint64 uid;
+}

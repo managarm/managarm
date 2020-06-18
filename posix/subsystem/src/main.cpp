@@ -683,27 +683,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::SET_EUID) {
+		}else if(preamble.id() == managarm::posix::SetEuidRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::SetEuidRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests)
 				std::cout << "posix: SET_EUID" << std::endl;
 
-			helix::SendBuffer send_resp;
-
-			managarm::posix::SvrResponse resp;
-			Error err = self->setEuid(req.uid());
+			Error err = self->setEuid(req->uid());
 			if(err == Error::accessDenied) {
-				resp.set_error(managarm::posix::Errors::ACCESS_DENIED);
+				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 			} else if(err == Error::illegalArguments) {
-				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			} else {
-				resp.set_error(managarm::posix::Errors::SUCCESS);
+				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 			}
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::GET_GID) {
 			if(logRequests)
 				std::cout << "posix: GET_GID" << std::endl;
