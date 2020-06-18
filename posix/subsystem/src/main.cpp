@@ -1496,20 +1496,34 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					directory.get(), new_resolver.nextComponent());
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
-		}else if(req.request_type() == managarm::posix::CntReqType::FSTATAT) {
+		}else if(preamble.id() == managarm::posix::FstatAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::FstatAtRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests)
 				std::cout << "posix: FSTATAT request" << std::endl;
 
-			helix::SendBuffer send_resp;
+			//helix::SendBuffer send_resp;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
 
-			if (req.fd() == AT_FDCWD) {
+			if (req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -1519,14 +1533,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				relative_to = {file->associatedMount(), file->associatedLink()};
 			}
 
-			if (req.flags() & AT_EMPTY_PATH) {
+			if (req->flags() & AT_EMPTY_PATH) {
 				target_link = file->associatedLink();
 			} else {
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
-						relative_to, req.path());
+						relative_to, req->path());
 
-				if (req.flags() & AT_SYMLINK_NOFOLLOW)
+				if (req->flags() & AT_SYMLINK_NOFOLLOW)
 					co_await resolver.resolve(resolveDontFollow);
 				else
 					co_await resolver.resolve();
@@ -1594,10 +1608,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_ctime_secs(stats.ctimeSecs);
 			resp.set_ctime_nanos(stats.ctimeNanos);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FCHMODAT) {
 			if(logRequests)
