@@ -354,3 +354,7 @@ head(128):
 message GetGidRequest 8 {
 head(128):
 }
+
+message GetEgidRequest 9 {
+head(128):
+}
