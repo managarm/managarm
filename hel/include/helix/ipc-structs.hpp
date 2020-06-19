@@ -10,7 +10,7 @@
 
 #include <frg/macros.hpp>
 
-#include <bragi/helpers-frigg.hpp>
+#include <bragi/helpers-all.hpp>
 
 namespace helix {
 
