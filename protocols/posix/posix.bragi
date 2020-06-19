@@ -33,20 +33,18 @@ consts CntReqType uint32 {
 	ACCESSAT = 20,
 	MKDIRAT = 46,
 	SYMLINKAT = 47,
-	RENAMEAT = 51,
-	FSTATAT = 63,
 	READLINK = 31,
 	READ = 3,
 	WRITE = 4,
 	SEEK_ABS = 13,
 	SEEK_REL = 14,
 	SEEK_EOF = 15,
-	MMAP = 16,
+	CLOSE = 5,
 	DUP = 34,
 	DUP2 = 6,
 	TTY_NAME = 18,
 	GETCWD = 59,
-	UNLINKAT = 40,
+	OPENAT = 64,
 	FD_GET_FLAGS = 44,
 	FD_SET_FLAGS = 45,
 	GET_RESOURCE_USAGE = 57,
@@ -81,20 +79,13 @@ consts CntReqType uint32 {
 
 	// inotify()-specific calls
 	INOTIFY_CREATE = 48,
-	INOTIFY_ADD = 49,
 	INOTIFY_DELETE = 50,
 
 	HELFD_ATTACH = 10,
 	HELFD_CLONE = 11,
 
 	// eventfd()-specific calls
-	EVENTFD_CREATE = 60,
-
-	MKFIFOAT = 65,
-	LINKAT = 66,
-	FCHMODAT = 75,
-	RMDIR = 77,
-	UTIMENSAT = 78
+	EVENTFD_CREATE = 60
 }
 
 consts OpenMode uint32 {
@@ -200,12 +191,6 @@ head(128):
 
 		// used by EVENTFD
 		tag(39) uint32 initval;
-
-		// used by utimensat
-		tag(44) uint64 atime_sec;
-		tag(45) uint64 atime_nsec;
-		tag(46) uint64 mtime_sec;
-		tag(47) uint64 mtime_nsec;
 	}
 }
 
@@ -416,6 +401,14 @@ tail:
 
 message RmdirRequest 18 {
 head(128):
+tail:
+	string path;
+}
+
+message InotifyAddRequest 19 {
+head(128):
+	int32 fd;
+	int32 flags;
 tail:
 	string path;
 }

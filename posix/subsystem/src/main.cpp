@@ -1518,8 +1518,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: FSTATAT request" << std::endl;
 
-			//helix::SendBuffer send_resp;
-
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
@@ -2764,41 +2762,52 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::INOTIFY_ADD) {
-			helix::SendBuffer send_resp;
+		}else if(preamble.id() == managarm::posix::InotifyAddRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::InotifyAddRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			managarm::posix::SvrResponse resp;
 
 			if(logRequests || logPaths)
-				std::cout << "posix: INOTIFY_ADD" << req.path() << std::endl;
+				std::cout << "posix: INOTIFY_ADD" << req->path() << std::endl;
 
-			auto ifile = self->fileContext()->getFile(req.fd());
-			assert(ifile);
+			auto ifile = self->fileContext()->getFile(req->fd());
+			if(!ifile) {
+				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				continue;
+			}
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
+					self->fsContext()->getWorkingDirectory(), req->path());
 			co_await resolver.resolve();
 			if(!resolver.currentLink()) {
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
 
 			auto wd = inotify::addWatch(ifile.get(), resolver.currentLink()->getTarget(),
-					req.flags());
+					req->flags());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_wd(wd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EVENTFD_CREATE) {
 			if(logRequests)
