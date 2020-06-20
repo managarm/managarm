@@ -516,83 +516,6 @@ namespace initrd {
 		VirtualAddr clientFileTable;
 	};
 
-	struct OpenClosure {
-		OpenClosure(Process *process, LaneHandle lane, posix::CntRequest<KernelAlloc> req)
-		: _process(process), _lane(frigg::move(lane)), _req(frigg::move(req)),
-				_buffer(*kernelAlloc) { }
-
-		void operator() () {
-//			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
-			// TODO: Actually handle the file-not-found case.
-			auto module = resolveModule(_req.path());
-			if(!module) {
-				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				resp.SerializeToString(&_buffer);
-				serviceSend(_lane, _buffer.data(), _buffer.size(),
-						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
-				return;
-			}
-
-			if(module->type == MfsType::directory) {
-				auto stream = createStream();
-				auto file = frigg::construct<OpenDirectory>(*kernelAlloc,
-						static_cast<MfsDirectory *>(module));
-				file->clientLane = frigg::move(stream.get<1>());
-
-				KernelFiber::run([lane = stream.get<0>(), file] () {
-					while(true) {
-						if(!handleDirectoryReq(lane, file))
-							break;
-					}
-				});
-
-				auto fd = _process->attachFile(file);
-
-				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_fd(fd);
-
-				resp.SerializeToString(&_buffer);
-				serviceSend(_lane, _buffer.data(), _buffer.size(),
-						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
-			}else{
-				assert(module->type == MfsType::regular);
-
-				auto stream = createStream();
-				auto file = frigg::construct<ModuleFile>(*kernelAlloc,
-						static_cast<MfsRegular *>(module));
-				file->clientLane = frigg::move(stream.get<1>());
-
-				auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
-						frigg::move(stream.get<0>()), file);
-				(*closure)();
-
-				auto fd = _process->attachFile(file);
-
-				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_fd(fd);
-
-				resp.SerializeToString(&_buffer);
-				serviceSend(_lane, _buffer.data(), _buffer.size(),
-						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
-			}
-		}
-
-	private:
-		void onSendResp(Error error) {
-			assert(error == kErrSuccess);
-		}
-
-		Process *_process;
-		LaneHandle _lane;
-		posix::CntRequest<KernelAlloc> _req;
-
-		frg::string<KernelAlloc> _buffer;
-	};
-
 	struct CloseClosure {
 		CloseClosure(LaneHandle lane, posix::CntRequest<KernelAlloc> req)
 		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
@@ -705,10 +628,92 @@ namespace initrd {
 					assert(!respError);
 					co_return;
 				}(_process, std::move(_requestLane), std::move(*req)));
-			}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
-				auto closure = frigg::construct<OpenClosure>(*kernelAlloc,
-						_process, frigg::move(_requestLane), frigg::move(req));
-				(*closure)();
+			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
+				// TODO: this is a hack until this entire function becomes a coroutine.
+				auto recvTail = fiberRecv(_requestLane);
+
+				auto req = bragi::parse_head_tail<managarm::posix::OpenAtRequest>(
+						frg::span<uint8_t>{_buffer, length}, recvTail, *kernelAlloc);
+				if(!req) {
+					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					return;
+				}
+				if(req->fd() != -100) {
+					frigg::infoLogger() << "thor: OpenAt does not support dirfds" << frigg::endLog;
+					return;
+				}
+				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
+						posix::OpenAtRequest<KernelAlloc> req) -> coroutine<void> {
+					auto module = resolveModule(req.path());
+					if(!module) {
+						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+						resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+						frg::string<KernelAlloc> ser(*kernelAlloc);
+						resp.SerializeToString(&ser);
+						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+						memcpy(respBuffer.data(), ser.data(), ser.size());
+						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+						// TODO: improve error handling here.
+						assert(!respError);
+						co_return;
+					}
+
+					if(module->type == MfsType::directory) {
+						auto stream = createStream();
+						auto file = frigg::construct<OpenDirectory>(*kernelAlloc,
+								static_cast<MfsDirectory *>(module));
+						file->clientLane = frigg::move(stream.get<1>());
+
+						KernelFiber::run([lane = stream.get<0>(), file] () {
+							while(true) {
+								if(!handleDirectoryReq(lane, file))
+									break;
+							}
+						});
+
+						auto fd = process->attachFile(file);
+
+						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+						resp.set_error(managarm::posix::Errors::SUCCESS);
+						resp.set_fd(fd);
+
+						frg::string<KernelAlloc> ser(*kernelAlloc);
+						resp.SerializeToString(&ser);
+						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+						memcpy(respBuffer.data(), ser.data(), ser.size());
+						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+						// TODO: improve error handling here.
+						assert(!respError);
+						co_return;
+					}else{
+						assert(module->type == MfsType::regular);
+
+						auto stream = createStream();
+						auto file = frigg::construct<ModuleFile>(*kernelAlloc,
+								static_cast<MfsRegular *>(module));
+						file->clientLane = frigg::move(stream.get<1>());
+
+						auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
+								frigg::move(stream.get<0>()), file);
+						(*closure)();
+
+						auto fd = process->attachFile(file);
+
+						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+						resp.set_error(managarm::posix::Errors::SUCCESS);
+						resp.set_fd(fd);
+
+						frg::string<KernelAlloc> ser(*kernelAlloc);
+						resp.SerializeToString(&ser);
+						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+						memcpy(respBuffer.data(), ser.data(), ser.size());
+						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+						// TODO: improve error handling here.
+						assert(!respError);
+						co_return;
+					}
+				}(_process, std::move(_requestLane), std::move(*req)));
 			}else if(req.request_type() == managarm::posix::CntReqType::IS_TTY) {
 				auto closure = frigg::construct<IsTerminalClosure>(*kernelAlloc, _process,
 						frigg::move(_requestLane), frigg::move(req));

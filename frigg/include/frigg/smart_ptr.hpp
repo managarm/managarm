@@ -493,11 +493,11 @@ public:
 		return *this;
 	}
 
-	void *data() {
+	void *data() const {
 		return _pointer;
 	}
 
-	size_t size() {
+	size_t size() const {
 		return _size;
 	}
 

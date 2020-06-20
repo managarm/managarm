@@ -1744,137 +1744,23 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
-			if(logRequests || logPaths)
-				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
+		}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
 
-			helix::SendBuffer send_resp;
-			managarm::posix::SvrResponse resp;
-
-			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CREATE
-					| managarm::posix::OpenFlags::OF_EXCLUSIVE
-					| managarm::posix::OpenFlags::OF_NONBLOCK
-					| managarm::posix::OpenFlags::OF_CLOEXEC
-					| managarm::posix::OpenFlags::OF_TRUNC
-					| managarm::posix::OpenFlags::OF_RDONLY
-					| managarm::posix::OpenFlags::OF_WRONLY
-					| managarm::posix::OpenFlags::OF_RDWR)));
-
-			SemanticFlags semantic_flags = 0;
-			if(req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
-				semantic_flags |= semanticNonBlock;
-
-			if (req.flags() & managarm::posix::OpenFlags::OF_RDONLY)
-				semantic_flags |= semanticRead;
-			else if (req.flags() & managarm::posix::OpenFlags::OF_WRONLY)
-				semantic_flags |= semanticWrite;
-			else if (req.flags() & managarm::posix::OpenFlags::OF_RDWR)
-				semantic_flags |= semanticRead | semanticWrite;
-
-			smarter::shared_ptr<File, FileHandle> file;
-
-			PathResolver resolver;
-			resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
-			if(req.flags() & managarm::posix::OpenFlags::OF_CREATE) {
-				co_await resolver.resolve(resolvePrefix);
-				if(!resolver.currentLink()) {
-					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-					auto ser = resp.SerializeAsString();
-					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-							helix::action(&send_resp, ser.data(), ser.size()));
-					co_await transmit.async_wait();
-					HEL_CHECK(send_resp.error());
-					continue;
-				}
-
-				if(logRequests)
-					std::cout << "posix: Creating file " << req.path() << std::endl;
-
-				auto directory = resolver.currentLink()->getTarget();
-				auto tailResult = co_await directory->getLink(resolver.nextComponent());
-				assert(tailResult);
-				auto tail = tailResult.value();
-				if(tail) {
-					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
-						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
-
-						auto ser = resp.SerializeAsString();
-						auto &&transmit = helix::submitAsync(conversation,
-								helix::Dispatcher::global(),
-								helix::action(&send_resp, ser.data(), ser.size()));
-						co_await transmit.async_wait();
-						HEL_CHECK(send_resp.error());
-						continue;
-					}else{
-						auto fileResult = co_await tail->getTarget()->open(
-											resolver.currentView(), std::move(tail),
-											semantic_flags);
-						assert(fileResult);
-						file = fileResult.value();
-						assert(file);
-					}
-				}else{
-					assert(directory->superblock());
-					auto node = co_await directory->superblock()->createRegular();
-					// Due to races, link() can fail here.
-					// TODO: Implement a version of link() that eithers links the new node
-					// or returns the current node without failing.
-					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
-					assert(linkResult);
-					auto link = linkResult.value();
-					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
-										semantic_flags);
-					assert(fileResult);
-					file = fileResult.value();
-					assert(file);
-				}
-			}else{
-				co_await resolver.resolve();
-
-				if(resolver.currentLink()) {
-					auto target = resolver.currentLink()->getTarget();
-					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(),
-										semantic_flags);
-					assert(fileResult);
-					file = fileResult.value();
-				}
+			auto req = bragi::parse_head_tail<managarm::posix::OpenAtRequest>(recv_head, tail);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
 			}
-
-			if(file) {
-				if(req.flags() & managarm::posix::OpenFlags::OF_TRUNC)
-					co_await file->truncate(0);
-				int fd = self->fileContext()->attachFile(file,
-						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_fd(fd);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}else{
-				if(logRequests)
-					std::cout << "posix:     OPEN failed: file not found" << std::endl;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}
-		}else if(req.request_type() == managarm::posix::CntReqType::OPENAT) {
 			if(logRequests || logPaths)
-				std::cout << "posix: OPENAT path: " << req.path()	<< std::endl;
+				std::cout << "posix: OPENAT path: " << req->path() << std::endl;
 
-			helix::SendBuffer send_resp;
-			managarm::posix::SvrResponse resp;
-
-			if((req.flags() & ~(managarm::posix::OpenFlags::OF_CREATE
+			if((req->flags() & ~(managarm::posix::OpenFlags::OF_CREATE
 					| managarm::posix::OpenFlags::OF_EXCLUSIVE
 					| managarm::posix::OpenFlags::OF_NONBLOCK
 					| managarm::posix::OpenFlags::OF_CLOEXEC
@@ -1882,30 +1768,30 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_RDONLY
 					| managarm::posix::OpenFlags::OF_WRONLY
 					| managarm::posix::OpenFlags::OF_RDWR))) {
-				std::cout << "posix: OPENAT flags not recognized: " << req.flags() << std::endl;
+				std::cout << "posix: OPENAT flags not recognized: " << req->flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
 			SemanticFlags semantic_flags = 0;
-			if(req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
+			if(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
 
-			if (req.flags() & managarm::posix::OpenFlags::OF_RDONLY)
+			if (req->flags() & managarm::posix::OpenFlags::OF_RDONLY)
 				semantic_flags |= semanticRead;
-			else if (req.flags() & managarm::posix::OpenFlags::OF_WRONLY)
+			else if (req->flags() & managarm::posix::OpenFlags::OF_WRONLY)
 				semantic_flags |= semanticWrite;
-			else if (req.flags() & managarm::posix::OpenFlags::OF_RDWR)
+			else if (req->flags() & managarm::posix::OpenFlags::OF_RDWR)
 				semantic_flags |= semanticRead | semanticWrite;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
 
-			if(req.fd() == AT_FDCWD) {
+			if(req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -1917,37 +1803,24 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.path());
-			if(req.flags() & managarm::posix::OpenFlags::OF_CREATE) {
+					relative_to, req->path());
+			if(req->flags() & managarm::posix::OpenFlags::OF_CREATE) {
 				co_await resolver.resolve(resolvePrefix);
 				if(!resolver.currentLink()) {
-					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-					auto ser = resp.SerializeAsString();
-					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-							helix::action(&send_resp, ser.data(), ser.size()));
-					co_await transmit.async_wait();
-					HEL_CHECK(send_resp.error());
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				}
 
 				if(logRequests)
-					std::cout << "posix: Creating file " << req.path() << std::endl;
+					std::cout << "posix: Creating file " << req->path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
 				auto tailResult = co_await directory->getLink(resolver.nextComponent());
 				assert(tailResult);
 				auto tail = tailResult.value();
 				if(tail) {
-					if(req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
-						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
-
-						auto ser = resp.SerializeAsString();
-						auto &&transmit = helix::submitAsync(conversation,
-								helix::Dispatcher::global(),
-								helix::action(&send_resp, ser.data(), ser.size()));
-						co_await transmit.async_wait();
-						HEL_CHECK(send_resp.error());
+					if(req->flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
+						co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 						continue;
 					}else{
 						auto fileResult = co_await tail->getTarget()->open(
@@ -1984,31 +1857,27 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
-			if(file) {
-				if(req.flags() & managarm::posix::OpenFlags::OF_TRUNC)
-					co_await file->truncate(0);
-				int fd = self->fileContext()->attachFile(file,
-						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_fd(fd);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}else{
+			if(!file) {
 				if(logRequests)
 					std::cout << "posix:     OPEN failed: file not found" << std::endl;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
 			}
+
+			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC)
+				co_await file->truncate(0);
+			int fd = self->fileContext()->attachFile(file,
+					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
 			if(logRequests)
 				std::cout << "posix: CLOSE file descriptor " << req.fd() << std::endl;

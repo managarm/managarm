@@ -36,7 +36,6 @@ consts CntReqType uint32 {
 	RENAMEAT = 51,
 	FSTATAT = 63,
 	READLINK = 31,
-	OPEN = 2,
 	READ = 3,
 	WRITE = 4,
 	SEEK_ABS = 13,
@@ -50,7 +49,6 @@ consts CntReqType uint32 {
 	TTY_NAME = 18,
 	GETCWD = 59,
 	UNLINKAT = 40,
-	OPENAT = 64,
 	FD_GET_FLAGS = 44,
 	FD_SET_FLAGS = 45,
 	GET_RESOURCE_USAGE = 57,
@@ -307,6 +305,15 @@ head(128):
 	int64 address_hint;
 	int64 rel_offset;
 	uint64 size;
+}
+
+message OpenAtRequest 64 {
+head(128):
+	int32 fd;
+	OpenFlags flags;
+	OpenMode mode;
+tail:
+	string path;
 }
 
 message RenameAtRequest 3 {
