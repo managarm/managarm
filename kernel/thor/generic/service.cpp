@@ -717,9 +717,15 @@ namespace initrd {
 				auto closure = frigg::construct<CloseClosure>(*kernelAlloc,
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
-			}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
+			}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::VmMapRequest>(
+						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+				if(!req) {
+					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					return;
+				}
 				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
-						posix::CntRequest<KernelAlloc> req) -> coroutine<void> {
+						posix::VmMapRequest<KernelAlloc> req) -> coroutine<void> {
 					if(!req.size()) {
 						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 						resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -787,7 +793,7 @@ namespace initrd {
 					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 					// TODO: improve error handling here.
 					assert(!respError);
-				}(_process, std::move(_requestLane), std::move(req)));
+				}(_process, std::move(_requestLane), std::move(*req)));
 			}else{
 				frigg::panicLogger() << "Illegal POSIX request type "
 						<< req.request_type() << frigg::endLog;

@@ -22,7 +22,6 @@ consts CntReqType uint32 {
 	FORK = 8,
 	EXEC = 1,
 	WAIT = 56,
-	VM_MAP = 26,
 	VM_REMAP = 43,
 	VM_PROTECT = 62,
 	VM_UNMAP = 27,
@@ -171,9 +170,6 @@ head(128):
 		// used by SEEK_ABS, SEEK_REL
 		tag(11) int64 rel_offset;
 
-		// used by VM_MAP
-		tag(40) int64 address_hint;
-
 		// used by FORK
 		tag(8) uint64 child_sp;
 		tag(9) uint64 child_ip;
@@ -301,6 +297,16 @@ head(128):
 message GetTidRequest 29 {
 head(128):
 	int32 dummy;
+}
+
+message VmMapRequest 26 {
+head(128):
+	int32 fd;
+	uint32 mode;
+	uint32 flags;
+	int64 address_hint;
+	int64 rel_offset;
+	uint64 size;
 }
 
 message RenameAtRequest 3 {

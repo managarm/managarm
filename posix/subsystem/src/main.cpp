@@ -825,74 +825,74 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
+		}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::VmMapRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
 			if(logRequests)
-				std::cout << "posix: VM_MAP size: " << (void *)(size_t)req.size() << std::endl;
-			helix::SendBuffer send_resp;
-			managarm::posix::SvrResponse resp;
+				std::cout << "posix: VM_MAP size: " << (void *)(size_t)req->size() << std::endl;
 
-			// TODO: Validate req.flags().
+			// TODO: Validate req->flags().
 
-			if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
-				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+			if(req->mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
 			uint32_t nativeFlags = 0;
 
-			if(req.mode() & PROT_READ)
+			if(req->mode() & PROT_READ)
 				nativeFlags |= kHelMapProtRead;
-			if(req.mode() & PROT_WRITE)
+			if(req->mode() & PROT_WRITE)
 				nativeFlags |= kHelMapProtWrite;
-			if(req.mode() & PROT_EXEC)
+			if(req->mode() & PROT_EXEC)
 				nativeFlags |= kHelMapProtExecute;
 
 			bool copyOnWrite;
-			if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_PRIVATE) {
+			if((req->flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_PRIVATE) {
 				copyOnWrite = true;
-			}else if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_SHARED) {
+			}else if((req->flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_SHARED) {
 				copyOnWrite = false;
 			}else{
 				throw std::runtime_error("posix: Handle illegal flags in VM_MAP");
 			}
 
 			uintptr_t hint = 0;
-			if(req.flags() & MAP_FIXED)
-				hint = req.address_hint();
+			if(req->flags() & MAP_FIXED)
+				hint = req->address_hint();
 
 			void *address;
-			if(req.flags() & MAP_ANONYMOUS) {
-				assert(req.fd() == -1);
-				assert(!req.rel_offset());
+			if(req->flags() & MAP_ANONYMOUS) {
+				assert(req->fd() == -1);
+				assert(!req->rel_offset());
 
 				// TODO: this is a waste of memory. Use some always-zero memory instead.
 				HelHandle handle;
-				HEL_CHECK(helAllocateMemory(req.size(), 0, nullptr, &handle));
+				HEL_CHECK(helAllocateMemory(req->size(), 0, nullptr, &handle));
 
 				address = co_await self->vmContext()->mapFile(hint,
 						helix::UniqueDescriptor{handle}, nullptr,
-						0, req.size(), copyOnWrite, nativeFlags);
+						0, req->size(), copyOnWrite, nativeFlags);
 			}else{
-				auto file = self->fileContext()->getFile(req.fd());
+				auto file = self->fileContext()->getFile(req->fd());
 				assert(file && "Illegal FD for VM_MAP");
 				auto memory = co_await file->accessMemory();
 				address = co_await self->vmContext()->mapFile(hint,
 						std::move(memory), std::move(file),
-						req.rel_offset(), req.size(), copyOnWrite, nativeFlags);
+						req->rel_offset(), req->size(), copyOnWrite, nativeFlags);
 			}
 
+			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_offset(reinterpret_cast<uintptr_t>(address));
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_REMAP) {
 			if(logRequests)
 				std::cout << "posix: VM_REMAP" << std::endl;
