@@ -44,7 +44,6 @@ consts CntReqType uint32 {
 	MMAP = 16,
 	DUP = 34,
 	DUP2 = 6,
-	IS_TTY = 22,
 	TTY_NAME = 18,
 	GETCWD = 59,
 	UNLINKAT = 40,
@@ -316,6 +315,11 @@ tail:
 }
 
 message CloseRequest 5 {
+head(128):
+	int32 fd;
+}
+
+message IsTtyRequest 22 {
 head(128):
 	int32 fd;
 }

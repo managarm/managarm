@@ -516,36 +516,6 @@ namespace initrd {
 		VirtualAddr clientFileTable;
 	};
 
-	struct IsTerminalClosure {
-		IsTerminalClosure(Process *process, LaneHandle lane, posix::CntRequest<KernelAlloc> req)
-		: _process{process}, _lane{frigg::move(lane)},
-				_req{frigg::move(req)}, _buffer{*kernelAlloc} { }
-
-		void operator() () {
-			assert((size_t)_req.fd() < _process->openFiles.size());
-			auto file = _process->openFiles[_req.fd()];
-
-			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_mode(file->isTerminal ? 1 : 0);
-
-			resp.SerializeToString(&_buffer);
-			serviceSend(_lane, _buffer.data(), _buffer.size(),
-					CALLBACK_MEMBER(this, &IsTerminalClosure::onSendResp));
-		}
-
-	private:
-		void onSendResp(Error error) {
-			assert(error == kErrSuccess);
-		}
-
-		Process *_process;
-		LaneHandle _lane;
-		posix::CntRequest<KernelAlloc> _req;
-
-		frg::string<KernelAlloc> _buffer;
-	};
-
 	struct ServerRequestClosure {
 		ServerRequestClosure(Process *process, LaneHandle lane)
 		: _process(process), _lane(frigg::move(lane)) { }
@@ -689,10 +659,31 @@ namespace initrd {
 						co_return;
 					}
 				}(_process, std::move(_requestLane), std::move(*req)));
-			}else if(req.request_type() == managarm::posix::CntReqType::IS_TTY) {
-				auto closure = frigg::construct<IsTerminalClosure>(*kernelAlloc, _process,
-						frigg::move(_requestLane), frigg::move(req));
-				(*closure)();
+			}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(
+						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+				if(!req) {
+					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					return;
+				}
+				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
+						posix::IsTtyRequest<KernelAlloc> req) -> coroutine<void> {
+					assert((size_t)req.fd() < process->openFiles.size());
+					auto file = process->openFiles[req.fd()];
+
+					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_mode(file->isTerminal ? 1 : 0);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(!respError);
+					co_return;
+				}(_process, std::move(_requestLane), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::CloseRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::CloseRequest>(
 						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);

@@ -1991,12 +1991,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::IS_TTY) {
+		}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
 			if(logRequests)
 				std::cout << "posix: IS_TTY" << std::endl;
 
-			auto file = self->fileContext()->getFile(req.fd());
-			assert(file && "Illegal FD for IS_TTY");
+			auto file = self->fileContext()->getFile(req->fd());
+			if(!file) {
+				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				continue;
+			}
 
 			helix::SendBuffer send_resp;
 
@@ -2004,11 +2012,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_mode(file->isTerminal());
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
 			if(logRequests)
 				std::cout << "posix: TTY_NAME" << std::endl;
