@@ -1878,22 +1878,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 				);
 			HEL_CHECK(sendResp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
+		}else if(preamble.id() == bragi::message_id<managarm::posix::CloseRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::CloseRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
 			if(logRequests)
-				std::cout << "posix: CLOSE file descriptor " << req.fd() << std::endl;
+				std::cout << "posix: CLOSE file descriptor " << req->fd() << std::endl;
 
-			helix::SendBuffer send_resp;
-
-			self->fileContext()->closeFile(req.fd());
+			self->fileContext()->closeFile(req->fd());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
 			if(logRequests)
 				std::cout << "posix: DUP" << std::endl;
