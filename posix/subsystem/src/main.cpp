@@ -589,7 +589,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			req = *o;
 		}
 
-		if(req.request_type() == managarm::posix::CntReqType::GET_TID) {
+		if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
 			if(logRequests)
 				std::cout << "posix: GET_TID" << std::endl;
 
@@ -597,12 +602,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(self->tid());
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
-			HEL_CHECK(send_resp.error());
+			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::GET_PID) {
 			if(logRequests)
 				std::cout << "posix: GET_PID" << std::endl;

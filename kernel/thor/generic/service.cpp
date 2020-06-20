@@ -2,6 +2,8 @@
 #include "kernel.hpp"
 #include "module.hpp"
 
+#include <bragi/helpers-frigg.hpp>
+#include <frg/span.hpp>
 #include <frg/string.hpp>
 #include <frigg/callback.hpp>
 
@@ -667,12 +669,29 @@ namespace initrd {
 		void onReceive(Error error, size_t length) {
 			assert(error == kErrSuccess);
 
-			posix::CntRequest<KernelAlloc> req(*kernelAlloc);
-			req.ParseFromArray(_buffer, length);
+			auto preamble = bragi::read_preamble(frg::span<uint8_t>{_buffer, length});
+			assert(!preamble.error());
 
-			if(req.request_type() == managarm::posix::CntReqType::GET_TID) {
+			managarm::posix::CntRequest<KernelAlloc> req{*kernelAlloc};
+			if (preamble.id() == managarm::posix::CntRequest<KernelAlloc>::message_id) {
+				auto o = bragi::parse_head_only<managarm::posix::CntRequest>(
+						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+				if(!o) {
+					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					return;
+				}
+				req = *o;
+			}
+
+			if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(
+						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+				if(!req) {
+					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					return;
+				}
 				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
-						posix::CntRequest<KernelAlloc> req) -> coroutine<void> {
+						posix::GetTidRequest<KernelAlloc> req) -> coroutine<void> {
 					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_pid(1);
@@ -685,7 +704,7 @@ namespace initrd {
 					// TODO: improve error handling here.
 					assert(!respError);
 					co_return;
-				}(_process, std::move(_requestLane), std::move(req)));
+				}(_process, std::move(_requestLane), std::move(*req)));
 			}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 				auto closure = frigg::construct<OpenClosure>(*kernelAlloc,
 						_process, frigg::move(_requestLane), frigg::move(req));
