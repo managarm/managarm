@@ -76,7 +76,7 @@ enum {
 
 static int picModel = kModelLegacy;
 
-uint64_t rdtsc() {
+uint64_t getRawTimestampCounter() {
 	uint32_t lsw, msw;
 	asm volatile ("rdtsc" : "=a"(lsw), "=d"(msw));
 	return (static_cast<uint64_t>(msw) << 32)
@@ -306,7 +306,7 @@ uint64_t localTicks() {
 
 struct TimeStampCounter : ClockSource {
 	uint64_t currentNanos() override {
-		auto r = rdtsc() * 1'000'000 / tscTicksPerMilli;
+		auto r = getRawTimestampCounter() * 1'000'000 / tscTicksPerMilli;
 //		frigg::infoLogger() << r << frigg::endLog;
 		return r;
 	}
@@ -335,9 +335,9 @@ void calibrateApicTimer() {
 	}
 
 	// Calibrate the TSC.
-	auto tsc_start = rdtsc();
+	auto tsc_start = getRawTimestampCounter();
 	pollSleepNano(millis * 1'000'000);
-	auto tsc_elapsed = rdtsc() - tsc_start;
+	auto tsc_elapsed = getRawTimestampCounter() - tsc_start;
 
 	tscTicksPerMilli = tsc_elapsed / millis;
 	frigg::infoLogger() << "thor: TSC ticks/ms: " << tscTicksPerMilli << frigg::endLog;
