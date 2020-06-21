@@ -668,6 +668,8 @@ void forkExecutor(F functor, Executor *executor) {
 	doForkExecutor(executor, delegate, &functor);
 }
 
+Error getEntropyFromCpu(void *buffer, size_t size);
+
 } // namespace thor
 
 #endif // THOR_ARCH_X86_CPU_HPP

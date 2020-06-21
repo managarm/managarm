@@ -16,7 +16,9 @@ enum Error {
 	kErrLaneShutdown,
 	kErrEndOfLane,
 	kErrFault,
-	kErrNoMemory
+	kErrNoMemory,
+	kErrNoHardwareSupport,
+	kErrHardwareBroken,
 };
 
 } // namespace thor

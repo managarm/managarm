@@ -1006,5 +1006,45 @@ void bootSecondary(unsigned int apic_id) {
 	frigg::infoLogger() << "thor: AP finished booting." << frigg::endLog;
 }
 
-} // namespace thor
+Error getEntropyFromCpu(void *buffer, size_t size) {
+	using word_type = uint32_t;
+	auto p = reinterpret_cast<char *>(buffer);
 
+	if(!(frigg::arch_x86::cpuid(0x7)[1] & (uint32_t(1) << 18)))
+		return kErrNoHardwareSupport;
+
+	word_type word;
+	auto rdseed = [&] () -> bool {
+		// Do a maximal number of tries before we give up (e.g., due to broken firmware).
+		for(int k = 0; k < 512; ++k) {
+			bool success;
+			asm ("rdseed %0" : "=r"(word), "=@ccc"(success));
+			if(success)
+				return true;
+		}
+		return false;
+	};
+
+	size_t n = 0;
+
+	// Generate all full words.
+	size_t size_words = size & ~(sizeof(word_type) - 1);
+	while(n < size_words) {
+		if(!rdseed())
+			return kErrHardwareBroken;
+		memcpy(p + n, &word, sizeof(word_type));
+		n += sizeof(word_type);
+	}
+
+	// Generate the last word.
+	if(n < size) {
+		assert(size - n < sizeof(word_type));
+		if(!rdseed())
+			return kErrHardwareBroken;
+		memcpy(p + n, &word, size - n);
+	}
+
+	return kErrSuccess;
+}
+
+} // namespace thor
