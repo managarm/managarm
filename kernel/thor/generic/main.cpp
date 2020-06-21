@@ -477,11 +477,25 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 
 void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
+	auto cpuData = getCpuData();
 
 	if(logEveryIrq)
 		frigg::infoLogger() << "thor: IRQ slot #" << number << frigg::endLog;
 
 	globalIrqSlots[number]->raise();
+
+	// Inject IRQ timing entropy into the PRNG accumulator.
+	// Since we track the sequence number per CPU, we also include the CPU number.
+	uint64_t tsc = getRawTimestampCounter();
+	uint8_t entropy[6];
+	entropy[0] = number;
+	entropy[1] = cpuData->localApicId;
+	entropy[2] = tsc & 0xFF; // Assumption: only the low 32 bits contain entropy.
+	entropy[3] = (tsc >> 8) & 0xFF;
+	entropy[4] = (tsc >> 16) & 0xFF;
+	entropy[5] = (tsc >> 24) & 0xFF;
+	injectEntropy(entropySrcIrqs, cpuData->irqEntropySeq++, entropy, 6);
+
 	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
 	if(!noScheduleOnIrq) {
