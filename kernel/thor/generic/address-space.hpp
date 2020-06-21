@@ -3,6 +3,7 @@
 #include <async/basic.hpp>
 #include <async/oneshot-event.hpp>
 #include <frg/container_of.hpp>
+#include <frg/expected.hpp>
 #include "execution/coroutine.hpp"
 #include "memory-view.hpp"
 
@@ -117,46 +118,9 @@ enum MappingFlags : uint32_t {
 	dontRequireBacking = 0x100
 };
 
-struct TouchVirtualNode {
-	void setup(uintptr_t offset, Worklet *worklet) {
-		_offset = offset;
-		_worklet = worklet;
-	}
-
-	void setResult(Error error) {
-		_error = error;
-	}
-	void setResult(Error error, PhysicalRange range, bool spurious = false) {
-		_error = error;
-		_range = range;
-		_spurious = spurious;
-	}
-	void setResult(Error error, PhysicalAddr physical, size_t size, CachingMode mode,
-			bool spurious = false) {
-		_error = error;
-		_range = PhysicalRange{physical, size, mode};
-		_spurious = spurious;
-	}
-
-	Error error() {
-		return _error;
-	}
-
-	PhysicalRange range() {
-		return _range;
-	}
-
-	bool spurious() {
-		return _spurious;
-	}
-
-	uintptr_t _offset;
-	Worklet *_worklet;
-
-private:
-	Error _error;
-	PhysicalRange _range;
-	bool _spurious;
+struct TouchVirtualResult {
+	PhysicalRange range;
+	bool spurious;
 };
 
 struct PopulateVirtualNode {
@@ -219,7 +183,8 @@ struct Mapping {
 	// Ensures that a page of virtual memory is present.
 	// Note that this does *not* guarantee that the page is not evicted immediately,
 	// unless you hold a lock (via lockVirtualRange()).
-	bool touchVirtualPage(TouchVirtualNode *node);
+	void touchVirtualPage(uintptr_t offset,
+			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver);
 
 	// Helper function that calls touchVirtualPage() on a certain range.
 	bool populateVirtualRange(PopulateVirtualNode *node);
@@ -307,31 +272,16 @@ struct Mapping {
 
 		TouchVirtualPageOperation &operator= (const TouchVirtualPageOperation &) = delete;
 
-		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &TouchVirtualPageOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_,
-						frg::tuple<Error, PhysicalRange, bool>{op->node_.error(),
-								op->node_.range(), op->node_.spurious()});
-			});
-			node_.setup(s_.offset, &worklet_);
-			if(s_.self->touchVirtualPage(&node_)) {
-				async::execution::set_value_inline(receiver_,
-						frg::tuple<Error, PhysicalRange, bool>{node_.error(),
-								node_.range(), node_.spurious()});
-				return true;
-			}
-			return false;
+		void start() {
+			s_.self->touchVirtualPage(s_.offset, std::move(receiver_));
 		}
 
 	private:
 		TouchVirtualPageSender s_;
 		R receiver_;
-		TouchVirtualNode node_;
-		Worklet worklet_;
 	};
 
-	friend async::sender_awaiter<TouchVirtualPageSender, frg::tuple<Error, PhysicalRange, bool>>
+	friend async::sender_awaiter<TouchVirtualPageSender, frg::expected<Error, TouchVirtualResult>>
 	operator co_await(TouchVirtualPageSender sender) {
 		return {sender};
 	}
@@ -481,7 +431,6 @@ private:
 
 	smarter::shared_ptr<Mapping> _mapping;
 	Worklet _worklet;
-	TouchVirtualNode _touchVirtual;
 };
 
 struct AddressProtectNode {

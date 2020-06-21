@@ -124,10 +124,9 @@ bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, PopulateVirtualNode *continuation) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < continuation->_size) {
-			auto [error, range, spurious] = co_await self->touchVirtualPage(continuation->_offset
-					+ progress);
-			assert(!error);
-			progress += range.get<1>();
+			auto outcome = co_await self->touchVirtualPage(continuation->_offset + progress);
+			assert(outcome); // FIXME: This assertion should be fixed.
+			progress += outcome.value().range.get<1>();
 		}
 		WorkQueue::post(continuation->_prepared);
 	}(this, continuation));
@@ -172,23 +171,26 @@ Mapping::resolveRange(ptrdiff_t offset) {
 	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
-bool Mapping::touchVirtualPage(TouchVirtualNode *continuation) {
+void Mapping::touchVirtualPage(uintptr_t offset,
+		async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver) {
 	assert(_state == MappingState::active);
 
-	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, TouchVirtualNode *continuation) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, uintptr_t offset,
+			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver)
+			-> coroutine<void> {
 		FetchFlags fetchFlags = 0;
 		if(self->flags() & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
 
-		if(auto e = co_await self->_view->asyncLockRange((self->_viewOffset + continuation->_offset)
-				& ~(kPageSize - 1), kPageSize); e)
+		if(auto e = co_await self->_view->asyncLockRange(
+				(self->_viewOffset + offset) & ~(kPageSize - 1), kPageSize); e)
 			assert(!"asyncLockRange() failed");
 
-		auto [error, range, flags] = co_await self->_view->fetchRange(self->_viewOffset
-				+ continuation->_offset);
+		auto [error, range, flags] = co_await self->_view->fetchRange(
+				self->_viewOffset + offset);
 
 		// TODO: Update RSS, handle dirty pages, etc.
-		auto pageOffset = self->address() + continuation->_offset;
+		auto pageOffset = self->address() + offset;
 		self->owner()->_ops->unmapSingle4k(pageOffset & ~(kPageSize - 1));
 		self->owner()->_ops->mapSingle4k(pageOffset & ~(kPageSize - 1),
 				range.get<0>() & ~(kPageSize - 1),
@@ -196,12 +198,9 @@ bool Mapping::touchVirtualPage(TouchVirtualNode *continuation) {
 		self->owner()->_residuentSize += kPageSize;
 		logRss(self->owner());
 
-		self->_view->unlockRange((self->_viewOffset + continuation->_offset)
-				& ~(kPageSize - 1), kPageSize);
-		continuation->setResult(kErrSuccess, range);
-		WorkQueue::post(continuation->_worklet);
-	}(this, continuation));
-	return false;
+		self->_view->unlockRange((self->_viewOffset + offset) & ~(kPageSize - 1), kPageSize);
+		async::execution::set_value(receiver, TouchVirtualResult{range, false});
+	}(this, offset, std::move(receiver)));
 }
 
 void Mapping::install() {
@@ -733,9 +732,9 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 	}(this, alignedAddress, alignedSize, std::move(receiver)));
 }
 
-bool VirtualSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {
+bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *node) {
 	node->_address = address;
-	node->_flags = fault_flags;
+	node->_flags = faultFlags;
 
 	smarter::shared_ptr<Mapping> mapping;
 	{
@@ -763,30 +762,25 @@ bool VirtualSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 			return true;
 		}
 
-	auto fault_page = (node->_address - mapping->address()) & ~(kPageSize - 1);
-	node->_touchVirtual.setup(fault_page, &node->_worklet);
-	node->_worklet.setup([] (Worklet *base) {
-		auto node = frg::container_of(base, &FaultNode::_worklet);
-		assert(!node->_touchVirtual.error());
+	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<Mapping> mapping,
+			uintptr_t address, FaultNode *node) -> coroutine<void> {
+		auto faultPage = (node->_address - mapping->address()) & ~(kPageSize - 1);
+		auto outcome = co_await mapping->touchVirtualPage(faultPage);
+		if(!outcome) {
+			node->_resolved = false;
+			WorkQueue::post(node->_handled);
+			co_return;
+		}
+
+		// Spurious page faults are the result of race conditions.
+		// They should be rare. If they happen too often, something is probably wrong!
+		if(outcome.value().spurious)
+				frigg::infoLogger() << "\e[33m" "thor: Spurious page fault"
+						"\e[39m" << frigg::endLog;
 		node->_resolved = true;
 		WorkQueue::post(node->_handled);
-	});
-	if(mapping->touchVirtualPage(&node->_touchVirtual)) {
-		if(node->_touchVirtual.error()) {
-			node->_resolved = false;
-			return true;
-		}else{
-			// Spurious page faults are the result of race conditions.
-			// They should be rare. If they happen too often, something is probably wrong!
-			if(node->_touchVirtual.spurious())
-				frigg::infoLogger() << "\e[33m" "thor: Spurious page fault"
-						<< "\e[39m" << frigg::endLog;
-			node->_resolved = true;
-			return true;
-		}
-	}else{
-		return false;
-	}
+	}(std::move(mapping), address, node));
+	return false;
 }
 
 smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
