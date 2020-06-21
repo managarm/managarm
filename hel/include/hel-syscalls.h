@@ -171,6 +171,15 @@ extern inline __attribute__ (( always_inline )) HelError helRunVirtualizedCpu(He
 	return error;
 }
 
+extern inline __attribute__ (( always_inline )) HelError helGetRandomBytes(
+		void *buffer, size_t wantedSize, size_t *actualSize) {
+	HelWord outActualSize;
+	HelError error = helSyscall2_1(kHelCallGetRandomBytes,
+			(HelWord)buffer, (HelWord)wantedSize, &outActualSize);
+	*actualSize = (size_t)outActualSize;
+	return error;
+}
+
 extern inline __attribute__ (( always_inline )) HelError helMapMemory(HelHandle handle,
 		HelHandle space, void *pointer, uintptr_t offset, size_t size, uint32_t flags,
 		void **actual_pointer) {

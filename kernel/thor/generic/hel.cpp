@@ -9,6 +9,7 @@
 #include "ipc-queue.hpp"
 #include "irq.hpp"
 #include "kernlet.hpp"
+#include "random.hpp"
 #include "../arch/x86/debug.hpp"
 #include <arch/x86/ept.hpp>
 #include <arch/x86/vmx.hpp>
@@ -731,6 +732,18 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 	if(!writeUserObject(exitInfo, info))
 		return kHelErrFault;
 
+	return kHelErrNone;
+}
+
+HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize) {
+	char bounceBuffer[128];
+	size_t generatedSize = generateRandomBytes(bounceBuffer,
+			frg::min(wantedSize, size_t{128}));
+
+	if(!writeUserMemory(buffer, bounceBuffer, generatedSize))
+		return kHelErrFault;
+
+	*actualSize = generatedSize;
 	return kHelErrNone;
 }
 

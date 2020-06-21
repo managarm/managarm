@@ -16,7 +16,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 101,
+	kHelNumCalls = 102,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -70,6 +70,7 @@ enum {
 	kHelCallSubmitAwaitClock = 80,
 	kHelCallCreateVirtualizedCpu = 37,
 	kHelCallRunVirtualizedCpu = 38,
+	kHelCallGetRandomBytes = 101,
 
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 79,
@@ -838,6 +839,8 @@ HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *reason);
+
+HEL_C_LINKAGE HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize);
 
 //! Set a thread's CPU affinity mask.
 //! @param[in] handle

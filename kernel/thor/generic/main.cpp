@@ -743,6 +743,11 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helRunVirtualizedCpu((HelHandle)arg0, (HelVmexitReason*)arg1);
 		break;
 	}
+	case kHelCallGetRandomBytes: {
+		size_t actualSize;
+		*image.error() = helGetRandomBytes((void *)arg0, (size_t)arg1, &actualSize);
+		*image.out0() = actualSize;
+	} break;
 	case kHelCallCreateThread: {
 //		frigg::infoLogger() << "[" << this_thread->globalThreadId << "]"
 //				<< " helCreateThread()"

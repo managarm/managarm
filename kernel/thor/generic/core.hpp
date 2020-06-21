@@ -85,6 +85,7 @@ struct CpuData : public PlatformCpuData {
 	KernelFiber *activeFiber;
 	std::atomic<uint64_t> heartbeat;
 
+	unsigned int irqEntropySeq = 0;
 	std::atomic<ProfileMechanism> profileMechanism{};
 	// TODO: This should be a unique_ptr instead.
 	SingleContextRecordRing *localProfileRing = nullptr;
