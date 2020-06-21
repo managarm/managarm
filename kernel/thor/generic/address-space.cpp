@@ -145,19 +145,17 @@ uint32_t Mapping::compilePageFlags() {
 	return page_flags;
 }
 
-bool Mapping::lockVirtualRange(LockVirtualNode *node) {
-	struct Receiver {
-		void set_value(Error e) {
-			assert(!e);
-			LockVirtualNode::post(continuation);
-		}
-
-		LockVirtualNode *continuation;
+void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
+		async::any_receiver<frg::expected<Error>> receiver) {
+	// This can be removed if we change the return type of asyncLockRange to frg::expected.
+	auto transformError = [] (Error e) -> frg::expected<Error> {
+		if(!e)
+			return {};
+		return e;
 	};
-
-	_view->asyncLockRange(_viewOffset + node->offset(), node->size(),
-			Receiver{node});
-	return false;
+	async::spawn_with_allocator(*kernelAlloc,
+			async::transform(_view->asyncLockRange(_viewOffset + offset, size), transformError),
+			std::move(receiver));
 }
 
 void Mapping::unlockVirtualRange(uintptr_t offset, size_t size) {
@@ -969,11 +967,12 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 
 	async::detach_with_allocator(*kernelAlloc, [] (AddressSpaceLockHandle *self, AcquireNode *node) -> coroutine<void> {
 		auto misalign = self->_address & (kPageSize - 1);
-		co_await self->_mapping->lockVirtualRange((self->_address - self->_mapping->address())
-					& ~(kPageSize - 1),
+		auto lockOutcome = co_await self->_mapping->lockVirtualRange(
+				(self->_address - self->_mapping->address()) & ~(kPageSize - 1),
 				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
-		co_await self->_mapping->populateVirtualRange((self->_address - self->_mapping->address())
-					& ~(kPageSize - 1),
+		assert(lockOutcome);
+		co_await self->_mapping->populateVirtualRange(
+				(self->_address - self->_mapping->address()) & ~(kPageSize - 1),
 				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
 		self->_active = true;
 		WorkQueue::post(node->_acquired);

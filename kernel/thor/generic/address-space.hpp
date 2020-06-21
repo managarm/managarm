@@ -117,26 +117,6 @@ enum MappingFlags : uint32_t {
 	dontRequireBacking = 0x100
 };
 
-struct LockVirtualNode {
-	static void post(LockVirtualNode *node) {
-		WorkQueue::post(node->_worklet);
-	}
-
-	void setup(uintptr_t offset, size_t size, Worklet *worklet) {
-		_offset = offset;
-		_size = size;
-		_worklet = worklet;
-	}
-
-	auto offset() { return _offset; }
-	auto size() { return _size; }
-
-private:
-	uintptr_t _offset;
-	size_t _size;
-	Worklet *_worklet;
-};
-
 struct TouchVirtualNode {
 	void setup(uintptr_t offset, Worklet *worklet) {
 		_offset = offset;
@@ -229,7 +209,8 @@ struct Mapping {
 	void protect(MappingFlags flags);
 
 	// Makes sure that pages are not evicted from virtual memory.
-	bool lockVirtualRange(LockVirtualNode *node);
+	void lockVirtualRange(uintptr_t offset, size_t length,
+			async::any_receiver<frg::expected<Error>> receiver);
 	void unlockVirtualRange(uintptr_t offset, size_t length);
 
 	frg::tuple<PhysicalAddr, CachingMode>
@@ -281,27 +262,16 @@ struct Mapping {
 
 		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
 
-		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &LockVirtualRangeOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(s_.offset, s_.size, &worklet_);
-			if(s_.self->lockVirtualRange(&node_)) {
-				async::execution::set_value_inline(receiver_);
-				return true;
-			}
-			return false;
+		void start() {
+			s_.self->lockVirtualRange(s_.offset, s_.size, std::move(receiver_));
 		}
 
 	private:
 		LockVirtualRangeSender s_;
 		R receiver_;
-		LockVirtualNode node_;
-		Worklet worklet_;
 	};
 
-	friend async::sender_awaiter<LockVirtualRangeSender>
+	friend async::sender_awaiter<LockVirtualRangeSender, frg::expected<Error>>
 	operator co_await(LockVirtualRangeSender sender) {
 		return {sender};
 	}

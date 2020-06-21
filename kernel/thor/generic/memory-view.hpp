@@ -410,6 +410,8 @@ public:
 	struct LockRangeOperation;
 
 	struct [[nodiscard]] LockRangeSender {
+		using value_type = Error;
+
 		template<typename R>
 		friend LockRangeOperation<R>
 		connect(LockRangeSender sender, R receiver) {
