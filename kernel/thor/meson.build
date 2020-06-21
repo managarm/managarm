@@ -86,6 +86,7 @@ thor_sources = files(
 	'generic/kerncfg.cpp',
 	'generic/kernlet.cpp',
 	'generic/profile.cpp',
+	'generic/random.cpp',
 	'generic/servers.cpp',
 	'generic/service_helpers.cpp',
 	'generic/work-queue.cpp',
@@ -120,6 +121,19 @@ if get_option('kernel_log_allocations')
 	extra_cpp_args = ['-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS']
 endif
 
+cralgo_lib = static_library('cralgo',
+	cralgo_sources,
+	include_directories: cralgo_includes,
+	cpp_args: [
+		'-mcmodel=kernel',
+		'-mno-red-zone',
+		'-DCXXSHIM_INTEGRATE_GCC',
+		extra_cpp_args
+	],
+	dependencies: cxxshim_dep,
+	pic: false
+)
+
 lai_lib = static_library('lai', lai_sources,
 	include_directories: lai_includes,
 	c_args: [
@@ -141,6 +155,7 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 			'../../subprojects/libasync/include',
 			'../../tools/pb2frigg/include'
 		),
+		cralgo_includes,
 		lai_includes
 	],
 	dependencies: [
@@ -160,7 +175,10 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 		'-Wno-non-virtual-dtor',
 		extra_cpp_args
 	],
-	link_with: lai_lib,
+	link_with: [
+		cralgo_lib,
+		lai_lib,
+	],
 	link_args: [
 		'-nostdlib',
 		'-z', 'max-page-size=0x1000',

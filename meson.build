@@ -30,10 +30,13 @@ if get_option('build_kernel')
 
 	add_project_arguments('-fcoroutines-ts', language: 'cpp')
 
+	cralgo = subproject('cralgo')
 	cxxshim = subproject('cxxshim')
 	frigg = subproject('frigg')
 	lai = subproject('lai')
 	libsmarter = subproject('libsmarter')
+	cralgo_sources = cralgo.get_variable('sources')
+	cralgo_includes = cralgo.get_variable('includes')
 	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
 	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	frigg_dep = frigg.get_variable('frigg_dep')

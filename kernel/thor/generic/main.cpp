@@ -8,6 +8,7 @@
 #include "kerncfg.hpp"
 #include "kernlet.hpp"
 #include "profile.hpp"
+#include "random.hpp"
 #include "servers.hpp"
 #include "service_helpers.hpp"
 #include <frg/string.hpp>
@@ -104,6 +105,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeBootProcessor();
 	initializeThisProcessor();
 
+	initializeRandom();
 	initializeReclaim();
 
 	if(logInitialization)
