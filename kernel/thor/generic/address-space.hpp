@@ -123,18 +123,6 @@ struct TouchVirtualResult {
 	bool spurious;
 };
 
-struct PopulateVirtualNode {
-	void setup(uintptr_t offset, size_t size, Worklet *prepared) {
-		_offset = offset;
-		_size = size;
-		_prepared = prepared;
-	}
-
-	uintptr_t _offset;
-	size_t _size;
-	Worklet *_prepared;
-};
-
 enum class MappingState {
 	null,
 	active,
@@ -187,7 +175,8 @@ struct Mapping {
 			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver);
 
 	// Helper function that calls touchVirtualPage() on a certain range.
-	bool populateVirtualRange(PopulateVirtualNode *node);
+	void populateVirtualRange(uintptr_t offset, size_t size,
+			async::any_receiver<frg::expected<Error>> receiver);
 
 	void install();
 	void reinstall();
@@ -318,27 +307,16 @@ struct Mapping {
 
 		PopulateVirtualRangeOperation &operator= (const PopulateVirtualRangeOperation &) = delete;
 
-		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &PopulateVirtualRangeOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(s_.offset, s_.size, &worklet_);
-			if(s_.self->populateVirtualRange(&node_)) {
-				async::execution::set_value_inline(receiver_);
-				return true;
-			}
-			return false;
+		void start() {
+			s_.self->populateVirtualRange(s_.offset, s_.size, std::move(receiver_));
 		}
 
 	private:
 		PopulateVirtualRangeSender s_;
 		R receiver_;
-		PopulateVirtualNode node_;
-		Worklet worklet_;
 	};
 
-	friend async::sender_awaiter<PopulateVirtualRangeSender>
+	friend async::sender_awaiter<PopulateVirtualRangeSender, frg::expected<Error>>
 	operator co_await(PopulateVirtualRangeSender sender) {
 		return {sender};
 	}

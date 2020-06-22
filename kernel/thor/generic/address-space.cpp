@@ -120,17 +120,22 @@ void Mapping::protect(MappingFlags flags) {
 	_flags = static_cast<MappingFlags>(newFlags);
 }
 
-bool Mapping::populateVirtualRange(PopulateVirtualNode *continuation) {
-	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, PopulateVirtualNode *continuation) -> coroutine<void> {
+void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
+		async::any_receiver<frg::expected<Error>> receiver) {
+	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self,
+			uintptr_t offset, size_t size,
+			async::any_receiver<frg::expected<Error>> receiver) -> coroutine<void> {
 		size_t progress = 0;
-		while(progress < continuation->_size) {
-			auto outcome = co_await self->touchVirtualPage(continuation->_offset + progress);
-			assert(outcome); // FIXME: This assertion should be fixed.
+		while(progress < size) {
+			auto outcome = co_await self->touchVirtualPage(offset + progress);
+			if(!outcome) {
+				async::execution::set_value(receiver, outcome.error());
+				co_return;
+			}
 			progress += outcome.value().range.get<1>();
 		}
-		WorkQueue::post(continuation->_prepared);
-	}(this, continuation));
-	return false;
+		async::execution::set_value(receiver, frg::success);
+	}(this, offset, size, std::move(receiver)));
 }
 
 uint32_t Mapping::compilePageFlags() {
@@ -959,15 +964,17 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 		return true;
 	}
 
-	async::detach_with_allocator(*kernelAlloc, [] (AddressSpaceLockHandle *self, AcquireNode *node) -> coroutine<void> {
+	async::detach_with_allocator(*kernelAlloc, [] (AddressSpaceLockHandle *self,
+			AcquireNode *node) -> coroutine<void> {
 		auto misalign = self->_address & (kPageSize - 1);
 		auto lockOutcome = co_await self->_mapping->lockVirtualRange(
 				(self->_address - self->_mapping->address()) & ~(kPageSize - 1),
 				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
 		assert(lockOutcome);
-		co_await self->_mapping->populateVirtualRange(
+		auto populateOutcome = co_await self->_mapping->populateVirtualRange(
 				(self->_address - self->_mapping->address()) & ~(kPageSize - 1),
 				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
+		assert(populateOutcome);
 		self->_active = true;
 		WorkQueue::post(node->_acquired);
 	}(this, node));
