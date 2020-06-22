@@ -2484,14 +2484,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::ACCEPT) {
+		}else if(preamble.id() == managarm::posix::AcceptRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::AcceptRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests)
 				std::cout << "posix: ACCEPT" << std::endl;
 
-			helix::SendBuffer send_resp;
-
-			auto sockfile = self->fileContext()->getFile(req.fd());
-			assert(sockfile && "Illegal FD for ACCEPT");
+			auto sockfile = self->fileContext()->getFile(req->fd());
+			if(!sockfile) {
+				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				continue;
+			}
 
 			auto newfile = co_await sockfile->accept(self.get());
 			auto fd = self->fileContext()->attachFile(std::move(newfile));
@@ -2500,10 +2508,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CALL) {
 			if(logRequests)

@@ -56,9 +56,6 @@ consts CntReqType uint32 {
 	// FIFO- and pipe-specific calls.
 	PIPE_CREATE = 52,
 
-	// Socket-specific calls.
-	ACCEPT = 19,
-
 	// epoll-specific calls.
 	EPOLL_CALL = 54,
 	EPOLL_CREATE = 28,
@@ -419,4 +416,9 @@ head(128):
 	int32 domain;
 	int32 socktype;
 	int32 protocol;
+}
+
+message AcceptRequest 19 {
+head(128):
+	int32 fd;
 }
