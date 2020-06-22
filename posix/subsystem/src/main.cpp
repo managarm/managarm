@@ -2394,49 +2394,56 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
+		}else if(preamble.id() == managarm::posix::SocketRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::SocketRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+			
 			if(logRequests)
 				std::cout << "posix: SOCKET" << std::endl;
 
-			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
-			if(req.flags() & SOCK_NONBLOCK)
+			if(req->flags() & SOCK_NONBLOCK)
 				std::cout << "\e[31mposix: socket(SOCK_NONBLOCK)"
 						" is not implemented correctly\e[39m" << std::endl;
 
 			smarter::shared_ptr<File, FileHandle> file;
-			if(req.domain() == AF_UNIX) {
-				assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
-						|| req.socktype() == SOCK_SEQPACKET);
-				assert(!req.protocol());
+			if(req->domain() == AF_UNIX) {
+				assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
+						|| req->socktype() == SOCK_SEQPACKET);
+				assert(!req->protocol());
 
 				file = un_socket::createSocketFile();
-			}else if(req.domain() == AF_NETLINK) {
-				assert(req.socktype() == SOCK_RAW || req.socktype() == SOCK_DGRAM);
-				file = nl_socket::createSocketFile(req.protocol());
-			} else if (req.domain() == AF_INET) {
+			}else if(req->domain() == AF_NETLINK) {
+				assert(req->socktype() == SOCK_RAW || req->socktype() == SOCK_DGRAM);
+				file = nl_socket::createSocketFile(req->protocol());
+			} else if (req->domain() == AF_INET) {
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
-					req.domain(),
-					req.socktype(), req.protocol(),
-					req.flags() & SOCK_NONBLOCK);
+					req->domain(),
+					req->socktype(), req->protocol(),
+					req->flags() & SOCK_NONBLOCK);
 			}else{
 				throw std::runtime_error("posix: Handle unknown protocol families");
 			}
 
 			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & SOCK_CLOEXEC);
+					req->flags() & SOCK_CLOEXEC);
 
 			resp.set_fd(fd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
 			if(logRequests)

@@ -411,3 +411,11 @@ head(128):
 	uint32 initval;
 	int32 flags;
 }
+
+message SocketRequest 35 {
+head(128):
+	int32 flags;
+	int32 domain;
+	int32 socktype;
+	int32 protocol;
+}
