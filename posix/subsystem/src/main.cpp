@@ -2401,7 +2401,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-			
+
 			if(logRequests)
 				std::cout << "posix: SOCKET" << std::endl;
 
@@ -2445,38 +2445,44 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
+		}else if(preamble.id() == managarm::posix::SockpairRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::SockpairRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests)
 				std::cout << "posix: SOCKPAIR" << std::endl;
 
-			helix::SendBuffer send_resp;
+			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
-			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
-
-			if(req.flags() & SOCK_NONBLOCK)
+			if(req->flags() & SOCK_NONBLOCK)
 				std::cout << "\e[31mposix: socketpair(SOCK_NONBLOCK)"
 						" is not implemented correctly\e[39m" << std::endl;
 
-			assert(req.domain() == AF_UNIX);
-			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
-					|| req.socktype() == SOCK_SEQPACKET);
-			assert(!req.protocol());
+			assert(req->domain() == AF_UNIX);
+			assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
+					|| req->socktype() == SOCK_SEQPACKET);
+			assert(!req->protocol());
 
 			auto pair = un_socket::createSocketPair(self.get());
 			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair),
-					req.flags() & SOCK_CLOEXEC);
+					req->flags() & SOCK_CLOEXEC);
 			auto fd1 = self->fileContext()->attachFile(std::get<1>(pair),
-					req.flags() & SOCK_CLOEXEC);
+					req->flags() & SOCK_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.add_fds(fd0);
 			resp.add_fds(fd1);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCEPT) {
 			if(logRequests)

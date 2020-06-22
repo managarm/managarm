@@ -57,8 +57,6 @@ consts CntReqType uint32 {
 	PIPE_CREATE = 52,
 
 	// Socket-specific calls.
-	SOCKET = 35,
-	SOCKPAIR = 25,
 	ACCEPT = 19,
 
 	// epoll-specific calls.
@@ -152,11 +150,6 @@ head(128):
 		tag(30) uint64 sig_mask;
 		tag(31) uint64 sig_handler;
 		tag(32) uint64 sig_restorer;
-
-		// used by socket functions
-		tag(14) int32 domain;
-		tag(15) int32 socktype;
-		tag(16) int32 protocol;
 
 		tag(26) uint64 addr_size;
 		tag(27) uint64 ctrl_size;
@@ -413,6 +406,14 @@ head(128):
 }
 
 message SocketRequest 35 {
+head(128):
+	int32 flags;
+	int32 domain;
+	int32 socktype;
+	int32 protocol;
+}
+
+message SockpairRequest 25 {
 head(128):
 	int32 flags;
 	int32 domain;
