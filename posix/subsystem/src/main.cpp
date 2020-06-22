@@ -2815,31 +2815,38 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::EVENTFD_CREATE) {
+		}else if(preamble.id() == managarm::posix::EventfdCreateRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::EventfdCreateRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests)
 				std::cout << "posix: EVENTFD_CREATE" << std::endl;
 
-			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
-			if (req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
+			if (req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
 				std::cout << "posix: invalid flag specified (EFD_SEMAPHORE?)" << std::endl;
-				std::cout << "posix: flags specified: " << req.flags() << std::endl;
+				std::cout << "posix: flags specified: " << req->flags() << std::endl;
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			} else {
 
-				auto file = eventfd::createFile(req.initval(), req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
+				auto file = eventfd::createFile(req->initval(), req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
 				auto fd = self->fileContext()->attachFile(file,
-						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+						req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_fd(fd);
 			}
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
 			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;

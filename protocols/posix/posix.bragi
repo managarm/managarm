@@ -75,15 +75,8 @@ consts CntReqType uint32 {
 	TIMERFD_CREATE = 33,
 	TIMERFD_SETTIME = 36,
 
-	// inotify()-specific calls
-	INOTIFY_CREATE = 48,
-	INOTIFY_DELETE = 50,
-
 	HELFD_ATTACH = 10,
-	HELFD_CLONE = 11,
-
-	// eventfd()-specific calls
-	EVENTFD_CREATE = 60
+	HELFD_CLONE = 11
 }
 
 consts OpenMode uint32 {
@@ -186,9 +179,6 @@ head(128):
 		tag(21) uint64 interval_nanos;
 
 		tag(33) uint64 sigset;
-
-		// used by EVENTFD
-		tag(39) uint32 initval;
 	}
 }
 
@@ -413,5 +403,11 @@ tail:
 
 message InotifyCreateRequest 48 {
 head(128):
+	int32 flags;
+}
+
+message EventfdCreateRequest 60 {
+head(128):
+	uint32 initval;
 	int32 flags;
 }
