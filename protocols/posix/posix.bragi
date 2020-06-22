@@ -410,3 +410,8 @@ head(128):
 tail:
 	string path;
 }
+
+message InotifyCreateRequest 48 {
+head(128):
+	int32 flags;
+}

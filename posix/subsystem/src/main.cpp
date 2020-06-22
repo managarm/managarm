@@ -2741,26 +2741,32 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::INOTIFY_CREATE) {
+		}else if(preamble.id() == managarm::posix::InotifyCreateRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::InotifyCreateRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests)
 				std::cout << "posix: INOTIFY_CREATE" << std::endl;
 
-			helix::SendBuffer send_resp;
-
-			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
+			assert(!(req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
 
 			auto file = inotify::createFile();
 			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
 			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::InotifyAddRequest::message_id) {
 			std::vector<std::byte> tail(preamble.tail_size());
