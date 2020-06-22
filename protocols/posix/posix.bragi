@@ -33,20 +33,16 @@ consts CntReqType uint32 {
 	ACCESSAT = 20,
 	MKDIRAT = 46,
 	SYMLINKAT = 47,
-	RENAMEAT = 51,
-	FSTATAT = 63,
 	READLINK = 31,
 	READ = 3,
 	WRITE = 4,
 	SEEK_ABS = 13,
 	SEEK_REL = 14,
 	SEEK_EOF = 15,
-	MMAP = 16,
 	DUP = 34,
 	DUP2 = 6,
 	TTY_NAME = 18,
 	GETCWD = 59,
-	UNLINKAT = 40,
 	FD_GET_FLAGS = 44,
 	FD_SET_FLAGS = 45,
 	GET_RESOURCE_USAGE = 57,
@@ -59,11 +55,6 @@ consts CntReqType uint32 {
 
 	// FIFO- and pipe-specific calls.
 	PIPE_CREATE = 52,
-
-	// Socket-specific calls.
-	SOCKET = 35,
-	SOCKPAIR = 25,
-	ACCEPT = 19,
 
 	// epoll-specific calls.
 	EPOLL_CALL = 54,
@@ -79,30 +70,8 @@ consts CntReqType uint32 {
 	TIMERFD_CREATE = 33,
 	TIMERFD_SETTIME = 36,
 
-	// inotify()-specific calls
-	INOTIFY_CREATE = 48,
-	INOTIFY_ADD = 49,
-	INOTIFY_DELETE = 50,
-
 	HELFD_ATTACH = 10,
-	HELFD_CLONE = 11,
-
-	// eventfd()-specific calls
-	EVENTFD_CREATE = 60,
-
-	MKFIFOAT = 65,
-	LINKAT = 66,
-	GET_UID = 67,
-	SET_UID = 68,
-	GET_EUID = 69,
-	SET_EUID = 70,
-	GET_GID = 71,
-	GET_EGID = 72,
-	SET_GID = 73,
-	SET_EGID = 74,
-	FCHMODAT = 75,
-	RMDIR = 77,
-	UTIMENSAT = 78
+	HELFD_CLONE = 11
 }
 
 consts OpenMode uint32 {
@@ -179,11 +148,6 @@ head(128):
 		tag(31) uint64 sig_handler;
 		tag(32) uint64 sig_restorer;
 
-		// used by socket functions
-		tag(14) int32 domain;
-		tag(15) int32 socktype;
-		tag(16) int32 protocol;
-
 		tag(26) uint64 addr_size;
 		tag(27) uint64 ctrl_size;
 
@@ -205,18 +169,6 @@ head(128):
 		tag(21) uint64 interval_nanos;
 
 		tag(33) uint64 sigset;
-
-		// used by EVENTFD
-		tag(39) uint32 initval;
-
-		// used by {GET/SET}UID
-		tag(41) int64 uid;
-
-		// used by utimensat
-		tag(44) uint64 atime_sec;
-		tag(45) uint64 atime_nsec;
-		tag(46) uint64 mtime_sec;
-		tag(47) uint64 mtime_nsec;
 	}
 }
 
@@ -331,4 +283,142 @@ head(128):
 tail:
 	string path;
 	string target_path;
+}
+
+message GetUidRequest 67 {
+head(128):
+}
+
+message SetUidRequest 68 {
+head(128):
+	uint64 uid;
+}
+
+message GetEuidRequest 69 {
+head(128):
+}
+
+message SetEuidRequest 70 {
+head(128):
+	uint64 uid;
+}
+
+message GetGidRequest 71 {
+head(128):
+}
+
+message GetEgidRequest 72 {
+head(128):
+}
+
+message SetGidRequest 73 {
+head(128):
+	uint64 uid;
+}
+
+message SetEgidRequest 74 {
+head(128):
+	uint64 uid;
+}
+
+message UnlinkAtRequest 40 {
+head(128):
+	int32 fd;
+	int32 flags;
+tail:
+	string path;
+}
+
+message FstatAtRequest 63 {
+head(128):
+	int32 fd;
+	int32 flags;
+tail:
+	string path;
+}
+
+message MkfifoAtRequest 65 {
+head(128):
+	int32 fd;
+	int32 mode;
+tail:
+	string path;
+}
+
+message LinkAtRequest 66 {
+head(128):
+	int32 fd;
+	int32 newfd;
+	int32 flags;
+tail:
+	string path;
+	string target_path;
+}
+
+message FchmodAtRequest 75 {
+head(128):
+	int32 fd;
+	int32 flags;
+	int32 mode;
+tail:
+	string path;
+}
+
+message UtimensAtRequest 78 {
+head(128):
+	int32 fd;
+	int32 flags;
+	int32 mode;
+	uint64 atimeSec;
+	uint64 atimeNsec;
+	uint64 mtimeSec;
+	uint64 mtimeNsec;
+tail:
+	string path;
+}
+
+message RmdirRequest 77 {
+head(128):
+tail:
+	string path;
+}
+
+message InotifyAddRequest 49 {
+head(128):
+	int32 fd;
+	int32 flags;
+tail:
+	string path;
+}
+
+message InotifyCreateRequest 48 {
+head(128):
+	int32 flags;
+}
+
+message EventfdCreateRequest 60 {
+head(128):
+	uint32 initval;
+	int32 flags;
+}
+
+message SocketRequest 35 {
+head(128):
+	int32 flags;
+	int32 domain;
+	int32 socktype;
+	int32 protocol;
+}
+
+message SockpairRequest 25 {
+head(128):
+	int32 flags;
+	int32 domain;
+	int32 socktype;
+	int32 protocol;
+}
+
+message AcceptRequest 19 {
+head(128):
+	int32 fd;
 }
