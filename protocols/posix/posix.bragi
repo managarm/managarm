@@ -39,12 +39,10 @@ consts CntReqType uint32 {
 	SEEK_ABS = 13,
 	SEEK_REL = 14,
 	SEEK_EOF = 15,
-	CLOSE = 5,
 	DUP = 34,
 	DUP2 = 6,
 	TTY_NAME = 18,
 	GETCWD = 59,
-	OPENAT = 64,
 	FD_GET_FLAGS = 44,
 	FD_SET_FLAGS = 45,
 	GET_RESOURCE_USAGE = 57,
@@ -307,43 +305,43 @@ tail:
 	string target_path;
 }
 
-message GetUidRequest 4 {
+message GetUidRequest 67 {
 head(128):
 }
 
-message SetUidRequest 5 {
-head(128):
-	uint64 uid;
-}
-
-message GetEuidRequest 6 {
-head(128):
-}
-
-message SetEuidRequest 7 {
+message SetUidRequest 68 {
 head(128):
 	uint64 uid;
 }
 
-message GetGidRequest 8 {
+message GetEuidRequest 69 {
 head(128):
 }
 
-message GetEgidRequest 9 {
-head(128):
-}
-
-message SetGidRequest 10 {
+message SetEuidRequest 70 {
 head(128):
 	uint64 uid;
 }
 
-message SetEgidRequest 11 {
+message GetGidRequest 71 {
+head(128):
+}
+
+message GetEgidRequest 72 {
+head(128):
+}
+
+message SetGidRequest 73 {
 head(128):
 	uint64 uid;
 }
 
-message UnlinkAtRequest 12 {
+message SetEgidRequest 74 {
+head(128):
+	uint64 uid;
+}
+
+message UnlinkAtRequest 40 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -351,7 +349,7 @@ tail:
 	string path;
 }
 
-message FstatAtRequest 13 {
+message FstatAtRequest 63 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -359,7 +357,7 @@ tail:
 	string path;
 }
 
-message MkfifoAtRequest 14 {
+message MkfifoAtRequest 65 {
 head(128):
 	int32 fd;
 	int32 mode;
@@ -367,7 +365,7 @@ tail:
 	string path;
 }
 
-message LinkAtRequest 15 {
+message LinkAtRequest 66 {
 head(128):
 	int32 fd;
 	int32 newfd;
@@ -377,7 +375,7 @@ tail:
 	string target_path;
 }
 
-message FchmodAtRequest 16 {
+message FchmodAtRequest 75 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -386,7 +384,7 @@ tail:
 	string path;
 }
 
-message UtimensAtRequest 17 {
+message UtimensAtRequest 78 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -399,13 +397,13 @@ tail:
 	string path;
 }
 
-message RmdirRequest 18 {
+message RmdirRequest 77 {
 head(128):
 tail:
 	string path;
 }
 
-message InotifyAddRequest 19 {
+message InotifyAddRequest 49 {
 head(128):
 	int32 fd;
 	int32 flags;
