@@ -145,14 +145,15 @@ struct Fortuna {
 		};
 
 		auto p = reinterpret_cast<char *>(buffer);
-		size_t progress;
-		for(progress = 0; progress < size; progress += blockSize) {
+		size_t progress = 0;
+		while(progress < size) {
 			if(progress >= (1 << 20))
 				break;
 			size_t chunk = std::min(size - progress, size_t{blockSize});
 			uint8_t block[blockSize];
 			generateBlock(block);
 			memcpy(p + progress, block, chunk);
+			progress += chunk;
 		}
 
 		// Regenerate the block cipher key.
