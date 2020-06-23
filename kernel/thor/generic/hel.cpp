@@ -375,11 +375,13 @@ HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
 
 HelError helAllocateMemory(size_t size, uint32_t flags,
 		HelAllocRestrictions *restrictions, HelHandle *handle) {
-	assert(size > 0);
-	assert(size % kPageSize == 0);
+	if(!size)
+		return kHelErrIllegalArgs;
+	if(size & (kPageSize - 1))
+		return kHelErrIllegalArgs;
 
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
 //	auto pressure = physicalAllocator->numUsedPages() * kPageSize;
 //	frigg::infoLogger() << "Allocate " << (void *)size
@@ -404,10 +406,10 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	}
 
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		Universe::Guard universe_guard(&this_universe->lock);
+		auto irqLock = frigg::guard(&irqMutex());
+		Universe::Guard universeGuard(&thisUniverse->lock);
 
-		*handle = this_universe->attachDescriptor(universe_guard,
+		*handle = thisUniverse->attachDescriptor(universeGuard,
 				MemoryViewDescriptor(std::move(memory)));
 	}
 
