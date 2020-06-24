@@ -8,6 +8,7 @@
 
 #include <async/cancellation.hpp>
 #include <async/result.hpp>
+#include <frg/expected.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 #include <protocols/fs/common.hpp>
@@ -196,7 +197,7 @@ struct NodeOperations {
 	async::result<GetLinkResult> (*link)(std::shared_ptr<void> object,
 			std::string name, int64_t ino);
 
-	async::result<void> (*unlink)(std::shared_ptr<void> object,
+	async::result<frg::expected<protocols::fs::Error>> (*unlink)(std::shared_ptr<void> object,
 			std::string name);
 
 	async::result<OpenResult> (*open)(std::shared_ptr<void> object);

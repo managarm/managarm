@@ -189,7 +189,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	async::result<std::optional<DirEntry>> findEntry(std::string name);
 	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
-	async::result<void> unlink(std::string name);
+	async::result<frg::expected<protocols::fs::Error>> unlink(std::string name);
 	async::result<std::optional<DirEntry>> mkdir(std::string name);
 	async::result<std::optional<DirEntry>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
