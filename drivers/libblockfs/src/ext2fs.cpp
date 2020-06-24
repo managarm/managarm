@@ -168,7 +168,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	throw std::runtime_error("Not enough space for ext2fs directory entry");
 }
 
-async::result<void> Inode::unlink(std::string name) {
+async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyJump.async_wait();
@@ -202,7 +202,7 @@ async::result<void> Inode::unlink(std::string name) {
 			// we can assume that a previous entry exists.
 			assert(previous_entry);
 			previous_entry->recordLength += disk_entry->recordLength;
-			co_return;
+			co_return {};
 		}
 
 		offset += disk_entry->recordLength;
@@ -210,7 +210,7 @@ async::result<void> Inode::unlink(std::string name) {
 	}
 	assert(offset == fileSize());
 
-	throw std::runtime_error("Given link does not exist");
+	co_return protocols::fs::Error::fileNotFound;
 }
 
 async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
