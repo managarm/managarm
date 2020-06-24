@@ -806,6 +806,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
+				assert(result.error() == protocols::fs::Error::fileNotFound);
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -828,6 +829,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
+				assert(result.error() == protocols::fs::Error::fileNotFound);
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(

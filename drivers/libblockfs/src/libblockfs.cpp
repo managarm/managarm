@@ -261,6 +261,7 @@ async::result<frg::expected<protocols::fs::Error>> unlink(std::shared_ptr<void> 
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto result = co_await self->unlink(std::move(name));
 	if(!result) {
+		assert(result.error() == protocols::fs::Error::fileNotFound);
 		co_return result.error();
 	}
 	co_return {};
@@ -449,17 +450,10 @@ async::detached servePartition(helix::UniqueLane lane) {
 			auto old_file = co_await oldInode->findEntry(req.old_name());
 			managarm::fs::SvrResponse resp;
 			if(old_file) {
-				if(co_await newInode->findEntry(req.new_name()) != std::nullopt) {
-					auto result = co_await newInode->unlink(req.new_name());
-					if(!result) {
-						resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-						
-						auto ser = resp.SerializeAsString();
-						auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-							helix_ng::sendBuffer(ser.data(), ser.size()));
-						HEL_CHECK(send_resp.error());
-						continue;
-					}
+				auto result = co_await newInode->unlink(req.new_name());
+				if(!result) {
+					assert(result.error() == protocols::fs::Error::fileNotFound);
+					// Ignored
 				}
 				co_await newInode->link(req.new_name(), old_file.value().inode, old_file.value().fileType);
 			} else {
@@ -474,6 +468,7 @@ async::detached servePartition(helix::UniqueLane lane) {
 
 			auto result = co_await oldInode->unlink(req.old_name());
 			if(!result) {
+				assert(result.error() == protocols::fs::Error::fileNotFound);
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
