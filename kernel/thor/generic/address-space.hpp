@@ -140,22 +140,6 @@ struct Mapping {
 
 	Mapping &operator= (const Mapping &) = delete;
 
-	VirtualSpace *owner() {
-		return _owner.get();
-	}
-
-	VirtualAddr address() const {
-		return _address;
-	}
-
-	size_t length() const {
-		return _length;
-	}
-
-	MappingFlags flags() const {
-		return _flags;
-	}
-
 	void tie(smarter::shared_ptr<VirtualSpace> owner, VirtualAddr address);
 
 	void protect(MappingFlags flags);
@@ -327,26 +311,24 @@ struct Mapping {
 
 	frg::rbtree_hook treeNode;
 
-protected:
 	uint32_t compilePageFlags();
 
-private:
-	coroutine<void> runEvictionLoop_();
+	coroutine<void> runEvictionLoop();
 
-	smarter::shared_ptr<VirtualSpace> _owner;
-	VirtualAddr _address;
-	size_t _length;
-	MappingFlags _flags;
+	smarter::shared_ptr<VirtualSpace> owner;
+	VirtualAddr address;
+	size_t length;
+	MappingFlags flags;
 
-	MappingState _state = MappingState::null;
-	MemoryObserver _observer;
-	async::cancellation_event _cancelEviction;
-	async::oneshot_event _evictionDoneEvent;
-	frigg::SharedPtr<MemorySlice> _slice;
-	frigg::SharedPtr<MemoryView> _view;
-	size_t _viewOffset;
+	MappingState state = MappingState::null;
+	MemoryObserver observer;
+	async::cancellation_event cancelEviction;
+	async::oneshot_event evictionDoneEvent;
+	frigg::SharedPtr<MemorySlice> slice;
+	frigg::SharedPtr<MemoryView> view;
+	size_t viewOffset;
 
-	frigg::TicketLock _evictMutex;
+	frigg::TicketLock evictMutex;
 };
 
 struct HoleLess {
@@ -371,7 +353,7 @@ struct HoleAggregator {
 
 struct MappingLess {
 	bool operator() (const Mapping &a, const Mapping &b) {
-		return a.address() < b.address();
+		return a.address < b.address;
 	}
 };
 

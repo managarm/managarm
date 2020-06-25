@@ -93,31 +93,31 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 // --------------------------------------------------------
 
 Mapping::Mapping(size_t length, MappingFlags flags,
-		frigg::SharedPtr<MemorySlice> slice, uintptr_t view_offset)
-: _length{length}, _flags{flags},
-		_slice{std::move(slice)}, _viewOffset{view_offset} {
-	assert(_viewOffset >= _slice->offset());
-	assert(_viewOffset + Mapping::length() <= _slice->offset() + _slice->length());
-	_view = _slice->getView();
+		frigg::SharedPtr<MemorySlice> slice_, uintptr_t viewOffset)
+: length{length}, flags{flags},
+		slice{std::move(slice_)}, viewOffset{viewOffset} {
+	assert(viewOffset >= slice->offset());
+	assert(viewOffset + length <= slice->offset() + slice->length());
+	view = slice->getView();
 }
 
 Mapping::~Mapping() {
-	assert(_state == MappingState::retired);
+	assert(state == MappingState::retired);
 	//frigg::infoLogger() << "\e[31mthor: Mapping is destructed\e[39m" << frigg::endLog;
 }
 
-void Mapping::tie(smarter::shared_ptr<VirtualSpace> owner, VirtualAddr address) {
-	assert(!_owner);
-	assert(owner);
-	_owner = std::move(owner);
-	_address = address;
+void Mapping::tie(smarter::shared_ptr<VirtualSpace> newOwner, VirtualAddr address) {
+	assert(!owner);
+	assert(newOwner);
+	owner = std::move(newOwner);
+	this->address = address;
 }
 
-void Mapping::protect(MappingFlags flags) {
-	std::underlying_type_t<MappingFlags> newFlags = _flags;
+void Mapping::protect(MappingFlags protectFlags) {
+	std::underlying_type_t<MappingFlags> newFlags = flags;
 	newFlags &= ~(MappingFlags::protRead | MappingFlags::protWrite | MappingFlags::protExecute);
-	newFlags |= flags;
-	_flags = static_cast<MappingFlags>(newFlags);
+	newFlags |= protectFlags;
+	flags = static_cast<MappingFlags>(newFlags);
 }
 
 void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
@@ -139,14 +139,14 @@ void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
 }
 
 uint32_t Mapping::compilePageFlags() {
-	uint32_t page_flags = 0;
+	uint32_t pageFlags = 0;
 	// TODO: Allow inaccessible mappings.
-	assert(flags() & MappingFlags::protRead);
-	if(flags() & MappingFlags::protWrite)
-		page_flags |= page_access::write;
-	if(flags() & MappingFlags::protExecute)
-		page_flags |= page_access::execute;
-	return page_flags;
+	assert(flags & MappingFlags::protRead);
+	if(flags & MappingFlags::protWrite)
+		pageFlags |= page_access::write;
+	if(flags & MappingFlags::protExecute)
+		pageFlags |= page_access::execute;
+	return pageFlags;
 }
 
 void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
@@ -158,193 +158,193 @@ void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
 		return e;
 	};
 	async::spawn_with_allocator(*kernelAlloc,
-			async::transform(_view->asyncLockRange(_viewOffset + offset, size), transformError),
+			async::transform(view->asyncLockRange(viewOffset + offset, size), transformError),
 			std::move(receiver));
 }
 
 void Mapping::unlockVirtualRange(uintptr_t offset, size_t size) {
-	_view->unlockRange(_viewOffset + offset, size);
+	view->unlockRange(viewOffset + offset, size);
 }
 
 frg::tuple<PhysicalAddr, CachingMode>
 Mapping::resolveRange(ptrdiff_t offset) {
-	assert(_state == MappingState::active);
+	assert(state == MappingState::active);
 
 	// TODO: This function should be rewritten.
-	assert((size_t)offset + kPageSize <= length());
-	auto bundle_range = _view->peekRange(_viewOffset + offset);
+	assert((size_t)offset + kPageSize <= length);
+	auto bundle_range = view->peekRange(viewOffset + offset);
 	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
 void Mapping::touchVirtualPage(uintptr_t offset,
 		async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver) {
-	assert(_state == MappingState::active);
+	assert(state == MappingState::active);
 
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, uintptr_t offset,
 			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver)
 			-> coroutine<void> {
 		FetchFlags fetchFlags = 0;
-		if(self->flags() & MappingFlags::dontRequireBacking)
+		if(self->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
 
-		if(auto e = co_await self->_view->asyncLockRange(
-				(self->_viewOffset + offset) & ~(kPageSize - 1), kPageSize); e)
+		if(auto e = co_await self->view->asyncLockRange(
+				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize); e)
 			assert(!"asyncLockRange() failed");
 
-		auto [error, range, flags] = co_await self->_view->fetchRange(
-				self->_viewOffset + offset);
+		auto [error, range, rangeFlags] = co_await self->view->fetchRange(
+				self->viewOffset + offset);
 
 		// TODO: Update RSS, handle dirty pages, etc.
-		auto pageOffset = self->address() + offset;
-		self->owner()->_ops->unmapSingle4k(pageOffset & ~(kPageSize - 1));
-		self->owner()->_ops->mapSingle4k(pageOffset & ~(kPageSize - 1),
+		auto pageOffset = self->address + offset;
+		self->owner->_ops->unmapSingle4k(pageOffset & ~(kPageSize - 1));
+		self->owner->_ops->mapSingle4k(pageOffset & ~(kPageSize - 1),
 				range.get<0>() & ~(kPageSize - 1),
 				self->compilePageFlags(), range.get<2>());
-		self->owner()->_residuentSize += kPageSize;
-		logRss(self->owner());
+		self->owner->_residuentSize += kPageSize;
+		logRss(self->owner.get());
 
-		self->_view->unlockRange((self->_viewOffset + offset) & ~(kPageSize - 1), kPageSize);
+		self->view->unlockRange((self->viewOffset + offset) & ~(kPageSize - 1), kPageSize);
 		async::execution::set_value(receiver, TouchVirtualResult{range, false});
 	}(this, offset, std::move(receiver)));
 }
 
 void Mapping::install() {
-	assert(_state == MappingState::null);
-	_state = MappingState::active;
+	assert(state == MappingState::null);
+	state = MappingState::active;
 
-	_view->addObserver(&_observer);
+	view->addObserver(&observer);
 
-	if(_view->canEvictMemory())
-		async::detach_with_allocator(*kernelAlloc, runEvictionLoop_());
+	if(view->canEvictMemory())
+		async::detach_with_allocator(*kernelAlloc, runEvictionLoop());
 
 	uint32_t pageFlags = 0;
-	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
+	if((flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
 		pageFlags |= page_access::write;
-	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
+	if((flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
 		pageFlags |= page_access::execute;
 	// TODO: Allow inaccessible mappings.
-	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
+	assert((flags & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	// Synchronize with the eviction loop.
 	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_evictMutex);
+	auto lock = frigg::guard(&evictMutex);
 
-	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		auto physicalRange = _view->peekRange(_viewOffset + progress);
+	for(size_t progress = 0; progress < length; progress += kPageSize) {
+		auto physicalRange = view->peekRange(viewOffset + progress);
 
-		VirtualAddr vaddr = address() + progress;
-		assert(!owner()->_ops->isMapped(vaddr));
+		VirtualAddr vaddr = address + progress;
+		assert(!owner->_ops->isMapped(vaddr));
 		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-			owner()->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
+			owner->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
 					pageFlags, physicalRange.get<1>());
-			owner()->_residuentSize += kPageSize;
-			logRss(owner());
+			owner->_residuentSize += kPageSize;
+			logRss(owner.get());
 		}
 	}
 }
 
 void Mapping::reinstall() {
-	assert(_state == MappingState::active);
+	assert(state == MappingState::active);
 
 	uint32_t pageFlags = 0;
-	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
+	if((flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
 		pageFlags |= page_access::write;
-	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
+	if((flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
 		pageFlags |= page_access::execute;
 	// TODO: Allow inaccessible mappings.
-	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
+	assert((flags & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	// Synchronize with the eviction loop.
 	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_evictMutex);
+	auto lock = frigg::guard(&evictMutex);
 
-	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		auto physicalRange = _view->peekRange(_viewOffset + progress);
+	for(size_t progress = 0; progress < length; progress += kPageSize) {
+		auto physicalRange = view->peekRange(viewOffset + progress);
 
-		VirtualAddr vaddr = address() + progress;
-		auto status = owner()->_ops->unmapSingle4k(vaddr);
+		VirtualAddr vaddr = address + progress;
+		auto status = owner->_ops->unmapSingle4k(vaddr);
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
-			_view->markDirty(_viewOffset + progress, kPageSize);
+			view->markDirty(viewOffset + progress, kPageSize);
 		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-			owner()->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
+			owner->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
 					pageFlags, physicalRange.get<1>());
 		}else{
-			owner()->_residuentSize -= kPageSize;
+			owner->_residuentSize -= kPageSize;
 		}
 	}
 }
 
 void Mapping::synchronize(uintptr_t offset, size_t size) {
-	assert(_state == MappingState::active);
-	assert(offset + size <= length());
+	assert(state == MappingState::active);
+	assert(offset + size <= length);
 
 	// Synchronize with the eviction loop.
 	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_evictMutex);
+	auto lock = frigg::guard(&evictMutex);
 
 	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		VirtualAddr vaddr = address() + offset + progress;
-		auto status = owner()->_ops->cleanSingle4k(vaddr);
+		VirtualAddr vaddr = address + offset + progress;
+		auto status = owner->_ops->cleanSingle4k(vaddr);
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
-			_view->markDirty(_viewOffset + progress, kPageSize);
+			view->markDirty(viewOffset + progress, kPageSize);
 	}
 }
 
 void Mapping::uninstall() {
-	assert(_state == MappingState::active);
-	_state = MappingState::zombie;
+	assert(state == MappingState::active);
+	state = MappingState::zombie;
 
-	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		VirtualAddr vaddr = address() + progress;
-		auto status = owner()->_ops->unmapSingle4k(vaddr);
+	for(size_t progress = 0; progress < length; progress += kPageSize) {
+		VirtualAddr vaddr = address + progress;
+		auto status = owner->_ops->unmapSingle4k(vaddr);
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
-			_view->markDirty(_viewOffset + progress, kPageSize);
-		owner()->_residuentSize -= kPageSize;
+			view->markDirty(viewOffset + progress, kPageSize);
+		owner->_residuentSize -= kPageSize;
 	}
 }
 
 void Mapping::retire() {
-	assert(_state == MappingState::zombie);
-	_state = MappingState::retired;
+	assert(state == MappingState::zombie);
+	state = MappingState::retired;
 
-	if(_view->canEvictMemory())
-		_cancelEviction.cancel();
+	if(view->canEvictMemory())
+		cancelEviction.cancel();
 
 	// TODO: It would be less ugly to run this in a non-detached way.
 	auto cleanUpObserver = [] (Mapping *self) -> coroutine<void> {
-		if(self->_view->canEvictMemory())
-			co_await self->_evictionDoneEvent.wait();
-		self->_view->removeObserver(&self->_observer);
+		if(self->view->canEvictMemory())
+			co_await self->evictionDoneEvent.wait();
+		self->view->removeObserver(&self->observer);
 		self->selfPtr.ctr()->decrement();
 	};
 	selfPtr.ctr()->increment(); // Keep this object alive until the coroutines completes.
 	async::detach_with_allocator(*kernelAlloc, cleanUpObserver(this));
 }
 
-coroutine<void> Mapping::runEvictionLoop_() {
+coroutine<void> Mapping::runEvictionLoop() {
 	while(true) {
-		auto eviction = co_await _view->pollEviction(&_observer, _cancelEviction);
+		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
 		if(!eviction)
 			break;
-		if(eviction.offset() + eviction.size() <= _viewOffset
-				|| eviction.offset() >= _viewOffset + length()) {
+		if(eviction.offset() + eviction.size() <= viewOffset
+				|| eviction.offset() >= viewOffset + length) {
 			eviction.done();
 			continue;
 		}
 
 		// Begin and end offsets of the region that we need to unmap.
-		auto shootBegin = frg::max(eviction.offset(), _viewOffset);
+		auto shootBegin = frg::max(eviction.offset(), viewOffset);
 		auto shootEnd = frg::min(eviction.offset() + eviction.size(),
-				_viewOffset + length());
+				viewOffset + length);
 
 		// Offset from the beginning of the mapping.
-		auto shootOffset = shootBegin - _viewOffset;
+		auto shootOffset = shootBegin - viewOffset;
 		auto shootSize = shootEnd - shootBegin;
 		assert(shootSize);
 		assert(!(shootOffset & (kPageSize - 1)));
@@ -354,19 +354,19 @@ coroutine<void> Mapping::runEvictionLoop_() {
 		// TODO: invent a more specialized synchronization mechanism for this.
 		{
 			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_evictMutex);
+			auto lock = frigg::guard(&evictMutex);
 		}
 
 		// TODO: Perform proper locking here!
 
 		// Unmap the memory range.
 		for(size_t pg = 0; pg < shootSize; pg += kPageSize) {
-			auto status = owner()->_ops->unmapSingle4k(address() + shootOffset + pg);
+			auto status = owner->_ops->unmapSingle4k(address + shootOffset + pg);
 			if(!(status & page_status::present))
 				continue;
 			if(status & page_status::dirty)
-				_view->markDirty(_viewOffset + shootOffset + pg, kPageSize);
-			owner()->_residuentSize -= kPageSize;
+				view->markDirty(viewOffset + shootOffset + pg, kPageSize);
+			owner->_residuentSize -= kPageSize;
 		}
 
 		// Perform shootdown.
@@ -385,10 +385,10 @@ coroutine<void> Mapping::runEvictionLoop_() {
 		closure->mapping = selfPtr.lock();
 		closure->eviction = std::move(eviction);
 
-		closure->node.address = address() + shootOffset;
+		closure->node.address = address + shootOffset;
 		closure->node.size = shootSize;
 		closure->node.setup(&closure->worklet);
-		if(!owner()->_ops->submitShootdown(&closure->node))
+		if(!owner->_ops->submitShootdown(&closure->node))
 			continue;
 
 		closure->eviction.done();
@@ -396,7 +396,7 @@ coroutine<void> Mapping::runEvictionLoop_() {
 		continue;
 	}
 
-	_evictionDoneEvent.raise();
+	evictionDoneEvent.raise();
 }
 
 // --------------------------------------------------------
@@ -586,8 +586,8 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 	assert(mapping);
 
 	// TODO: Allow shrinking of the mapping.
-	assert(mapping->address() == address);
-	assert(mapping->length() == length);
+	assert(mapping->address == address);
+	assert(mapping->length == length);
 	mapping->protect(static_cast<MappingFlags>(mappingFlags));
 	mapping->reinstall();
 
@@ -612,8 +612,8 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	assert(mapping);
 
 	// TODO: Allow shrinking of the mapping.
-	assert(mapping->address() == address);
-	assert(mapping->length() == length);
+	assert(mapping->address == address);
+	assert(mapping->length == length);
 	mapping->uninstall();
 
 	static constexpr auto deleteMapping = [] (VirtualSpace *space, Mapping *mapping) {
@@ -726,8 +726,8 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 			}
 			assert(mapping);
 
-			auto offset = alignedAddress + progress - mapping->address();
-			auto chunk = frg::min(alignedSize - progress, mapping->length() - offset);
+			auto offset = alignedAddress + progress - mapping->address;
+			auto chunk = frg::min(alignedSize - progress, mapping->length - offset);
 			mapping->synchronize(offset, chunk);
 			progress += chunk;
 		}
@@ -757,19 +757,19 @@ bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNo
 
 	// Here we do the mapping-based fault handling.
 	if(node->_flags & VirtualSpace::kFaultWrite)
-		if(!((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
+		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
 			node->_resolved = false;
 			return true;
 		}
 	if(node->_flags & VirtualSpace::kFaultExecute)
-		if(!((mapping->flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
+		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
 			node->_resolved = false;
 			return true;
 		}
 
 	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<Mapping> mapping,
 			uintptr_t address, FaultNode *node) -> coroutine<void> {
-		auto faultPage = (node->_address - mapping->address()) & ~(kPageSize - 1);
+		auto faultPage = (node->_address - mapping->address) & ~(kPageSize - 1);
 		auto outcome = co_await mapping->touchVirtualPage(faultPage);
 		if(!outcome) {
 			node->_resolved = false;
@@ -791,13 +791,13 @@ bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNo
 smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
 	auto current = _mappings.get_root();
 	while(current) {
-		if(address < current->address()) {
+		if(address < current->address) {
 			current = MappingTree::get_left(current);
-		}else if(address >= current->address() + current->length()) {
+		}else if(address >= current->address + current->length) {
 			current = MappingTree::get_right(current);
 		}else{
-			assert(address >= current->address()
-					&& address < current->address() + current->length());
+			assert(address >= current->address
+					&& address < current->address + current->length);
 			return current->selfPtr.lock();
 		}
 	}
@@ -955,7 +955,7 @@ AddressSpaceLockHandle::~AddressSpaceLockHandle() {
 		return;
 
 	if(_active)
-		_mapping->unlockVirtualRange(_address - _mapping->address(), _length);
+		_mapping->unlockVirtualRange(_address - _mapping->address, _length);
 }
 
 bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
@@ -968,11 +968,11 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 			AcquireNode *node) -> coroutine<void> {
 		auto misalign = self->_address & (kPageSize - 1);
 		auto lockOutcome = co_await self->_mapping->lockVirtualRange(
-				(self->_address - self->_mapping->address()) & ~(kPageSize - 1),
+				(self->_address - self->_mapping->address) & ~(kPageSize - 1),
 				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
 		assert(lockOutcome);
 		auto populateOutcome = co_await self->_mapping->populateVirtualRange(
-				(self->_address - self->_mapping->address()) & ~(kPageSize - 1),
+				(self->_address - self->_mapping->address) & ~(kPageSize - 1),
 				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
 		assert(populateOutcome);
 		self->_active = true;
@@ -1029,7 +1029,7 @@ Error AddressSpaceLockHandle::write(size_t offset, const void *pointer, size_t s
 }
 
 PhysicalAddr AddressSpaceLockHandle::_resolvePhysical(VirtualAddr vaddr) {
-	auto range = _mapping->resolveRange(vaddr - _mapping->address());
+	auto range = _mapping->resolveRange(vaddr - _mapping->address);
 	return range.get<0>();
 }
 
