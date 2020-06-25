@@ -164,7 +164,6 @@ struct Mapping {
 
 	void install();
 	void reinstall();
-	void synchronize(uintptr_t offset, size_t length);
 	void uninstall();
 	void retire();
 

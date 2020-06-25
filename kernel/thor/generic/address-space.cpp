@@ -276,24 +276,6 @@ void Mapping::reinstall() {
 	}
 }
 
-void Mapping::synchronize(uintptr_t offset, size_t size) {
-	assert(state == MappingState::active);
-	assert(offset + size <= length);
-
-	// Synchronize with the eviction loop.
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&evictMutex);
-
-	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		VirtualAddr vaddr = address + offset + progress;
-		auto status = owner->_ops->cleanSingle4k(vaddr);
-		if(!(status & page_status::present))
-			continue;
-		if(status & page_status::dirty)
-			view->markDirty(viewOffset + progress, kPageSize);
-	}
-}
-
 void Mapping::uninstall() {
 	assert(state == MappingState::active);
 	state = MappingState::zombie;
@@ -713,23 +695,43 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 	auto alignedAddress = address & ~(kPageSize - 1);
 	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
-	async::detach_with_allocator(*kernelAlloc, [] (VirtualSpace *self, VirtualAddr alignedAddress, size_t alignedSize,
+	async::detach_with_allocator(*kernelAlloc, [] (VirtualSpace *self,
+			VirtualAddr alignedAddress, size_t alignedSize,
 			async::any_receiver<void> receiver) -> coroutine<void> {
-		size_t progress = 0;
-		while(progress < alignedSize) {
+		size_t overallProgress = 0;
+		while(overallProgress < alignedSize) {
 			smarter::shared_ptr<Mapping> mapping;
 			{
 				auto irqLock = frigg::guard(&irqMutex());
 				auto spaceGuard = frigg::guard(&self->_mutex);
 
-				mapping = self->_findMapping(alignedAddress + progress);
+				mapping = self->_findMapping(alignedAddress + overallProgress);
 			}
 			assert(mapping);
 
-			auto offset = alignedAddress + progress - mapping->address;
-			auto chunk = frg::min(alignedSize - progress, mapping->length - offset);
-			mapping->synchronize(offset, chunk);
-			progress += chunk;
+			auto mappingOffset = alignedAddress + overallProgress - mapping->address;
+			auto mappingChunk = frg::min(alignedSize - overallProgress,
+					mapping->length - mappingOffset);
+			assert(mapping->state == MappingState::active);
+			assert(mappingOffset + mappingChunk <= mapping->length);
+
+			// Synchronize with the eviction loop.
+			{
+				auto irqLock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&mapping->evictMutex);
+
+				for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
+						chunkProgress += kPageSize) {
+					VirtualAddr vaddr = mapping->address + mappingOffset + chunkProgress;
+					auto status = self->_ops->cleanSingle4k(vaddr);
+					if(!(status & page_status::present))
+						continue;
+					if(status & page_status::dirty)
+						mapping->view->markDirty(mapping->viewOffset + chunkProgress, kPageSize);
+				}
+			}
+
+			overallProgress += mappingChunk;
 		}
 		co_await self->_ops->shootdown(alignedAddress, alignedSize);
 
