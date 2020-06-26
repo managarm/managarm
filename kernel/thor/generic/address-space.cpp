@@ -208,39 +208,6 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 	}(this, offset, std::move(receiver)));
 }
 
-void Mapping::reinstall() {
-	assert(state == MappingState::active);
-
-	uint32_t pageFlags = 0;
-	if((flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
-		pageFlags |= page_access::write;
-	if((flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
-		pageFlags |= page_access::execute;
-	// TODO: Allow inaccessible mappings.
-	assert((flags & MappingFlags::permissionMask) & MappingFlags::protRead);
-
-	// Synchronize with the eviction loop.
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&evictMutex);
-
-	for(size_t progress = 0; progress < length; progress += kPageSize) {
-		auto physicalRange = view->peekRange(viewOffset + progress);
-
-		VirtualAddr vaddr = address + progress;
-		auto status = owner->_ops->unmapSingle4k(vaddr);
-		if(!(status & page_status::present))
-			continue;
-		if(status & page_status::dirty)
-			view->markDirty(viewOffset + progress, kPageSize);
-		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-			owner->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
-					pageFlags, physicalRange.get<1>());
-		}else{
-			owner->_residuentSize -= kPageSize;
-		}
-	}
-}
-
 void Mapping::uninstall() {
 	assert(state == MappingState::active);
 	state = MappingState::zombie;
@@ -571,7 +538,39 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 	assert(mapping->address == address);
 	assert(mapping->length == length);
 	mapping->protect(static_cast<MappingFlags>(mappingFlags));
-	mapping->reinstall();
+
+	assert(mapping->state == MappingState::active);
+
+	uint32_t pageFlags = 0;
+	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+		pageFlags |= page_access::write;
+	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+		pageFlags |= page_access::execute;
+	// TODO: Allow inaccessible mappings.
+	assert((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead);
+
+	{
+		// Synchronize with the eviction loop.
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&mapping->evictMutex);
+
+		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
+			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
+
+			VirtualAddr vaddr = mapping->address + progress;
+			auto status = _ops->unmapSingle4k(vaddr);
+			if(!(status & page_status::present))
+				continue;
+			if(status & page_status::dirty)
+				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
+			if(physicalRange.get<0>() != PhysicalAddr(-1)) {
+				_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
+						pageFlags, physicalRange.get<1>());
+			}else{
+				_residuentSize -= kPageSize;
+			}
+		}
+	}
 
 	node->_worklet.setup([] (Worklet *base) {
 		auto node = frg::container_of(base, &AddressProtectNode::_worklet);
