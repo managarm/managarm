@@ -208,21 +208,6 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 	}(this, offset, std::move(receiver)));
 }
 
-void Mapping::uninstall() {
-	assert(state == MappingState::active);
-	state = MappingState::zombie;
-
-	for(size_t progress = 0; progress < length; progress += kPageSize) {
-		VirtualAddr vaddr = address + progress;
-		auto status = owner->_ops->unmapSingle4k(vaddr);
-		if(!(status & page_status::present))
-			continue;
-		if(status & page_status::dirty)
-			view->markDirty(viewOffset + progress, kPageSize);
-		owner->_residuentSize -= kPageSize;
-	}
-}
-
 void Mapping::retire() {
 	assert(state == MappingState::zombie);
 	state = MappingState::retired;
@@ -362,7 +347,19 @@ void VirtualSpace::retire() {
 	// TODO: Set some flag to make sure that no mappings are added/deleted.
 	auto mapping = _mappings.first();
 	while(mapping) {
-		mapping->uninstall();
+		assert(mapping->state == MappingState::active);
+		mapping->state = MappingState::zombie;
+
+		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
+			VirtualAddr vaddr = mapping->address + progress;
+			auto status = _ops->unmapSingle4k(vaddr);
+			if(!(status & page_status::present))
+				continue;
+			if(status & page_status::dirty)
+				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
+			_residuentSize -= kPageSize;
+		}
+
 		mapping = MappingTree::successor(mapping);
 	}
 
@@ -595,7 +592,19 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	// TODO: Allow shrinking of the mapping.
 	assert(mapping->address == address);
 	assert(mapping->length == length);
-	mapping->uninstall();
+
+	assert(mapping->state == MappingState::active);
+	mapping->state = MappingState::zombie;
+
+	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
+		VirtualAddr vaddr = mapping->address + progress;
+		auto status = _ops->unmapSingle4k(vaddr);
+		if(!(status & page_status::present))
+			continue;
+		if(status & page_status::dirty)
+			mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
+		_residuentSize -= kPageSize;
+	}
 
 	static constexpr auto deleteMapping = [] (VirtualSpace *space, Mapping *mapping) {
 		space->_mappings.remove(mapping);
