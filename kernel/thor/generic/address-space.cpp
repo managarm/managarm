@@ -208,41 +208,6 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 	}(this, offset, std::move(receiver)));
 }
 
-void Mapping::install() {
-	assert(state == MappingState::null);
-	state = MappingState::active;
-
-	view->addObserver(&observer);
-
-	if(view->canEvictMemory())
-		async::detach_with_allocator(*kernelAlloc, runEvictionLoop());
-
-	uint32_t pageFlags = 0;
-	if((flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
-		pageFlags |= page_access::write;
-	if((flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
-		pageFlags |= page_access::execute;
-	// TODO: Allow inaccessible mappings.
-	assert((flags & MappingFlags::permissionMask) & MappingFlags::protRead);
-
-	// Synchronize with the eviction loop.
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&evictMutex);
-
-	for(size_t progress = 0; progress < length; progress += kPageSize) {
-		auto physicalRange = view->peekRange(viewOffset + progress);
-
-		VirtualAddr vaddr = address + progress;
-		assert(!owner->_ops->isMapped(vaddr));
-		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-			owner->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
-					pageFlags, physicalRange.get<1>());
-			owner->_residuentSize += kPageSize;
-			logRss(owner.get());
-		}
-	}
-}
-
 void Mapping::reinstall() {
 	assert(state == MappingState::active);
 
@@ -491,7 +456,7 @@ Error VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address
 //			<< ", length: " << (void *)length << frigg::endLog;
 
 	// Setup a new Mapping object.
-	std::underlying_type_t<MappingFlags> mapping_flags = 0;
+	std::underlying_type_t<MappingFlags> mappingFlags = 0;
 
 	// TODO: The upgrading mechanism needs to be arch-specific:
 	// Some archs might only support RX, while other support X.
@@ -499,27 +464,27 @@ Error VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address
 	if((flags & mask) == (kMapProtRead | kMapProtWrite | kMapProtExecute)
 			|| (flags & mask) == (kMapProtWrite | kMapProtExecute)) {
 		// WX is upgraded to RWX.
-		mapping_flags |= MappingFlags::protRead | MappingFlags::protWrite
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite
 			| MappingFlags::protExecute;
 	}else if((flags & mask) == (kMapProtRead | kMapProtExecute)
 			|| (flags & mask) == kMapProtExecute) {
 		// X is upgraded to RX.
-		mapping_flags |= MappingFlags::protRead | MappingFlags::protExecute;
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protExecute;
 	}else if((flags & mask) == (kMapProtRead | kMapProtWrite)
 			|| (flags & mask) == kMapProtWrite) {
 		// W is upgraded to RW.
-		mapping_flags |= MappingFlags::protRead | MappingFlags::protWrite;
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite;
 	}else if((flags & mask) == kMapProtRead) {
-		mapping_flags |= MappingFlags::protRead;
+		mappingFlags |= MappingFlags::protRead;
 	}else{
 		assert(!(flags & mask));
 	}
 
 	if(flags & kMapDontRequireBacking)
-		mapping_flags |= MappingFlags::dontRequireBacking;
+		mappingFlags |= MappingFlags::dontRequireBacking;
 
 	auto mapping = smarter::allocate_shared<Mapping>(Allocator{},
-			length, static_cast<MappingFlags>(mapping_flags),
+			length, static_cast<MappingFlags>(mappingFlags),
 			slice.toShared(), slice->offset() + offset);
 	mapping->selfPtr = mapping;
 
@@ -528,7 +493,42 @@ Error VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address
 	// Install the new mapping object.
 	mapping->tie(selfPtr.lock(), target);
 	_mappings.insert(mapping.get());
-	mapping->install();
+
+	assert(mapping->state == MappingState::null);
+	mapping->state = MappingState::active;
+
+	mapping->view->addObserver(&mapping->observer);
+
+	if(mapping->view->canEvictMemory())
+		async::detach_with_allocator(*kernelAlloc, mapping->runEvictionLoop());
+
+	uint32_t pageFlags = 0;
+	if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+		pageFlags |= page_access::write;
+	if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+		pageFlags |= page_access::execute;
+	// TODO: Allow inaccessible mappings.
+	assert((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead);
+
+	{
+		// Synchronize with the eviction loop.
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&mapping->evictMutex);
+
+		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
+			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
+
+			VirtualAddr vaddr = mapping->address + progress;
+			assert(!_ops->isMapped(vaddr));
+			if(physicalRange.get<0>() != PhysicalAddr(-1)) {
+				_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
+						pageFlags, physicalRange.get<1>());
+				_residuentSize += kPageSize;
+				logRss(this);
+			}
+		}
+	}
+
 	mapping.release(); // VirtualSpace owns one reference.
 
 	*actual_address = target;
