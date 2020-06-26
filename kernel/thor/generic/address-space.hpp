@@ -162,8 +162,6 @@ struct Mapping {
 	void populateVirtualRange(uintptr_t offset, size_t size,
 			async::any_receiver<frg::expected<Error>> receiver);
 
-	void retire();
-
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for lockVirtualRange()
 	// ----------------------------------------------------------------------------------

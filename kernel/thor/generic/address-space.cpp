@@ -208,24 +208,6 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 	}(this, offset, std::move(receiver)));
 }
 
-void Mapping::retire() {
-	assert(state == MappingState::zombie);
-	state = MappingState::retired;
-
-	if(view->canEvictMemory())
-		cancelEviction.cancel();
-
-	// TODO: It would be less ugly to run this in a non-detached way.
-	auto cleanUpObserver = [] (Mapping *self) -> coroutine<void> {
-		if(self->view->canEvictMemory())
-			co_await self->evictionDoneEvent.wait();
-		self->view->removeObserver(&self->observer);
-		self->selfPtr.ctr()->decrement();
-	};
-	selfPtr.ctr()->increment(); // Keep this object alive until the coroutines completes.
-	async::detach_with_allocator(*kernelAlloc, cleanUpObserver(this));
-}
-
 coroutine<void> Mapping::runEvictionLoop() {
 	while(true) {
 		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
@@ -378,9 +360,22 @@ void VirtualSpace::retire() {
 
 		while(self->_mappings.get_root()) {
 			auto mapping = self->_mappings.get_root();
-			mapping->retire();
 			self->_mappings.remove(mapping);
-			mapping->selfPtr.ctr()->decrement();
+
+			assert(mapping->state == MappingState::zombie);
+			mapping->state = MappingState::retired;
+
+			if(mapping->view->canEvictMemory())
+				mapping->cancelEviction.cancel();
+
+			// TODO: It would be less ugly to run this in a non-detached way.
+			auto cleanUpObserver = [] (Mapping *mapping) -> coroutine<void> {
+				if(mapping->view->canEvictMemory())
+					co_await mapping->evictionDoneEvent.wait();
+				mapping->view->removeObserver(&mapping->observer);
+				mapping->selfPtr.ctr()->decrement();
+			};
+			async::detach_with_allocator(*kernelAlloc, cleanUpObserver(mapping));
 		}
 
 		frg::destruct(*kernelAlloc, closure);
@@ -608,8 +603,21 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 
 	static constexpr auto deleteMapping = [] (VirtualSpace *space, Mapping *mapping) {
 		space->_mappings.remove(mapping);
-		mapping->retire();
-		mapping->selfPtr.ctr()->decrement();
+
+		assert(mapping->state == MappingState::zombie);
+		mapping->state = MappingState::retired;
+
+		if(mapping->view->canEvictMemory())
+			mapping->cancelEviction.cancel();
+
+		// TODO: It would be less ugly to run this in a non-detached way.
+		auto cleanUpObserver = [] (Mapping *mapping) -> coroutine<void> {
+			if(mapping->view->canEvictMemory())
+				co_await mapping->evictionDoneEvent.wait();
+			mapping->view->removeObserver(&mapping->observer);
+			mapping->selfPtr.ctr()->decrement();
+		};
+		async::detach_with_allocator(*kernelAlloc, cleanUpObserver(mapping));
 	};
 
 	static constexpr auto closeHole = [] (VirtualSpace *space, VirtualAddr address, size_t length) {
