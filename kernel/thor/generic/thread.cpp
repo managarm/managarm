@@ -195,7 +195,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 
 		while(!queue.empty()) {
 			auto observe = queue.pop_front();
-			observe->error = Error::kErrSuccess;
+			observe->error = Error::success;
 			observe->sequence = sequence;
 			observe->interrupt = interrupt;
 			WorkQueue::post(observe->triggered);
@@ -234,7 +234,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 
 		while(!queue.empty()) {
 			auto observe = queue.pop_front();
-			observe->error = Error::kErrSuccess;
+			observe->error = Error::success;
 			observe->sequence = sequence;
 			observe->interrupt = interrupt;
 			WorkQueue::post(observe->triggered);
@@ -277,7 +277,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 			while(!queue.empty()) {
 				auto observe = queue.pop_front();
-				observe->error = Error::kErrThreadExited;
+				observe->error = Error::threadExited;
 				observe->sequence = 0;
 				observe->interrupt = kIntrNull;
 				WorkQueue::post(observe->triggered);
@@ -312,7 +312,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 			while(!queue.empty()) {
 				auto observe = queue.pop_front();
-				observe->error = Error::kErrSuccess;
+				observe->error = Error::success;
 				observe->sequence = sequence;
 				observe->interrupt = kIntrRequested;
 				WorkQueue::post(observe->triggered);
@@ -362,9 +362,9 @@ Error Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	auto lock = frigg::guard(&thread->_mutex);
 
 	if(thread->_runState == kRunTerminated)
-		return kErrThreadExited;
+		return Error::threadExited;
 	if(thread->_runState != kRunInterrupted)
-		return kErrIllegalState;
+		return Error::illegalState;
 	
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)thread.get()
@@ -372,7 +372,7 @@ Error Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 
 	thread->_runState = kRunSuspended;
 	Scheduler::resume(thread.get());
-	return kErrSuccess;
+	return Error::success;
 }
 
 Thread::Thread(frigg::SharedPtr<Universe> universe,
@@ -440,12 +440,12 @@ void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {
 
 	switch(state) {
 	case kRunInterrupted:
-		observe->error = Error::kErrSuccess;
+		observe->error = Error::success;
 		observe->sequence = sequence;
 		observe->interrupt = interrupt;
 		break;
 	case kRunTerminated:
-		observe->error = Error::kErrThreadExited;
+		observe->error = Error::threadExited;
 		observe->sequence = 0;
 		observe->interrupt = kIntrNull;
 		break;
@@ -521,7 +521,7 @@ void Thread::_kill() {
 
 		while(!queue.empty()) {
 			auto observe = queue.pop_front();
-			observe->error = Error::kErrThreadExited;
+			observe->error = Error::threadExited;
 			observe->sequence = 0;
 			observe->interrupt = kIntrNull;
 			WorkQueue::post(observe->triggered);

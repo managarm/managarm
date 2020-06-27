@@ -196,14 +196,14 @@ void initializeRandom() {
 	csprng.initialize();
 
 	uint8_t seed[32]; // 256 bits of entropy should be enough.
-	if(auto e = getEntropyFromCpu(seed, 32); !e) {
+	if(auto e = getEntropyFromCpu(seed, 32); e == Error::success) {
 		csprng->forceReseed(seed, 32);
 		return;
-	}else if(e == kErrNoHardwareSupport) {
+	}else if(e == Error::noHardwareSupport) {
 		frigg::infoLogger() << "\e[31m" "thor: CPU-based hardware PRNG not available"
 				"\e[39m" << frigg::endLog;
 	}else{
-		assert(e == kErrHardwareBroken);
+		assert(e == Error::hardwareBroken);
 		frigg::infoLogger() << "\e[31m" "thor: CPU-based hardware PRNG is broken"
 				"\e[39m" << frigg::endLog;
 	}

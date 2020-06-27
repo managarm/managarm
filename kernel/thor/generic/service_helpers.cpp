@@ -81,7 +81,7 @@ LaneHandle fiberOffer(LaneHandle lane) {
 
 	LaneHandle handle;
 	auto callback = [&] (Error error, LaneHandle the_handle) {
-		assert(!error);
+		assert(error == Error::success);
 		handle = std::move(the_handle);
 		KernelFiber::unblockOther(&closure.blocker);
 	};
@@ -110,9 +110,9 @@ LaneHandle fiberAccept(LaneHandle lane) {
 	submitAccept(lane, wrap<void(Error, LaneHandle)>(callback));
 	KernelFiber::blockCurrent(&closure.blocker);
 
-	if(error == kErrEndOfLane)
+	if(error == Error::endOfLane)
 		return LaneHandle{};
-	assert(!error);
+	assert(error == Error::success);
 	return handle;
 }
 
@@ -122,7 +122,7 @@ void fiberSend(LaneHandle lane, const void *buffer, size_t length) {
 	} closure;
 
 	auto callback = [&] (Error error) {
-		assert(!error);
+		assert(error == Error::success);
 		KernelFiber::unblockOther(&closure.blocker);
 	};
 
@@ -142,7 +142,7 @@ frigg::UniqueMemory<KernelAlloc> fiberRecv(LaneHandle lane) {
 
 	frigg::UniqueMemory<KernelAlloc> buffer;
 	auto callback = [&] (Error error, frigg::UniqueMemory<KernelAlloc> the_buffer) {
-		assert(!error);
+		assert(error == Error::success);
 		buffer = std::move(the_buffer);
 		KernelFiber::unblockOther(&closure.blocker);
 	};
@@ -161,7 +161,7 @@ void fiberPushDescriptor(LaneHandle lane, AnyDescriptor descriptor) {
 	} closure;
 
 	auto callback = [&] (Error error) {
-		assert(!error);
+		assert(error == Error::success);
 		KernelFiber::unblockOther(&closure.blocker);
 	};
 
@@ -178,7 +178,7 @@ AnyDescriptor fiberPullDescriptor(LaneHandle lane) {
 
 	AnyDescriptor descriptor;
 	auto callback = [&] (Error error, AnyDescriptor the_descriptor) {
-		assert(!error);
+		assert(error == Error::success);
 		descriptor = std::move(the_descriptor);
 		KernelFiber::unblockOther(&closure.blocker);
 	};

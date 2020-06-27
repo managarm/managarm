@@ -191,7 +191,7 @@ void MemoryView::resize(size_t newSize, async::any_receiver<void> receiver) {
 }
 
 void MemoryView::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
-	receiver.set_value({kErrIllegalObject, nullptr});
+	receiver.set_value({Error::illegalObject, nullptr});
 }
 
 void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
@@ -200,7 +200,7 @@ void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
 }
 
 Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
-	return kErrIllegalObject;
+	return Error::illegalObject;
 }
 
 void MemoryView::submitManage(ManageNode *handle) {
@@ -208,13 +208,13 @@ void MemoryView::submitManage(ManageNode *handle) {
 }
 
 void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
-	initiate->setup(kErrSuccess);
+	initiate->setup(Error::success);
 	initiate->complete();
 }
 
 Error MemoryView::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
 		uintptr_t offset, size_t size) {
-	return kErrIllegalObject;
+	return Error::illegalObject;
 }
 
 // --------------------------------------------------------
@@ -224,9 +224,9 @@ Error MemoryView::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
 bool transferBetweenViews(TransferNode *node) {
 	node->_progress = 0;
 
-	if(auto e = node->_srcBundle->lockRange(node->_srcOffset, node->_size); e)
+	if(auto e = node->_srcBundle->lockRange(node->_srcOffset, node->_size); e != Error::success)
 		assert(!"lockRange() failed");
-	if(auto e = node->_destBundle->lockRange(node->_destOffset, node->_size); e)
+	if(auto e = node->_destBundle->lockRange(node->_destOffset, node->_size); e != Error::success)
 		assert(!"lockRange() failed");
 
 	struct Ops {
@@ -265,8 +265,8 @@ bool transferBetweenViews(TransferNode *node) {
 		}
 
 		static bool doCopy(TransferNode *node) {
-			assert(!node->_destFetch.error());
-			assert(!node->_srcFetch.error());
+			assert(node->_destFetch.error() == Error::success);
+			assert(node->_srcFetch.error() == Error::success);
 
 			auto dest_misalign = (node->_destOffset + node->_progress) % kPageSize;
 			auto src_misalign = (node->_srcOffset + node->_progress) % kPageSize;
@@ -352,7 +352,7 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *buffer, size_t
 
 		static void doCopy(CopyToBundleNode *node) {
 			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
-			assert(!node->_fetch.error());
+			assert(node->_fetch.error() == Error::success);
 			assert(node->_fetch.range().get<1>() >= kPageSize);
 			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
 			size_t chunk = frigg::min(kPageSize - misalign, node->_size - node->_progress);
@@ -373,7 +373,7 @@ bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *buffer, size_t
 	node->_complete = complete;
 
 	node->_progress = 0;
-	if(auto e = view->lockRange(offset, size); e)
+	if(auto e = view->lockRange(offset, size); e != Error::success)
 		assert(!"lockRange() failed");
 
 	return Ops::process(node);
@@ -415,7 +415,7 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t siz
 
 		static void doCopy(CopyFromBundleNode *node) {
 			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
-			assert(!node->_fetch.error());
+			assert(node->_fetch.error() == Error::success);
 			assert(node->_fetch.range().get<1>() >= kPageSize);
 			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
 			size_t chunk = frigg::min(kPageSize - misalign, node->_size - node->_progress);
@@ -436,7 +436,7 @@ bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t siz
 	node->_complete = complete;
 
 	node->_progress = 0;
-	if(auto e = view->lockRange(offset, size); e)
+	if(auto e = view->lockRange(offset, size); e != Error::success)
 		assert(!"lockRange() failed");
 
 	return Ops::process(node);
@@ -458,7 +458,7 @@ HardwareMemory::~HardwareMemory() {
 
 Error HardwareMemory::lockRange(uintptr_t offset, size_t size) {
 	// Hardware memory is "always locked".
-	return kErrSuccess;
+	return Error::success;
 }
 
 void HardwareMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -473,7 +473,7 @@ frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset
 bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(offset % kPageSize == 0);
 
-	completeFetch(node, kErrSuccess, _base + offset, _length - offset, _cacheMode);
+	completeFetch(node, Error::success, _base + offset, _length - offset, _cacheMode);
 	return true;
 }
 
@@ -566,7 +566,7 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 
 Error AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
-	return kErrSuccess;
+	return Error::success;
 }
 
 void AllocatedMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -610,7 +610,7 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	completeFetch(node, kErrSuccess,
+	completeFetch(node, Error::success,
 			_physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null);
 	return true;
 }
@@ -690,7 +690,7 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex);
 	if((offset + size) / kPageSize > numPages)
-		return kErrBufferTooSmall;
+		return Error::bufferTooSmall;
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		size_t index = (offset + pg) / kPageSize;
@@ -707,7 +707,7 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 		}
 		assert(pit->loadState != kStateEvicting);
 	}
-	return kErrSuccess;
+	return Error::success;
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
@@ -778,7 +778,7 @@ void ManagedSpace::_progressManagement() {
 		assert(count);
 
 		auto node = _managementQueue.pop_front();
-		node->setup(kErrSuccess, ManageRequest::writeback,
+		node->setup(Error::success, ManageRequest::writeback,
 				index << kPageShift, count << kPageShift);
 		node->complete();
 	}
@@ -803,7 +803,7 @@ void ManagedSpace::_progressManagement() {
 		assert(count);
 
 		auto node = _managementQueue.pop_front();
-		node->setup(kErrSuccess, ManageRequest::initialize,
+		node->setup(Error::success, ManageRequest::initialize,
 				index << kPageShift, count << kPageShift);
 		node->complete();
 	}
@@ -836,7 +836,7 @@ void ManagedSpace::_progressMonitors() {
 		assert(node->type == ManageRequest::initialize);
 		if(progressNode(node)) {
 			_monitorQueue.erase(it_copy);
-			node->setup(kErrSuccess);
+			node->setup(Error::success);
 			node->complete();
 		}
 	}
@@ -915,7 +915,7 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		pit->physical = physical;
 	}
 
-	completeFetch(node, kErrSuccess, pit->physical + misalign, kPageSize - misalign,
+	completeFetch(node, Error::success, pit->physical + misalign, kPageSize - misalign,
 			CachingMode::null);
 	return true;
 }
@@ -982,7 +982,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 
 	_managed->_progressMonitors();
 
-	return kErrSuccess;
+	return Error::success;
 }
 
 // --------------------------------------------------------
@@ -1040,7 +1040,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			globalReclaimer->addPage(&pit->cachePage);
 		}
 
-		completeFetch(node, kErrSuccess,
+		completeFetch(node, Error::success,
 				physical + misalign, kPageSize - misalign, CachingMode::null);
 		return true;
 	}else{
@@ -1052,7 +1052,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	if(node->flags() & FetchNode::disallowBacking) {
 		frigg::infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
 				<< frigg::endLog;
-		completeFetch(node, kErrFault);
+		completeFetch(node, Error::fault);
 		return true;
 	}
 
@@ -1077,7 +1077,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	struct Ops {
 		static void initiated(Worklet *worklet) {
 			auto closure = frg::container_of(worklet, &Closure::worklet);
-			assert(closure->initiate.error() == kErrSuccess);
+			assert(closure->initiate.error() == Error::success);
 
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&closure->bundle->mutex);
@@ -1090,7 +1090,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			lock.unlock();
 			irq_lock.unlock();
 
-			completeFetch(closure->fetch, kErrSuccess, physical + misalign, kPageSize - misalign,
+			completeFetch(closure->fetch, Error::success, physical + misalign, kPageSize - misalign,
 					CachingMode::null);
 			callbackFetch(closure->fetch);
 			frigg::destruct(*kernelAlloc, closure);
@@ -1187,11 +1187,11 @@ Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
 	if(slot >= indirections_.size())
-		return kErrFault;
+		return Error::fault;
 	if(!indirections_[slot])
-		return kErrFault;
+		return Error::fault;
 	if(inSlotOffset + size > indirections_[slot]->size)
-		return kErrFault;
+		return Error::fault;
 	return indirections_[slot]->memory->lockRange(indirections_[slot]->offset
 			+ inSlotOffset, size);
 }
@@ -1202,9 +1202,9 @@ void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return kErrFault.
-	assert(indirections_[slot]); // TODO: Return kErrFault.
-	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return kErrFault.
+	assert(slot < indirections_.size()); // TODO: Return Error::fault.
+	assert(indirections_[slot]); // TODO: Return Error::fault.
+	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
 	return indirections_[slot]->memory->unlockRange(indirections_[slot]->offset
 			+ inSlotOffset, size);
 }
@@ -1215,8 +1215,8 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return kErrFault.
-	assert(indirections_[slot]); // TODO: Return kErrFault.
+	assert(slot < indirections_.size()); // TODO: Return Error::fault.
+	assert(indirections_[slot]); // TODO: Return Error::fault.
 	return indirections_[slot]->memory->peekRange(indirections_[slot]->offset
 			+ inSlotOffset);
 }
@@ -1227,8 +1227,8 @@ bool IndirectMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return kErrFault.
-	assert(indirections_[slot]); // TODO: Return kErrFault.
+	assert(slot < indirections_.size()); // TODO: Return Error::fault.
+	assert(indirections_[slot]); // TODO: Return Error::fault.
 	return indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
 			+ inSlotOffset, node);
 }
@@ -1239,9 +1239,9 @@ void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return kErrFault.
-	assert(indirections_[slot]); // TODO: Return kErrFault.
-	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return kErrFault.
+	assert(slot < indirections_.size()); // TODO: Return Error::fault.
+	assert(indirections_[slot]); // TODO: Return Error::fault.
+	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
 	indirections_[slot]->memory->markDirty(indirections_[slot]->offset
 			+ inSlotOffset, size);
 }
@@ -1256,13 +1256,13 @@ Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> m
 	auto lock = frigg::guard(&mutex_);
 
 	if(slot >= indirections_.size())
-		return kErrOutOfBounds;
+		return Error::outOfBounds;
 	auto indirection = smarter::allocate_shared<IndirectionSlot>(*kernelAlloc,
 			this, slot, memory, offset, size);
 	// TODO: start a coroutine to observe evictions.
 	memory->addObserver(&indirection->observer);
 	indirections_[slot] = std::move(indirection);
-	return kErrSuccess;
+	return Error::success;
 }
 
 // --------------------------------------------------------
@@ -1355,7 +1355,7 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 			async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver)
 			-> coroutine<void> {
 		co_await self->_evictQueue.evictRange(0, self->_length);
-		receiver.set_value({kErrSuccess, std::move(forked)});
+		receiver.set_value({Error::success, std::move(forked)});
 	}(this, std::move(forked), receiver));
 }
 
@@ -1482,7 +1482,7 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			progress += kPageSize;
 		}
 
-		receiver.set_value(kErrSuccess);
+		receiver.set_value(Error::success);
 	}(this, offset, size, receiver));
 }
 
@@ -1531,7 +1531,7 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				if(cowIt->state == CowState::hasCopy) {
 					assert(cowIt->physical != PhysicalAddr(-1));
 
-					completeFetch(node, kErrSuccess, cowIt->physical, kPageSize, CachingMode::null);
+					completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
 					callbackFetch(node);
 					co_return;
 				}else{
@@ -1565,7 +1565,7 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				co_await wq->schedule();
 			} while(stillWaiting);
 
-			completeFetch(node, kErrSuccess, cowIt->physical, kPageSize, CachingMode::null);
+			completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
 			callbackFetch(node);
 			co_return;
 		}
@@ -1611,7 +1611,7 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			cowIt->physical = physical;
 		}
 		self->_copyEvent.raise();
-		completeFetch(node, kErrSuccess, cowIt->physical, kPageSize, CachingMode::null);
+		completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
 		callbackFetch(node);
 	}(this, offset, node));
 	return false;

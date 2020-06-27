@@ -24,21 +24,21 @@ struct SendRecvBuffer { };
 struct PushPull { };
 
 static void transfer(OfferAccept, StreamNode *offer, StreamNode *accept) {
-	offer->_error = kErrSuccess;
+	offer->_error = Error::success;
 	offer->complete();
 
 	// TODO: move universe and lane?
-	accept->_error = kErrSuccess;
+	accept->_error = Error::success;
 	accept->complete();
 }
 
 static void transfer(ImbueExtract, StreamNode *from, StreamNode *to) {
 	auto credentials = from->_inCredentials;
 
-	from->_error = kErrSuccess;
+	from->_error = Error::success;
 	from->complete();
 
-	to->_error = kErrSuccess;
+	to->_error = Error::success;
 	to->_transmitCredentials = credentials;
 	to->complete();
 }
@@ -47,17 +47,17 @@ static void transfer(SendRecvInline, StreamNode *from, StreamNode *to) {
 	auto buffer = std::move(from->_inBuffer);
 
 	if(buffer.size() <= to->_maxLength) {
-		from->_error = kErrSuccess;
+		from->_error = Error::success;
 		from->complete();
 
-		to->_error = kErrSuccess;
+		to->_error = Error::success;
 		to->_transmitBuffer = std::move(buffer);
 		to->complete();
 	}else{
-		from->_error = kErrBufferTooSmall;
+		from->_error = Error::bufferTooSmall;
 		from->complete();
 
-		to->_error = kErrBufferTooSmall;
+		to->_error = Error::bufferTooSmall;
 		to->complete();
 	}
 }
@@ -67,26 +67,26 @@ static void transfer(SendRecvBuffer, StreamNode *from, StreamNode *to) {
 
 	if(buffer.size() <= to->_inAccessor.length()) {
 		auto error = to->_inAccessor.write(0, buffer.data(), buffer.size());
-		if(error) {
-			from->_error = kErrSuccess;
+		if(error != Error::success) {
+			from->_error = Error::success;
 			from->complete();
 
 			to->_error = error;
 			to->_actualLength = 0;
 			to->complete();
 		}else{
-			from->_error = kErrSuccess;
+			from->_error = Error::success;
 			from->complete();
 
-			to->_error = kErrSuccess;
+			to->_error = Error::success;
 			to->_actualLength = buffer.size();
 			to->complete();
 		}
 	}else{
-		from->_error = kErrBufferTooSmall;
+		from->_error = Error::bufferTooSmall;
 		from->complete();
 
-		to->_error = kErrBufferTooSmall;
+		to->_error = Error::bufferTooSmall;
 		to->complete();
 	}
 }
@@ -94,10 +94,10 @@ static void transfer(SendRecvBuffer, StreamNode *from, StreamNode *to) {
 static void transfer(PushPull, StreamNode *push, StreamNode *pull) {
 	auto descriptor = std::move(push->_inDescriptor);
 
-	push->_error = kErrSuccess;
+	push->_error = Error::success;
 	push->complete();
 
-	pull->_error = kErrSuccess;
+	pull->_error = Error::success;
 	pull->_descriptor = std::move(descriptor);
 	pull->complete();
 }
@@ -130,11 +130,11 @@ void Stream::Submitter::run() {
 
 			if(s->_laneShutDown[p]) {
 				assert(s->_processQueue[q].empty());
-				s->_cancelItem(u, kErrLaneShutdown);
+				s->_cancelItem(u, Error::laneShutdown);
 				continue;
 			}else if(s->_laneBroken[q] || s->_laneShutDown[q]) {
 				assert(s->_processQueue[q].empty());
-				s->_cancelItem(u, kErrEndOfLane);
+				s->_cancelItem(u, Error::endOfLane);
 				continue;
 			}
 
@@ -178,10 +178,10 @@ void Stream::Submitter::run() {
 				&& PullDescriptorBase::classOf(*v)) {
 			transfer(PushPull{}, u, v);
 		}else{
-			u->_error = kErrTransmissionMismatch;
+			u->_error = Error::transmissionMismatch;
 			u->complete();
 
-			v->_error = kErrTransmissionMismatch;
+			v->_error = Error::transmissionMismatch;
 			v->complete();
 		}
 	}
@@ -210,7 +210,7 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 
 		while(!stream->_processQueue[!lane].empty()) {
 			auto item = stream->_processQueue[!lane].pop_front();
-			_cancelItem(item, kErrEndOfLane);
+			_cancelItem(item, Error::endOfLane);
 		}
 	}
 	return true;
@@ -237,12 +237,12 @@ void Stream::shutdownLane(int lane) {
 
 	while(!_processQueue[lane].empty()) {
 		auto item = _processQueue[lane].pop_front();
-		_cancelItem(item, kErrLaneShutdown);
+		_cancelItem(item, Error::laneShutdown);
 	}
 
 	while(!_processQueue[!lane].empty()) {
 		auto item = _processQueue[!lane].pop_front();
-		_cancelItem(item, kErrEndOfLane);
+		_cancelItem(item, Error::endOfLane);
 	}
 }
 

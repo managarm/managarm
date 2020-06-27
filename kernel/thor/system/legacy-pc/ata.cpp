@@ -26,17 +26,17 @@ namespace {
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError)
+			if(respError != Error::success)
 				co_return respError;
-			co_return kErrSuccess;
+			co_return Error::success;
 		};
 
 		auto [acceptError, lane] = co_await AcceptSender{boundLane};
-		if(acceptError)
+		if(acceptError != Error::success)
 			co_return acceptError;
 
 		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-		if(reqError)
+		if(reqError != Error::success)
 			co_return reqError;
 		managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
@@ -68,7 +68,7 @@ namespace {
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError)
+			if(respError != Error::success)
 				co_return respError;
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
 			auto space = frigg::makeShared<IoSpace>(*kernelAlloc);
@@ -90,10 +90,10 @@ namespace {
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError)
+			if(respError != Error::success)
 				co_return respError;
 			auto ioError = co_await PushDescriptorSender{lane, IoDescriptor{space}};
-			if(ioError)
+			if(ioError != Error::success)
 				co_return ioError;
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_IRQ) {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -109,25 +109,25 @@ namespace {
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError)
+			if(respError != Error::success)
 				co_return respError;
 			auto irqError = co_await PushDescriptorSender{lane, IrqDescriptor{object}};
-			if(irqError)
+			if(irqError != Error::success)
 				co_return irqError;
 		}else{
 			co_return co_await respondWithError(std::move(lane),
 					managarm::hw::Errors::ILLEGAL_REQUEST);
 		}
 
-		co_return kErrSuccess;
+		co_return Error::success;
 	}
 
 	coroutine<void> handleBind(LaneHandle objectLane) {
 		auto [acceptError, lane] = co_await AcceptSender{objectLane};
-		assert(!acceptError && "Unexpected mbus transaction");
+		assert(acceptError == Error::success && "Unexpected mbus transaction");
 
 		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-		assert(!reqError && "Unexpected mbus transaction");
+		assert(reqError == Error::success && "Unexpected mbus transaction");
 		managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
 		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 		assert(req.req_type() == managarm::mbus::SvrReqType::BIND
@@ -142,20 +142,20 @@ namespace {
 		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		assert(!respError && "Unexpected mbus transaction");
+		assert(respError == Error::success && "Unexpected mbus transaction");
 		auto boundError = co_await PushDescriptorSender{lane, LaneDescriptor{stream.get<1>()}};
-		assert(!boundError && "Unexpected mbus transaction");
+		assert(boundError == Error::success && "Unexpected mbus transaction");
 
 		auto boundLane = stream.get<0>();
 		while(true) {
 			// Terminate the connection on protocol errors.
 			auto error = co_await handleRequest(boundLane);
-			if(error == kErrEndOfLane)
+			if(error == Error::endOfLane)
 				break;
 			if(isRemoteIpcError(error))
 				frigg::infoLogger() << "thor: Aborting legacy-pc.ata request"
 						" after remote violated the protocol" << frigg::endLog;
-			assert(!error);
+			assert(error == Error::success);
 		}
 	}
 }
@@ -176,18 +176,18 @@ coroutine<void> initializeAtaDevice() {
 	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto [offerError, lane] = co_await OfferSender{*mbusClient};
-	assert(!offerError && "Unexpected mbus transaction");
+	assert(offerError == Error::success && "Unexpected mbus transaction");
 	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
-	assert(!reqError && "Unexpected mbus transaction");
+	assert(reqError == Error::success && "Unexpected mbus transaction");
 
 	auto [respError, respBuffer] = co_await RecvBufferSender{lane};
-	assert(!respError && "Unexpected mbus transaction");
+	assert(respError == Error::success && "Unexpected mbus transaction");
 	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS && "Unexpected mbus transaction");
 
 	auto [objectError, objectDescriptor] = co_await PullDescriptorSender{lane};
-	assert(!objectError && "Unexpected mbus transaction");
+	assert(objectError == Error::success && "Unexpected mbus transaction");
 	assert(objectDescriptor.is<LaneDescriptor>() && "Unexpected mbus transaction");
 	auto objectLane = objectDescriptor.get<LaneDescriptor>().handle;
 

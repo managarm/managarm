@@ -78,13 +78,13 @@ size_t ipcSourceSize(size_t size) {
 // TODO: one translate function per error source?
 HelError translateError(Error error) {
 	switch(error) {
-	case kErrSuccess: return kHelErrNone;
-	case kErrThreadExited: return kHelErrThreadTerminated;
-	case kErrTransmissionMismatch: return kHelErrTransmissionMismatch;
-	case kErrLaneShutdown: return kHelErrLaneShutdown;
-	case kErrEndOfLane: return kHelErrEndOfLane;
-	case kErrBufferTooSmall: return kHelErrBufferTooSmall;
-	case kErrFault: return kHelErrFault;
+	case Error::success: return kHelErrNone;
+	case Error::threadExited: return kHelErrThreadTerminated;
+	case Error::transmissionMismatch: return kHelErrTransmissionMismatch;
+	case Error::laneShutdown: return kHelErrLaneShutdown;
+	case Error::endOfLane: return kHelErrEndOfLane;
+	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
+	case Error::fault: return kHelErrFault;
 	default:
 		assert(!"Unexpected error");
 		__builtin_unreachable();
@@ -559,11 +559,12 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 		memoryView = memoryWrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size); e) {
-		if(e == kErrIllegalObject) {
+	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size);
+			e != Error::success) {
+		if(e == Error::illegalObject) {
 			return kHelErrUnsupportedOperation;
 		}else{
-			assert(e == kErrOutOfBounds);
+			assert(e == Error::outOfBounds);
 			return kHelErrOutOfBounds;
 		}
 	}
@@ -642,9 +643,9 @@ HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
 	view->fork(Receiver{&closure});
 	Thread::blockCurrent(&closure.blocker);
 
-	if(closure.error == kErrIllegalObject)
+	if(closure.error == Error::illegalObject)
 		return kHelErrUnsupportedOperation;
-	assert(!closure.error);
+	assert(closure.error == Error::success);
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -831,10 +832,10 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 						map_flags, &actual_address);
 	}
 
-	if(error == kErrBufferTooSmall) {
+	if(error == Error::bufferTooSmall) {
 		return kHelErrBufferTooSmall;
 	}else{
-		assert(!error);
+		assert(error == Error::success);
 		*actual_pointer = (void *)actual_address;
 		return kHelErrNone;
 	}
@@ -1078,7 +1079,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		}
 		(void)limit;
 
-		Error error = kErrSuccess;
+		Error error = Error::success;
 		{
 			char temp[128];
 			size_t progress = 0;
@@ -1090,7 +1091,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 				co_await submitThread->mainWorkQueue()->schedule();
 
 				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
-					error = kErrFault;
+					error = Error::fault;
 					break;
 				}
 				progress += chunk;
@@ -1116,7 +1117,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		}
 		(void)limit;
 
-		Error error = kErrSuccess;
+		Error error = Error::success;
 		{
 			auto lockHandle = AddressSpaceLockHandle{std::move(space),
 					(void *)address, length};
@@ -1131,7 +1132,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 				auto chunk = frigg::min(length - progress, size_t{128});
 				lockHandle.load(progress, temp, chunk);
 				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
-					error = kErrFault;
+					error = Error::fault;
 					break;
 				}
 				progress += chunk;
@@ -1153,7 +1154,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		enableUserAccess();
 		auto error = space->load(address, length, buffer);
 		disableUserAccess();
-		assert(!error || error == kErrFault);
+		assert(error == Error::success || error == Error::fault);
 
 		HelSimpleResult helResult{translateError(error)};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
@@ -1223,7 +1224,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		}
 		(void)limit;
 
-		Error error = kErrSuccess;
+		Error error = Error::success;
 		{
 			char temp[128];
 			size_t progress = 0;
@@ -1235,7 +1236,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 
 				if(!readUserMemory(temp,
 						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
-					error = kErrFault;
+					error = Error::fault;
 					break;
 				}
 
@@ -1263,7 +1264,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		}
 		(void)limit;
 
-		Error error = kErrSuccess;
+		Error error = Error::success;
 		{
 			auto lockHandle = AddressSpaceLockHandle{std::move(space),
 					(void *)address, length};
@@ -1278,7 +1279,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 				auto chunk = frigg::min(length - progress, size_t{128});
 				if(!readUserMemory(temp,
 						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
-					error = kErrFault;
+					error = Error::fault;
 					break;
 				}
 				lockHandle.write(progress, temp, chunk);
@@ -1301,7 +1302,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		enableUserAccess();
 		auto error = space->store(address, length, buffer);
 		disableUserAccess();
-		assert(!error || error == kErrFault);
+		assert(error == Error::success || error == Error::fault);
 
 		HelSimpleResult helResult{translateError(error)};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
@@ -1460,10 +1461,10 @@ HelError helUpdateMemory(HelHandle handle, int type,
 		return kHelErrIllegalArgs;
 	}
 
-	if(error == kErrIllegalObject)
+	if(error == Error::illegalObject)
 		return kHelErrUnsupportedOperation;
 
-	assert(!error);
+	assert(error == Error::success);
 	return kHelErrNone;
 }
 
@@ -1810,10 +1811,10 @@ HelError helResume(HelHandle handle) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
 
-	if(auto e = Thread::resumeOther(thread); e) {
-		if(e == kErrThreadExited)
+	if(auto e = Thread::resumeOther(thread); e != Error::success) {
+		if(e == Error::threadExited)
 			return kHelErrThreadTerminated;
-		assert(e == kErrIllegalState);
+		assert(e == Error::illegalState);
 		return kHelErrIllegalState;
 	}
 
@@ -2021,7 +2022,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 				uintptr_t context)
 		: queue{std::move(the_queue)},
 				source{&result, sizeof(HelSimpleResult), nullptr},
-				result{translateError(kErrSuccess), 0} {
+				result{translateError(Error::success), 0} {
 			setupContext(context);
 			setupSource(&source);
 
@@ -2220,7 +2221,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				}else if(item->transmit.tag() == kTagAccept) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
 					HelHandle handle = kHelNullHandle;
-					if(!item->transmit.error()) {
+					if(item->transmit.error() == Error::success) {
 						auto universe = closure->weakUniverse.grab();
 						assert(universe);
 
@@ -2270,7 +2271,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				}else if(item->transmit.tag() == kTagPullDescriptor) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
 					HelHandle handle = kHelNullHandle;
-					if(!item->transmit.error()) {
+					if(item->transmit.error() == Error::success) {
 						auto universe = closure->weakUniverse.grab();
 						assert(universe);
 
@@ -2621,10 +2622,10 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 		error = IrqPin::kickSink(irq.get());
 	}
 
-	if(error == kErrIllegalArgs) {
+	if(error == Error::illegalArgs) {
 		return kHelErrIllegalArgs;
 	}else{
-		assert(!error);
+		assert(error == Error::success);
 		return kHelErrNone;
 	}
 }

@@ -1011,7 +1011,7 @@ Error getEntropyFromCpu(void *buffer, size_t size) {
 	auto p = reinterpret_cast<char *>(buffer);
 
 	if(!(frigg::arch_x86::cpuid(0x7)[1] & (uint32_t(1) << 18)))
-		return kErrNoHardwareSupport;
+		return Error::noHardwareSupport;
 
 	word_type word;
 	auto rdseed = [&] () -> bool {
@@ -1031,7 +1031,7 @@ Error getEntropyFromCpu(void *buffer, size_t size) {
 	size_t size_words = size & ~(sizeof(word_type) - 1);
 	while(n < size_words) {
 		if(!rdseed())
-			return kErrHardwareBroken;
+			return Error::hardwareBroken;
 		memcpy(p + n, &word, sizeof(word_type));
 		n += sizeof(word_type);
 	}
@@ -1040,11 +1040,11 @@ Error getEntropyFromCpu(void *buffer, size_t size) {
 	if(n < size) {
 		assert(size - n < sizeof(word_type));
 		if(!rdseed())
-			return kErrHardwareBroken;
+			return Error::hardwareBroken;
 		memcpy(p + n, &word, size - n);
 	}
 
-	return kErrSuccess;
+	return Error::success;
 }
 
 } // namespace thor

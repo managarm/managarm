@@ -1,26 +1,23 @@
-#ifndef THOR_GENERIC_ERROR_HPP
-#define THOR_GENERIC_ERROR_HPP
+#pragma once
 
 namespace thor {
 
-enum Error {
-	kErrSuccess,
-	kErrIllegalArgs,
-	kErrIllegalObject,
-	kErrIllegalState,
-	kErrOutOfBounds,
-	kErrCancelled,
-	kErrBufferTooSmall,
-	kErrThreadExited,
-	kErrTransmissionMismatch,
-	kErrLaneShutdown,
-	kErrEndOfLane,
-	kErrFault,
-	kErrNoMemory,
-	kErrNoHardwareSupport,
-	kErrHardwareBroken,
+enum class Error {
+	success,
+	illegalArgs,
+	illegalObject,
+	illegalState,
+	outOfBounds,
+	cancelled,
+	bufferTooSmall,
+	threadExited,
+	transmissionMismatch,
+	laneShutdown,
+	endOfLane,
+	fault,
+	noMemory,
+	noHardwareSupport,
+	hardwareBroken,
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_ERROR_HPP

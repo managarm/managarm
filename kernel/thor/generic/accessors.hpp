@@ -108,7 +108,7 @@ struct KernelAccessor {
 		// TODO: detect overflows here.
 		assert(offset + size <= _length);
 		memcpy((char *)_pointer + offset, source, size);
-		return kErrSuccess;
+		return Error::success;
 	}
 
 private:

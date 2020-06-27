@@ -153,7 +153,7 @@ void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
 		async::any_receiver<frg::expected<Error>> receiver) {
 	// This can be removed if we change the return type of asyncLockRange to frg::expected.
 	auto transformError = [] (Error e) -> frg::expected<Error> {
-		if(!e)
+		if(e == Error::success)
 			return {};
 		return e;
 	};
@@ -188,7 +188,7 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 			fetchFlags |= FetchNode::disallowBacking;
 
 		if(auto e = co_await self->view->asyncLockRange(
-				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize); e)
+				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize); e != Error::success)
 			assert(!"asyncLockRange() failed");
 
 		auto [error, range, rangeFlags] = co_await self->view->fetchRange(
@@ -396,7 +396,7 @@ Error VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address
 	assert(!(length % kPageSize));
 
 	if(offset + length > slice->length())
-		return kErrBufferTooSmall;
+		return Error::bufferTooSmall;
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto space_guard = frigg::guard(&_mutex);
@@ -491,7 +491,7 @@ Error VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice, VirtualAddr address
 	mapping.release(); // VirtualSpace owns one reference.
 
 	*actual_address = target;
-	return kErrSuccess;
+	return Error::success;
 }
 
 bool VirtualSpace::protect(VirtualAddr address, size_t length,
@@ -942,7 +942,7 @@ void AddressSpace::dispose(BindableHandle) {
 MemoryViewLockHandle::MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view,
 		uintptr_t offset, size_t size)
 : _view{std::move(view)}, _offset{offset}, _size{size} {
-	if(auto e = _view->lockRange(_offset, _size); e)
+	if(auto e = _view->lockRange(_offset, _size); e != Error::success)
 		return;
 	_active = true;
 }
@@ -1043,7 +1043,7 @@ Error AddressSpaceLockHandle::write(size_t offset, const void *pointer, size_t s
 		progress += chunk;
 	}
 
-	return kErrSuccess;
+	return Error::success;
 }
 
 PhysicalAddr AddressSpaceLockHandle::_resolvePhysical(VirtualAddr vaddr) {

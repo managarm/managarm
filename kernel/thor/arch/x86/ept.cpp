@@ -29,7 +29,7 @@ Error EptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int flags) {
 	if(!(pml4e[pml4eIdx] & (1 << EPT_READ))) {
 		auto pdpte_ptr = physicalAllocator->allocate(kPageSize);
 		if(reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1)) {
-			return kErrNoMemory;
+			return Error::noMemory;
 		}
 		size_t entry = ((pdpte_ptr >> 12) << EPT_PHYSADDR) | pageFlags;
 		pml4e[pml4eIdx] = entry;
@@ -46,7 +46,7 @@ Error EptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int flags) {
 	if(!(pdpte[pdpteIdx] & (1 << EPT_READ))) {
 		auto pdpte_ptr = physicalAllocator->allocate(kPageSize);
 		if(reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1)) {
-			return kErrNoMemory;
+			return Error::noMemory;
 		}
 		size_t entry = ((pdpte_ptr >> 12) << EPT_PHYSADDR) | pageFlags;
 		pdpte[pdpteIdx] = entry;
@@ -63,7 +63,7 @@ Error EptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int flags) {
 	if(!(pde[pdeIdx] & (1 << EPT_READ))) {
 		auto pt_ptr = physicalAllocator->allocate(kPageSize);
 		if(reinterpret_cast<PhysicalAddr>(pt_ptr) == static_cast<PhysicalAddr>(-1)) {
-			return kErrNoMemory;
+			return Error::noMemory;
 		}
 		size_t entry = ((pt_ptr >> 12) << EPT_PHYSADDR) | pageFlags;
 		pde[pdeIdx] = entry;
@@ -79,7 +79,7 @@ Error EptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int flags) {
 	size_t entry = (alloc << EPT_PHYSADDR) | pageFlags | (6 << EPT_MEMORY_TYPE) | (1 << EPT_IGNORE_PAT);
 	pte[pteIdx] = entry | flags;
 
-	return kErrSuccess;
+	return Error::success;
 }
 
 bool EptSpace::isMapped(VirtualAddr guestAddress) {
@@ -207,14 +207,14 @@ Error EptSpace::store(uintptr_t guestAddress, size_t size, const void* buffer) {
 
 		PhysicalAddr page = translate(write - misalign);
 		if(page == PhysicalAddr(-1)) {
-			return kErrFault;
+			return Error::fault;
 		}
 
 		PageAccessor accessor{page};
 		memcpy((char *)accessor.get() + misalign, (char *)buffer + progress, chunk);
 		progress += chunk;
 	}
-	return kErrSuccess;
+	return Error::success;
 }
 
 Error EptSpace::load(uintptr_t guestAddress, size_t size, void* buffer) {
@@ -228,14 +228,14 @@ Error EptSpace::load(uintptr_t guestAddress, size_t size, void* buffer) {
 
 		PhysicalAddr page = translate(write - misalign);
 		if(page == PhysicalAddr(-1)) {
-			return kErrFault;
+			return Error::fault;
 		}
 
 		PageAccessor accessor{page};
 		memcpy((char *)buffer + progress, (char *)accessor.get() + misalign, chunk);
 		progress += chunk;
 	}
-	return kErrSuccess;
+	return Error::success;
 }
 
 bool EptSpace::submitShootdown(ShootNode *node) {

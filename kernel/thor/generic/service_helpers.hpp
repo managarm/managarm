@@ -235,8 +235,8 @@ operator co_await(PullDescriptorSender s) {
 // Returns true if an IPC error is caused by the remote side not following the protocol.
 inline bool isRemoteIpcError(Error e) {
 	switch(e) {
-		case kErrBufferTooSmall:
-		case kErrTransmissionMismatch:
+		case Error::bufferTooSmall:
+		case Error::transmissionMismatch:
 			return true;
 		default:
 			return false;

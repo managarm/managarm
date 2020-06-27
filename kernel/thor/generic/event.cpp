@@ -18,7 +18,7 @@ void OneshotEvent::trigger() {
 
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
-		node->_error = kErrSuccess;
+		node->_error = Error::success;
 		node->_sequence = 2;
 		node->_bitset = 1;
 		WorkQueue::post(node->_awaited);
@@ -32,13 +32,13 @@ void OneshotEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
 	assert(sequence <= 1); // TODO: Return an error.
 
 	if(_triggered) {
-		node->_error = kErrSuccess;
+		node->_error = Error::success;
 		node->_sequence = 2;
 		node->_bitset = 1;
 		WorkQueue::post(node->_awaited);
 	}else{
 		if(!sequence) {
-			node->_error = kErrSuccess;
+			node->_error = Error::success;
 			node->_sequence = 1;
 			node->_bitset = 0;
 			WorkQueue::post(node->_awaited);
@@ -73,7 +73,7 @@ void BitsetEvent::trigger(uint32_t bits) {
 
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
-		node->_error = kErrSuccess;
+		node->_error = Error::success;
 		node->_sequence = _currentSequence;
 		node->_bitset = bits;
 		WorkQueue::post(node->_awaited);
@@ -92,7 +92,7 @@ void BitsetEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
 				bits |= 1 << i;
 		assert(!sequence || bits);
 
-		node->_error = kErrSuccess;
+		node->_error = Error::success;
 		node->_sequence = _currentSequence;
 		node->_bitset = bits;
 		WorkQueue::post(node->_awaited);

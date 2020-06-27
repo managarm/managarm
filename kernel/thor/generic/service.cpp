@@ -87,13 +87,13 @@ namespace stdio {
 
 	private:
 		void onExtractCreds(Error error, frigg::Array<char, 16>) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			serviceRecvInline(_lane, CALLBACK_MEMBER(this, &WriteClosure::onRecvData));
 		}
 
 		void onRecvData(Error error, frigg::UniqueMemory<KernelAlloc> data) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			{
 				auto p = frigg::infoLogger();
@@ -110,7 +110,7 @@ namespace stdio {
 		}
 
 		void onSendResp(Error error) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 			frigg::destruct(*kernelAlloc, this);
 		}
 
@@ -135,7 +135,7 @@ namespace stdio {
 
 	private:
 		void onSendResp(Error error) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 		}
 
 		LaneHandle _lane;
@@ -155,7 +155,7 @@ namespace stdio {
 
 	private:
 		void onAccept(Error error, LaneHandle handle) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			_requestLane = frigg::move(handle);
 			serviceRecv(_requestLane, _buffer, 128,
@@ -163,9 +163,9 @@ namespace stdio {
 		}
 
 		void onReceive(Error error, size_t length) {
-			if(error == kErrEndOfLane)
+			if(error == Error::endOfLane)
 				return;
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(_buffer, length);
@@ -194,7 +194,7 @@ namespace stdio {
 		}
 
 		void onSendResp(Error error) {
-			assert(error == kErrSuccess || error == kErrTransmissionMismatch);
+			assert(error == Error::success || error == Error::transmissionMismatch);
 			_requestLane = LaneHandle{};
 			(*this)();
 		}
@@ -239,7 +239,7 @@ namespace initrd {
 
 	private:
 		void onSend(Error error) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 		}
 
 		ModuleFile *_file;
@@ -260,7 +260,7 @@ namespace initrd {
 
 	private:
 		void onExtractCreds(Error error, frigg::Array<char, 16>) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			assert(_file->offset <= _file->module->size());
 			_payload.resize(frigg::min(size_t(_req.size()),
@@ -284,14 +284,14 @@ namespace initrd {
 		}
 
 		void onSendResp(Error error) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			serviceSend(_lane, _payload.data(), _payload.size(),
 					CALLBACK_MEMBER(this, &ReadClosure::onSendData));
 		}
 
 		void onSendData(Error error) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 		}
 
 		ModuleFile *_file;
@@ -319,14 +319,14 @@ namespace initrd {
 
 	private:
 		void onSendResp(Error error) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			submitPushDescriptor(_lane, MemoryViewDescriptor(_file->module->getMemory()),
 					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
 
 		void onSendHandle(Error error) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 		}
 
 		ModuleFile *_file;
@@ -347,7 +347,7 @@ namespace initrd {
 
 	private:
 		void onAccept(Error error, LaneHandle handle) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			_requestLane = frigg::move(handle);
 			serviceRecv(_requestLane, _buffer, 128,
@@ -355,9 +355,9 @@ namespace initrd {
 		}
 
 		void onReceive(Error error, size_t length) {
-			if(error == kErrEndOfLane)
+			if(error == Error::endOfLane)
 				return;
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(_buffer, length);
@@ -464,7 +464,7 @@ namespace initrd {
 					0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
 					&clientFileTable);
-			assert(!error);
+			assert(error == Error::success);
 		}
 
 		frg::string_view name() {
@@ -527,7 +527,7 @@ namespace initrd {
 
 	private:
 		void onAccept(Error error, LaneHandle handle) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			_requestLane = frigg::move(handle);
 			serviceRecv(_requestLane, _buffer, 128,
@@ -535,7 +535,7 @@ namespace initrd {
 		}
 
 		void onReceive(Error error, size_t length) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 
 			auto preamble = bragi::read_preamble(frg::span<uint8_t>{_buffer, length});
 			assert(!preamble.error());
@@ -570,7 +570,7 @@ namespace initrd {
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 					// TODO: improve error handling here.
-					assert(!respError);
+					assert(respError == Error::success);
 					co_return;
 				}(_process, std::move(_requestLane), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
@@ -600,7 +600,7 @@ namespace initrd {
 						memcpy(respBuffer.data(), ser.data(), ser.size());
 						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 						// TODO: improve error handling here.
-						assert(!respError);
+						assert(respError == Error::success);
 						co_return;
 					}
 
@@ -629,7 +629,7 @@ namespace initrd {
 						memcpy(respBuffer.data(), ser.data(), ser.size());
 						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 						// TODO: improve error handling here.
-						assert(!respError);
+						assert(respError == Error::success);
 						co_return;
 					}else{
 						assert(module->type == MfsType::regular);
@@ -655,7 +655,7 @@ namespace initrd {
 						memcpy(respBuffer.data(), ser.data(), ser.size());
 						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 						// TODO: improve error handling here.
-						assert(!respError);
+						assert(respError == Error::success);
 						co_return;
 					}
 				}(_process, std::move(_requestLane), std::move(*req)));
@@ -681,7 +681,7 @@ namespace initrd {
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 					// TODO: improve error handling here.
-					assert(!respError);
+					assert(respError == Error::success);
 					co_return;
 				}(_process, std::move(_requestLane), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::CloseRequest>) {
@@ -703,7 +703,7 @@ namespace initrd {
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 					// TODO: improve error handling here.
-					assert(!respError);
+					assert(respError == Error::success);
 					co_return;
 				}(_process, std::move(_requestLane), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
@@ -725,7 +725,7 @@ namespace initrd {
 						memcpy(respBuffer.data(), ser.data(), ser.size());
 						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 						// TODO: improve error handling here.
-						assert(!respError);
+						assert(respError == Error::success);
 						co_return;
 					}
 
@@ -769,7 +769,7 @@ namespace initrd {
 							AddressSpace::kMapFixed | protFlags,
 							&address);
 					// TODO: improve error handling here.
-					assert(!error);
+					assert(error == Error::success);
 
 					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -781,7 +781,7 @@ namespace initrd {
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 					// TODO: improve error handling here.
-					assert(!respError);
+					assert(respError == Error::success);
 				}(_process, std::move(_requestLane), std::move(*req)));
 			}else{
 				frigg::panicLogger() << "Illegal POSIX request type "
@@ -810,7 +810,7 @@ namespace initrd {
 
 	private:
 		void onObserve(Error error, uint64_t sequence, Interrupt interrupt) {
-			assert(error == kErrSuccess);
+			assert(error == Error::success);
 			_observedSeq = sequence;
 
 			if(interrupt == kIntrPanic) {
@@ -842,11 +842,11 @@ namespace initrd {
 						| AddressSpace::kMapProtWrite,
 						&address);
 				// TODO: improve error handling here.
-				assert(!error);
+				assert(error == Error::success);
 
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = address;
-				if(auto e = Thread::resumeOther(_thread); e)
+				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 				(*this)();
 			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
@@ -858,7 +858,7 @@ namespace initrd {
 
 					self->_thread->_executor.general()->rdi = kHelErrNone;
 					self->_thread->_executor.general()->rsi = 0;
-					if(auto e = Thread::resumeOther(self->_thread); e)
+					if(auto e = Thread::resumeOther(self->_thread); e != Error::success)
 						frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 					(*self)();
 				}(this));
@@ -887,7 +887,7 @@ namespace initrd {
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = 0;
-				if(auto e = Thread::resumeOther(_thread); e)
+				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 
 				(*this)();
@@ -911,7 +911,7 @@ namespace initrd {
 			self->_spaceLock = {};
 
 			self->_thread->_executor.general()->rdi = kHelErrNone;
-			if(auto e = Thread::resumeOther(self->_thread); e)
+			if(auto e = Thread::resumeOther(self->_thread); e != Error::success)
 				frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 
 			(*self)();
@@ -928,7 +928,7 @@ namespace initrd {
 			self->_spaceLock = {};
 
 			self->_thread->_executor.general()->rdi = kHelErrNone;
-			if(auto e = Thread::resumeOther(self->_thread); e)
+			if(auto e = Thread::resumeOther(self->_thread); e != Error::success)
 				frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 
 			(*self)();

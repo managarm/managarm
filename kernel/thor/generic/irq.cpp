@@ -58,9 +58,9 @@ Error IrqPin::ackSink(IrqSink *sink, uint64_t sequence) {
 	assert(sink->currentSequence() == pin->_sinkSequence);
 
 	if(sequence <= sink->_responseSequence)
-		return kErrIllegalArgs;
+		return Error::illegalArgs;
 	if(sequence > sink->currentSequence())
-		return kErrIllegalArgs;
+		return Error::illegalArgs;
 
 	if(sequence == sink->currentSequence()) {
 		// Because _responseSequence is lagging behind, the IRQ status must be null here.
@@ -81,7 +81,7 @@ Error IrqPin::ackSink(IrqSink *sink, uint64_t sequence) {
 	// Now, the IrqPin is needs to be unmask()ed again, even though the ACK sequence
 	// does not necessarily match the currentSequence().
 	pin->_acknowledge();
-	return kErrSuccess;
+	return Error::success;
 }
 
 Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
@@ -93,9 +93,9 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 	assert(sink->currentSequence() == pin->_sinkSequence);
 	
 	if(sequence <= sink->_responseSequence)
-		return kErrIllegalArgs;
+		return Error::illegalArgs;
 	if(sequence > sink->currentSequence())
-		return kErrIllegalArgs;
+		return Error::illegalArgs;
 		
 	if(sequence == sink->currentSequence()) {
 		// Because _responseSequence is lagging behind, the IRQ status must be null here.
@@ -105,7 +105,7 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 	}
 	sink->_responseSequence = sequence;
 
-	return kErrSuccess;
+	return Error::success;
 }
 
 Error IrqPin::kickSink(IrqSink *sink) {
@@ -116,7 +116,7 @@ Error IrqPin::kickSink(IrqSink *sink) {
 	auto lock = frigg::guard(&pin->_mutex);
 	
 	pin->_kick();
-	return kErrSuccess;
+	return Error::success;
 }
 
 // --------------------------------------------------------
@@ -309,7 +309,7 @@ void IrqObject::automate(frigg::SharedPtr<BoundKernlet> kernlet) {
 IrqStatus IrqObject::raise() {
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
-		node->_error = kErrSuccess;
+		node->_error = Error::success;
 		node->_sequence = currentSequence();
 		WorkQueue::post(node->_awaited);
 	}
@@ -334,7 +334,7 @@ void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 
 	assert(sequence <= currentSequence());
 	if(sequence < currentSequence()) {
-		node->_error = kErrSuccess;
+		node->_error = Error::success;
 		node->_sequence = currentSequence();
 		WorkQueue::post(node->_awaited);
 	}else{

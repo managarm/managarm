@@ -91,12 +91,12 @@ void IpcQueue::_progress() {
 			element.length = length;
 			element.context = reinterpret_cast<void *>(node->_context);
 			auto err = self->_elementLock.write(0, &element, sizeof(ElementStruct));
-			assert(!err);
+			assert(err == Error::success);
 
 			size_t disp = sizeof(ElementStruct);
 			for(auto source = node->_source; source; source = source->link) {
 				err = self->_elementLock.write(disp, source->pointer, source->size);
-				assert(!err);
+				assert(err == Error::success);
 				disp += (source->size + 7) & ~size_t(7);
 			}
 

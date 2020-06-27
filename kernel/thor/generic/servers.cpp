@@ -206,14 +206,14 @@ ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> spac
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtWrite,
 						&actual_address);
-				assert(!error);
+				assert(error == Error::success);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				auto error = space->map(frigg::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtExecute,
 						&actual_address);
-				assert(!error);
+				assert(error == Error::success);
 			}else{
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;
@@ -273,7 +273,7 @@ void executeModule(frg::string_view name, MfsRegular *module,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
 				| AddressSpace::kMapProtWrite,
 			&stack_base);
-	assert(!error);
+	assert(error == Error::success);
 
 	// build the stack data area (containing program arguments,
 	// environment strings and related data).
@@ -428,11 +428,11 @@ namespace {
 
 coroutine<Error> handleReq(LaneHandle boundLane) {
 	auto [acceptError, lane] = co_await AcceptSender{boundLane};
-	if(acceptError)
+	if(acceptError != Error::success)
 		co_return acceptError;
 
 	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-	if(reqError)
+	if(reqError != Error::success)
 		co_return reqError;
 	managarm::svrctl::CntRequest<KernelAlloc> req(*kernelAlloc);
 	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
@@ -449,7 +449,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError)
+			if(respError != Error::success)
 				co_return respError;
 		}else{
 			// Ask user space for the file data.
@@ -461,12 +461,12 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError)
+			if(respError != Error::success)
 				co_return respError;
 		}
 	}else if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD_DATA) {
 		auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
-		if(dataError)
+		if(dataError != Error::success)
 			co_return dataError;
 		MfsRegular *file;
 		if(!createMfsFile(req.name(), dataBuffer.data(), dataBuffer.size(), &file)) {
@@ -482,9 +482,9 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-				if(respError)
+				if(respError != Error::success)
 					co_return respError;
-				co_return kErrSuccess;
+				co_return Error::success;
 			}
 		}
 
@@ -496,7 +496,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError)
+		if(respError != Error::success)
 			co_return respError;
 	}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
 		auto control_lane = runServer(req.name());
@@ -509,10 +509,10 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError)
+		if(respError != Error::success)
 			co_return respError;
 		auto controlError = co_await PushDescriptorSender{lane, LaneDescriptor{control_lane}};
-		if(controlError)
+		if(controlError != Error::success)
 			co_return controlError;
 	}else{
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -523,11 +523,11 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError)
+		if(respError != Error::success)
 			co_return respError;
 	}
 
-	co_return kErrSuccess;
+	co_return Error::success;
 }
 
 } // anonymous namespace
@@ -542,7 +542,7 @@ coroutine<void> handleBind(LaneHandle objectLane);
 
 coroutine<void> createObject(LaneHandle mbusLane) {
 	auto [offerError, lane] = co_await OfferSender{mbusLane};
-	assert(!offerError && "Unexpected mbus transaction");
+	assert(offerError == Error::success && "Unexpected mbus transaction");
 
 	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
 	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
@@ -559,16 +559,16 @@ coroutine<void> createObject(LaneHandle mbusLane) {
 	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
-	assert(!reqError && "Unexpected mbus transaction");
+	assert(reqError == Error::success && "Unexpected mbus transaction");
 
 	auto [respError, respBuffer] = co_await RecvBufferSender{lane};
-	assert(!respError && "Unexpected mbus transaction");
+	assert(respError == Error::success && "Unexpected mbus transaction");
 	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
 	auto [objectError, objectDescriptor] = co_await PullDescriptorSender{lane};
-	assert(!objectError && "Unexpected mbus transaction");
+	assert(objectError == Error::success && "Unexpected mbus transaction");
 	assert(objectDescriptor.is<LaneDescriptor>());
 	auto objectLane = objectDescriptor.get<LaneDescriptor>().handle;
 	while(true)
@@ -577,10 +577,10 @@ coroutine<void> createObject(LaneHandle mbusLane) {
 
 coroutine<void> handleBind(LaneHandle objectLane) {
 	auto [acceptError, lane] = co_await AcceptSender{objectLane};
-	assert(!acceptError && "Unexpected mbus transaction");
+	assert(acceptError == Error::success && "Unexpected mbus transaction");
 
 	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-	assert(!reqError && "Unexpected mbus transaction");
+	assert(reqError == Error::success && "Unexpected mbus transaction");
 	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
 	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
@@ -593,22 +593,22 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 	memcpy(respBuffer.data(), ser.data(), ser.size());
 	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-	assert(!respError && "Unexpected mbus transaction");
+	assert(respError == Error::success && "Unexpected mbus transaction");
 
 	auto stream = createStream();
 	auto boundError = co_await PushDescriptorSender{lane, LaneDescriptor{stream.get<1>()}};
-	assert(!boundError && "Unexpected mbus transaction");
+	assert(boundError == Error::success && "Unexpected mbus transaction");
 	auto boundLane = stream.get<0>();
 
 	async::detach_with_allocator(*kernelAlloc, ([] (LaneHandle boundLane) -> coroutine<void> {
 		while(true) {
 			auto error = co_await handleReq(boundLane);
-			if(error == kErrEndOfLane)
+			if(error == Error::endOfLane)
 				break;
 			if(isRemoteIpcError(error))
 				frigg::infoLogger() << "thor: Aborting svrctl request"
 						" after remote violated the protocol" << frigg::endLog;
-			assert(!error);
+			assert(error == Error::success);
 		}
 	})(boundLane));
 }
