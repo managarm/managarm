@@ -467,6 +467,8 @@ namespace initrd {
 			assert(error == Error::success);
 		}
 
+		coroutine<void> runPosixRequests(LaneHandle lane);
+
 		frg::string_view name() {
 			return _name;
 		}
@@ -516,47 +518,39 @@ namespace initrd {
 		VirtualAddr clientFileTable;
 	};
 
-	struct ServerRequestClosure {
-		ServerRequestClosure(Process *process, LaneHandle lane)
-		: _process(process), _lane(frigg::move(lane)) { }
+	coroutine<void> Process::runPosixRequests(LaneHandle lane) {
+		while(true) {
+			auto [acceptError, conversation] = co_await AcceptSender{lane};
+			if(acceptError != Error::success) {
+				frigg::infoLogger() << "thor: Could not accept POSIX lane" << frigg::endLog;
+				co_return;
+			}
+			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+			if(reqError != Error::success) {
+				frigg::infoLogger() << "thor: Could not receive POSIX request" << frigg::endLog;
+				co_return;
+			}
 
-		void operator() () {
-			serviceAccept(_lane,
-					CALLBACK_MEMBER(this, &ServerRequestClosure::onAccept));
-		}
-
-	private:
-		void onAccept(Error error, LaneHandle handle) {
-			assert(error == Error::success);
-
-			_requestLane = frigg::move(handle);
-			serviceRecv(_requestLane, _buffer, 128,
-					CALLBACK_MEMBER(this, &ServerRequestClosure::onReceive));
-		}
-
-		void onReceive(Error error, size_t length) {
-			assert(error == Error::success);
-
-			auto preamble = bragi::read_preamble(frg::span<uint8_t>{_buffer, length});
+			auto preamble = bragi::read_preamble(reqBuffer);
 			assert(!preamble.error());
 
 			managarm::posix::CntRequest<KernelAlloc> req{*kernelAlloc};
 			if (preamble.id() == managarm::posix::CntRequest<KernelAlloc>::message_id) {
 				auto o = bragi::parse_head_only<managarm::posix::CntRequest>(
-						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+						reqBuffer, *kernelAlloc);
 				if(!o) {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
-					return;
+					co_return;
 				}
 				req = *o;
 			}
 
 			if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(
-						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+						reqBuffer, *kernelAlloc);
 				if(!req) {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
-					return;
+					co_return;
 				}
 				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
 						posix::GetTidRequest<KernelAlloc> req) -> coroutine<void> {
@@ -572,20 +566,20 @@ namespace initrd {
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 					co_return;
-				}(_process, std::move(_requestLane), std::move(*req)));
+				}(this, std::move(conversation), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
 				// TODO: this is a hack until this entire function becomes a coroutine.
-				auto recvTail = fiberRecv(_requestLane);
+				auto recvTail = fiberRecv(conversation);
 
 				auto req = bragi::parse_head_tail<managarm::posix::OpenAtRequest>(
-						frg::span<uint8_t>{_buffer, length}, recvTail, *kernelAlloc);
+						reqBuffer, recvTail, *kernelAlloc);
 				if(!req) {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
-					return;
+					co_return;
 				}
 				if(req->fd() != -100) {
 					frigg::infoLogger() << "thor: OpenAt does not support dirfds" << frigg::endLog;
-					return;
+					co_return;
 				}
 				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
 						posix::OpenAtRequest<KernelAlloc> req) -> coroutine<void> {
@@ -658,13 +652,13 @@ namespace initrd {
 						assert(respError == Error::success);
 						co_return;
 					}
-				}(_process, std::move(_requestLane), std::move(*req)));
+				}(this, std::move(conversation), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(
-						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+						reqBuffer, *kernelAlloc);
 				if(!req) {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
-					return;
+					co_return;
 				}
 				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
 						posix::IsTtyRequest<KernelAlloc> req) -> coroutine<void> {
@@ -683,13 +677,13 @@ namespace initrd {
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 					co_return;
-				}(_process, std::move(_requestLane), std::move(*req)));
+				}(this, std::move(conversation), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::CloseRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::CloseRequest>(
-						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+						reqBuffer, *kernelAlloc);
 				if(!req) {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
-					return;
+					co_return;
 				}
 				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
 						posix::CloseRequest<KernelAlloc> req) -> coroutine<void> {
@@ -705,13 +699,13 @@ namespace initrd {
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 					co_return;
-				}(_process, std::move(_requestLane), std::move(*req)));
+				}(this, std::move(conversation), std::move(*req)));
 			}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::VmMapRequest>(
-						frg::span<uint8_t>{_buffer, length}, *kernelAlloc);
+						reqBuffer, *kernelAlloc);
 				if(!req) {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
-					return;
+					co_return;
 				}
 				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
 						posix::VmMapRequest<KernelAlloc> req) -> coroutine<void> {
@@ -782,21 +776,13 @@ namespace initrd {
 					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
-				}(_process, std::move(_requestLane), std::move(*req)));
+				}(this, std::move(conversation), std::move(*req)));
 			}else{
 				frigg::panicLogger() << "Illegal POSIX request type "
 						<< req.request_type() << frigg::endLog;
 			}
-
-			(*this)();
 		}
-
-		Process *_process;
-		LaneHandle _lane;
-
-		LaneHandle _requestLane;
-		uint8_t _buffer[128];
-	};
+	}
 
 	struct ObserveClosure {
 		ObserveClosure(Process *process, frigg::SharedPtr<Thread> thread)
@@ -965,9 +951,8 @@ void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
 				process, thread);
 		(*observe_closure)();
 
-		auto posix_closure = frigg::construct<initrd::ServerRequestClosure>(*kernelAlloc,
-				process, thread->superiorLane());
-		(*posix_closure)();
+		async::detach_with_allocator(*kernelAlloc,
+				process->runPosixRequests(thread->superiorLane()));
 
 		// Just block this fiber forever (we're still processing worklets).
 		FiberBlocker blocker;
