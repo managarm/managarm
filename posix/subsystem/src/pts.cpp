@@ -500,6 +500,9 @@ SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
 		std::cout << "posix: Write to tty " << structName() << std::endl;
 
+	if(!length)
+		co_return {};
+
 	// Perform output processing.
 	std::stringstream ss;
 	for(size_t i = 0; i < length; i++) {

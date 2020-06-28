@@ -2175,6 +2175,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			} else {
 				auto owner = target_link->getOwner();
+				if(!owner) {
+					co_await sendErrorResponse(managarm::posix::Errors::RESOURCE_IN_USE);
+					continue;
+				}
 				auto result = co_await owner->unlink(target_link->getName());
 				if(!result) {
 					std::cout << "posix: Unexpected failure from unlink()" << std::endl;
@@ -2639,8 +2643,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
-			assert(epfile && "Illegal FD for EPOLL_DELETE");
-			assert(file && "Illegal FD for EPOLL_DELETE item");
+			if(!epfile || !file) {
+				std::cout << "posix: Illegal FD for EPOLL_DELETE" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				continue;
+			}
 
 			epoll::deleteItem(epfile.get(), file.get(), req.flags());
 
