@@ -13,7 +13,8 @@ enum Errors {
 	BAD_FD = 8,
 	WOULD_BLOCK = 10,
 	BROKEN_PIPE = 11,
-	NOT_SUPPORTED = 12
+	NOT_SUPPORTED = 12,
+	RESOURCE_IN_USE = 13
 }
 
 consts CntReqType uint32 {
