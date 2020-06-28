@@ -110,8 +110,7 @@ void Scheduler::suspendCurrent() {
 }
 
 Scheduler::Scheduler(CpuData *cpu_context)
-: _cpuContext{cpu_context}, _current{nullptr},
-		_numWaiting{0}, _refClock{0}, _systemProgress{0} { }
+: _cpuContext{cpu_context} { }
 
 Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::active);

@@ -112,8 +112,8 @@ private:
 
 	CpuData *_cpuContext;
 
-	ScheduleEntity *_current;
-	ScheduleEntity *_scheduled;
+	ScheduleEntity *_current = nullptr;
+	ScheduleEntity *_scheduled = nullptr;
 
 	frg::pairing_heap<
 		ScheduleEntity,
@@ -125,20 +125,20 @@ private:
 		ScheduleGreater
 	> _waitQueue;
 
-	size_t _numWaiting;
+	size_t _numWaiting = 0;
 
 	bool _needPreemptionUpdate = false;
 
 	// The last tick at which the scheduler's state (i.e. progress) was updated.
 	// In our model this is the time point at which slice T started.
-	uint64_t _refClock;
+	uint64_t _refClock = 0;
 
 	// Start of the current timeslice.
 	uint64_t _sliceClock;
 
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
-	Progress _systemProgress;
+	Progress _systemProgress = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Management of pending entities.
