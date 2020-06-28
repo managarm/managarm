@@ -534,17 +534,6 @@ namespace initrd {
 			auto preamble = bragi::read_preamble(reqBuffer);
 			assert(!preamble.error());
 
-			managarm::posix::CntRequest<KernelAlloc> req{*kernelAlloc};
-			if (preamble.id() == managarm::posix::CntRequest<KernelAlloc>::message_id) {
-				auto o = bragi::parse_head_only<managarm::posix::CntRequest>(
-						reqBuffer, *kernelAlloc);
-				if(!o) {
-					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
-					co_return;
-				}
-				req = *o;
-			}
-
 			if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(
 						reqBuffer, *kernelAlloc);
@@ -552,27 +541,27 @@ namespace initrd {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
 					co_return;
 				}
-				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
-						posix::GetTidRequest<KernelAlloc> req) -> coroutine<void> {
-					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-					resp.set_error(managarm::posix::Errors::SUCCESS);
-					resp.set_pid(1);
 
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-					// TODO: improve error handling here.
-					assert(respError == Error::success);
-					co_return;
-				}(this, std::move(conversation), std::move(*req)));
+				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(1);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
-				// TODO: this is a hack until this entire function becomes a coroutine.
-				auto recvTail = fiberRecv(conversation);
+				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
+				if(tailError != Error::success) {
+					frigg::infoLogger() << "thor: Could not receive POSIX tail" << frigg::endLog;
+					co_return;
+				}
 
 				auto req = bragi::parse_head_tail<managarm::posix::OpenAtRequest>(
-						reqBuffer, recvTail, *kernelAlloc);
+						reqBuffer, tailBuffer, *kernelAlloc);
 				if(!req) {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
 					co_return;
@@ -581,78 +570,74 @@ namespace initrd {
 					frigg::infoLogger() << "thor: OpenAt does not support dirfds" << frigg::endLog;
 					co_return;
 				}
-				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
-						posix::OpenAtRequest<KernelAlloc> req) -> coroutine<void> {
-					auto module = resolveModule(req.path());
-					if(!module) {
-						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-						resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
-						frg::string<KernelAlloc> ser(*kernelAlloc);
-						resp.SerializeToString(&ser);
-						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-						// TODO: improve error handling here.
-						assert(respError == Error::success);
-						co_return;
-					}
+				auto module = resolveModule(req->path());
+				if(!module) {
+					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
-					if(module->type == MfsType::directory) {
-						auto stream = createStream();
-						auto file = frigg::construct<OpenDirectory>(*kernelAlloc,
-								static_cast<MfsDirectory *>(module));
-						file->clientLane = frigg::move(stream.get<1>());
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+					continue;
+				}
 
-						KernelFiber::run([lane = stream.get<0>(), file] () {
-							while(true) {
-								if(!handleDirectoryReq(lane, file))
-									break;
-							}
-						});
+				if(module->type == MfsType::directory) {
+					auto stream = createStream();
+					auto file = frigg::construct<OpenDirectory>(*kernelAlloc,
+							static_cast<MfsDirectory *>(module));
+					file->clientLane = frigg::move(stream.get<1>());
 
-						auto fd = process->attachFile(file);
+					KernelFiber::run([lane = stream.get<0>(), file] () {
+						while(true) {
+							if(!handleDirectoryReq(lane, file))
+								break;
+						}
+					});
 
-						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-						resp.set_error(managarm::posix::Errors::SUCCESS);
-						resp.set_fd(fd);
+					auto fd = attachFile(file);
 
-						frg::string<KernelAlloc> ser(*kernelAlloc);
-						resp.SerializeToString(&ser);
-						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-						// TODO: improve error handling here.
-						assert(respError == Error::success);
-						co_return;
-					}else{
-						assert(module->type == MfsType::regular);
+					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_fd(fd);
 
-						auto stream = createStream();
-						auto file = frigg::construct<ModuleFile>(*kernelAlloc,
-								static_cast<MfsRegular *>(module));
-						file->clientLane = frigg::move(stream.get<1>());
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+				}else{
+					assert(module->type == MfsType::regular);
 
-						auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
-								frigg::move(stream.get<0>()), file);
-						(*closure)();
+					auto stream = createStream();
+					auto file = frigg::construct<ModuleFile>(*kernelAlloc,
+							static_cast<MfsRegular *>(module));
+					file->clientLane = frigg::move(stream.get<1>());
 
-						auto fd = process->attachFile(file);
+					auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
+							frigg::move(stream.get<0>()), file);
+					(*closure)();
 
-						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-						resp.set_error(managarm::posix::Errors::SUCCESS);
-						resp.set_fd(fd);
+					auto fd = attachFile(file);
 
-						frg::string<KernelAlloc> ser(*kernelAlloc);
-						resp.SerializeToString(&ser);
-						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-						// TODO: improve error handling here.
-						assert(respError == Error::success);
-						co_return;
-					}
-				}(this, std::move(conversation), std::move(*req)));
+					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_fd(fd);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+				}
 			}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(
 						reqBuffer, *kernelAlloc);
@@ -660,24 +645,21 @@ namespace initrd {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
 					co_return;
 				}
-				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
-						posix::IsTtyRequest<KernelAlloc> req) -> coroutine<void> {
-					assert((size_t)req.fd() < process->openFiles.size());
-					auto file = process->openFiles[req.fd()];
 
-					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-					resp.set_error(managarm::posix::Errors::SUCCESS);
-					resp.set_mode(file->isTerminal ? 1 : 0);
+				assert((size_t)req->fd() < openFiles.size());
+				auto file = openFiles[req->fd()];
 
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-					// TODO: improve error handling here.
-					assert(respError == Error::success);
-					co_return;
-				}(this, std::move(conversation), std::move(*req)));
+				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_mode(file->isTerminal ? 1 : 0);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::CloseRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::CloseRequest>(
 						reqBuffer, *kernelAlloc);
@@ -685,21 +667,18 @@ namespace initrd {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
 					co_return;
 				}
-				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
-						posix::CloseRequest<KernelAlloc> req) -> coroutine<void> {
-					// TODO: for now we just ignore close requests.
-					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-					resp.set_error(managarm::posix::Errors::SUCCESS);
 
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-					// TODO: improve error handling here.
-					assert(respError == Error::success);
-					co_return;
-				}(this, std::move(conversation), std::move(*req)));
+				// TODO: for now we just ignore close requests.
+				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::VmMapRequest>(
 						reqBuffer, *kernelAlloc);
@@ -707,79 +686,78 @@ namespace initrd {
 					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
 					co_return;
 				}
-				async::detach_with_allocator(*kernelAlloc, [] (Process *process, LaneHandle lane,
-						posix::VmMapRequest<KernelAlloc> req) -> coroutine<void> {
-					if(!req.size()) {
-						posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-						resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-						frg::string<KernelAlloc> ser(*kernelAlloc);
-						resp.SerializeToString(&ser);
-						frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-						// TODO: improve error handling here.
-						assert(respError == Error::success);
-						co_return;
-					}
-
-					if(!(req.flags() & 4)) // MAP_FIXED.
-						assert(!"TODO: implement non-fixed mappings");
-
-					uint32_t protFlags = 0;
-					if(req.mode() & 1)
-						protFlags |= AddressSpace::kMapProtRead;
-					if(req.mode() & 2)
-						protFlags |= AddressSpace::kMapProtWrite;
-					if(req.mode() & 4)
-						protFlags |= AddressSpace::kMapProtExecute;
-
-					frigg::SharedPtr<MemoryView> fileMemory;
-					if(req.flags() & 8) { // MAP_ANONYMOUS.
-						// TODO: Use some always-zero memory for private anonymous mappings.
-						fileMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, req.size());
-					}else{
-						// TODO: improve error handling here.
-						assert((size_t)req.fd() < process->openFiles.size());
-						auto abstractFile = process->openFiles[req.fd()];
-						auto moduleFile = static_cast<ModuleFile *>(abstractFile);
-						fileMemory = moduleFile->module->getMemory();
-					}
-
-					frigg::SharedPtr<MemorySlice> slice;
-					if(req.flags() & 1) { // MAP_PRIVATE.
-						auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
-								std::move(fileMemory), req.rel_offset(), req.size());
-						slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
-								std::move(cowMemory), 0, req.size());
-					}else{
-						assert(!"TODO: implement shared mappings");
-					}
-
-					VirtualAddr address;
-					auto space = process->_thread->getAddressSpace();
-					auto error = space->map(std::move(slice),
-							req.address_hint(), 0, req.size(),
-							AddressSpace::kMapFixed | protFlags,
-							&address);
-					// TODO: improve error handling here.
-					assert(error == Error::success);
-
+				if(!req->size()) {
 					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-					resp.set_error(managarm::posix::Errors::SUCCESS);
-					resp.set_offset(address);
+					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
 					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
-				}(this, std::move(conversation), std::move(*req)));
+					continue;
+				}
+
+				if(!(req->flags() & 4)) // MAP_FIXED.
+					assert(!"TODO: implement non-fixed mappings");
+
+				uint32_t protFlags = 0;
+				if(req->mode() & 1)
+					protFlags |= AddressSpace::kMapProtRead;
+				if(req->mode() & 2)
+					protFlags |= AddressSpace::kMapProtWrite;
+				if(req->mode() & 4)
+					protFlags |= AddressSpace::kMapProtExecute;
+
+				frigg::SharedPtr<MemoryView> fileMemory;
+				if(req->flags() & 8) { // MAP_ANONYMOUS.
+					// TODO: Use some always-zero memory for private anonymous mappings.
+					fileMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, req->size());
+				}else{
+					// TODO: improve error handling here.
+					assert((size_t)req->fd() < openFiles.size());
+					auto abstractFile = openFiles[req->fd()];
+					auto moduleFile = static_cast<ModuleFile *>(abstractFile);
+					fileMemory = moduleFile->module->getMemory();
+				}
+
+				frigg::SharedPtr<MemorySlice> slice;
+				if(req->flags() & 1) { // MAP_PRIVATE.
+					auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+							std::move(fileMemory), req->rel_offset(), req->size());
+					slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
+							std::move(cowMemory), 0, req->size());
+				}else{
+					assert(!"TODO: implement shared mappings");
+				}
+
+				VirtualAddr address;
+				auto space = _thread->getAddressSpace();
+				auto error = space->map(std::move(slice),
+						req->address_hint(), 0, req->size(),
+						AddressSpace::kMapFixed | protFlags,
+						&address);
+				// TODO: improve error handling here.
+				assert(error == Error::success);
+
+				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_offset(address);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else{
-				frigg::panicLogger() << "Illegal POSIX request type "
-						<< req.request_type() << frigg::endLog;
+				frigg::infoLogger() << "thor: Illegal POSIX request type "
+						<< preamble.id() << frigg::endLog;
+				co_return;
 			}
 		}
 	}
