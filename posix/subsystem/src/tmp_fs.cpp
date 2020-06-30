@@ -314,6 +314,8 @@ private:
 		co_return {};
 	}
 
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name) override;
+
 public:
 	DirectoryNode(Superblock *superblock);
 
@@ -694,6 +696,14 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
+	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	_entries.insert(link);
+	co_return link;
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mksocket(std::string name) {
+	assert(_entries.find(name) == _entries.end());
+	auto node = std::make_shared<SocketNode>(static_cast<Superblock *>(superblock()));
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
 	co_return link;

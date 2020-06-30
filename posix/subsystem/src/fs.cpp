@@ -101,6 +101,11 @@ async::result<Error> FsNode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, 
 	co_return Error::accessDenied;
 }
 
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(std::string name) {
+	std::cout << "\e[31m" "posix: mksocket() is not implemented for this FsNode" "\e[39m" << std::endl;
+	co_return Error::illegalOperationTarget;
+}
+
 void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie) {
 	assert(_defaultOps & defaultSupportsObservers);
 	for(const auto &[borrowed, observer] : _observers) {

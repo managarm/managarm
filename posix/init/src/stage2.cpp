@@ -137,7 +137,13 @@ int main() {
 			execl("/usr/bin/kmscon", "kmscon", nullptr);
 			//execl("/usr/bin/kmscon", "kmscon", "--debug", "--verbose", nullptr);
 		}else if(launch == "weston") {
+			// Hack: This should move to proper location
+			if(mkdir("/tmp/.ICE-unix", 1777))
+				throw std::runtime_error("mkdir() failed");
+			if(mkdir("/tmp/.X11-unix", 1777))
+				throw std::runtime_error("mkdir() failed");
 			execl("/usr/bin/weston", "weston", nullptr);
+			//execl("/usr/bin/weston", "weston", "--xwayland", nullptr);
 			//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
 		}else{
 			std::cout << "init: init does not know how to launch " << launch << std::endl;

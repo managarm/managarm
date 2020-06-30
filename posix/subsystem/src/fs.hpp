@@ -166,6 +166,9 @@ public:
 	// Changes timestamps on a node
 	virtual async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
 
+	// Creates an socket
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name);
+
 protected:
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie);
 

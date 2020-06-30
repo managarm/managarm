@@ -22,6 +22,7 @@ struct OpenFile;
 // TODO: Use plain pointers instead of weak_ptrs and store a shared_ptr inside the OpenFile.
 std::map<std::weak_ptr<FsNode>, OpenFile *,
 		std::owner_less<std::weak_ptr<FsNode>>> globalBindMap;
+std::unordered_map<std::string, OpenFile *> abstractSocketsBindMap;
 
 struct Packet {
 	// Sender process information.
@@ -280,27 +281,43 @@ public:
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
+		std::string path;
+		bool abstract = false;
 
-		std::string path{sa.sun_path, strnlen(sa.sun_path,
-				addr_length - offsetof(sockaddr_un, sun_path))};
+		if(sa.sun_path[0] == '\0') {
+			path.resize(addr_length - sizeof(sa.sun_family) - 1);
+			memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
+			abstract = true;
+		} else {
+			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+		}
 		if(logSockets)
 			std::cout << "posix: Bind to " << path << std::endl;
 
-		PathResolver resolver;
-		resolver.setup(process->fsContext()->getRoot(),
-				process->fsContext()->getWorkingDirectory(), std::move(path));
-		co_await resolver.resolve(resolvePrefix);
-		assert(resolver.currentLink());
+		if(abstract) {
+			auto res = abstractSocketsBindMap.emplace(path.data(), this);
+			if(!res.second)
+				co_return protocols::fs::Error::addressInUse;
+			co_return protocols::fs::Error::none;
+		} else {
+			PathResolver resolver;
+			resolver.setup(process->fsContext()->getRoot(),
+					process->fsContext()->getWorkingDirectory(), std::move(path));
+			co_await resolver.resolve(resolvePrefix);
+			if(!resolver.currentLink())
+				co_return protocols::fs::Error::fileNotFound;
 
-		auto superblock = resolver.currentLink()->getTarget()->superblock();
-		auto node = co_await superblock->createSocket();
-		auto result = co_await resolver.currentLink()->getTarget()->link(resolver.nextComponent(), node);
-		assert(result);
-
-		// Associate the current socket with the node.
-		auto res = globalBindMap.insert({std::weak_ptr<FsNode>{node}, this});
-		assert(res.second);
-		co_return protocols::fs::Error::none;
+			auto parentNode = resolver.currentLink()->getTarget();
+			auto nodeResult = co_await parentNode->mksocket(resolver.nextComponent());
+			assert(nodeResult);
+			auto node = nodeResult.value();
+			// Associate the current socket with the node.
+			auto res = globalBindMap.insert({std::weak_ptr<FsNode>{node->getTarget()}, this});
+			if(!res.second)
+				co_return protocols::fs::Error::addressInUse;
+			co_return protocols::fs::Error::none;
+		}
 	}
 
 	async::result<protocols::fs::Error>
