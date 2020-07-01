@@ -37,6 +37,9 @@
 .set .L_msrIndexGsBase, 0xC0000101
 .set .L_msrIndexKernelGsBase, 0xC0000102
 
+# Emit debugging information + unwind tables.
+.cfi_sections .eh_frame, .debug_frame
+
 # ---------------------------------------------------------
 # Fault stubs
 # ---------------------------------------------------------
@@ -49,10 +52,21 @@
 .section .text.stubs
 .global \name
 \name:
+	# This is a "signal frame", i.e., the return address must *not* be adjust to find
+	# a call instruction that invoked this function.
+	.cfi_startproc simple
+	.cfi_signal_frame
+	.cfi_def_cfa %rsp, 0
+	.cfi_offset %rip, 0
+	.cfi_offset %rsp, 24
+
 	# If there is no error code we push a fake one to keep the image struct intact.
 .if \type != .L_typeFaultWithCode
 	push $0
 .endif
+	# Account for the error code (even if it is pushed by the CPU).
+	.cfi_adjust_cfa_offset 8
+
 	# Swap GS if we interrupted user-space.
 	testl $3, 16(%rsp)
 	jz 1f
@@ -62,20 +76,50 @@
 	# We're pushing 15 registers here.
 	# Adjust the rsp offsets below if you change those pushs.
 	push %rbp
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %rbp, 0
 	push %r15
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r15, 0
 	push %r14
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r14, 0
 	push %r13
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r13, 0
 	push %r12
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r12, 0
 	push %r11
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r11, 0
 	push %r10
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r10, 0
 	push %r9
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r9, 0
 	push %r8
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %r8, 0
 	push %rsi
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %rsi, 0
 	push %rdi
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %rdi, 0
 	push %rdx
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %rdx, 0
 	push %rcx
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %rcx, 0
 	push %rbx
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %rbx, 0
 	push %rax
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset %rax, 0
 
 	mov %rsp, %rdi
 	mov $\number, %rsi
@@ -83,20 +127,50 @@
 	call onPlatformFault
 
 	pop %rax
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %rax
 	pop %rbx
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %rbx
 	pop %rcx
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %rcx
 	pop %rdx
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %rdx
 	pop %rdi
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %rdi
 	pop %rsi
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %rsi
 	pop %r8
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r8
 	pop %r9
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r9
 	pop %r10
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r10
 	pop %r11
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r11
 	pop %r12
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r12
 	pop %r13
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r13
 	pop %r14
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r14
 	pop %r15
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %r15
 	pop %rbp
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore %rbp
 
 	# Restore GS.
 	testl $3, 16(%rsp)
@@ -105,7 +179,9 @@
 1:
 
 	add $8, %rsp
+	.cfi_adjust_cfa_offset -8
 	iretq
+	.cfi_endproc
 .endm
 
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDivideByZero, 0
