@@ -168,178 +168,99 @@ namespace initrd {
 	// initrd file handling.
 	// ----------------------------------------------------
 
-	struct SeekClosure {
-		SeekClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
-		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
-				_buffer(*kernelAlloc) { }
+	coroutine<void> runRegularRequests(ModuleFile *file, LaneHandle lane) {
+		while(true) {
+			auto [acceptError, conversation] = co_await AcceptSender{lane};
+			if(acceptError == Error::endOfLane)
+				break;
+			if(acceptError != Error::success) {
+				frigg::infoLogger() << "thor: Could not accept regular lane" << frigg::endLog;
+				co_return;
+			}
+			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+			if(reqError != Error::success) {
+				frigg::infoLogger() << "thor: Could not receive regular request" << frigg::endLog;
+				co_return;
+			}
 
-		void operator() () {
-			_file->offset = _req.rel_offset();
+			fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_offset(_file->offset);
+			if(req.req_type() == managarm::fs::CntReqType::READ) {
+				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
+				if(credsError != Error::success) {
+					frigg::infoLogger() << "thor: Could not receive stdio credentials"
+							<< frigg::endLog;
+					co_return;
+				}
 
-			resp.SerializeToString(&_buffer);
-			serviceSend(_lane, _buffer.data(), _buffer.size(),
-					CALLBACK_MEMBER(this, &SeekClosure::onSend));
-		}
-
-	private:
-		void onSend(Error error) {
-			assert(error == Error::success);
-		}
-
-		ModuleFile *_file;
-		LaneHandle _lane;
-		fs::CntRequest<KernelAlloc> _req;
-
-		frg::string<KernelAlloc> _buffer;
-	};
-
-	struct ReadClosure {
-		ReadClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
-		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
-				_buffer(*kernelAlloc), _payload(*kernelAlloc) { }
-
-		void operator() () {
-			serviceExtractCreds(_lane, CALLBACK_MEMBER(this, &ReadClosure::onExtractCreds));
-		}
-
-	private:
-		void onExtractCreds(Error error, frigg::Array<char, 16>) {
-			assert(error == Error::success);
-
-			assert(_file->offset <= _file->module->size());
-			_payload.resize(frigg::min(size_t(_req.size()),
-					_file->module->size() - _file->offset));
-
-			auto complete = [] (CopyFromBundleNode *ctx) {
-				auto self = frg::container_of(ctx, &ReadClosure::_copyNode);
-
-				self->_file->offset += self->_payload.size();
+				frigg::UniqueMemory<KernelAlloc> dataBuffer{*kernelAlloc,
+						frg::min(size_t(req.size()), file->module->size() - file->offset)};
+				co_await copyFromView(file->module->getMemory().get(), file->offset,
+					dataBuffer.data(), dataBuffer.size());
+				file->offset += dataBuffer.size();
 
 				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 
-				resp.SerializeToString(&self->_buffer);
-				serviceSend(self->_lane, self->_buffer.data(), self->_buffer.size(),
-						CALLBACK_MEMBER(self, &ReadClosure::onSendResp));
-			};
-			if(copyFromBundle(_file->module->getMemory().get(), _file->offset,
-					_payload.data(), _payload.size(), &_copyNode, complete))
-				complete(&_copyNode);
-		}
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 
-		void onSendResp(Error error) {
-			assert(error == Error::success);
-
-			serviceSend(_lane, _payload.data(), _payload.size(),
-					CALLBACK_MEMBER(this, &ReadClosure::onSendData));
-		}
-
-		void onSendData(Error error) {
-			assert(error == Error::success);
-		}
-
-		ModuleFile *_file;
-		LaneHandle _lane;
-		fs::CntRequest<KernelAlloc> _req;
-
-		frg::string<KernelAlloc> _buffer;
-		frg::string<KernelAlloc> _payload;
-		CopyFromBundleNode _copyNode;
-	};
-
-	struct MapClosure {
-		MapClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
-		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
-				_buffer(*kernelAlloc) { }
-
-		void operator() () {
-			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			resp.SerializeToString(&_buffer);
-			serviceSend(_lane, _buffer.data(), _buffer.size(),
-					CALLBACK_MEMBER(this, &MapClosure::onSendResp));
-		}
-
-	private:
-		void onSendResp(Error error) {
-			assert(error == Error::success);
-
-			submitPushDescriptor(_lane, MemoryViewDescriptor(_file->module->getMemory()),
-					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
-		}
-
-		void onSendHandle(Error error) {
-			assert(error == Error::success);
-		}
-
-		ModuleFile *_file;
-		LaneHandle _lane;
-		fs::CntRequest<KernelAlloc> _req;
-
-		frg::string<KernelAlloc> _buffer;
-	};
-
-	struct FileRequestClosure {
-		FileRequestClosure(LaneHandle lane, ModuleFile *file)
-		: _lane(frigg::move(lane)), _file(file) { }
-
-		void operator() () {
-			serviceAccept(_lane,
-					CALLBACK_MEMBER(this, &FileRequestClosure::onAccept));
-		}
-
-	private:
-		void onAccept(Error error, LaneHandle handle) {
-			assert(error == Error::success);
-
-			_requestLane = frigg::move(handle);
-			serviceRecv(_requestLane, _buffer, 128,
-					CALLBACK_MEMBER(this, &FileRequestClosure::onReceive));
-		}
-
-		void onReceive(Error error, size_t length) {
-			if(error == Error::endOfLane)
-				return;
-			assert(error == Error::success);
-
-			fs::CntRequest<KernelAlloc> req(*kernelAlloc);
-			req.ParseFromArray(_buffer, length);
-
-/*			if(req.req_type() == managarm::fs::CntReqType::FSTAT) {
-				auto closure = frigg::construct<StatClosure>(*allocator,
-						*this, msg_request, frigg::move(req));
-				(*closure)();
-			}else*/ if(req.req_type() == managarm::fs::CntReqType::READ) {
-				auto closure = frigg::construct<ReadClosure>(*kernelAlloc,
-						_file, frigg::move(_requestLane), frigg::move(req));
-				(*closure)();
+				auto dataError = co_await SendBufferSender{conversation, std::move(dataBuffer)};
+				// TODO: improve error handling here.
+				assert(dataError == Error::success);
 			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-				auto closure = frigg::construct<SeekClosure>(*kernelAlloc,
-						_file, frigg::move(_requestLane), frigg::move(req));
-				(*closure)();
+				file->offset = req.rel_offset();
+
+				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
-				auto closure = frigg::construct<MapClosure>(*kernelAlloc,
-						_file, frigg::move(_requestLane), frigg::move(req));
-				(*closure)();
+				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
+
+				auto memoryError = co_await PushDescriptorSender{conversation,
+						MemoryViewDescriptor{file->module->getMemory()}};
+				// TODO: improve error handling here.
+				assert(memoryError == Error::success);
 			}else{
-				frigg::panicLogger() << "Illegal request type " << req.req_type()
-						<< " for kernel provided initrd file" << frigg::endLog;
+				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << req.req_type()
+						<< " for kernel provided regular file" "\e[39m" << frigg::endLog;
+
+				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}
 
-			(*this)();
 		}
-
-		LaneHandle _lane;
-		ModuleFile *_file;
-
-		LaneHandle _requestLane;
-		uint8_t _buffer[128];
-	};
+	}
 
 	struct OpenDirectory : OpenFile {
 		OpenDirectory(MfsDirectory *node)
@@ -569,9 +490,8 @@ namespace initrd {
 							static_cast<MfsRegular *>(module));
 					file->clientLane = frigg::move(stream.get<1>());
 
-					auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
-							frigg::move(stream.get<0>()), file);
-					(*closure)();
+					async::detach_with_allocator(*kernelAlloc,
+							runRegularRequests(file, stream.get<0>()));
 
 					auto fd = attachFile(file);
 
