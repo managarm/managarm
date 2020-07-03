@@ -1,9 +1,9 @@
 #ifndef THOR_ARCH_X86_PIC_HPP
 #define THOR_ARCH_X86_PIC_HPP
 
-#include "../../generic/irq.hpp"
-#include "../../generic/types.hpp"
-#include "../../generic/timer.hpp"
+#include <thor-internal/irq.hpp>
+#include <thor-internal/types.hpp>
+#include <thor-internal/timer.hpp>
 
 #include <arch/mem_space.hpp>
 #include <frigg/arch_x86/machine.hpp>

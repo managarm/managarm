@@ -7,7 +7,7 @@
 #include "mm-rc.hpp"
 #include <arch/x86/ept.hpp>
 #include <arch/x86/vmx.hpp>
-#include <generic/virtualization.hpp>
+#include <thor-internal/virtualization.hpp>
 
 namespace thor {
 

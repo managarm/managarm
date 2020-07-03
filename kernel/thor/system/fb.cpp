@@ -4,10 +4,10 @@
 #include <render-text.hpp>
 #include "../arch/x86/cpu.hpp"
 #include "../arch/x86/hpet.hpp"
-#include "../generic/fiber.hpp"
-#include "../generic/io.hpp"
-#include "../generic/kernel_heap.hpp"
-#include "../generic/service_helpers.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/io.hpp>
+#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/service_helpers.hpp>
 #include "pci/pci.hpp"
 
 #include "fb.hpp"

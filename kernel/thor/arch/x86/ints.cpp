@@ -1,6 +1,6 @@
 
-#include "generic/kernel.hpp"
-#include "generic/profile.hpp"
+#include <thor-internal/kernel.hpp>
+#include <thor-internal/profile.hpp>
 #include "pmc-amd.hpp"
 #include "pmc-intel.hpp"
 

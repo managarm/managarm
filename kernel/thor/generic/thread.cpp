@@ -3,9 +3,9 @@
 #include <string.h>
 
 #include <frg/container_of.hpp>
-#include "kernel.hpp"
+#include <thor-internal/kernel.hpp>
 
-#include <generic/core.hpp>
+#include <thor-internal/core.hpp>
 
 namespace thor {
 

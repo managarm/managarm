@@ -1,5 +1,5 @@
-#include "kernel.hpp"
-#include "module.hpp"
+#include <thor-internal/kernel.hpp>
+#include <thor-internal/module.hpp>
 
 #include <bragi/helpers-frigg.hpp>
 #include <frg/span.hpp>
@@ -10,8 +10,8 @@
 #include <fs.frigg_pb.hpp>
 
 #include "execution/coroutine.hpp"
-#include "fiber.hpp"
-#include "service_helpers.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/service_helpers.hpp>
 #include "../arch/x86/debug.hpp"
 
 namespace thor {

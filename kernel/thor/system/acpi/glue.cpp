@@ -5,8 +5,8 @@
 #include <frigg/memory.hpp>
 #include "../../arch/x86/paging.hpp"
 #include "../../arch/x86/pic.hpp"
-#include "../../generic/irq.hpp"
-#include "../../generic/kernel_heap.hpp"
+#include <thor-internal/irq.hpp>
+#include <thor-internal/kernel_heap.hpp>
 #include "../../system/pci/pci.hpp"
 
 #include <acpispec/tables.h>

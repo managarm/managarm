@@ -1,7 +1,6 @@
 
-#include "kernel.hpp"
-
-#include <generic/ring-buffer.hpp>
+#include <thor-internal/kernel.hpp>
+#include <thor-internal/ring-buffer.hpp>
 
 // This is required for virtual destructors. It should not be called though.
 void operator delete(void *, size_t) {

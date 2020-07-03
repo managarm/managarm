@@ -6,7 +6,7 @@
 #include <frigg/smart_ptr.hpp>
 #include <frigg/vector.hpp>
 #include "../fb.hpp"
-#include "../../generic/irq.hpp"
+#include <thor-internal/irq.hpp>
 
 #include <lai/core.h>
 

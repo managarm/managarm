@@ -1,8 +1,8 @@
 #include "execution/coroutine.hpp"
-#include "fiber.hpp"
-#include "memory-view.hpp"
-#include "physical.hpp"
-#include "service_helpers.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/memory-view.hpp>
+#include <thor-internal/physical.hpp>
+#include <thor-internal/service_helpers.hpp>
 
 namespace thor {
 

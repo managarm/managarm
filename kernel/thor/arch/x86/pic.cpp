@@ -4,10 +4,10 @@
 #include <arch/mem_space.hpp>
 #include <arch/io_space.hpp>
 
-#include "generic/fiber.hpp"
-#include "generic/kernel.hpp"
-#include "generic/irq.hpp"
-#include "generic/service_helpers.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/kernel.hpp>
+#include <thor-internal/irq.hpp>
+#include <thor-internal/service_helpers.hpp>
 
 namespace thor {
 

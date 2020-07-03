@@ -6,8 +6,8 @@
 #include <cralgo/sha2_32.hpp>
 #include "../arch/x86/cpu.hpp"
 #include "../arch/x86/pic.hpp"
-#include "kernel_heap.hpp"
-#include "random.hpp"
+#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/random.hpp>
 
 namespace thor {
 

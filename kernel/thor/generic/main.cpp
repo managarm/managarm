@@ -1,16 +1,16 @@
 
 #include <algorithm>
 
-#include "kernel.hpp"
-#include "module.hpp"
-#include "irq.hpp"
-#include "fiber.hpp"
-#include "kerncfg.hpp"
-#include "kernlet.hpp"
-#include "profile.hpp"
-#include "random.hpp"
-#include "servers.hpp"
-#include "service_helpers.hpp"
+#include <thor-internal/kernel.hpp>
+#include <thor-internal/module.hpp>
+#include <thor-internal/irq.hpp>
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/kerncfg.hpp>
+#include <thor-internal/kernlet.hpp>
+#include <thor-internal/profile.hpp>
+#include <thor-internal/random.hpp>
+#include <thor-internal/servers.hpp>
+#include <thor-internal/service_helpers.hpp>
 #include <frg/string.hpp>
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>

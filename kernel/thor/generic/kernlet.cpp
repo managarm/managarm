@@ -6,13 +6,13 @@
 #include <frg/string.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/debug.hpp>
-#include "descriptor.hpp"
+#include <thor-internal/descriptor.hpp>
 #include "execution/coroutine.hpp"
-#include "fiber.hpp"
-#include "kernlet.hpp"
-#include "physical.hpp"
-#include "service_helpers.hpp"
-#include "stream.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/kernlet.hpp>
+#include <thor-internal/physical.hpp>
+#include <thor-internal/service_helpers.hpp>
+#include <thor-internal/stream.hpp>
 
 #include "mbus.frigg_pb.hpp"
 #include "kernlet.frigg_pb.hpp"

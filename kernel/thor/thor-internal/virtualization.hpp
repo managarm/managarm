@@ -1,6 +1,6 @@
 #pragma once
 #include "../../../hel/include/hel.h"
-#include <generic/error.hpp>
+#include <thor-internal/error.hpp>
 #include "address-space.hpp"
 
 namespace thor {

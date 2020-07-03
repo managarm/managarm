@@ -1,6 +1,6 @@
 #include <arch/x86/ept.hpp>
-#include <generic/address-space.hpp>
-#include <generic/physical.hpp>
+#include <thor-internal/address-space.hpp>
+#include <thor-internal/physical.hpp>
 
 namespace thor::vmx {
 

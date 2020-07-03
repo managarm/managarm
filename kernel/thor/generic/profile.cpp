@@ -1,8 +1,8 @@
 #include "../arch/x86/pmc-amd.hpp"
 #include "../arch/x86/pmc-intel.hpp"
-#include "fiber.hpp"
-#include "profile.hpp"
-#include "service_helpers.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/profile.hpp>
+#include <thor-internal/service_helpers.hpp>
 
 namespace thor {
 

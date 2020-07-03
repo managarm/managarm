@@ -1,9 +1,9 @@
 #include <arch/x86/vmx.hpp>
-#include <generic/address-space.hpp>
+#include <thor-internal/address-space.hpp>
 #include <arch/x86/ept.hpp>
 #include <arch/x86/cpu.hpp>
-#include <generic/physical.hpp>
-#include <generic/core.hpp>
+#include <thor-internal/physical.hpp>
+#include <thor-internal/core.hpp>
 #include <frigg/arch_x86/machine.hpp>
 
 extern "C" void vmLaunch(void* state);

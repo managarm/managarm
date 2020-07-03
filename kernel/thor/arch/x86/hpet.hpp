@@ -1,6 +1,6 @@
 
-#include "../../generic/types.hpp"
-#include "../../generic/timer.hpp"
+#include <thor-internal/types.hpp>
+#include <thor-internal/timer.hpp>
 
 namespace thor {
 

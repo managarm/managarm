@@ -2,7 +2,7 @@
 #ifndef THOR_SRC_SYSTEM_BOOT_SCREEN
 #define THOR_SRC_SYSTEM_BOOT_SCREEN
 
-#include "../generic/core.hpp"
+#include <thor-internal/core.hpp>
 
 namespace thor {
 

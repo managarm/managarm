@@ -10,7 +10,7 @@
 #include <frigg/arch_x86/tss.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/smart_ptr.hpp>
-#include "../../generic/types.hpp"
+#include <thor-internal/types.hpp>
 #include "ints.hpp"
 #include "paging.hpp"
 #include "pic.hpp"

@@ -6,7 +6,7 @@
 #include <arch/mem_space.hpp>
 #include <arch/io_space.hpp>
 
-#include "generic/kernel.hpp"
+#include <thor-internal/kernel.hpp>
 
 namespace thor {
 

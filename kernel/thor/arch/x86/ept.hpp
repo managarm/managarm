@@ -1,8 +1,8 @@
 #pragma once
 
 #include <arch/x86/paging.hpp>
-#include <generic/error.hpp>
-#include <generic/virtualization.hpp>
+#include <thor-internal/error.hpp>
+#include <thor-internal/virtualization.hpp>
 
 constexpr uint64_t EPT_READ = (0);
 constexpr uint64_t EPT_WRITE = (1);

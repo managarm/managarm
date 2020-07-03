@@ -5,13 +5,14 @@
 #include <frg/string.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/elf.hpp>
-#include "descriptor.hpp"
+#include <thor-internal/descriptor.hpp>
 #include "execution/coroutine.hpp"
-#include "fiber.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/module.hpp>
+#include <thor-internal/stream.hpp>
+#include <thor-internal/service_helpers.hpp>
+
 #include "mbus.frigg_pb.hpp"
-#include "module.hpp"
-#include "service_helpers.hpp"
-#include "stream.hpp"
 #include "svrctl.frigg_pb.hpp"
 
 namespace thor {

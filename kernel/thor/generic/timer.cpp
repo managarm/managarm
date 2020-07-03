@@ -1,7 +1,7 @@
 
 #include <frigg/debug.hpp>
 
-#include "timer.hpp"
+#include <thor-internal/timer.hpp>
 #include "../arch/x86/ints.hpp"
 
 namespace thor {

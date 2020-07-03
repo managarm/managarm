@@ -1,5 +1,5 @@
 
-#include "kernel.hpp"
+#include <thor-internal/kernel.hpp>
 
 namespace thor {
 

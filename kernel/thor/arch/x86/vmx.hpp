@@ -1,7 +1,7 @@
 #pragma once
 
 #include <arch/x86/ept.hpp>
-#include <generic/virtualization.hpp>
+#include <thor-internal/virtualization.hpp>
 #include "../../../hel/include/hel.h"
 
 namespace thor::vmx {

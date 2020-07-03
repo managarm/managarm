@@ -1,6 +1,6 @@
 
-#include "core.hpp"
-#include "work-queue.hpp"
+#include <thor-internal/core.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 

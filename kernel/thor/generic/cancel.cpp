@@ -1,5 +1,5 @@
-#include "cancel.hpp"
-#include "core.hpp"
+#include <thor-internal/cancel.hpp>
+#include <thor-internal/core.hpp>
 
 namespace thor {
 

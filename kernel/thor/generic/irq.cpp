@@ -1,5 +1,5 @@
 
-#include "irq.hpp"
+#include <thor-internal/irq.hpp>
 #include "../arch/x86/ints.hpp"
 #include "../arch/x86/hpet.hpp"
 

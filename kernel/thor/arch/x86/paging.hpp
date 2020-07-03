@@ -4,9 +4,9 @@
 #include <frg/list.hpp>
 #include <frigg/smart_ptr.hpp>
 #include <smarter.hpp>
-#include "../../generic/mm-rc.hpp"
-#include "../../generic/types.hpp"
-#include "../../generic/work-queue.hpp"
+#include <thor-internal/mm-rc.hpp>
+#include <thor-internal/types.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 

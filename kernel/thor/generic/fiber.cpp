@@ -1,6 +1,6 @@
 
-#include "kernel.hpp"
-#include "fiber.hpp"
+#include <thor-internal/kernel.hpp>
+#include <thor-internal/fiber.hpp>
 
 namespace thor {
 

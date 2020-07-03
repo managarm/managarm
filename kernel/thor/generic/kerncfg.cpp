@@ -1,16 +1,16 @@
 #include <frg/string.hpp>
 
-#include "descriptor.hpp"
+#include <thor-internal/descriptor.hpp>
 #include "execution/coroutine.hpp"
-#include "fiber.hpp"
-#include "kerncfg.hpp"
-#include "profile.hpp"
-#include "service_helpers.hpp"
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/kerncfg.hpp>
+#include <thor-internal/profile.hpp>
+#include <thor-internal/service_helpers.hpp>
 
 #include "kerncfg.frigg_pb.hpp"
 #include "mbus.frigg_pb.hpp"
 
-#include <generic/ring-buffer.hpp>
+#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
