@@ -17,9 +17,6 @@
 
 namespace thor {
 
-namespace posix = managarm::posix;
-namespace fs = managarm::fs;
-
 namespace {
 	struct ManagarmProcessData {
 		HelHandle posixLane;
@@ -31,35 +28,6 @@ namespace {
 	struct ManagarmServerData {
 		HelHandle controlLane;
 	};
-}
-
-void serviceAccept(LaneHandle handle,
-		frigg::CallbackPtr<void(Error, LaneHandle)> callback) {
-	submitAccept(handle, callback);
-}
-
-void serviceExtractCreds(LaneHandle handle,
-		frigg::CallbackPtr<void(Error, frigg::Array<char, 16>)> callback) {
-	submitExtractCredentials(handle, callback);
-}
-
-void serviceRecv(LaneHandle handle, void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(Error, size_t)> callback) {
-	submitRecvBuffer(handle,
-			KernelAccessor::acquire(buffer, max_length), callback);
-}
-
-void serviceRecvInline(LaneHandle handle,
-		frigg::CallbackPtr<void(Error, frigg::UniqueMemory<KernelAlloc>)> callback) {
-	submitRecvInline(handle, callback);
-}
-
-void serviceSend(LaneHandle handle, const void *buffer, size_t length,
-		frigg::CallbackPtr<void(Error)> callback) {
-	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
-	memcpy(kernel_buffer.data(), buffer, length);
-
-	submitSendBuffer(handle, frigg::move(kernel_buffer), callback);
 }
 
 struct OpenFile {
@@ -92,7 +60,7 @@ namespace stdio {
 				co_return;
 			}
 
-			fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 			if(req.req_type() == managarm::fs::CntReqType::WRITE) {
@@ -114,7 +82,7 @@ namespace stdio {
 						p.print(reinterpret_cast<char *>(dataBuffer.data())[i]);
 				}
 
-				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -125,7 +93,7 @@ namespace stdio {
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -139,7 +107,7 @@ namespace stdio {
 				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << req.req_type()
 						<< " for kernel provided stdio file" "\e[39m" << frigg::endLog;
 
-				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -156,19 +124,27 @@ namespace stdio {
 } // namespace stdio
 
 namespace initrd {
-	struct ModuleFile : OpenFile {
-		ModuleFile(MfsRegular *module)
+	struct OpenRegular : OpenFile {
+		OpenRegular(MfsRegular *module)
 		: module(module), offset(0) { }
 
 		MfsRegular *module;
 		size_t offset;
 	};
 
+	struct OpenDirectory : OpenFile {
+		OpenDirectory(MfsDirectory *node)
+		: node{node}, index(0) { }
+
+		MfsDirectory *node;
+		size_t index;
+	};
+
 	// ----------------------------------------------------
 	// initrd file handling.
 	// ----------------------------------------------------
 
-	coroutine<void> runRegularRequests(ModuleFile *file, LaneHandle lane) {
+	coroutine<void> runRegularRequests(OpenRegular *file, LaneHandle lane) {
 		while(true) {
 			auto [acceptError, conversation] = co_await AcceptSender{lane};
 			if(acceptError == Error::endOfLane)
@@ -183,7 +159,7 @@ namespace initrd {
 				co_return;
 			}
 
-			fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 			if(req.req_type() == managarm::fs::CntReqType::READ) {
@@ -200,7 +176,7 @@ namespace initrd {
 					dataBuffer.data(), dataBuffer.size());
 				file->offset += dataBuffer.size();
 
-				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -217,7 +193,7 @@ namespace initrd {
 			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
 				file->offset = req.rel_offset();
 
-				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -228,7 +204,7 @@ namespace initrd {
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
-				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -247,7 +223,7 @@ namespace initrd {
 				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << req.req_type()
 						<< " for kernel provided regular file" "\e[39m" << frigg::endLog;
 
-				fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -261,14 +237,6 @@ namespace initrd {
 
 		}
 	}
-
-	struct OpenDirectory : OpenFile {
-		OpenDirectory(MfsDirectory *node)
-		: node{node}, index(0) { }
-
-		MfsDirectory *node;
-		size_t index;
-	};
 
 	bool handleDirectoryReq(LaneHandle lane, OpenDirectory *file) {
 		auto branch = fiberAccept(lane);
@@ -317,7 +285,9 @@ namespace initrd {
 
 		return true;
 	}
+} // namepace initrd
 
+namespace posix {
 	// ----------------------------------------------------
 	// POSIX server.
 	// ----------------------------------------------------
@@ -412,7 +382,7 @@ namespace initrd {
 					co_return;
 				}
 
-				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_pid(1);
 
@@ -443,7 +413,7 @@ namespace initrd {
 
 				auto module = resolveModule(req->path());
 				if(!module) {
-					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -458,7 +428,7 @@ namespace initrd {
 
 				if(module->type == MfsType::directory) {
 					auto stream = createStream();
-					auto file = frigg::construct<OpenDirectory>(*kernelAlloc,
+					auto file = frigg::construct<initrd::OpenDirectory>(*kernelAlloc,
 							static_cast<MfsDirectory *>(module));
 					file->clientLane = frigg::move(stream.get<1>());
 
@@ -471,7 +441,7 @@ namespace initrd {
 
 					auto fd = attachFile(file);
 
-					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -486,16 +456,16 @@ namespace initrd {
 					assert(module->type == MfsType::regular);
 
 					auto stream = createStream();
-					auto file = frigg::construct<ModuleFile>(*kernelAlloc,
+					auto file = frigg::construct<initrd::OpenRegular>(*kernelAlloc,
 							static_cast<MfsRegular *>(module));
 					file->clientLane = frigg::move(stream.get<1>());
 
 					async::detach_with_allocator(*kernelAlloc,
-							runRegularRequests(file, stream.get<0>()));
+							runRegularRequests(file, std::move(stream.get<0>())));
 
 					auto fd = attachFile(file);
 
-					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -518,7 +488,7 @@ namespace initrd {
 				assert((size_t)req->fd() < openFiles.size());
 				auto file = openFiles[req->fd()];
 
-				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_mode(file->isTerminal ? 1 : 0);
 
@@ -538,7 +508,7 @@ namespace initrd {
 				}
 
 				// TODO: for now we just ignore close requests.
-				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -557,7 +527,7 @@ namespace initrd {
 				}
 
 				if(!req->size()) {
-					posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -589,7 +559,7 @@ namespace initrd {
 					// TODO: improve error handling here.
 					assert((size_t)req->fd() < openFiles.size());
 					auto abstractFile = openFiles[req->fd()];
-					auto moduleFile = static_cast<ModuleFile *>(abstractFile);
+					auto moduleFile = static_cast<initrd::OpenRegular *>(abstractFile);
 					fileMemory = moduleFile->module->getMemory();
 				}
 
@@ -612,7 +582,7 @@ namespace initrd {
 				// TODO: improve error handling here.
 				assert(error == Error::success);
 
-				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_offset(address);
 
@@ -733,7 +703,7 @@ namespace initrd {
 			}
 		}
 	}
-} // namepace initrd
+} // namepace posix
 
 void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
 		frigg::SharedPtr<Thread> thread) {
@@ -745,7 +715,7 @@ void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
 		async::detach_with_allocator(*kernelAlloc,
 				stdio::runStdioRequests(stdio_stream.get<0>()));
 
-		auto process = frigg::construct<initrd::Process>(*kernelAlloc, std::move(name), thread);
+		auto process = frigg::construct<posix::Process>(*kernelAlloc, std::move(name), thread);
 		process->attachControl(std::move(control_lane));
 		process->attachFile(stdio_file);
 		process->attachFile(stdio_file);
