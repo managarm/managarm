@@ -468,6 +468,7 @@ namespace initrd {
 		}
 
 		coroutine<void> runPosixRequests(LaneHandle lane);
+		coroutine<void> runObserveLoop();
 
 		frg::string_view name() {
 			return _name;
@@ -762,33 +763,25 @@ namespace initrd {
 		}
 	}
 
-	struct ObserveClosure {
-		ObserveClosure(Process *process, frigg::SharedPtr<Thread> thread)
-		: _process(process), _thread(frigg::move(thread)),
-				_observedSeq{1} { }
-
-		void operator() () {
-			_thread->submitObserve(_observedSeq,
-					CALLBACK_MEMBER(this, &ObserveClosure::onObserve));
-		}
-
-	private:
-		void onObserve(Error error, uint64_t sequence, Interrupt interrupt) {
+	coroutine<void> Process::runObserveLoop() {
+		uint64_t currentSeq = 1;
+		while(true) {
+			auto [error, observedSeq, interrupt] = co_await _thread->observe(currentSeq);
 			assert(error == Error::success);
-			_observedSeq = sequence;
+			currentSeq = observedSeq;
 
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				frigg::infoLogger() << "\e[31m" "thor: Panic in server "
-						<< _process->name().data() << "\e[39m" << frigg::endLog;
-				return;
+						<< name().data() << "\e[39m" << frigg::endLog;
+				break;
 			}else if(interrupt == kIntrPageFault) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				frigg::infoLogger() << "\e[31m" "thor: Fault in server "
-						<< _process->name().data() << "\e[39m" << frigg::endLog;
-				return;
+						<< name().data() << "\e[39m" << frigg::endLog;
+				break;
 			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
 				auto size = _thread->_executor.general()->rsi;
@@ -812,101 +805,67 @@ namespace initrd {
 				_thread->_executor.general()->rsi = address;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
-				(*this)();
 			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
-				async::detach_with_allocator(*kernelAlloc, [] (ObserveClosure *self) -> coroutine<void> {
-					auto address = self->_thread->_executor.general()->rsi;
-					auto size = self->_thread->_executor.general()->rdx;
-					auto space = self->_thread->getAddressSpace();
-					co_await space->unmap(address, size);
+				auto address = _thread->_executor.general()->rsi;
+				auto size = _thread->_executor.general()->rdx;
+				auto space = _thread->getAddressSpace();
+				co_await space->unmap(address, size);
 
-					self->_thread->_executor.general()->rdi = kHelErrNone;
-					self->_thread->_executor.general()->rsi = 0;
-					if(auto e = Thread::resumeOther(self->_thread); e != Error::success)
-						frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
-					(*self)();
-				}(this));
+				_thread->_executor.general()->rdi = kHelErrNone;
+				_thread->_executor.general()->rsi = 0;
+				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 1) {
-				AcquireNode node;
+				ManagarmProcessData data = {
+					kHelThisThread,
+					nullptr,
+					reinterpret_cast<HelHandle *>(clientFileTable),
+					nullptr
+				};
 
-				_spaceLock = AddressSpaceLockHandle{_thread->getAddressSpace().lock(),
-						reinterpret_cast<void *>(_thread->_executor.general()->rsi),
-						sizeof(ManagarmProcessData)};
-				_worklet.setup(&ObserveClosure::onProcessDataAcquire);
-				_acquire.setup(&_worklet);
-				auto acq = _spaceLock.acquire(&_acquire);
-				if(acq)
-					WorkQueue::post(&_worklet);
+				{
+					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
+							reinterpret_cast<void *>(_thread->_executor.general()->rsi),
+							sizeof(ManagarmProcessData)};
+					co_await spaceLock.acquire();
+
+					spaceLock.write(0, &data, sizeof(ManagarmProcessData));
+				}
+
+				_thread->_executor.general()->rdi = kHelErrNone;
+				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 64) {
 				AcquireNode node;
 
-				_spaceLock = AddressSpaceLockHandle{_thread->getAddressSpace().lock(),
-						reinterpret_cast<void *>(_thread->_executor.general()->rsi),
-						sizeof(ManagarmServerData)};
-				_worklet.setup(&ObserveClosure::onServerDataAcquire);
-				_acquire.setup(&_worklet);
-				auto acq = _spaceLock.acquire(&_acquire);
-				if(acq)
-					WorkQueue::post(&_worklet);
+				ManagarmServerData data = {
+					controlHandle
+				};
+
+				{
+					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
+							reinterpret_cast<void *>(_thread->_executor.general()->rsi),
+							sizeof(ManagarmServerData)};
+					co_await spaceLock.acquire();
+
+					spaceLock.write(0, &data, sizeof(ManagarmServerData));
+				}
+
+				_thread->_executor.general()->rdi = kHelErrNone;
+				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = 0;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
-
-				(*this)();
 			}else{
 				frigg::panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frigg::endLog;
 			}
 		}
-
-		static void onProcessDataAcquire(Worklet *base) {
-			auto self = frg::container_of(base, &ObserveClosure::_worklet);
-
-			ManagarmProcessData data = {
-				kHelThisThread,
-				nullptr,
-				reinterpret_cast<HelHandle *>(self->_process->clientFileTable),
-				nullptr
-			};
-
-			self->_spaceLock.write(0, &data, sizeof(ManagarmProcessData));
-			self->_spaceLock = {};
-
-			self->_thread->_executor.general()->rdi = kHelErrNone;
-			if(auto e = Thread::resumeOther(self->_thread); e != Error::success)
-				frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
-
-			(*self)();
-		}
-
-		static void onServerDataAcquire(Worklet *base) {
-			auto self = frg::container_of(base, &ObserveClosure::_worklet);
-
-			ManagarmServerData data = {
-				self->_process->controlHandle
-			};
-
-			self->_spaceLock.write(0, &data, sizeof(ManagarmServerData));
-			self->_spaceLock = {};
-
-			self->_thread->_executor.general()->rdi = kHelErrNone;
-			if(auto e = Thread::resumeOther(self->_thread); e != Error::success)
-				frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
-
-			(*self)();
-		}
-
-		Process *_process;
-		frigg::SharedPtr<Thread> _thread;
-
-		uint64_t _observedSeq;
-		Worklet _worklet;
-		AddressSpaceLockHandle _spaceLock;
-		AcquireNode _acquire;
-	};
-}
+	}
+} // namepace initrd
 
 void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
 		frigg::SharedPtr<Thread> thread) {
@@ -925,12 +884,10 @@ void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
 		process->attachFile(stdio_file);
 		process->attachFile(stdio_file);
 
-		auto observe_closure = frigg::construct<initrd::ObserveClosure>(*kernelAlloc,
-				process, thread);
-		(*observe_closure)();
-
 		async::detach_with_allocator(*kernelAlloc,
 				process->runPosixRequests(thread->superiorLane()));
+		async::detach_with_allocator(*kernelAlloc,
+				process->runObserveLoop());
 
 		// Just block this fiber forever (we're still processing worklets).
 		FiberBlocker blocker;

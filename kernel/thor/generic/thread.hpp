@@ -73,7 +73,7 @@ private:
 		: _thread{thread} { }
 
 		void wakeup() override;
-	
+
 	private:
 		Thread *_thread;
 	};
@@ -121,7 +121,7 @@ public:
 	static void suspendCurrent(IrqImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image);
-	
+
 	static void raiseSignals(SyscallImageAccessor image);
 
 	// State transitions that apply to arbitrary threads.
@@ -151,7 +151,7 @@ public:
 	const char *credentials() {
 		return _credentials;
 	}
-	
+
 	WorkQueue *mainWorkQueue() {
 		return &_mainWorkQueue;
 	}
@@ -171,11 +171,62 @@ public:
 		return _superiorLane;
 	}
 
+	// ----------------------------------------------------------------------------------
+	// observe() and its boilerplate.
+	// ----------------------------------------------------------------------------------
+
 	template<typename F>
 	void submitObserve(uint64_t in_seq, F functor) {
 		auto observe = frigg::construct<Observe<F>>(*kernelAlloc, frigg::move(functor));
 		doSubmitObserve(in_seq, observe);
 	}
+
+	template<typename Receiver>
+	struct [[nodiscard]] ObserveOperation {
+		ObserveOperation(Thread *self, uint64_t inSeq, Receiver receiver)
+		: self_{self}, inSeq_{inSeq}, receiver_{std::move(receiver)} {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &ObserveOperation::worklet_);
+				async::execution::set_value(op->receiver_, frg::make_tuple(op->node_.error,
+						op->node_.sequence, op->node_.interrupt));
+			});
+			node_.triggered = &worklet_;
+		}
+
+		void start() {
+			self_->doSubmitObserve(inSeq_, &node_);
+		}
+
+	private:
+		Thread *self_;
+		uint64_t inSeq_;
+		Receiver receiver_;
+		ObserveBase node_;
+		Worklet worklet_;
+	};
+
+	struct [[nodiscard]] ObserveSender {
+		using value_type = frg::tuple<Error, uint64_t, Interrupt>;
+
+		async::sender_awaiter<ObserveSender, frg::tuple<Error, uint64_t, Interrupt>>
+		operator co_await() {
+			return {std::move(*this)};
+		}
+
+		template<typename Receiver>
+		ObserveOperation<Receiver> connect(Receiver receiver) {
+			return {self, inSeq, std::move(receiver)};
+		}
+
+		Thread *self;
+		uint64_t inSeq;
+	};
+
+	ObserveSender observe(uint64_t inSeq) {
+		return {this, inSeq};
+	}
+
+	// ----------------------------------------------------------------------------------
 
 	// TODO: Do not expose these functions publically.
 	void destruct() override; // Called when shared_ptr refcount reaches zero.
@@ -266,7 +317,7 @@ private:
 
 	LaneHandle _superiorLane;
 	LaneHandle _inferiorLane;
-	
+
 	using ObserveQueue = frg::intrusive_list<
 		ObserveBase,
 		frg::locate_member<
