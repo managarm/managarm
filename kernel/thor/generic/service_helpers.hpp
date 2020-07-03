@@ -130,6 +130,40 @@ operator co_await(SendBufferSender s) {
 
 //---------------------------------------------------------------------------------------
 
+struct ExtractCredentialsSender {
+	LaneHandle lane;
+};
+
+template<typename R>
+struct ExtractCredentialsOperation {
+	void start() {
+		auto cb = [this] (Error error, frigg::Array<char, 16> credentials) {
+			async::execution::set_value(receiver_,
+					frg::tuple<Error, frigg::Array<char, 16>>{error, std::move(credentials)});
+		};
+		submitExtractCredentials(s_.lane, cb);
+	}
+
+	ExtractCredentialsOperation(ExtractCredentialsSender s, R receiver)
+	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+
+private:
+	ExtractCredentialsSender s_;
+	R receiver_;
+};
+
+template<typename R>
+inline ExtractCredentialsOperation<R> connect(ExtractCredentialsSender s, R receiver) {
+	return {std::move(s), std::move(receiver)};
+}
+
+inline async::sender_awaiter<ExtractCredentialsSender, frg::tuple<Error, frigg::Array<char, 16>>>
+operator co_await(ExtractCredentialsSender s) {
+	return {std::move(s)};
+}
+
+//---------------------------------------------------------------------------------------
+
 struct RecvBufferSender {
 	LaneHandle lane;
 };
