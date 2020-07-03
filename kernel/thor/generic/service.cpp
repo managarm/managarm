@@ -1,4 +1,3 @@
-
 #include "kernel.hpp"
 #include "module.hpp"
 
@@ -238,52 +237,72 @@ namespace initrd {
 		}
 	}
 
-	bool handleDirectoryReq(LaneHandle lane, OpenDirectory *file) {
-		auto branch = fiberAccept(lane);
-		if(!branch)
-			return false;
+	coroutine<void> runDirectoryRequests(OpenDirectory *file, LaneHandle lane) {
+		while(true) {
+			auto [acceptError, conversation] = co_await AcceptSender{lane};
+			if(acceptError == Error::endOfLane)
+				break;
+			if(acceptError != Error::success) {
+				frigg::infoLogger() << "thor: Could not accept directory lane" << frigg::endLog;
+				co_return;
+			}
+			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+			if(reqError != Error::success) {
+				frigg::infoLogger() << "thor: Could not receive directory request" << frigg::endLog;
+				co_return;
+			}
 
-		auto buffer = fiberRecv(branch);
-		managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(buffer.data(), buffer.size());
+			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-		if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
-			if(file->index < file->node->numEntries()) {
-				auto entry = file->node->getEntry(file->index);
+			if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
+				if(file->index < file->node->numEntries()) {
+					auto entry = file->node->getEntry(file->index);
 
-				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_path(entry.name);
-				if(entry.node->type == MfsType::directory) {
-					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+					managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+					resp.set_path(entry.name);
+					if(entry.node->type == MfsType::directory) {
+						resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+					}else{
+						assert(entry.node->type == MfsType::regular);
+						resp.set_file_type(managarm::fs::FileType::REGULAR);
+					}
+
+					file->index++;
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
 				}else{
-					assert(entry.node->type == MfsType::regular);
-					resp.set_file_type(managarm::fs::FileType::REGULAR);
+					managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::fs::Errors::END_OF_FILE);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
 				}
-
-				file->index++;
-
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				fiberSend(branch, ser.data(), ser.size());
 			}else{
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::END_OF_FILE);
+				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				fiberSend(branch, ser.data(), ser.size());
+				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}
-		}else{
-			managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
-
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
 		}
-
-		return true;
 	}
 } // namepace initrd
 
@@ -432,12 +451,8 @@ namespace posix {
 							static_cast<MfsDirectory *>(module));
 					file->clientLane = frigg::move(stream.get<1>());
 
-					KernelFiber::run([lane = stream.get<0>(), file] () {
-						while(true) {
-							if(!handleDirectoryReq(lane, file))
-								break;
-						}
-					});
+					async::detach_with_allocator(*kernelAlloc,
+							runDirectoryRequests(file, std::move(stream.get<0>())));
 
 					auto fd = attachFile(file);
 
@@ -734,4 +749,3 @@ void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
 }
 
 } // namespace thor
-
