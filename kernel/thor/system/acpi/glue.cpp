@@ -7,7 +7,7 @@
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel_heap.hpp>
-#include "../../system/pci/pci.hpp"
+#include <thor-internal/pci/pci.hpp>
 
 #include <acpispec/tables.h>
 #include <lai/host.h>

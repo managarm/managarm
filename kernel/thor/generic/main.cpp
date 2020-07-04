@@ -14,7 +14,7 @@
 #include <frg/string.hpp>
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
-#include "../system/pci/pci.hpp"
+#include <thor-internal/pci/pci.hpp>
 #include "../system/fb.hpp"
 #include <thor-internal/arch/ept.hpp>
 

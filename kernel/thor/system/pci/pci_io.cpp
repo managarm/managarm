@@ -1,7 +1,7 @@
 
 #include <frigg/debug.hpp>
 
-#include "pci.hpp"
+#include <thor-internal/pci/pci.hpp>
 
 uint32_t readPciWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
 	assert(bus < 256 && slot < 32 && function < 8 && offset < 256);

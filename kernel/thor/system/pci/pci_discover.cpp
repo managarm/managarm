@@ -10,7 +10,7 @@
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include "../boot-screen.hpp"
-#include "pci.hpp"
+#include <thor-internal/pci/pci.hpp>
 
 #include <lai/core.h>
 #include <lai/helpers/pci.h>

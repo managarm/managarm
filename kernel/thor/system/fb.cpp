@@ -8,7 +8,7 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/service_helpers.hpp>
-#include "pci/pci.hpp"
+#include <thor-internal/pci/pci.hpp>
 
 #include "fb.hpp"
 #include "boot-screen.hpp"
