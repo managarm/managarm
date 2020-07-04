@@ -3,7 +3,7 @@
 
 #include <frigg/callback.hpp>
 #include <frg/container_of.hpp>
-#include "../arch/x86/cpu.hpp"
+#include <thor-internal/arch/cpu.hpp>
 #include "core.hpp"
 #include "schedule.hpp"
 

@@ -1,7 +1,7 @@
 
 #include <thor-internal/service_helpers.hpp>
 #include <thor-internal/fiber.hpp>
-#include "../arch/x86/hpet.hpp"
+#include <thor-internal/arch/hpet.hpp>
 
 namespace thor {
 

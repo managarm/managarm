@@ -1,7 +1,7 @@
-#include <arch/x86/vmx.hpp>
+#include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/address-space.hpp>
-#include <arch/x86/ept.hpp>
-#include <arch/x86/cpu.hpp>
+#include <thor-internal/arch/ept.hpp>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/core.hpp>
 #include <frigg/arch_x86/machine.hpp>

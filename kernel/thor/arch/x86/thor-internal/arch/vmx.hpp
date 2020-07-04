@@ -1,6 +1,6 @@
 #pragma once
 
-#include <arch/x86/ept.hpp>
+#include <thor-internal/arch/ept.hpp>
 #include <thor-internal/virtualization.hpp>
 #include "../../../hel/include/hel.h"
 

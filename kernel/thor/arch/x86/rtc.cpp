@@ -1,12 +1,12 @@
 
 #include <frigg/debug.hpp>
 #include <arch/io_space.hpp>
-#include "../../arch/x86/hpet.hpp"
+#include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/service_helpers.hpp>
-#include "rtc.hpp"
+#include <thor-internal/arch/rtc.hpp>
 #include <clock.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 

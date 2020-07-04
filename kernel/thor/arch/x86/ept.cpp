@@ -1,4 +1,4 @@
-#include <arch/x86/ept.hpp>
+#include <thor-internal/arch/ept.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/physical.hpp>
 

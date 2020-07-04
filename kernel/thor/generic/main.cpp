@@ -16,7 +16,7 @@
 #include <eir/interface.hpp>
 #include "../system/pci/pci.hpp"
 #include "../system/fb.hpp"
-#include <arch/x86/ept.hpp>
+#include <thor-internal/arch/ept.hpp>
 
 namespace thor {
 

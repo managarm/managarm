@@ -1,5 +1,5 @@
 
-#include "arch/x86/ints.hpp"
+#include <thor-internal/arch/ints.hpp>
 #include <thor-internal/event.hpp>
 
 namespace thor {

@@ -4,8 +4,8 @@
 #include <frigg/initializer.hpp>
 #include <cralgo/aes.hpp>
 #include <cralgo/sha2_32.hpp>
-#include "../arch/x86/cpu.hpp"
-#include "../arch/x86/pic.hpp"
+#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/random.hpp>
 

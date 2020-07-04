@@ -5,8 +5,8 @@
 #include <frigg/variant.hpp>
 #include <smarter.hpp>
 #include "mm-rc.hpp"
-#include <arch/x86/ept.hpp>
-#include <arch/x86/vmx.hpp>
+#include <thor-internal/arch/ept.hpp>
+#include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/virtualization.hpp>
 
 namespace thor {

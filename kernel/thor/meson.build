@@ -149,6 +149,7 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 		include_directories(
 			'private-include/',
 			'generic/',
+			'arch/x86/',
 			'../include/',
 			'../common',
 			'../../frigg/include',

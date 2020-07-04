@@ -5,7 +5,7 @@
 #include <frigg/initializer.hpp>
 #include <frg/slab.hpp>
 
-#include <arch/x86/stack.hpp>
+#include <thor-internal/arch/stack.hpp>
 #include <physical-buddy.hpp>
 
 namespace thor {

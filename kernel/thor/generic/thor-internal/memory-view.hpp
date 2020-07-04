@@ -8,7 +8,7 @@
 #include "error.hpp"
 #include "types.hpp"
 #include "futex.hpp"
-#include "../arch/x86/paging.hpp"
+#include <thor-internal/arch/paging.hpp>
 
 namespace thor {
 

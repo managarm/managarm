@@ -1,6 +1,6 @@
 #pragma once
 
-#include <arch/x86/paging.hpp>
+#include <thor-internal/arch/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/virtualization.hpp>
 

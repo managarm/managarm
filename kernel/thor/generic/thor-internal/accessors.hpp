@@ -4,7 +4,7 @@
 #include <frigg/variant.hpp>
 
 #include "address-space.hpp"
-#include "../arch/x86/paging.hpp"
+#include <thor-internal/arch/paging.hpp>
 
 namespace thor {
 

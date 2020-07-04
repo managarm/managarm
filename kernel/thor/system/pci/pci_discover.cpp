@@ -2,7 +2,7 @@
 #include <frigg/debug.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
-#include "../../arch/x86/pic.hpp"
+#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>

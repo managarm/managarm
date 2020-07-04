@@ -2,7 +2,7 @@
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
-#include <arch/x86/vmx.hpp>
+#include <thor-internal/arch/vmx.hpp>
 
 #include <thor-internal/kernel.hpp>
 #include <thor-internal/service_helpers.hpp>

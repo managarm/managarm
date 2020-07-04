@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <frg/tuple.hpp>
 #include <frg/utility.hpp>
-#include "../arch/x86/ints.hpp"
+#include <thor-internal/arch/ints.hpp>
 
 namespace thor {
 

@@ -1,5 +1,5 @@
-#include "../arch/x86/pmc-amd.hpp"
-#include "../arch/x86/pmc-intel.hpp"
+#include <thor-internal/arch/pmc-amd.hpp>
+#include <thor-internal/arch/pmc-intel.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/service_helpers.hpp>

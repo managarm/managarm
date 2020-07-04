@@ -22,12 +22,12 @@
 #include "../../hel/include/hel.h"
 
 #include "physical.hpp"
-#include "arch/x86/cpu.hpp"
-#include "arch/x86/ints.hpp"
-#include "arch/x86/paging.hpp"
-#include "arch/x86/pic.hpp"
-#include "arch/x86/hpet.hpp"
-#include "arch/x86/system.hpp"
+#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch/pic.hpp>
+#include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/arch/system.hpp>
 
 #include "kernel_heap.hpp"
 #include "schedule.hpp"

@@ -1,7 +1,7 @@
 #include <thor-internal/kernel.hpp>
 #include "system/acpi/acpi.hpp"
 #include "system/legacy-pc/system.hpp"
-#include "rtc.hpp"
+#include <thor-internal/arch/rtc.hpp>
 
 namespace thor {
 

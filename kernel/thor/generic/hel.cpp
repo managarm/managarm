@@ -10,9 +10,9 @@
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
 #include <thor-internal/random.hpp>
-#include "../arch/x86/debug.hpp"
-#include <arch/x86/ept.hpp>
-#include <arch/x86/vmx.hpp>
+#include <thor-internal/arch/debug.hpp>
+#include <thor-internal/arch/ept.hpp>
+#include <thor-internal/arch/vmx.hpp>
 #include "../../hel/include/hel.h"
 
 using namespace thor;

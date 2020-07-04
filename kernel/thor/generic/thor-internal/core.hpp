@@ -6,7 +6,7 @@
 #include <frigg/callback.hpp>
 #include <frigg/variant.hpp>
 #include "error.hpp"
-#include "../arch/x86/cpu.hpp"
+#include <thor-internal/arch/cpu.hpp>
 #include "schedule.hpp"
 #include "ring-buffer.hpp"
 

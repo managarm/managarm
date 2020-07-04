@@ -1,5 +1,5 @@
 #include <frigg/arch_x86/machine.hpp>
-#include "pmc-amd.hpp"
+#include <thor-internal/arch/pmc-amd.hpp>
 
 namespace thor {
 

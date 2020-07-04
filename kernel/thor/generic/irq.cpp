@@ -1,7 +1,7 @@
 
 #include <thor-internal/irq.hpp>
-#include "../arch/x86/ints.hpp"
-#include "../arch/x86/hpet.hpp"
+#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/arch/hpet.hpp>
 
 namespace thor {
 

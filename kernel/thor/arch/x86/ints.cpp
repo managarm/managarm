@@ -1,8 +1,8 @@
 
 #include <thor-internal/kernel.hpp>
 #include <thor-internal/profile.hpp>
-#include "pmc-amd.hpp"
-#include "pmc-intel.hpp"
+#include <thor-internal/arch/pmc-amd.hpp>
+#include <thor-internal/arch/pmc-intel.hpp>
 
 extern char stubsPtr[], stubsLimit[];
 

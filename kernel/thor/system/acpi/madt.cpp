@@ -4,9 +4,9 @@
 #include <frigg/initializer.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
-#include "../../arch/x86/cpu.hpp"
-#include "../../arch/x86/hpet.hpp"
-#include "../../arch/x86/pic.hpp"
+#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include "../../system/pci/pci.hpp"
 #include "acpi.hpp"

@@ -10,7 +10,7 @@
 #include "cancel.hpp"
 #include "kernel_heap.hpp"
 #include "work-queue.hpp"
-#include "../arch/x86/ints.hpp"
+#include <thor-internal/arch/ints.hpp>
 
 namespace thor {
 
