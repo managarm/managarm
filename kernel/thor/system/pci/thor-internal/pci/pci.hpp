@@ -1,14 +1,13 @@
-#ifndef THOR_SYSTEM_PCI_PCI_HPP
-#define THOR_SYSTEM_PCI_PCI_HPP
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <frigg/smart_ptr.hpp>
 #include <frigg/vector.hpp>
+#include <lai/core.h>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/irq.hpp>
-
-#include <lai/core.h>
 
 namespace thor {
 
@@ -212,5 +211,3 @@ uint8_t readPciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t off
 void writePciWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint32_t value);
 void writePciHalf(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint16_t value);
 void writePciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint8_t value);
-
-#endif // THOR_SYSTEM_PCI_PCI_HPP

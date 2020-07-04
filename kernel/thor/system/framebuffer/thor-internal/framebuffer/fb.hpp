@@ -1,5 +1,4 @@
-#ifndef THOR_SRC_SYSTEM_FB
-#define THOR_SRC_SYSTEM_FB
+#pragma once
 
 #include <thor-internal/address-space.hpp>
 
@@ -21,5 +20,3 @@ void initializeBootFb(uint64_t address, uint64_t pitch, uint64_t width,
 void transitionBootFb();
 
 } // namespace thor
-
-#endif // THOR_SRC_SYSTEM_FB

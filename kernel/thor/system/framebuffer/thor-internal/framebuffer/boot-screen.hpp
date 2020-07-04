@@ -1,6 +1,4 @@
-
-#ifndef THOR_SRC_SYSTEM_BOOT_SCREEN
-#define THOR_SRC_SYSTEM_BOOT_SCREEN
+#pragma once
 
 #include <thor-internal/core.hpp>
 
@@ -49,6 +47,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_SRC_SYSTEM_BOOT_SCREEN
-
