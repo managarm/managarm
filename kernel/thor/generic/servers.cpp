@@ -6,7 +6,7 @@
 #include <frigg/debug.hpp>
 #include <frigg/elf.hpp>
 #include <thor-internal/descriptor.hpp>
-#include "execution/coroutine.hpp"
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>

@@ -4,7 +4,7 @@
 #include <async/oneshot-event.hpp>
 #include <frg/container_of.hpp>
 #include <frg/expected.hpp>
-#include <generic/execution/coroutine.hpp>
+#include <thor-internal/coroutine.hpp>
 #include "memory-view.hpp"
 
 namespace thor {

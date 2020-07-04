@@ -4,7 +4,7 @@
 #include <async/cancellation.hpp>
 #include <frg/container_of.hpp>
 #include <thor-internal/event.hpp>
-#include "execution/coroutine.hpp"
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/kernel.hpp>
 #include <thor-internal/ipc-queue.hpp>
 #include <thor-internal/irq.hpp>

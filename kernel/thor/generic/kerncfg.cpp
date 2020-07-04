@@ -1,7 +1,7 @@
 #include <frg/string.hpp>
 
 #include <thor-internal/descriptor.hpp>
-#include "execution/coroutine.hpp"
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/profile.hpp>

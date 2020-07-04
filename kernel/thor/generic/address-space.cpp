@@ -1,6 +1,6 @@
 
 #include <type_traits>
-#include "execution/coroutine.hpp"
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/kernel.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/service_helpers.hpp>

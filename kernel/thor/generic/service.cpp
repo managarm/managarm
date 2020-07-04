@@ -9,7 +9,7 @@
 #include <posix.frigg_bragi.hpp>
 #include <fs.frigg_pb.hpp>
 
-#include "execution/coroutine.hpp"
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/service_helpers.hpp>
 #include <thor-internal/arch/debug.hpp>
