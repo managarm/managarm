@@ -1,5 +1,5 @@
 #include <thor-internal/kernel.hpp>
-#include "system/acpi/acpi.hpp"
+#include <thor-internal/acpi/acpi.hpp>
 #include "system/legacy-pc/system.hpp"
 #include <thor-internal/arch/rtc.hpp>
 

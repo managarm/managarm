@@ -8,7 +8,7 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/service_helpers.hpp>
 #include <thor-internal/address-space.hpp>
-#include "../acpi/acpi.hpp"
+#include <thor-internal/acpi/acpi.hpp>
 #include "../boot-screen.hpp"
 #include "pci.hpp"
 

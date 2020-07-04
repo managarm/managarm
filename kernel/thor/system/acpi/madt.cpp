@@ -9,8 +9,8 @@
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include "../../system/pci/pci.hpp"
-#include "acpi.hpp"
-#include "pm-interface.hpp"
+#include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/acpi/pm-interface.hpp>
 
 #include <lai/core.h>
 #include <lai/helpers/pc-bios.h>

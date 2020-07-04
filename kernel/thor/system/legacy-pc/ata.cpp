@@ -3,7 +3,7 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/service_helpers.hpp>
-#include "../../system/acpi/acpi.hpp"
+#include <thor-internal/acpi/acpi.hpp>
 
 namespace thor {
 	extern frigg::LazyInitializer<LaneHandle> mbusClient;
