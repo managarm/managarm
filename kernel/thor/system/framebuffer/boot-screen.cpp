@@ -1,6 +1,6 @@
 
 #include <frigg/debug.hpp>
-#include "boot-screen.hpp"
+#include <thor-internal/framebuffer/boot-screen.hpp>
 
 namespace thor {
 

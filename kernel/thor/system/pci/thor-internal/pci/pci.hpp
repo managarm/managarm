@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <frigg/smart_ptr.hpp>
 #include <frigg/vector.hpp>
-#include "../fb.hpp"
+#include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/irq.hpp>
 
 #include <lai/core.h>

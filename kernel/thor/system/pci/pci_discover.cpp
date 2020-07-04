@@ -9,7 +9,7 @@
 #include <thor-internal/service_helpers.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/acpi/acpi.hpp>
-#include "../boot-screen.hpp"
+#include <thor-internal/framebuffer/boot-screen.hpp>
 #include <thor-internal/pci/pci.hpp>
 
 #include <lai/core.h>

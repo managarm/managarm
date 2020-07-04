@@ -15,7 +15,7 @@
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
 #include <thor-internal/pci/pci.hpp>
-#include "../system/fb.hpp"
+#include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/arch/ept.hpp>
 
 namespace thor {
