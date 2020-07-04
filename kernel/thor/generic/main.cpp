@@ -1,12 +1,12 @@
 
 #include <algorithm>
 
-#include <thor-internal/kernel.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/kernlet.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
@@ -16,6 +16,7 @@
 #include <eir/interface.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
+#include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/ept.hpp>
 
 namespace thor {

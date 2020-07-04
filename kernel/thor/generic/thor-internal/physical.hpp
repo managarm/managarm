@@ -2,6 +2,8 @@
 
 #include <atomic>
 
+#include <frigg/atomic.hpp>
+#include <frigg/initializer.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/types.hpp>
 

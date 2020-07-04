@@ -1,4 +1,3 @@
-#include <thor-internal/kernel.hpp>
 #include <thor-internal/module.hpp>
 
 #include <bragi/helpers-frigg.hpp>

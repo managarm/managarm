@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include <frg/container_of.hpp>
-#include <thor-internal/kernel.hpp>
 
 #include <thor-internal/core.hpp>
 

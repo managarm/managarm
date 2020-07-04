@@ -3,8 +3,8 @@
 
 #include <frg/container_of.hpp>
 #include <frigg/debug.hpp>
+#include <thor-internal/core.hpp>
 #include <thor-internal/ipc-queue.hpp>
-#include <thor-internal/kernel.hpp>
 
 namespace thor {
 

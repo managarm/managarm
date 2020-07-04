@@ -5,11 +5,12 @@
 #include <frg/container_of.hpp>
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
-#include <thor-internal/kernel.hpp>
 #include <thor-internal/ipc-queue.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/random.hpp>
+#include <thor-internal/thread.hpp>
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>

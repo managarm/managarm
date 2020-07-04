@@ -1,7 +1,9 @@
 
 #include <arch/variable.hpp>
 #include <frg/list.hpp>
-#include <thor-internal/kernel.hpp>
+#include <thor-internal/core.hpp>
+#include <thor-internal/physical.hpp>
+#include <thor-internal/arch/paging.hpp>
 
 // --------------------------------------------------------
 // Physical page access.

@@ -1,7 +1,7 @@
 
 #include <type_traits>
 #include <thor-internal/coroutine.hpp>
-#include <thor-internal/kernel.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/service_helpers.hpp>
 #include <frg/container_of.hpp>

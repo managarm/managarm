@@ -1,4 +1,9 @@
-#include <thor-internal/kernel.hpp>
+#include <assert.h>
+
+#include <frigg/debug.hpp>
+#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/physical.hpp>
 
 namespace thor {
 

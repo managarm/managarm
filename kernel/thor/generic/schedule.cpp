@@ -1,5 +1,10 @@
+#include <assert.h>
 
-#include <thor-internal/kernel.hpp>
+#include <frigg/debug.hpp>
+#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/core.hpp>
+#include <thor-internal/schedule.hpp>
 
 namespace thor {
 

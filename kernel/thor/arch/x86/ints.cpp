@@ -1,6 +1,7 @@
 
-#include <thor-internal/kernel.hpp>
+#include <thor-internal/core.hpp>
 #include <thor-internal/profile.hpp>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
 

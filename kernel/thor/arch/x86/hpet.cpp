@@ -1,12 +1,16 @@
 
 #include <frg/intrusive.hpp>
+#include <frigg/debug.hpp>
 
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
 #include <arch/mem_space.hpp>
 #include <arch/io_space.hpp>
 
-#include <thor-internal/kernel.hpp>
+#include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch/pic.hpp>
+#include <thor-internal/irq.hpp>
 
 namespace thor {
 

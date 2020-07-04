@@ -1,5 +1,6 @@
 
-#include <thor-internal/kernel.hpp>
+#include <thor-internal/core.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
 
 // This is required for virtual destructors. It should not be called though.

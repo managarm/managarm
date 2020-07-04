@@ -1,11 +1,16 @@
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <frg/list.hpp>
 #include <frg/pairing_heap.hpp>
+#include <frigg/atomic.hpp>
 
 namespace thor {
 
 struct Scheduler;
+struct CpuData;
 
 enum class ScheduleState {
 	null,

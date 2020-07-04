@@ -1,5 +1,7 @@
 #pragma once
 
+#include <thor-internal/irq.hpp>
+
 namespace thor {
 
 // Stores the global IRQ information (GSI, trigger mode, polarity)

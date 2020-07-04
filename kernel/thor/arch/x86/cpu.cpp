@@ -4,7 +4,6 @@
 #include <arch/io_space.hpp>
 #include <thor-internal/arch/vmx.hpp>
 
-#include <thor-internal/kernel.hpp>
 #include <thor-internal/service_helpers.hpp>
 
 namespace thor {
