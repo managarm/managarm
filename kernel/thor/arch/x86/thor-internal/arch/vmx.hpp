@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../../hel/include/hel.h"
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/virtualization.hpp>
-#include "../../../hel/include/hel.h"
 
 namespace thor::vmx {
 	constexpr uint64_t MSR_IA32_VMX_PINBASED_CTLS        = 0x00000481;

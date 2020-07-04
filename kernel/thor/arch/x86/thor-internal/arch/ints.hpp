@@ -1,7 +1,7 @@
-#ifndef THOR_ARCH_X86_INTS_HPP
-#define THOR_ARCH_X86_INTS_HPP
+#pragma once
 
 #include <atomic>
+
 #include <frigg/atomic.hpp>
 #include <frigg/debug.hpp>
 
@@ -132,5 +132,3 @@ private:
 IrqMutex &irqMutex();
 
 } // namespace thor
-
-#endif // THOR_ARCH_X86_INTS_HPP

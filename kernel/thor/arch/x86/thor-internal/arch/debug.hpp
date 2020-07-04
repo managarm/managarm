@@ -1,3 +1,4 @@
+#pragma once
 
 namespace _debug {
 
@@ -45,4 +46,3 @@ template<typename T>
 void breakOnWrite(const T *p) {
 	_debug::BreakOnWrite<T>::invoke(p);
 }
-

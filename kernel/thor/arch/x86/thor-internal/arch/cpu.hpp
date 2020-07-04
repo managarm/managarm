@@ -1,19 +1,19 @@
-#ifndef THOR_ARCH_X86_CPU_HPP
-#define THOR_ARCH_X86_CPU_HPP
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
 #include <utility>
+
 #include <frg/tuple.hpp>
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/arch_x86/idt.hpp>
-#include <frigg/arch_x86/tss.hpp>
 #include <frigg/arch_x86/machine.hpp>
+#include <frigg/arch_x86/tss.hpp>
 #include <frigg/smart_ptr.hpp>
+#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/types.hpp>
-#include "ints.hpp"
-#include "paging.hpp"
-#include "pic.hpp"
 
 namespace thor {
 
@@ -671,5 +671,3 @@ void forkExecutor(F functor, Executor *executor) {
 Error getEntropyFromCpu(void *buffer, size_t size);
 
 } // namespace thor
-
-#endif // THOR_ARCH_X86_CPU_HPP

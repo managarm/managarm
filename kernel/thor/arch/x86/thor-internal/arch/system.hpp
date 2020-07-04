@@ -1,3 +1,4 @@
+#pragma once
 
 namespace thor {
 
@@ -6,4 +7,3 @@ void initializeBasicSystem();
 void initializeExtendedSystem();
 
 } // namespace thor
-

@@ -1,3 +1,4 @@
+#pragma once
 
 #include <thor-internal/types.hpp>
 #include <thor-internal/timer.hpp>
@@ -11,4 +12,3 @@ void setupHpet(PhysicalAddr address);
 void pollSleepNano(uint64_t nanotime);
 
 } // namespace thor
-

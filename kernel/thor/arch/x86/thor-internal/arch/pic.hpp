@@ -1,13 +1,10 @@
-#ifndef THOR_ARCH_X86_PIC_HPP
-#define THOR_ARCH_X86_PIC_HPP
-
-#include <thor-internal/irq.hpp>
-#include <thor-internal/types.hpp>
-#include <thor-internal/timer.hpp>
+#pragma once
 
 #include <arch/mem_space.hpp>
 #include <frigg/arch_x86/machine.hpp>
-
+#include <thor-internal/irq.hpp>
+#include <thor-internal/timer.hpp>
+#include <thor-internal/types.hpp>
 
 namespace thor {
 
@@ -152,5 +149,3 @@ void acknowledgeIrq(int irq);
 IrqPin *getGlobalSystemIrq(size_t n);
 
 } // namespace thor
-
-#endif // THOR_ARCH_X86_PIC_HPP
