@@ -1,12 +1,10 @@
-#ifndef THOR_GENERIC_KERNEL_HEAP_HPP
-#define THOR_GENERIC_KERNEL_HEAP_HPP
+#pragma once
 
+#include <frg/slab.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/initializer.hpp>
-#include <frg/slab.hpp>
-
-#include <thor-internal/arch/stack.hpp>
 #include <physical-buddy.hpp>
+#include <thor-internal/arch/stack.hpp>
 
 namespace thor {
 
@@ -85,5 +83,3 @@ struct Allocator {
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_KERNEL_HEAP_HPP

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <async/basic.hpp>
-#include "stream.hpp"
+#include <thor-internal/stream.hpp>
 
 namespace thor {
 

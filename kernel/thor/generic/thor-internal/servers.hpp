@@ -1,5 +1,4 @@
-#ifndef THOR_GENERIC_SERVERS_HPP
-#define THOR_GENERIC_SERVERS_HPP
+#pragma once
 
 namespace thor {
 
@@ -8,5 +7,3 @@ void runMbus();
 LaneHandle runServer(frg::string_view name);
 
 } // namespace thor
-
-#endif // THOR_GENERIC_SERVERS_HPP

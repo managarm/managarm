@@ -1,5 +1,4 @@
-#ifndef THOR_GENERIC_STREAM_HPP
-#define THOR_GENERIC_STREAM_HPP
+#pragma once
 
 #include <stddef.h>
 #include <string.h>
@@ -9,9 +8,9 @@
 #include <frigg/array.hpp>
 #include <frigg/linked.hpp>
 #include <frigg/vector.hpp>
-#include "core.hpp"
-#include "error.hpp"
-#include "kernel_heap.hpp"
+#include <thor-internal/core.hpp>
+#include <thor-internal/error.hpp>
+#include <thor-internal/kernel_heap.hpp>
 
 namespace thor {
 
@@ -555,5 +554,3 @@ void submitPullDescriptor(LaneHandle lane, F functor) {
 }
 
 } // namespace thor
-
-#endif // THOR_GENERIC_STREAM_HPP

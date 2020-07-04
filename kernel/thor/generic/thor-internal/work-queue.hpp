@@ -1,5 +1,4 @@
-#ifndef THOR_GENERIC_WORK_QUEUE_HPP
-#define THOR_GENERIC_WORK_QUEUE_HPP
+#pragma once
 
 #include <atomic>
 
@@ -138,5 +137,3 @@ inline void Worklet::setup(void (*run)(Worklet *)) {
 }
 
 } // namespace thor
-
-#endif // THOR_GENERIC_WORK_QUEUE_HPP

@@ -1,12 +1,11 @@
-#ifndef THOR_GENERIC_DESCRIPTOR_HPP
-#define THOR_GENERIC_DESCRIPTOR_HPP
+#pragma once
 
 #include <frigg/smart_ptr.hpp>
 #include <frigg/variant.hpp>
 #include <smarter.hpp>
-#include "mm-rc.hpp"
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
+#include <thor-internal/mm-rc.hpp>
 #include <thor-internal/virtualization.hpp>
 
 namespace thor {
@@ -237,5 +236,3 @@ typedef frigg::Variant<
 > AnyDescriptor;
 
 } // namespace thor
-
-#endif // THOR_GENERIC_DESCRIPTOR_HPP

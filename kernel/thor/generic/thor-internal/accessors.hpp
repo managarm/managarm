@@ -1,9 +1,7 @@
-#ifndef THOR_GENERIC_ACCESSOR_HPP
-#define THOR_GENERIC_ACCESSOR_HPP
+#pragma once
 
 #include <frigg/variant.hpp>
-
-#include "address-space.hpp"
+#include <thor-internal/address-space.hpp>
 #include <thor-internal/arch/paging.hpp>
 
 namespace thor {
@@ -150,5 +148,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_ACCESSOR_HPP

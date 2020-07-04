@@ -5,10 +5,10 @@
 #include <async/recurring-event.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/vector.hpp>
-#include "error.hpp"
-#include "types.hpp"
-#include "futex.hpp"
 #include <thor-internal/arch/paging.hpp>
+#include <thor-internal/error.hpp>
+#include <thor-internal/futex.hpp>
+#include <thor-internal/types.hpp>
 
 namespace thor {
 

@@ -1,5 +1,4 @@
-#ifndef THOR_GENERIC_SCHEDULE_HPP
-#define THOR_GENERIC_SCHEDULE_HPP
+#pragma once
 
 #include <frg/list.hpp>
 #include <frg/pairing_heap.hpp>
@@ -160,5 +159,3 @@ private:
 Scheduler *localScheduler();
 
 } // namespace thor
-
-#endif // THOR_GENERIC_SCHEDULE_HPP

@@ -1,14 +1,13 @@
-#ifndef THOR_GENERIC_THREAD_HPP
-#define THOR_GENERIC_THREAD_HPP
+#pragma once
 
 #include <string.h>
 #include <atomic>
 
 #include <frg/container_of.hpp>
-#include "core.hpp"
-#include "error.hpp"
-#include "schedule.hpp"
-#include "work-queue.hpp"
+#include <thor-internal/core.hpp>
+#include <thor-internal/error.hpp>
+#include <thor-internal/schedule.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -332,5 +331,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_THREAD_HPP

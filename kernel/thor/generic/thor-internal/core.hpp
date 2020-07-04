@@ -1,14 +1,13 @@
-#ifndef THOR_GENERIC_CORE_HPP
-#define THOR_GENERIC_CORE_HPP
+#pragma once
 
-#include <frg/optional.hpp>
 #include <frg/hash_map.hpp>
+#include <frg/optional.hpp>
 #include <frigg/callback.hpp>
 #include <frigg/variant.hpp>
-#include "error.hpp"
 #include <thor-internal/arch/cpu.hpp>
-#include "schedule.hpp"
-#include "ring-buffer.hpp"
+#include <thor-internal/error.hpp>
+#include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/schedule.hpp>
 
 namespace thor {
 
@@ -103,12 +102,12 @@ inline ExecutorContext *localExecutorContext() {
 
 } // namespace thor
 
-#include "descriptor.hpp"
-#include "accessors.hpp"
-#include "address-space.hpp"
-#include "thread.hpp"
-#include "stream.hpp"
-#include "io.hpp"
+#include <thor-internal/accessors.hpp>
+#include <thor-internal/address-space.hpp>
+#include <thor-internal/descriptor.hpp>
+#include <thor-internal/io.hpp>
+#include <thor-internal/stream.hpp>
+#include <thor-internal/thread.hpp>
 
 namespace thor {
 
@@ -155,5 +154,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_CORE_HPP

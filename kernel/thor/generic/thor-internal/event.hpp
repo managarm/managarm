@@ -1,9 +1,8 @@
-#ifndef THOR_EVENT_HPP
-#define THOR_EVENT_HPP
+#pragma once
 
 #include <frg/list.hpp>
-#include "error.hpp"
-#include "work-queue.hpp"
+#include <thor-internal/error.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -77,5 +76,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_EVENT_HPP

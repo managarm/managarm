@@ -1,9 +1,8 @@
-#ifndef THOR_GENERIC_IO_HPP
-#define THOR_GENERIC_IO_HPP
+#pragma once
 
 #include <frigg/smart_ptr.hpp>
 #include <frigg/vector.hpp>
-#include "thread.hpp"
+#include <thor-internal/thread.hpp>
 
 namespace thor {
 
@@ -24,5 +23,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_IO_HPP

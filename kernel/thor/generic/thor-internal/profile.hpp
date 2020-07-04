@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ring-buffer.hpp"
+#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 

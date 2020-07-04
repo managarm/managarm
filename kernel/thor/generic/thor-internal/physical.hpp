@@ -2,8 +2,8 @@
 
 #include <atomic>
 
-#include "types.hpp"
 #include <physical-buddy.hpp>
+#include <thor-internal/types.hpp>
 
 namespace thor {
 

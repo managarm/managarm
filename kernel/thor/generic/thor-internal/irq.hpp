@@ -1,14 +1,13 @@
-#ifndef THOR_GENERIC_IRQ_HPP
-#define THOR_GENERIC_IRQ_HPP
+#pragma once
 
+#include <frg/list.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/linked.hpp>
 #include <frigg/string.hpp>
-#include <frg/list.hpp>
-#include "error.hpp"
-#include "kernel_heap.hpp"
-#include "kernlet.hpp"
-#include "work-queue.hpp"
+#include <thor-internal/error.hpp>
+#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernlet.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -248,5 +247,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_IRQ_HPP

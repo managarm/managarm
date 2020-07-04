@@ -1,9 +1,8 @@
-#ifndef THOR_GENERIC_KERNLET_HPP
-#define THOR_GENERIC_KERNLET_HPP
+#pragma once
 
 #include <frg/vector.hpp>
 #include <frigg/variant.hpp>
-#include "event.hpp"
+#include <thor-internal/event.hpp>
 
 namespace thor {
 
@@ -63,5 +62,3 @@ private:
 void initializeKernletCtl();
 
 } // namespace thor
-
-#endif // THOR_GENERIC_KERNLET_HPP

@@ -1,16 +1,15 @@
-#ifndef THOR_GENERIC_FUTEX_HPP
-#define THOR_GENERIC_FUTEX_HPP
+#pragma once
 
 #include <async/cancellation.hpp>
-#include <frg/hash_map.hpp>
 #include <frg/functional.hpp>
+#include <frg/hash_map.hpp>
 #include <frg/list.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/linked.hpp>
-#include "cancel.hpp"
-#include "kernel_heap.hpp"
-#include "work-queue.hpp"
 #include <thor-internal/arch/ints.hpp>
+#include <thor-internal/cancel.hpp>
+#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -267,5 +266,3 @@ inline void FutexNode::onCancel() {
 }
 
 } // namespace thor
-
-#endif // THOR_GENERIC_FUTEX_HPP

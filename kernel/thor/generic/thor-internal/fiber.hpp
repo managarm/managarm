@@ -1,11 +1,10 @@
-#ifndef THOR_GENERIC_FIBER_HPP
-#define THOR_GENERIC_FIBER_HPP
+#pragma once
 
-#include <frigg/callback.hpp>
 #include <frg/container_of.hpp>
+#include <frigg/callback.hpp>
 #include <thor-internal/arch/cpu.hpp>
-#include "core.hpp"
-#include "schedule.hpp"
+#include <thor-internal/core.hpp>
+#include <thor-internal/schedule.hpp>
 
 namespace thor {
 
@@ -88,5 +87,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_FIBER_HPP

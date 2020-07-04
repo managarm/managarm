@@ -1,16 +1,15 @@
-#ifndef THOR_GENERIC_TIMER_HPP
-#define THOR_GENERIC_TIMER_HPP
+#pragma once
 
 #include <atomic>
 
 #include <async/basic.hpp>
 #include <async/cancellation.hpp>
 #include <frg/container_of.hpp>
-#include <frg/pairing_heap.hpp>
 #include <frg/intrusive.hpp>
+#include <frg/pairing_heap.hpp>
 #include <frigg/atomic.hpp>
-#include "cancel.hpp"
-#include "work-queue.hpp"
+#include <thor-internal/cancel.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -206,5 +205,3 @@ ClockSource *systemClockSource();
 PrecisionTimerEngine *generalTimerEngine();
 
 } // namespace thor
-
-#endif // THOR_GENERIC_TIMER_HPP

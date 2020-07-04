@@ -1,7 +1,9 @@
 #pragma once
+
 #include "../../../hel/include/hel.h"
+
+#include <thor-internal/address-space.hpp>
 #include <thor-internal/error.hpp>
-#include "address-space.hpp"
 
 namespace thor {
 	struct GuestState {

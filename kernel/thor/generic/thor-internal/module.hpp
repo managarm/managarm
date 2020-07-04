@@ -1,10 +1,9 @@
-#ifndef THOR_GENERIC_MODULE_HPP
-#define THOR_GENERIC_MODULE_HPP
+#pragma once
 
 #include <frg/string.hpp>
 #include <frigg/vector.hpp>
-#include "kernel_heap.hpp"
-#include "address-space.hpp"
+#include <thor-internal/address-space.hpp>
+#include <thor-internal/kernel_heap.hpp>
 
 namespace thor {
 
@@ -79,5 +78,3 @@ extern MfsDirectory *mfsRoot;
 MfsNode *resolveModule(frg::string_view path);
 
 } // namespace thor
-
-#endif // THOR_GENERIC_MODULE_HPP

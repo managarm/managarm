@@ -1,12 +1,11 @@
-#ifndef THOR_GENERIC_IPCQUEUE_HPP
-#define THOR_GENERIC_IPCQUEUE_HPP
+#pragma once
 
-#include <frigg/vector.hpp>
 #include <frg/list.hpp>
-#include "accessors.hpp"
-#include "cancel.hpp"
-#include "kernel_heap.hpp"
+#include <frigg/vector.hpp>
+#include <thor-internal/accessors.hpp>
 #include <thor-internal/arch/ints.hpp>
+#include <thor-internal/cancel.hpp>
+#include <thor-internal/kernel_heap.hpp>
 
 namespace thor {
 
@@ -223,5 +222,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_IPCQUEUE_HPP

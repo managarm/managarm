@@ -1,11 +1,10 @@
-#ifndef THOR_GENERIC_CANCEL_HPP
-#define THOR_GENERIC_CANCEL_HPP
+#pragma once
 
 #include <stdint.h>
 
 #include <frg/hash_map.hpp>
 #include <frigg/smart_ptr.hpp>
-#include "kernel_heap.hpp"
+#include <thor-internal/kernel_heap.hpp>
 
 namespace thor {
 
@@ -85,5 +84,3 @@ private:
 };
 
 } // namespace thor
-
-#endif // THOR_GENERIC_CANCEL_HPP
