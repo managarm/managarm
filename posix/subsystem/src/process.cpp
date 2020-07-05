@@ -122,15 +122,15 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	co_return pointer;
 }
 
-async::result<void *> VmContext::remapFile(void *old_pointer,
-		size_t old_size, size_t new_size) {
-	size_t aligned_old_size = (old_size + 0xFFF) & ~size_t(0xFFF);
-	size_t aligned_new_size = (new_size + 0xFFF) & ~size_t(0xFFF);
+async::result<void *> VmContext::remapFile(void *oldPointer,
+		size_t oldSize, size_t newSize) {
+	size_t alignedOldSize = (oldSize + 0xFFF) & ~size_t(0xFFF);
+	size_t alignedNewSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 
-//	std::cout << "posix: Remapping " << old_pointer << std::endl;
-	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(old_pointer));
+//	std::cout << "posix: Remapping " << oldPointer << std::endl;
+	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(oldPointer));
 	assert(it != _areaTree.end());
-	assert(it->second.areaSize == aligned_old_size);
+	assert(it->second.areaSize == alignedOldSize);
 
 	assert(!it->second.copyOnWrite);
 
@@ -140,25 +140,27 @@ async::result<void *> VmContext::remapFile(void *old_pointer,
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
-			nullptr, it->second.offset, aligned_new_size,
+			nullptr, it->second.offset, alignedNewSize,
 			it->second.nativeFlags, &pointer));
 //	std::cout << "posix: VM_REMAP returns " << pointer << std::endl;
 
 	// Unmap the old area.
-	HEL_CHECK(helUnmapMemory(_space.getHandle(), old_pointer, aligned_old_size));
+	HEL_CHECK(helUnmapMemory(_space.getHandle(), oldPointer, alignedOldSize));
 
 	// Construct the new area from the old one.
 	Area area;
 	area.copyOnWrite = it->second.copyOnWrite;
-	area.areaSize = aligned_new_size;
+	area.areaSize = alignedNewSize;
 	area.nativeFlags = it->second.nativeFlags;
+	area.fileView = std::move(it->second.fileView);
+	area.copyView = std::move(it->second.copyView);
 	area.file = std::move(it->second.file);
 	area.offset = it->second.offset;
 	_areaTree.erase(it);
 
 	// Perform some sanity checking.
 	auto address = reinterpret_cast<uintptr_t>(pointer);
-	auto succ = _areaTree.lower_bound(address + aligned_new_size);
+	auto succ = _areaTree.lower_bound(address + alignedNewSize);
 	if(succ != _areaTree.begin()) {
 		auto pred = std::prev(succ);
 		assert(pred->first + pred->second.areaSize <= address);
