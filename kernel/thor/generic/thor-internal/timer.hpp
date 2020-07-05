@@ -19,6 +19,8 @@ struct ClockSource {
 	virtual uint64_t currentNanos() = 0;
 };
 
+ClockSource *systemClockSource();
+
 struct AlarmSink {
 	virtual void firedAlarm() = 0;
 };
@@ -139,6 +141,10 @@ public:
 		return {this, deadline, cancellation};
 	}
 
+	SleepSender sleepFor(uint64_t nanos, async::cancellation_token cancellation = {}) {
+		return {this, systemClockSource()->currentNanos() + nanos, cancellation};
+	}
+
 	template<typename R>
 	struct SleepOperation {
 		SleepOperation(SleepSender s, R receiver)
@@ -201,7 +207,6 @@ inline void PrecisionTimerNode::CancelFunctor::operator() () {
 	node_->_engine->cancelTimer(node_);
 }
 
-ClockSource *systemClockSource();
 PrecisionTimerEngine *generalTimerEngine();
 
 } // namespace thor

@@ -146,7 +146,7 @@ struct MemoryReclaimer {
 
 				while(checkReclaim())
 					;
-				fiberSleep(1'000'000'000);
+				KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(1'000'000'000));
 			}
 		});
 	}

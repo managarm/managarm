@@ -47,7 +47,7 @@ void initializeProfile() {
 					deqPtr, buffer, 128);
 			deqPtr = newPtr;
 			if(!success) {
-				fiberSleep(1'000'000);
+				KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(1'000'000));
 				continue;
 			}
 			assert(size);

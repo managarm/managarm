@@ -9,9 +9,18 @@
 namespace thor {
 
 struct KernelFiber;
-struct FiberBlocker;
 
 KernelFiber *thisFiber();
+
+struct FiberBlocker {
+	friend struct KernelFiber;
+
+	void setup();
+
+private:
+	KernelFiber *_fiber;
+	bool _done;
+};
 
 struct KernelFiber : ScheduleEntity {
 private:
@@ -27,6 +36,27 @@ private:
 
 public:
 	static void blockCurrent(FiberBlocker *blocker);
+
+	template<typename Sender>
+	static void asyncBlockCurrent(Sender s) {
+		struct Closure {
+			FiberBlocker blocker;
+		} closure;
+
+		struct Receiver {
+			void set_value() {
+				KernelFiber::unblockOther(&closure->blocker);
+			}
+
+			Closure *closure;
+		};
+
+		closure.blocker.setup();
+		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
+		async::execution::start(operation);
+		KernelFiber::blockCurrent(&closure.blocker);
+	}
+
 	static void exitCurrent();
 
 	static void unblockOther(FiberBlocker *blocker);
@@ -74,16 +104,6 @@ private:
 	FiberContext _fiberContext;
 	ExecutorContext _executorContext;
 	Executor _executor;
-};
-
-struct FiberBlocker {
-	friend struct KernelFiber;
-
-	void setup();
-
-private:
-	KernelFiber *_fiber;
-	bool _done;
 };
 
 } // namespace thor

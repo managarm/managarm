@@ -655,7 +655,7 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 			for(size_t i = 0; i < apic->pinCount(); ++i)
 				apic->accessPin(i)->warnIfPending();
 
-			fiberSleep(500'000'000);
+			KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(500'000'000));
 		}
 	}));
 }

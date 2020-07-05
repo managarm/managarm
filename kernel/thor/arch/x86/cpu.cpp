@@ -4,6 +4,7 @@
 #include <arch/io_space.hpp>
 #include <thor-internal/arch/vmx.hpp>
 
+#include <thor-internal/fiber.hpp>
 #include <thor-internal/service_helpers.hpp>
 
 namespace thor {
@@ -978,14 +979,14 @@ void bootSecondary(unsigned int apic_id) {
 	// The BIOS is not involved in this process at all.
 	frigg::infoLogger() << "thor: Booting AP " << apic_id << "." << frigg::endLog;
 	raiseInitAssertIpi(apic_id);
-	fiberSleep(10000000); // Wait for 10ms.
+	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(10'000'000)); // Wait for 10ms.
 
 	// SIPI causes the processor to resume execution and resets CS:IP.
 	// Intel suggets to send two SIPIs (probably for redundancy reasons).
 	raiseStartupIpi(apic_id, pma);
-	fiberSleep(200000); // Wait for 200us.
+	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(200'000)); // Wait for 200us.
 	raiseStartupIpi(apic_id, pma);
-	fiberSleep(200000); // Wait for 200us.
+	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(200'000)); // Wait for 200us.
 
 	// Wait until the AP wakes up.
 	while(__atomic_load_n(&status_block->targetStage, __ATOMIC_ACQUIRE) < 1) {
