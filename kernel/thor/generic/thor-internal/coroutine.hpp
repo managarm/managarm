@@ -22,6 +22,8 @@ struct coroutine {
 	template<typename T_, typename R>
 	friend struct coroutine_operation;
 
+	using value_type = T;
+
 	struct promise_type {
 		template<typename T_, typename R>
 		friend struct coroutine_operation;
@@ -130,6 +132,8 @@ template<>
 struct coroutine<void> {
 	template<typename T_, typename R>
 	friend struct coroutine_operation;
+
+	using value_type = void;
 
 	struct promise_type {
 		template<typename T_, typename R>

@@ -241,7 +241,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-					fiberCopyToBundle(memory.get(), 0, data, file_size);
+					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size));
 		
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
@@ -262,12 +262,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		initializeKerncfg();
 		initializeSvrctl();
 		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
-		runMbus();
+		KernelFiber::asyncBlockCurrent(runMbus());
 		initializeKernletCtl();
-		runServer("sbin/kernletcc");
-		runServer("sbin/clocktracker");
-		runServer("sbin/posix-subsystem");
-		runServer("sbin/virtio-console");
+		KernelFiber::asyncBlockCurrent(runServer("sbin/kernletcc"));
+		KernelFiber::asyncBlockCurrent(runServer("sbin/clocktracker"));
+		KernelFiber::asyncBlockCurrent(runServer("sbin/posix-subsystem"));
+		KernelFiber::asyncBlockCurrent(runServer("sbin/virtio-console"));
 	});
 
 	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;

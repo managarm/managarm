@@ -42,7 +42,8 @@ void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
 // File management.
 // ------------------------------------------------------------------------
 
-bool createMfsFile(frg::string_view path, const void *buffer, size_t size, MfsRegular **out) {
+coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
+		MfsRegular **out) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&globalMfsMutex);
 
@@ -90,17 +91,17 @@ bool createMfsFile(frg::string_view path, const void *buffer, size_t size, MfsRe
 	if(auto file = directory->getTarget(name); file) {
 		assert(file->type == MfsType::regular);
 		*out = static_cast<MfsRegular *>(file);
-		return false;
+		co_return false;
 	}
 
 	auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-	fiberCopyToBundle(memory.get(), 0, buffer, size);
+	co_await copyToView(memory.get(), 0, buffer, size);
 
 	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
 	directory->link(frg::string<KernelAlloc>{*kernelAlloc, name}, file);
 	*out = file;
-	return true;
+	co_return true;
 }
 
 MfsNode *resolveModule(frg::string_view path) {
@@ -158,13 +159,13 @@ struct ImageInfo {
 	frg::string<KernelAlloc> interpreter;
 };
 
-ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
+coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
 		VirtualAddr base, frigg::SharedPtr<MemoryView> image) {
 	ImageInfo info;
 
 	// parse the ELf file format
 	Elf64_Ehdr ehdr;
-	fiberCopyFromBundle(image.get(), 0, &ehdr, sizeof(Elf64_Ehdr));
+	co_await copyFromView(image.get(), 0, &ehdr, sizeof(Elf64_Ehdr));
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
@@ -176,7 +177,7 @@ ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> spac
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
-		fiberCopyFromBundle(image.get(), ehdr.e_phoff + i * ehdr.e_phentsize,
+		co_await copyFromView(image.get(), ehdr.e_phoff + i * ehdr.e_phentsize,
 				&phdr, sizeof(Elf64_Phdr));
 		
 		if(phdr.p_type == PT_LOAD) {
@@ -221,7 +222,7 @@ ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> spac
 			}
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
-			fiberCopyFromBundle(image.get(), phdr.p_offset,
+			co_await copyFromView(image.get(), phdr.p_offset,
 					info.interpreter.data(), phdr.p_filesz);
 		}else if(phdr.p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr.p_vaddr;
@@ -235,7 +236,7 @@ ImageInfo loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> spac
 		}
 	}
 
-	return info;
+	co_return info;
 }
 
 template<typename T>
@@ -249,18 +250,18 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(frg::string_view name, MfsRegular *module,
+coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 		LaneHandle control_lane,
 		LaneHandle xpipe_lane, LaneHandle mbus_lane,
 		Scheduler *scheduler) {
 	auto space = AddressSpace::create();
 
-	ImageInfo exec_info = loadModuleImage(space, 0, module->getMemory());
+	ImageInfo exec_info = co_await loadModuleImage(space, 0, module->getMemory());
 
 	// FIXME: use actual interpreter name here
 	auto rtdl_module = resolveModule("lib/ld-init.so");
 	assert(rtdl_module && rtdl_module->type == MfsType::regular);
-	ImageInfo interp_info = loadModuleImage(space, 0x40000000,
+	ImageInfo interp_info = co_await loadModuleImage(space, 0x40000000,
 			static_cast<MfsRegular *>(rtdl_module)->getMemory());
 
 	// allocate and map memory for the user mode stack
@@ -282,7 +283,7 @@ void executeModule(frg::string_view name, MfsRegular *module,
 	frigg::String<KernelAlloc> data_area(*kernelAlloc);
 
 	uintptr_t data_disp = stack_size - data_area.size();
-	fiberCopyToBundle(stack_memory.get(), data_disp, data_area.data(), data_area.size());
+	co_await copyToView(stack_memory.get(), data_disp, data_area.data(), data_area.size());
 
 	// build the stack tail area (containing the aux vector).
 	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
@@ -343,7 +344,7 @@ void executeModule(frg::string_view name, MfsRegular *module,
 	
 	uintptr_t tail_disp = data_disp - tail_area.size();
 	assert(!(tail_disp % 16));
-	fiberCopyToBundle(stack_memory.get(), tail_disp, tail_area.data(), tail_area.size());
+	co_await copyToView(stack_memory.get(), tail_disp, tail_area.data(), tail_area.size());
 
 	// create a thread for the module
 	AbiParameters params;
@@ -368,7 +369,7 @@ void executeModule(frg::string_view name, MfsRegular *module,
 	Thread::resumeOther(thread);
 }
 
-void runMbus() {
+coroutine<void> runMbus() {
 	if(debugLaunch)
 		frigg::infoLogger() << "thor: Launching mbus" << frigg::endLog;
 
@@ -383,12 +384,12 @@ void runMbus() {
 
 	auto module = resolveModule("/sbin/mbus");
 	assert(module && module->type == MfsType::regular);
-	executeModule("/sbin/mbus", static_cast<MfsRegular *>(module),
+	co_await executeModule("/sbin/mbus", static_cast<MfsRegular *>(module),
 			control_stream.get<0>(),
 			mbus_stream.get<0>(), LaneHandle{}, localScheduler());
 }
 
-LaneHandle runServer(frg::string_view name) {
+coroutine<LaneHandle> runServer(frg::string_view name) {
 	if(debugLaunch)
 		// TODO: Get rid of the explicit frigg::String constructor call here.
 		frigg::infoLogger() << "thor: Launching server " << frigg::String<KernelAlloc>{*kernelAlloc,
@@ -400,7 +401,7 @@ LaneHandle runServer(frg::string_view name) {
 			// TODO: Get rid of the explicit frigg::String constructor call here.
 			frigg::infoLogger() << "thor: Server " << frigg::String<KernelAlloc>{*kernelAlloc,
 				name.data(), name.size()} << " is already running" << frigg::endLog;
-		return *server;
+		co_return *server;
 	}
 
 	auto module = resolveModule(name);
@@ -414,11 +415,11 @@ LaneHandle runServer(frg::string_view name) {
 	auto control_stream = createStream();
 	allServers->insert(name_str, control_stream.get<1>());
 
-	executeModule(name, static_cast<MfsRegular *>(module),
+	co_await executeModule(name, static_cast<MfsRegular *>(module),
 			control_stream.get<0>(),
 			LaneHandle{}, *mbusClient, localScheduler());
 
-	return control_stream.get<1>();
+	co_return control_stream.get<1>();
 }
 
 // ------------------------------------------------------------------------
@@ -470,7 +471,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		if(dataError != Error::success)
 			co_return dataError;
 		MfsRegular *file;
-		if(!createMfsFile(req.name(), dataBuffer.data(), dataBuffer.size(), &file)) {
+		if(!(co_await createMfsFile(req.name(), dataBuffer.data(), dataBuffer.size(), &file))) {
 			// TODO: Verify that the file data matches. This is somewhat expensive because
 			//       we would have to map the file's memory. Hence, we do not implement
 			//       it for now.
@@ -500,7 +501,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		if(respError != Error::success)
 			co_return respError;
 	}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
-		auto control_lane = runServer(req.name());
+		auto controlLane = co_await runServer(req.name());
 
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::SUCCESS);
@@ -512,7 +513,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
 			co_return respError;
-		auto controlError = co_await PushDescriptorSender{lane, LaneDescriptor{control_lane}};
+		auto controlError = co_await PushDescriptorSender{lane, LaneDescriptor{controlLane}};
 		if(controlError != Error::success)
 			co_return controlError;
 	}else{

@@ -612,6 +612,8 @@ template<typename R>
 struct CopyToViewOperation;
 
 struct [[nodiscard]] CopyToViewSender {
+	using value_type = void;
+
 	template<typename R>
 	friend CopyToViewOperation<R>
 	connect(CopyToViewSender sender, R receiver) {
@@ -669,6 +671,8 @@ template<typename R>
 struct CopyFromViewOperation;
 
 struct [[nodiscard]] CopyFromViewSender {
+	using value_type = void;
+
 	template<typename R>
 	friend CopyFromViewOperation<R>
 	connect(CopyFromViewSender sender, R receiver) {

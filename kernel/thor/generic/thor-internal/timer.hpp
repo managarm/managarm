@@ -126,6 +126,8 @@ public:
 	struct SleepOperation;
 
 	struct [[nodiscard]] SleepSender {
+		using value_type = void;
+
 		template<typename R>
 		friend SleepOperation<R>
 		connect(SleepSender sender, R receiver) {
