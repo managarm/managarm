@@ -3,7 +3,6 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/fiber.hpp>
-#include <thor-internal/service_helpers.hpp>
 #include <frg/container_of.hpp>
 #include <thor-internal/types.hpp>
 

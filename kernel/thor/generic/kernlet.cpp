@@ -11,7 +11,6 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernlet.hpp>
 #include <thor-internal/physical.hpp>
-#include <thor-internal/service_helpers.hpp>
 #include <thor-internal/stream.hpp>
 
 #include "mbus.frigg_pb.hpp"

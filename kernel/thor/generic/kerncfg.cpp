@@ -5,7 +5,6 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/profile.hpp>
-#include <thor-internal/service_helpers.hpp>
 
 #include "kerncfg.frigg_pb.hpp"
 #include "mbus.frigg_pb.hpp"

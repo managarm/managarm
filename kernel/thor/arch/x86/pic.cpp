@@ -7,7 +7,6 @@
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/irq.hpp>
-#include <thor-internal/service_helpers.hpp>
 
 namespace thor {
 

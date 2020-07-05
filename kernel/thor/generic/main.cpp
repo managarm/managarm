@@ -10,7 +10,6 @@
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
-#include <thor-internal/service_helpers.hpp>
 #include <frg/string.hpp>
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
