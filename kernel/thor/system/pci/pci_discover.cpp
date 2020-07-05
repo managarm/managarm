@@ -25,14 +25,19 @@ namespace pci {
 frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
 
 namespace {
-	bool handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
-		auto branch = fiberAccept(lane);
-		if(!branch)
-			return false;
+	coroutine<bool> handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
+		auto [acceptError, conversation] = co_await AcceptSender{lane};
+		if(acceptError == Error::endOfLane)
+			co_return false;
+		// TODO: improve error handling here.
+		assert(acceptError == Error::success);
 
-		auto buffer = fiberRecv(branch);
+		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		// TODO: improve error handling here.
+		assert(reqError == Error::success);
+
 		managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(buffer.data(), buffer.size());
+		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 		if(req.req_type() == managarm::hw::CntReqType::GET_PCI_INFO) {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -67,7 +72,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
 			auto index = req.index();
 
@@ -84,8 +93,15 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
-			fiberPushDescriptor(branch, descriptor);
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
+
+			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_IRQ) {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -102,8 +118,15 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
-			fiberPushDescriptor(branch, IrqDescriptor{object});
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
+
+			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::CLAIM_DEVICE) {
 			if(device->associatedScreen) {
 				frigg::infoLogger() << "thor: Disabling screen associated with PCI device "
@@ -117,7 +140,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::BUSIRQ_ENABLE) {
 			auto command = readPciHalf(device->bus, device->slot, device->function, kPciCommand);
 			writePciHalf(device->bus, device->slot, device->function,
@@ -128,7 +155,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::BUSMASTER_ENABLE) {
 			auto command = readPciHalf(device->bus, device->slot, device->function, kPciCommand);
 			writePciHalf(device->bus, device->slot, device->function,
@@ -139,7 +170,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
 			// TODO: Perform some sanity checks on the offset.
 			uint32_t word;
@@ -158,7 +193,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::STORE_PCI_SPACE) {
 			// TODO: Perform some sanity checks on the offset.
 			if(req.size() == 1) {
@@ -175,7 +214,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_CAPABILITY) {
 			assert(req.index() < device->caps.size());
 
@@ -199,7 +242,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::GET_FB_INFO) {
 			auto fb = device->associatedFrameBuffer;
 			assert(fb);
@@ -214,7 +261,11 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_FB_MEMORY) {
 			auto fb = device->associatedFrameBuffer;
 			assert(fb);
@@ -226,26 +277,39 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
-			fiberPushDescriptor(branch, descriptor);
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
+
+			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}else{
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			fiberSend(branch, ser.data(), ser.size());
+			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			// TODO: improve error handling here.
+			assert(respError == Error::success);
 		}
 
-		return true;
+		co_return true;
 	}
 
 	// ------------------------------------------------------------------------
 	// mbus object creation and management.
 	// ------------------------------------------------------------------------
 
-	LaneHandle createObject(LaneHandle mbus_lane, frigg::SharedPtr<PciDevice> device) {
-		auto branch = fiberOffer(mbus_lane);
+	coroutine<LaneHandle> createObject(LaneHandle mbusLane, frigg::SharedPtr<PciDevice> device) {
+		auto [offerError, conversation] = co_await OfferSender{mbusLane};
+		// TODO: improve error handling here.
+		assert(offerError == Error::success);
 
 		managarm::mbus::Property<KernelAlloc> subsystem_prop(*kernelAlloc);
 		subsystem_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "unix.subsystem"));
@@ -298,14 +362,18 @@ namespace {
 		if_item.set_value(frg::to_allocated_string(*kernelAlloc, device->interface, 16, 2));
 
 		managarm::mbus::Property<KernelAlloc> subsystem_vendor_prop(*kernelAlloc);
-		subsystem_vendor_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-subsystem-vendor"));
+		subsystem_vendor_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc,
+				"pci-subsystem-vendor"));
 		auto &subsystem_vendor_item = subsystem_vendor_prop.mutable_item().mutable_string_item();
-		subsystem_vendor_item.set_value(frg::to_allocated_string(*kernelAlloc, device->subsystemVendor, 16, 2));
+		subsystem_vendor_item.set_value(frg::to_allocated_string(*kernelAlloc,
+				device->subsystemVendor, 16, 2));
 
 		managarm::mbus::Property<KernelAlloc> subsystem_device_prop(*kernelAlloc);
-		subsystem_device_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-subsystem-device"));
+		subsystem_device_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc,
+				"pci-subsystem-device"));
 		auto &subsystem_device_item = subsystem_device_prop.mutable_item().mutable_string_item();
-		subsystem_device_item.set_value(frg::to_allocated_string(*kernelAlloc, device->subsystemDevice, 16, 2));
+		subsystem_device_item.set_value(frg::to_allocated_string(*kernelAlloc,
+				device->subsystemDevice, 16, 2));
 
 		managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
@@ -333,25 +401,36 @@ namespace {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		req.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
+		frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+		memcpy(reqBuffer.data(), ser.data(), ser.size());
+		auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
+		// TODO: improve error handling here.
+		assert(reqError == Error::success);
 
-		auto buffer = fiberRecv(branch);
+		auto [respError, respBuffer] = co_await RecvBufferSender{conversation};
+		// TODO: improve error handling here.
+		assert(respError == Error::success);
 		managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.ParseFromArray(buffer.data(), buffer.size());
+		resp.ParseFromArray(respBuffer.data(), respBuffer.size());
 		assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
-		auto descriptor = fiberPullDescriptor(branch);
+		auto [descError, descriptor] = co_await PullDescriptorSender{conversation};
+		// TODO: improve error handling here.
+		assert(descError == Error::success);
 		assert(descriptor.is<LaneDescriptor>());
-		return descriptor.get<LaneDescriptor>().handle;
+		co_return descriptor.get<LaneDescriptor>().handle;
 	}
 
-	void handleBind(LaneHandle object_lane, frigg::SharedPtr<PciDevice> device) {
-		auto branch = fiberAccept(object_lane);
-		assert(branch);
+	coroutine<void> handleBind(LaneHandle objectLane, frigg::SharedPtr<PciDevice> device) {
+		auto [acceptError, conversation] = co_await AcceptSender{objectLane};
+		// TODO: improve error handling here.
+		assert(acceptError == Error::success);
 
-		auto buffer = fiberRecv(branch);
+		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		// TODO: improve error handling here.
+		assert(reqError == Error::success);
 		managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(buffer.data(), buffer.size());
+		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 		assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
 
 		managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
@@ -359,26 +438,36 @@ namespace {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
+		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		memcpy(respBuffer.data(), ser.data(), ser.size());
+		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+		// TODO: improve error handling here.
+		assert(respError == Error::success);
 
 		auto stream = createStream();
-		fiberPushDescriptor(branch, LaneDescriptor{stream.get<1>()});
+		auto descError = co_await PushDescriptorSender{conversation,
+				LaneDescriptor{stream.get<1>()}};
+		// TODO: improve error handling here.
+		assert(descError == Error::success);
 
-		// TODO: Do this in an own fiber.
-		KernelFiber::run([lane = stream.get<0>(), device] () {
+		async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane,
+				frigg::SharedPtr<PciDevice> device) -> coroutine<void> {
 			while(true) {
-				if(!handleReq(lane, device))
+				if(!(co_await handleReq(lane, device)))
 					break;
 			}
-		});
+		}(std::move(stream.get<0>()), std::move(device)));
 	}
 }
 
 void runDevice(frigg::SharedPtr<PciDevice> device) {
 	KernelFiber::run([=] {
-		auto object_lane = createObject(*mbusClient, device);
-		while(true)
-			handleBind(object_lane, device);
+		async::detach_with_allocator(*kernelAlloc, [] (frigg::SharedPtr<PciDevice> device)
+				-> coroutine<void> {
+			auto objectLane = co_await createObject(*mbusClient, device);
+			while(true)
+				co_await handleBind(objectLane, device);
+		}(device));
 	});
 }
 
