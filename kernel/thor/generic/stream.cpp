@@ -152,7 +152,7 @@ void Stream::Submitter::run() {
 			std::swap(u, v);
 
 		// Do the main work here, after we released the lock.
-		if(OfferBase::classOf(*u) && AcceptBase::classOf(*v)) {
+		if(u->tag() == kTagOffer && v->tag() == kTagAccept) {
 			// Initially there will be 3 references to the new stream:
 			// * One reference for the original shared pointer.
 			// * One reference for each of the two lanes.
@@ -165,17 +165,13 @@ void Stream::Submitter::run() {
 			enqueue(v->_lane, v->ancillaryChain);
 
 			transfer(OfferAccept{}, u, v);
-		}else if(ImbueCredentialsBase::classOf(*u)
-				&& ExtractCredentialsBase::classOf(*v)) {
+		}else if(u->tag() == kTagImbueCredentials && v->tag() == kTagExtractCredentials) {
 			transfer(ImbueExtract{}, u, v);
-		}else if(SendFromBufferBase::classOf(*u)
-				&& RecvInlineBase::classOf(*v)) {
+		}else if(u->tag() == kTagSendFromBuffer && v->tag() == kTagRecvInline) {
 			transfer(SendRecvInline{}, u, v);
-		}else if(SendFromBufferBase::classOf(*u)
-				&& RecvToBufferBase::classOf(*v)) {
+		}else if(u->tag() == kTagSendFromBuffer && v->tag() == kTagRecvToBuffer) {
 			transfer(SendRecvBuffer{}, u, v);
-		}else if(PushDescriptorBase::classOf(*u)
-				&& PullDescriptorBase::classOf(*v)) {
+		}else if(u->tag() == kTagPushDescriptor && v->tag() == kTagPullDescriptor) {
 			transfer(PushPull{}, u, v);
 		}else{
 			u->_error = Error::transmissionMismatch;

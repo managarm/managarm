@@ -226,333 +226,7 @@ frg::tuple<LaneHandle, LaneHandle> createStream();
 
 //---------------------------------------------------------------------------------------
 // In-kernel stream utilities.
-// Those are only used by servers; not by the hel API.
-//---------------------------------------------------------------------------------------
-
-template<typename Base, typename Signature, typename F>
-struct StreamNodeAdapter;
-
-template<typename Base, typename... Args, typename F>
-struct StreamNodeAdapter<Base, void(Args...), F> final : Base {
-	template<typename... CArgs>
-	explicit StreamNodeAdapter(F functor, CArgs &&... args)
-	: Base(frigg::forward<CArgs>(args)...), _functor(frigg::move(functor)) { }
-
-	void callback(Args... args) override {
-		_functor(frigg::move(args)...);
-		frigg::destruct(*kernelAlloc, this);
-	}
-
-private:
-	F _functor;
-};
-
-struct OfferBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagOffer;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &OfferBase::worklet);
-		packet->callback(packet->error(), packet->lane());
-	}
-
-	explicit OfferBase() {
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagOffer, this);
-	}
-
-	virtual void callback(Error error, LaneHandle handle) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using Offer = StreamNodeAdapter<OfferBase, void(Error, LaneHandle), F>;
-
-struct AcceptBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagAccept;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &AcceptBase::worklet);
-		packet->callback(packet->error(), packet->lane());
-	}
-
-	explicit AcceptBase() {
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagAccept, this);
-	}
-
-	virtual void callback(Error error, LaneHandle lane) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using Accept = StreamNodeAdapter<
-	AcceptBase,
-	void(Error, LaneHandle),
-	F
->;
-
-struct ImbueCredentialsBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagImbueCredentials;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &ImbueCredentialsBase::worklet);
-		packet->callback(packet->error());
-	}
-
-	explicit ImbueCredentialsBase(const char * credentials_) {
-		memcpy(_inCredentials.data(), credentials_, 16);
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagImbueCredentials, this);
-	}
-
-	virtual void callback(Error error) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using ImbueCredentials = StreamNodeAdapter<ImbueCredentialsBase, void(Error), F>;
-
-struct ExtractCredentialsBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagExtractCredentials;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &ExtractCredentialsBase::worklet);
-		packet->callback(packet->error(), packet->transmitCredentials());
-	}
-
-	explicit ExtractCredentialsBase() {
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagExtractCredentials, this);
-	}
-
-	virtual void callback(Error error, frigg::Array<char, 16> credentials) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using ExtractCredentials = StreamNodeAdapter<ExtractCredentialsBase,
-		void(Error, frigg::Array<char, 16>), F>;
-
-struct SendFromBufferBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagSendFromBuffer;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &SendFromBufferBase::worklet);
-		packet->callback(packet->error());
-	}
-
-	explicit SendFromBufferBase(frigg::UniqueMemory<KernelAlloc> buffer) {
-		_inBuffer = frigg::move(buffer);
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagSendFromBuffer, this);
-	}
-
-	virtual void callback(Error error) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using SendFromBuffer = StreamNodeAdapter<SendFromBufferBase, void(Error), F>;
-
-struct RecvInlineBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagRecvInline;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &RecvInlineBase::worklet);
-		packet->callback(packet->error(), packet->transmitBuffer());
-	}
-
-	explicit RecvInlineBase() {
-		_maxLength = SIZE_MAX;
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagRecvInline, this);
-	}
-
-	virtual void callback(Error error, frigg::UniqueMemory<KernelAlloc> buffer) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using RecvInline = StreamNodeAdapter<
-	RecvInlineBase,
-	void(Error, frigg::UniqueMemory<KernelAlloc>),
-	F
->;
-
-struct RecvToBufferBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagRecvToBuffer;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &RecvToBufferBase::worklet);
-		packet->callback(packet->error(), packet->actualLength());
-	}
-
-	explicit RecvToBufferBase(AnyBufferAccessor accessor) {
-		_inAccessor = frigg::move(accessor);
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagRecvToBuffer, this);
-	}
-
-	virtual void callback(Error error, size_t length) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using RecvToBuffer = StreamNodeAdapter<RecvToBufferBase, void(Error, size_t), F>;
-
-struct PushDescriptorBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagPushDescriptor;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &PushDescriptorBase::worklet);
-		packet->callback(packet->error());
-	}
-
-	explicit PushDescriptorBase(AnyDescriptor lane) {
-		_inDescriptor = frigg::move(lane);
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagPushDescriptor, this);
-	}
-
-	virtual void callback(Error error) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using PushDescriptor = StreamNodeAdapter<PushDescriptorBase, void(Error), F>;
-
-struct PullDescriptorBase : StreamPacket, StreamNode {
-	static bool classOf(const StreamNode &base) {
-		return base.tag() == kTagPullDescriptor;
-	}
-
-	static void transmitted(Worklet *base) {
-		auto packet = frg::container_of(base, &PullDescriptorBase::worklet);
-		packet->callback(packet->error(), packet->descriptor());
-	}
-
-	explicit PullDescriptorBase() {
-		worklet.setup(&transmitted);
-		StreamPacket::setup(1, &worklet);
-		StreamNode::setup(kTagPullDescriptor, this);
-	}
-
-	virtual void callback(Error error, AnyDescriptor descriptor) = 0;
-
-	Worklet worklet;
-};
-
-template<typename F>
-using PullDescriptor = StreamNodeAdapter<
-	PullDescriptorBase,
-	void(Error, AnyDescriptor),
-	F
->;
-
-template<typename F>
-void submitOffer(LaneHandle lane, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<Offer<F>>(*kernelAlloc,
-			frigg::move(functor)));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitAccept(LaneHandle lane, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<Accept<F>>(*kernelAlloc,
-			frigg::move(functor)));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitImbueCredentials(LaneHandle lane, const char *credentials, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<ImbueCredentials<F>>(*kernelAlloc,
-			frigg::move(functor), credentials));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitExtractCredentials(LaneHandle lane, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<ExtractCredentials<F>>(*kernelAlloc,
-			frigg::move(functor)));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitSendBuffer(LaneHandle lane, frigg::UniqueMemory<KernelAlloc> buffer, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<SendFromBuffer<F>>(*kernelAlloc,
-			frigg::move(functor), frigg::move(buffer)));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitRecvInline(LaneHandle lane, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<RecvInline<F>>(*kernelAlloc,
-			frigg::move(functor)));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitRecvBuffer(LaneHandle lane, AnyBufferAccessor accessor, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<RecvToBuffer<F>>(*kernelAlloc,
-			frigg::move(functor), frigg::move(accessor)));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitPushDescriptor(LaneHandle lane, AnyDescriptor descriptor, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<PushDescriptor<F>>(*kernelAlloc,
-			frigg::move(functor), frigg::move(descriptor)));
-	Stream::transmit(lane, list);
-}
-
-template<typename F>
-void submitPullDescriptor(LaneHandle lane, F functor) {
-	StreamList list;
-	list.push_back(frigg::construct<PullDescriptor<F>>(*kernelAlloc,
-			frigg::move(functor)));
-	Stream::transmit(lane, list);
-}
-
+// Those are only used internally; not by the hel API.
 //---------------------------------------------------------------------------------------
 
 struct OfferSender {
@@ -560,13 +234,19 @@ struct OfferSender {
 };
 
 template<typename R>
-struct OfferOperation {
+struct OfferOperation : private StreamPacket, private StreamNode {
 	void start() {
-		auto cb = [this] (Error error, LaneHandle handle) {
-			async::execution::set_value(receiver_,
-					frg::tuple<Error, LaneHandle>{error, std::move(handle)});
-		};
-		submitOffer(s_.lane, cb);
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &OfferOperation::worklet_);
+			async::execution::set_value(self->receiver_,
+					frg::make_tuple(self->error(), self->lane()));
+		});
+		StreamPacket::setup(1, &worklet_);
+		StreamNode::setup(kTagOffer, this);
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
 	}
 
 	OfferOperation(OfferSender s, R receiver)
@@ -579,6 +259,7 @@ struct OfferOperation {
 private:
 	OfferSender s_;
 	R receiver_;
+	Worklet worklet_;
 };
 
 template<typename R>
@@ -598,13 +279,19 @@ struct AcceptSender {
 };
 
 template<typename R>
-struct AcceptOperation {
+struct AcceptOperation : private StreamPacket, private StreamNode {
 	void start() {
-		auto cb = [this] (Error error, LaneHandle handle) {
-			async::execution::set_value(receiver_,
-					frg::tuple<Error, LaneHandle>{error, std::move(handle)});
-		};
-		submitAccept(s_.lane, cb);
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &AcceptOperation::worklet_);
+			async::execution::set_value(self->receiver_,
+					frg::make_tuple(self->error(), self->lane()));
+		});
+		StreamPacket::setup(1, &worklet_);
+		StreamNode::setup(kTagAccept, this);
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
 	}
 
 	AcceptOperation(AcceptSender s, R receiver)
@@ -617,6 +304,7 @@ struct AcceptOperation {
 private:
 	AcceptSender s_;
 	R receiver_;
+	Worklet worklet_;
 };
 
 template<typename R>
@@ -636,13 +324,19 @@ struct ExtractCredentialsSender {
 };
 
 template<typename R>
-struct ExtractCredentialsOperation {
+struct ExtractCredentialsOperation : private StreamPacket, private StreamNode {
 	void start() {
-		auto cb = [this] (Error error, frigg::Array<char, 16> credentials) {
-			async::execution::set_value(receiver_,
-					frg::tuple<Error, frigg::Array<char, 16>>{error, std::move(credentials)});
-		};
-		submitExtractCredentials(s_.lane, cb);
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &ExtractCredentialsOperation::worklet_);
+			async::execution::set_value(self->receiver_,
+					frg::make_tuple(self->error(), self->credentials()));
+		});
+		StreamPacket::setup(1, &worklet_);
+		StreamNode::setup(kTagExtractCredentials, this);
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
 	}
 
 	ExtractCredentialsOperation(ExtractCredentialsSender s, R receiver)
@@ -651,6 +345,7 @@ struct ExtractCredentialsOperation {
 private:
 	ExtractCredentialsSender s_;
 	R receiver_;
+	Worklet worklet_;
 };
 
 template<typename R>
@@ -671,12 +366,19 @@ struct SendBufferSender {
 };
 
 template<typename R>
-struct SendBufferOperation {
+struct SendBufferOperation : private StreamPacket, private StreamNode {
 	void start() {
-		auto cb = [this] (Error error) {
-			async::execution::set_value(receiver_, error);
-		};
-		submitSendBuffer(s_.lane, std::move(s_.buffer), cb);
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &SendBufferOperation::worklet_);
+			async::execution::set_value(self->receiver_, self->error());
+		});
+		StreamPacket::setup(1, &worklet_);
+		StreamNode::setup(kTagSendFromBuffer, this);
+		_inBuffer = frigg::move(s_.buffer);
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
 	}
 
 	SendBufferOperation(SendBufferSender s, R receiver)
@@ -685,6 +387,7 @@ struct SendBufferOperation {
 private:
 	SendBufferSender s_;
 	R receiver_;
+	Worklet worklet_;
 };
 
 template<typename R>
@@ -704,13 +407,20 @@ struct RecvBufferSender {
 };
 
 template<typename R>
-struct RecvBufferOperation {
+struct RecvBufferOperation : private StreamPacket, private StreamNode {
 	void start() {
-		auto cb = [this] (Error error, frigg::UniqueMemory<KernelAlloc> buffer) {
-			async::execution::set_value(receiver_,
-					frg::tuple<Error, frigg::UniqueMemory<KernelAlloc>>{error, std::move(buffer)});
-		};
-		submitRecvInline(s_.lane, cb);
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &RecvBufferOperation::worklet_);
+			async::execution::set_value(self->receiver_,
+					frg::make_tuple(self->error(), self->transmitBuffer()));
+		});
+		StreamPacket::setup(1, &worklet_);
+		StreamNode::setup(kTagRecvInline, this);
+		_maxLength = SIZE_MAX;
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
 	}
 
 	RecvBufferOperation(RecvBufferSender s, R receiver)
@@ -719,6 +429,7 @@ struct RecvBufferOperation {
 private:
 	RecvBufferSender s_;
 	R receiver_;
+	Worklet worklet_;
 };
 
 template<typename R>
@@ -739,12 +450,19 @@ struct PushDescriptorSender {
 };
 
 template<typename R>
-struct PushDescriptorOperation {
+struct PushDescriptorOperation : private StreamPacket, private StreamNode {
 	void start() {
-		auto cb = [this] (Error error) {
-			async::execution::set_value(receiver_, error);
-		};
-		submitPushDescriptor(s_.lane, std::move(s_.descriptor), cb);
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &PushDescriptorOperation::worklet_);
+			async::execution::set_value(self->receiver_, self->error());
+		});
+		StreamPacket::setup(1, &worklet_);
+		StreamNode::setup(kTagPushDescriptor, this);
+		_inDescriptor = std::move(s_.descriptor);
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
 	}
 
 	PushDescriptorOperation(PushDescriptorSender s, R receiver)
@@ -753,6 +471,7 @@ struct PushDescriptorOperation {
 private:
 	PushDescriptorSender s_;
 	R receiver_;
+	Worklet worklet_;
 };
 
 template<typename R>
@@ -772,13 +491,19 @@ struct PullDescriptorSender {
 };
 
 template<typename R>
-struct PullDescriptorOperation {
+struct PullDescriptorOperation : private StreamPacket, private StreamNode {
 	void start() {
-		auto cb = [this] (Error error, AnyDescriptor desc) {
-			async::execution::set_value(receiver_,
-					frg::tuple<Error, AnyDescriptor>{error, std::move(desc)});
-		};
-		submitPullDescriptor(s_.lane, cb);
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &PullDescriptorOperation::worklet_);
+			async::execution::set_value(self->receiver_,
+					frg::make_tuple(self->error(), self->descriptor()));
+		});
+		StreamPacket::setup(1, &worklet_);
+		StreamNode::setup(kTagPullDescriptor, this);
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
 	}
 
 	PullDescriptorOperation(PullDescriptorSender s, R receiver)
@@ -787,6 +512,7 @@ struct PullDescriptorOperation {
 private:
 	PullDescriptorSender s_;
 	R receiver_;
+	Worklet worklet_;
 };
 
 template<typename R>
