@@ -31,14 +31,19 @@ void issuePs2Reset() {
 
 namespace {
 
-bool handleReq(LaneHandle lane) {
-	auto branch = fiberAccept(lane);
-	if(!branch)
-		return false;
+coroutine<bool> handleReq(LaneHandle lane) {
+	auto [acceptError, conversation] = co_await AcceptSender{lane};
+	if(acceptError == Error::endOfLane)
+		co_return false;
+	// TODO: improve error handling here.
+	assert(acceptError == Error::success);
 
-	auto buffer = fiberRecv(branch);
+	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+	// TODO: improve error handling here.
+	assert(reqError == Error::success);
+
 	managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(buffer.data(), buffer.size());
+	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 	if(req.req_type() == managarm::hw::CntReqType::PM_RESET) {
 		if(lai_acpi_reset())
@@ -54,18 +59,24 @@ bool handleReq(LaneHandle lane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
+		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		memcpy(respBuffer.data(), ser.data(), ser.size());
+		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+		// TODO: improve error handling here.
+		assert(respError == Error::success);
 	}
 
-	return true;
+	co_return true;
 }
 
 // ------------------------------------------------------------------------
 // mbus object creation and management.
 // ------------------------------------------------------------------------
 
-LaneHandle createObject(LaneHandle mbus_lane) {
-	auto branch = fiberOffer(mbus_lane);
+coroutine<LaneHandle> createObject(LaneHandle mbusLane) {
+	auto [offerError, conversation] = co_await OfferSender{mbusLane};
+	// TODO: improve error handling here.
+	assert(offerError == Error::success);
 
 	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
 	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
@@ -79,25 +90,36 @@ LaneHandle createObject(LaneHandle mbus_lane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	fiberSend(branch, ser.data(), ser.size());
+	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	memcpy(reqBuffer.data(), ser.data(), ser.size());
+	auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
+	// TODO: improve error handling here.
+	assert(reqError == Error::success);
 
-	auto buffer = fiberRecv(branch);
+	auto [respError, respBuffer] = co_await RecvBufferSender{conversation};
+	// TODO: improve error handling here.
+	assert(respError == Error::success);
 	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(buffer.data(), buffer.size());
+	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
-	auto descriptor = fiberPullDescriptor(branch);
+	auto [descError, descriptor] = co_await PullDescriptorSender{conversation};
+	// TODO: improve error handling here.
+	assert(descError == Error::success);
 	assert(descriptor.is<LaneDescriptor>());
-	return descriptor.get<LaneDescriptor>().handle;
+	co_return descriptor.get<LaneDescriptor>().handle;
 }
 
-void handleBind(LaneHandle object_lane) {
-	auto branch = fiberAccept(object_lane);
-	assert(branch);
+coroutine<void> handleBind(LaneHandle objectLane) {
+	auto [acceptError, conversation] = co_await AcceptSender{objectLane};
+	// TODO: improve error handling here.
+	assert(acceptError == Error::success);
 
-	auto buffer = fiberRecv(branch);
+	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+	// TODO: improve error handling here.
+	assert(reqError == Error::success);
 	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(buffer.data(), buffer.size());
+	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
 
 	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
@@ -105,18 +127,24 @@ void handleBind(LaneHandle object_lane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	fiberSend(branch, ser.data(), ser.size());
+	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	memcpy(respBuffer.data(), ser.data(), ser.size());
+	auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+	// TODO: improve error handling here.
+	assert(respError == Error::success);
 
 	auto stream = createStream();
-	fiberPushDescriptor(branch, LaneDescriptor{stream.get<1>()});
+	auto descError = co_await PushDescriptorSender{conversation,
+			LaneDescriptor{stream.get<1>()}};
+	// TODO: improve error handling here.
+	assert(descError == Error::success);
 
-	// TODO: Do this in an own fiber.
-	KernelFiber::run([lane = stream.get<0>()] () {
+	async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane) -> coroutine<void> {
 		while(true) {
-			if(!handleReq(lane))
+			if(!(co_await handleReq(lane)))
 				break;
 		}
-	});
+	}(std::move(stream.get<0>())));
 }
 
 } // anonymous namespace
@@ -124,9 +152,11 @@ void handleBind(LaneHandle object_lane) {
 void initializePmInterface() {
 	// Create a fiber to manage requests to the RTC mbus object.
 	KernelFiber::run([=] {
-		auto object_lane = createObject(*mbusClient);
-		while(true)
-			handleBind(object_lane);
+		async::detach_with_allocator(*kernelAlloc, [] () -> coroutine<void> {
+			auto objectLane = co_await createObject(*mbusClient);
+			while(true)
+				co_await handleBind(objectLane);
+		}());
 	});
 }
 
