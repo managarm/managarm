@@ -752,7 +752,7 @@ HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize) 
 }
 
 HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
-		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actual_pointer) {
+		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actualPointer) {
 	if(length == 0)
 		return kHelErrIllegalArgs;
 	if((uintptr_t)pointer % kPageSize != 0)
@@ -823,23 +823,22 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	// TODO: check proper alignment
 
-	VirtualAddr actual_address;
-	Error error;
+	frg::expected<Error, VirtualAddr> mapResult;
 	if(!isVspace) {
-		error = space->map(slice, (VirtualAddr)pointer, offset, length,
-				map_flags, &actual_address);
+		mapResult = Thread::asyncBlockCurrent(space->map(slice,
+				(VirtualAddr)pointer, offset, length, map_flags));
 	} else {
-		error = vspace->map(slice, (VirtualAddr)pointer, offset, length,
-						map_flags, &actual_address);
+		mapResult = Thread::asyncBlockCurrent(vspace->map(slice,
+				(VirtualAddr)pointer, offset, length, map_flags));
 	}
 
-	if(error == Error::bufferTooSmall) {
+	if(!mapResult) {
+		assert(mapResult.error() == Error::bufferTooSmall);
 		return kHelErrBufferTooSmall;
-	}else{
-		assert(error == Error::success);
-		*actual_pointer = (void *)actual_address;
-		return kHelErrNone;
 	}
+
+	*actualPointer = (void *)mapResult.value();
+	return kHelErrNone;
 }
 
 HelError helSubmitProtectMemory(HelHandle space_handle,

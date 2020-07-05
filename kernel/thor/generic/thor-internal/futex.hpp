@@ -111,6 +111,8 @@ struct Futex {
 
 	template<typename Condition>
 	struct [[nodiscard]] WaitSender {
+		using value_type = void;
+
 		template<typename R>
 		friend WaitOperation<R, Condition>
 		connect(WaitSender sender, R receiver) {

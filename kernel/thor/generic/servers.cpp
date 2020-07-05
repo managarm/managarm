@@ -200,21 +200,18 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					frigg::move(memory), 0, virt_length);
 
-			VirtualAddr actual_address;
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				auto error = space->map(frigg::move(view),
+				auto mapResult = co_await space->map(frigg::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
-							| AddressSpace::kMapProtWrite,
-						&actual_address);
-				assert(error == Error::success);
+							| AddressSpace::kMapProtWrite);
+				assert(mapResult);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				auto error = space->map(frigg::move(view),
+				auto mapResult = co_await space->map(frigg::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
-							| AddressSpace::kMapProtExecute,
-						&actual_address);
-				assert(error == Error::success);
+							| AddressSpace::kMapProtExecute);
+				assert(mapResult);
 			}else{
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;
@@ -269,12 +266,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	auto stack_view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 			stack_memory, 0, stack_size);
 
-	VirtualAddr stack_base;
-	Error error = space->map(frigg::move(stack_view), 0, 0, stack_size,
+	auto mapResult = co_await space->map(frigg::move(stack_view), 0, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
-				| AddressSpace::kMapProtWrite,
-			&stack_base);
-	assert(error == Error::success);
+				| AddressSpace::kMapProtWrite);
+	assert(mapResult);
 
 	// build the stack data area (containing program arguments,
 	// environment strings and related data).
@@ -348,7 +343,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	// create a thread for the module
 	AbiParameters params;
 	params.ip = (uintptr_t)interp_info.entryIp;
-	params.sp = stack_base + tail_disp;
+	params.sp = mapResult.value() + tail_disp;
 	params.argument = 0;
 
 	auto thread = Thread::create(std::move(universe), frigg::move(space), params);

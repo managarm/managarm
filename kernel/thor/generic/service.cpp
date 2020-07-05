@@ -313,14 +313,16 @@ namespace posix {
 		Process(frg::string<KernelAlloc> name, frigg::SharedPtr<Thread> thread)
 		: _name{std::move(name)}, _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, 0x1000);
+		}
+
+		coroutine<void> setupAddressSpace() {
 			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					fileTableMemory, 0, 0x1000);
-
-			auto error = _thread->getAddressSpace()->map(frigg::move(view),
+			auto result = co_await _thread->getAddressSpace()->map(frigg::move(view),
 					0, 0, 0x1000,
-					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
-					&clientFileTable);
-			assert(error == Error::success);
+					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
+			assert(result);
+			clientFileTable = result.value();
 		}
 
 		coroutine<void> runPosixRequests(LaneHandle lane);
@@ -586,18 +588,16 @@ namespace posix {
 					assert(!"TODO: implement shared mappings");
 				}
 
-				VirtualAddr address;
 				auto space = _thread->getAddressSpace();
-				auto error = space->map(std::move(slice),
+				auto mapResult = co_await space->map(std::move(slice),
 						req->address_hint(), 0, req->size(),
-						AddressSpace::kMapFixed | protFlags,
-						&address);
+						AddressSpace::kMapFixed | protFlags);
 				// TODO: improve error handling here.
-				assert(error == Error::success);
+				assert(mapResult);
 
 				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_offset(address);
+				resp.set_offset(mapResult.value());
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
@@ -642,18 +642,16 @@ namespace posix {
 				auto slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
 						std::move(cowMemory), 0, size);
 
-				VirtualAddr address;
 				auto space = _thread->getAddressSpace();
-				auto error = space->map(std::move(slice),
+				auto mapResult = co_await space->map(std::move(slice),
 						0, 0, size,
 						AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
-						| AddressSpace::kMapProtWrite,
-						&address);
+						| AddressSpace::kMapProtWrite);
 				// TODO: improve error handling here.
-				assert(error == Error::success);
+				assert(mapResult);
 
 				_thread->_executor.general()->rdi = kHelErrNone;
-				_thread->_executor.general()->rsi = address;
+				_thread->_executor.general()->rsi = mapResult.value();
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
@@ -729,6 +727,7 @@ void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
 				stdio::runStdioRequests(stdio_stream.get<0>()));
 
 		auto process = frigg::construct<posix::Process>(*kernelAlloc, std::move(name), thread);
+		KernelFiber::asyncBlockCurrent(process->setupAddressSpace());
 		process->attachControl(std::move(control_lane));
 		process->attachFile(stdio_file);
 		process->attachFile(stdio_file);

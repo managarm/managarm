@@ -455,9 +455,9 @@ public:
 
 	void setupInitialHole(VirtualAddr address, size_t size);
 
-	Error map(frigg::UnsafePtr<MemorySlice> view,
-			VirtualAddr address, size_t offset, size_t length,
-			uint32_t flags, VirtualAddr *actual_address);
+	void map(frigg::UnsafePtr<MemorySlice> view,
+			VirtualAddr address, size_t offset, size_t length, uint32_t flags,
+			async::any_receiver<frg::expected<Error, VirtualAddr>> receiver);
 
 	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
@@ -470,6 +470,63 @@ public:
 
 	size_t rss() {
 		return _residuentSize;
+	}
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for synchronize()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct [[nodiscard]] MapOperation {
+		MapOperation(VirtualSpace *self, frigg::UnsafePtr<MemorySlice> slice,
+				VirtualAddr address, size_t offset, size_t length, uint32_t flags,
+				R receiver)
+		: self_{self}, slice_{slice},
+				address_{address}, offset_{offset}, length_{length}, flags_{flags},
+				receiver_{std::move(receiver)} { }
+
+		MapOperation(const MapOperation &) = delete;
+
+		MapOperation &operator= (const MapOperation &) = delete;
+
+		void start() {
+			self_->map(slice_, address_, offset_, length_, flags_, std::move(receiver_));
+		}
+
+	private:
+		VirtualSpace *self_;
+		frigg::UnsafePtr<MemorySlice> slice_;
+		VirtualAddr address_;
+		size_t offset_;
+		size_t length_;
+		uint32_t flags_;
+		R receiver_;
+	};
+
+	struct [[nodiscard]] MapSender {
+		using value_type = frg::expected<Error, VirtualAddr>;
+
+		async::sender_awaiter<MapSender, frg::expected<Error, VirtualAddr>>
+		operator co_await() {
+			return {*this};
+		}
+
+		template<typename R>
+		MapOperation<R> connect(R receiver) {
+			return {self, slice, address, offset, length, flags, std::move(receiver)};
+		}
+
+		VirtualSpace *self;
+		frigg::UnsafePtr<MemorySlice> slice;
+		VirtualAddr address;
+		size_t offset;
+		size_t length;
+		uint32_t flags;
+	};
+
+	MapSender map(frigg::UnsafePtr<MemorySlice> slice,
+			VirtualAddr address, size_t offset, size_t length, uint32_t flags) {
+		return {this, slice, address, offset, length, flags};
 	}
 
 	// ----------------------------------------------------------------------------------
