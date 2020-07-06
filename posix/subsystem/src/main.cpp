@@ -977,41 +977,46 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
-			if(logRequests)
-				std::cout << "posix: MOUNT " << req.fs_type() << " on " << req.path()
-						<< " to " << req.target_path() << std::endl;
+		}else if(preamble.id() == managarm::posix::MountRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
 
-			helix::SendBuffer send_resp;
+			auto req = bragi::parse_head_tail<managarm::posix::MountRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: MOUNT " << req->fs_type() << " on " << req->path()
+						<< " to " << req->target_path() << std::endl;
 
 			auto target = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.target_path());
+					self->fsContext()->getWorkingDirectory(), req->target_path());
 			if(!target.second) {
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
 
-			if(req.fs_type() == "procfs") {
+			if(req->fs_type() == "procfs") {
 				target.first->mount(target.second, getProcfs());
-			}else if(req.fs_type() == "sysfs") {
+			}else if(req->fs_type() == "sysfs") {
 				target.first->mount(target.second, getSysfs());
-			}else if(req.fs_type() == "devtmpfs") {
+			}else if(req->fs_type() == "devtmpfs") {
 				target.first->mount(target.second, getDevtmpfs());
-			}else if(req.fs_type() == "tmpfs") {
+			}else if(req->fs_type() == "tmpfs") {
 				target.first->mount(target.second, tmp_fs::createRoot());
-			}else if(req.fs_type() == "devpts") {
+			}else if(req->fs_type() == "devpts") {
 				target.first->mount(target.second, pts::getFsRoot());
 			}else{
-				assert(req.fs_type() == "ext2");
+				assert(req->fs_type() == "ext2");
 				auto source = co_await resolve(self->fsContext()->getRoot(),
-						self->fsContext()->getWorkingDirectory(), req.path());
+						self->fsContext()->getWorkingDirectory(), req->path());
 				assert(source.second);
 				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
@@ -1025,10 +1030,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CHROOT) {
 			if(logRequests)

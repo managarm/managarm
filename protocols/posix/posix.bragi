@@ -286,6 +286,7 @@ tail:
 	string target_path;
 }
 
+<<<<<<< HEAD
 message GetUidRequest 67 {
 head(128):
 }
@@ -422,4 +423,12 @@ head(128):
 message AcceptRequest 19 {
 head(128):
 	int32 fd;
+}
+
+message MountRequest 21 {
+head(128):
+tail:
+	string path;
+	string target_path;
+	string fs_type;
 }
