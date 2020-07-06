@@ -277,7 +277,7 @@ head(128):
 	int32 fd;
 }
 
-message RenameAtRequest 3 {
+message RenameAtRequest 51 {
 head(128):
 	int32 fd;
 	int32 newfd;
@@ -286,7 +286,6 @@ tail:
 	string target_path;
 }
 
-<<<<<<< HEAD
 message GetUidRequest 67 {
 head(128):
 }
