@@ -1389,22 +1389,36 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
-		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINKAT) {
+		}else if(preamble.id() == managarm::posix::SymlinkAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::SymlinkAtRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests || logPaths)
-				std::cout << "posix: SYMLINK " << req.path() << std::endl;
+				std::cout << "posix: SYMLINK " << req->path() << std::endl;
 
 			ViewPath relativeTo;
 			smarter::shared_ptr<File, FileHandle> file;
 
-			if (!req.path().size()) {
+			if (!req->path().size()) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
-			if(req.fd() == AT_FDCWD) {
+			if(req->fd() == AT_FDCWD) {
 				relativeTo = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
 					continue;
@@ -1415,12 +1429,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relativeTo, req.path());
+					relativeTo, req->path());
 			co_await resolver.resolve(resolvePrefix);
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
-			auto result = co_await parent->symlink(resolver.nextComponent(), req.target_path());
+			auto result = co_await parent->symlink(resolver.nextComponent(), req->target_path());
 			if(auto error = std::get_if<Error>(&result); error) {
 				assert(*error == Error::illegalOperationTarget);
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -1430,10 +1444,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(sendResp.error());
 		}else if(preamble.id() == managarm::posix::RenameAtRequest::message_id) {

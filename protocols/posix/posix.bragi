@@ -432,3 +432,11 @@ tail:
 	string target_path;
 	string fs_type;
 }
+
+message SymlinkAtRequest 47 {
+head(128):
+	int32 fd;
+tail:
+	string path;
+	string target_path;
+}
