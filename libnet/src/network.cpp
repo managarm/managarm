@@ -4,7 +4,7 @@
 
 #include <libchain/all.hpp>
 
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 #include <libnet.hpp>
 
 #include "udp.hpp"

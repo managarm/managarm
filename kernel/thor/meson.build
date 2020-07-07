@@ -16,9 +16,6 @@ bragi_gen = generator(bragi, arguments: [
 
 pb_sources = [
 	gen.process(
-			meson.current_source_dir() + '/../../protocols/fs/fs.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/fs']),
-	gen.process(
 			meson.current_source_dir() + '/../../protocols/mbus/mbus.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/mbus']),
 	gen.process(
@@ -40,6 +37,7 @@ pb_sources = [
 
 bragi_sources = [
 	bragi_gen.process('../../protocols/posix/posix.bragi'),
+	bragi_gen.process('../../protocols/fs/fs.bragi'),
 ]
 
 thor_sources = files(

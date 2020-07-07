@@ -2,7 +2,8 @@
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
 #include "extern_fs.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
+#include <map>
 
 namespace extern_fs {
 

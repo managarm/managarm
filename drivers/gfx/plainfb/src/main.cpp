@@ -27,7 +27,7 @@
 #include <libdrm/drm_mode.h>
 
 #include "plainfb.hpp"
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 
 // ----------------------------------------------------------------
 // GfxDevice.

@@ -25,7 +25,7 @@
 #include <protocols/mbus/client.hpp>
 #include <libdrm/drm_fourcc.h>
 
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 #include "core/drm/core.hpp"
 
 // ----------------------------------------------------------------
@@ -1118,7 +1118,7 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
+			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

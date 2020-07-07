@@ -27,7 +27,7 @@
 #include <libdrm/drm_mode.h>
 
 #include "virtio.hpp"
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<GfxDevice>> baseDeviceMap;

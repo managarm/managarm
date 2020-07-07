@@ -9,7 +9,7 @@
 #include "../drvcore.hpp"
 #include "../util.hpp"
 #include "../vfs.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 namespace pci_subsystem {
 

@@ -8,7 +8,7 @@
 #include <helix/ipc.hpp>
 
 #include <protocols/fs/server.hpp>
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 namespace protocols {
 namespace fs {
@@ -328,7 +328,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			recv_addr.data(), recv_addr.length());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<int32_t>(error));
+		resp.set_error(static_cast<managarm::fs::Errors>(error));
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -351,7 +351,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			recv_addr.data(), recv_addr.length());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<int32_t>(error));
+		resp.set_error(static_cast<managarm::fs::Errors>(error));
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -440,10 +440,10 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			req.ctrl_size());
 		auto error = std::get_if<Error>(&result);
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::SUCCESS);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		if (error) {
-			resp.set_error(static_cast<int32_t>(*error));
+			resp.set_error(static_cast<managarm::fs::Errors>(*error));
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -496,7 +496,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		auto error = std::get_if<Error>(&result_or_error);
 		if(error) {
-			resp.set_error(static_cast<int32_t>(*error));
+			resp.set_error(static_cast<managarm::fs::Errors>(*error));
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(

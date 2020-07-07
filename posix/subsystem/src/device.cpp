@@ -9,7 +9,7 @@
 #include "device.hpp"
 #include "extern_fs.hpp"
 #include "tmp_fs.hpp"
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 
 UnixDeviceRegistry charRegistry;
 UnixDeviceRegistry blockRegistry;
@@ -205,7 +205,7 @@ FutureMaybe<SharedFilePtr> openExternalDevice(helix::BorrowedLane lane,
 
 	uint32_t open_flags = 0;
 	if(semantic_flags & semanticNonBlock)
-		open_flags |= managarm::fs::OF_NONBLOCK;
+		open_flags |= managarm::fs::OpenFlags::OF_NONBLOCK;
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::DEV_OPEN);
@@ -229,7 +229,7 @@ FutureMaybe<SharedFilePtr> openExternalDevice(helix::BorrowedLane lane,
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 	helix::Mapping status_mapping;
-	if(resp.caps() & managarm::fs::FC_STATUS_PAGE) {
+	if(resp.caps() & managarm::fs::FileCaps::FC_STATUS_PAGE) {
 		assert(!pull_page.error());
 		status_mapping = helix::Mapping{pull_page.descriptor(), 0, 0x1000};
 	}

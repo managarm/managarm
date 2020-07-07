@@ -12,8 +12,7 @@ bragi_gen = generator(bragi, arguments: [
 	],
 	output: '@BASENAME@.bragi.hpp')
 
-fs_pb = gen.process(meson.current_source_dir() + '/../../protocols/fs/fs.proto',
-	extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/fs'])
+fs_bragi = bragi_gen.process('../../protocols/fs/fs.bragi')
 posix_bragi = bragi_gen.process('../../protocols/posix/posix.bragi')
 
 gen = generator(protoc,
@@ -63,7 +62,7 @@ executable('posix-subsystem',
 		'src/un-socket.cpp',
 		'src/vfs.cpp',
 		clock_pb,
-		fs_pb,
+		fs_bragi,
 		kerncfg_pb,
 		posix_bragi],
 	dependencies: [

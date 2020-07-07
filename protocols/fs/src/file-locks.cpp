@@ -1,7 +1,7 @@
 #include <protocols/fs/file-locks.hpp>
 #include <protocols/fs/server.hpp>
 #include <iostream>
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 
 namespace protocols::fs {
 	Flock::~Flock() {

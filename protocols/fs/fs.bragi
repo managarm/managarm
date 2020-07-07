@@ -1,0 +1,360 @@
+namespace "managarm::fs";
+
+enum Errors {
+	SUCCESS = 0,
+	ILLEGAL_REQUEST = 3,
+	FILE_NOT_FOUND = 1,
+	END_OF_FILE = 2,
+	ILLEGAL_ARGUMENT = 4,
+	WOULD_BLOCK = 5,
+	SEEK_ON_PIPE = 6,
+	BROKEN_PIPE = 7,
+	ACCESS_DENIED = 8,
+	AF_NOT_SUPPORTED = 9,
+	DESTINATION_ADDRESS_REQUIRED = 10,
+	NETWORK_UNREACHABLE = 11,
+	MESSAGE_TOO_LARGE = 12,
+	HOST_UNREACHABLE = 13,
+	INSUFFICIENT_PERMISSIONS = 14,
+	ADDRESS_IN_USE = 15,
+	ADDRESS_NOT_AVAILABLE = 16
+}
+
+consts FileType int64 {
+	REGULAR = 1,
+	DIRECTORY = 2,
+	SYMLINK = 3,
+	SOCKET = 4
+}
+
+enum Command {
+	TTY_GET_ATTR = 1,
+	TTY_SET_ATTR = 2
+}
+
+consts OpenFlags uint32 {
+	OF_NONBLOCK = 1
+}
+
+consts FlockFlags uint32 {
+	LOCK_SH = 1,
+	LOCK_EX = 2,
+	LOCK_NB = 4,
+	LOCK_UN = 8
+}
+
+consts FileCaps uint32 {
+	FC_STATUS_PAGE = 1
+}
+
+enum CntReqType {
+	NONE = 0,
+
+	// Device API.
+	DEV_MOUNT = 11,
+	DEV_OPEN = 14,
+
+	SB_CREATE_REGULAR = 27,
+
+	// File node API.
+	NODE_GET_STATS = 5,
+	NODE_GET_LINK = 12,
+	NODE_LINK = 28,
+	NODE_MKDIR = 35,
+	NODE_SYMLINK = 39,
+	NODE_UNLINK = 29,
+	NODE_OPEN = 13,
+	NODE_READ_SYMLINK = 15,
+
+	// Primary file API.
+	FILE_POLL = 18,
+
+	// File passthrough API.
+	// TODO: Add a PT_ prefix to those requests.
+	READ = 2,
+	PT_READ_ENTRIES = 16,
+	PT_TRUNCATE = 20,
+	PT_FALLOCATE = 19,
+	PT_BIND = 21,
+	PT_LISTEN = 23,
+	PT_CONNECT = 22,
+	PT_SOCKNAME = 24,
+	PT_GET_FILE_FLAGS = 30,
+	PT_SET_FILE_FLAGS = 31,
+	PT_RECVMSG = 33,
+	PT_SENDMSG = 34,
+
+	WRITE = 3,
+	SEEK_ABS = 6,
+	SEEK_REL = 7,
+	SEEK_EOF = 8,
+
+	PT_IOCTL = 17,
+	PT_GET_OPTION = 26,
+	PT_SET_OPTION = 25,
+
+	// Socket API
+	CREATE_SOCKET = 32,
+
+	// Legacy API.
+	OPEN = 1,
+	CONNECT = 10,
+	MMAP = 9,
+	CLOSE = 4,
+
+	FLOCK = 73,
+
+	RENAME = 36,
+
+	PT_PREAD = 37,
+
+	NODE_CHMOD = 38,
+
+	NODE_RMDIR = 40,
+	NODE_UTIMENSAT = 41
+}
+
+struct Rect {
+	int32 x1;
+	int32 y1;
+	int32 x2;
+	int32 y2;
+}
+
+message CntRequest 1 {
+head(128):
+	CntReqType req_type;
+
+	tags {
+		// used by OPEN_ENTRY
+		tag(2) string path;
+
+		// used by SOCKET_CREATE
+		tag(49) int64 type;
+		tag(50) int64 protocol;
+		tag(59) int64 domain;
+
+		// used by DEV_OPEN
+		tag(39) uint32 flags;
+
+		// used by FSTAT, READ, WRITE, SEEK_ABS, SEEK_REL, SEEK_EOF, MMAP and CLOSE
+		tag(4) int32 fd;
+
+		// used by READ and WRITE
+		tag(5) int32 size;
+		tag(6) byte[] buffer;
+
+		// used by RECVMSG
+		tag(51) uint64 addr_size;
+		tag(52) uint64 ctrl_size;
+
+		// used by SENDMSG
+		tag(53) uint32[] fds;
+
+		// used by NODE_SYMLINK
+		tag(61) uint32 name_length;
+		tag(62) uint32 target_length;
+
+		// used by RENAME
+		tag(54) uint64 inode_source;
+		tag(55) uint64 inode_target;
+		tag(56) string old_name;
+		tag(57) string new_name;
+
+		// used by SEEK_ABS, SEEK_REL and SEEK_EOF
+		tag(7) int64 rel_offset;
+
+		// used by PT_IOCTL, PT_SET_OPTION.
+		tag(8) int64 command;
+
+		//used by FLOCK
+		tag(9) int32 flock_flags;
+
+		// used by PT_SET_OPTION.
+		tag(42) int32 value;
+
+		// Sequence number for FILE_POLL.
+		tag(38) uint64 sequence;
+
+		// PTS and TTY ioctls.
+		tag(43) int32 pts_width;
+		tag(44) int32 pts_height;
+		tag(45) int32 pts_pixel_width;
+		tag(46) int32 pts_pixel_height;
+
+		// DRM ioctls.
+		tag(18) uint64 drm_capability;
+
+		tag(19) uint32 drm_connector_id;
+
+		tag(20) uint32 drm_encoder_id;
+
+		tag(47) uint32 drm_max_modes;
+
+		tag(21) uint32 drm_height;
+		tag(22) uint32 drm_width;
+		tag(23) uint32 drm_bpp;
+		tag(24) uint32 drm_flags;
+
+		tag(25) uint32 drm_pitch;
+		tag(26) uint32 drm_depth;
+
+		tag(27) uint32 drm_handle;
+
+		tag(28) uint32 drm_crtc_id;
+
+		tag(29) uint32[] drm_connector_ids;
+		tag(30) uint32 drm_x;
+		tag(31) uint32 drm_y;
+		tag(33) uint32 drm_fb_id;
+		tag(34) uint32 drm_mode_valid;
+
+		tag(35) uint32 drm_color;
+		tag(36) Rect[] drm_clips;
+
+		tag(37) uint64 drm_cookie;
+
+		tag(40) int32 input_type;
+		tag(41) int32 input_clock;
+
+		tag(58) int64 offset;
+
+		tag(60) int32 mode;
+
+		// used by utimensat
+		tag(63) uint64 atime_sec;
+		tag(64) uint64 atime_nsec;
+		tag(65) uint64 mtime_sec;
+		tag(66) uint64 mtime_nsec;
+	}
+}
+
+message SvrResponse 2 {
+head(128):
+	Errors error;
+
+	tags {
+		// used by PT_READ_ENTRIES
+		tag(19) string path;
+
+		// returned by FSTAT and OPEN
+		tag(5) FileType file_type;
+
+		// returned by NODE_GET_LINK
+		tag(18) int64 id;
+
+		// returned by FSTAT
+		tag(4) uint64 file_size;
+
+		// returned by FSTAT
+		tag(13) int32 mode;
+
+		tag(64) uint32 caps;
+
+		// returned by FSTAT
+		tag(14) uint64 inode_num;
+
+		// returned by FSTAT
+		tag(17) uint64 num_links;
+
+		// returned by FSTAT
+		tag(15) int64 uid;
+		tag(16) int64 gid;
+
+		// returned by FSTAT
+		tag(7) int64 atime_secs;
+		tag(8) int64 atime_nanos;
+		tag(9) int64 mtime_secs;
+		tag(10) int64 mtime_nanos;
+		tag(11) int64 ctime_secs;
+		tag(12) int64 ctime_nanos;
+
+		// returned by OPEN
+		tag(1) int32 fd;
+
+		// returned by SEEK_ABS, SEEK_REL and SEEK_EOF
+		tag(6) uint64 offset;
+
+		// returned by PT_IOCTL
+		tag(20) uint64 result;
+
+		// Sequence number for FILE_POLL.
+		tag(60) uint64 sequence;
+
+		// Event edges and current events for FILE_POLL.
+		tag(61) int32 edges;
+		tag(62) int32 status;
+
+		tag(71) int64 pid;
+
+		// returned by PT_SENDMSG
+		tag(76) int64 size;
+
+		// returned by PT_RECVMSG
+		tag(78) int64 addr_size;
+
+		// PTS and TTY ioctls.
+		tag(63) int32 pts_index;
+		tag(72) int32 pts_width;
+		tag(73) int32 pts_height;
+		tag(74) int32 pts_pixel_width;
+		tag(75) int32 pts_pixel_height;
+
+		// DRM ioctls.
+		tag(21) uint64 drm_value;
+
+		tag(22) uint32[] drm_fb_ids;
+		tag(23) uint32[] drm_crtc_ids;
+		tag(24) uint32[] drm_connector_ids;
+		tag(25) uint32[] drm_encoder_ids;
+		tag(26) int32 drm_min_width;
+		tag(27) int32 drm_max_width;
+		tag(28) int32 drm_min_height;
+		tag(29) int32 drm_max_height;
+
+		tag(30) uint32[] drm_encoders;
+		tag(32) uint32 drm_encoder_id;
+		tag(33) uint32 drm_connector_type;
+		tag(34) uint32 drm_connector_type_id;
+		tag(35) uint32 drm_connection;
+		tag(36) uint32 drm_mm_width;
+		tag(37) uint32 drm_mm_height;
+		tag(38) uint32 drm_subpixel;
+
+		tag(39) uint32 drm_encoder_type;
+		tag(40) uint32 drm_crtc_id;
+		tag(41) uint32 drm_possible_crtcs;
+		tag(42) uint32 drm_possible_clones;
+
+		tag(43) uint32 drm_handle;
+		tag(44) uint32 drm_pitch;
+		tag(45) uint64 drm_size;
+
+		tag(46) uint32 drm_fb_id;
+
+		tag(47) uint64 drm_offset;
+
+		tag(48) uint32 drm_x;
+		tag(49) uint32 drm_y;
+		tag(50) uint32 drm_gamma_size;
+		tag(51) uint32 drm_mode_valid;
+
+		tag(53) uint32 drm_num_modes;
+
+		tag(54) uint32 drm_version_major;
+		tag(55) uint32 drm_version_minor;
+		tag(56) uint32 drm_version_patchlevel;
+		tag(57) string drm_driver_name;
+		tag(58) string drm_driver_date;
+		tag(59) string drm_driver_desc;
+
+		tag(65) int32 input_value;
+		tag(66) int32 input_min;
+		tag(67) int32 input_max;
+		tag(68) int32 input_fuzz;
+		tag(69) int32 input_flat;
+		tag(70) int32 input_resolution;
+
+		tag(77) int32 flags;
+	}
+}

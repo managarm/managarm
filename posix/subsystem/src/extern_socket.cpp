@@ -1,6 +1,6 @@
 #include "extern_socket.hpp"
 
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 #include "protocols/fs/client.hpp"
 
 namespace {

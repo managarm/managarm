@@ -26,7 +26,7 @@
 #include <libdrm/drm_mode.h>
 
 #include "bochs.hpp"
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 
 namespace {
 	constexpr bool logBuffers = false;
@@ -64,7 +64,7 @@ async::detached serveDevice(std::shared_ptr<drm_core::Device> device, helix::Uni
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
+			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(conversation,

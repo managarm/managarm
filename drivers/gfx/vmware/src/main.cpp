@@ -29,7 +29,7 @@
 
 #include "vmware.hpp"
 
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 
 std::unordered_map<int64_t, std::shared_ptr<GfxDevice>> baseDeviceMap;
 

@@ -14,7 +14,7 @@
 
 #include <blockfs.hpp>
 #include "common.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 namespace blockfs {
 namespace ext2fs {

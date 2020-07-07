@@ -1,8 +1,12 @@
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/fs/', 
-			'@INPUT@'])
-fs_pb = gen.process('../../protocols/fs/fs.proto')
+gen = generator(bragi, arguments: [
+		'-l', 'stdc++',
+		'--protobuf',
+		'@INPUT@',
+		'@OUTPUT@'
+	],
+	output: '@BASENAME@.bragi.hpp')
+
+fs_bragi = gen.process('../../protocols/fs/fs.bragi')
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
@@ -11,7 +15,7 @@ gen = generator(protoc,
 hw_pb = gen.process('../../protocols/hw/hw.proto')
 
 libevbackend_driver_inc = include_directories('include/')
-libevbackend_driver = shared_library('evbackend', ['src/libevbackend.cpp', fs_pb, hw_pb],
+libevbackend_driver = shared_library('evbackend', ['src/libevbackend.cpp', fs_bragi, hw_pb],
 	dependencies: [
 		clang_coroutine_dep,
 		libarch_dep, libfs_protocol_dep, lib_helix_dep, libmbus_protocol_dep,

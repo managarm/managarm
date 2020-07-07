@@ -6,7 +6,7 @@
 #include <helix/ipc.hpp>
 #include "file.hpp"
 #include "process.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 namespace {
 

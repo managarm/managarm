@@ -17,7 +17,7 @@
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 #include "hw.pb.h"
 #include "libevbackend.hpp"
 
@@ -297,13 +297,13 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			auto file = smarter::make_shared<File>(device.get(),
-					req.flags() & managarm::fs::OF_NONBLOCK);
+					req.flags() & managarm::fs::OpenFlags::OF_NONBLOCK);
 			device->_files.push_back(*file.get());
 			auto remote_lane = File::serve(file);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
+			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(

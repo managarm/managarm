@@ -17,7 +17,7 @@
 #include <protocols/svrctl/server.hpp>
 #include <protocols/fs/server.hpp>
 #include <sys/socket.h>
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 #include "ip/ip4.hpp"
 
@@ -112,15 +112,15 @@ async::detached serve(helix::UniqueLane lane) {
 			auto [local_lane, remote_lane] = helix::createStream();
 
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::SUCCESS);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
 			if (req.domain() != AF_INET) {
-				co_await sendError(managarm::fs::ILLEGAL_ARGUMENT);
+				co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				continue;
 			}
 
 			auto err = ip4().serveSocket(std::move(local_lane),
 					req.type(), req.protocol(), req.flags());
-			if (err != managarm::fs::SUCCESS) {
+			if (err != managarm::fs::Errors::SUCCESS) {
 				co_await sendError(err);
 				continue;
 			}
@@ -137,7 +137,7 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(push_socket.error());
 		} else {
 			std::cout << "netserver: received unknown request type: "
-				<< req.req_type() << std::endl;
+				<< (int32_t)req.req_type() << std::endl;
 			co_await sendError(managarm::fs::Errors::ILLEGAL_REQUEST);
 		}
 	}

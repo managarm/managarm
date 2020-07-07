@@ -6,7 +6,7 @@
 #include <frigg/callback.hpp>
 
 #include <posix.frigg_bragi.hpp>
-#include <fs.frigg_pb.hpp>
+#include <fs.frigg_bragi.hpp>
 
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
@@ -101,7 +101,7 @@ namespace stdio {
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else{
-				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << req.req_type()
+				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided stdio file" "\e[39m" << frigg::endLog;
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -217,7 +217,7 @@ namespace initrd {
 				// TODO: improve error handling here.
 				assert(memoryError == Error::success);
 			}else{
-				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << req.req_type()
+				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided regular file" "\e[39m" << frigg::endLog;
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);

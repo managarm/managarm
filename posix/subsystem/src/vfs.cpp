@@ -6,7 +6,7 @@
 #include <future>
 
 #include "common.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 #include "vfs.hpp"
 #include "device.hpp"
 #include "tmp_fs.hpp"

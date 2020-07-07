@@ -1,10 +1,14 @@
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../../protocols/fs', 
-			'@INPUT@'])
-fs_pb = gen.process('../../../protocols/fs/fs.proto')
+gen = generator(bragi, arguments: [
+		'-l', 'stdc++',
+		'--protobuf',
+		'@INPUT@',
+		'@OUTPUT@'
+	],
+	output: '@BASENAME@.bragi.hpp')
 
-executable('gfx_virtio', ['src/main.cpp', fs_pb],
+fs_bragi = gen.process('../../../protocols/fs/fs.bragi')
+
+executable('gfx_virtio', ['src/main.cpp', fs_bragi],
 	dependencies: [
 		clang_coroutine_dep,
 		libarch_dep,

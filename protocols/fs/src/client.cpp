@@ -1,7 +1,7 @@
 
 #include <iostream>
 
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 #include "protocols/fs/client.hpp"
 
 namespace protocols {

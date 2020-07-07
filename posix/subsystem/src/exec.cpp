@@ -9,7 +9,7 @@
 #include "common.hpp"
 #include "vfs.hpp"
 #include "exec.hpp"
-#include <fs.pb.h>
+#include <fs.bragi.hpp>
 
 constexpr size_t kPageSize = 0x1000;
 

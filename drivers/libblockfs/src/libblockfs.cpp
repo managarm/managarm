@@ -12,7 +12,7 @@
 #include <blockfs.hpp>
 #include "gpt.hpp"
 #include "ext2fs.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 namespace blockfs {
 

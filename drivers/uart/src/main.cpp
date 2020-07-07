@@ -16,7 +16,7 @@
 #include <protocols/mbus/client.hpp>
 
 #include "spec.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 arch::io_space base;
 helix::UniqueIrq irq;

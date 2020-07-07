@@ -16,7 +16,7 @@
 #include "tcp4.hpp"
 
 #include <netserver/nic.hpp>
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 enum class IpProto : uint16_t {
 	icmp = 1,

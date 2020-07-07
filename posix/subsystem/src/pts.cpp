@@ -8,7 +8,7 @@
 #include "file.hpp"
 #include "process.hpp"
 #include "pts.hpp"
-#include "fs.pb.h"
+#include "fs.bragi.hpp"
 
 namespace pts {
 

@@ -1,12 +1,14 @@
+gen = generator(bragi, arguments: [
+		'-l', 'stdc++',
+		'--protobuf',
+		'@INPUT@',
+		'@OUTPUT@'
+	],
+	output: '@BASENAME@.bragi.hpp')
 
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/fs', 
-			'@INPUT@']) 
-
-fs_pb = gen.process('../../protocols/fs/fs.proto')
+fs_bragi = gen.process('../../protocols/fs/fs.bragi')
 fs_proto_inc = include_directories('include/')
-libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_pb],
+libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_bragi],
 	dependencies: [
 		clang_coroutine_dep,
 		lib_helix_dep, proto_lite_dep],

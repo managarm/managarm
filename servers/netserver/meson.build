@@ -1,10 +1,12 @@
-gen = generator(protoc,
-		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@',
-			'--proto_path=@CURRENT_SOURCE_DIR@../../protocols/fs',
-			'@INPUT@'])
+gen = generator(bragi, arguments: [
+		'-l', 'stdc++',
+		'--protobuf',
+		'@INPUT@',
+		'@OUTPUT@'
+	],
+	output: '@BASENAME@.bragi.hpp')
 
-fs_pb = gen.process('../../protocols/fs/fs.proto')
+fs_bragi = gen.process('../../protocols/fs/fs.bragi')
 
 executable('netserver',
 	[
@@ -15,7 +17,7 @@ executable('netserver',
 		'src/ip/arp.cpp',
 		'src/ip/udp4.cpp',
 		'src/ip/tcp4.cpp',
-		fs_pb
+		fs_bragi
 	],
 	dependencies: [
 		libarch_dep,
