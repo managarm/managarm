@@ -954,6 +954,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				}
 				auto block = co_await allocateBlock();
 				assert(block && "Out of disk space"); // TODO: Fix this.
+				disk_inode->blocks += (blockSize / 512);
 				disk_inode->data.blocks.direct[idx] = block;
 				prg++;
 			}
@@ -964,6 +965,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 			if(!disk_inode->data.blocks.singleIndirect) {
 				auto block = co_await allocateBlock();
 				assert(block && "Out of disk space"); // TODO: Fix this.
+				disk_inode->blocks += (blockSize / 512);
 				disk_inode->data.blocks.singleIndirect = block;
 				needsReset = true;
 			}
@@ -992,6 +994,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				}
 				auto block = co_await allocateBlock();
 				assert(block && "Out of disk space"); // TODO: Fix this.
+				disk_inode->blocks += (blockSize / 512);
 				window[idx] = block;
 				prg++;
 			}
