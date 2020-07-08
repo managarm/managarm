@@ -223,6 +223,10 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 
 	co_await fs.assignDataBlocks(dir_node.get(), 0, 1);
 
+	dir_node->setFileSize(fs.blockSize);
+	HEL_CHECK(helResizeMemory(dir_node->backingMemory,
+			(fs.blockSize + 0xFFF) & ~size_t(0xFFF)));
+
 	helix::LockMemoryView lock_memory;
 	auto map_size = (dir_node->fileSize() + 0xFFF) & ~size_t(0xFFF);
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(dir_node->frontalMemory),
@@ -591,7 +595,6 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFDIR;
 	disk_inode->generation = generation + 1;
-	disk_inode->size = blockSize;
 	struct timespec time;
 	// TODO: Move to CLOCK_REALTIME when supported
 	clock_gettime(CLOCK_MONOTONIC, &time);
