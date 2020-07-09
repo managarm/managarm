@@ -389,13 +389,12 @@ async::result<void> FileSystem::init() {
 		std::cout << "ext2fs:     Inodes per group: " << inodesPerGroup << std::endl;
 	}
 
-	auto bgdt_size = (numBlockGroups * sizeof(DiskGroupDesc) + 511) & ~size_t(511);
-	// TODO: Use std::string instead of malloc().
-	blockGroupDescriptorBuffer = malloc(bgdt_size);
+	blockGroupDescriptorBuffer.resize((numBlockGroups * sizeof(DiskGroupDesc) + 511) & ~size_t(511));
+	bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer.data();
 
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 	co_await device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
-			blockGroupDescriptorBuffer, bgdt_size / 512);
+			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / 512);
 
 	// Create memory bundles to manage the block and inode bitmaps.
 	HelHandle block_bitmap_frontal, inode_bitmap_frontal;
@@ -432,7 +431,6 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 		HEL_CHECK(manage.error());
 
 		auto bg_idx = manage.offset() >> blockPagesShift;
-		auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
 		auto block = bgdt[bg_idx].blockBitmap;
 		assert(block);
 
@@ -470,7 +468,6 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 		HEL_CHECK(manage.error());
 
 		auto bg_idx = manage.offset() >> blockPagesShift;
-		auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
 		auto block = bgdt[bg_idx].inodeBitmap;
 		assert(block);
 
@@ -513,7 +510,6 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 		// TODO: Use shifts instead of division.
 		auto bg_idx = manage.offset() / (inodesPerGroup * inodeSize);
 		auto bg_offset = manage.offset() % (inodesPerGroup * inodeSize);
-		auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
 		auto block = bgdt[bg_idx].inodeTable;
 		assert(block);
 
@@ -619,6 +615,11 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	disk_inode->atime = time.tv_sec;
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
+
+	// update usedDirsCount in the respective bgdt for this inode
+	auto bg_idx = (ino - 1) / inodesPerGroup;
+	bgdt[bg_idx].usedDirsCount++;
+	co_await writebackBgdt();
 
 	co_return accessInode(ino);
 }
@@ -902,6 +903,10 @@ async::result<uint32_t> FileSystem::allocateBlock() {
 				assert(block);
 				assert(block < blocksCount);
 				words[i] |= static_cast<uint32_t>(1) << j;
+
+				bgdt[bg_idx].freeBlocksCount--;
+				co_await writebackBgdt();
+
 				co_return block;
 			}
 			assert(!"Failed to find zero-bit");
@@ -941,6 +946,10 @@ async::result<uint32_t> FileSystem::allocateInode() {
 				assert(ino);
 				assert(ino < inodesCount);
 				words[i] |= static_cast<uint32_t>(1) << j;
+
+				bgdt[bg_idx].freeInodesCount--;
+				co_await writebackBgdt();
+
 				co_return ino;
 			}
 			assert(!"Failed to find zero-bit");
@@ -1218,6 +1227,12 @@ async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
 			inode->diskMapping.get(), inodeSize);
 	HEL_CHECK(syncInode.error());
 	co_return;
+}
+
+async::result<void> FileSystem::writebackBgdt() {
+	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
+	co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
+			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / 512);
 }
 
 // --------------------------------------------------------

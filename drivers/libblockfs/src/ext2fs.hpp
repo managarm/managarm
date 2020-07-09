@@ -275,6 +275,8 @@ struct FileSystem {
 
 	async::result<void> truncate(Inode *inode, size_t size);
 
+	async::result<void> writebackBgdt();
+
 	BlockDevice *device;
 	uint16_t inodeSize;
 	uint32_t blockShift;
@@ -286,7 +288,8 @@ struct FileSystem {
 	uint32_t inodesPerGroup;
 	uint32_t blocksCount;
 	uint32_t inodesCount;
-	void *blockGroupDescriptorBuffer;
+	std::vector<std::byte> blockGroupDescriptorBuffer;
+	DiskGroupDesc *bgdt;
 
 	helix::UniqueDescriptor blockBitmap;
 	helix::UniqueDescriptor inodeBitmap;
