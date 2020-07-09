@@ -203,6 +203,16 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 			// we can assume that a previous entry exists.
 			assert(previous_entry);
 			previous_entry->recordLength += disk_entry->recordLength;
+
+			// Decrement the inode's link count
+			auto target = fs.accessInode(disk_entry->inode);
+			co_await target->readyJump.async_wait();
+			target->diskInode()->linksCount--;
+			auto syncInode = co_await helix_ng::synchronizeSpace(
+					helix::BorrowedDescriptor{kHelNullHandle},
+					target->diskMapping.get(), fs.inodeSize);
+			HEL_CHECK(syncInode.error());
+
 			co_return {};
 		}
 
@@ -253,6 +263,7 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	auto dot_entry = reinterpret_cast<DiskDirEntry *>(file_map.get());
 	offset += (sizeof(DiskDirEntry) + 2 + 3) & ~size_t(3);
 
+	dir_node->diskInode()->linksCount++;
 	dot_entry->inode = dir_node->number;
 	dot_entry->recordLength = offset;
 	dot_entry->nameLength = 1;
@@ -262,11 +273,18 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	auto dot_dot_entry = reinterpret_cast<DiskDirEntry *>(
 			reinterpret_cast<char *>(file_map.get()) + offset);
 
+	diskInode()->linksCount++;
 	dot_dot_entry->inode = number;
 	dot_dot_entry->recordLength = dir_node->fileSize() - offset;
 	dot_dot_entry->nameLength = 2;
 	dot_dot_entry->fileType = EXT2_FT_DIR;
 	memcpy(dot_dot_entry->name, "..", 3);
+
+	// Synchronize this inode to update the linksCount
+	syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
 
 	co_return co_await link(name, dir_node->number, kTypeDirectory);
 }
