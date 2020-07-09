@@ -104,7 +104,8 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
 	// Space required for the new directory entry.
-	auto required = (sizeof(DiskDirEntry) + name.size() + 3) & ~size_t(3);
+	// We use name.size() + 1 for the entry name length to account for the null terminator
+	auto required = (sizeof(DiskDirEntry) + name.size() + 1 + 3) & ~size_t(3);
 
 	// Walk the directory structure.
 	uintptr_t offset = 0;
@@ -141,7 +142,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 				default:
 					throw std::runtime_error("unexpected type");
 			}
-			memcpy(disk_entry->name, name.data(), name.length());
+			memcpy(disk_entry->name, name.data(), name.length() + 1);
 
 			// Update the existing dentry.
 			previous_entry->recordLength = contracted;
@@ -249,15 +250,14 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	HEL_CHECK(syncInode.error());
 
 	size_t offset = 0;
-
 	auto dot_entry = reinterpret_cast<DiskDirEntry *>(file_map.get());
-	offset += (sizeof(DiskDirEntry) + 1 + 3) & ~size_t(3);
+	offset += (sizeof(DiskDirEntry) + 2 + 3) & ~size_t(3);
 
 	dot_entry->inode = dir_node->number;
 	dot_entry->recordLength = offset;
 	dot_entry->nameLength = 1;
 	dot_entry->fileType = EXT2_FT_DIR;
-	memcpy(dot_entry->name, ".", 1);
+	memcpy(dot_entry->name, ".", 2);
 
 	auto dot_dot_entry = reinterpret_cast<DiskDirEntry *>(
 			reinterpret_cast<char *>(file_map.get()) + offset);
@@ -266,7 +266,7 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	dot_dot_entry->recordLength = dir_node->fileSize() - offset;
 	dot_dot_entry->nameLength = 2;
 	dot_dot_entry->fileType = EXT2_FT_DIR;
-	memcpy(dot_dot_entry->name, "..", 2);
+	memcpy(dot_dot_entry->name, "..", 3);
 
 	co_return co_await link(name, dir_node->number, kTypeDirectory);
 }
