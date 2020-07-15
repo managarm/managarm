@@ -8,15 +8,15 @@ gdtr:
 
 .section .bss
 	.align 16
-eirRtStackBottom:
+eirStackBottom:
 	.skip 0x100000 # reserve 1 MiB for the stack
-	.global eirRtStackTop
-eirRtStackTop:
+	.global eirStackTop
+eirStackTop:
 
 .section .text
 
-.global eirRtLoadGdt
-eirRtLoadGdt:
+.global eirLoadGdt
+eirLoadGdt:
 
 	mov 4(%esp), %eax
 	mov 8(%esp), %ecx
@@ -41,8 +41,8 @@ eirRtLoadGdt:
 	ret
 
 .section .trampoline
-.global eirRtEnterKernel
-eirRtEnterKernel:
+.global eirEnterKernel
+eirEnterKernel:
 	# enable PAE paging
 	mov %cr4, %eax
 	or $0x20, %eax

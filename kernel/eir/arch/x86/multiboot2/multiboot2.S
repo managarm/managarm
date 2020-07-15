@@ -25,13 +25,13 @@ header_start:
 header_end:
 
 .section .text
-.global eirRtEntry
+.global eirEntry
 
-eirRtEntry:
+eirEntry:
 	cld
 	
-	.extern eirRtStackTop
-	mov $eirRtStackTop, %esp
+	.extern eirStackTop
+	mov $eirStackTop, %esp
 	
 	push %eax
 	push %ebx
@@ -41,5 +41,3 @@ eirRtEntry:
 halt_kernel:
 	hlt
 	jmp halt_kernel
-
-	

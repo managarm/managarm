@@ -2,14 +2,14 @@
 
 .section .bss
 .align 16
-.global eirRtStackTop
-eirRtStackBottom:
+.global eirStackTop
+eirStackBottom:
 	.skip 0x100000 # reserve 1 MiB for the stack
-eirRtStackTop:
+eirStackTop:
 
 .section .text
-.global eirRtEnterKernel
-eirRtEnterKernel:
+.global eirEnterKernel
+eirEnterKernel:
 	mov %rdi, %cr3
 	mov %rdx, %rsp
 

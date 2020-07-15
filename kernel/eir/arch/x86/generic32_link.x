@@ -1,7 +1,7 @@
 
 TARGET(elf32-i386)
 OUTPUT_FORMAT(elf32-i386)
-ENTRY(eirRtEntry)
+ENTRY(eirEntry)
 
 SECTIONS {
 	. = 0x100000;
@@ -29,6 +29,6 @@ SECTIONS {
 		*(.bss*)
 	}
 
-	eirRtImageCeiling = .;
+	eirImageCeiling = .;
 }
 

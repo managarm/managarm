@@ -81,7 +81,7 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	initProcessorEarly();
 
 	// Make sure we do not trash ourselfs or our boot modules.
-	bootMemoryLimit = (uintptr_t)&eirRtImageCeiling;
+	bootMemoryLimit = (uintptr_t)&eirImageCeiling;
 
 	if((mb_info->flags & kMbInfoModules) != 0) {
 		for(unsigned int i = 0; i < mb_info->numModules; i++) {
@@ -175,6 +175,6 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	}
 
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
-	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
+	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }

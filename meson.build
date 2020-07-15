@@ -17,15 +17,18 @@ bragi_dep = declare_dependency(include_directories: include_directories('subproj
 if get_option('build_kernel')
 	pb2frigg = find_program('pb2frigg')
 
-	add_global_arguments(
-		[
-			'-ffreestanding',
-			'-mno-80387',
-			'-mno-mmx',
-			'-mno-sse',
-			'-mno-sse2',
-		],
-		language: ['c', 'cpp'])
+	# XXX: Put this in the x86_64 cross file instead?
+	if host_machine.cpu_family() == 'x86_64'
+		add_global_arguments(
+			[
+				'-ffreestanding',
+				'-mno-80387',
+				'-mno-mmx',
+				'-mno-sse',
+				'-mno-sse2'
+			],
+			language: ['c', 'cpp'])
+	endif
 	add_global_arguments(['-fno-exceptions', '-fno-rtti'], language: 'cpp')
 
 	add_project_arguments('-fcoroutines-ts', language: 'cpp')
@@ -33,6 +36,8 @@ if get_option('build_kernel')
 	cralgo = subproject('cralgo')
 	cxxshim = subproject('cxxshim')
 	frigg = subproject('frigg')
+	libarch = subproject('libarch', default_options: ['install_headers=false', 'header_only=true'])
+	libarch_dep = libarch.get_variable('libarch_dep')
 	lai = subproject('lai')
 	libsmarter = subproject('libsmarter')
 	cralgo_sources = cralgo.get_variable('sources')

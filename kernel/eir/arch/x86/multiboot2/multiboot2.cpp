@@ -123,7 +123,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	if(magic != 0x36d76289)
 		frigg::panicLogger() << "eir: Invalid multiboot2 signature, halting..." << frigg::endLog;
 
-	bootMemoryLimit = (uintptr_t)&eirRtImageCeiling; // Check if any modules are higher during iteration
+	bootMemoryLimit = (uintptr_t)&eirImageCeiling; // Check if any modules are higher during iteration
 
 	Mb2Info* mb_info = reinterpret_cast<Mb2Info*>(info);
 	size_t add_size = 0;
@@ -303,6 +303,6 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	framebuf->fbEarlyWindow = 0x80000000;
 	
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
-	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
+	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }

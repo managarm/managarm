@@ -13,12 +13,12 @@
 	.int 32 # Graphics: depth
 
 .section .text
-.global eirRtEntry
-eirRtEntry:
-    cld
+.global eirEntry
+eirEntry:
+	cld
 
-	.extern eirRtStackTop
-	mov $eirRtStackTop, %esp
+	.extern eirStackTop
+	mov $eirStackTop, %esp
 
 	push %eax
 	push %ebx
