@@ -340,7 +340,7 @@ namespace posix {
 					LaneDescriptor{lane});
 		}
 
-		int attachFile(OpenFile *file) {
+		coroutine<int> attachFile(OpenFile *file) {
 			Handle handle;
 			{
 				auto irq_lock = frigg::guard(&irqMutex());
@@ -350,22 +350,20 @@ namespace posix {
 						LaneDescriptor(file->clientLane));
 			}
 
-			// TODO: Get rid of copyKernelToThisSync()?
-
 			for(int fd = 0; fd < (int)openFiles.size(); ++fd) {
 				if(openFiles[fd])
 					continue;
 				openFiles[fd] = file;
-				fileTableMemory->copyKernelToThisSync(sizeof(Handle) * fd,
+				co_await copyToView(fileTableMemory.get(), sizeof(Handle) * fd,
 						&handle, sizeof(Handle));
-				return fd;
+				co_return fd;
 			}
 
 			int fd = openFiles.size();
 			openFiles.push(file);
-			fileTableMemory->copyKernelToThisSync(sizeof(Handle) * fd,
+			co_await copyToView(fileTableMemory.get(), sizeof(Handle) * fd,
 					&handle, sizeof(Handle));
-			return fd;
+			co_return fd;
 		}
 
 		frg::string<KernelAlloc> _name;
@@ -454,7 +452,7 @@ namespace posix {
 					async::detach_with_allocator(*kernelAlloc,
 							runDirectoryRequests(file, std::move(stream.get<0>())));
 
-					auto fd = attachFile(file);
+					auto fd = co_await attachFile(file);
 
 					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -478,7 +476,7 @@ namespace posix {
 					async::detach_with_allocator(*kernelAlloc,
 							runRegularRequests(file, std::move(stream.get<0>())));
 
-					auto fd = attachFile(file);
+					auto fd = co_await attachFile(file);
 
 					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -716,22 +714,22 @@ namespace posix {
 	}
 } // namepace posix
 
-void runService(frg::string<KernelAlloc> name, LaneHandle control_lane,
+void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 		frigg::SharedPtr<Thread> thread) {
-	KernelFiber::run([name, thread, control_lane = std::move(control_lane)] () mutable {
-		auto stdio_stream = createStream();
-		auto stdio_file = frigg::construct<StdioFile>(*kernelAlloc);
-		stdio_file->clientLane = frigg::move(stdio_stream.get<1>());
+	KernelFiber::run([name, thread, controlLane = std::move(controlLane)] () mutable {
+		auto stdioStream = createStream();
+		auto stdioFile = frigg::construct<StdioFile>(*kernelAlloc);
+		stdioFile->clientLane = frigg::move(stdioStream.get<1>());
 
 		async::detach_with_allocator(*kernelAlloc,
-				stdio::runStdioRequests(stdio_stream.get<0>()));
+				stdio::runStdioRequests(stdioStream.get<0>()));
 
 		auto process = frigg::construct<posix::Process>(*kernelAlloc, std::move(name), thread);
 		KernelFiber::asyncBlockCurrent(process->setupAddressSpace());
-		process->attachControl(std::move(control_lane));
-		process->attachFile(stdio_file);
-		process->attachFile(stdio_file);
-		process->attachFile(stdio_file);
+		process->attachControl(std::move(controlLane));
+		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
+		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
+		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
 
 		async::detach_with_allocator(*kernelAlloc,
 				process->runPosixRequests(thread->superiorLane()));
