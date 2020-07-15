@@ -449,6 +449,10 @@ HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
+frg::expected<Error, AddressIdentity> HardwareMemory::getAddressIdentity(uintptr_t offset) {
+	return AddressIdentity{this, offset};
+}
+
 Error HardwareMemory::lockRange(uintptr_t offset, size_t size) {
 	// Hardware memory is "always locked".
 	return Error::success;
@@ -528,6 +532,10 @@ void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver)
 	assert(num_chunks >= _physicalChunks.size());
 	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
 	receiver.set_value();
+}
+
+frg::expected<Error, AddressIdentity> AllocatedMemory::getAddressIdentity(uintptr_t offset) {
+	return AddressIdentity{this, offset};
 }
 
 Error AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
@@ -839,6 +847,10 @@ void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 	}(this, newPages, std::move(receiver)));
 }
 
+frg::expected<Error, AddressIdentity> BackingMemory::getAddressIdentity(uintptr_t offset) {
+	return AddressIdentity{_managed.get(), offset};
+}
+
 Error BackingMemory::lockRange(uintptr_t offset, size_t size) {
 	return _managed->lockPages(offset, size);
 }
@@ -954,6 +966,10 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 // --------------------------------------------------------
 // FrontalMemory
 // --------------------------------------------------------
+
+frg::expected<Error, AddressIdentity> FrontalMemory::getAddressIdentity(uintptr_t offset) {
+	return AddressIdentity{_managed.get(), offset};
+}
 
 Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
 	return _managed->lockPages(offset, size);
@@ -1146,6 +1162,19 @@ IndirectMemory::~IndirectMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
+frg::expected<Error, AddressIdentity> IndirectMemory::getAddressIdentity(uintptr_t offset) {
+	auto irqLock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&mutex_);
+
+	auto slot = offset >> 32;
+	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
+	if(slot >= indirections_.size())
+		return Error::fault;
+	if(!indirections_[slot])
+		return Error::fault;
+	return indirections_[slot]->memory->getAddressIdentity(inSlotOffset);
+}
+
 Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
 	auto irqLock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&mutex_);
@@ -1256,6 +1285,10 @@ CopyOnWriteMemory::~CopyOnWriteMemory() {
 
 size_t CopyOnWriteMemory::getLength() {
 	return _length;
+}
+
+frg::expected<Error, AddressIdentity> CopyOnWriteMemory::getAddressIdentity(uintptr_t offset) {
+	return AddressIdentity{this, offset};
 }
 
 void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {

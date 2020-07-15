@@ -271,6 +271,11 @@ private:
 	async::post_ack_mechanism<RangeToEvict> mechanism_;
 };
 
+struct AddressIdentity {
+	void *object;
+	uintptr_t offset;
+};
+
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
@@ -305,6 +310,10 @@ public:
 	virtual size_t getLength() = 0;
 
 	virtual void resize(size_t newLength, async::any_receiver<void> receiver);
+
+	// Returns a unique identity for each memory address.
+	// This is used as a key to access futexes.
+	virtual frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) = 0;
 
 	virtual void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver);
 
@@ -731,6 +740,7 @@ struct HardwareMemory final : MemoryView {
 	HardwareMemory &operator= (const HardwareMemory &) = delete;
 
 	size_t getLength() override;
+	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -753,6 +763,7 @@ struct AllocatedMemory final : MemoryView {
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;
+	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -851,6 +862,7 @@ public:
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;
+	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -873,6 +885,7 @@ public:
 	FrontalMemory &operator= (const FrontalMemory &) = delete;
 
 	size_t getLength() override;
+	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -892,6 +905,7 @@ struct IndirectMemory final : MemoryView {
 	IndirectMemory &operator= (const IndirectMemory &) = delete;
 
 	size_t getLength() override;
+	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -940,6 +954,7 @@ public:
 
 	size_t getLength() override;
 	void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) override;
+	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void asyncLockRange(uintptr_t offset, size_t size,
 			async::any_receiver<Error> receiver) override;
