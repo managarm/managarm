@@ -1,16 +1,16 @@
 .section .stivalehdr
-.extern eirRtStackTop
+.extern eirStackTop
 stivale_header:
-    .quad eirRtStackTop
+    .quad eirStackTop
     .word 1
     .word 0
     .word 0
     .word 32
 
 .section .text
-.global eirRtEntry
+.global eirEntry
 
-eirRtEntry:
+eirEntry:
     cld
 
     .extern eirStivaleMain

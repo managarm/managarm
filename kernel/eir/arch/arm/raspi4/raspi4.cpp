@@ -185,8 +185,6 @@ void friggPanic() {
 	__builtin_unreachable();
 }
 
-extern "C" void *eirRtImageCeiling;
-
 extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	// the device tree pointer is 32-bit and the upper bits are undefined
 	deviceTreePtr &= 0x00000000FFFFFFFF;

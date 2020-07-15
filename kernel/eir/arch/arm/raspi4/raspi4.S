@@ -1,15 +1,15 @@
 .section .text.init
-.global eirRtEntry
-eirRtEntry:
-	.extern eirRtStackTop
-	ldr x1, =eirRtStackTop
+.global eirEntry
+eirEntry:
+	.extern eirStackTop
+	ldr x1, =eirStackTop
 	mov sp, x1
 
 	// Zero out BSS
-	.extern eirRtBssStart
-	.extern eirRtBssEnd
-	ldr x5, =eirRtBssStart
-	ldr x6, =eirRtBssEnd
+	.extern eirBssStart
+	.extern eirBssEnd
+	ldr x5, =eirBssStart
+	ldr x6, =eirBssEnd
 .loop:
 	cmp x5, x6
 	b.eq .enter

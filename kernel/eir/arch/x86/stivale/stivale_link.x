@@ -1,4 +1,4 @@
-ENTRY(eirRtEntry)
+ENTRY(eirEntry)
 
 SECTIONS {
 	. = 0x100000;
@@ -29,6 +29,6 @@ SECTIONS {
 		*(COMMON)
 	}
 
-	eirRtImageCeiling = .;
+	eirImageCeiling = .;
 }
 

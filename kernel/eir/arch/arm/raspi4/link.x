@@ -1,4 +1,4 @@
-ENTRY(eirRtEntry)
+ENTRY(eirEntry)
 
 SECTIONS {
 	. = 0x80000;
@@ -17,13 +17,13 @@ SECTIONS {
 	}
 
 	.bss : ALIGN(0x1000) {
-		eirRtBssStart = .;
+		eirBssStart = .;
 		*(.bss*)
 		*(COMMON)
 		. = ALIGN(8);
-		eirRtBssEnd = .;
+		eirBssEnd = .;
 	}
 
-	eirRtImageCeiling = .;
+	eirImageCeiling = .;
 }
 

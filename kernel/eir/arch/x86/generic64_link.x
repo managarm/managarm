@@ -1,10 +1,10 @@
-ENTRY(eirRtEntry)
+ENTRY(eirEntry)
 
 SECTIONS {
 	. = 0x100000;
 
-	.text : ALIGN(0x1000) {	
-        *(.header*)	
+	.text : ALIGN(0x1000) {
+		(.header*)
 		*(.text*)
 	}
 	
@@ -26,6 +26,6 @@ SECTIONS {
 		*(COMMON)
 	}
 
-	eirRtImageCeiling = .;
+	eirImageCeiling = .;
 }
 

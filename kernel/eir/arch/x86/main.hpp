@@ -51,7 +51,7 @@ void createInitialRegion(address_t base, address_t size);
 void initProcessorPaging(void *kernel_start, uint64_t& kernel_entry);
 EirInfo *generateInfo(const char* cmdline);
 
-extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry, uint64_t stack_ptr);
+extern "C" void eirEnterKernel(uint32_t pml4, uint64_t entry, uint64_t stack_ptr);
 
 template<typename T>
 T *bootAlloc() {
@@ -66,7 +66,7 @@ T *bootAllocN(int n) {
 	return pointer;
 }
 
-extern char eirRtImageCeiling;
+extern char eirImageCeiling;
 extern address_t bootMemoryLimit;
 extern uintptr_t eirPml4Pointer;
 

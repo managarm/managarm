@@ -1,13 +1,13 @@
 .section .bss
 .align 16
-.global eirRtStackTop
-eirRtStackBottom:
+.global eirStackTop
+eirStackBottom:
 	.skip 0x100000 // reserve 1 MiB for the stack
-eirRtStackTop:
+eirStackTop:
 
 .section .text
-.global eirRtEnterKernel
-eirRtEnterKernel:
+.global eirEnterKernel
+eirEnterKernel:
 	// x0 -> TTBR0 ptr
 	// x1 -> TTBR1 ptr
 	// x2 -> thor entry point

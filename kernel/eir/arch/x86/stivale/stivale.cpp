@@ -51,7 +51,7 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 
 	initProcessorEarly();
 
-	bootMemoryLimit = (uintptr_t)&eirRtImageCeiling;
+	bootMemoryLimit = (uintptr_t)&eirImageCeiling;
 	auto* module = (stivaleModule*)data->modules;
 	for(size_t i = 0; i < data->moduleCount; i++){
 		uintptr_t ceil = module->end;
@@ -138,6 +138,6 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 	framebuf.fbEarlyWindow = 0x80000000;
 
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
-	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
+	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }
