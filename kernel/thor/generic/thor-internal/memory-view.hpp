@@ -305,8 +305,6 @@ public:
 
 	virtual void resize(size_t newLength, async::any_receiver<void> receiver);
 
-	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
-
 	virtual void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver);
 
 	// Acquire/release a lock on a memory range.
@@ -751,8 +749,6 @@ struct AllocatedMemory final : MemoryView {
 	~AllocatedMemory();
 
 	AllocatedMemory &operator= (const AllocatedMemory &) = delete;
-
-	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;

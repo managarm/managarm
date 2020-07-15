@@ -176,13 +176,6 @@ void initializeReclaim() {
 // MemoryView.
 // --------------------------------------------------------
 
-void MemoryView::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
-	(void)offset;
-	(void)pointer;
-	(void)size;
-	frigg::panicLogger() << "MemoryView does not support synchronous operations!" << frigg::endLog;
-}
-
 void MemoryView::resize(size_t newSize, async::any_receiver<void> receiver) {
 	(void)newSize;
 	(void)receiver;
@@ -534,33 +527,6 @@ void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver)
 	assert(num_chunks >= _physicalChunks.size());
 	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
 	receiver.set_value();
-}
-
-void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-
-	// TODO: For now we only allow naturally aligned access.
-	assert(size <= kPageSize);
-	assert(!(offset % size));
-
-	size_t index = offset / _chunkSize;
-	assert(index < _physicalChunks.size());
-	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		auto physical = physicalAllocator->allocate(_chunkSize, _addressBits);
-		assert(physical != PhysicalAddr(-1) && "OOM");
-		assert(!(physical % _chunkAlign));
-
-		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
-			PageAccessor accessor{physical + pg_progress};
-			memset(accessor.get(), 0, kPageSize);
-		}
-		_physicalChunks[index] = physical;
-	}
-
-	PageAccessor accessor{_physicalChunks[index]
-			+ ((offset % _chunkSize) / kPageSize)};
-	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
 }
 
 Error AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
