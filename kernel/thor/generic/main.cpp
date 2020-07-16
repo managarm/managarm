@@ -45,8 +45,15 @@ extern "C" void frg_panic(const char *cstring) {
 
 frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
-extern "C" void thorMain(PhysicalAddr info_paddr) {
+using InitializerPtr = void (*)();
+extern "C" InitializerPtr __init_array_start[];
+extern "C" InitializerPtr __init_array_end[];
+
+// This function performs early initialization.
+// It is called *before* running global constructors.
+extern "C" void thorInitialize() {
 	earlyInitializeBootProcessor();
+	initializeProcessorEarly();
 
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	if(info->debugFlags & eirDebugSerial)
@@ -59,10 +66,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			info->frameBuffer.fbWidth, info->frameBuffer.fbHeight,
 			info->frameBuffer.fbBpp, info->frameBuffer.fbType,
 			reinterpret_cast<void *>(info->frameBuffer.fbEarlyWindow));
-	
-	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 
-	initializeProcessorEarly();
+	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 
 	if(info->signature == eirSignatureValue) {
 		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
@@ -86,7 +91,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
 	frigg::infoLogger() << "thor: Number of available pages: "
 			<< physicalAllocator->numFreePages() << frigg::endLog;
-	
+
 	kernelVirtualAlloc.initialize();
 	kernelHeap.initialize(*kernelVirtualAlloc);
 	kernelAlloc.initialize(kernelHeap.get());
@@ -94,6 +99,17 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializePhysicalAccess();
 
 	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
+}
+
+extern "C" void thorRunConstructors() {
+	frigg::infoLogger() << "There are "
+			<< (__init_array_end - __init_array_start) << " constructors" << frigg::endLog;
+	for(InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
+			(*p)();
+}
+
+extern "C" void thorMain() {
+	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 
 	kernelCommandLine.initialize(*kernelAlloc, reinterpret_cast<const char *>(info->commandLine));
 	earlyFibers.initialize(*kernelAlloc);
@@ -199,7 +215,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				auto name_size = parseHex(header.nameSize, 8);
 				auto file_size = parseHex(header.fileSize, 8);
 				auto data = p + ((sizeof(Header) + name_size + 3) & ~uint32_t{3});
-				
+
 				frg::string_view path{p + sizeof(Header), name_size - 1};
 				if(path == "TRAILER!!!")
 					break;
@@ -241,7 +257,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size));
-		
+
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
 					dir->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
@@ -255,7 +271,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		if(logInitialization)
 			frigg::infoLogger() << "thor: Modules are set up successfully."
 					<< frigg::endLog;
-	
 
 		// Launch initial user space programs.
 		initializeKerncfg();

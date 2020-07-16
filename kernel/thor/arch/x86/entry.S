@@ -12,6 +12,8 @@ thorRtEntry:
 	or $0x400, %rax # enable OSXMMEXCPT
 	mov %rax, %cr4
 
+	call thorInitialize
+	call thorRunConstructors
 	call thorMain
 	ud2
 
