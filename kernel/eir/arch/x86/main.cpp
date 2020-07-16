@@ -441,11 +441,10 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 		Elf64_Phdr *phdr = (Elf64_Phdr *)((uintptr_t)image
 				+ (uintptr_t)ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
-		assert((phdr->p_offset % 0x1000) == 0);
-		assert((phdr->p_paddr % 0x1000) == 0);
-		
 		if(phdr->p_type != PT_LOAD)
 			continue;
+		assert(!(phdr->p_offset & (kPageSize - 1)));
+		assert(!(phdr->p_paddr & (kPageSize - 1)));
 
 		uint32_t map_flags = kAccessGlobal;
 		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == PF_R) {
