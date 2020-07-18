@@ -45,7 +45,9 @@ enum class Error {
 
 	insufficientPermissions,
 
-	accessDenied
+	accessDenied,
+
+	notConnected
 };
 
 // TODO: Rename this enum as is not part of the VFS.

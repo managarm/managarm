@@ -26,6 +26,7 @@ enum class Error {
 	insufficientPermissions = 14,
 	addressInUse = 15,
 	addressNotAvailable = 16,
+	notConnected = 17,
 };
 
 using ReadResult = std::variant<Error, size_t>;
