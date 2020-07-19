@@ -132,21 +132,20 @@ public:
 	async::result<protocols::fs::RecvResult>
 	recvMsg(Process *process, uint32_t flags, void *data, size_t max_length,
 			void *, size_t, size_t max_ctrl_length) override {
-		using namespace protocols::fs;
 		assert(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)));
 
 		if(_currentState == State::remoteShutDown)
-			co_return RecvResult { RecvData { 0, 0, {} } };
+			co_return protocols::fs::RecvResult { protocols::fs::RecvData { 0, 0, {} } };
 
 		if(_currentState != State::connected)
-			co_return Error::notConnected;
+			co_return protocols::fs::Error::notConnected;
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
 		if(_recvQueue.empty() && (flags & MSG_DONTWAIT)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
-			co_return RecvResult { protocols::fs::Error::wouldBlock };
+			co_return protocols::fs::RecvResult { protocols::fs::Error::wouldBlock };
 		}
 
 		while(_recvQueue.empty())
@@ -185,21 +184,20 @@ public:
 
 		if(packet->offset == packet->buffer.size())
 			_recvQueue.pop_front();
-		co_return RecvResult { RecvData { chunk, 0, ctrl.buffer() } };
+		co_return protocols::fs::RecvResult { protocols::fs::RecvData { chunk, 0, ctrl.buffer() } };
 	}
 
 	async::result<protocols::fs::SendResult>
 	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override {
-		using namespace protocols::fs;
 		assert(!(flags & ~(MSG_DONTWAIT)));
 
 		if(_currentState == State::remoteShutDown)
-			co_return SendResult { protocols::fs::Error::brokenPipe };
+			co_return protocols::fs::SendResult { protocols::fs::Error::brokenPipe };
 
 		if(_currentState != State::connected)
-			co_return Error::notConnected;
+			co_return protocols::fs::Error::notConnected;
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -216,7 +214,7 @@ public:
 		_remote->_inSeq = ++_remote->_currentSeq;
 		_remote->_statusBell.ring();
 
-		co_return SendResult { max_length };
+		co_return protocols::fs::SendResult { max_length };
 	}
 
 	async::result<int> getOption(int option) override {
