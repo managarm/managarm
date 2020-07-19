@@ -3,11 +3,12 @@
 #include <async/algorithm.hpp>
 #include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
+#include <frg/expected.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <frg/vector.hpp>
+#include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/error.hpp>
-#include <thor-internal/futex.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/kernel-locks.hpp>
 
@@ -272,8 +273,20 @@ private:
 };
 
 struct AddressIdentity {
+	friend bool operator== (AddressIdentity lhs, AddressIdentity rhs) {
+		return lhs.object == rhs.object
+				&& lhs.offset == rhs.offset;
+	}
+
 	void *object;
 	uintptr_t offset;
+};
+
+struct AddressIdentityHash {
+	unsigned int operator() (AddressIdentity identity) const {
+		return reinterpret_cast<uintptr_t>(identity.object) * 13
+				+ identity.offset;
+	}
 };
 
 // View on some pages of memory. This is the "frontend" part of a memory object.

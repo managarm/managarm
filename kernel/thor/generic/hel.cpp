@@ -2509,19 +2509,20 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		return expected == v;
 	};
 
+	AddressIdentity identity{space.get(), reinterpret_cast<uintptr_t>(pointer)};
 	if(deadline < 0) {
 		if(deadline != -1)
 			return kHelErrIllegalArgs;
 
 		Thread::asyncBlockCurrent(
-			space->futexSpace.wait(reinterpret_cast<uintptr_t>(pointer), condition)
+			getGlobalFutexSpace()->wait(identity, condition)
 		);
 	}else{
 		Thread::asyncBlockCurrent(
 			async::race_and_cancel(
 				[=] (async::cancellation_token cancellation) {
-					return space->futexSpace.wait(
-						reinterpret_cast<uintptr_t>(pointer), condition, cancellation);
+					return getGlobalFutexSpace()->wait(
+							identity, condition, cancellation);
 				},
 				[=] (async::cancellation_token cancellation) {
 					return generalTimerEngine()->sleep(deadline, cancellation);
@@ -2537,9 +2538,10 @@ HelError helFutexWake(int *pointer) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
+	AddressIdentity identity{space.get(), reinterpret_cast<uintptr_t>(pointer)};
 	{
 		// TODO: Support physical (i.e. non-private) futexes.
-		space->futexSpace.wake(VirtualAddr(pointer));
+		getGlobalFutexSpace()->wake(identity);
 	}
 
 	return kHelErrNone;

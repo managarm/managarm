@@ -5,6 +5,7 @@
 #include <thor-internal/accessors.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/cancel.hpp>
+#include <thor-internal/futex.hpp>
 #include <thor-internal/kernel_heap.hpp>
 
 namespace thor {

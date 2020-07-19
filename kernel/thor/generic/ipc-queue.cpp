@@ -221,7 +221,8 @@ bool IpcQueue::_waitHeadFutex() {
 		auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
 		_worklet.setup(&Ops::woken);
 		_futex.setup(&_worklet);
-		auto wait_in_futex = _space->futexSpace.checkSubmitWait(fa, [&] {
+		AddressIdentity identity{_space.get(), fa};
+		auto wait_in_futex = getGlobalFutexSpace()->checkSubmitWait(identity, [&] {
 			return __atomic_load_n(accessor.get(), __ATOMIC_RELAXED)
 					== (_nextIndex | kHeadWaiters);
 		}, &_futex);
@@ -247,7 +248,8 @@ void IpcQueue::_wakeProgressFutex(bool done) {
 	if(futex & kProgressWaiters) {
 		auto fa = reinterpret_cast<Address>(_currentChunk->pointer)
 				+ offsetof(ChunkStruct, progressFutex);
-		_currentChunk->space->futexSpace.wake(fa);
+		AddressIdentity identity{_space.get(), fa};
+		getGlobalFutexSpace()->wake(identity);
 	}
 }
 

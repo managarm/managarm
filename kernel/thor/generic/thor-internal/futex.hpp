@@ -9,11 +9,12 @@
 #include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/memory-view.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
-struct Futex;
+struct FutexSpace;
 
 enum class FutexState {
 	none,
@@ -23,7 +24,7 @@ enum class FutexState {
 };
 
 struct FutexNode {
-	friend struct Futex;
+	friend struct FutexSpace;
 
 	FutexNode()
 	: _cancelCb{this} { }
@@ -35,8 +36,8 @@ struct FutexNode {
 private:
 	void onCancel();
 
-	Futex *_futex = nullptr;
-	uintptr_t _address;
+	FutexSpace *_futex = nullptr;
+	AddressIdentity _identity;
 	Worklet *_woken;
 	async::cancellation_token _cancellation;
 	FutexState _state = FutexState::none;
@@ -45,20 +46,18 @@ private:
 	frg::default_list_hook<FutexNode> _queueNode;
 };
 
-struct Futex {
+struct FutexSpace {
 	friend struct FutexNode;
 
-	using Address = uintptr_t;
-
-	Futex()
-	: _slots{frg::hash<Address>{}, *kernelAlloc} { }
+	FutexSpace()
+	: _slots{AddressIdentityHash{}, *kernelAlloc} { }
 
 	bool empty() {
 		return _slots.empty();
 	}
 
 	template<typename C>
-	bool checkSubmitWait(Address address, C condition, FutexNode *node,
+	bool checkSubmitWait(AddressIdentity identity, C condition, FutexNode *node,
 			async::cancellation_token cancellation = {}) {
 		// TODO: avoid reuse of FutexNode and remove this condition.
 		if(node->_state == FutexState::retired) {
@@ -67,7 +66,7 @@ struct Futex {
 		}
 		assert(!node->_futex);
 		node->_futex = this;
-		node->_address = address;
+		node->_identity = identity;
 		node->_cancellation = cancellation;
 
 		auto irqLock = frigg::guard(&irqMutex());
@@ -84,10 +83,10 @@ struct Futex {
 			return false;
 		}
 
-		auto sit = _slots.get(address);
+		auto sit = _slots.get(identity);
 		if(!sit) {
-			_slots.insert(address, Slot());
-			sit = _slots.get(address);
+			_slots.insert(identity, Slot());
+			sit = _slots.get(identity);
 		}
 
 		assert(!node->_queueNode.in_list);
@@ -97,8 +96,8 @@ struct Futex {
 	}
 
 	template<typename C>
-	void submitWait(Address address, C condition, FutexNode *node) {
-		if(!checkSubmitWait(address, std::move(condition), node))
+	void submitWait(AddressIdentity identity, C condition, FutexNode *node) {
+		if(!checkSubmitWait(identity, std::move(condition), node))
 			WorkQueue::post(node->_woken);
 	}
 
@@ -119,15 +118,16 @@ struct Futex {
 			return {sender, std::move(receiver)};
 		}
 
-		Futex *self;
-		Address address;
+		FutexSpace *self;
+		AddressIdentity identity;
 		Condition c;
 		async::cancellation_token cancellation;
 	};
 
 	template<typename Condition>
-	WaitSender<Condition> wait(Address address, Condition c, async::cancellation_token cancellation = {}) {
-		return {this, address, std::move(c), cancellation};
+	WaitSender<Condition> wait(AddressIdentity identity, Condition c,
+			async::cancellation_token cancellation = {}) {
+		return {this, identity, std::move(c), cancellation};
 	}
 
 	template<typename R, typename Condition>
@@ -145,7 +145,7 @@ struct Futex {
 				async::execution::set_value_noinline(op->receiver_);
 			});
 			node_.setup(&worklet_);
-			if(!s_.self->checkSubmitWait(s_.address, std::move(s_.c), &node_, s_.cancellation)) {
+			if(!s_.self->checkSubmitWait(s_.identity, std::move(s_.c), &node_, s_.cancellation)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -173,7 +173,7 @@ private:
 		auto lock = frigg::guard(&_mutex);
 
 		if(node->_state == FutexState::waiting) {
-			auto sit = _slots.get(node->_address);
+			auto sit = _slots.get(node->_identity);
 			// Invariant: If the slot exists then its queue is not empty.
 			assert(!sit->queue.empty());
 
@@ -182,7 +182,7 @@ private:
 			node->_wasCancelled = true;
 
 			if(sit->queue.empty())
-				_slots.remove(node->_address);
+				_slots.remove(node->_identity);
 		}else{
 			// Let the cancellation handler invoke the continuation.
 			assert(node->_state == FutexState::woken);
@@ -193,7 +193,7 @@ private:
 	}
 
 public:
-	void wake(Address address) {
+	void wake(AddressIdentity identity) {
 		frg::intrusive_list<
 			FutexNode,
 			frg::locate_member<
@@ -206,7 +206,7 @@ public:
 			auto irqLock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&_mutex);
 
-			auto sit = _slots.get(address);
+			auto sit = _slots.get(identity);
 			if(!sit)
 				return;
 			// Invariant: If the slot exists then its queue is not empty.
@@ -227,7 +227,7 @@ public:
 			}
 
 			if(sit->queue.empty())
-				_slots.remove(address);
+				_slots.remove(identity);
 		}
 
 		while(!pending.empty()) {
@@ -255,9 +255,9 @@ private:
 	Mutex _mutex;
 
 	frg::hash_map<
-		Address,
+		AddressIdentity,
 		Slot,
-		frg::hash<Address>,
+		AddressIdentityHash,
 		KernelAlloc
 	> _slots;
 };
@@ -266,5 +266,7 @@ inline void FutexNode::onCancel() {
 	assert(_futex);
 	_futex->cancel(this);
 }
+
+FutexSpace *getGlobalFutexSpace();
 
 } // namespace thor
