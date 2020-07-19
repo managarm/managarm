@@ -80,8 +80,7 @@ private:
 		// This is the correct behavior for edge-triggered items.
 		// Level-triggered items stay pending until the event disappears.
 		auto result = std::get<PollResult>(result_or_error);
-		if((std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP))
-				&& (std::get<2>(result) & (item->eventMask | EPOLLERR | EPOLLHUP))) {
+		if(std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP)) {
 			if(logEpoll)
 				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
 						<< ": Item \e[1;34m" << item->file->structName()
