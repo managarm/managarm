@@ -112,7 +112,8 @@ public:
 	async::result<frg::expected<Error>>
 	writeAll(Process *process, const void *data, size_t length) override {
 		assert(process);
-		assert(_currentState == State::connected);
+		if(_currentState != State::connected)
+			co_return Error::notConnected;
 		if(logSockets)
 			std::cout << "posix: Write to socket " << this << std::endl;
 
@@ -137,7 +138,8 @@ public:
 		if(_currentState == State::remoteShutDown)
 			co_return RecvResult { RecvData { 0, 0, {} } };
 
-		assert(_currentState == State::connected);
+		if(_currentState != State::connected)
+			co_return Error::notConnected;
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -196,7 +198,8 @@ public:
 		if(_currentState == State::remoteShutDown)
 			co_return SendResult { protocols::fs::Error::brokenPipe };
 
-		assert(_currentState == State::connected);
+		if(_currentState != State::connected)
+			co_return Error::notConnected;
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 

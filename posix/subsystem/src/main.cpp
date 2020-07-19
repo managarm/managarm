@@ -622,6 +622,27 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::GetPpidRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::GetPpidRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: GET_PPID" << std::endl;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(self->getParent()->pid());
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::GetUidRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::GetUidRequest>(recv_head);
 

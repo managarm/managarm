@@ -339,7 +339,7 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("epoll")}, _currentSeq{1} { }
+	: File{StructName::get("epoll"), File::defaultPipeLikeSeek}, _currentSeq{1} { }
 
 private:
 	helix::UniqueLane _passthrough;
