@@ -164,6 +164,8 @@ public:
 		auto item = it->second;
 		assert(item->state & stateActive);
 
+		item->cancelPoll.cancel();
+
 		_fileMap.erase(it);
 		item->state &= ~stateActive;
 		if(!item->state)
