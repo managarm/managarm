@@ -72,10 +72,6 @@ private:
 			return;
 		}
 
-		// TODO: Ignore items that are already pending.
-		// This will happen once we implement modifyItem().
-		assert(!(item->state & statePending));
-
 		// Note that items only become pending if there is an edge.
 		// This is the correct behavior for edge-triggered items.
 		// Level-triggered items stay pending until the event disappears.
@@ -89,11 +85,13 @@ private:
 			// Note that we stop watching once an item becomes pending.
 			// We do this as we have to poll() again anyway before we report the item.
 			item->state &= ~statePolling;
-			item->state |= statePending;
+			if(!(item->state & statePending)) {
+				item->state |= statePending;
 
-			self->_pendingQueue.push_back(*item);
-			self->_currentSeq++;
-			self->_statusBell.ring();
+				self->_pendingQueue.push_back(*item);
+				self->_currentSeq++;
+				self->_statusBell.ring();
+			}
 		}else{
 			// Here, we assume that the lambda does not execute on the current stack.
 			// TODO: Use some callback queueing mechanism to ensure this.
@@ -101,8 +99,8 @@ private:
 				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
 						<< ": Item \e[1;34m" << item->file->structName()
 						<< "\e[0m still not pending after poll()."
-						<< " Mask is " << item->eventMask << ", while "
-						<< std::get<2>(result) << " is active" << std::endl;
+						<< " Mask is " << item->eventMask << ", while edges are "
+						<< std::get<1>(result) << std::endl;
 			item->cancelPoll.reset();
 			item->pollFuture = item->file->poll(item->process, std::get<0>(result),
 					item->cancelPoll);
@@ -135,8 +133,26 @@ public:
 	}
 
 	void modifyItem(File *file, int mask, uint64_t cookie) {
-		std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
-				<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
+		if(logEpoll)
+			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
+					<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
+		auto it = _fileMap.find(file);
+		assert(it != _fileMap.end());
+		auto item = it->second;
+		assert(item->state & stateActive);
+
+		item->eventMask = mask;
+		item->cookie = cookie;
+		item->cancelPoll.cancel();
+
+		// Mark the item as pending.
+		if(!(item->state & statePending)) {
+			item->state |= statePending;
+
+			_pendingQueue.push_back(*item);
+			_currentSeq++;
+			_statusBell.ring();
+		}
 	}
 
 	void deleteItem(File *file) {
@@ -217,21 +233,18 @@ public:
 				// Abort early (i.e before requeuing) if the item is not pending.
 				auto status = std::get<2>(result) & (item->eventMask | EPOLLERR | EPOLLHUP);
 				if(!status) {
-					// TODO: Once we implement modifyItem(), items can be both
-					// polling and pending at the same time. In this case, only poll
-					// if we are not already polling.
-					assert(!(item->state & statePolling));
 					item->state &= ~statePending;
-					item->state |= statePolling;
+					if(!(item->state & statePolling)) {
+						item->state |= statePolling;
 
-					// Once an item is not pending anymore, we continue watching it.
-					item->cancelPoll.reset();
-					item->pollFuture = item->file->poll(item->process, std::get<0>(result),
-							item->cancelPoll);
-					item->pollFuture.then([item] {
-						_awaitPoll(item);
-					});
-
+						// Once an item is not pending anymore, we continue watching it.
+						item->cancelPoll.reset();
+						item->pollFuture = item->file->poll(item->process, std::get<0>(result),
+								item->cancelPoll);
+						item->pollFuture.then([item] {
+							_awaitPoll(item);
+						});
+					}
 					continue;
 				}
 
