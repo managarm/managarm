@@ -87,6 +87,7 @@ thor_sources = files(
 	'generic/profile.cpp',
 	'generic/random.cpp',
 	'generic/servers.cpp',
+	'generic/ubsan.cpp',
 	'generic/work-queue.cpp',
 	'system/acpi/glue.cpp',
 	'system/acpi/madt.cpp',
@@ -114,6 +115,11 @@ embed_trampoline = custom_target('embed-trampoline',
 extra_c_args = []
 extra_cpp_args = []
 
+if get_option('kernel_ubsan')
+	# -fsanitize=function requires RTTI.
+	extra_c_args += ['-fsanitize=undefined', '-fno-sanitize=function']
+	extra_cpp_args += ['-fsanitize=undefined', '-fno-sanitize=function']
+endif
 if get_option('kernel_log_allocations')
 	extra_c_args = ['-fno-omit-frame-pointer']
 	extra_cpp_args = ['-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS']
