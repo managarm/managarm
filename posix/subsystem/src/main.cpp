@@ -2454,17 +2454,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
-			if(req->flags() & SOCK_NONBLOCK)
-				std::cout << "\e[31mposix: socket(SOCK_NONBLOCK)"
-						" is not implemented correctly\e[39m" << std::endl;
-
 			smarter::shared_ptr<File, FileHandle> file;
 			if(req->domain() == AF_UNIX) {
 				assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
 						|| req->socktype() == SOCK_SEQPACKET);
 				assert(!req->protocol());
 
-				file = un_socket::createSocketFile();
+				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK);
 			}else if(req->domain() == AF_NETLINK) {
 				assert(req->socktype() == SOCK_RAW || req->socktype() == SOCK_DGRAM);
 				file = nl_socket::createSocketFile(req->protocol());

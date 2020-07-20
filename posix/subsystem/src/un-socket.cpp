@@ -66,12 +66,14 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(Process *process = nullptr)
+	OpenFile(Process *process = nullptr, bool nonBlock = false)
 	: File{StructName::get("un-socket"), File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
-			_remote{nullptr}, _passCreds{false} {
+			_remote{nullptr}, _passCreds{false}, nonBlock_{false} {
 		if(process)
 			_ownerPid = process->pid();
+		if(nonBlock)
+			nonBlock_ = nonBlock;
 	}
 
 	void handleClose() override {
@@ -94,6 +96,12 @@ public:
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
+
+		if(_recvQueue.empty() && nonBlock_) {
+			if(logSockets)
+				std::cout << "posix: UNIX socket would block" << std::endl;
+			co_return Error::wouldBlock;
+		}
 
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
@@ -142,7 +150,7 @@ public:
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		if(_recvQueue.empty() && (flags & MSG_DONTWAIT)) {
+		if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
 			co_return protocols::fs::RecvResult { protocols::fs::Error::wouldBlock };
@@ -359,6 +367,22 @@ public:
 		return _passthrough;
 	}
 
+	async::result<void> setFileFlags(int flags) override {
+		if(flags & O_NONBLOCK)
+			nonBlock_ = true;
+		else {
+			std::cout << "posix: setFileFlags on socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+			nonBlock_ = false;
+		}
+		co_return;
+	}
+
+	async::result<int> getFileFlags() override {
+		if(nonBlock_)
+			co_return O_NONBLOCK;
+		co_return 0;
+}
+
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
@@ -384,10 +408,11 @@ private:
 
 	// Socket options.
 	bool _passCreds;
+	bool nonBlock_;
 };
 
-smarter::shared_ptr<File, FileHandle> createSocketFile() {
-	auto file = smarter::make_shared<OpenFile>();
+smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(nullptr, nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
