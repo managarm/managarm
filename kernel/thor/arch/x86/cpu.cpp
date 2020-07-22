@@ -1,10 +1,10 @@
 
 #include <arch/bits.hpp>
-#include <arch/register.hpp>
 #include <arch/io_space.hpp>
+#include <arch/register.hpp>
 #include <thor-internal/arch/vmx.hpp>
-
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/main.hpp>
 
 namespace thor {
 
@@ -682,13 +682,20 @@ void earlyInitializeBootProcessor() {
 	setupCpuContext(staticBootCpuContext.get());
 }
 
-void initializeBootProcessor() {
-	allCpuContexts.initialize(*kernelAlloc);
+static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-processor",
+	initgraph::Requires{getApicDiscoveryStage()},
+	[] {
+		allCpuContexts.initialize(*kernelAlloc);
 
-	// We need to fill in the boot APIC ID.
-	// This cannot be done in earlyInitializeBootProcessor() as we need the APIC base first.
-	staticBootCpuContext->localApicId = getLocalApicId();
-}
+		// We need to fill in the boot APIC ID.
+		// This cannot be done in earlyInitializeBootProcessor() as we need the APIC base first.
+		staticBootCpuContext->localApicId = getLocalApicId();
+		frigg::infoLogger() << "Booting on CPU #" << staticBootCpuContext->localApicId
+				<< frigg::endLog;
+
+		initializeThisProcessor();
+	}
+};
 
 void initializeThisProcessor() {
 	// FIXME: the stateSize should not be CPU specific!

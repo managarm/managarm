@@ -6,7 +6,9 @@
 
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
+#include <thor-internal/main.hpp>
 
 namespace thor {
 
@@ -226,32 +228,38 @@ void disarmPreemption() {
 // Local PIC management
 // --------------------------------------------------------
 
-void initLocalApicOnTheSystem() {
-	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
-	msr |= (1 << 11); // Enable APIC
-
-	bool haveX2apic = false;
-	if(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 21)){
-		frigg::infoLogger() << "\e[37mthor: CPU supports x2apic\e[39m" << frigg::endLog;
-		msr |= (1 << 10);
-		haveX2apic = true;
-	} else {
-		frigg::infoLogger() << "\e[37mthor: CPU does not support x2apic\e[39m" << frigg::endLog;
-	}
-
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLocalApicBase, msr);
-
-	// TODO: We really only need a single page.
-	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
-	// TODO: Intel SDM specifies that we should mask out all
-	// bits > the physical address limit of the msr.
-	// For now we just assume that they are zero.
-	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
-			page_access::write, CachingMode::null);
-	picBase = ApicRegisterSpace(haveX2apic, register_ptr);
-
-	frigg::infoLogger() << "Booting on CPU #" << getLocalApicId() << frigg::endLog;
+initgraph::Stage *getApicDiscoveryStage() {
+	static initgraph::Stage s{&basicInitEngine, "x86.apic-discovered"};
+	return &s;
 }
+
+static initgraph::Task discoverApicTask{&basicInitEngine, "x86.discover-apic",
+	initgraph::Entails{getApicDiscoveryStage()},
+	[] {
+		uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
+		msr |= (1 << 11); // Enable APIC
+
+		bool haveX2apic = false;
+		if(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 21)){
+			frigg::infoLogger() << "\e[37mthor: CPU supports x2apic\e[39m" << frigg::endLog;
+			msr |= (1 << 10);
+			haveX2apic = true;
+		} else {
+			frigg::infoLogger() << "\e[37mthor: CPU does not support x2apic\e[39m" << frigg::endLog;
+		}
+
+		frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLocalApicBase, msr);
+
+		// TODO: We really only need a single page.
+		auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
+		// TODO: Intel SDM specifies that we should mask out all
+		// bits > the physical address limit of the msr.
+		// For now we just assume that they are zero.
+		KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
+				page_access::write, CachingMode::null);
+		picBase = ApicRegisterSpace(haveX2apic, register_ptr);
+	}
+};
 
 void initLocalApicPerCpu() {
 	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
@@ -663,6 +671,15 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 // Legacy PIC management
 // --------------------------------------------------------
 
+static initgraph::Task setupPicTask{&basicInitEngine, "x86.setup-legacy-pic",
+	[] {
+		// TODO: managarm crashes on bochs if we do not remap the legacy PIC.
+		// we need to debug that and find the cause of this problem.
+		remapLegacyPic(32);
+		maskLegacyPic();
+	}
+};
+
 void ioWait() { }
 
 enum LegacyPicRegisters {
@@ -719,10 +736,6 @@ void remapLegacyPic(int offset) {
 	// restore saved masks
 	frigg::arch_x86::ioOutByte(kPic1Data, a1);
 	frigg::arch_x86::ioOutByte(kPic2Data, a2);
-}
-
-void setupLegacyPic() {
-	remapLegacyPic(32);
 }
 
 void maskLegacyPic() {

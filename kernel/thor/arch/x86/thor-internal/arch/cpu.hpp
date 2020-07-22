@@ -647,7 +647,6 @@ void runDetached(F functor, Args... args) {
 void doRunDetached(void (*function) (void *), void *argument);
 
 void earlyInitializeBootProcessor();
-void initializeBootProcessor();
 void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);

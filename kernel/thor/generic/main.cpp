@@ -1,7 +1,9 @@
 
 #include <algorithm>
 
+#include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
+#include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
@@ -108,6 +110,8 @@ extern "C" void thorRunConstructors() {
 			(*p)();
 }
 
+constinit initgraph::Engine basicInitEngine;
+
 extern "C" void thorMain() {
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 
@@ -117,9 +121,7 @@ extern "C" void thorMain() {
 	for(int i = 0; i < 64; i++)
 		globalIrqSlots[i].initialize();
 
-	initializeTheSystemEarly();
-	initializeBootProcessor();
-	initializeThisProcessor();
+	basicInitEngine.run();
 
 	initializeRandom();
 	initializeReclaim();
@@ -127,9 +129,6 @@ extern "C" void thorMain() {
 	if(logInitialization)
 		frigg::infoLogger() << "thor: Bootstrap processor initialized successfully."
 				<< frigg::endLog;
-
-	// Continue the system initialization.
-	initializeBasicSystem();
 
 	for(auto it = earlyFibers->begin(); it != earlyFibers->end(); ++it)
 		Scheduler::resume(*it);

@@ -2,6 +2,7 @@
 
 #include <arch/mem_space.hpp>
 #include <frigg/arch_x86/machine.hpp>
+#include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/types.hpp>
@@ -94,7 +95,8 @@ private:
 
 GlobalApicContext *globalApicContext();
 
-void initLocalApicOnTheSystem();
+initgraph::Stage *getApicDiscoveryStage();
+
 void initLocalApicPerCpu();
 
 uint32_t getLocalApicId();
@@ -128,8 +130,7 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address);
 // Legacy PIC management
 // --------------------------------------------------------
 
-void setupLegacyPic();
-
+void remapLegacyPic(int offset);
 void maskLegacyPic();
 
 bool checkLegacyPicIsr(int irq);

@@ -169,6 +169,9 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 		bragi_dep
 	],
 	cpp_args: [
+		# For now, we only use static initializers for initgraph stages.
+		# If we decide to use them for something more complicated, we have to remove this.
+		'-fno-threadsafe-statics',
 		'-mcmodel=kernel',
 		'-mno-red-zone',
 		'-DLIBASYNC_CUSTOM_PLATFORM',

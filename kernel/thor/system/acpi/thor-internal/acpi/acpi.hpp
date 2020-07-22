@@ -1,6 +1,7 @@
 #pragma once
 
 #include <thor-internal/irq.hpp>
+#include <thor-internal/initgraph.hpp>
 
 namespace thor {
 
@@ -19,6 +20,8 @@ void configureIrq(GlobalIrqInfo info);
 
 namespace thor {
 namespace acpi {
+
+initgraph::Stage *getTablesDiscoveredStage();
 
 void initializeBasicSystem();
 void initializeExtendedSystem();

@@ -8,6 +8,7 @@
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
@@ -75,14 +76,6 @@ struct MadtLocalNmiEntry {
 	uint8_t processorId;
 	uint16_t flags;
 	uint8_t localInt;
-} __attribute__ (( packed ));
-
-struct HpetEntry {
-	uint32_t generalCapsAndId;
-	acpi_gas_t address;
-	uint8_t hpetNumber;
-	uint16_t minimumTick;
-	uint8_t pageProtection;
 } __attribute__ (( packed ));
 
 } } // namespace thor::acpi
@@ -240,116 +233,110 @@ void dumpMadt() {
 void *globalRsdtWindow;
 int globalRsdtVersion;
 
-void initializeBasicSystem() {
-	lai_rsdp_info rsdp_info;
-	if(lai_bios_detect_rsdp(&rsdp_info))
-		frigg::panicLogger() << "thor: Could not detect ACPI" << frigg::endLog;
-
-	assert((rsdp_info.acpi_version == 1 || rsdp_info.acpi_version == 2) && "Got unknown acpi version from lai");
-	globalRsdtVersion = rsdp_info.acpi_version;
-	if(rsdp_info.acpi_version == 2){
-		globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, 0x1000);
-		auto xsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
-		globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, xsdt->header.length);
-	} else if(rsdp_info.acpi_version == 1) {
-		globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, 0x1000);
-		auto rsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
-		globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, rsdt->header.length);
-	}
-
-	lai_create_namespace();
-
-	dumpMadt();
-
-	void *madtWindow = laihost_scan("APIC", 0);
-	assert(madtWindow);
-	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
-
-	// Configure all interrupt controllers.
-	// TODO: This should be done during thor's initialization in order to avoid races.
-	frigg::infoLogger() << "thor: Configuring I/O APICs." << frigg::endLog;
-
-	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
-	while(offset < madt->length) {
-		auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
-		if(generic->type == 1) { // I/O APIC
-			auto entry = (MadtIoEntry *)generic;
-			setupIoApic(entry->ioApicId, entry->systemIntBase, entry->mmioAddress);
-		}
-		offset += generic->length;
-	}
-
-	// Determine IRQ override configuration.
-	for(int i = 0; i < 16; i++)
-		isaIrqOverrides[i].initialize();
-
-	offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
-	while(offset < madt->length) {
-		auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
-		if(generic->type == 2) { // interrupt source override
-			auto entry = (MadtIntOverrideEntry *)generic;
-
-			// ACPI defines only ISA IRQ overrides.
-			assert(entry->bus == 0);
-			assert(entry->sourceIrq < 16);
-
-			GlobalIrqInfo line;
-			line.gsi = entry->systemInt;
-
-			auto trigger = entry->flags & OverrideFlags::triggerMask;
-			auto polarity = entry->flags & OverrideFlags::polarityMask;
-			if(trigger == OverrideFlags::triggerDefault
-					&& polarity == OverrideFlags::polarityDefault) {
-				line.configuration.trigger = TriggerMode::edge;
-				line.configuration.polarity = Polarity::high;
-			}else{
-				assert(trigger != OverrideFlags::triggerDefault);
-				assert(polarity != OverrideFlags::polarityDefault);
-
-				switch(trigger) {
-				case OverrideFlags::triggerEdge:
-					line.configuration.trigger = TriggerMode::edge; break;
-				case OverrideFlags::triggerLevel:
-					line.configuration.trigger = TriggerMode::level; break;
-				default:
-					frigg::panicLogger() << "Illegal IRQ trigger mode in MADT" << frigg::endLog;
-				}
-
-				switch(polarity) {
-				case OverrideFlags::polarityHigh:
-					line.configuration.polarity = Polarity::high; break;
-				case OverrideFlags::polarityLow:
-					line.configuration.polarity = Polarity::low; break;
-				default:
-					frigg::panicLogger() << "Illegal IRQ polarity in MADT" << frigg::endLog;
-				}
-			}
-
-			assert(!(*isaIrqOverrides[entry->sourceIrq]));
-			*isaIrqOverrides[entry->sourceIrq] = line;
-		}
-		offset += generic->length;
-	}
-
-	// Initialize the HPET.
-	[&] () {
-		void *hpetWindow = laihost_scan("HPET", 0);
-		if(!hpetWindow) {
-			frigg::infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frigg::endLog;
-			return;
-		}
-		auto hpet = reinterpret_cast<acpi_header_t *>(hpetWindow);
-		if(hpet->length < sizeof(acpi_header_t) + sizeof(HpetEntry)) {
-			frigg::infoLogger() << "\e[31m" "thor: HPET table has no entries!" "\e[39m"
-					<< frigg::endLog;
-			return;
-		}
-		auto hpetEntry = (HpetEntry *)((uintptr_t)hpetWindow + sizeof(acpi_header_t));
-		frigg::infoLogger() << "thor: Setting up HPET" << frigg::endLog;
-		assert(hpetEntry->address.address_space == ACPI_GAS_MMIO);
-		setupHpet(hpetEntry->address.base);
-	}();
+initgraph::Stage *getTablesDiscoveredStage() {
+	static initgraph::Stage s{&basicInitEngine, "acpi.tables-discovered"};
+	return &s;
 }
+
+static initgraph::Task initTablesTask{&basicInitEngine, "acpi.init-tables",
+	initgraph::Entails{getTablesDiscoveredStage()},
+	[] {
+		lai_rsdp_info rsdp_info;
+		if(lai_bios_detect_rsdp(&rsdp_info))
+			frigg::panicLogger() << "thor: Could not detect ACPI" << frigg::endLog;
+
+		assert((rsdp_info.acpi_version == 1 || rsdp_info.acpi_version == 2) && "Got unknown acpi version from lai");
+		globalRsdtVersion = rsdp_info.acpi_version;
+		if(rsdp_info.acpi_version == 2){
+			globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, 0x1000);
+			auto xsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
+			globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, xsdt->header.length);
+		} else if(rsdp_info.acpi_version == 1) {
+			globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, 0x1000);
+			auto rsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
+			globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, rsdt->header.length);
+		}
+
+		lai_create_namespace();
+	}
+};
+
+static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioapics",
+	initgraph::Requires{getTablesDiscoveredStage()},
+	[] {
+		dumpMadt();
+
+		void *madtWindow = laihost_scan("APIC", 0);
+		assert(madtWindow);
+		auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
+
+		// Configure all interrupt controllers.
+		// TODO: This should be done during thor's initialization in order to avoid races.
+		frigg::infoLogger() << "thor: Configuring I/O APICs." << frigg::endLog;
+
+		size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+		while(offset < madt->length) {
+			auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
+			if(generic->type == 1) { // I/O APIC
+				auto entry = (MadtIoEntry *)generic;
+				setupIoApic(entry->ioApicId, entry->systemIntBase, entry->mmioAddress);
+			}
+			offset += generic->length;
+		}
+
+		// Determine IRQ override configuration.
+		for(int i = 0; i < 16; i++)
+			isaIrqOverrides[i].initialize();
+
+		offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+		while(offset < madt->length) {
+			auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
+			if(generic->type == 2) { // interrupt source override
+				auto entry = (MadtIntOverrideEntry *)generic;
+
+				// ACPI defines only ISA IRQ overrides.
+				assert(entry->bus == 0);
+				assert(entry->sourceIrq < 16);
+
+				GlobalIrqInfo line;
+				line.gsi = entry->systemInt;
+
+				auto trigger = entry->flags & OverrideFlags::triggerMask;
+				auto polarity = entry->flags & OverrideFlags::polarityMask;
+				if(trigger == OverrideFlags::triggerDefault
+						&& polarity == OverrideFlags::polarityDefault) {
+					line.configuration.trigger = TriggerMode::edge;
+					line.configuration.polarity = Polarity::high;
+				}else{
+					assert(trigger != OverrideFlags::triggerDefault);
+					assert(polarity != OverrideFlags::polarityDefault);
+
+					switch(trigger) {
+					case OverrideFlags::triggerEdge:
+						line.configuration.trigger = TriggerMode::edge; break;
+					case OverrideFlags::triggerLevel:
+						line.configuration.trigger = TriggerMode::level; break;
+					default:
+						frigg::panicLogger() << "Illegal IRQ trigger mode in MADT" << frigg::endLog;
+					}
+
+					switch(polarity) {
+					case OverrideFlags::polarityHigh:
+						line.configuration.polarity = Polarity::high; break;
+					case OverrideFlags::polarityLow:
+						line.configuration.polarity = Polarity::low; break;
+					default:
+						frigg::panicLogger() << "Illegal IRQ polarity in MADT" << frigg::endLog;
+					}
+				}
+
+				assert(!(*isaIrqOverrides[entry->sourceIrq]));
+				*isaIrqOverrides[entry->sourceIrq] = line;
+			}
+			offset += generic->length;
+		}
+	}
+};
 
 void initializeExtendedSystem() {
 	// Configure the ISA IRQs.

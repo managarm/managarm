@@ -1,15 +1,15 @@
-
+#include <arch/bits.hpp>
+#include <arch/io_space.hpp>
+#include <arch/mem_space.hpp>
+#include <arch/register.hpp>
 #include <frg/intrusive.hpp>
 #include <frigg/debug.hpp>
-
-#include <arch/bits.hpp>
-#include <arch/register.hpp>
-#include <arch/mem_space.hpp>
-#include <arch/io_space.hpp>
-
+#include <lai/core.h>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/irq.hpp>
 
 namespace thor {
@@ -210,6 +210,37 @@ void pollSleepNano(uint64_t nanotime) {
 		frigg::pause();
 	}
 }
+
+struct HpetEntry {
+	uint32_t generalCapsAndId;
+	acpi_gas_t address;
+	uint8_t hpetNumber;
+	uint16_t minimumTick;
+	uint8_t pageProtection;
+} __attribute__ (( packed ));
+
+static initgraph::Task initHpetTask{&basicInitEngine, "x86.init-hpet",
+	initgraph::Requires{getApicDiscoveryStage(), // For APIC calibration.
+			acpi::getTablesDiscoveredStage()},
+	// Initialize the HPET.
+	[] {
+		void *hpetWindow = laihost_scan("HPET", 0);
+		if(!hpetWindow) {
+			frigg::infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frigg::endLog;
+			return;
+		}
+		auto hpet = reinterpret_cast<acpi_header_t *>(hpetWindow);
+		if(hpet->length < sizeof(acpi_header_t) + sizeof(HpetEntry)) {
+			frigg::infoLogger() << "\e[31m" "thor: HPET table has no entries!" "\e[39m"
+					<< frigg::endLog;
+			return;
+		}
+		auto hpetEntry = (HpetEntry *)((uintptr_t)hpetWindow + sizeof(acpi_header_t));
+		frigg::infoLogger() << "thor: Setting up HPET" << frigg::endLog;
+		assert(hpetEntry->address.address_space == ACPI_GAS_MMIO);
+		setupHpet(hpetEntry->address.base);
+	}
+};
 
 } // namespace thor
 
