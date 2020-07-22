@@ -1,11 +1,10 @@
-
-#include <frigg/debug.hpp>
 #include <arch/io_space.hpp>
+#include <frigg/debug.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
-#include <thor-internal/arch/rtc.hpp>
 #include <clock.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 
@@ -201,16 +200,18 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 } // anonymous namespace
 
-void initializeRtc() {
-	// Create a fiber to manage requests to the RTC mbus object.
-	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, [] () -> coroutine<void> {
-			auto objectLane = co_await createObject(*mbusClient);
-			while(true)
-				co_await handleBind(objectLane);
-		}());
-	});
-}
+static initgraph::Task initRtcTask{&extendedInitEngine, "x86.init-rtc",
+	[] {
+		// Create a fiber to manage requests to the RTC mbus object.
+		KernelFiber::run([=] {
+			async::detach_with_allocator(*kernelAlloc, [] () -> coroutine<void> {
+				auto objectLane = co_await createObject(*mbusClient);
+				while(true)
+					co_await handleBind(objectLane);
+			}());
+		});
+	}
+};
 
 } // namespace thor
 

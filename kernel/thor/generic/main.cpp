@@ -110,6 +110,7 @@ extern "C" void thorRunConstructors() {
 }
 
 constinit initgraph::Engine basicInitEngine;
+constinit initgraph::Engine extendedInitEngine;
 
 extern "C" void thorMain() {
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
@@ -139,7 +140,7 @@ extern "C" void thorMain() {
 
 	KernelFiber::run([=] () mutable {
 		// Complete the system initialization.
-		initializeExtendedSystem();
+		extendedInitEngine.run();
 
 		transitionBootFb();
 

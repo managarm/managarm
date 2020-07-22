@@ -5,5 +5,6 @@
 namespace thor {
 
 extern initgraph::Engine basicInitEngine;
+extern initgraph::Engine extendedInitEngine;
 
 } // namespace thor

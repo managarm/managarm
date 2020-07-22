@@ -338,36 +338,38 @@ static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioap
 	}
 };
 
-void initializeExtendedSystem() {
-	// Configure the ISA IRQs.
-	// TODO: This is a hack. We assume that HPET will use legacy replacement.
-	frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
-	configureIrq(resolveIsaIrq(0));
-	configureIrq(resolveIsaIrq(1));
-	configureIrq(resolveIsaIrq(4));
-	configureIrq(resolveIsaIrq(12));
-	configureIrq(resolveIsaIrq(14));
+static initgraph::Task enterAcpiModeTask{&extendedInitEngine, "acpi.enter-acpi-mode",
+	[] {
+		// Configure the ISA IRQs.
+		// TODO: This is a hack. We assume that HPET will use legacy replacement.
+		frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
+		configureIrq(resolveIsaIrq(0));
+		configureIrq(resolveIsaIrq(1));
+		configureIrq(resolveIsaIrq(4));
+		configureIrq(resolveIsaIrq(12));
+		configureIrq(resolveIsaIrq(14));
 
-	// Install the SCI before enabling ACPI.
-	void *fadtWindow = laihost_scan("FACP", 0);
-	assert(fadtWindow);
-	auto fadt = reinterpret_cast<acpi_fadt_t *>(fadtWindow);
+		// Install the SCI before enabling ACPI.
+		void *fadtWindow = laihost_scan("FACP", 0);
+		assert(fadtWindow);
+		auto fadt = reinterpret_cast<acpi_fadt_t *>(fadtWindow);
 
-	auto sciOverride = resolveIsaIrq(fadt->sci_irq);
-	configureIrq(sciOverride);
-	sciDevice.initialize();
-	lai_set_sci_event(ACPI_POWER_BUTTON);
-	IrqPin::attachSink(getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
+		auto sciOverride = resolveIsaIrq(fadt->sci_irq);
+		configureIrq(sciOverride);
+		sciDevice.initialize();
+		lai_set_sci_event(ACPI_POWER_BUTTON);
+		IrqPin::attachSink(getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
 
-	// Enable ACPI.
-	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
-	lai_enable_acpi(1);
+		// Enable ACPI.
+		frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
+		lai_enable_acpi(1);
 
-	bootOtherProcessors();
-	pci::enumerateSystemBusses();
-	initializePmInterface();
+		bootOtherProcessors();
+		pci::enumerateSystemBusses();
+		initializePmInterface();
 
-	frigg::infoLogger() << "thor: System configuration complete." << frigg::endLog;
-}
+		frigg::infoLogger() << "thor: ACPI configuration complete." << frigg::endLog;
+	}
+};
 
 } } // namespace thor::acpi

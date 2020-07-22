@@ -1,8 +1,9 @@
-#include <hw.frigg_pb.hpp>
-#include <mbus.frigg_pb.hpp>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
-#include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/main.hpp>
+#include <hw.frigg_pb.hpp>
+#include <mbus.frigg_pb.hpp>
 
 namespace thor {
 	extern frigg::LazyInitializer<LaneHandle> mbusClient;
@@ -194,11 +195,13 @@ coroutine<void> initializeAtaDevice() {
 		co_await handleBind(objectLane);
 }
 
-void initializeDevices() {
-	// For now, we only need the kernel fiber to make sure mbusClient is already initialized.
-	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, initializeAtaDevice());
-	});
-}
+static initgraph::Task initAtaTask{&extendedInitEngine, "legacy_pc.init-ata",
+	[] {
+		// For now, we only need the kernel fiber to make sure mbusClient is already initialized.
+		KernelFiber::run([=] {
+			async::detach_with_allocator(*kernelAlloc, initializeAtaDevice());
+		});
+	}
+};
 
 } // namespace thor::legacy_pc
