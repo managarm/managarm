@@ -54,8 +54,7 @@ extern "C" InitializerPtr __init_array_end[];
 // This function performs early initialization.
 // It is called *before* running global constructors.
 extern "C" void thorInitialize() {
-	earlyInitializeBootProcessor();
-	initializeProcessorEarly();
+	initializeArchitecture();
 
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	if(info->debugFlags & eirDebugSerial)

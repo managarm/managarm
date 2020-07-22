@@ -677,7 +677,7 @@ void setupCpuContext(AssemblyCpuData *context) {
 			reinterpret_cast<uint64_t>(context));
 }
 
-void earlyInitializeBootProcessor() {
+void setupBootCpuContext() {
 	staticBootCpuContext.initialize();
 	setupCpuContext(staticBootCpuContext.get());
 }
@@ -688,7 +688,7 @@ static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-pr
 		allCpuContexts.initialize(*kernelAlloc);
 
 		// We need to fill in the boot APIC ID.
-		// This cannot be done in earlyInitializeBootProcessor() as we need the APIC base first.
+		// This cannot be done in setupBootCpuContext() as we need the APIC base first.
 		staticBootCpuContext->localApicId = getLocalApicId();
 		frigg::infoLogger() << "Booting on CPU #" << staticBootCpuContext->localApicId
 				<< frigg::endLog;

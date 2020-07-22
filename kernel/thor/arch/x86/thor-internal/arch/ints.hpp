@@ -7,7 +7,7 @@
 
 namespace thor {
 
-void initializeProcessorEarly();
+void setupEarlyInterruptHandlers();
 
 void setupIdt(uint32_t *table);
 

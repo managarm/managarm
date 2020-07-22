@@ -145,7 +145,7 @@ extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
 			<< "Faulting IP: " << rip << frigg::endLog;
 }
 
-void initializeProcessorEarly() {
+void setupEarlyInterruptHandlers() {
 	// setup the gdt
 	frigg::arch_x86::makeGdtNullSegment(earlyGdt, 0);
 	// for simplicity, match the layout with the "real" gdt we load later
