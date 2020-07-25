@@ -22,17 +22,20 @@
 namespace thor {
 namespace acpi {
 
-struct MadtHeader {
+// Note: since firmware often provides unaligned MADTs,
+//       we just mark all MADT structs as [[gnu::packed]].
+
+struct [[gnu::packed]] MadtHeader {
 	uint32_t localApicAddress;
 	uint32_t flags;
 };
 
-struct MadtGenericEntry {
+struct [[gnu::packed]] MadtGenericEntry {
 	uint8_t type;
 	uint8_t length;
 };
 
-struct MadtLocalEntry {
+struct [[gnu::packed]] MadtLocalEntry {
 	MadtGenericEntry generic;
 	uint8_t processorId;
 	uint8_t localApicId;
@@ -43,7 +46,7 @@ namespace local_flags {
 	static constexpr uint32_t enabled = 1;
 };
 
-struct MadtIoEntry {
+struct [[gnu::packed]] MadtIoEntry {
 	MadtGenericEntry generic;
 	uint8_t ioApicId;
 	uint8_t reserved;
@@ -63,7 +66,7 @@ enum OverrideFlags {
 	triggerLevel = 0x0C
 };
 
-struct MadtIntOverrideEntry {
+struct [[gnu::packed]] MadtIntOverrideEntry {
 	MadtGenericEntry generic;
 	uint8_t bus;
 	uint8_t sourceIrq;
@@ -71,12 +74,12 @@ struct MadtIntOverrideEntry {
 	uint16_t flags;
 };
 
-struct MadtLocalNmiEntry {
+struct [[gnu::packed]] MadtLocalNmiEntry {
 	MadtGenericEntry generic;
 	uint8_t processorId;
 	uint16_t flags;
 	uint8_t localInt;
-} __attribute__ (( packed ));
+};
 
 } } // namespace thor::acpi
 
