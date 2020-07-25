@@ -431,3 +431,83 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 	while(true);
 }
+
+enum class IntrType {
+	synchronous,
+	irq,
+	fiq,
+	serror
+};
+
+extern "C" void eirExceptionHandler(IntrType i_type, uintptr_t syndrome, uintptr_t link,
+		uintptr_t state, uintptr_t fault_addr) {
+
+	frigg::infoLogger() << "An unexpected fault has occured:" << frigg::endLog;
+	frigg::infoLogger() << "Interruption type: ";
+
+	switch (i_type) {
+		case IntrType::synchronous:
+			frigg::infoLogger() << "synchronous";
+			break;
+		case IntrType::irq:
+			frigg::infoLogger() << "irq";
+			break;
+		case IntrType::fiq:
+			frigg::infoLogger() << "fiq";
+			break;
+		case IntrType::serror:
+			frigg::infoLogger() << "SError";
+			break;
+	}
+
+	frigg::infoLogger() << frigg::endLog << "Exception type: ";
+
+	auto exc_type = syndrome >> 26;
+	switch (exc_type) {
+		case 0x01: frigg::infoLogger() << "Trapped WFI/WFE"; break;
+		case 0x0e: frigg::infoLogger() << "Illegal execution"; break;
+		case 0x15: frigg::infoLogger() << "System call"; break;
+		case 0x20: frigg::infoLogger() << "Instruction abort, lower EL"; break;
+		case 0x21: frigg::infoLogger() << "Instruction abort, same EL"; break;
+		case 0x22: frigg::infoLogger() << "Instruction alignment fault"; break;
+		case 0x24: frigg::infoLogger() << "Data abort, lower EL"; break;
+		case 0x25: frigg::infoLogger() << "Data abort, same EL"; break;
+		case 0x26: frigg::infoLogger() << "Stack alignment fault"; break;
+		case 0x2c: frigg::infoLogger() << "Floating point"; break;
+		default: frigg::infoLogger() << "Unknown"; break;
+	}
+
+	frigg::infoLogger() << " (" << (void *)exc_type << ")" << frigg::endLog;
+
+	auto iss = syndrome & ((1 << 25) - 1);
+
+	if (exc_type == 0x25 || exc_type == 0x24) {
+		constexpr const char *sas_values[4] = {"Byte", "Halfword", "Word", "Doubleword"};
+		constexpr const char *set_values[4] = {"Recoverable", "Uncontainable", "Reserved", "Restartable/Corrected"};
+		constexpr const char *dfsc_values[4] = {"Address size", "Translation", "Access flag", "Permission"};
+		frigg::infoLogger() << "Access size: " << sas_values[(iss >> 22) & 3] << frigg::endLog;
+		frigg::infoLogger() << "Sign extended? " << (iss & (1 << 21) ? "Yes" : "No") << frigg::endLog;
+		frigg::infoLogger() << "Sixty-Four? " << (iss & (1 << 15) ? "Yes" : "No") << frigg::endLog;
+		frigg::infoLogger() << "Acquire/Release? " << (iss & (1 << 14) ? "Yes" : "No") << frigg::endLog;
+		frigg::infoLogger() << "Synch error type: " << set_values[(iss >> 11) & 3] << frigg::endLog;
+		frigg::infoLogger() << "Fault address valid? " << (iss & (1 << 10) ? "No" : "Yes") << frigg::endLog;
+		frigg::infoLogger() << "Cache maintenance? " << (iss & (1 << 8) ? "Yes" : "No") << frigg::endLog;
+		frigg::infoLogger() << "S1PTW? " << (iss & (1 << 7) ? "Yes" : "No") << frigg::endLog;
+		frigg::infoLogger() << "Access type: " << (iss & (1 << 6) ? "Write" : "Read") << frigg::endLog;
+		if ((iss & 0b111111) <= 0b001111)
+			frigg::infoLogger() << "Data fault status code: " << dfsc_values[(iss >> 2) & 4] << " fault level " << (iss & 3) << frigg::endLog;
+		else if ((iss & 0b111111) == 0b100001)
+			frigg::infoLogger() << "Data fault status code: Alignment fault" << frigg::endLog;
+		else if ((iss & 0b111111) == 0b110000)
+			frigg::infoLogger() << "Data fault status code: TLB conflict abort" << frigg::endLog;
+		else
+			frigg::infoLogger() << "Data fault status code: unknown" << frigg::endLog;
+	}
+
+	frigg::infoLogger() << "IP: " << (void *)link << ", State: " << (void *)state << frigg::endLog;
+	frigg::infoLogger() << "Syndrome: " << (void *)syndrome << ", Fault address: " << (void *)fault_addr << frigg::endLog;
+	frigg::infoLogger() << "Halting..." << frigg::endLog;
+
+	while(1)
+		asm volatile ("wfi");
+}
