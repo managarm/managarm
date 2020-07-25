@@ -153,6 +153,9 @@ public:
 	static async::result<protocols::fs::Error>
 	ptListen(void *object);
 
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
+	ptPeername(void *object, void *addr_ptr, size_t max_addr_length);
+
 
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
@@ -174,6 +177,7 @@ public:
 		.setFileFlags = &ptSetFileFlags,
 		.recvMsg = &ptRecvMsg,
 		.sendMsg = &ptSendMsg,
+		.peername = &ptPeername,
 	};
 
 	// ------------------------------------------------------------------------
@@ -302,6 +306,8 @@ public:
 
 	virtual async::result<int> getFileFlags();
 	virtual async::result<void> setFileFlags(int flags);
+
+	virtual async::result<frg::expected<protocols::fs::Error, size_t>> peername(void *addr_ptr, size_t max_addr_length);
 
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 

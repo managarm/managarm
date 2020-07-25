@@ -69,11 +69,11 @@ public:
 	OpenFile(Process *process = nullptr, bool nonBlock = false)
 	: File{StructName::get("un-socket"), File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
-			_remote{nullptr}, _passCreds{false}, nonBlock_{false} {
+			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
+			// We should investigate why _sockpath{} throws garbage on unbound sockets while _sockpath{'\0'} works fine.
+			_sockpath{'\0'}, abstract{false} {
 		if(process)
 			_ownerPid = process->pid();
-		if(nonBlock)
-			nonBlock_ = nonBlock;
 	}
 
 	void handleClose() override {
@@ -95,7 +95,7 @@ public:
 	readSome(Process *, void *data, size_t max_length) override {
 		assert(_currentState == State::connected);
 		if(logSockets)
-			std::cout << "posix: Read from socket " << this << std::endl;
+			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
 		if(_recvQueue.empty() && nonBlock_) {
 			if(logSockets)
@@ -123,7 +123,7 @@ public:
 		if(_currentState != State::connected)
 			co_return Error::notConnected;
 		if(logSockets)
-			std::cout << "posix: Write to socket " << this << std::endl;
+			std::cout << "posix: Write to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
 		Packet packet;
 		packet.senderPid = process->pid();
@@ -246,6 +246,7 @@ public:
 
 		// Create a new socket and connect it to the queued one.
 		auto local = smarter::make_shared<OpenFile>(process);
+		local->_sockpath = _sockpath;
 		local->setupWeakFile(local);
 		OpenFile::serve(local);
 		connectPair(remote, local.get());
@@ -291,7 +292,6 @@ public:
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
 		std::string path;
-		bool abstract = false;
 
 		if(sa.sun_path[0] == '\0') {
 			path.resize(addr_length - sizeof(sa.sun_family) - 1);
@@ -301,6 +301,7 @@ public:
 			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 		}
+		_sockpath = path;
 		if(logSockets)
 			std::cout << "posix: Bind to " << path << std::endl;
 
@@ -368,12 +369,14 @@ public:
 	}
 
 	async::result<void> setFileFlags(int flags) override {
+		if(flags & ~O_NONBLOCK) {
+			std::cout << "posix: setFileFlags on socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+			co_return;
+		}
 		if(flags & O_NONBLOCK)
 			nonBlock_ = true;
-		else {
-			std::cout << "posix: setFileFlags on socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+		else
 			nonBlock_ = false;
-		}
 		co_return;
 	}
 
@@ -381,7 +384,38 @@ public:
 		if(nonBlock_)
 			co_return O_NONBLOCK;
 		co_return 0;
-}
+	}
+
+	async::result<frg::expected<protocols::fs::Error, size_t>>
+	peername(void *addr_ptr, size_t max_addr_length) override {
+		struct sockaddr_un sa;
+		memset(&sa, 0, sizeof(struct sockaddr_un));
+		sa.sun_family = AF_UNIX;
+		if(abstract)
+			strncpy(sa.sun_path, (const char *)'\0', sizeof('\0'));
+		else
+			strncpy(sa.sun_path, this->_remote->_sockpath.c_str(), this->_remote->_sockpath.length());
+		memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_un), max_addr_length));
+
+		if(abstract)
+			co_return sizeof('\0') + sizeof(sa.sun_family);
+		co_return _remote->_sockpath.size() + sizeof(sa.sun_family);
+	}
+
+	async::result<size_t> sockname(void *addr_ptr, size_t max_addr_length) override {
+		struct sockaddr_un sa;
+		memset(&sa, 0, sizeof(struct sockaddr_un));
+		sa.sun_family = AF_UNIX;
+		if(abstract)
+			strncpy(sa.sun_path, (const char *)'\0', sizeof('\0'));
+		else
+			strncpy(sa.sun_path, this->_sockpath.c_str(), this->_sockpath.length());
+		memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_un), max_addr_length));
+
+		if(abstract)
+			co_return sizeof('\0') + sizeof(sa.sun_family);
+		co_return _sockpath.size() + sizeof(sa.sun_family);
+	}
 
 private:
 	helix::UniqueLane _passthrough;
@@ -409,6 +443,10 @@ private:
 	// Socket options.
 	bool _passCreds;
 	bool nonBlock_;
+
+	std::string _sockpath;
+
+	bool abstract;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock) {

@@ -84,6 +84,7 @@ enum CntReqType {
 	PT_SET_FILE_FLAGS = 31,
 	PT_RECVMSG = 33,
 	PT_SENDMSG = 34,
+	PT_PEERNAME = 42,
 
 	WRITE = 3,
 	SEEK_ABS = 6,

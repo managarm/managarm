@@ -379,6 +379,38 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_PEERNAME) {
+		std::vector<char> addr;
+		addr.resize(req.size());
+		if(!file_ops->peername) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto result = co_await file_ops->peername(file.get(), addr.data(), req.size());
+			assert(result); // This can never fail (yet)
+			auto actual_length = result.value();
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_file_size(actual_length);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(addr.data(),
+						std::min(size_t(req.size()), actual_length))
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
+		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
 		assert(file_ops->getFileFlags);
 		auto flags = co_await file_ops->getFileFlags(file.get());
