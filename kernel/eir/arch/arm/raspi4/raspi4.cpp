@@ -200,6 +200,41 @@ namespace PropertyMbox {
 
 		return frg::make_tuple(int(ptr[5]), int(ptr[6]), reinterpret_cast<void *>(fbPtr), size_t(ptr[33]));
 	}
+
+	template <size_t MaxSize>
+	size_t getCmdline(void *dest) requires (!(MaxSize & 3)) {
+		constexpr uint32_t req_size = 5 * 4 + MaxSize;
+		frg::aligned_storage<req_size, 16> stor;
+		memset(stor.buffer, 0, req_size);
+
+		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
+
+		*ptr++ = req_size;
+		*ptr++ = 0x00000000; // Process request
+
+		*ptr++ = 0x00050001; // Get commandline
+		*ptr++ = MaxSize;
+
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+
+		auto val = reinterpret_cast<uint64_t>(stor.buffer);
+		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
+		Mbox::write(Mbox::Channel::property, val);
+
+		auto ret = Mbox::read(Mbox::Channel::property);
+		assert(val == ret);
+
+		ptr = reinterpret_cast<volatile uint32_t *>(ret);
+
+		auto data = reinterpret_cast<char *>(ret + 20);
+		auto totalLen = ptr[3];
+		auto cmdlineLen = strlen(data);
+
+		assert(totalLen <= MaxSize);
+		memcpy(dest, data, cmdlineLen + 1);
+
+		return cmdlineLen;
+	}
 }
 
 namespace PL011 {
@@ -370,6 +405,12 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 		}
 	}
+
+	char buf[1024];
+	size_t len = PropertyMbox::getCmdline<1024>(buf);
+
+	frigg::StringView cmd_sv{buf, len};
+	frigg::infoLogger() << "Got cmdline: " << cmd_sv << frigg::endLog;
 
 	auto dtb = reinterpret_cast<void *>(deviceTreePtr);
 
