@@ -9,105 +9,192 @@
 #include <frigg/libc.hpp>
 #include <render-text.hpp>
 #include "../cpio.hpp"
+#include <frg/eternal.hpp> // for aligned_storage
 
 #include <arch/aarch64/mem_space.hpp>
 #include <arch/register.hpp>
 
-namespace aux {
-	static constexpr arch::bit_register<uint32_t> enable{0x04};
+//#define RASPI3
+//#define LOW_PERIPH
+
+#if defined(RASPI3)
+static constexpr inline uintptr_t mmioBase = 0x3f000000;
+#elif defined (LOW_PERIPH)
+static constexpr inline uintptr_t mmioBase = 0xfe000000;
+#else
+static constexpr inline uintptr_t mmioBase = 0x47e000000;
+#endif
+
+namespace Gpio {
+	namespace reg {
+		static constexpr arch::bit_register<uint32_t> sel1{0x04};
+		static constexpr arch::bit_register<uint32_t> pup_pdn0{0xE4};
+	}
+
+	static constexpr arch::mem_space space{mmioBase + 0x200000};
+
+	void configUart0Gpio() {
+		arch::field<uint32_t, uint8_t> sel1_p14{12, 3};
+		arch::field<uint32_t, uint8_t> sel1_p15{15, 3};
+
+		arch::field<uint32_t, uint8_t> pup_pdn0_p14{28, 2};
+		arch::field<uint32_t, uint8_t> pup_pdn0_p15{30, 2};
+
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+		// Alt 0
+		space.store(reg::sel1, space.load(reg::sel1) / sel1_p14(4) / sel1_p15(4));
+		// No pull up/down
+		space.store(reg::pup_pdn0, space.load(reg::pup_pdn0) / pup_pdn0_p14(0) / pup_pdn0_p15(0));
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+	}
 }
 
-// Mini usart
-namespace aux_mu {
-	static constexpr arch::scalar_register<uint32_t> data{0x40};
-	static constexpr arch::bit_register<uint32_t> line_control{0x4c};
-	static constexpr arch::bit_register<uint32_t> line_status{0x54};
-	static constexpr arch::scalar_register<uint32_t> baudrate{0x68};
-}
+namespace Mbox {
+	static constexpr arch::mem_space space{mmioBase + 0xb880};
 
-namespace aux_enable {
-	static constexpr arch::field<uint32_t, bool> mini_usart{0, 1};
-}
+	namespace reg {
+		static constexpr arch::bit_register<uint32_t> read{0x00};
+		static constexpr arch::bit_register<uint32_t> status{0x18};
+		static constexpr arch::bit_register<uint32_t> write{0x20};
+	}
 
-namespace aux_mu_lcr {
-	static constexpr arch::field<uint32_t, bool> data_size{0, 1};
-}
+	enum class Channel {
+		pmi = 0,
+		fb,
+		vuart,
+		vchiq,
+		led,
+		button,
+		touch,
+		property = 8
+	};
 
-namespace aux_mu_lsr {
-	static constexpr arch::field<uint32_t, bool> rx_full{0, 1};
-	static constexpr arch::field<uint32_t, bool> tx_empty{5, 1};
-}
+	namespace io {
+		static constexpr arch::field<uint32_t, Channel> channel{0, 4};
+		static constexpr arch::field<uint32_t, uint32_t> value{4, 28};
+	}
 
-// For raspi4
-//static constexpr arch::mem_space mbox0_space{0xfe00b880};
-// For raspi3
-static constexpr arch::mem_space mbox0_space{0x3f00b880};
+	namespace status {
+		static constexpr arch::field<uint32_t, bool> empty{30, 1};
+		static constexpr arch::field<uint32_t, bool> full{31, 1};
+	}
 
-struct alignas(16) BcmFBInfo {
-	uint32_t width;
-	uint32_t height;
-	uint32_t vwidth;
-	uint32_t vheight;
-	uint32_t pitch;
-	uint32_t depth;
-	uint32_t x;
-	uint32_t y;
-	uint32_t pointer;
-	uint32_t size;
-};
-
-namespace mbox {
-	static constexpr arch::bit_register<uint32_t> read{0x00};
-	static constexpr arch::bit_register<uint32_t> status{0x18};
-	static constexpr arch::bit_register<uint32_t> write{0x20};
-}
-
-enum class MboxChannel {
-	pmi = 0,
-	fb,
-	vuart,
-	vchiq,
-	led,
-	button,
-	touch
-};
-
-namespace mbox_io {
-	static constexpr arch::field<uint32_t, MboxChannel> channel{0, 4};
-	static constexpr arch::field<uint32_t, uint32_t> value{4, 28};
-}
-
-namespace mbox_status {
-	static constexpr arch::field<uint32_t, bool> empty{30, 1};
-	static constexpr arch::field<uint32_t, bool> full{31, 1};
-}
-
-void eirMboxWrite(MboxChannel channel, uint32_t value) {
-	while (mbox0_space.load(mbox::status) & mbox_status::full)
-		;
-
-	mbox0_space.store(mbox::write, mbox_io::channel(channel) | mbox_io::value(value >> 4));
-}
-
-uint32_t eirMboxRead(MboxChannel channel) {
-	while (true) {
-		while (mbox0_space.load(mbox::status) & mbox_status::empty)
+	void write(Channel channel, uint32_t value) {
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+		while (space.load(reg::status) & status::full)
 			;
 
-		auto f = mbox0_space.load(mbox::read);
-		if ((f & mbox_io::channel) != channel)
-			continue;
+		space.store(reg::write, io::channel(channel) | io::value(value >> 4));
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+	}
 
-		return (f & mbox_io::value) << 4;
+	uint32_t read(Channel channel) {
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+		while (space.load(reg::status) & status::empty)
+			;
+
+		auto f = space.load(reg::read);
+
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+		return (f & io::value) << 4;
+	}
+}
+
+namespace PropertyMbox {
+	enum class Clock {
+		uart = 2
+	};
+
+	void setClockFreq(Clock clock, uint32_t freq, bool turbo = false) {
+		constexpr uint32_t req_size = 9 * 4;
+		frg::aligned_storage<req_size, 16> stor;
+		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
+
+		*ptr++ = req_size;
+		*ptr++ = 0x00000000; // Process request
+		*ptr++ = 0x00038002; // Set clock rate
+		*ptr++ = 12;
+		*ptr++ = 8;
+		*ptr++ = static_cast<uint32_t>(clock);
+		*ptr++ = freq;
+		*ptr++ = turbo;
+		*ptr++ = 0x00000000;
+
+		auto val = reinterpret_cast<uint64_t>(stor.buffer);
+		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
+		Mbox::write(Mbox::Channel::property, val);
+
+		auto ret = Mbox::read(Mbox::Channel::property);
+		assert(val == ret);
+	}
+
+}
+
+namespace PL011 {
+	namespace reg {
+		static constexpr arch::scalar_register<uint32_t> data{0x00};
+		static constexpr arch::bit_register<uint32_t> status{0x18};
+		static constexpr arch::scalar_register<uint32_t> i_baud{0x24};
+		static constexpr arch::scalar_register<uint32_t> f_baud{0x28};
+		static constexpr arch::bit_register<uint32_t> control{0x30};
+		static constexpr arch::bit_register<uint32_t> line_control{0x2c};
+		static constexpr arch::scalar_register<uint32_t> int_clear{0x44};
+	}
+
+	namespace status {
+		static constexpr arch::field<uint32_t, bool> tx_full{5, 1};
+	};
+
+	namespace control {
+		static constexpr arch::field<uint32_t, bool> rx_en{9, 1};
+		static constexpr arch::field<uint32_t, bool> tx_en{8, 1};
+		static constexpr arch::field<uint32_t, bool> uart_en{0, 1};
+	};
+
+	namespace line_control {
+		static constexpr arch::field<uint32_t, uint8_t> word_len{5, 2};
+		static constexpr arch::field<uint32_t, bool> fifo_en{4, 1};
+	}
+
+	static constexpr arch::mem_space space{mmioBase + 0x201000};
+	constexpr uint64_t clock = 4000000; // 4MHz
+
+	void init(uint64_t baud) {
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+		space.store(reg::control, control::uart_en(false));
+
+		Gpio::configUart0Gpio();
+
+		space.store(reg::int_clear, 0x7FF); // clear all interrupts
+
+		PropertyMbox::setClockFreq(PropertyMbox::Clock::uart, clock);
+
+		uint64_t int_part = clock / (16 * baud);
+
+		// 3 decimal places of precision should be enough :^)
+		uint64_t frac_part = (((clock * 1000) / (16 * baud) - (int_part * 1000))
+			* 64 + 500) / 1000;
+
+		space.store(reg::i_baud, int_part);
+		space.store(reg::f_baud, frac_part);
+
+		// 8n1, fifo enabled
+		space.store(reg::line_control, line_control::word_len(3) | line_control::fifo_en(true));
+		space.store(reg::control, control::rx_en(true) | control::tx_en(true) | control::uart_en(true));
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+	}
+
+	void send(uint8_t val) {
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+		while (space.load(reg::status) & status::tx_full)
+			;
+
+		space.store(reg::data, val);
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 	}
 }
 
 struct OutputSink {
-	// For raspi4:
-	//static constexpr arch::mem_space aux_space{0xfe215000};
-	// For raspi3:
-	static constexpr arch::mem_space aux_space{0x3f215000};
-
 	uint32_t fbWidth;
 	uint32_t fbHeight;
 	uint32_t fbPitch;
@@ -120,27 +207,22 @@ struct OutputSink {
 	static constexpr uint32_t fontHeight = 16;
 
 	void init() {
-		constexpr uint32_t default_clock = 250000000;
-		aux_space.store(aux::enable, aux_enable::mini_usart(true));
-		aux_space.store(aux_mu::line_control, aux_mu_lcr::data_size(true)); // 8 bits
-		aux_space.store(aux_mu::baudrate, default_clock / (8 * 115200) - 1);
+		PL011::init(115200);
+		fbPointer = nullptr;
 	}
 
-	void initFb(BcmFBInfo &info) {
-		fbWidth = info.width;
-		fbHeight = info.height;
-		fbPitch = info.pitch;
-		fbPointer = reinterpret_cast<void *>(info.pointer);
+	void initFb(int width, int height, int pitch, void *ptr) {
+		fbWidth = width;
+		fbHeight = height;
+		fbPitch = pitch;
+		fbPointer = ptr;
 
 		fbX = 0;
 		fbY = 0;
 	}
 
 	void print(char c) {
-		while (!(aux_space.load(aux_mu::line_status) & aux_mu_lsr::tx_empty))
-			;
-
-		aux_space.store(aux_mu::data, c);
+		PL011::send(c);
 
 		if (fbPointer) {
 			if (c == '\n') {
@@ -196,29 +278,6 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 	infoSink.init();
 
-	BcmFBInfo fb{};
-	fb.width = fb.vwidth = 1024;
-	fb.height = fb.vheight = 768;
-	fb.depth = 32;
-	fb.x = fb.y = fb.pitch = fb.pointer = fb.size = 0;
-
-	asm volatile ("dsb st; dmb st; isb" ::: "memory");
-	eirMboxWrite(MboxChannel::fb, reinterpret_cast<uintptr_t>(&fb));
-	asm volatile ("dsb st; dmb st; isb" ::: "memory");
-	auto r = eirMboxRead(MboxChannel::fb);
-	asm volatile ("dsb st; dmb st; isb" ::: "memory");
-
-	if (r) {
-		frigg::infoLogger() << "Framebuffer setup failed" << frigg::endLog;
-	} else {
-		infoSink.initFb(fb);
-		frigg::infoLogger() << "Framebuffer info:" << frigg::endLog;
-		frigg::infoLogger() << "Framebuffer pointer: " << reinterpret_cast<void *>(fb.pointer) << frigg::endLog;
-		frigg::infoLogger() << "Framebuffer pitch: " << fb.pitch << frigg::endLog;
-		frigg::infoLogger() << "Framebuffer width: " << fb.width << frigg::endLog;
-		frigg::infoLogger() << "Framebuffer height: " << fb.height << frigg::endLog;
-		frigg::infoLogger() << "Framebuffer depth: " << fb.depth << frigg::endLog;
-	}
 
 	auto dtb = reinterpret_cast<void *>(deviceTreePtr);
 
