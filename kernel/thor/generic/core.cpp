@@ -1,5 +1,5 @@
-
 #include <thor-internal/core.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
 
@@ -16,12 +16,6 @@ size_t kernelMemoryUsage = 0;
 namespace {
 	constexpr bool logCleanup = false;
 }
-
-// --------------------------------------------------------
-// Debugging and logging
-// --------------------------------------------------------
-
-BochsSink infoSink;
 
 // --------------------------------------------------------
 // Locking primitives
@@ -275,5 +269,3 @@ void friggPanic() {
 		thor::halt();
 	}
 }
-
-

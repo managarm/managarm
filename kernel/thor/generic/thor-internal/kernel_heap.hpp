@@ -9,6 +9,8 @@
 namespace thor {
 
 struct IrqSpinlock {
+	constexpr IrqSpinlock() = default;
+
 	void lock();
 	void unlock();
 

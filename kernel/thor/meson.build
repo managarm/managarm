@@ -71,6 +71,7 @@ thor_sources = files(
 	'generic/hel.cpp',
 	'generic/cancel.cpp',
 	'generic/core.cpp',
+	'generic/debug.cpp',
 	'generic/fiber.cpp',
 	'generic/ipc-queue.cpp',
 	'generic/schedule.cpp',

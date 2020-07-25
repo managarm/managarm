@@ -1,8 +1,8 @@
-
 #include <arch/bits.hpp>
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
 #include <thor-internal/arch/vmx.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 

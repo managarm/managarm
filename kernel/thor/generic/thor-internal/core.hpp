@@ -12,30 +12,6 @@
 namespace thor {
 
 // --------------------------------------------------------
-// Debugging and logging
-// --------------------------------------------------------
-
-class BochsSink {
-public:
-	void print(char c);
-	void print(const char *str);
-};
-
-extern BochsSink infoSink;
-
-struct LogHandler {
-	virtual void printChar(char c) = 0;
-
-	frg::default_list_hook<LogHandler> hook;
-};
-
-void enableLogHandler(LogHandler *sink);
-void disableLogHandler(LogHandler *sink);
-
-size_t currentLogSequence();
-void copyLogMessage(size_t sequence, char *text);
-
-// --------------------------------------------------------
 // Kernel data types
 // --------------------------------------------------------
 

@@ -83,7 +83,7 @@ void fetchDec(T *pointer, T &old_value) {
 
 class TicketLock {
 public:
-	TicketLock()
+	constexpr TicketLock()
 	: _nextTicket{0}, _servingTicket{0} { }
 
 	TicketLock(const TicketLock &) = delete;
