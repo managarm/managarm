@@ -10,6 +10,7 @@
 #include <render-text.hpp>
 #include "../cpio.hpp"
 #include <frg/eternal.hpp> // for aligned_storage
+#include <frg/tuple.hpp>
 
 #include <arch/aarch64/mem_space.hpp>
 #include <arch/register.hpp>
@@ -128,6 +129,77 @@ namespace PropertyMbox {
 		assert(val == ret);
 	}
 
+	frg::tuple<int, int, void *, size_t> setupFb(int width, int height, int bpp) {
+		constexpr uint32_t req_size = 36 * 4;
+		frg::aligned_storage<req_size, 16> stor;
+		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
+
+		*ptr++ = req_size;
+		*ptr++ = 0x00000000; // Process request
+
+		*ptr++ = 0x00048003; // Set physical width/height
+		*ptr++ = 8;
+		*ptr++ = 0;
+		*ptr++ = width;
+		*ptr++ = height;
+
+		*ptr++ = 0x00048004; // Set virtual width/height
+		*ptr++ = 8;
+		*ptr++ = 0;
+		*ptr++ = width;
+		*ptr++ = height;
+
+		*ptr++ = 0x00048009; // Set virtual offset
+		*ptr++ = 8;
+		*ptr++ = 0;
+		*ptr++ = 0;
+		*ptr++ = 0;
+
+		*ptr++ = 0x00048005; // Set depth
+		*ptr++ = 4;
+		*ptr++ = 0;
+		*ptr++ = bpp;
+
+		*ptr++ = 0x00048006; // Set pixel order
+		*ptr++ = 4;
+		*ptr++ = 0;
+		*ptr++ = 1; // RGB
+
+		*ptr++ = 0x00040001; // Allocate buffer
+		*ptr++ = 8;
+		*ptr++ = 0;
+		*ptr++ = 16;
+		*ptr++ = 0;
+
+		*ptr++ = 0x00040008; // Get pitch
+		*ptr++ = 4;
+		*ptr++ = 0;
+		*ptr++ = 0;
+
+		*ptr++ = 0;
+
+		*ptr++ = 0x00000000;
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+
+		auto val = reinterpret_cast<uint64_t>(stor.buffer);
+		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
+		Mbox::write(Mbox::Channel::property, val);
+
+		auto ret = Mbox::read(Mbox::Channel::property);
+		assert(val == ret);
+
+		ptr = reinterpret_cast<volatile uint32_t *>(ret);
+
+		auto fbPtr = 0;
+
+		// if depth is not the expected depth, pretend we failed
+		if (ptr[20] == bpp) { // depth == expected depth
+			// Translate legacy master view address into our address space
+			fbPtr = ptr[28] - 0xC0000000;
+		}
+
+		return frg::make_tuple(int(ptr[5]), int(ptr[6]), reinterpret_cast<void *>(fbPtr), size_t(ptr[33]));
+	}
 }
 
 namespace PL011 {
@@ -278,6 +350,26 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 	infoSink.init();
 
+	// TODO: actually get display size from cmdline
+	frigg::infoLogger() << "Attempting to get the display size" << frigg::endLog;
+	int width = 1920, height = 1080;
+	if (!width || !height) {
+		frigg::infoLogger() << "Zero fb width or height, no display attached?" << frigg::endLog;
+	} else {
+		frigg::infoLogger() << "Attempting to set up the framebuffer" << frigg::endLog;
+		auto [actualW, actualH, ptr, pitch] = PropertyMbox::setupFb(width, height, 32);
+
+		if (!ptr || !pitch) {
+			frigg::infoLogger() << "Mode setting failed..." << frigg::endLog;
+		} else {
+			infoSink.initFb(actualW, actualH, pitch, ptr);
+			frigg::infoLogger() << "Framebuffer pointer: " << ptr << frigg::endLog;
+			frigg::infoLogger() << "Framebuffer pitch: " << pitch << frigg::endLog;
+			frigg::infoLogger() << "Framebuffer width: " << actualW << frigg::endLog;
+			frigg::infoLogger() << "Framebuffer height: " << actualH << frigg::endLog;
+
+		}
+	}
 
 	auto dtb = reinterpret_cast<void *>(deviceTreePtr);
 
