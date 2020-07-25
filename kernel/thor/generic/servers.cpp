@@ -170,7 +170,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			&& ehdr.e_ident[2] == 'L'
 			&& ehdr.e_ident[3] == 'F');
 
-	info.entryIp = (void *)(base + ehdr.e_entry);
+	info.entryIp = reinterpret_cast<void *>(base + ehdr.e_entry);
 	info.phdrEntrySize = ehdr.e_phentsize;
 	info.phdrCount = ehdr.e_phnum;
 
@@ -221,7 +221,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			co_await copyFromView(image.get(), phdr.p_offset,
 					info.interpreter.data(), phdr.p_filesz);
 		}else if(phdr.p_type == PT_PHDR) {
-			info.phdrPtr = (char *)base + phdr.p_vaddr;
+			info.phdrPtr = reinterpret_cast<void *>(base + phdr.p_vaddr);
 		}else if(phdr.p_type == PT_DYNAMIC
 				|| phdr.p_type == PT_TLS
 				|| phdr.p_type == PT_GNU_EH_FRAME
