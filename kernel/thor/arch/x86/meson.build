@@ -47,12 +47,14 @@ extra_link_args += [
 extra_cpp_args += [
 	'-DCXXSHIM_INTEGRATE_GCC',
 	'-mcmodel=kernel',
-	'-mno-red-zone'
+	'-mno-red-zone',
+	'-mstack-alignment=8',
 ]
 
 extra_c_args += [
 	'-mcmodel=kernel',
-	'-mno-red-zone'
+	'-mno-red-zone',
+	'-mstack-alignment=8',
 ]
 
 extra_link_depends += [files('link.x')]
