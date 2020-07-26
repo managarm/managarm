@@ -3,6 +3,12 @@
 
 namespace thor {
 
+void panic() {
+	disableInts();
+	while(true)
+		halt();
+}
+
 constinit OutputSink infoSink;
 
 constinit frg::stack_buffer_logger<LogSink> infoLogger;
@@ -17,9 +23,12 @@ void LogSink::operator() (const char *msg) {
 }
 
 void PanicSink::operator() (const char *msg) {
-	auto lock = frigg::guard(&logMutex);
-	infoSink.print(msg);
-	infoSink.print('\n');
+	{
+		auto lock = frigg::guard(&logMutex);
+		infoSink.print(msg);
+		infoSink.print('\n');
+	}
+	panic();
 }
 
 struct LogMessage {
