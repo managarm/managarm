@@ -27,6 +27,7 @@ enum class Error {
 	addressInUse = 15,
 	addressNotAvailable = 16,
 	notConnected = 17,
+	alreadyExists = 18,
 };
 
 using ReadResult = std::variant<Error, size_t>;

@@ -238,8 +238,12 @@ public:
 		co_return;
 	}
 
-	async::result<AcceptResult> accept(Process *process) override {
-		assert(!_acceptQueue.empty());
+	async::result<frg::expected<Error, AcceptResult>> accept(Process *process) override {
+		if(_acceptQueue.empty() && nonBlock_) {
+			if(logSockets)
+				std::cout << "posix: UNIX socket would block on accept" << std::endl;
+			co_return Error::wouldBlock;
+		}
 
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
@@ -320,6 +324,9 @@ public:
 
 			auto parentNode = resolver.currentLink()->getTarget();
 			auto nodeResult = co_await parentNode->mksocket(resolver.nextComponent());
+			if(!nodeResult) {
+				co_return protocols::fs::Error::alreadyExists;
+			}
 			assert(nodeResult);
 			auto node = nodeResult.value();
 			// Associate the current socket with the node.

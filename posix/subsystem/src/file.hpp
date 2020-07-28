@@ -47,7 +47,9 @@ enum class Error {
 
 	accessDenied,
 
-	notConnected
+	notConnected,
+
+	alreadyExists
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -287,7 +289,7 @@ public:
 	virtual async::result<int> getOption(int option);
 	virtual async::result<void> setOption(int option, int value);
 
-	virtual async::result<AcceptResult> accept(Process *process);
+	virtual async::result<frg::expected<Error, AcceptResult>> accept(Process *process);
 
 	virtual async::result<protocols::fs::Error> bind(Process *process,
 			const void *addr_ptr, size_t addr_length);

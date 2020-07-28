@@ -2541,7 +2541,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto newfile = co_await sockfile->accept(self.get());
+			auto newfileResult = co_await sockfile->accept(self.get());
+			if(!newfileResult) {
+				assert(newfileResult.error() == Error::wouldBlock);
+				co_await sendErrorResponse(managarm::posix::Errors::WOULD_BLOCK);
+				continue;
+			}
+			auto newfile = newfileResult.value();
 			auto fd = self->fileContext()->attachFile(std::move(newfile));
 
 			managarm::posix::SvrResponse resp;

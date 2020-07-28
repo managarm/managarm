@@ -307,7 +307,7 @@ async::result<void> File::setOption(int, int) {
 	throw std::runtime_error("posix: Object has no File::setOption()");
 }
 
-async::result<AcceptResult> File::accept(Process *) {
+async::result<frg::expected<Error, AcceptResult>> File::accept(Process *) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement accept()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::accept()");
