@@ -20,6 +20,7 @@ namespace thor {
 static bool debugLaunch = true;
 
 frigg::LazyInitializer<LaneHandle> mbusClient;
+static frigg::LazyInitializer<LaneHandle> futureMbusServer;
 
 frigg::TicketLock globalMfsMutex;
 
@@ -364,24 +365,27 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	Thread::resumeOther(thread);
 }
 
+void initializeMbusStream() {
+	auto mbusStream = createStream();
+	mbusClient.initialize(std::move(mbusStream.get<1>()));
+	futureMbusServer.initialize(std::move(mbusStream.get<0>()));
+}
+
 coroutine<void> runMbus() {
 	if(debugLaunch)
 		frigg::infoLogger() << "thor: Launching mbus" << frigg::endLog;
 
-	frg::string<KernelAlloc> name_str{*kernelAlloc, "/sbin/mbus"};
-	assert(!allServers->get(name_str));
+	frg::string<KernelAlloc> nameStr{*kernelAlloc, "/sbin/mbus"};
+	assert(!allServers->get(nameStr));
 
-	auto mbus_stream = createStream();
-	mbusClient.initialize(mbus_stream.get<1>());
-
-	auto control_stream = createStream();
-	allServers->insert(name_str, control_stream.get<1>());
+	auto controlStream = createStream();
+	allServers->insert(nameStr, controlStream.get<1>());
 
 	auto module = resolveModule("/sbin/mbus");
 	assert(module && module->type == MfsType::regular);
 	co_await executeModule("/sbin/mbus", static_cast<MfsRegular *>(module),
-			control_stream.get<0>(),
-			mbus_stream.get<0>(), LaneHandle{}, localScheduler());
+			controlStream.get<0>(),
+			std::move(*futureMbusServer), LaneHandle{}, localScheduler());
 }
 
 coroutine<LaneHandle> runServer(frg::string_view name) {
@@ -390,8 +394,8 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 		frigg::infoLogger() << "thor: Launching server " << frigg::String<KernelAlloc>{*kernelAlloc,
 				name.data(), name.size()} << frigg::endLog;
 
-	frg::string<KernelAlloc> name_str{*kernelAlloc, name.data(), name.size()};
-	if(auto server = allServers->get(name_str); server) {
+	frg::string<KernelAlloc> nameStr{*kernelAlloc, name.data(), name.size()};
+	if(auto server = allServers->get(nameStr); server) {
 		if(debugLaunch)
 			// TODO: Get rid of the explicit frigg::String constructor call here.
 			frigg::infoLogger() << "thor: Server " << frigg::String<KernelAlloc>{*kernelAlloc,
@@ -407,14 +411,14 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 						name.data(), name.size()} << frigg::endLog;
 	assert(module->type == MfsType::regular);
 
-	auto control_stream = createStream();
-	allServers->insert(name_str, control_stream.get<1>());
+	auto controlStream = createStream();
+	allServers->insert(nameStr, controlStream.get<1>());
 
 	co_await executeModule(name, static_cast<MfsRegular *>(module),
-			control_stream.get<0>(),
+			controlStream.get<0>(),
 			LaneHandle{}, *mbusClient, localScheduler());
 
-	co_return control_stream.get<1>();
+	co_return controlStream.get<1>();
 }
 
 // ------------------------------------------------------------------------

@@ -143,6 +143,7 @@ extern "C" void thorMain() {
 
 	KernelFiber::run([=] () mutable {
 		// Complete the system initialization.
+		initializeMbusStream();
 		extendedInitEngine.run();
 
 		transitionBootFb();
