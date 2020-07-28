@@ -14,7 +14,7 @@
 
 namespace un_socket {
 
-bool logSockets = false;
+static constexpr bool logSockets = false;
 
 struct OpenFile;
 
@@ -45,6 +45,12 @@ struct OpenFile : File {
 		closed
 	};
 
+	enum class NameType {
+		unnamed,
+		path,
+		abstract
+	};
+
 public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
 		assert(a->_currentState == State::null);
@@ -70,13 +76,17 @@ public:
 	: File{StructName::get("un-socket"), File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
 			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
-			// We should investigate why _sockpath{} throws garbage on unbound sockets while _sockpath{'\0'} works fine.
-			_sockpath{'\0'}, abstract{false} {
+			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false} {
 		if(process)
 			_ownerPid = process->pid();
 	}
 
 	void handleClose() override {
+		if (!_isInherited && _nameType == NameType::abstract) {
+			assert(abstractSocketsBindMap.find(_sockpath) != abstractSocketsBindMap.end());
+			abstractSocketsBindMap.erase(_sockpath);
+		}
+
 		if(_currentState == State::connected) {
 			auto rf = _remote;
 			rf->_currentState = State::remoteShutDown;
@@ -245,12 +255,17 @@ public:
 			co_return Error::wouldBlock;
 		}
 
+		while (!_acceptQueue.size())
+			co_await _statusBell.async_wait();
+
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
 
 		// Create a new socket and connect it to the queued one.
 		auto local = smarter::make_shared<OpenFile>(process);
 		local->_sockpath = _sockpath;
+		local->_nameType = _nameType;
+		local->_isInherited = true;
 		local->setupWeakFile(local);
 		OpenFile::serve(local);
 		connectPair(remote, local.get());
@@ -300,17 +315,18 @@ public:
 		if(sa.sun_path[0] == '\0') {
 			path.resize(addr_length - sizeof(sa.sun_family) - 1);
 			memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
-			abstract = true;
+			_nameType = NameType::abstract;
 		} else {
 			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+			_nameType = NameType::path;
 		}
 		_sockpath = path;
 		if(logSockets)
 			std::cout << "posix: Bind to " << path << std::endl;
 
-		if(abstract) {
-			auto res = abstractSocketsBindMap.emplace(path.data(), this);
+		if (_nameType == NameType::abstract) {
+			auto res = abstractSocketsBindMap.emplace(path, this);
 			if(!res.second)
 				co_return protocols::fs::Error::addressInUse;
 			co_return protocols::fs::Error::none;
@@ -343,32 +359,54 @@ public:
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
+		std::string path;
 
-		std::string path{sa.sun_path, strnlen(sa.sun_path,
-				addr_length - offsetof(sockaddr_un, sun_path))};
+		if(sa.sun_path[0] == '\0') {
+			path.resize(addr_length - sizeof(sa.sun_family) - 1);
+			memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
+		} else {
+			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+		}
+
 		if(logSockets)
 			std::cout << "posix: Connect to " << path << std::endl;
 
-		PathResolver resolver;
-		resolver.setup(process->fsContext()->getRoot(),
-				process->fsContext()->getWorkingDirectory(), std::move(path));
-		co_await resolver.resolve();
-		assert(resolver.currentLink());
+		if (sa.sun_path[0] == '\0') {
+			assert(!_ownerPid);
+			_ownerPid = process->pid();
 
-		assert(!_ownerPid);
-		_ownerPid = process->pid();
+			auto server = abstractSocketsBindMap.at(path);
+			server->_acceptQueue.push_back(this);
+			server->_inSeq = ++server->_currentSeq;
+			server->_statusBell.ring();
 
-		// Lookup the socket associated with the node.
-		auto node = resolver.currentLink()->getTarget();
-		auto server = globalBindMap.at(node);
-		server->_acceptQueue.push_back(this);
-		server->_inSeq = ++server->_currentSeq;
-		server->_statusBell.ring();
+			while(_currentState == State::null)
+				co_await _statusBell.async_wait();
+			assert(_currentState == State::connected);
+			co_return protocols::fs::Error::none;
+		} else {
+			PathResolver resolver;
+			resolver.setup(process->fsContext()->getRoot(),
+					process->fsContext()->getWorkingDirectory(), std::move(path));
+			co_await resolver.resolve();
+			assert(resolver.currentLink());
 
-		while(_currentState == State::null)
-			co_await _statusBell.async_wait();
-		assert(_currentState == State::connected);
-		co_return protocols::fs::Error::none;
+			assert(!_ownerPid);
+			_ownerPid = process->pid();
+
+			// Lookup the socket associated with the node.
+			auto node = resolver.currentLink()->getTarget();
+			auto server = globalBindMap.at(node);
+			server->_acceptQueue.push_back(this);
+			server->_inSeq = ++server->_currentSeq;
+			server->_statusBell.ring();
+
+			while(_currentState == State::null)
+				co_await _statusBell.async_wait();
+			assert(_currentState == State::connected);
+			co_return protocols::fs::Error::none;
+		}
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -393,35 +431,46 @@ public:
 		co_return 0;
 	}
 
-	async::result<frg::expected<protocols::fs::Error, size_t>>
-	peername(void *addr_ptr, size_t max_addr_length) override {
-		struct sockaddr_un sa;
+private:
+	static size_t getNameFor(OpenFile *sock, void *addrPtr, size_t maxAddrLength) {
+		sockaddr_un sa;
+		size_t outSize = offsetof(sockaddr_un, sun_path) + sock->_sockpath.size() + 1;
+
 		memset(&sa, 0, sizeof(struct sockaddr_un));
 		sa.sun_family = AF_UNIX;
-		if(abstract)
-			strncpy(sa.sun_path, (const char *)'\0', sizeof('\0'));
-		else
-			strncpy(sa.sun_path, this->_remote->_sockpath.c_str(), this->_remote->_sockpath.length());
-		memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_un), max_addr_length));
 
-		if(abstract)
-			co_return sizeof('\0') + sizeof(sa.sun_family);
-		co_return _remote->_sockpath.size() + sizeof(sa.sun_family);
+		switch (sock->_nameType) {
+			case NameType::unnamed:
+				outSize = sizeof(sa_family_t);
+				break;
+			case NameType::abstract:
+				sa.sun_path[0] = '\0';
+				memcpy(sa.sun_path + 1, sock->_sockpath.data(),
+						std::min(sizeof(sa.sun_path) - 1, sock->_sockpath.size()));
+				break;
+			case NameType::path:
+				strncpy(sa.sun_path, sock->_sockpath.data(), sizeof(sa.sun_path));
+				break;
+		}
+
+		auto destSize = std::min(sizeof(sockaddr_un), maxAddrLength);
+		memcpy(addrPtr, &sa, destSize);
+
+		return outSize;
 	}
 
-	async::result<size_t> sockname(void *addr_ptr, size_t max_addr_length) override {
-		struct sockaddr_un sa;
-		memset(&sa, 0, sizeof(struct sockaddr_un));
-		sa.sun_family = AF_UNIX;
-		if(abstract)
-			strncpy(sa.sun_path, (const char *)'\0', sizeof('\0'));
-		else
-			strncpy(sa.sun_path, this->_sockpath.c_str(), this->_sockpath.length());
-		memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_un), max_addr_length));
+public:
+	async::result<frg::expected<protocols::fs::Error, size_t>>
+	peername(void *addrPtr, size_t maxAddrLength) override {
+		if (_currentState != State::connected) {
+			co_return protocols::fs::Error::notConnected;
+		}
 
-		if(abstract)
-			co_return sizeof('\0') + sizeof(sa.sun_family);
-		co_return _sockpath.size() + sizeof(sa.sun_family);
+		co_return getNameFor(_remote, addrPtr, maxAddrLength);
+	}
+
+	async::result<size_t> sockname(void *addrPtr, size_t maxAddrLength) override {
+		co_return getNameFor(this, addrPtr, maxAddrLength);
 	}
 
 private:
@@ -453,7 +502,9 @@ private:
 
 	std::string _sockpath;
 
-	bool abstract;
+	NameType _nameType;
+
+	bool _isInherited;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock) {

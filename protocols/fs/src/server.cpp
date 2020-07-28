@@ -394,6 +394,21 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 		} else {
 			auto result = co_await file_ops->peername(file.get(), addr.data(), req.size());
+
+			if (!result) {
+				managarm::fs::SvrResponse resp;
+				resp.set_error(static_cast<managarm::fs::Errors>(result.error()));
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+
+				co_return;
+			}
+
 			assert(result); // This can never fail (yet)
 			auto actual_length = result.value();
 

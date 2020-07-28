@@ -364,6 +364,6 @@ async::result<void> File::setFileFlags(int flags) {
 async::result<frg::expected<protocols::fs::Error, size_t>> File::peername(void *addr_ptr, size_t max_addr_length) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement getPeerName()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::peername()");
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
