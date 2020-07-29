@@ -1,5 +1,7 @@
 #pragma once
 
+#include <thor-internal/debug.hpp>
+
 namespace _debug {
 
 enum class Condition {
@@ -9,25 +11,25 @@ enum class Size {
 	size1, size2, size8, size4
 };
 
-template<typename T, typename = void>
+template<typename T>
 struct BreakOnWrite;
 
-template<typename T>
-struct BreakOnWrite<T, frigg::EnableIfT<sizeof(T) == 1>> {
+template<typename T> requires (sizeof(T) == 1)
+struct BreakOnWrite<T> {
 	static void invoke(const T *p) {
 		installBreak(p, Condition::write, Size::size1);
 	}
 };
 
-template<typename T>
-struct BreakOnWrite<T, frigg::EnableIfT<sizeof(T) == 4>> {
+template<typename T> requires (sizeof(T) == 4)
+struct BreakOnWrite<T> {
 	static void invoke(const T *p) {
 		installBreak(p, Condition::write, Size::size4);
 	}
 };
 
-template<typename T>
-struct BreakOnWrite<T, frigg::EnableIfT<sizeof(T) == 8>> {
+template<typename T> requires (sizeof(T) == 8)
+struct BreakOnWrite<T> {
 	static void invoke(const T *p) {
 		installBreak(p, Condition::write, Size::size8);
 	}
@@ -46,3 +48,18 @@ template<typename T>
 void breakOnWrite(const T *p) {
 	_debug::BreakOnWrite<T>::invoke(p);
 }
+
+namespace thor {
+
+struct PIOLogHandler : public LogHandler {
+	constexpr PIOLogHandler()
+	: serialBufferIndex{0}, serialBuffer{0} {}
+
+	void printChar(char c) override;
+
+private:
+	int serialBufferIndex;
+	uint8_t serialBuffer[16];
+};
+
+} // namespace thor

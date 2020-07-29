@@ -3,12 +3,7 @@
 #define FRIGG_ATOMIC_HPP
 
 #include <frigg/macros.hpp>
-
-#if defined(__i386__)
-#include "arch_x86/atomic_impl.hpp"
-#elif defined(__x86_64__)
-#include "arch_x86/atomic_impl.hpp"
-#endif
+#include <frigg/cxx-support.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
 
@@ -93,6 +88,34 @@ template<typename Mutex>
 LockGuard<Mutex> guard(DontLock, Mutex *mutex) {
 	return LockGuard<Mutex>(dontLock, mutex);
 }
+
+class TicketLock {
+public:
+	constexpr TicketLock()
+	: _nextTicket{0}, _servingTicket{0} { }
+
+	TicketLock(const TicketLock &) = delete;
+
+	TicketLock &operator= (const TicketLock &) = delete;
+
+	void lock() {
+		auto ticket = __atomic_fetch_add(&_nextTicket, 1, __ATOMIC_RELAXED);
+		while(__atomic_load_n(&_servingTicket, __ATOMIC_ACQUIRE) != ticket) {
+#ifdef __x86_64__
+			asm volatile ("pause");
+#endif
+		}
+	}
+
+	void unlock() {
+		auto current = __atomic_load_n(&_servingTicket, __ATOMIC_RELAXED);
+		__atomic_store_n(&_servingTicket, current + 1, __ATOMIC_RELEASE);
+	}
+
+private:
+	uint32_t _nextTicket;
+	uint32_t _servingTicket;
+};
 
 } // namespace frigg
 

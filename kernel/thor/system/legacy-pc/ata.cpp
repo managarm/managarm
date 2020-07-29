@@ -101,8 +101,10 @@ namespace {
 
 			auto object = frigg::makeShared<IrqObject>(*kernelAlloc,
 					frigg::String<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
+#ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(14);
 			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
+#endif
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);

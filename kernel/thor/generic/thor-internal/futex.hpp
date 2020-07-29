@@ -6,7 +6,7 @@
 #include <frg/list.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/linked.hpp>
-#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/work-queue.hpp>

@@ -40,29 +40,10 @@ bragi_sources = [
 	bragi_gen.process('../../protocols/fs/fs.bragi'),
 ]
 
-thor_sources = files(
+thor_sources = [files(
 	'../../frigg/src/debug.cpp',
 	'../../frigg/src/libc.cpp',
-	'../../frigg/src/arch_x86/gdt.cpp',
-	'../../frigg/src/arch_x86/idt.cpp',
-	'../../frigg/src/arch_x86/tss.cpp',
 	'../common/font-8x16.cpp',
-	'arch/x86/early_stubs.S',
-	'arch/x86/stubs.S',
-	'arch/x86/user-access.S',
-	'arch/x86/vmx_stubs.S',
-	'arch/x86/cpu.cpp',
-	'arch/x86/entry.S',
-	'arch/x86/ints.cpp',
-	'arch/x86/pic.cpp',
-	'arch/x86/system.cpp',
-	'arch/x86/paging.cpp',
-	'arch/x86/hpet.cpp',
-	'arch/x86/rtc.cpp',
-	'arch/x86/ept.cpp',
-	'arch/x86/pmc-amd.cpp',
-	'arch/x86/pmc-intel.cpp',
-	'arch/x86/vmx.cpp',
 	'generic/address-space.cpp',
 	'generic/physical.cpp',
 	'generic/main.cpp',
@@ -89,31 +70,35 @@ thor_sources = files(
 	'generic/servers.cpp',
 	'generic/ubsan.cpp',
 	'generic/work-queue.cpp',
+	'generic/kernel-stack.cpp',
 	'system/acpi/glue.cpp',
 	'system/acpi/madt.cpp',
 	'system/acpi/pm-interface.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',
 	'system/legacy-pc/ata.cpp',
-	'system/pci/pci_io.cpp',
-	'system/pci/pci_discover.cpp',
-)
+	'system/pci/pci_discover.cpp'
+)]
 
-trampoline = custom_target('trampoline',
-	command: c_compiler.cmd_array() + ['-o', '@OUTPUT@',
-		'-nostdlib', '-Wl,-Ttext,0', '-Wl,--oformat,binary',
-		'@INPUT@'] + meson.get_cross_property('cpp_args'),
-	input: 'extra-src/trampoline.S',
-	output: 'trampoline.bin')
-
-embed_trampoline = custom_target('embed-trampoline',
-	command: ['x86_64-managarm-objcopy', '-I', 'binary', '-O', 'elf64-x86-64',
-			'-B', 'i386:x86-64', '@INPUT@', '@OUTPUT@'],
-	input: trampoline,
-	output: 'embed-trampoline.o')
+thor_includes = [include_directories(
+	'private-include/',
+	'generic/',
+	'system/acpi/',
+	'system/framebuffer/',
+	'system/legacy-pc/',
+	'system/pci/',
+	'../include/',
+	'../common',
+	'../../frigg/include',
+	'../../subprojects/libarch/include',
+	'../../subprojects/libasync/include',
+	'../../tools/pb2frigg/include'
+)]
 
 extra_c_args = []
-extra_cpp_args = []
+extra_cpp_args = ['-DCXXSHIM_INTEGRATE_GCC']
+extra_link_args = []
+extra_link_depends = []
 
 if get_option('kernel_ubsan')
 	# -fsanitize=function requires RTTI.
@@ -125,46 +110,31 @@ if get_option('kernel_log_allocations')
 	extra_cpp_args = ['-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS']
 endif
 
+if host_machine.cpu_family() == 'aarch64'
+	subdir('arch/arm')
+elif host_machine.cpu_family() == 'x86_64'
+	subdir('arch/x86')
+else
+	error('Unknown architecture')
+endif
+
 cralgo_lib = static_library('cralgo',
 	cralgo_sources,
 	include_directories: cralgo_includes,
-	cpp_args: [
-		'-mcmodel=kernel',
-		'-mno-red-zone',
-		'-DCXXSHIM_INTEGRATE_GCC',
-		extra_cpp_args
-	],
+	cpp_args: extra_cpp_args,
 	dependencies: cxxshim_dep,
 	pic: false
 )
 
 lai_lib = static_library('lai', lai_sources,
 	include_directories: lai_includes,
-	c_args: [
-		'-mcmodel=kernel',
-		'-mno-red-zone',
-		extra_c_args
-	],
+	c_args: extra_c_args,
 	pic: false
 )
 
-executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
+executable('thor', pb_sources, bragi_sources, thor_sources,
 	include_directories: [
-		include_directories(
-			'private-include/',
-			'generic/',
-			'arch/x86/',
-			'system/acpi/',
-			'system/framebuffer/',
-			'system/legacy-pc/',
-			'system/pci/',
-			'../include/',
-			'../common',
-			'../../frigg/include',
-			'../../subprojects/libarch/include',
-			'../../subprojects/libasync/include',
-			'../../tools/pb2frigg/include'
-		),
+		thor_includes,
 		cralgo_includes,
 		lai_includes
 	],
@@ -179,10 +149,7 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 		# For now, we only use static initializers for initgraph stages.
 		# If we decide to use them for something more complicated, we have to remove this.
 		'-fno-threadsafe-statics',
-		'-mcmodel=kernel',
-		'-mno-red-zone',
 		'-DLIBASYNC_CUSTOM_PLATFORM',
-		'-DCXXSHIM_INTEGRATE_GCC',
 		'-DFRIGG_NO_LIBC',
 		'-Wall',
 		'-Wno-non-virtual-dtor',
@@ -194,9 +161,8 @@ executable('thor', pb_sources, bragi_sources, thor_sources, embed_trampoline,
 	],
 	link_args: [
 		'-nostdlib',
-		'-z', 'max-page-size=0x1000',
-		'-Wl,-T,' + meson.current_source_dir() + '/arch/x86/link.x'
+		extra_link_args
 	],
-	link_depends: files('arch/x86/link.x'),
+	link_depends: extra_link_depends,
 	install: true
 )

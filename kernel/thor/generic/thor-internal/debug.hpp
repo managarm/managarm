@@ -9,13 +9,13 @@ namespace thor {
 // Log infrastructure.
 // --------------------------------------------------------
 
-class BochsSink {
+class OutputSink {
 public:
 	void print(char c);
 	void print(const char *str);
 };
 
-extern BochsSink infoSink;
+extern OutputSink infoSink;
 
 struct LogHandler {
 	virtual void printChar(char c) = 0;

@@ -105,9 +105,6 @@ uint64_t localTicks();
 
 void calibrateApicTimer();
 
-void armPreemption(uint64_t nanos);
-void disarmPreemption();
-
 void acknowledgeIpi();
 
 void raiseInitAssertIpi(uint32_t dest_apic_id);
@@ -117,7 +114,6 @@ void raiseInitDeassertIpi(uint32_t dest_apic_id);
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page);
 
 void sendShootdownIpi();
-void sendPingIpi(uint32_t apic);
 void sendGlobalNmi();
 
 // --------------------------------------------------------
@@ -134,12 +130,6 @@ void remapLegacyPic(int offset);
 void maskLegacyPic();
 
 bool checkLegacyPicIsr(int irq);
-
-// --------------------------------------------------------
-// TSC functionality.
-// --------------------------------------------------------
-
-uint64_t getRawTimestampCounter();
 
 // --------------------------------------------------------
 // General functions

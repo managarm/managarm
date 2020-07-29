@@ -5,6 +5,7 @@
 #include <frg/string.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/elf.hpp>
+#include <frigg/string.hpp>
 #include <thor-internal/descriptor.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>

@@ -1,10 +1,8 @@
-#include <arch/bits.hpp>
-#include <arch/io_space.hpp>
-#include <arch/register.hpp>
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
+#include <frigg/arch_x86/atomic_impl.hpp>
 
 namespace thor {
 
@@ -12,261 +10,12 @@ namespace {
 	constexpr bool disableSmp = false;
 }
 
-// --------------------------------------------------------
-// Debugging functions
-// --------------------------------------------------------
-
-int x = 0;
-int y = 0;
-
-void advanceY() {
-	y++;
-	x = 0;
-	if(y >= 25) {
-//		if(haveTimer())
-//			pollSleepNano(100000000);
-
-		PageAccessor accessor{0xB8000};
-		auto base = (volatile char *)accessor.get();
-		for(auto i = 0; i < 24; i++) {
-			for(auto j = 0; j < 80; j++) {
-				base[(80 * i + j) * 2] = base[(80 * (i + 1) + j) * 2];
-				base[(80 * i + j) * 2 + 1] = base[(80 * (i + 1) + j) * 2 + 1];
-			}
-		}
-		for(auto j = 0; j < 80; j++) {
-			base[(80 * 24 + j) * 2] = ' ';
-			base[(80 * 24 + j) * 2 + 1] = 0x0F;
-		}
-		y = 24;
-	}
-}
-
-inline constexpr arch::scalar_register<uint8_t> data(0);
-inline constexpr arch::scalar_register<uint8_t> baudLow(0);
-inline constexpr arch::scalar_register<uint8_t> baudHigh(1);
-inline constexpr arch::bit_register<uint8_t> lineControl(3);
-inline constexpr arch::bit_register<uint8_t> lineStatus(5);
-
-inline constexpr arch::field<uint8_t, bool> txReady(5, 1);
-
-inline constexpr arch::field<uint8_t, int> dataBits(0, 2);
-inline constexpr arch::field<uint8_t, bool> stopBit(2, 1);
-inline constexpr arch::field<uint8_t, int> parityBits(3, 3);
-inline constexpr arch::field<uint8_t, bool> dlab(7, 1);
-
-extern bool debugToVga;
-extern bool debugToSerial;
-extern bool debugToBochs;
-
-struct LogMessage {
-	char text[100];
-};
-
-size_t currentLogLength;
-LogMessage logQueue[1024];
-size_t logHead;
-
-size_t currentLogSequence() {
-	return logHead;
-}
-
-void copyLogMessage(size_t sequence, char *text) {
-	memcpy(text, logQueue[sequence % 1024].text, 100);
-}
-
-frigg::LazyInitializer<frg::intrusive_list<
-	LogHandler,
-	frg::locate_member<
-		LogHandler,
-		frg::default_list_hook<LogHandler>,
-		&LogHandler::hook
-	>
->> globalLogList;
-
-void setupDebugging() {
-	if(debugToSerial) {
-		auto base = arch::global_io.subspace(0x3F8);
-
-		// Set the baud rate.
-		base.store(lineControl, dlab(true));
-		base.store(baudLow, 0x01);
-		base.store(baudHigh, 0x00);
-
-		// Configure: 8 data bits, 1 stop bit, no parity.
-		base.store(lineControl, dataBits(3) | stopBit(0) | parityBits(0) | dlab(false));
-	}
-
-	globalLogList.initialize();
-}
-
-void enableLogHandler(LogHandler *sink) {
-	globalLogList->push_back(sink);
-}
-
-void disableLogHandler(LogHandler *sink) {
-	auto it = globalLogList->iterator_to(sink);
-	globalLogList->erase(it);
-}
-
-namespace {
-	int serialBufferIndex = 0;
-	uint8_t serialBuffer[16];
-} // namespace anonymous
-
-void sendByteSerial(uint8_t val) {
-	auto base = arch::global_io.subspace(0x3F8);
-
-	serialBuffer[serialBufferIndex++] = val;
-	if (serialBufferIndex == 16) {
-		while(!(base.load(lineStatus) & txReady)) {
-			// do nothing until the UART is ready to transmit.
-		}
-		base.store_iterative(data, serialBuffer, 16);
-		serialBufferIndex = 0;
-	}
-}
-
-namespace {
-
-void callLegacy(char c) {
-	// --------------------------------------------------------
-	// Text-mode video output
-	// --------------------------------------------------------
-
-	if(debugToVga) {
-		if(c == '\n') {
-			advanceY();
-		}else{
-			PageAccessor accessor{0xB8000};
-			auto base = (volatile char *)accessor.get();
-
-			base[(80 * y + x) * 2] = c;
-			base[(80 * y + x) * 2 + 1] = 0x0F;
-
-			x++;
-			if(x >= 80) {
-				advanceY();
-			}
-		}
-	}
-
-	// --------------------------------------------------------
-	// Serial console
-	// --------------------------------------------------------
-	if(debugToSerial) {
-		if(c == '\n') {
-			sendByteSerial('\r');
-		}
-
-		sendByteSerial(c);
-	}
-
-	// --------------------------------------------------------
-	// Bochs/Qemu debugging port
-	// --------------------------------------------------------
-	if(debugToBochs)
-		frigg::arch_x86::ioOutByte(0xE9, c);
-}
-
-} // anonymous namespace
-
-constexpr int maximalCsiLength = 16;
-char csiBuffer[maximalCsiLength];
-int csiState;
-int csiLength;
-
-void BochsSink::print(char c) {
-	auto doesFit = [] (int n) -> bool {
-		return currentLogLength + n < 100;
-	};
-
-	auto cutOff = [] () {
-		currentLogLength = 0;
-		logHead++;
-		memset(logQueue[logHead % 1024].text, 0, 100);
-		callLegacy('\n');
-	};
-
-	auto emit = [] (char c) {
-		logQueue[logHead % 1024].text[currentLogLength] = c;
-		currentLogLength++;
-		callLegacy(c);
-	};
-
-	if(!csiState) {
-		if(c == '\x1B') {
-			csiState = 1;
-		}else if(c == '\n' || !doesFit(1)) {
-			cutOff();
-		}else{
-			emit(c);
-		}
-	}else if(csiState == 1) {
-		if(c == '[') {
-			csiState = 2;
-		}else{
-			if(!doesFit(2)) {
-				cutOff();
-			}else{
-				emit('\x1B');
-				emit(c);
-			}
-			csiState = 0;
-		}
-	}else{
-		// This is csiState == 2.
-		if((c >= '0' && c <= '9') || (c == ';')) {
-			if(csiLength < maximalCsiLength)
-				csiBuffer[csiLength] = c;
-			csiLength++;
-		}else{
-			if(csiLength >= maximalCsiLength || !doesFit(3 + csiLength)) {
-				cutOff();
-			}else{
-				emit('\x1B');
-				emit('[');
-				for(int i = 0; i < csiLength; i++)
-					emit(csiBuffer[i]);
-				emit(c);
-			}
-			csiState = 0;
-			csiLength = 0;
-		}
-	}
-
-	for(auto it = globalLogList->begin(); it != globalLogList->end(); ++it) {
-		(*it)->printChar(c);
-	}
-}
-
-void BochsSink::print(const char *str) {
-	while(*str != 0)
-		print(*str++);
-}
-
-// --------------------------------------------------------
-
 namespace {
 	void activateTss(frigg::arch_x86::Tss64 *tss) {
 		frigg::arch_x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
 				tss, sizeof(frigg::arch_x86::Tss64));
 		asm volatile ("ltr %w0" : : "r"(kSelTask) : "memory");
 	}
-}
-
-// --------------------------------------------------------
-// UniqueKernelStack
-// --------------------------------------------------------
-
-UniqueKernelStack UniqueKernelStack::make() {
-	auto pointer = (char *)kernelAlloc->allocate(kSize);
-	return UniqueKernelStack(pointer + kSize);
-}
-
-UniqueKernelStack::~UniqueKernelStack() {
-	if(_base)
-		kernelAlloc->free(_base - kSize);
 }
 
 // --------------------------------------------------------
@@ -703,6 +452,7 @@ void initializeThisProcessor() {
 	auto cpu_data = getCpuData();
 
 	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
+	cpu_data->cpuIndex = allCpuContexts->size();
 	allCpuContexts->push(cpu_data);
 
 	// Allocate per-CPU areas.
@@ -915,8 +665,8 @@ void initializeThisProcessor() {
 }
 
 // Generated by objcopy.
-extern "C" uint8_t _binary_kernel_thor_trampoline_bin_start[];
-extern "C" uint8_t _binary_kernel_thor_trampoline_bin_end[];
+extern "C" uint8_t _binary_kernel_thor_arch_x86_trampoline_bin_start[];
+extern "C" uint8_t _binary_kernel_thor_arch_x86_trampoline_bin_end[];
 
 struct StatusBlock {
 	unsigned int targetStage;
@@ -949,11 +699,11 @@ void bootSecondary(unsigned int apic_id) {
 	uintptr_t pma = 0x10000;
 
 	// Copy the trampoline code into low physical memory.
-	auto image_size = (uintptr_t)_binary_kernel_thor_trampoline_bin_end
-			- (uintptr_t)_binary_kernel_thor_trampoline_bin_start;
+	auto image_size = (uintptr_t)_binary_kernel_thor_arch_x86_trampoline_bin_end
+			- (uintptr_t)_binary_kernel_thor_arch_x86_trampoline_bin_start;
 	assert(image_size <= kPageSize);
 	PageAccessor accessor{pma};
-	memcpy(accessor.get(), _binary_kernel_thor_trampoline_bin_start, image_size);
+	memcpy(accessor.get(), _binary_kernel_thor_arch_x86_trampoline_bin_start, image_size);
 
 	// Allocate a stack for the initialization code.
 	constexpr size_t stack_size = 0x10000;

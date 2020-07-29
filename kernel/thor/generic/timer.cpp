@@ -2,7 +2,7 @@
 #include <frigg/debug.hpp>
 
 #include <thor-internal/timer.hpp>
-#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/kernel-locks.hpp>
 
 namespace thor {
 

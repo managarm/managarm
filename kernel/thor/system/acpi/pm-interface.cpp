@@ -1,7 +1,9 @@
 
 #include <frigg/debug.hpp>
+#ifdef __x86_64__
 #include <arch/io_space.hpp>
 #include <thor-internal/arch/hpet.hpp>
+#endif
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
@@ -18,6 +20,7 @@ namespace thor {
 
 namespace thor::acpi {
 
+#ifdef __x86_64__
 inline constexpr arch::scalar_register<uint8_t> ps2Command(0x64);
 
 constexpr uint8_t ps2Reset = 0xFE;
@@ -27,6 +30,7 @@ void issuePs2Reset() {
 	space.store(ps2Command, ps2Reset);
 	pollSleepNano(100'000'000); // 100ms should be long enough to actually reset.
 }
+#endif
 
 namespace {
 
@@ -48,9 +52,10 @@ coroutine<bool> handleReq(LaneHandle lane) {
 		if(lai_acpi_reset())
 			frigg::infoLogger() << "thor: ACPI reset failed" << frigg::endLog;
 
+#ifdef __x86_64__
 		issuePs2Reset();
 		frigg::infoLogger() << "thor: Reset using PS/2 controller failed" << frigg::endLog;
-
+#endif
 		frigg::panicLogger() << "thor: We do not know how to reset" << frigg::endLog;
 	}else{
 		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);

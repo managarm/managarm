@@ -426,7 +426,8 @@ void sendShootdownIpi() {
 	}
 }
 
-void sendPingIpi(uint32_t apic) {
+void sendPingIpi(int id) {
+	auto apic = getCpuData(id)->localApicId;
 //	frigg::infoLogger() << "thor [CPU" << getLocalApicId() << "]: Sending ping" << frigg::endLog;
 	if(picBase.isUsingX2apic()) {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF1) | x2apicIcrLowDelivMode(0)

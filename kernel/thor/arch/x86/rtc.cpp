@@ -7,6 +7,7 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <clock.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
+#include <frigg/arch_x86/atomic_impl.hpp>
 
 namespace thor {
 

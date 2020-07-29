@@ -1,5 +1,5 @@
 
-#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/event.hpp>
 
 namespace thor {

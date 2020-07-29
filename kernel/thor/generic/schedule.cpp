@@ -2,9 +2,13 @@
 
 #include <frigg/debug.hpp>
 #include <thor-internal/arch/ints.hpp>
-#include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/core.hpp>
 #include <thor-internal/schedule.hpp>
+#include <thor-internal/timer.hpp>
+#ifdef __x86_64__
+#include <thor-internal/arch/hpet.hpp>
+#endif
 
 namespace thor {
 
@@ -91,9 +95,9 @@ void Scheduler::resume(ScheduleEntity *entity) {
 
 	if(wasEmpty) {
 		if(self == &getCpuData()->scheduler) {
-			sendPingIpi(self->_cpuContext->localApicId);
+			sendPingIpi(self->_cpuContext->cpuIndex);
 		}else{
-			sendPingIpi(self->_cpuContext->localApicId);
+			sendPingIpi(self->_cpuContext->cpuIndex);
 		}
 	}
 }
@@ -149,7 +153,9 @@ void Scheduler::update() {
 	if(_current)
 		n++;
 
+#ifdef __x86_64__
 	assert(haveTimer());
+#endif
 	auto now = systemClockSource()->currentNanos();
 	auto deltaTime = now - _refClock;
 	_refClock = now;
@@ -338,6 +344,7 @@ void Scheduler::_updatePreemption() {
 		frigg::infoLogger() << "Scheduling time slice: "
 				<< slice / 1000 << " us" << frigg::endLog;
 	armPreemption(slice);
+
 	return;
 }
 

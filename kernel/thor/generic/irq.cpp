@@ -1,7 +1,10 @@
 
 #include <thor-internal/irq.hpp>
-#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/kernel-locks.hpp>
+#include <thor-internal/timer.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/hpet.hpp>
+#endif
 
 namespace thor {
 

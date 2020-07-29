@@ -18,7 +18,9 @@
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/arch/system.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/ept.hpp>
+#endif
 
 namespace thor {
 
@@ -30,7 +32,6 @@ static constexpr bool logEverySyscall = false;
 
 static constexpr bool noScheduleOnIrq = false;
 
-bool debugToVga = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
 
@@ -79,9 +80,11 @@ extern "C" void thorInitialize() {
 	}
 
 	// TODO: Move this to an architecture specific file.
+#ifdef __x86_64__
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
 	KernelPageSpace::initialize(pml4_ptr);
+#endif
 	getCpuData()->globalBinding.bind();
 
 	SkeletalRegion::initialize();
@@ -503,7 +506,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 	uint64_t tsc = getRawTimestampCounter();
 	uint8_t entropy[6];
 	entropy[0] = number;
-	entropy[1] = cpuData->localApicId;
+	entropy[1] = cpuData->cpuIndex;
 	entropy[2] = tsc & 0xFF; // Assumption: only the low 32 bits contain entropy.
 	entropy[3] = (tsc >> 8) & 0xFF;
 	entropy[4] = (tsc >> 16) & 0xFF;
@@ -574,8 +577,9 @@ extern "C" void thorImplementNoThreadIrqs() {
 
 void handleSyscall(SyscallImageAccessor image) {
 	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	auto cpuData = getCpuData();
 	if(logEverySyscall && *image.number() != kHelCallLog)
-		frigg::infoLogger() << this_thread.get() << " on CPU " << getLocalApicId()
+		frigg::infoLogger() << this_thread.get() << " on CPU " << cpuData->cpuIndex
 				<< " syscall #" << *image.number() << frigg::endLog;
 
 	// Run worklets before we run the syscall.

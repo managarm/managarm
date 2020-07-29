@@ -2,6 +2,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/memory-view.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/timer.hpp>
 
 namespace thor {
 

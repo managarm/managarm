@@ -44,8 +44,8 @@ struct SharedCounter {
 	SharedCounter(const SharedCounter &other) = delete;
 
 	~SharedCounter() {
-		assert(volatileRead<int>(&_refCount) == 0);
-		assert(volatileRead<int>(&_weakCount) == 0);
+		assert(__atomic_load_n(&_refCount, __ATOMIC_RELAXED) == 0);
+		assert(__atomic_load_n(&_weakCount, __ATOMIC_RELAXED) == 0);
 	}
 
 	SharedCounter &operator= (const SharedCounter &other) = delete;
@@ -63,45 +63,47 @@ struct SharedCounter {
 	// it is intended to be used during initialization when no
 	// such guarantees are necessary.
 	void setRelaxed(int value) {
-		volatileWrite<int>(&_refCount, value);
+		__atomic_store_n(&_refCount, value, __ATOMIC_RELAXED);
 	}
 
 	// the following two operations are required for SharedPtrs
 	void increment() {
-		int previous_ref_count;
-		fetchInc(&_refCount, previous_ref_count);
+		int previous_ref_count = __atomic_fetch_add(&_refCount, 1, __ATOMIC_ACQ_REL);
 		assert(previous_ref_count > 0);
 	}
 
 	void decrement() {
-		int previous_ref_count;
-		fetchDec(&_refCount, previous_ref_count);
+		int previous_ref_count = __atomic_fetch_sub(&_refCount, 1, __ATOMIC_ACQ_REL);
+		// TODO: why do we need this?
+		asm volatile ("" ::: "memory");
 		if(previous_ref_count == 1) {
 			destruct();
 			decrementWeak();
 		}
 	}
 
-	// the following three operations are required fro WeakPtrs
+	// the following three operations are required for WeakPtrs
 	void incrementWeak() {
-		int previous_weak_count;
-		fetchInc<int>(&_weakCount, previous_weak_count);
+		int previous_weak_count = __atomic_fetch_add(&_weakCount, 1, __ATOMIC_ACQ_REL);
 		assert(previous_weak_count > 0);
 	}
 
 	void decrementWeak() {
-		int previous_weak_count;
-		fetchDec(&_weakCount, previous_weak_count);
+		int previous_weak_count = __atomic_fetch_sub(&_weakCount, 1, __ATOMIC_ACQ_REL);
+		// TODO: why do we need this?
+		asm volatile ("" ::: "memory");
 		assert(previous_weak_count > 0);
 		if(previous_weak_count == 1)
 			cleanup();
 	}
 
 	bool tryToIncrement() {
-		int last_count = volatileRead<int>(&_refCount);
-		while(last_count) {
-			if(compareSwap(&_refCount, last_count, last_count + 1, last_count))
+		int last_count = __atomic_load_n(&_refCount, __ATOMIC_RELAXED);
+		while (last_count) {
+			if (__atomic_compare_exchange_n(&_refCount, &last_count, last_count + 1, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
 				return true;
+			else
+				last_count = __atomic_load_n(&_refCount, __ATOMIC_RELAXED);
 		}
 		return false;
 	}
