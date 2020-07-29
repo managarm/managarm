@@ -2,6 +2,7 @@
 #include <thor-internal/arch/pmc-intel.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/profile.hpp>
+#include <thor-internal/timer.hpp>
 
 namespace thor {
 

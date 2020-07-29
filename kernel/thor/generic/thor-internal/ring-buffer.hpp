@@ -5,7 +5,7 @@
 
 #include <frg/tuple.hpp>
 #include <frg/utility.hpp>
-#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/kernel-locks.hpp>
 
 namespace thor {
 

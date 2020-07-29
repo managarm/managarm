@@ -1,7 +1,7 @@
 #include <assert.h>
 
 #include <frigg/debug.hpp>
-#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/physical.hpp>
 
