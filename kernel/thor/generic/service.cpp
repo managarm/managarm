@@ -633,7 +633,7 @@ namespace posix {
 				break;
 			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
-				auto size = _thread->_executor.general()->rsi;
+				auto size = *_thread->_executor.arg0();
 				auto fileMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
 				auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
 						std::move(fileMemory), 0, size);
@@ -648,18 +648,18 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(mapResult);
 
-				_thread->_executor.general()->rdi = kHelErrNone;
-				_thread->_executor.general()->rsi = mapResult.value();
+				*_thread->_executor.result0() = kHelErrNone;
+				*_thread->_executor.result1() = mapResult.value();
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
-				auto address = _thread->_executor.general()->rsi;
-				auto size = _thread->_executor.general()->rdx;
+				auto address = *_thread->_executor.arg0();
+				auto size = *_thread->_executor.arg1();
 				auto space = _thread->getAddressSpace();
 				co_await space->unmap(address, size);
 
-				_thread->_executor.general()->rdi = kHelErrNone;
-				_thread->_executor.general()->rsi = 0;
+				*_thread->_executor.result0() = kHelErrNone;
+				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 1) {
@@ -672,14 +672,14 @@ namespace posix {
 
 				{
 					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
-							reinterpret_cast<void *>(_thread->_executor.general()->rsi),
+							reinterpret_cast<void *>(*_thread->_executor.arg0()),
 							sizeof(ManagarmProcessData)};
 					co_await spaceLock.acquire();
 
 					spaceLock.write(0, &data, sizeof(ManagarmProcessData));
 				}
 
-				_thread->_executor.general()->rdi = kHelErrNone;
+				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 64) {
@@ -691,19 +691,19 @@ namespace posix {
 
 				{
 					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
-							reinterpret_cast<void *>(_thread->_executor.general()->rsi),
+							reinterpret_cast<void *>(*_thread->_executor.arg0()),
 							sizeof(ManagarmServerData)};
 					co_await spaceLock.acquire();
 
 					spaceLock.write(0, &data, sizeof(ManagarmServerData));
 				}
 
-				_thread->_executor.general()->rdi = kHelErrNone;
+				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
-				_thread->_executor.general()->rdi = kHelErrNone;
-				_thread->_executor.general()->rsi = 0;
+				*_thread->_executor.result0() = kHelErrNone;
+				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
 			}else{

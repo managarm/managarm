@@ -391,6 +391,11 @@ struct Executor {
 	Word *cs() { return &general()->cs; }
 	Word *ss() { return &general()->ss; }
 
+	Word *arg0() { return &general()->rsi; }
+	Word *arg1() { return &general()->rdx; }
+	Word *result0() { return &general()->rdi; }
+	Word *result1() { return &general()->rsi; }
+
 private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
