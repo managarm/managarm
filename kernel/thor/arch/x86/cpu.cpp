@@ -19,20 +19,6 @@ namespace {
 }
 
 // --------------------------------------------------------
-// UniqueKernelStack
-// --------------------------------------------------------
-
-UniqueKernelStack UniqueKernelStack::make() {
-	auto pointer = (char *)kernelAlloc->allocate(kSize);
-	return UniqueKernelStack(pointer + kSize);
-}
-
-UniqueKernelStack::~UniqueKernelStack() {
-	if(_base)
-		kernelAlloc->free(_base - kSize);
-}
-
-// --------------------------------------------------------
 // FaultImageAccessor
 // --------------------------------------------------------
 

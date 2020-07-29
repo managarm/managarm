@@ -89,6 +89,7 @@ thor_sources = files(
 	'generic/servers.cpp',
 	'generic/ubsan.cpp',
 	'generic/work-queue.cpp',
+	'generic/kernel-stack.cpp',
 	'system/acpi/glue.cpp',
 	'system/acpi/madt.cpp',
 	'system/acpi/pm-interface.cpp',
