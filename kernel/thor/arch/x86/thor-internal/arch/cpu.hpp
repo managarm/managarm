@@ -625,4 +625,13 @@ void forkExecutor(F functor, Executor *executor) {
 
 Error getEntropyFromCpu(void *buffer, size_t size);
 
+void armPreemption(uint64_t nanos);
+void disarmPreemption();
+
+// --------------------------------------------------------
+// TSC functionality.
+// --------------------------------------------------------
+
+uint64_t getRawTimestampCounter();
+
 } // namespace thor

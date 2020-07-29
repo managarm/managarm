@@ -2,7 +2,9 @@
 #include <frigg/debug.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/pic.hpp>
+#endif
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
@@ -523,8 +525,10 @@ PciBus::PciBus(PciBridge *associatedBridge_, uint32_t busId_, lai_nsnode_t *acpi
 		configureIrq(GlobalIrqInfo{iter.gsi, {
 				iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
 				iter.active_low ? Polarity::low : Polarity::high}});
+#ifdef __x86_64__
 		auto pin = getGlobalSystemIrq(iter.gsi);
 		_routingTable.push({static_cast<unsigned int>(iter.slot), index, pin});
+#endif
 	}
 	_routingModel = RoutingModel::rootTable;
 }

@@ -14,8 +14,10 @@ void IoSpace::addPort(uintptr_t port) {
 }
 
 void IoSpace::enableInThread(frigg::UnsafePtr<Thread> thread) {
+#ifdef __x86_64__
 	for(size_t i = 0; i < p_ports.size(); i++)
 		thread->getContext().enableIoPort(p_ports[i]);
+#endif
 }
 
 } // namespace thor

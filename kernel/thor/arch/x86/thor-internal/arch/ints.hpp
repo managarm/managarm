@@ -35,5 +35,6 @@ inline void halt() {
 
 void suspendSelf();
 
+void sendPingIpi(int id);
 
 } // namespace thor

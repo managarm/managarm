@@ -18,7 +18,9 @@
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/arch/system.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/ept.hpp>
+#endif
 
 namespace thor {
 
@@ -78,9 +80,11 @@ extern "C" void thorInitialize() {
 	}
 
 	// TODO: Move this to an architecture specific file.
+#ifdef __x86_64__
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
 	KernelPageSpace::initialize(pml4_ptr);
+#endif
 	getCpuData()->globalBinding.bind();
 
 	SkeletalRegion::initialize();

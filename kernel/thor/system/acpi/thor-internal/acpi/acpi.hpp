@@ -23,7 +23,4 @@ namespace acpi {
 
 initgraph::Stage *getTablesDiscoveredStage();
 
-void initializeBasicSystem();
-void initializeExtendedSystem();
-
 } } // namespace thor::acpi

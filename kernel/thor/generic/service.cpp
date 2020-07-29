@@ -10,7 +10,10 @@
 
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
+
+#ifdef __x86_64__
 #include <thor-internal/arch/debug.hpp>
+#endif
 
 namespace thor {
 

@@ -3,8 +3,10 @@
 #include <frigg/smart_ptr.hpp>
 #include <frigg/variant.hpp>
 #include <smarter.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
+#endif
 #include <thor-internal/mm-rc.hpp>
 #include <thor-internal/virtualization.hpp>
 

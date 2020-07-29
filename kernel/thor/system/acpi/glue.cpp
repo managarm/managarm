@@ -4,7 +4,9 @@
 #include <frigg/printf.hpp>
 #include <frigg/memory.hpp>
 #include <thor-internal/arch/paging.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/pic.hpp>
+#endif
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -135,6 +137,7 @@ void *laihost_scan(const char *name, size_t index) {
 	}
 }
 
+#ifdef __x86_64__
 void laihost_outb(uint16_t p, uint8_t v) {
 	asm volatile ("outb %0, %1" : : "a"(v), "d"(p));
 }
@@ -160,6 +163,7 @@ uint32_t laihost_ind(uint16_t p) {
 	asm volatile ("inl %1, %0" : "=a"(v) : "d"(p));
 	return v;
 }
+#endif
 
 void laihost_pci_writeb(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn,
 		uint16_t offset, uint8_t v) {

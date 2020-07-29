@@ -11,9 +11,12 @@
 #include <thor-internal/physical.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/thread.hpp>
+#include <thor-internal/timer.hpp>
+#ifdef __x86_64__
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
+#endif
 #include "../../hel/include/hel.h"
 
 using namespace thor;
@@ -675,6 +678,7 @@ HelError helCreateSpace(HelHandle *handle) {
 }
 
 HelError helCreateVirtualizedSpace(HelHandle *handle) {
+#ifdef __x86_64__
 	if(!getCpuData()->haveVirtualization) {
 		return kHelErrNoHardwareSupport;
 	}
@@ -693,9 +697,13 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	*handle = this_universe->attachDescriptor(universe_guard,
 			VirtualizedSpaceDescriptor(std::move(vspace)));
 	return kHelErrNone;
+#else
+	return kHelErrNoHardwareSupport;
+#endif
 }
 
 HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
+#ifdef __x86_64__
 	if(!getCpuData()->haveVirtualization) {
 		return kHelErrNoHardwareSupport;
 	}
@@ -716,6 +724,9 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	*out = this_universe->attachDescriptor(universe_guard,
 			VirtualizedCpuDescriptor(std::move(vcpu)));
 	return kHelErrNone;
+#else
+	return kHelErrNoHardwareSupport;
+#endif
 }
 
 HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
@@ -1858,6 +1869,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
+#ifdef __x86_64__
 		uintptr_t regs[15];
 		regs[0] = thread->_executor.general()->rax;
 		regs[1] = thread->_executor.general()->rbx;
@@ -1876,24 +1888,29 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[14] = thread->_executor.general()->rbp;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15))
 			return kHelErrFault;
+#endif
 	}else if(set == kHelRegsThread) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
+#ifdef __x86_64__
 		uintptr_t regs[2];
 		regs[0] = thread->_executor.general()->clientFs;
 		regs[1] = thread->_executor.general()->clientGs;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
+#endif
 	}else if(set == kHelRegsVirtualization) {
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
 		}
+#ifdef __x86_64__
 		HelX86VirtualizationRegs regs;
 		memset(&regs, 0, sizeof(HelX86VirtualizationRegs));
 		vcpu.vcpu->loadRegs(&regs);
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
+#endif
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1941,6 +1958,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
+#ifdef __x86_64__
 		uintptr_t regs[15];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 15))
 			return kHelErrFault;
@@ -1959,7 +1977,9 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread->_executor.general()->r14 = regs[12];
 		thread->_executor.general()->r15 = regs[13];
 		thread->_executor.general()->rbp = regs[14];
+#endif
 	}else if(set == kHelRegsThread) {
+#ifdef __x86_64__
 		uintptr_t regs[2];
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -1968,12 +1988,16 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrFault;
 		thread->_executor.general()->clientFs = regs[0];
 		thread->_executor.general()->clientGs = regs[1];
+#endif
 	}else if(set == kHelRegsDebug) {
+#ifdef __x86_64__
 		// FIXME: Make those registers thread-specific.
 		uint32_t *reg;
 		readUserObject(reinterpret_cast<uint32_t *const *>(image), reg);
 		breakOnWrite(reg);
+#endif
 	}else if(set == kHelRegsVirtualization) {
+#ifdef __x86_64__
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
 		}
@@ -1981,6 +2005,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 		vcpu.vcpu->storeRegs(&regs);
+#endif
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1989,8 +2014,12 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 }
 
 HelError helWriteFsBase(void *pointer) {
+#ifdef __x86_64__
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, (uintptr_t)pointer);
 	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
 }
 
 HelError helGetClock(uint64_t *counter) {
@@ -2000,6 +2029,7 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
+#ifdef __x86_64__
 	struct Closure final : CancelNode, PrecisionTimerNode, IpcNode {
 		static void issue(uint64_t nanos, frigg::SharedPtr<IpcQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
@@ -2067,6 +2097,9 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	Closure::issue(counter, std::move(queue), context, async_id);
 
 	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
 }
 
 HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
@@ -2571,6 +2604,7 @@ HelError helRaiseEvent(HelHandle handle) {
 }
 
 HelError helAccessIrq(int number, HelHandle *handle) {
+#ifdef __x86_64__
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -2587,6 +2621,9 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	}
 
 	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
 }
 
 HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) {
@@ -2818,6 +2855,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 }
 
 HelError helEnableIo(HelHandle handle) {
+#ifdef __x86_64__
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -2837,15 +2875,22 @@ HelError helEnableIo(HelHandle handle) {
 	io_space->enableInThread(this_thread);
 
 	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
 }
 
 HelError helEnableFullIo() {
+#ifdef __x86_64__
 	auto this_thread = getCurrentThread();
 
 	for(uintptr_t port = 0; port < 0x10000; port++)
 		this_thread->getContext().enableIoPort(port);
 
 	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
 }
 
 HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num_data,

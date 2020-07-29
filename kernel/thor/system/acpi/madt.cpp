@@ -5,8 +5,6 @@
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <thor-internal/arch/cpu.hpp>
-#include <thor-internal/arch/hpet.hpp>
-#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -108,9 +106,11 @@ GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
 // --------------------------------------------------------
 
 void configureIrq(GlobalIrqInfo info) {
+#ifdef __x86_64__
 	auto pin = getGlobalSystemIrq(info.gsi);
 	assert(pin);
 	pin->configure(info.configuration);
+#endif
 }
 
 } // namespace thor
@@ -282,7 +282,9 @@ static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioap
 			auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
 			if(generic->type == 1) { // I/O APIC
 				auto entry = (MadtIoEntry *)generic;
+#ifdef __x86_64__
 				setupIoApic(entry->ioApicId, entry->systemIntBase, entry->mmioAddress);
+#endif
 			}
 			offset += generic->length;
 		}
@@ -361,7 +363,9 @@ static initgraph::Task enterAcpiModeTask{&extendedInitEngine, "acpi.enter-acpi-m
 		configureIrq(sciOverride);
 		sciDevice.initialize();
 		lai_set_sci_event(ACPI_POWER_BUTTON);
+#ifdef __x86_64__
 		IrqPin::attachSink(getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
+#endif
 
 		// Enable ACPI.
 		frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;

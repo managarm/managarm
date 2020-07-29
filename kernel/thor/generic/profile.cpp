@@ -1,5 +1,7 @@
+#ifdef __x86_64__
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
+#endif
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/timer.hpp>
@@ -10,6 +12,7 @@ bool wantKernelProfile = false;
 frigg::LazyInitializer<LogRingBuffer> globalProfileRing;
 
 void initializeProfile() {
+#ifdef __x86_64__
 	if(!wantKernelProfile)
 		return;
 
@@ -56,6 +59,7 @@ void initializeProfile() {
 				globalProfileRing->enqueue(buffer[i]);
 		}
 	});
+#endif
 }
 
 LogRingBuffer *getGlobalProfileRing() {
