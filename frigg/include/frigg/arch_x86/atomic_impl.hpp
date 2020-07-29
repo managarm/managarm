@@ -81,32 +81,6 @@ void fetchDec(T *pointer, T &old_value) {
 	Atomic<T>::fetchDec(pointer, old_value);
 }
 
-class TicketLock {
-public:
-	constexpr TicketLock()
-	: _nextTicket{0}, _servingTicket{0} { }
-
-	TicketLock(const TicketLock &) = delete;
-
-	TicketLock &operator= (const TicketLock &) = delete;
-
-	void lock() {
-		auto ticket = __atomic_fetch_add(&_nextTicket, 1, __ATOMIC_RELAXED);
-		while(__atomic_load_n(&_servingTicket, __ATOMIC_ACQUIRE) != ticket) {
-			pause();
-		}
-	}
-	
-	void unlock() {
-		auto current = __atomic_load_n(&_servingTicket, __ATOMIC_RELAXED);
-		__atomic_store_n(&_servingTicket, current + 1, __ATOMIC_RELEASE);
-	}
-
-private:
-	uint32_t _nextTicket;
-	uint32_t _servingTicket;
-};
-
 } // namespace frigg
 
 #endif // FRIGG_ARCH_X86_ATOMIC_IMPL_HPP
