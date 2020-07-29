@@ -56,6 +56,8 @@ struct CpuData : public PlatformCpuData {
 	Scheduler scheduler;
 	bool haveVirtualization;
 
+	int cpuIndex;
+
 	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;
 	std::atomic<uint64_t> heartbeat;

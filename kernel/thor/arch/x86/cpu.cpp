@@ -452,6 +452,7 @@ void initializeThisProcessor() {
 	auto cpu_data = getCpuData();
 
 	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
+	cpu_data->cpuIndex = allCpuContexts->size();
 	allCpuContexts->push(cpu_data);
 
 	// Allocate per-CPU areas.

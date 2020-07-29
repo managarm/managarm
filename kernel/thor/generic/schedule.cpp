@@ -91,9 +91,9 @@ void Scheduler::resume(ScheduleEntity *entity) {
 
 	if(wasEmpty) {
 		if(self == &getCpuData()->scheduler) {
-			sendPingIpi(self->_cpuContext->localApicId);
+			sendPingIpi(self->_cpuContext->cpuIndex);
 		}else{
-			sendPingIpi(self->_cpuContext->localApicId);
+			sendPingIpi(self->_cpuContext->cpuIndex);
 		}
 	}
 }
