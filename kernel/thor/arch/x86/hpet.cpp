@@ -11,6 +11,7 @@
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/irq.hpp>
+#include <frigg/arch_x86/atomic_impl.hpp>
 
 namespace thor {
 

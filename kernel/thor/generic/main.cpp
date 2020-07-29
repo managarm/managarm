@@ -30,7 +30,6 @@ static constexpr bool logEverySyscall = false;
 
 static constexpr bool noScheduleOnIrq = false;
 
-bool debugToVga = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
 
