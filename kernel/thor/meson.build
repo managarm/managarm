@@ -110,7 +110,9 @@ if get_option('kernel_log_allocations')
 	extra_cpp_args = ['-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS']
 endif
 
-if host_machine.cpu_family() == 'x86_64'
+if host_machine.cpu_family() == 'aarch64'
+	subdir('arch/arm')
+elif host_machine.cpu_family() == 'x86_64'
 	subdir('arch/x86')
 else
 	error('Unknown architecture')
