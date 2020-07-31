@@ -140,8 +140,10 @@ extern "C" void handleEarlyProtectionFault(uint64_t errcode, void *rip) {
 
 extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
 	(void)errcode;
+	uintptr_t pfAddress;
+	asm volatile ("mov %%cr2, %0" : "=r" (pfAddress));
 
-	frigg::panicLogger() << "Page fault during boot\n"
+	frigg::panicLogger() << "Page fault at " << (void *)pfAddress << " during boot\n"
 			<< "Faulting IP: " << rip << frigg::endLog;
 }
 
