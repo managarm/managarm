@@ -1,8 +1,10 @@
+#include <frigg/arch_x86/atomic_impl.hpp>
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
-#include <frigg/arch_x86/atomic_impl.hpp>
+#include <thor-internal/physical.hpp>
 
 namespace thor {
 
@@ -277,6 +279,38 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 }
 
 // --------------------------------------------------------
+// Stack scrubbing.
+// --------------------------------------------------------
+
+void scrubStack(FaultImageAccessor accessor, Continuation cont) {
+	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
+	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
+	assert(top >= bottom);
+	cleanKasanShadow(cont.sp, top - bottom);
+}
+
+void scrubStack(IrqImageAccessor accessor, Continuation cont) {
+	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
+	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
+	assert(top >= bottom);
+	cleanKasanShadow(cont.sp, top - bottom);
+}
+
+void scrubStack(SyscallImageAccessor accessor, Continuation cont) {
+	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
+	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
+	assert(top >= bottom);
+	cleanKasanShadow(cont.sp, top - bottom);
+}
+
+void scrubStack(Executor *executor, Continuation cont) {
+	auto top = reinterpret_cast<uintptr_t>(*executor->sp());
+	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
+	assert(top >= bottom);
+	cleanKasanShadow(cont.sp, top - bottom);
+}
+
+// --------------------------------------------------------
 // UserContext
 // --------------------------------------------------------
 
@@ -399,20 +433,23 @@ int getCpuCount() {
 	return allCpuContexts->size();
 }
 
-void doRunDetached(void (*function) (void *), void *argument) {
+void doRunDetached(void (*function) (void *, void *), void *argument) {
 	assert(!intsAreEnabled());
 
-	CpuData *cpu_data = getCpuData();
+	CpuData *cpuData = getCpuData();
 
-	uintptr_t stack_ptr = (uintptr_t)cpu_data->detachedStack.base();
+	uintptr_t stackPtr = (uintptr_t)cpuData->detachedStack.base();
+	cleanKasanShadow(reinterpret_cast<void *>(stackPtr - UniqueKernelStack::kSize),
+			UniqueKernelStack::kSize);
 	asm volatile (
 			"mov %%rsp, %%rbp\n"
+			"mov %%rsp, %%rsi\n"
 			"\tmov %2, %%rsp\n"
 			"\tcall *%1\n"
 			"\tmov %%rbp, %%rsp"
 			:
-			: "D" (argument), "r" (function), "r" (stack_ptr)
-			: "rbp", "memory");
+			: "D" (argument), "r" (function), "r" (stackPtr)
+			: "rbp", "rsi", "memory");
 }
 
 extern "C" void syscallStub();

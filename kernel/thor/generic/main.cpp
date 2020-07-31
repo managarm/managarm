@@ -530,10 +530,11 @@ void handleIrq(IrqImageAccessor image, int number) {
 			}else{
 				assert(image.inIdleDomain());
 				localScheduler()->reschedule();
-				runDetached([] {
+				runDetached([] (Continuation cont, IrqImageAccessor image) {
+					scrubStack(image, cont);
 					localScheduler()->commit();
 					localScheduler()->invoke();
-				});
+				}, image);
 			}
 		}else{
 			localScheduler()->commit();
@@ -562,10 +563,11 @@ void handlePreemption(IrqImageAccessor image) {
 		}else{
 			assert(image.inIdleDomain());
 			localScheduler()->reschedule();
-			runDetached([] {
+			runDetached([] (Continuation cont, IrqImageAccessor image) {
+				scrubStack(image, cont);
 				localScheduler()->commit();
 				localScheduler()->invoke();
-			});
+			}, image);
 		}
 	}else{
 		localScheduler()->commit();

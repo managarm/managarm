@@ -26,6 +26,11 @@ extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void
 
 void workOnExecutor(Executor *executor) {}
 
+void scrubStack(FaultImageAccessor accessor, Continuation cont) {}
+void scrubStack(IrqImageAccessor accessor, Continuation cont) {}
+void scrubStack(SyscallImageAccessor accessor, Continuation cont) {}
+void scrubStack(Executor *executor, Continuation cont) {}
+
 size_t getStateSize() { return 0; }
 
 void switchExecutor(frigg::UnsafePtr<Thread> executor) {}
@@ -41,7 +46,7 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 bool intsAreAllowed() { return false; }
 void allowInts() {}
 
-void doRunDetached(void (*function) (void *), void *argument) {}
+void doRunDetached(void (*function) (void *, void *), void *argument) {}
 
 void initializeThisProcessor() {}
 

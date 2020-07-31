@@ -27,11 +27,13 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		localScheduler()->reschedule();
 
 		forkExecutor([&] {
-			runDetached([] (frigg::LockGuard<frigg::TicketLock> lock) {
+			runDetached([] (Continuation cont, Executor *executor,
+					frigg::LockGuard<frigg::TicketLock> lock) {
+				scrubStack(executor, cont);
 				lock.unlock();
 				localScheduler()->commit();
 				localScheduler()->invoke();
-			}, frigg::move(lock));
+			}, &this_fiber->_executor, frigg::move(lock));
 		}, &this_fiber->_executor);
 	}
 }

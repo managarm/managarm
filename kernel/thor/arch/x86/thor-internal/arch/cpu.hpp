@@ -71,6 +71,10 @@ enum {
 
 struct Executor;
 
+struct Continuation {
+	void *sp;
+};
+
 struct FaultImageAccessor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 
@@ -96,6 +100,8 @@ struct FaultImageAccessor {
 	}
 
 	bool allowUserPages();
+
+	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
 	// note: this struct is accessed from assembly.
@@ -185,6 +191,8 @@ struct IrqImageAccessor {
 		return *cs() == kSelSystemIdleCode;
 	}
 
+	void *frameBase() { return _pointer + sizeof(Frame); }
+
 private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
@@ -237,6 +245,8 @@ struct SyscallImageAccessor {
 	Word *error() { return &_frame()->rdi; }
 	Word *out0() { return &_frame()->rsi; }
 	Word *out1() { return &_frame()->rdx; }
+
+	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
 	// this struct is accessed from assembly.
@@ -498,6 +508,11 @@ extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void
 
 void workOnExecutor(Executor *executor);
 
+void scrubStack(FaultImageAccessor accessor, Continuation cont);
+void scrubStack(IrqImageAccessor accessor, Continuation cont);
+void scrubStack(SyscallImageAccessor accessor, Continuation cont);
+void scrubStack(Executor *executor, Continuation cont);
+
 size_t getStateSize();
 
 // switches the active executor.
@@ -592,16 +607,17 @@ void runDetached(F functor, Args... args) {
 	};
 
 	Context original(std::move(functor), std::forward<Args>(args)...);
-	doRunDetached([] (void *context) {
+	doRunDetached([] (void *context, void *sp) {
 		Context stolen = std::move(*static_cast<Context *>(context));
-		frg::apply(std::move(stolen.functor), std::move(stolen.args));
+		frg::apply(std::move(stolen.functor),
+				frg::tuple_cat(frg::make_tuple(Continuation{sp}), std::move(stolen.args)));
 	}, &original);
 }
 
 // calls the given function on the per-cpu stack
 // this allows us to implement a save exit-this-thread function
 // that destroys the thread together with its kernel stack
-void doRunDetached(void (*function) (void *), void *argument);
+void doRunDetached(void (*function) (void *, void *), void *argument);
 
 void setupBootCpuContext();
 void initializeThisProcessor();
