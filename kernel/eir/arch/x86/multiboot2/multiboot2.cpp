@@ -295,12 +295,12 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	framebuf->fbBpp = framebuffer->bpp;
 	framebuf->fbType = framebuffer->type;
 
-	// Map the framebuffer to a lower-half address.
+	// Map the framebuffer.
 	assert(framebuffer->address & ~(kPageSize - 1));
 	for(address_t pg = 0; pg < framebuffer->pitch * framebuffer->height; pg += 0x1000)
-		mapSingle4kPage(0x80000000 + pg, framebuffer->address + pg,
+		mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, framebuffer->address + pg,
 				kAccessWrite, CachingMode::writeCombine);
-	framebuf->fbEarlyWindow = 0x80000000;
+	framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
 	eirEnterKernel(eirPml4Pointer, kernel_entry,

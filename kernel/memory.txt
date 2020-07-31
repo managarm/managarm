@@ -26,9 +26,22 @@ FFFF'F000'0000'0000
 	Log ring buffer memory
 	Referenced in eir/main.cpp, thor/generic/core.cpp
 
+FFFF'F000'0000'0000
+	Length: 256MiB
+	Log ring buffer memory
+	Referenced in eir/main.cpp, thor/generic/core.cpp
+
+FFFF'FE00'0000'0000
+	Length: 0x1'0000 bytes
+	Initial stack for thor
+
 FFFF'FE00'0001'0000
 	Eir information struct
 	Referenced in eir/arch/x86/load_{32,64}.S and eir/arch/x86/main.cpp
+
+FFFF'FE00'4000'0000
+	Initial framebuffer mapping
+	Referenced in multiple Eir files
 
 FFFF'FFFF'8000'0000
 	Length: (unlimited)
