@@ -187,7 +187,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 5, fault_selector, (void *)&faultStubBound, 0);
 	makeIdt64IntSystemGate(table, 6, fault_selector, (void *)&faultStubOpcode, 0);
 	makeIdt64IntSystemGate(table, 7, fault_selector, (void *)&faultStubNoFpu, 0);
-	makeIdt64IntSystemGate(table, 8, fault_selector, (void *)&faultStubDouble, 0);
+	makeIdt64IntSystemGate(table, 8, fault_selector, (void *)&faultStubDouble, 2);
 	makeIdt64IntSystemGate(table, 9, fault_selector, (void *)&faultStub9, 0);
 	makeIdt64IntSystemGate(table, 10, fault_selector, (void *)&faultStubInvalidTss, 0);
 	makeIdt64IntSystemGate(table, 11, fault_selector, (void *)&faultStubSegment, 0);
@@ -274,7 +274,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
 	
 	int nmi_selector = kSelSystemNmiCode;
-	makeIdt64IntSystemGate(table, 2, nmi_selector, (void *)&nmiStub, 2);
+	makeIdt64IntSystemGate(table, 2, nmi_selector, (void *)&nmiStub, 3);
 
 	//FIXME
 //	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,

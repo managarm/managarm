@@ -457,6 +457,7 @@ void initializeThisProcessor() {
 
 	// Allocate per-CPU areas.
 	cpu_data->irqStack = UniqueKernelStack::make();
+	cpu_data->dfStack = UniqueKernelStack::make();
 	cpu_data->nmiStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();
 
@@ -471,7 +472,8 @@ void initializeThisProcessor() {
 
 	// Setup our IST after the did the embedding.
 	cpu_data->tss.ist1 = (uintptr_t)cpu_data->irqStack.base();
-	cpu_data->tss.ist2 = (uintptr_t)cpu_data->nmiStack.base();
+	cpu_data->tss.ist2 = (uintptr_t)cpu_data->dfStack.base();
+	cpu_data->tss.ist3 = (uintptr_t)cpu_data->nmiStack.base();
 
 	frigg::arch_x86::Gdtr gdtr;
 	gdtr.limit = 14 * 8;

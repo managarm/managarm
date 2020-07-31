@@ -541,6 +541,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	uint32_t idt[256 * 4];
 
 	UniqueKernelStack irqStack;
+	UniqueKernelStack dfStack;
 	UniqueKernelStack nmiStack;
 	UniqueKernelStack detachedStack;
 
