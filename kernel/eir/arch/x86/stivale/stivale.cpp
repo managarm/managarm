@@ -135,6 +135,8 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 	for(address_t pg = 0; pg < data->framebufferPitch * data->framebufferHeight; pg += 0x1000)
 		mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, data->framebufferAddr + pg,
 				kAccessWrite, CachingMode::writeCombine);
+	mapKasanShadow(0xFFFF'FE00'4000'0000, data->framebufferPitch * data->framebufferHeight);
+	unpoisonKasanShadow(0xFFFF'FE00'4000'0000, data->framebufferPitch * data->framebufferHeight);
 	framebuf.fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;

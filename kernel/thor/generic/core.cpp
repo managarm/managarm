@@ -1,5 +1,6 @@
 #include <thor-internal/core.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/kasan.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
 
@@ -56,6 +57,7 @@ KernelVirtualMemory::KernelVirtualMemory() {
 				page_access::write, CachingMode::null);
 	}
 	auto tablePtr = reinterpret_cast<int8_t *>(vmBase + availableSize);
+	unpoisonKasanShadow(tablePtr, overhead);
 	BuddyAccessor::initialize(tablePtr, availableRoots, tableOrder);
 
 	buddy_ = BuddyAccessor{vmBase, kPageShift,
@@ -85,7 +87,10 @@ void *KernelVirtualMemory::allocate(size_t length) {
 	}
 	kernelVirtualUsage += (size_t{1} << (kPageShift + order));
 
-	return reinterpret_cast<void *>(address);
+	auto pointer = reinterpret_cast<void *>(address);
+	unpoisonKasanShadow(pointer, size_t{1} << (kPageShift + order));
+
+	return pointer;
 }
 
 void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
@@ -97,6 +102,7 @@ void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
 	while(length > (size_t{1} << (kPageShift + order)))
 		++order;
 
+	poisonKasanShadow(pointer, size_t{1} << (kPageShift + order));
 	buddy_.free(reinterpret_cast<uintptr_t>(pointer), order);
 	assert(kernelVirtualUsage >= (size_t{1} << (kPageShift + order)));
 	kernelVirtualUsage -= (size_t{1} << (kPageShift + order));

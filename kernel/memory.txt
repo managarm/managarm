@@ -16,6 +16,11 @@ FFFF'8000'0000'0000
 	Physical memory window
 	Referenced in eir/src/main.cpp, thor/src/paging.cpp
 
+FFFF'D000'0000'0000
+	Length: 1000'0000'0000 bytes (1/8 of the higher half)
+	KASAN shadow memory
+	Referenced in Eir, Thor and kernel/thor/meson.build
+
 FFFF'E000'0000'0000
 	Length: 1 GiB
 	Kernel heap

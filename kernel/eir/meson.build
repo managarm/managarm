@@ -13,6 +13,14 @@ eir_c_args = ['-std=c11', '-Wall']
 eir_link_args = ['-nostdlib']
 eir_dependencies = [cxxshim_dep, frigg_dep, libarch_dep]
 
+if get_option('kernel_kasan')
+	eir_c_args += [
+		'-DEIR_KASAN',
+	]
+	eir_cpp_args += [
+		'-DEIR_KASAN',
+	]
+endif
 if get_option('kernel_log_allocations')
 	eir_cpp_args += '-DKERNEL_LOG_ALLOCATIONS'
 endif

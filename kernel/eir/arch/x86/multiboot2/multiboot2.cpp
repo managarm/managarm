@@ -300,6 +300,8 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	for(address_t pg = 0; pg < framebuffer->pitch * framebuffer->height; pg += 0x1000)
 		mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, framebuffer->address + pg,
 				kAccessWrite, CachingMode::writeCombine);
+	mapKasanShadow(0xFFFF'FE00'4000'0000, framebuffer->pitch * framebuffer->height);
+	unpoisonKasanShadow(0xFFFF'FE00'4000'0000, framebuffer->pitch * framebuffer->height);
 	framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;

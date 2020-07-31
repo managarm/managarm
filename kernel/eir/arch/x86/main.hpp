@@ -44,6 +44,8 @@ static constexpr size_t numRegions = 64;
 uintptr_t bootReserve(size_t length, size_t alignment);
 address_t mapBootstrapData(void *p);
 void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags, CachingMode caching_mode);
+void mapKasanShadow(uint64_t address, size_t size);
+void unpoisonKasanShadow(uint64_t address, size_t size);
 void initProcessorEarly();
 extern void initArchCpu();
 void setupRegionStructs();

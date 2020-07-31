@@ -170,6 +170,8 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 		for(address_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
 			mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, mb_info->fbAddress + pg,
 					kAccessWrite, CachingMode::writeCombine);
+		mapKasanShadow(0xFFFF'FE00'4000'0000, mb_info->fbPitch * mb_info->fbHeight);
+		unpoisonKasanShadow(0xFFFF'FE00'4000'0000, mb_info->fbPitch * mb_info->fbHeight);
 		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	}
 

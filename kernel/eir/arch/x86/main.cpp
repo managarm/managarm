@@ -41,7 +41,7 @@ void createInitialRegion(address_t base, address_t size) {
 
 	// For now we do not touch memory that is required during boot.
 	address_t address = frigg::max(base, bootMemoryLimit);
-	
+
 	// Align address to 2 MiB.
 	// This ensures thor can allocate contiguous chunks of up to 2 MiB.
 	address = (address + 0x1FFFFF) & ~address_t(0x1FFFFF);
@@ -51,7 +51,7 @@ void createInitialRegion(address_t base, address_t size) {
 				<< frigg::logHex(base) << " (smaller than alignment)" << frigg::endLog;
 		return;
 	}
-	
+
 	// Trash the initial memory to find bugs in thor.
 	// TODO: This code fails for size > 2^32.
 	/*
@@ -374,6 +374,127 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags,
 	((uint64_t*)pt)[pt_index] = new_entry;
 }
 
+address_t getSingle4kPage(uint64_t address) {
+	assert(address % 0x1000 == 0);
+
+	int pml4_index = (int)((address >> 39) & 0x1FF);
+	int pdpt_index = (int)((address >> 30) & 0x1FF);
+	int pd_index = (int)((address >> 21) & 0x1FF);
+	int pt_index = (int)((address >> 12) & 0x1FF);
+
+	// find the pml4_entry. the pml4 is always present
+	uintptr_t pml4 = eirPml4Pointer;
+	uint64_t pml4_entry = ((uint64_t*)pml4)[pml4_index];
+
+	// find the pdpt entry; create pdpt if necessary
+	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
+	if(!(pml4_entry & kPagePresent))
+		return -1;
+	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
+
+	// find the pd entry; create pd if necessary
+	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
+	if(!(pdpt_entry & kPagePresent))
+		return -1;
+	uint64_t pd_entry = ((uint64_t*)pd)[pd_index];
+
+	// find the pt entry; create pt if necessary
+	uintptr_t pt = (uintptr_t)(pd_entry & 0xFFFFF000);
+	if(!(pd_entry & kPagePresent))
+		return -1;
+	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
+
+	// setup the new pt entry
+	if(!(pt_entry & kPagePresent))
+		return -1;
+	return pt_entry & 0xF'FFFF'FFFF'F000;
+}
+// ----------------------------------------------------------------------------
+
+#ifdef EIR_KASAN
+namespace {
+	constexpr int kasanShift = 3;
+	constexpr address_t kasanShadowDelta = 0xdfffe00000000000;
+
+	constexpr size_t kasanScale = size_t{1} << kasanShift;
+
+	address_t kasanToShadow(address_t address) {
+		return kasanShadowDelta + (address >> kasanShift);
+	}
+
+	void setShadowRange(address_t base, size_t size, int8_t value) {
+		assert(!(base & (kasanScale - 1)));
+		assert(!(size & (kasanScale - 1)));
+
+		size_t progress = 0;
+		while(progress < size) {
+			auto shadow = kasanToShadow(base + progress);
+			auto page = shadow & ~address_t{kPageSize - 1};
+			auto physical = getSingle4kPage(page);
+			assert(physical != static_cast<address_t>(-1));
+
+			auto p = reinterpret_cast<int8_t *>(physical);
+			auto n = shadow & (kPageSize - 1);
+			while(n < kPageSize && progress < size) {
+				assert(p[n] == static_cast<int8_t>(0xFF));
+				p[n] = value;
+				++n;
+				progress += kasanScale;
+			}
+		}
+	};
+
+	void setShadowByte(address_t address, int8_t value) {
+		assert(!(address & (kasanScale - 1)));
+
+		auto shadow = kasanToShadow(address);
+		auto page = shadow & ~address_t{kPageSize - 1};
+		auto physical = getSingle4kPage(page);
+		assert(physical != static_cast<address_t>(-1));
+
+		auto p = reinterpret_cast<int8_t *>(physical);
+		auto n = shadow & (kPageSize - 1);
+		assert(p[n] == static_cast<int8_t>(0xFF));
+		p[n] = value;
+	};
+}
+#endif // EIR_KASAN
+
+void mapKasanShadow(address_t base, size_t size) {
+#ifdef EIR_KASAN
+	assert(!(base & (kasanScale - 1)));
+
+	frigg::infoLogger() << "eir: Mapping KASAN shadow for 0x" << frigg::logHex(base)
+			<< ", size: 0x" << frigg::logHex(size) << frigg::endLog;
+
+	size = (size + kasanScale - 1) & ~(kasanScale - 1);
+
+	for(address_t page = (kasanToShadow(base) & ~address_t{kPageSize - 1});
+			page < ((kasanToShadow(base + size) + kPageSize - 1) & ~address_t{kPageSize - 1});
+			page += kPageSize) {
+		auto physical = getSingle4kPage(page);
+		if(physical != static_cast<address_t>(-1))
+			continue;
+		physical = allocPage();
+		memset(reinterpret_cast<void *>(physical), 0xFF, kPageSize);
+		mapSingle4kPage(page, physical, kAccessWrite | kAccessGlobal);
+	}
+#endif // EIR_KASAN
+}
+
+void unpoisonKasanShadow(address_t base, size_t size) {
+#ifdef EIR_KASAN
+	assert(!(base & (kasanScale - 1)));
+
+	frigg::infoLogger() << "eir: Unpoisoning KASAN shadow for 0x" << frigg::logHex(base)
+			<< ", size: 0x" << frigg::logHex(size) << frigg::endLog;
+
+	setShadowRange(base, size & ~(kasanScale - 1), 0);
+	if(size & (kasanScale - 1))
+		setShadowByte(base + (size & ~(kasanScale - 1)), size & (kasanScale - 1));
+#endif // EIR_KASAN
+}
+
 // ----------------------------------------------------------------------------
 
 void mapRegionsAndStructs() {
@@ -381,8 +502,10 @@ void mapRegionsAndStructs() {
 	for(size_t page = 0x8000; page < 0x80000; page += kPageSize)
 			mapSingle4kPage(0xFFFF'8000'0000'0000 + page,
 					page, kAccessWrite | kAccessGlobal);
+	mapKasanShadow(0xFFFF'8000'0000'8000, 0x80000);
+	unpoisonKasanShadow(0xFFFF'8000'0000'8000, 0x80000);
 
-	address_t tree_mapping = 0xFFFF'C080'0000'0000;
+	address_t treeMapping = 0xFFFF'C080'0000'0000;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
@@ -391,23 +514,31 @@ void mapRegionsAndStructs() {
 		for(address_t page = 0; page < regions[i].size; page += kPageSize)
 			mapSingle4kPage(0xFFFF'8000'0000'0000 + regions[i].address + page,
 					regions[i].address + page, kAccessWrite | kAccessGlobal);
+		mapKasanShadow(0xFFFF'8000'0000'0000 + regions[i].address, regions[i].size);
+		unpoisonKasanShadow(0xFFFF'8000'0000'0000 + regions[i].address, regions[i].size);
 
 		// Map the buddy tree.
-		regions[i].buddyMap = tree_mapping;
+		auto buddyOverhead = BuddyAccessor::determineSize(regions[i].numRoots, regions[i].order);
+		address_t buddyMapping = treeMapping;
+		treeMapping += buddyOverhead;
 
-		auto overhead = BuddyAccessor::determineSize(regions[i].numRoots, regions[i].order);
-		for(address_t page = 0; page < overhead; page += kPageSize) {
-			mapSingle4kPage(tree_mapping, regions[i].buddyTree + page, kAccessWrite | kAccessGlobal);
-			tree_mapping += kPageSize;
+		for(address_t page = 0; page < buddyOverhead; page += kPageSize) {
+			mapSingle4kPage(buddyMapping + page,
+					regions[i].buddyTree + page, kAccessWrite | kAccessGlobal);
 		}
+		mapKasanShadow(buddyMapping, buddyOverhead);
+		unpoisonKasanShadow(buddyMapping, buddyOverhead);
+		regions[i].buddyMap = buddyMapping;
 	}
 }
 
 void allocLogRingBuffer() {
 	// 256 MiB
-	for (size_t i = 0; i < 268435456; i += kPageSize)
+	for (size_t i = 0; i < 0x1000'0000; i += kPageSize)
 		mapSingle4kPage(0xFFFF'F000'0000'0000 + i,
 				allocPage(), kAccessWrite | kAccessGlobal);
+	mapKasanShadow(0xFFFF'F000'0000'0000, 0x1000'0000);
+	unpoisonKasanShadow(0xFFFF'F000'0000'0000, 0x1000'0000);
 }
 
 // ----------------------------------------------------------------------------
@@ -420,6 +551,8 @@ address_t mapBootstrapData(void *p) {
 	auto pointer = bootstrapDataPointer;
 	bootstrapDataPointer += kPageSize;
 	mapSingle4kPage(pointer, (address_t)p, 0);
+	mapKasanShadow(pointer, kPageSize);
+	unpoisonKasanShadow(pointer, kPageSize);
 	return pointer;
 }
 
@@ -469,6 +602,8 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 			mapSingle4kPage(phdr->p_paddr + pg, backing, map_flags);
 			pg += kPageSize;
 		}
+		mapKasanShadow(phdr->p_paddr, phdr->p_memsz);
+		unpoisonKasanShadow(phdr->p_paddr, phdr->p_memsz);
 	}
 	
 	*out_entry = ehdr->e_entry;
@@ -532,6 +667,10 @@ void initProcessorPaging(void *kernel_start, uint64_t& kernel_entry){
 	// Setup the kernel stack.
 	for(address_t page = 0; page < 0x10000; page += kPageSize)
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), kAccessWrite);
+	mapKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
+	unpoisonKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
+
+	mapKasanShadow(0xFFFF'E000'0000'0000, 0x4000'0000);
 }
 
 EirInfo *generateInfo(const char* cmdline){

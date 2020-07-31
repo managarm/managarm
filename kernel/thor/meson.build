@@ -55,6 +55,7 @@ thor_sources = [files(
 	'generic/debug.cpp',
 	'generic/fiber.cpp',
 	'generic/ipc-queue.cpp',
+	'generic/kasan.cpp',
 	'generic/schedule.cpp',
 	'generic/futex.cpp',
 	'generic/stream.cpp',
@@ -104,6 +105,23 @@ if get_option('kernel_ubsan')
 	# -fsanitize=function requires RTTI.
 	extra_c_args += ['-fsanitize=undefined', '-fno-sanitize=function']
 	extra_cpp_args += ['-fsanitize=undefined', '-fno-sanitize=function']
+endif
+if get_option('kernel_kasan')
+	# The shadow memory offset is calculated as:
+	#     ShadowMemoryBase - (StartOfHigherHalf/ShadowScale).
+	# This ensures that the first shadow byte of the higher half ends up at SharedMemoryBase.
+	# Lower half addresses become non-canonical by design
+	# (and KASAN should not instrument lower-half access anyway).
+	extra_c_args += [
+		'-DTHOR_KASAN',
+		'-fsanitize=kernel-address',
+		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000'
+	]
+	extra_cpp_args += [
+		'-DTHOR_KASAN',
+		'-fsanitize=kernel-address',
+		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000'
+	]
 endif
 if get_option('kernel_log_allocations')
 	extra_c_args = ['-fno-omit-frame-pointer']
