@@ -91,6 +91,7 @@ eirEnterKernel:
 	or %rbx, %rcx
 	mov %rcx, %rsp
 
-	xor %ebp, %ebp
+	xor %rbp, %rbp
+	movabs $0xFFFFFE8000010000, %rdi
 	jmp *%rdx
 

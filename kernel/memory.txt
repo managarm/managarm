@@ -28,6 +28,7 @@ FFFF'F000'0000'0000
 
 FFFF'FE00'0001'0000
 	Eir information struct
+	Referenced in eir/arch/x86/load_{32,64}.S and eir/arch/x86/main.cpp
 
 FFFF'FFFF'8000'0000
 	Length: (unlimited)

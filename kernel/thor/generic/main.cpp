@@ -48,6 +48,8 @@ extern "C" void frg_panic(const char *cstring) {
 
 frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
+extern "C" EirInfo *thorBootInfoPtr;
+
 using InitializerPtr = void (*)();
 extern "C" InitializerPtr __init_array_start[];
 extern "C" InitializerPtr __init_array_end[];
@@ -57,21 +59,20 @@ extern "C" InitializerPtr __init_array_end[];
 extern "C" void thorInitialize() {
 	initializeArchitecture();
 
-	auto info = reinterpret_cast<EirInfo *>(0xFFFF'FE80'0001'0000);
-	if(info->debugFlags & eirDebugSerial)
+	if(thorBootInfoPtr->debugFlags & eirDebugSerial)
 		debugToSerial = true;
-	if(info->debugFlags & eirDebugBochs)
+	if(thorBootInfoPtr->debugFlags & eirDebugBochs)
 		debugToBochs = true;
 	setupDebugging();
 
-	initializeBootFb(info->frameBuffer.fbAddress, info->frameBuffer.fbPitch,
-			info->frameBuffer.fbWidth, info->frameBuffer.fbHeight,
-			info->frameBuffer.fbBpp, info->frameBuffer.fbType,
-			reinterpret_cast<void *>(info->frameBuffer.fbEarlyWindow));
+	initializeBootFb(thorBootInfoPtr->frameBuffer.fbAddress, thorBootInfoPtr->frameBuffer.fbPitch,
+			thorBootInfoPtr->frameBuffer.fbWidth, thorBootInfoPtr->frameBuffer.fbHeight,
+			thorBootInfoPtr->frameBuffer.fbBpp, thorBootInfoPtr->frameBuffer.fbType,
+			reinterpret_cast<void *>(thorBootInfoPtr->frameBuffer.fbEarlyWindow));
 
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 
-	if(info->signature == eirSignatureValue) {
+	if(thorBootInfoPtr->signature == eirSignatureValue) {
 		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
 				<< frigg::endLog;
 	}else{
@@ -89,8 +90,8 @@ extern "C" void thorInitialize() {
 
 	SkeletalRegion::initialize();
 	physicalAllocator.initialize();
-	auto region = reinterpret_cast<EirRegion *>(info->regionInfo);
-	for(int i = 0; i < info->numRegions; i++)
+	auto region = reinterpret_cast<EirRegion *>(thorBootInfoPtr->regionInfo);
+	for(int i = 0; i < thorBootInfoPtr->numRegions; i++)
 		physicalAllocator->bootstrapRegion(region[i].address, region[i].order,
 				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
 	frigg::infoLogger() << "thor: Number of available pages: "
@@ -116,9 +117,8 @@ constinit initgraph::Engine basicInitEngine;
 constinit initgraph::Engine extendedInitEngine;
 
 extern "C" void thorMain() {
-	auto info = reinterpret_cast<EirInfo *>(0xFFFF'FE80'0001'0000);
-
-	kernelCommandLine.initialize(*kernelAlloc, reinterpret_cast<const char *>(info->commandLine));
+	kernelCommandLine.initialize(*kernelAlloc,
+			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));
 	earlyFibers.initialize(*kernelAlloc);
 
 	for(int i = 0; i < 64; i++)
@@ -137,7 +137,7 @@ extern "C" void thorMain() {
 		Scheduler::resume(*it);
 
 	// This has to be done after the scheduler is available.
-	if(info->debugFlags & eirDebugKernelProfile)
+	if(thorBootInfoPtr->debugFlags & eirDebugKernelProfile)
 		wantKernelProfile = true;
 	initializeProfile();
 
@@ -151,8 +151,8 @@ extern "C" void thorMain() {
 		pci::runAllDevices();
 
 		// Parse the initrd image.
-		auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
-		assert(info->numModules == 1);
+		auto modules = reinterpret_cast<EirModule *>(thorBootInfoPtr->moduleInfo);
+		assert(thorBootInfoPtr->numModules == 1);
 
 		mfsRoot = frigg::construct<MfsDirectory>(*kernelAlloc);
 		{

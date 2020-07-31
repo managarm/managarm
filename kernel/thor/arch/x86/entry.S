@@ -1,6 +1,13 @@
+.data
+.global thorBootInfoPtr
+thorBootInfoPtr:
+	.quad 0
 
+.text
 .global thorRtEntry
 thorRtEntry:
+	mov %rdi, (thorBootInfoPtr)
+
 	# enable SSE support
 	mov %cr0, %rax
 	and $0xFFFFFFFFFFFFFFFB, %rax # disable EM

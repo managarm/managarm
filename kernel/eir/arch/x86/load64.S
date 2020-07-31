@@ -23,4 +23,5 @@ eirEnterKernel:
 	mov %rax, %cr0
 
 	xor %ebp, %ebp
+	movabs $0xFFFFFE8000010000, %rdi
 	jmp *%rsi
