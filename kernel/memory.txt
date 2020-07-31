@@ -26,6 +26,9 @@ FFFF'F000'0000'0000
 	Log ring buffer memory
 	Referenced in eir/main.cpp, thor/generic/core.cpp
 
+FFFF'FE00'0001'0000
+	Eir information struct
+
 FFFF'FFFF'8000'0000
 	Length: (unlimited)
 	Kernel code and data

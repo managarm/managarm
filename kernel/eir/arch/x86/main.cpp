@@ -414,7 +414,7 @@ void allocLogRingBuffer() {
 // Bootstrap information handling.
 // ----------------------------------------------------------------------------
 
-address_t bootstrapDataPointer = 0x40000000;
+address_t bootstrapDataPointer = 0xFFFF'FE80'0001'0000;
 
 address_t mapBootstrapData(void *p) {
 	auto pointer = bootstrapDataPointer;
@@ -539,7 +539,7 @@ EirInfo *generateInfo(const char* cmdline){
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
 	auto info_vaddr = mapBootstrapData(info_ptr);
-	assert(info_vaddr == 0x40000000);
+	assert(info_vaddr == 0xFFFF'FE80'0001'0000);
 	info_ptr->signature = eirSignatureValue;
 
 	// Pass all memory regions to thor.

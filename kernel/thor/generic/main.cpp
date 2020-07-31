@@ -57,7 +57,7 @@ extern "C" InitializerPtr __init_array_end[];
 extern "C" void thorInitialize() {
 	initializeArchitecture();
 
-	auto info = reinterpret_cast<EirInfo *>(0x40000000);
+	auto info = reinterpret_cast<EirInfo *>(0xFFFF'FE80'0001'0000);
 	if(info->debugFlags & eirDebugSerial)
 		debugToSerial = true;
 	if(info->debugFlags & eirDebugBochs)
@@ -116,7 +116,7 @@ constinit initgraph::Engine basicInitEngine;
 constinit initgraph::Engine extendedInitEngine;
 
 extern "C" void thorMain() {
-	auto info = reinterpret_cast<EirInfo *>(0x40000000);
+	auto info = reinterpret_cast<EirInfo *>(0xFFFF'FE80'0001'0000);
 
 	kernelCommandLine.initialize(*kernelAlloc, reinterpret_cast<const char *>(info->commandLine));
 	earlyFibers.initialize(*kernelAlloc);
