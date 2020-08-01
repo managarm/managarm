@@ -708,6 +708,7 @@ extern "C" uint8_t _binary_kernel_thor_arch_x86_trampoline_bin_start[];
 extern "C" uint8_t _binary_kernel_thor_arch_x86_trampoline_bin_end[];
 
 struct StatusBlock {
+	StatusBlock *self; // Pointer to this struct in the higher half.
 	unsigned int targetStage;
 	unsigned int initiatorStage;
 	unsigned int pml4;
@@ -716,12 +717,12 @@ struct StatusBlock {
 	AssemblyCpuData *cpuContext;
 };
 
-static_assert(sizeof(StatusBlock) == 40, "Bad sizeof(StatusBlock)");
+static_assert(sizeof(StatusBlock) == 48, "Bad sizeof(StatusBlock)");
 
-void secondaryMain(StatusBlock *status_block) {
-	setupCpuContext(status_block->cpuContext);
+void secondaryMain(StatusBlock *statusBlock) {
+	setupCpuContext(statusBlock->cpuContext);
 	initializeThisProcessor();
-	__atomic_store_n(&status_block->targetStage, 2, __ATOMIC_RELEASE);
+	__atomic_store_n(&statusBlock->targetStage, 2, __ATOMIC_RELEASE);
 
 	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;
 	localScheduler()->update();
@@ -759,15 +760,17 @@ void bootSecondary(unsigned int apic_id) {
 	}
 
 	// Setup a status block to communicate information to the AP.
-	auto status_block = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
+	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
 			+ (kPageSize - sizeof(StatusBlock)));
+	frigg::infoLogger() << "status block accessed via: " << statusBlock << frigg::endLog;
 
-	status_block->targetStage = 0;
-	status_block->initiatorStage = 0;
-	status_block->pml4 = KernelPageSpace::global().rootTable();
-	status_block->stack = (uintptr_t)stack_ptr + stack_size;
-	status_block->main = &secondaryMain;
-	status_block->cpuContext = context;
+	statusBlock->self = statusBlock;
+	statusBlock->targetStage = 0;
+	statusBlock->initiatorStage = 0;
+	statusBlock->pml4 = KernelPageSpace::global().rootTable();
+	statusBlock->stack = (uintptr_t)stack_ptr + stack_size;
+	statusBlock->main = &secondaryMain;
+	statusBlock->cpuContext = context;
 
 	// Send the IPI sequence that starts up the AP.
 	// On modern processors INIT lets the processor enter the wait-for-SIPI state.
@@ -784,7 +787,7 @@ void bootSecondary(unsigned int apic_id) {
 	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(200'000)); // Wait for 200us.
 
 	// Wait until the AP wakes up.
-	while(__atomic_load_n(&status_block->targetStage, __ATOMIC_ACQUIRE) < 1) {
+	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 1) {
 		frigg::pause();
 	}
 	frigg::infoLogger() << "thor: AP did wake up." << frigg::endLog;
@@ -792,10 +795,10 @@ void bootSecondary(unsigned int apic_id) {
 	// We only let the AP proceed after all IPIs have been sent.
 	// This ensures that the AP does not execute boot code twice (e.g. in case
 	// it already wakes up after a single SIPI).
-	__atomic_store_n(&status_block->initiatorStage, 1, __ATOMIC_RELEASE);
+	__atomic_store_n(&statusBlock->initiatorStage, 1, __ATOMIC_RELEASE);
 
 	// Wait until the AP exits the boot code.
-	while(__atomic_load_n(&status_block->targetStage, __ATOMIC_ACQUIRE) < 2) {
+	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 2) {
 		frigg::pause();
 	}
 	frigg::infoLogger() << "thor: AP finished booting." << frigg::endLog;

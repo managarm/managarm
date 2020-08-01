@@ -7,7 +7,7 @@
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23
 
-.set statusBlock, 0xFD8
+.set statusSelf, 0xFD0
 .set statusTargetStage, 0xFD8
 .set statusInitiatorStage, 0xFDC
 .set statusPml4, 0xFE0
@@ -112,7 +112,7 @@ trampoline:
 	mov %rax, %cr4
 
 	mov statusStack(%rbx), %rsp
-	lea statusBlock(%rbx), %rdi
+	mov statusSelf(%rbx), %rdi
 	call *statusMain(%rbx)
 	ud2
 
