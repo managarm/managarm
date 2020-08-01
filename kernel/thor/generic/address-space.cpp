@@ -846,8 +846,10 @@ VirtualAddr VirtualSpace::_allocate(size_t length, MapFlags flags) {
 			}
 
 			if(current->length() >= length) {
+				// Note that _splitHole can deallocate the hole!
+				auto address = current->address();
 				_splitHole(current, 0, length);
-				return current->address();
+				return address;
 			}
 
 			assert(HoleTree::get_right(current));
@@ -864,9 +866,11 @@ VirtualAddr VirtualSpace::_allocate(size_t length, MapFlags flags) {
 			}
 
 			if(current->length() >= length) {
-				size_t offset = current->length() - length;
+				// Note that _splitHole can deallocate the hole!
+				auto offset = current->length() - length;
+				auto address = current->address() + offset;
 				_splitHole(current, offset, length);
-				return current->address() + offset;
+				return address;
 			}
 
 			assert(HoleTree::get_left(current));
