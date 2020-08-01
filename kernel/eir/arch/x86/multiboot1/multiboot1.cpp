@@ -7,7 +7,10 @@
 #include <frigg/string.hpp>
 #include <eir/interface.hpp>
 #include <frigg/libc.hpp>
-#include "../main.hpp"
+#include <eir-internal/arch.hpp>
+#include <eir-internal/generic.hpp>
+
+namespace eir {
 
 enum MbInfoFlags {
 	kMbInfoPlainMemory = 1,
@@ -57,10 +60,12 @@ struct MbMemoryMap {
 	uint32_t type;
 };
 
+extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
+
 extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	if(magic != 0x2BADB002)
 		frigg::panicLogger() << "eir: Invalid multiboot1 signature, halting..." << frigg::endLog;
-		
+
 	MbInfo* mb_info = reinterpret_cast<MbInfo*>(info);
 
 	if(mb_info->flags & kMbInfoFramebuffer) {
@@ -71,10 +76,8 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 			frigg::infoLogger() << "eir: Framebuffer does not use 32 bpp!"
 					<< frigg::endLog;
 		}else{
-			displayFb = reinterpret_cast<void *>(mb_info->fbAddress);
-			displayWidth = mb_info->fbWidth;
-			displayHeight = mb_info->fbHeight;
-			displayPitch = mb_info->fbPitch;
+			setFbInfo(reinterpret_cast<void *>(mb_info->fbAddress), mb_info->fbWidth,
+					mb_info->fbHeight, mb_info->fbPitch);
 		}
 	}
 
@@ -91,15 +94,15 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 		}
 	}
 
-	bootMemoryLimit = (bootMemoryLimit + address_t(kPageSize - 1))
-			& ~address_t(kPageSize - 1);
+	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1))
+			& ~address_t(pageSize - 1);
 
 	// Walk the memory map and retrieve all useable regions.
 	assert(mb_info->flags & kMbInfoMemoryMap);
 	frigg::infoLogger() << "Memory map:" << frigg::endLog;
 	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
 		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
-		
+
 		frigg::infoLogger() << "    Type " << map->type << " mapping."
 				<< " Base: 0x" << frigg::logHex(map->baseAddress)
 				<< ", length: 0x" << frigg::logHex(map->length) << frigg::endLog;
@@ -140,7 +143,7 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	assert(mb_info->flags & kMbInfoCommandLine);
 	auto *info_ptr = generateInfo(mb_info->commandLine);
 
-	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);
+	auto modules = bootAlloc<EirModule>(mb_info->numModules - 1);
 	for(size_t i = 0; i < mb_info->numModules - 1; i++) {
 		MbModule &image_module = mb_info->modulesPtr[i + 1];
 		modules[i].physicalBase = (EirPtr)image_module.startAddress;
@@ -148,7 +151,7 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 				- (EirPtr)image_module.startAddress;
 
 		size_t name_length = strlen(image_module.string);
-		char *name_ptr = bootAllocN<char>(name_length);
+		char *name_ptr = bootAlloc<char>(name_length);
 		memcpy(name_ptr, image_module.string, name_length);
 		modules[i].namePtr = mapBootstrapData(name_ptr);
 		modules[i].nameLength = name_length;
@@ -166,16 +169,19 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 		framebuf->fbBpp = mb_info->fbBpp;
 		framebuf->fbType = mb_info->fbType;
 
-		assert(mb_info->fbAddress & ~(kPageSize - 1));
+		assert(mb_info->fbAddress & ~(pageSize - 1));
 		for(address_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
 			mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, mb_info->fbAddress + pg,
-					kAccessWrite, CachingMode::writeCombine);
+					PageFlags::write, CachingMode::writeCombine);
 		mapKasanShadow(0xFFFF'FE00'4000'0000, mb_info->fbPitch * mb_info->fbHeight);
 		unpoisonKasanShadow(0xFFFF'FE00'4000'0000, mb_info->fbPitch * mb_info->fbHeight);
 		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	}
 
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
+
 	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }
+
+} // namespace eir

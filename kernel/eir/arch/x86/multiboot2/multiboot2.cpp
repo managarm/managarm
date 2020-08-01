@@ -7,7 +7,10 @@
 #include <frigg/string.hpp>
 #include <frigg/libc.hpp>
 #include <eir/interface.hpp>
-#include "../main.hpp"
+#include <eir-internal/arch.hpp>
+#include <eir-internal/generic.hpp>
+
+namespace eir {
 
 struct Mb2Info {
 	uint32_t size;
@@ -119,6 +122,8 @@ enum {
 	kMb2TagLoadBaseAddr = 21
 };
 
+extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
+
 extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	if(magic != 0x36d76289)
 		frigg::panicLogger() << "eir: Invalid multiboot2 signature, halting..." << frigg::endLog;
@@ -149,8 +154,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		if((add_size % 8)!= 0) 
 			add_size += (8 - add_size % 8); // Align 8byte
 
-		switch (tag->type)
-		{
+		switch (tag->type) {
 			case kMb2TagFramebuffer: {
 				auto *framebuffer_tag = reinterpret_cast<Mb2TagFramebuffer*>(tag);
 				if(framebuffer_tag->address + framebuffer_tag->width * framebuffer_tag->pitch >= UINTPTR_MAX) {
@@ -160,10 +164,8 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 					frigg::panicLogger() << "eir: Framebuffer does not use 32 bpp!"
 						<< frigg::endLog;
 				}else{
-					displayFb = reinterpret_cast<void *>(framebuffer->address);
-					displayWidth = framebuffer_tag->width;
-					displayHeight = framebuffer_tag->height;
-					displayPitch = framebuffer_tag->pitch;
+					setFbInfo(reinterpret_cast<void *>(framebuffer->address),
+							framebuffer_tag->width, framebuffer_tag->height, framebuffer_tag->pitch);
 
 					framebuffer = framebuffer_tag;
 				}
@@ -203,8 +205,8 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		}
 	}
 
-	bootMemoryLimit = (bootMemoryLimit + address_t(kPageSize - 1))
-			& ~address_t(kPageSize - 1);
+	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1))
+			& ~address_t(pageSize - 1);
 
 	initProcessorEarly();
 
@@ -249,7 +251,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 
 	auto *info_ptr = generateInfo(cmdline.data());
 
-	auto modules = bootAllocN<EirModule>(n_modules - 1);
+	auto modules = bootAlloc<EirModule>(n_modules - 1);
 	add_size = 0;
 
 	size_t j = 0; // Module index
@@ -275,7 +277,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 				modules[j - 2].length = (EirPtr)module->end - (EirPtr)module->start;
 
 				size_t name_length = strlen(module->string);
-				char *name_ptr = bootAllocN<char>(name_length);
+				char *name_ptr = bootAlloc<char>(name_length);
 				memcpy(name_ptr, module->string, name_length);
 				modules[j - 2].namePtr = mapBootstrapData(name_ptr);
 				modules[j - 2].nameLength = name_length;
@@ -296,10 +298,10 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	framebuf->fbType = framebuffer->type;
 
 	// Map the framebuffer.
-	assert(framebuffer->address & ~(kPageSize - 1));
+	assert(framebuffer->address & ~(pageSize - 1));
 	for(address_t pg = 0; pg < framebuffer->pitch * framebuffer->height; pg += 0x1000)
 		mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, framebuffer->address + pg,
-				kAccessWrite, CachingMode::writeCombine);
+				PageFlags::write, CachingMode::writeCombine);
 	mapKasanShadow(0xFFFF'FE00'4000'0000, framebuffer->pitch * framebuffer->height);
 	unpoisonKasanShadow(0xFFFF'FE00'4000'0000, framebuffer->pitch * framebuffer->height);
 	framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
@@ -308,3 +310,5 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }
+
+} // namespace eir

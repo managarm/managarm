@@ -7,7 +7,10 @@
 #include <frigg/string.hpp>
 #include <frigg/libc.hpp>
 #include <eir/interface.hpp>
-#include "../main.hpp"
+#include <eir-internal/arch.hpp>
+#include <eir-internal/generic.hpp>
+
+namespace eir {
 
 struct stivaleModule {
 	uint64_t begin;
@@ -37,16 +40,16 @@ struct e820Entry {
 	uint32_t unused;
 } __attribute__((packed));
 
+extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
+
 extern "C" void eirStivaleMain(stivaleStruct* data){
 	if(data->framebufferAddr + data->framebufferWidth * data->framebufferPitch >= UINT32_MAX) {
 		frigg::infoLogger() << "eir: Framebuffer outside of addressable memory!" << frigg::endLog;
 	}else if(data->framebufferBpp != 32){
 		frigg::infoLogger() << "eir: Framebuffer does not use 32 bpp!" << frigg::endLog;
 	}else{
-		displayFb = reinterpret_cast<void *>(data->framebufferAddr);
-		displayWidth = data->framebufferWidth;
-		displayHeight = data->framebufferHeight;
-		displayPitch = data->framebufferPitch;
+		setFbInfo(reinterpret_cast<void *>(data->framebufferAddr),
+				data->framebufferWidth, data->framebufferHeight, data->framebufferPitch);
 	}
 
 	initProcessorEarly();
@@ -62,8 +65,8 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 
 	frigg::infoLogger() << "Boot memory ceiling: " << frigg::logHex(bootMemoryLimit) << frigg::endLog;
 
-	bootMemoryLimit = (bootMemoryLimit + address_t(kPageSize - 1))
-			& ~address_t(kPageSize - 1);
+	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1))
+			& ~address_t(pageSize - 1);
 
 	frigg::infoLogger() << "Memory map:" << frigg::endLog;
 	for(size_t i = 0; i < data->memoryMapEntries; i++) {
@@ -103,7 +106,7 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 
 	auto *info_ptr = generateInfo((const char*)data->cmdline);
 
-	auto modules = bootAllocN<EirModule>(data->moduleCount - 1);
+	auto modules = bootAlloc<EirModule>(data->moduleCount - 1);
 	module = (stivaleModule*)data->modules;
 	module = (stivaleModule*)module->next; // Skip kernel
 	for(size_t i = 0; i < data->moduleCount - 1; i++) {
@@ -112,7 +115,7 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 				- (EirPtr)module->begin;
 
 		size_t name_length = strlen(module->string);
-		char *name_ptr = bootAllocN<char>(name_length);
+		char *name_ptr = bootAlloc<char>(name_length);
 		memcpy(name_ptr, module->string, name_length);
 		modules[i].namePtr = mapBootstrapData(name_ptr);
 		modules[i].nameLength = name_length;
@@ -131,10 +134,10 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 	framebuf.fbType = 0;
 	
 	// Map the framebuffer.
-	assert(data->framebufferAddr & ~(kPageSize - 1));
+	assert(data->framebufferAddr & ~(pageSize - 1));
 	for(address_t pg = 0; pg < data->framebufferPitch * data->framebufferHeight; pg += 0x1000)
 		mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, data->framebufferAddr + pg,
-				kAccessWrite, CachingMode::writeCombine);
+				PageFlags::write, CachingMode::writeCombine);
 	mapKasanShadow(0xFFFF'FE00'4000'0000, data->framebufferPitch * data->framebufferHeight);
 	unpoisonKasanShadow(0xFFFF'FE00'4000'0000, data->framebufferPitch * data->framebufferHeight);
 	framebuf.fbEarlyWindow = 0xFFFF'FE00'4000'0000;
@@ -143,3 +146,5 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }
+
+} // namespace eir

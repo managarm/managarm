@@ -9,6 +9,8 @@ extern "C" void eirLoadGdt(uint32_t *pointer, uint32_t size);
 
 uint32_t gdtEntries[4 * 2];
 
+namespace eir {
+
 void initArchCpu() {
 	arch::makeGdtNullSegment(gdtEntries, 0);
 	arch::makeGdtFlatCode32SystemSegment(gdtEntries, 1);
@@ -18,3 +20,4 @@ void initArchCpu() {
 	eirLoadGdt(gdtEntries, 4 * 8 - 1);
 }
 
+}

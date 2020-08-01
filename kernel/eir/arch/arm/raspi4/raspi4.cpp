@@ -11,12 +11,16 @@
 #include "../cpio.hpp"
 #include <frg/eternal.hpp> // for aligned_storage
 #include <frg/tuple.hpp>
+#include <eir-internal/arch.hpp>
+#include <eir-internal/generic.hpp>
 
 #include <arch/aarch64/mem_space.hpp>
 #include <arch/register.hpp>
 
 //#define RASPI3
 //#define LOW_PERIPH
+
+namespace eir {
 
 #if defined(RASPI3)
 static constexpr inline uintptr_t mmioBase = 0x3f000000;
@@ -194,8 +198,12 @@ namespace PropertyMbox {
 
 		// if depth is not the expected depth, pretend we failed
 		if (ptr[20] == bpp) { // depth == expected depth
+#ifndef RASPI3
 			// Translate legacy master view address into our address space
 			fbPtr = ptr[28] - 0xC0000000;
+#else
+			fbPtr = ptr[28];
+#endif
 		}
 
 		return frg::make_tuple(int(ptr[5]), int(ptr[6]), reinterpret_cast<void *>(fbPtr), size_t(ptr[33]));
@@ -301,77 +309,8 @@ namespace PL011 {
 	}
 }
 
-struct OutputSink {
-	uint32_t fbWidth;
-	uint32_t fbHeight;
-	uint32_t fbPitch;
-	void *fbPointer;
-
-	uint32_t fbX;
-	uint32_t fbY;
-
-	static constexpr uint32_t fontWidth = 8;
-	static constexpr uint32_t fontHeight = 16;
-
-	void init() {
-		PL011::init(115200);
-		fbPointer = nullptr;
-	}
-
-	void initFb(int width, int height, int pitch, void *ptr) {
-		fbWidth = width;
-		fbHeight = height;
-		fbPitch = pitch;
-		fbPointer = ptr;
-
-		fbX = 0;
-		fbY = 0;
-	}
-
-	void print(char c) {
-		PL011::send(c);
-
-		if (fbPointer) {
-			if (c == '\n') {
-				fbX = 0;
-				fbY++;
-			} else if (fbX >= fbWidth / fontWidth) {
-				fbX = 0;
-				fbY++;
-			} else if (fbY >= fbHeight / fontHeight) {
-				// TODO: Scroll.
-			} else {
-				renderChars(fbPointer, fbWidth,
-						fbX, fbY, &c, 1, 15, -1,
-						std::integral_constant<int, fontWidth>{},
-						std::integral_constant<int, fontHeight>{});
-				fbX++;
-			}
-		}
-	}
-
-	void print(const char *str) {
-		while (*str)
-			print(*str++);
-	}
-};
-
-OutputSink infoSink;
-
-void friggBeginLog() { }
-void friggEndLog() { }
-
-void friggPrintCritical(char c) {
-	infoSink.print(c);
-}
-
-void friggPrintCritical(const char *str) {
-	infoSink.print(str);
-}
-
-void friggPanic() {
-	while(true) { }
-	__builtin_unreachable();
+void debugPrintChar(char c) {
+	PL011::send(c);
 }
 
 extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
@@ -380,10 +319,10 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 	// FIXME: delay to slow the code down enough so we don't change the resolution
 	// while the QEMU window didn't open yet (avoid a crash in framebuffer_update_display)
-	for (size_t i = 0; i < 1000000; i++)
+	for (size_t i = 0; i < 10000000; i++)
 		asm volatile ("" ::: "memory");
 
-	infoSink.init();
+	PL011::init(115200);
 
 	// TODO: actually get display size from cmdline
 	frigg::infoLogger() << "Attempting to get the display size" << frigg::endLog;
@@ -397,12 +336,11 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 		if (!ptr || !pitch) {
 			frigg::infoLogger() << "Mode setting failed..." << frigg::endLog;
 		} else {
-			infoSink.initFb(actualW, actualH, pitch, ptr);
+			setFbInfo(ptr, actualW, actualH, pitch);
 			frigg::infoLogger() << "Framebuffer pointer: " << ptr << frigg::endLog;
 			frigg::infoLogger() << "Framebuffer pitch: " << pitch << frigg::endLog;
 			frigg::infoLogger() << "Framebuffer width: " << actualW << frigg::endLog;
 			frigg::infoLogger() << "Framebuffer height: " << actualH << frigg::endLog;
-
 		}
 	}
 
@@ -414,7 +352,7 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 	auto dtb = reinterpret_cast<void *>(deviceTreePtr);
 
-	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
+	initProcessorEarly();
 	frigg::infoLogger() << "DTB pointer " << dtb << frigg::endLog;
 
 	auto initrd = reinterpret_cast<void *>(0x8000000);
@@ -511,3 +449,5 @@ extern "C" void eirExceptionHandler(IntrType i_type, uintptr_t syndrome, uintptr
 	while(1)
 		asm volatile ("wfi");
 }
+
+} // namespace eir
