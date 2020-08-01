@@ -34,8 +34,8 @@ namespace {
 		shadow[n] = 0;
 	}
 	if(size & (kasanScale - 1)) {
-		assert(shadow[size & ~(kasanScale - 1)] == static_cast<int8_t>(0xFF));
-		shadow[size & ~(kasanScale - 1)] = size & (kasanScale - 1);
+		assert(shadow[size >> kasanShift] == static_cast<int8_t>(0xFF));
+		shadow[size >> kasanShift] = size & (kasanScale - 1);
 	}
 #endif // THOR_KASAN
 }
@@ -53,8 +53,8 @@ namespace {
 		shadow[n] = 0xFF;
 	}
 	if(size & (kasanScale - 1)) {
-		assert(shadow[size & ~(kasanScale - 1)] == (size & (kasanScale - 1)));
-		shadow[size & ~(kasanScale - 1)] = 0xFF;
+		assert(shadow[size >> kasanShift] == (size & (kasanScale - 1)));
+		shadow[size >> kasanShift] = 0xFF;
 	}
 #endif // THOR_KASAN
 }
@@ -68,7 +68,7 @@ namespace {
 	for(size_t n = 0; n < (size >> kasanShift); ++n)
 		shadow[n] = 0;
 	if(size & (kasanScale - 1))
-		shadow[size & ~(kasanScale - 1)] = size & (kasanScale - 1);
+		shadow[size >> kasanShift] = size & (kasanScale - 1);
 #endif // THOR_KASAN
 }
 
