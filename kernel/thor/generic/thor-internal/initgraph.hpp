@@ -2,7 +2,7 @@
 
 #include <frg/array.hpp>
 #include <frg/list.hpp>
-#include <frigg/debug.hpp>
+#include <thor-internal/debug.hpp>
 
 namespace thor {
 namespace initgraph {
@@ -110,15 +110,15 @@ struct Engine {
 			assert(!current->done_);
 
 			if(current->type_ == NodeType::task)
-				frigg::infoLogger() << "thor: Running task " << current->displayName_
-						<< frigg::endLog;
+				infoLogger() << "thor: Running task " << current->displayName_
+						<< frg::endlog;
 
 			current->activate();
 			current->done_ = true;
 
 			if(current->type_ == NodeType::stage)
-				frigg::infoLogger() << "thor: Reached stage " << current->displayName_
-						<< frigg::endLog;
+				infoLogger() << "thor: Reached stage " << current->displayName_
+						<< frg::endlog;
 
 			for(auto edge : current->outList_) {
 				auto successor = edge->target_;
@@ -135,14 +135,14 @@ struct Engine {
 			if(node->done_)
 				continue;
 			if(node->type_ == NodeType::stage)
-				frigg::infoLogger() << "thor: Initialization stage "
-						<< node->displayName_ << " could not be reached" << frigg::endLog;
+				infoLogger() << "thor: Initialization stage "
+						<< node->displayName_ << " could not be reached" << frg::endlog;
 			++nUnreached;
 		}
 
 		if(nUnreached)
-			frigg::panicLogger() << "thor: There are " << nUnreached << " initialization nodes"
-					" that could not be reached (circular dependencies?)" << frigg::endLog;
+			panicLogger() << "thor: There are " << nUnreached << " initialization nodes"
+					" that could not be reached (circular dependencies?)" << frg::endlog;
 	}
 
 private:
@@ -167,11 +167,11 @@ private:
 
 inline void realizeNode(Node *node) {
 	if(node->type_ == NodeType::stage) {
-		frigg::infoLogger() << "thor: Registering stage " << node->displayName_
-				<< frigg::endLog;
+		infoLogger() << "thor: Registering stage " << node->displayName_
+				<< frg::endlog;
 	}else if(node->type_ == NodeType::task) {
-		frigg::infoLogger() << "thor: Registering task " << node->displayName_
-				<< frigg::endLog;
+		infoLogger() << "thor: Registering task " << node->displayName_
+				<< frg::endlog;
 	}
 
 	node->engine_->nodes_.push_back(node);

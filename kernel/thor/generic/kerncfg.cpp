@@ -232,8 +232,8 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 			if(error == Error::endOfLane)
 				break;
 			if(isRemoteIpcError(error))
-				frigg::infoLogger() << "thor: Aborting kerncfg request"
-						" after remote violated the protocol" << frigg::endLog;
+				infoLogger() << "thor: Aborting kerncfg request"
+						" after remote violated the protocol" << frg::endlog;
 			assert(error == Error::success);
 		}
 	})(boundLane));
@@ -272,8 +272,8 @@ coroutine<void> handleByteRingBind(LogRingBuffer *ringBuffer, LaneHandle objectL
 			if(error == Error::endOfLane)
 				break;
 			if(isRemoteIpcError(error))
-				frigg::infoLogger() << "thor: Aborting kerncfg request"
-						" after remote violated the protocol" << frigg::endLog;
+				infoLogger() << "thor: Aborting kerncfg request"
+						" after remote violated the protocol" << frg::endlog;
 			assert(error == Error::success);
 		}
 	})(ringBuffer, boundLane));

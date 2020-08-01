@@ -77,7 +77,7 @@ public:
 
 	IrqStatus raise() override {
 		if(logIrqs)
-			frigg::infoLogger() << "hpet: Irq was raised." << frigg::endLog;
+			infoLogger() << "hpet: Irq was raised." << frg::endlog;
 //		auto irq_lock = frigg::guard(&irqMutex());
 //		auto lock = frigg::guard(&_mutex);
 
@@ -86,7 +86,7 @@ public:
 		// TODO: For edge-triggered mode this is correct (and the IRQ cannot be shared).
 		// For level-triggered mode we need to inspect the ISR.
 		if(logIrqs)
-			frigg::infoLogger() << "hpet: Handler completed." << frigg::endLog;
+			infoLogger() << "hpet: Handler completed." << frg::endlog;
 		return IrqStatus::acked;
 	}
 
@@ -113,8 +113,8 @@ public:
 			//         everything works as expected; we do not need to warn.
 			//       - Adjust this code one we count the number of overflows.
 			if(ticks & ~uint64_t{0xFFFFFFFF})
-				frigg::infoLogger() << "\e[31m" "thor: HPET comparator overflow" "\e[39m"
-						<< frigg::endLog;
+				infoLogger() << "\e[31m" "thor: HPET comparator overflow" "\e[39m"
+						<< frg::endlog;
 			ticks &= ~uint64_t(0xFFFFFFFF);
 		}
 		hpetBase.store(timerComparator0, ticks);
@@ -134,7 +134,7 @@ bool haveTimer() {
 }
 
 void setupHpet(PhysicalAddr address) {
-	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
+	infoLogger() << "HPET at " << (void *)address << frg::endlog;
 
 	hpetDevice.initialize();
 
@@ -146,22 +146,22 @@ void setupHpet(PhysicalAddr address) {
 
 	auto global_caps = hpetBase.load(genCapsAndId);
 	if(!(global_caps & has64BitCounter)) {
-		frigg::infoLogger() << "    Counter is only 32-bits!" << frigg::endLog;
+		infoLogger() << "    Counter is only 32-bits!" << frg::endlog;
 	}else if(force32BitHpet) {
-		frigg::infoLogger() << "    Forcing HPET to use 32-bit mode!" << frigg::endLog;
+		infoLogger() << "    Forcing HPET to use 32-bit mode!" << frg::endlog;
 	}
 	if(global_caps & supportsLegacyIrqs)
-		frigg::infoLogger() << "    Supports legacy replacement." << frigg::endLog;
+		infoLogger() << "    Supports legacy replacement." << frg::endlog;
 
 	hpetPeriod = global_caps & counterPeriod;
-	frigg::infoLogger() << "    Tick period: " << hpetPeriod
-			<< "fs" << frigg::endLog;
+	infoLogger() << "    Tick period: " << hpetPeriod
+			<< "fs" << frg::endlog;
 
 	auto timer_caps = hpetBase.load(timerConfig0);
-	frigg::infoLogger() << "    Possible IRQ mask: "
-			<< (timer_caps & timer_bits::possibleIrqs) << frigg::endLog;
+	infoLogger() << "    Possible IRQ mask: "
+			<< (timer_caps & timer_bits::possibleIrqs) << frg::endlog;
 	if(timer_caps & timer_bits::fsbCapable)
-		frigg::infoLogger() << "    Timer 0 is capable of FSB interrupts." << frigg::endLog;
+		infoLogger() << "    Timer 0 is capable of FSB interrupts." << frg::endlog;
 
 	// TODO: Disable all timers before programming the first one.
 	hpetBase.store(timerConfig0, timer_bits::enableInt(false));
@@ -227,17 +227,17 @@ static initgraph::Task initHpetTask{&basicInitEngine, "x86.init-hpet",
 	[] {
 		void *hpetWindow = laihost_scan("HPET", 0);
 		if(!hpetWindow) {
-			frigg::infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frigg::endLog;
+			infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frg::endlog;
 			return;
 		}
 		auto hpet = reinterpret_cast<acpi_header_t *>(hpetWindow);
 		if(hpet->length < sizeof(acpi_header_t) + sizeof(HpetEntry)) {
-			frigg::infoLogger() << "\e[31m" "thor: HPET table has no entries!" "\e[39m"
-					<< frigg::endLog;
+			infoLogger() << "\e[31m" "thor: HPET table has no entries!" "\e[39m"
+					<< frg::endlog;
 			return;
 		}
 		auto hpetEntry = (HpetEntry *)((uintptr_t)hpetWindow + sizeof(acpi_header_t));
-		frigg::infoLogger() << "thor: Setting up HPET" << frigg::endLog;
+		infoLogger() << "thor: Setting up HPET" << frg::endlog;
 		assert(hpetEntry->address.address_space == ACPI_GAS_MMIO);
 		setupHpet(hpetEntry->address.base);
 	}

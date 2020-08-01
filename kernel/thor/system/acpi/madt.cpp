@@ -145,7 +145,7 @@ void bootOtherProcessors() {
 	assert(madtWindow);
 	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
 
-	frigg::infoLogger() << "thor: Booting APs." << frigg::endLog;
+	infoLogger() << "thor: Booting APs." << frg::endlog;
 
 	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
 	while(offset < madt->length) {
@@ -168,22 +168,22 @@ void dumpMadt() {
 	assert(madtWindow);
 	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
 
-	frigg::infoLogger() << "thor: Dumping MADT" << frigg::endLog;
+	infoLogger() << "thor: Dumping MADT" << frg::endlog;
 
 	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
 	while(offset < madt->length) {
 		auto generic = (MadtGenericEntry *)((uintptr_t)madt + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
-			frigg::infoLogger() << "    Local APIC id: "
+			infoLogger() << "    Local APIC id: "
 					<< (int)entry->localApicId
 					<< ((entry->flags & local_flags::enabled) ? "" :" (disabled)")
-					<< frigg::endLog;
+					<< frg::endlog;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
-			frigg::infoLogger() << "    I/O APIC id: " << (int)entry->ioApicId
+			infoLogger() << "    I/O APIC id: " << (int)entry->ioApicId
 					<< ", sytem interrupt base: " << (int)entry->systemIntBase
-					<< frigg::endLog;
+					<< frg::endlog;
 		}else if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
 
@@ -191,8 +191,8 @@ void dumpMadt() {
 			if(entry->bus == 0) {
 				bus = "ISA";
 			}else{
-				frigg::panicLogger() << "Unexpected bus in MADT interrupt override"
-						<< frigg::endLog;
+				panicLogger() << "Unexpected bus in MADT interrupt override"
+						<< frg::endlog;
 			}
 
 			if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityDefault) {
@@ -202,8 +202,8 @@ void dumpMadt() {
 			}else if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityLow) {
 				polarity = "low";
 			}else{
-				frigg::panicLogger() << "Unexpected polarity in MADT interrupt override"
-						<< frigg::endLog;
+				panicLogger() << "Unexpected polarity in MADT interrupt override"
+						<< frg::endlog;
 			}
 
 			if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerDefault) {
@@ -213,21 +213,21 @@ void dumpMadt() {
 			}else if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerLevel) {
 				trigger = "level";
 			}else{
-				frigg::panicLogger() << "Unexpected trigger mode in MADT interrupt override"
-						<< frigg::endLog;
+				panicLogger() << "Unexpected trigger mode in MADT interrupt override"
+						<< frg::endlog;
 			}
 
-			frigg::infoLogger() << "    Int override: " << bus << " IRQ " << (int)entry->sourceIrq
+			infoLogger() << "    Int override: " << bus << " IRQ " << (int)entry->sourceIrq
 					<< " is mapped to GSI " << entry->systemInt
 					<< " (Polarity: " << polarity << ", trigger mode: " << trigger
-					<< ")" << frigg::endLog;
+					<< ")" << frg::endlog;
 		}else if(generic->type == 4) { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
-			frigg::infoLogger() << "    Local APIC NMI: processor " << (int)entry->processorId
-					<< ", lint: " << (int)entry->localInt << frigg::endLog;
+			infoLogger() << "    Local APIC NMI: processor " << (int)entry->processorId
+					<< ", lint: " << (int)entry->localInt << frg::endlog;
 		}else{
-			frigg::infoLogger() << "    Unexpected MADT entry of type "
-					<< generic->type << frigg::endLog;
+			infoLogger() << "    Unexpected MADT entry of type "
+					<< generic->type << frg::endlog;
 		}
 		offset += generic->length;
 	}
@@ -246,7 +246,7 @@ static initgraph::Task initTablesTask{&basicInitEngine, "acpi.init-tables",
 	[] {
 		lai_rsdp_info rsdp_info;
 		if(lai_bios_detect_rsdp(&rsdp_info))
-			frigg::panicLogger() << "thor: Could not detect ACPI" << frigg::endLog;
+			panicLogger() << "thor: Could not detect ACPI" << frg::endlog;
 
 		assert((rsdp_info.acpi_version == 1 || rsdp_info.acpi_version == 2) && "Got unknown acpi version from lai");
 		globalRsdtVersion = rsdp_info.acpi_version;
@@ -275,7 +275,7 @@ static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioap
 
 		// Configure all interrupt controllers.
 		// TODO: This should be done during thor's initialization in order to avoid races.
-		frigg::infoLogger() << "thor: Configuring I/O APICs." << frigg::endLog;
+		infoLogger() << "thor: Configuring I/O APICs." << frg::endlog;
 
 		size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
 		while(offset < madt->length) {
@@ -322,7 +322,7 @@ static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioap
 					case OverrideFlags::triggerLevel:
 						line.configuration.trigger = TriggerMode::level; break;
 					default:
-						frigg::panicLogger() << "Illegal IRQ trigger mode in MADT" << frigg::endLog;
+						panicLogger() << "Illegal IRQ trigger mode in MADT" << frg::endlog;
 					}
 
 					switch(polarity) {
@@ -331,7 +331,7 @@ static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioap
 					case OverrideFlags::polarityLow:
 						line.configuration.polarity = Polarity::low; break;
 					default:
-						frigg::panicLogger() << "Illegal IRQ polarity in MADT" << frigg::endLog;
+						panicLogger() << "Illegal IRQ polarity in MADT" << frg::endlog;
 					}
 				}
 
@@ -347,7 +347,7 @@ static initgraph::Task enterAcpiModeTask{&extendedInitEngine, "acpi.enter-acpi-m
 	[] {
 		// Configure the ISA IRQs.
 		// TODO: This is a hack. We assume that HPET will use legacy replacement.
-		frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
+		infoLogger() << "thor: Configuring ISA IRQs." << frg::endlog;
 		configureIrq(resolveIsaIrq(0));
 		configureIrq(resolveIsaIrq(1));
 		configureIrq(resolveIsaIrq(4));
@@ -368,14 +368,14 @@ static initgraph::Task enterAcpiModeTask{&extendedInitEngine, "acpi.enter-acpi-m
 #endif
 
 		// Enable ACPI.
-		frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
+		infoLogger() << "thor: Entering ACPI mode." << frg::endlog;
 		lai_enable_acpi(1);
 
 		bootOtherProcessors();
 		pci::enumerateSystemBusses();
 		initializePmInterface();
 
-		frigg::infoLogger() << "thor: ACPI configuration complete." << frigg::endLog;
+		infoLogger() << "thor: ACPI configuration complete." << frg::endlog;
 	}
 };
 

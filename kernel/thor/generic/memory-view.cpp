@@ -95,9 +95,9 @@ struct MemoryReclaimer {
 						return false;
 					}else{
 						if(logUncaching)
-							frigg::infoLogger() << "thor: Uncaching page. " << usedPages
+							infoLogger() << "thor: Uncaching page. " << usedPages
 									<< " pages are in use (watermark: " << pagesWatermark << ")"
-									<< frigg::endLog;
+									<< frg::endlog;
 					}
 				}
 
@@ -140,8 +140,8 @@ struct MemoryReclaimer {
 				if(logUncaching) {
 					auto irq_lock = frigg::guard(&irqMutex());
 					auto lock = frigg::guard(&_mutex);
-					frigg::infoLogger() << "thor: " << (_cachedSize / 1024)
-							<< " KiB of cached pages" << frigg::endLog;
+					infoLogger() << "thor: " << (_cachedSize / 1024)
+							<< " KiB of cached pages" << frg::endlog;
 				}
 
 				while(checkReclaim())
@@ -180,7 +180,7 @@ void initializeReclaim() {
 void MemoryView::resize(size_t newSize, async::any_receiver<void> receiver) {
 	(void)newSize;
 	(void)receiver;
-	frigg::panicLogger() << "MemoryView does not support resize!" << frigg::endLog;
+	panicLogger() << "MemoryView does not support resize!" << frg::endlog;
 }
 
 void MemoryView::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
@@ -197,7 +197,7 @@ Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) 
 }
 
 void MemoryView::submitManage(ManageNode *handle) {
-	frigg::panicLogger() << "MemoryView does not support management!" << frigg::endLog;
+	panicLogger() << "MemoryView does not support management!" << frg::endlog;
 }
 
 void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
@@ -489,14 +489,14 @@ AllocatedMemory::AllocatedMemory(size_t desiredLngth,
 	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
 	_chunkSize = size_t(1) << (64 - __builtin_clzl(desiredChunkSize - 1));
 	if(_chunkSize != desiredChunkSize)
-		frigg::infoLogger() << "\e[31mPhysical allocation of size " << (void *)desiredChunkSize
-				<< " rounded up to power of 2\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31mPhysical allocation of size " << (void *)desiredChunkSize
+				<< " rounded up to power of 2\e[39m" << frg::endlog;
 
 	size_t length = (desiredLngth + (_chunkSize - 1)) & ~(_chunkSize - 1);
 	if(length != desiredLngth)
-		frigg::infoLogger() << "\e[31mMemory length " << (void *)desiredLngth
+		infoLogger() << "\e[31mMemory length " << (void *)desiredLngth
 				<< " rounded up to chunk size " << (void *)_chunkSize
-				<< "\e[39m" << frigg::endLog;
+				<< "\e[39m" << frg::endlog;
 
 	assert(_chunkSize % kPageSize == 0);
 	assert(_chunkAlign % kPageSize == 0);
@@ -508,15 +508,15 @@ AllocatedMemory::~AllocatedMemory() {
 	// TODO: This destructor takes a lock. This is potentially unexpected.
 	// Rework this to only schedule the deallocation but not actually perform it?
 	if(logUsage)
-		frigg::infoLogger() << "thor: Releasing AllocatedMemory ("
-				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
+		infoLogger() << "thor: Releasing AllocatedMemory ("
+				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frg::endlog;
 	for(size_t i = 0; i < _physicalChunks.size(); ++i) {
 		if(_physicalChunks[i] != PhysicalAddr(-1))
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
 	}
 	if(logUsage)
-		frigg::infoLogger() << "thor:     ("
-				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frigg::endLog;
+		infoLogger() << "thor:     ("
+				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frg::endlog;
 }
 
 void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
@@ -635,7 +635,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 		assert(!pit->lockCount);
 
 		if(logUncaching)
-			frigg::infoLogger() << "\e[33mEvicting physical page\e[39m" << frigg::endLog;
+			infoLogger() << "\e[33mEvicting physical page\e[39m" << frg::endlog;
 		assert(pit->physical != PhysicalAddr(-1));
 		physicalAllocator->free(pit->physical, kPageSize);
 		pit->loadState = kStateMissing;
@@ -909,14 +909,14 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 
 /*	assert(length == kPageSize);
 	auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
-	auto log = frigg::infoLogger() << "dump";
+	auto log = infoLogger() << "dump";
 	for(size_t b = 0; b < kPageSize; b += 16) {
-		log << frigg::logHex(offset + b) << "   ";
+		log << frg::hex_fmt(offset + b) << "   ";
 		for(size_t i = 0; i < 16; i++)
-			log << " " << frigg::logHex(inspect[b + i]);
+			log << " " << frg::hex_fmt(inspect[b + i]);
 		log << "\n";
 	}
-	log << frigg::endLog;*/
+	log << frg::endlog;*/
 
 	if(type == ManageRequest::initialize) {
 		for(size_t pg = 0; pg < length; pg += kPageSize) {
@@ -1016,8 +1016,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	}
 
 	if(node->flags() & FetchNode::disallowBacking) {
-		frigg::infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
-				<< frigg::endLog;
+		infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
+				<< frg::endlog;
 		completeFetch(node, Error::fault);
 		return true;
 	}
@@ -1326,8 +1326,8 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 }
 
 Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
-	frigg::panicLogger() << "CopyOnWriteMemory does not support synchronous lockRange()"
-			<< frigg::endLog;
+	panicLogger() << "CopyOnWriteMemory does not support synchronous lockRange()"
+			<< frg::endlog;
 	__builtin_unreachable();
 }
 

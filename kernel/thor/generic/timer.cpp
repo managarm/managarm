@@ -1,8 +1,6 @@
-
-#include <frigg/debug.hpp>
-
-#include <thor-internal/timer.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/kernel-locks.hpp>
+#include <thor-internal/timer.hpp>
 
 namespace thor {
 
@@ -27,11 +25,11 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 
 	if(logTimers) {
 		auto current = _clock->currentNanos();
-		frigg::infoLogger() << "thor: Setting timer at " << timer->_deadline
-				<< " (counter is " << current << ")" << frigg::endLog;
+		infoLogger() << "thor: Setting timer at " << timer->_deadline
+				<< " (counter is " << current << ")" << frg::endlog;
 	}
 
-//	frigg::infoLogger() << "thor: Active timers: " << _activeTimers << frigg::endLog;
+//	infoLogger() << "thor: Active timers: " << _activeTimers << frg::endlog;
 
 	if(!timer->_cancelCb.try_set(timer->_cancelToken)) {
 		timer->_wasCancelled = true;
@@ -77,7 +75,7 @@ void PrecisionTimerEngine::_progress() {
 	do {
 		// Process all timers that elapsed in the past.
 		if(logProgress)
-			frigg::infoLogger() << "thor: Processing timers until " << current << frigg::endLog;
+			infoLogger() << "thor: Processing timers until " << current << frg::endlog;
 		while(true) {
 			if(_timerQueue.empty()) {
 				_alarm->arm(0);
@@ -92,7 +90,7 @@ void PrecisionTimerEngine::_progress() {
 			_timerQueue.pop();
 			_activeTimers--;
 			if(logProgress)
-				frigg::infoLogger() << "thor: Timer completed" << frigg::endLog;
+				infoLogger() << "thor: Timer completed" << frg::endlog;
 			if(timer->_cancelCb.try_reset()) {
 				timer->_state = TimerState::retired;
 				WorkQueue::post(timer->_elapsed);
@@ -118,4 +116,3 @@ PrecisionTimerEngine *generalTimerEngine() {
 }
 
 } // namespace thor
-

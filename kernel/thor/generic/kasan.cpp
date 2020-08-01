@@ -26,9 +26,9 @@ namespace {
 	assert(!(reinterpret_cast<uintptr_t>(pointer) & (kasanScale - 1)));
 	auto shadow = kasanShadowOf(pointer);
 	if(debugKasan)
-		frigg::infoLogger() << "thor: Unpoisioning KASAN at " << pointer
+		infoLogger() << "thor: Unpoisioning KASAN at " << pointer
 				<< ", size: " << (void *)size << " (shadow: " << shadow << ")"
-				<< frigg::endLog;
+				<< frg::endlog;
 	for(size_t n = 0; n < (size >> kasanShift); ++n) {
 		assert(shadow[n] == static_cast<int8_t>(0xFF));
 		shadow[n] = 0;
@@ -45,9 +45,9 @@ namespace {
 	assert(!(reinterpret_cast<uintptr_t>(pointer) & (kasanScale - 1)));
 	auto shadow = kasanShadowOf(pointer);
 	if(debugKasan)
-		frigg::infoLogger() << "thor: Poisioning KASAN at " << pointer
+		infoLogger() << "thor: Poisioning KASAN at " << pointer
 				<< ", size: " << (void *)size << " (shadow: " << shadow << ")"
-				<< frigg::endLog;
+				<< frg::endlog;
 	for(size_t n = 0; n < (size >> kasanShift); ++n) {
 		assert(shadow[n] == static_cast<int8_t>(0x00));
 		shadow[n] = 0xFF;
@@ -62,8 +62,8 @@ namespace {
 [[gnu::no_sanitize_address]] void cleanKasanShadow(void *pointer, size_t size) {
 #ifdef THOR_KASAN
 	assert(!(reinterpret_cast<uintptr_t>(pointer) & (kasanScale - 1)));
-//	frigg::infoLogger() << "thor: Cleaning KASAN at " << pointer
-//			<< ", size: " << (void *)size << frigg::endLog;
+//	infoLogger() << "thor: Cleaning KASAN at " << pointer
+//			<< ", size: " << (void *)size << frg::endlog;
 	auto shadow = kasanShadowOf(pointer);
 	for(size_t n = 0; n < (size >> kasanShift); ++n)
 		shadow[n] = 0;

@@ -50,13 +50,13 @@ coroutine<bool> handleReq(LaneHandle lane) {
 
 	if(req.req_type() == managarm::hw::CntReqType::PM_RESET) {
 		if(lai_acpi_reset())
-			frigg::infoLogger() << "thor: ACPI reset failed" << frigg::endLog;
+			infoLogger() << "thor: ACPI reset failed" << frg::endlog;
 
 #ifdef __x86_64__
 		issuePs2Reset();
-		frigg::infoLogger() << "thor: Reset using PS/2 controller failed" << frigg::endLog;
+		infoLogger() << "thor: Reset using PS/2 controller failed" << frg::endlog;
 #endif
-		frigg::panicLogger() << "thor: We do not know how to reset" << frigg::endLog;
+		panicLogger() << "thor: We do not know how to reset" << frg::endlog;
 	}else{
 		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);

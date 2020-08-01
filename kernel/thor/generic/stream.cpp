@@ -196,7 +196,7 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 	std::atomic_thread_fence(std::memory_order_acquire);
 
 // TODO: remove debugging messages?
-//	frigg::infoLogger() << "\e[31mClosing lane " << lane << "\e[0m" << frigg::endLog;
+//	infoLogger() << "\e[31mClosing lane " << lane << "\e[0m" << frg::endlog;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&stream->_mutex);
@@ -220,7 +220,7 @@ Stream::Stream()
 
 Stream::~Stream() {
 // TODO: remove debugging messages?
-//	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
+//	infoLogger() << "\e[31mClosing stream\e[0m" << frg::endlog;
 }
 
 void Stream::shutdownLane(int lane) {
@@ -228,7 +228,7 @@ void Stream::shutdownLane(int lane) {
 	auto lock = frigg::guard(&_mutex);
 	assert(!_laneBroken[lane]);
 
-//	frigg::infoLogger() << "Shutting down lane" << frigg::endLog;
+//	infoLogger() << "Shutting down lane" << frg::endlog;
 	_laneShutDown[lane] = true;
 
 	while(!_processQueue[lane].empty()) {

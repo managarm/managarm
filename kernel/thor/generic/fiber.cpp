@@ -39,7 +39,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 }
 
 void KernelFiber::exitCurrent() {
-	frigg::infoLogger() << "thor: Fix exiting fibers" << frigg::endLog;
+	infoLogger() << "thor: Fix exiting fibers" << frg::endlog;
 
 	FiberBlocker blocker;
 	blocker.setup();

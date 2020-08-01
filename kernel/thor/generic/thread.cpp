@@ -78,8 +78,8 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 			continue;
 		
 		if(logRunStates)
-			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " is blocked" << frigg::endLog;
+			infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " is blocked" << frg::endlog;
 
 		assert(this_thread->_runState == kRunActive);
 		this_thread->_runState = kRunBlocked;
@@ -106,8 +106,8 @@ void Thread::deferCurrent() {
 	auto lock = frigg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is deferred" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is deferred" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
@@ -128,8 +128,8 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	auto lock = frigg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is deferred" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is deferred" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
@@ -152,8 +152,8 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	auto lock = frigg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is suspended" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is suspended" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunSuspended;
@@ -176,8 +176,8 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	auto lock = frigg::guard(&this_thread->_mutex);
 
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is (synchronously) interrupted" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is (synchronously) interrupted" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunInterrupted;
@@ -217,8 +217,8 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	auto lock = frigg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is (synchronously) interrupted" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is (synchronously) interrupted" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunInterrupted;
@@ -258,14 +258,14 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	auto lock = frigg::guard(&this_thread->_mutex);
 
 	if(logTransitions)
-		frigg::infoLogger() << "thor: raiseSignals() in " << (void *)this_thread.get()
-				<< frigg::endLog;
+		infoLogger() << "thor: raiseSignals() in " << (void *)this_thread.get()
+				<< frg::endlog;
 	assert(this_thread->_runState == kRunActive);
 	
 	if(this_thread->_pendingKill) {
 		if(logRunStates)
-			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " was (asynchronously) killed" << frigg::endLog;
+			infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " was (asynchronously) killed" << frg::endlog;
 
 		this_thread->_runState = kRunTerminated;
 		++this_thread->_stateSeq;
@@ -299,8 +299,8 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	
 	if(this_thread->_pendingSignal == kSigInterrupt) {
 		if(logRunStates)
-			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " was (asynchronously) interrupted" << frigg::endLog;
+			infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " was (asynchronously) interrupted" << frg::endlog;
 
 		this_thread->_runState = kRunInterrupted;
 		this_thread->_lastInterrupt = kIntrRequested;
@@ -347,8 +347,8 @@ void Thread::unblockOther(ThreadBlocker *blocker) {
 		return;
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)thread
-				<< " is deferred (via unblock)" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)thread
+				<< " is deferred (via unblock)" << frg::endlog;
 
 	thread->_runState = kRunDeferred;
 	Scheduler::resume(thread);
@@ -378,8 +378,8 @@ Error Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 		return Error::illegalState;
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)thread.get()
-				<< " is suspended (via resume)" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)thread.get()
+				<< " is suspended (via resume)" << frg::endlog;
 
 	thread->_runState = kRunSuspended;
 	Scheduler::resume(thread.get());
@@ -415,8 +415,8 @@ Thread::~Thread() {
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
 	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m"
-				<< frigg::endLog;
+		infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m"
+				<< frg::endlog;
 	_kill();
 	_mainWorkQueue.selfPtr = {};
 	_pagingWorkQueue.selfPtr = {};
@@ -426,7 +426,7 @@ void Thread::cleanup() {
 	// TODO: Audit code to make sure this is called late enough (i.e. after termination completes).
 	// TODO: Make sure that this is called!
 	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: Thread is destructed\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31mthor: Thread is destructed\e[39m" << frg::endlog;
 	frigg::destruct(*kernelAlloc, this);
 }
 
@@ -461,7 +461,7 @@ void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {
 		observe->interrupt = kIntrNull;
 		break;
 	default:
-		frigg::panicLogger() << "thor: Unexpected RunState" << frigg::endLog;
+		panicLogger() << "thor: Unexpected RunState" << frg::endlog;
 	}
 	WorkQueue::post(observe->triggered);
 }
@@ -482,7 +482,7 @@ void Thread::invoke() {
 	auto lock = frigg::guard(&_mutex);
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: "
+		infoLogger() << "thor: "
 				<< " " << _credentials[0] << " " << _credentials[1]
 				<< " " << _credentials[2] << " " << _credentials[3]
 				<< " " << _credentials[4] << " " << _credentials[5]
@@ -491,7 +491,7 @@ void Thread::invoke() {
 				<< " " << _credentials[10] << " " << _credentials[11]
 				<< " " << _credentials[12] << " " << _credentials[13]
 				<< " " << _credentials[14] << " " << _credentials[15]
-				<< " is activated" << frigg::endLog;
+				<< " is activated" << frg::endlog;
 
 	// If there is work to do, return to the WorkQueue and not to user space.
 	if(_runState == kRunSuspended && _mainWorkQueue.check())
@@ -551,8 +551,8 @@ void Thread::AssociatedWorkQueue::wakeup() {
 		return;
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)_thread
-				<< " is deferred (via wq wakeup)" << frigg::endLog;
+		infoLogger() << "thor: " << (void *)_thread
+				<< " is deferred (via wq wakeup)" << frg::endlog;
 
 	_thread->_runState = kRunDeferred;
 	Scheduler::resume(_thread);

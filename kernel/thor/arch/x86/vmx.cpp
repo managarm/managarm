@@ -11,7 +11,7 @@ extern "C" void vmResume(void* state);
 
 namespace thor::vmx {
 	bool vmxon() {
-		frigg::infoLogger() << "vmx: enabling vmx" << frigg::endLog;
+		infoLogger() << "vmx: enabling vmx" << frg::endlog;
 
 		auto vmxonRegion = physicalAllocator->allocate(kPageSize);
 		assert(reinterpret_cast<PhysicalAddr>(vmxonRegion) != static_cast<PhysicalAddr>(-1) && "OOM");
@@ -53,9 +53,9 @@ namespace thor::vmx {
 		);
 
 		if(successful) {
-			frigg::infoLogger() << "vmx: processor entered vmxon operation" << frigg::endLog;
+			infoLogger() << "vmx: processor entered vmxon operation" << frg::endlog;
 		} else {
-			frigg::infoLogger() << "vmx: vmxon failed" << frigg::endLog;
+			infoLogger() << "vmx: vmxon failed" << frg::endlog;
 		}
 
 		return successful;
@@ -109,14 +109,14 @@ namespace thor::vmx {
 	}
 
 	Vmcs::Vmcs(smarter::shared_ptr<EptSpace> ept) : space(ept) {
-		frigg::infoLogger() << "vmx: Creating VMCS" << frigg::endLog;
+		infoLogger() << "vmx: Creating VMCS" << frg::endlog;
 		region = (void*)physicalAllocator->allocate(kPageSize);
 		PageAccessor regionAccessor{(PhysicalAddr)region};
 		memset(regionAccessor.get(), 0, kPageSize);
 		uint32_t vmxRevision = frigg::arch_x86::rdmsr(0x480);
 		*(uint32_t*)regionAccessor.get() = static_cast<uint32_t>(vmxRevision);
 		if(vmptrld((PhysicalAddr)region)) {
-			frigg::infoLogger() << "vmx: VMCS load failed" << frigg::endLog;
+			infoLogger() << "vmx: VMCS load failed" << frg::endlog;
 		}
 
 		//Set up basic controls.
@@ -340,14 +340,14 @@ namespace thor::vmx {
 
 			auto error = vmread(VM_INSTRUCTION_ERROR);
 			if(error) {
-				frigg::infoLogger() << "vmx: vmx error" << error << frigg::endLog;
+				infoLogger() << "vmx: vmx error" << error << frg::endlog;
 				exitInfo.exitReason = khelVmexitError;
 				return exitInfo;
 			}
 
 			auto reason = vmread(VM_EXIT_REASON);
 			if(reason == VMEXIT_HLT) {
-				frigg::infoLogger() << "vmx: hlt" << frigg::endLog;
+				infoLogger() << "vmx: hlt" << frg::endlog;
 				exitInfo.exitReason = khelVmexitHlt;
 				return exitInfo;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
@@ -383,7 +383,7 @@ namespace thor::vmx {
 					return exitInfo;
 				}
 			}else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
-				frigg::infoLogger() << "vmx: external-interrupt exit" << frigg::endLog;
+				infoLogger() << "vmx: external-interrupt exit" << frg::endlog;
 			}
 		}
 	}

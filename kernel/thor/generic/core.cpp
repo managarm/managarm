@@ -6,7 +6,7 @@
 
 // This is required for virtual destructors. It should not be called though.
 void operator delete(void *, size_t) {
-	frigg::panicLogger() << "thor: operator delete() called" << frigg::endLog;
+	thor::panicLogger() << "thor: operator delete() called" << frg::endlog;
 }
 
 namespace thor {
@@ -75,15 +75,15 @@ void *KernelVirtualMemory::allocate(size_t length) {
 
 	auto address = buddy_.allocate(order, 64);
 	if(address == BuddyAccessor::illegalAddress) {
-		frigg::infoLogger() << "thor: Failed to allocate 0x" << frigg::logHex(length)
-				<< " bytes of kernel virtual memory" << frigg::endLog;
-		frigg::infoLogger() << "thor:"
+		infoLogger() << "thor: Failed to allocate 0x" << frg::hex_fmt(length)
+				<< " bytes of kernel virtual memory" << frg::endlog;
+		infoLogger() << "thor:"
 				" Physical usage: " << (physicalAllocator->numUsedPages() * 4) << " KiB,"
 				" kernel VM: " << (kernelVirtualUsage / 1024) << " KiB"
 				" kernel RSS: " << (kernelMemoryUsage / 1024) << " KiB"
-				<< frigg::endLog;
-		frigg::panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
-				<< frigg::endLog;
+				<< frg::endlog;
+		panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
+				<< frg::endlog;
 	}
 	kernelVirtualUsage += (size_t{1} << (kPageShift + order));
 
@@ -222,7 +222,7 @@ Universe::Universe()
 
 Universe::~Universe() {
 	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: Universe is deallocated\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31mthor: Universe is deallocated\e[39m" << frg::endlog;
 }
 
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {

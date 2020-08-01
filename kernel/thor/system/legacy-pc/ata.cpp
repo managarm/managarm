@@ -155,8 +155,8 @@ namespace {
 			if(error == Error::endOfLane)
 				break;
 			if(isRemoteIpcError(error))
-				frigg::infoLogger() << "thor: Aborting legacy-pc.ata request"
-						" after remote violated the protocol" << frigg::endLog;
+				infoLogger() << "thor: Aborting legacy-pc.ata request"
+						" after remote violated the protocol" << frg::endlog;
 			assert(error == Error::success);
 		}
 	}

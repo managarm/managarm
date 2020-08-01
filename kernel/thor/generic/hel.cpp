@@ -150,7 +150,7 @@ struct ObserveThreadWriter {
 		}else if(interrupt >= kIntrSuperCall) {
 			_result.observation = kHelObserveSuperCall + (interrupt - kIntrSuperCall);
 		}else{
-			frigg::panicLogger() << "Unexpected interrupt" << frigg::endLog;
+			panicLogger() << "Unexpected interrupt" << frg::endlog;
 			__builtin_unreachable();
 		}
 	}
@@ -169,11 +169,12 @@ HelError helLog(const char *string, size_t length) {
 		char buffer[100];
 		if(!readUserArray(string + offset, buffer, chunk))
 			return kHelErrFault;
-		{
-			auto p = frigg::infoLogger();
-			for(size_t i = 0; i < chunk; i++)
-				p.print(buffer[i]);
-		}
+
+		auto p = infoLogger();
+		for(size_t i = 0; i < chunk; i++)
+			p << frg::char_fmt(buffer[i]);
+		p << frg::endlog;
+
 		offset += chunk;
 	}
 
@@ -388,8 +389,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	auto thisUniverse = thisThread->getUniverse();
 
 //	auto pressure = physicalAllocator->numUsedPages() * kPageSize;
-//	frigg::infoLogger() << "Allocate " << (void *)size
-//			<< ", sum of allocated memory: " << (void *)pressure << frigg::endLog;
+//	infoLogger() << "Allocate " << (void *)size
+//			<< ", sum of allocated memory: " << (void *)pressure << frg::endlog;
 
 	HelAllocRestrictions effective{
 		.addressBits = 64
@@ -1650,7 +1651,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
 	auto cpu = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();
-//	frigg::infoLogger() << "thor: New thread on CPU #" << cpu << frigg::endLog;
+//	infoLogger() << "thor: New thread on CPU #" << cpu << frg::endlog;
 	Scheduler::associate(new_thread.get(), &getCpuData(cpu)->scheduler);
 //	Scheduler::associate(new_thread.get(), localScheduler());
 	if(!(flags & kHelThreadStopped))
@@ -2318,7 +2319,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
 				}else{
-					frigg::panicLogger() << "thor: Unexpected transmission tag" << frigg::endLog;
+					panicLogger() << "thor: Unexpected transmission tag" << frg::endlog;
 				}
 			}
 

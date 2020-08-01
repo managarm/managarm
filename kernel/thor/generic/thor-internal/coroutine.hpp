@@ -1,7 +1,7 @@
 #pragma once
 
 #include <async/basic.hpp>
-#include <frigg/debug.hpp>
+#include <thor-internal/debug.hpp>
 
 template<typename T>
 struct coroutine_continuation {
@@ -41,7 +41,7 @@ struct coroutine {
 		}
 
 		void unhandled_exception() {
-			frigg::panicLogger() << "thor: Unhandled exception in coroutine<T>" << frigg::endLog;
+			thor::panicLogger() << "thor: Unhandled exception in coroutine<T>" << frg::endlog;
 		}
 
 		void return_value(T value) {
@@ -152,7 +152,7 @@ struct coroutine<void> {
 		}
 
 		void unhandled_exception() {
-			frigg::panicLogger() << "thor: Unhandled exception in coroutine<T>" << frigg::endLog;
+			thor::panicLogger() << "thor: Unhandled exception in coroutine<T>" << frg::endlog;
 		}
 
 		void return_void() {

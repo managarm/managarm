@@ -116,26 +116,26 @@ uint32_t earlyGdt[3 * 2];
 uint32_t earlyIdt[256 * 4];
 
 extern "C" void handleEarlyDivideByZeroFault(void *rip) {
-	frigg::panicLogger() << "Division by zero during boot\n"
-			<< "Faulting IP: " << rip << frigg::endLog;
+	panicLogger() << "Division by zero during boot\n"
+			<< "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyOpcodeFault(void *rip) {
-	frigg::panicLogger() << "Invalid opcode during boot\n"
-			<< "Faulting IP: " << rip << frigg::endLog;
+	panicLogger() << "Invalid opcode during boot\n"
+			<< "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyDoubleFault(uint64_t errcode, void *rip) {
 	(void)errcode;
 
-	frigg::panicLogger() << "Double fault during boot\n"
-			<< "Faulting IP: " << rip << frigg::endLog;
+	panicLogger() << "Double fault during boot\n"
+			<< "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyProtectionFault(uint64_t errcode, void *rip) {
-	frigg::panicLogger() << "Protection fault during boot\n"
+	panicLogger() << "Protection fault during boot\n"
 			<< "Segment: " << errcode << "\n"
-			<< "Faulting IP: " << rip << frigg::endLog;
+			<< "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
@@ -143,8 +143,8 @@ extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
 	uintptr_t pfAddress;
 	asm volatile ("mov %%cr2, %0" : "=r" (pfAddress));
 
-	frigg::panicLogger() << "Page fault at " << (void *)pfAddress << " during boot\n"
-			<< "Faulting IP: " << rip << frigg::endLog;
+	panicLogger() << "Page fault at " << (void *)pfAddress << " during boot\n"
+			<< "Faulting IP: " << rip << frg::endlog;
 }
 
 void setupEarlyInterruptHandlers() {
@@ -294,8 +294,8 @@ void handlePreemption(IrqImageAccessor image);
 void handleSyscall(SyscallImageAccessor image);
 
 void handleDebugFault(FaultImageAccessor image) {
-	frigg::infoLogger() << "\e[35mthor: Debug fault "
-			<< "at ip: " << (void *)*image.ip() << "\e[39m" << frigg::endLog;
+	infoLogger() << "\e[35mthor: Debug fault "
+			<< "at ip: " << (void *)*image.ip() << "\e[39m" << frg::endlog;
 }
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
@@ -308,28 +308,28 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 
 	uint16_t cs = *image.cs();
 	if(logEveryFault)
-		frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		infoLogger() << "Fault #" << number << ", from cs: 0x" << frg::hex_fmt(cs)
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "Fault #" << number
-				<< " in stub section, cs: 0x" << frigg::logHex(cs)
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		panicLogger() << "Fault #" << number
+				<< " in stub section, cs: 0x" << frg::hex_fmt(cs)
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 	if(cs != kSelSystemIrqCode && cs != kSelClientUserCode
 			&& cs != kSelExecutorFaultCode && cs != kSelExecutorSyscallCode)
-		frigg::panicLogger() << "Fault #" << number
-				<< ", from unexpected cs: 0x" << frigg::logHex(cs)
+		panicLogger() << "Fault #" << number
+				<< ", from unexpected cs: 0x" << frg::hex_fmt(cs)
 				<< ", ip: " << (void *)*image.ip() << "\n"
-				<< "Error code: 0x" << frigg::logHex(*image.code())
-				<< ", SS: 0x" << frigg::logHex(*image.ss())
-				<< ", RSP: " << (void *)*image.sp() << frigg::endLog;
+				<< "Error code: 0x" << frg::hex_fmt(*image.code())
+				<< ", SS: 0x" << frg::hex_fmt(*image.ss())
+				<< ", RSP: " << (void *)*image.sp() << frg::endlog;
 	if(!(*image.rflags() & 0x200))
-		frigg::panicLogger() << "Fault #" << number
-				<< ", with IF=0, cs: 0x" << frigg::logHex(cs)
+		panicLogger() << "Fault #" << number
+				<< ", with IF=0, cs: 0x" << frg::hex_fmt(cs)
 				<< ", ip: " << (void *)*image.ip() << "\n"
-				<< "Error code: 0x" << frigg::logHex(*image.code())
-				<< ", SS: 0x" << frigg::logHex(*image.ss())
-				<< ", RSP: " << (void *)*image.sp() << frigg::endLog;
+				<< "Error code: 0x" << frg::hex_fmt(*image.code())
+				<< ", SS: 0x" << frg::hex_fmt(*image.ss())
+				<< ", RSP: " << (void *)*image.sp() << frg::endlog;
 
 	disableUserAccess();
 
@@ -350,12 +350,12 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handlePageFault(image, pfAddress);
 	} break;
 	default:
-		frigg::panicLogger() << "Unexpected fault number " << number
-				<< ", from cs: 0x" << frigg::logHex(cs)
+		panicLogger() << "Unexpected fault number " << number
+				<< ", from cs: 0x" << frg::hex_fmt(cs)
 				<< ", ip: " << (void *)*image.ip() << "\n"
-				<< "Error code: 0x" << frigg::logHex(*image.code())
-				<< ", SS: 0x" << frigg::logHex(*image.ss())
-				<< ", RSP: " << (void *)*image.sp() << frigg::endLog;
+				<< "Error code: 0x" << frg::hex_fmt(*image.code())
+				<< ", SS: 0x" << frg::hex_fmt(*image.ss())
+				<< ", RSP: " << (void *)*image.sp() << frg::endlog;
 	}
 
 	disableInts();
@@ -363,9 +363,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "IRQ " << number
-				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		panicLogger() << "IRQ " << number
+				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
@@ -380,9 +380,9 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 
 extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "IRQ " << number
-				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		panicLogger() << "IRQ " << number
+				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
@@ -393,25 +393,25 @@ extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 	disableUserAccess();
 
 	if(checkLegacyPicIsr(number)) {
-		frigg::infoLogger() << "\e[31m" "thor: Spurious IRQ " << number
-				<< " of legacy PIC" "\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31m" "thor: Spurious IRQ " << number
+				<< " of legacy PIC" "\e[39m" << frg::endlog;
 	}else{
-		frigg::infoLogger() << "\e[31m" "thor: Ignoring non-spurious IRQ " << number
-				<< " of legacy PIC" "\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31m" "thor: Ignoring non-spurious IRQ " << number
+				<< " of legacy PIC" "\e[39m" << frg::endlog;
 	}
 }
 
 extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "Preemption IRQ"
-				" in stub section, cs: 0x" << frigg::logHex(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		panicLogger() << "Preemption IRQ"
+				" in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 	
 	uint16_t cs = *image.cs();
 	if(logEveryPreemption)
-		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-				<< "]: Preemption from cs: 0x" << frigg::logHex(cs)
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		infoLogger() << "thor [CPU " << getLocalApicId()
+				<< "]: Preemption from cs: 0x" << frg::hex_fmt(cs)
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
 			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
@@ -442,9 +442,9 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 
 extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "Shootdown IPI"
-				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		panicLogger() << "Shootdown IPI"
+				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
@@ -462,9 +462,9 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 
 extern "C" void onPlatformPing(IrqImageAccessor image) {
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "Ping IPI"
-				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+		panicLogger() << "Ping IPI"
+				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
@@ -481,9 +481,9 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 
 extern "C" void onPlatformWork() {
 //	if(inStub(*image.ip()))
-//		frigg::panicLogger() << "Work interrupt " << number
-//				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
-//				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+//		panicLogger() << "Work interrupt " << number
+//				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+//				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	assert(!irqMutex().nesting());
 	// TODO: User-access should already be disabled here.
@@ -517,14 +517,14 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	}
 
 	if(!explained) {
-		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+		infoLogger() << "thor [CPU " << getLocalApicId()
 				<< "]: NMI triggered at heartbeat "
-				<< cpuData->heartbeat.load(std::memory_order_relaxed) << frigg::endLog;
-		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-				<< "]: From CS: 0x" << frigg::logHex(*image.cs())
-				<< ", IP: " << (void *)*image.ip() << frigg::endLog;
-		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-				<< "]: RFLAGS is " << (void *)*image.rflags() << frigg::endLog;
+				<< cpuData->heartbeat.load(std::memory_order_relaxed) << frg::endlog;
+		infoLogger() << "thor [CPU " << getLocalApicId()
+				<< "]: From CS: 0x" << frg::hex_fmt(*image.cs())
+				<< ", IP: " << (void *)*image.ip() << frg::endlog;
+		infoLogger() << "thor [CPU " << getLocalApicId()
+				<< "]: RFLAGS is " << (void *)*image.rflags() << frg::endlog;
 
 		if(!getLocalApicId())
 			sendGlobalNmi();

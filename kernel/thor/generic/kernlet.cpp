@@ -80,8 +80,8 @@ void BoundKernlet::setupOffsetBinding(size_t index, uint32_t offset) {
 	assert(index < _object->numberOfBindParameters());
 	const auto &defn = _object->defnOfBindParameter(index);
 	if(logBinding)
-		frigg::infoLogger() << "thor: Binding offset " << offset
-				<< " to instance offset " << defn.offset << frigg::endLog;
+		infoLogger() << "thor: Binding offset " << offset
+				<< " to instance offset " << defn.offset << frg::endlog;
 	memcpy(_instance + defn.offset, &offset, sizeof(uint32_t));
 }
 
@@ -89,8 +89,8 @@ void BoundKernlet::setupMemoryViewBinding(size_t index, void *p) {
 	assert(index < _object->numberOfBindParameters());
 	const auto &defn = _object->defnOfBindParameter(index);
 	if(logBinding)
-		frigg::infoLogger() << "thor: Binding memory view " << p
-				<< " to instance offset " << defn.offset << frigg::endLog;
+		infoLogger() << "thor: Binding memory view " << p
+				<< " to instance offset " << defn.offset << frg::endlog;
 	memcpy(_instance + defn.offset, &p, sizeof(void *));
 }
 
@@ -98,8 +98,8 @@ void BoundKernlet::setupBitsetEventBinding(size_t index, frigg::SharedPtr<Bitset
 	assert(index < _object->numberOfBindParameters());
 	const auto &defn = _object->defnOfBindParameter(index);
 	if(logBinding)
-		frigg::infoLogger() << "thor: Binding bitset event " << (void *)event.get()
-				<< " to instance offset " << defn.offset << frigg::endLog;
+		infoLogger() << "thor: Binding bitset event " << (void *)event.get()
+				<< " to instance offset " << defn.offset << frg::endlog;
 	auto p = event.get();
 	memcpy(_instance + defn.offset, &p, sizeof(void *));
 }
@@ -222,62 +222,62 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 		uint16_t (*abi_pio_read16)(ptrdiff_t) =
 			[] (ptrdiff_t offset) -> uint16_t {
 				if(logIo)
-					frigg::infoLogger() << "__pio_read16 on offset: " << offset << frigg::endLog;
+					infoLogger() << "__pio_read16 on offset: " << offset << frg::endlog;
 				auto value = arch::io_ops<uint16_t>::load(offset);
 				if(logIo)
-					frigg::infoLogger() << "    Read " << (unsigned int)value << frigg::endLog;
+					infoLogger() << "    Read " << (unsigned int)value << frg::endlog;
 				return value;
 			};
 
 		void (*abi_pio_write16)(ptrdiff_t, uint16_t) =
 			[] (ptrdiff_t offset, uint16_t value) {
 				if(logIo)
-					frigg::infoLogger() << "__pio_write16 on offset: " << offset << frigg::endLog;
+					infoLogger() << "__pio_write16 on offset: " << offset << frg::endlog;
 				arch::io_ops<uint16_t>::store(offset, value);
 				if(logIo)
-					frigg::infoLogger() << "    Wrote " << value << frigg::endLog;
+					infoLogger() << "    Wrote " << value << frg::endlog;
 			};
 #endif
 
 		uint8_t (*abi_mmio_read8)(const char *, ptrdiff_t) =
 			[] (const char *base, ptrdiff_t offset) -> uint8_t {
 				if(logIo)
-					frigg::infoLogger() << "__mmio_read8 on " << (void *)base
-							<< ", offset: " << offset << frigg::endLog;
+					infoLogger() << "__mmio_read8 on " << (void *)base
+							<< ", offset: " << offset << frg::endlog;
 				auto p = reinterpret_cast<const uint8_t *>(base + offset);
 				auto value = arch::mem_ops<uint8_t>::load(p);
 				if(logIo)
-					frigg::infoLogger() << "    Read " << (unsigned int)value << frigg::endLog;
+					infoLogger() << "    Read " << (unsigned int)value << frg::endlog;
 				return value;
 			};
 		uint32_t (*abi_mmio_read32)(const char *, ptrdiff_t) =
 			[] (const char *base, ptrdiff_t offset) -> uint32_t {
 				if(logIo)
-					frigg::infoLogger() << "__mmio_read32 on " << (void *)base
-							<< ", offset: " << offset << frigg::endLog;
+					infoLogger() << "__mmio_read32 on " << (void *)base
+							<< ", offset: " << offset << frg::endlog;
 				auto p = reinterpret_cast<const uint32_t *>(base + offset);
 				auto value = arch::mem_ops<uint32_t>::load(p);
 				if(logIo)
-					frigg::infoLogger() << "    Read " << value << frigg::endLog;
+					infoLogger() << "    Read " << value << frg::endlog;
 				return value;
 			};
 
 		void (*abi_mmio_write32)(char *, ptrdiff_t, uint32_t) =
 			[] (char *base, ptrdiff_t offset, uint32_t value) {
 				if(logIo)
-					frigg::infoLogger() << "__mmio_write32 on " << (void *)base
-							<< ", offset: " << offset << frigg::endLog;
+					infoLogger() << "__mmio_write32 on " << (void *)base
+							<< ", offset: " << offset << frg::endlog;
 				auto p = reinterpret_cast<uint32_t *>(base + offset);
 				arch::mem_ops<uint32_t>::store(p, value);
 				if(logIo)
-					frigg::infoLogger() << "    Wrote " << value << frigg::endLog;
+					infoLogger() << "    Wrote " << value << frg::endlog;
 			};
 
 		void (*abi_trigger_bitset)(void *, uint32_t) =
 			[] (void *p, uint32_t bits) {
 				if(logIo)
-					frigg::infoLogger() << "__trigger_bitset on "
-							<< p << ", bits: " << bits << frigg::endLog;
+					infoLogger() << "__trigger_bitset on "
+							<< p << ", bits: " << bits << frg::endlog;
 				auto event = static_cast<BitsetEvent *>(p);
 				event->trigger(bits);
 			};
@@ -298,7 +298,7 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 			return reinterpret_cast<void *>(abi_mmio_write32);
 		else if(name == "__trigger_bitset")
 			return reinterpret_cast<void *>(abi_trigger_bitset);
-		frigg::panicLogger() << "Could not resolve external " << name.data() << frigg::endLog;
+		panicLogger() << "Could not resolve external " << name.data() << frg::endlog;
 		__builtin_unreachable();
 	};
 
@@ -344,8 +344,8 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 				continue;
 			return base + candidate->st_value;
 		}
-		frigg::panicLogger() << "thor: Unable to resolve kernel symbol '"
-				<< name.data() << "'" << frigg::endLog;
+		panicLogger() << "thor: Unable to resolve kernel symbol '"
+				<< name.data() << "'" << frg::endlog;
 		__builtin_unreachable();
 	};
 
@@ -493,8 +493,8 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 			if(error == Error::endOfLane)
 				break;
 			if(isRemoteIpcError(error))
-				frigg::infoLogger() << "thor: Aborting svrctl request"
-						" after remote violated the protocol" << frigg::endLog;
+				infoLogger() << "thor: Aborting svrctl request"
+						" after remote violated the protocol" << frg::endlog;
 			assert(error == Error::success);
 		}
 	})(boundLane));

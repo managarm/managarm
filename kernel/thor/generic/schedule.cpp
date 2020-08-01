@@ -43,7 +43,7 @@ ScheduleEntity::~ScheduleEntity() {
 }
 
 void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
-//	frigg::infoLogger() << "associate " << entity << frigg::endLog;
+//	infoLogger() << "associate " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::null);
 	entity->_scheduler = scheduler;
 	entity->state = ScheduleState::attached;
@@ -76,7 +76,7 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
-//	frigg::infoLogger() << "resume " << entity << frigg::endLog;
+//	infoLogger() << "resume " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::attached);
 
 	auto self = entity->_scheduler;
@@ -108,7 +108,7 @@ void Scheduler::suspendCurrent() {
 	auto self = localScheduler();
 	auto entity = self->_current;
 	assert(entity);
-//	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
+//	infoLogger() << "suspend " << entity << frg::endlog;
 
 	// Update the unfairness on suspend.
 	self->_updateEntityStats(entity);
@@ -251,12 +251,12 @@ void Scheduler::commit() {
 void Scheduler::invoke() {
 	if(!_current) {
 		if(logIdle)
-			frigg::infoLogger() << "System is idle" << frigg::endLog;
+			infoLogger() << "System is idle" << frg::endlog;
 		suspendSelf();
 	}else{
 		_current->invoke();
 	}
-	frigg::panicLogger() << "Return from scheduling invocation" << frigg::endLog;
+	panicLogger() << "Return from scheduling invocation" << frg::endlog;
 	__builtin_unreachable();
 }
 
@@ -280,7 +280,7 @@ void Scheduler::_schedule() {
 
 	if(_waitQueue.empty()) {
 		if(logScheduling)
-			frigg::infoLogger() << "No entities to schedule" << frigg::endLog;
+			infoLogger() << "No entities to schedule" << frg::endlog;
 		return;
 	}
 
@@ -294,18 +294,18 @@ void Scheduler::_schedule() {
 	_updateEntityStats(entity);
 
 	if(logScheduling) {
-//		frigg::infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
-//				<< " ms" << frigg::endLog;
-		frigg::infoLogger() << "Running entity with priority: " << entity->priority
+//		infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
+//				<< " ms" << frg::endlog;
+		infoLogger() << "Running entity with priority: " << entity->priority
 				<< ", unfairness: " << (_liveUnfairness(entity) / 256) / (1000 * 1000)
 				<< " ms, runtime: " << _liveRuntime(entity) / (1000 * 1000)
-				<< " ms (" << (_numWaiting + 1) << " active threads)" << frigg::endLog;
+				<< " ms (" << (_numWaiting + 1) << " active threads)" << frg::endlog;
 	}
 	if(logNextBest && !_waitQueue.empty())
-		frigg::infoLogger() << "    Next entity has priority: " << _waitQueue.top()->priority
+		infoLogger() << "    Next entity has priority: " << _waitQueue.top()->priority
 				<< ", unfairness: " << (_liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
 				<< " ms, runtime: " << _liveRuntime(_waitQueue.top()) / (1000 * 1000)
-				<< " ms" << frigg::endLog;
+				<< " ms" << frg::endlog;
 
 	_scheduled = entity;
 }
@@ -341,8 +341,8 @@ void Scheduler::_updatePreemption() {
 
 	auto slice = diff / 256;
 	if(logTimeSlice)
-		frigg::infoLogger() << "Scheduling time slice: "
-				<< slice / 1000 << " us" << frigg::endLog;
+		infoLogger() << "Scheduling time slice: "
+				<< slice / 1000 << " us" << frg::endlog;
 	armPreemption(slice);
 
 	return;
@@ -353,9 +353,9 @@ void Scheduler::_updateCurrentEntity() {
 
 	auto delta_progress = _systemProgress - _current->refProgress;
 	if(logUpdates)
-		frigg::infoLogger() << "Running thread unfairness decreases by: "
+		infoLogger() << "Running thread unfairness decreases by: "
 				<< ((_numWaiting * delta_progress) / 256) / 1000
-				<< " us (" << _numWaiting << " waiting threads)" << frigg::endLog;
+				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
 	_current->baseUnfairness -= _numWaiting * delta_progress;
 	_current->refProgress = _systemProgress;
 }
@@ -365,9 +365,9 @@ void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
 	assert(entity != _current);
 
 	if(logUpdates)
-		frigg::infoLogger() << "Waiting thread unfairness increases by: "
+		infoLogger() << "Waiting thread unfairness increases by: "
 				<< ((_systemProgress - entity->refProgress) / 256) / 1000
-				<< " us (" << _numWaiting << " waiting threads)" << frigg::endLog;
+				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
 	entity->baseUnfairness += _systemProgress - entity->refProgress;
 	entity->refProgress = _systemProgress;
 }

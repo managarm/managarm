@@ -88,7 +88,7 @@ struct Fortuna {
 		auto generatorLock = frigg::guard(&generatorMutex_);
 
 		if(injectedIntoPoolZero_.load(std::memory_order_acquire) >= entropyThreshold) {
-			frigg::infoLogger() << "thor: Reseeding PRNG from entropy accumulator" << frigg::endLog;
+			infoLogger() << "thor: Reseeding PRNG from entropy accumulator" << frg::endlog;
 
 			cralgo::sha2_32_secrets keyHash;
 			cralgo::sha2_32_secrets localHash;
@@ -202,18 +202,18 @@ void initializeRandom() {
 		csprng->forceReseed(seed, 32);
 		return;
 	}else if(e == Error::noHardwareSupport) {
-		frigg::infoLogger() << "\e[31m" "thor: CPU-based hardware PRNG not available"
-				"\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31m" "thor: CPU-based hardware PRNG not available"
+				"\e[39m" << frg::endlog;
 	}else{
 		assert(e == Error::hardwareBroken);
-		frigg::infoLogger() << "\e[31m" "thor: CPU-based hardware PRNG is broken"
-				"\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31m" "thor: CPU-based hardware PRNG is broken"
+				"\e[39m" << frg::endlog;
 	}
 
 	// TODO: we can do something *much* better here, this case is highly insecure!
 	//       Use jitter-based entropy (e.g., HAVEGE) instead.
-	frigg::infoLogger() << "\e[31m" "thor: Falling back to entropy from CPU clock"
-			"\e[39m" << frigg::endLog;
+	infoLogger() << "\e[31m" "thor: Falling back to entropy from CPU clock"
+			"\e[39m" << frg::endlog;
 	uint64_t tsc = getRawTimestampCounter();
 	csprng->forceReseed(&tsc, sizeof(uint64_t));
 }

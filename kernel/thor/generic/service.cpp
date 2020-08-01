@@ -1,16 +1,13 @@
-#include <thor-internal/module.hpp>
-
 #include <bragi/helpers-frigg.hpp>
 #include <frg/span.hpp>
 #include <frg/string.hpp>
 #include <frigg/callback.hpp>
-
-#include <posix.frigg_bragi.hpp>
 #include <fs.frigg_bragi.hpp>
-
+#include <posix.frigg_bragi.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
-
+#include <thor-internal/module.hpp>
 #ifdef __x86_64__
 #include <thor-internal/arch/debug.hpp>
 #endif
@@ -46,17 +43,19 @@ struct StdioFile : OpenFile {
 
 namespace stdio {
 	coroutine<void> runStdioRequests(LaneHandle lane) {
+		frg::string<KernelAlloc> lineBuffer{*kernelAlloc};
+
 		while(true) {
 			auto [acceptError, conversation] = co_await AcceptSender{lane};
 			if(acceptError == Error::endOfLane)
 				break;
 			if(acceptError != Error::success) {
-				frigg::infoLogger() << "thor: Could not accept stdio lane" << frigg::endLog;
+				infoLogger() << "thor: Could not accept stdio lane" << frg::endlog;
 				co_return;
 			}
 			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
 			if(reqError != Error::success) {
-				frigg::infoLogger() << "thor: Could not receive stdio request" << frigg::endLog;
+				infoLogger() << "thor: Could not receive stdio request" << frg::endlog;
 				co_return;
 			}
 
@@ -66,20 +65,24 @@ namespace stdio {
 			if(req.req_type() == managarm::fs::CntReqType::WRITE) {
 				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
 				if(credsError != Error::success) {
-					frigg::infoLogger() << "thor: Could not receive stdio credentials"
-							<< frigg::endLog;
+					infoLogger() << "thor: Could not receive stdio credentials"
+							<< frg::endlog;
 					co_return;
 				}
 				auto [dataError, dataBuffer] = co_await RecvBufferSender{conversation};
 				if(dataError != Error::success) {
-					frigg::infoLogger() << "thor: Could not receive stdio data" << frigg::endLog;
+					infoLogger() << "thor: Could not receive stdio data" << frg::endlog;
 					co_return;
 				}
 
-				{
-					auto p = frigg::infoLogger();
-					for(size_t i = 0; i < dataBuffer.size(); i++)
-						p.print(reinterpret_cast<char *>(dataBuffer.data())[i]);
+				for(size_t i = 0; i < dataBuffer.size(); i++) {
+					auto c = reinterpret_cast<char *>(dataBuffer.data())[i];
+					if(c == '\n') {
+						infoLogger() << lineBuffer << frg::endlog;
+						lineBuffer.resize(0);
+					}else{
+						lineBuffer += c;
+					}
 				}
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -104,8 +107,8 @@ namespace stdio {
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else{
-				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
-						<< " for kernel provided stdio file" "\e[39m" << frigg::endLog;
+				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
+						<< " for kernel provided stdio file" "\e[39m" << frg::endlog;
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
@@ -150,12 +153,12 @@ namespace initrd {
 			if(acceptError == Error::endOfLane)
 				break;
 			if(acceptError != Error::success) {
-				frigg::infoLogger() << "thor: Could not accept regular lane" << frigg::endLog;
+				infoLogger() << "thor: Could not accept regular lane" << frg::endlog;
 				co_return;
 			}
 			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
 			if(reqError != Error::success) {
-				frigg::infoLogger() << "thor: Could not receive regular request" << frigg::endLog;
+				infoLogger() << "thor: Could not receive regular request" << frg::endlog;
 				co_return;
 			}
 
@@ -165,8 +168,8 @@ namespace initrd {
 			if(req.req_type() == managarm::fs::CntReqType::READ) {
 				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
 				if(credsError != Error::success) {
-					frigg::infoLogger() << "thor: Could not receive stdio credentials"
-							<< frigg::endLog;
+					infoLogger() << "thor: Could not receive stdio credentials"
+							<< frg::endlog;
 					co_return;
 				}
 
@@ -220,8 +223,8 @@ namespace initrd {
 				// TODO: improve error handling here.
 				assert(memoryError == Error::success);
 			}else{
-				frigg::infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
-						<< " for kernel provided regular file" "\e[39m" << frigg::endLog;
+				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
+						<< " for kernel provided regular file" "\e[39m" << frg::endlog;
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
@@ -244,12 +247,12 @@ namespace initrd {
 			if(acceptError == Error::endOfLane)
 				break;
 			if(acceptError != Error::success) {
-				frigg::infoLogger() << "thor: Could not accept directory lane" << frigg::endLog;
+				infoLogger() << "thor: Could not accept directory lane" << frg::endlog;
 				co_return;
 			}
 			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
 			if(reqError != Error::success) {
-				frigg::infoLogger() << "thor: Could not receive directory request" << frigg::endLog;
+				infoLogger() << "thor: Could not receive directory request" << frg::endlog;
 				co_return;
 			}
 
@@ -382,12 +385,12 @@ namespace posix {
 		while(true) {
 			auto [acceptError, conversation] = co_await AcceptSender{lane};
 			if(acceptError != Error::success) {
-				frigg::infoLogger() << "thor: Could not accept POSIX lane" << frigg::endLog;
+				infoLogger() << "thor: Could not accept POSIX lane" << frg::endlog;
 				co_return;
 			}
 			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
 			if(reqError != Error::success) {
-				frigg::infoLogger() << "thor: Could not receive POSIX request" << frigg::endLog;
+				infoLogger() << "thor: Could not receive POSIX request" << frg::endlog;
 				co_return;
 			}
 
@@ -398,7 +401,7 @@ namespace posix {
 				auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
-					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
 					co_return;
 				}
 
@@ -416,18 +419,18 @@ namespace posix {
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
 				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
 				if(tailError != Error::success) {
-					frigg::infoLogger() << "thor: Could not receive POSIX tail" << frigg::endLog;
+					infoLogger() << "thor: Could not receive POSIX tail" << frg::endlog;
 					co_return;
 				}
 
 				auto req = bragi::parse_head_tail<managarm::posix::OpenAtRequest>(
 						reqBuffer, tailBuffer, *kernelAlloc);
 				if(!req) {
-					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
 					co_return;
 				}
 				if(req->fd() != -100) {
-					frigg::infoLogger() << "thor: OpenAt does not support dirfds" << frigg::endLog;
+					infoLogger() << "thor: OpenAt does not support dirfds" << frg::endlog;
 					co_return;
 				}
 
@@ -497,7 +500,7 @@ namespace posix {
 				auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
-					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
 					co_return;
 				}
 
@@ -519,7 +522,7 @@ namespace posix {
 				auto req = bragi::parse_head_only<managarm::posix::CloseRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
-					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
 					co_return;
 				}
 
@@ -538,7 +541,7 @@ namespace posix {
 				auto req = bragi::parse_head_only<managarm::posix::VmMapRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
-					frigg::infoLogger() << "thor: Could not parse POSIX request" << frigg::endLog;
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
 					co_return;
 				}
 
@@ -608,8 +611,8 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else{
-				frigg::infoLogger() << "thor: Illegal POSIX request type "
-						<< preamble.id() << frigg::endLog;
+				infoLogger() << "thor: Illegal POSIX request type "
+						<< preamble.id() << frg::endlog;
 				co_return;
 			}
 		}
@@ -625,14 +628,14 @@ namespace posix {
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
-				frigg::infoLogger() << "\e[31m" "thor: Panic in server "
-						<< name().data() << "\e[39m" << frigg::endLog;
+				infoLogger() << "\e[31m" "thor: Panic in server "
+						<< name().data() << "\e[39m" << frg::endlog;
 				break;
 			}else if(interrupt == kIntrPageFault) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
-				frigg::infoLogger() << "\e[31m" "thor: Fault in server "
-						<< name().data() << "\e[39m" << frigg::endLog;
+				infoLogger() << "\e[31m" "thor: Fault in server "
+						<< name().data() << "\e[39m" << frg::endlog;
 				break;
 			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
@@ -654,7 +657,7 @@ namespace posix {
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = mapResult.value();
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
-					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
 				auto address = *_thread->_executor.arg0();
 				auto size = *_thread->_executor.arg1();
@@ -664,7 +667,7 @@ namespace posix {
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
-					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 1) {
 				ManagarmProcessData data = {
 					kHelThisThread,
@@ -684,7 +687,7 @@ namespace posix {
 
 				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
-					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 64) {
 				AcquireNode node;
 
@@ -703,15 +706,15 @@ namespace posix {
 
 				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
-					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
-					frigg::panicLogger() << "thor: Failed to resume server" << frigg::endLog;
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else{
-				frigg::panicLogger() << "thor: Unexpected observation "
-						<< (uint32_t)interrupt << frigg::endLog;
+				panicLogger() << "thor: Unexpected observation "
+						<< (uint32_t)interrupt << frg::endlog;
 			}
 		}
 	}

@@ -63,8 +63,8 @@ namespace thor {
 			}
 
 			PageStatus cleanSingle4k(VirtualAddr pointer) override {
-				frigg::infoLogger() << "\e[31m" "thor: VirtualizedPageSpace::cleanSingle4k()"
-						" is not properly supported" "\e[39m" << frigg::endLog;
+				infoLogger() << "\e[31m" "thor: VirtualizedPageSpace::cleanSingle4k()"
+						" is not properly supported" "\e[39m" << frg::endlog;
 				return 0;
 			}
 

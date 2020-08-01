@@ -1,8 +1,7 @@
 #include <assert.h>
-
-#include <frigg/debug.hpp>
-#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/arch/paging.hpp>
+#include <thor-internal/debug.hpp>
+#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/physical.hpp>
 
 namespace thor {
@@ -38,8 +37,8 @@ PhysicalChunkAllocator::PhysicalChunkAllocator() {
 void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 		int order, size_t numRoots, int8_t *buddyTree) {
 	if(_numRegions >= 8) {
-		frigg::infoLogger() << "thor: Ignoring memory region (can only handle 8 regions)"
-				<< frigg::endLog;
+		infoLogger() << "thor: Ignoring memory region (can only handle 8 regions)"
+				<< frg::endlog;
 		return;
 	}
 
@@ -72,8 +71,8 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 	assert(size == (size_t(kPageSize) << target));
 
 	if(logPhysicalAllocs)
-		frigg::infoLogger() << "thor: Allocating physical memory of order "
-					<< (target + kPageShift) << frigg::endLog;
+		infoLogger() << "thor: Allocating physical memory of order "
+					<< (target + kPageShift) << frg::endlog;
 	for(int i = 0; i < _numRegions; i++) {
 		if(target > _allRegions[i].buddyAccessor.tableOrder())
 			continue;
@@ -81,7 +80,7 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 		auto physical = _allRegions[i].buddyAccessor.allocate(target, addressBits);
 		if(physical == BuddyAccessor::illegalAddress)
 			continue;
-	//	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
+	//	infoLogger() << "Allocate " << (void *)physical << frg::endlog;
 		assert(!(physical % (size_t(kPageSize) << target)));
 		return physical;
 	}
@@ -116,4 +115,3 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 }
 
 } // namespace thor
-

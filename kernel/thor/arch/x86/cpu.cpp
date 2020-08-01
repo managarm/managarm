@@ -476,8 +476,8 @@ static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-pr
 		// We need to fill in the boot APIC ID.
 		// This cannot be done in setupBootCpuContext() as we need the APIC base first.
 		staticBootCpuContext->localApicId = getLocalApicId();
-		frigg::infoLogger() << "Booting on CPU #" << staticBootCpuContext->localApicId
-				<< frigg::endLog;
+		infoLogger() << "Booting on CPU #" << staticBootCpuContext->localApicId
+				<< frg::endlog;
 
 		initializeThisProcessor();
 	}
@@ -547,8 +547,8 @@ void initializeThisProcessor() {
 	// FIXME: does not seem to work under qemu
 //	if(!(frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexStructuredExtendedFeaturesEnum)[1]
 //			& frigg::arch_x86::kCpuFlagFsGsBase))
-//		frigg::panicLogger() << "CPU does not support wrfsbase / wrgsbase"
-//				<< frigg::endLog;
+//		panicLogger() << "CPU does not support wrfsbase / wrgsbase"
+//				<< frg::endlog;
 
 //	uint64_t cr4;
 //	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
@@ -557,7 +557,7 @@ void initializeThisProcessor() {
 
 	// Enable the XSAVE instruction set and child features
 	if(frigg::arch_x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports XSAVE\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports XSAVE\e[39m" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -571,19 +571,19 @@ void initializeThisProcessor() {
 		xcr0 |= (uint64_t(1) << 1); // Enable saving of SSE feature set
 
 		if(frigg::arch_x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
-			frigg::infoLogger() << "\e[37mthor: CPU supports AVX\e[39m" << frigg::endLog;
+			infoLogger() << "\e[37mthor: CPU supports AVX\e[39m" << frg::endlog;
 			xcr0 |= (uint64_t(1) << 2); // Enable saving of AVX feature set and enable it
 		}else{
-			frigg::infoLogger() << "\e[37mthor: CPU does not support AVX!\e[39m" << frigg::endLog;
+			infoLogger() << "\e[37mthor: CPU does not support AVX!\e[39m" << frg::endlog;
 		}
 
 		if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 16)) {
-			frigg::infoLogger() << "\e[37mthor: CPU supports AVX-512\e[39m" << frigg::endLog;
+			infoLogger() << "\e[37mthor: CPU supports AVX-512\e[39m" << frg::endlog;
 			xcr0 |= (uint64_t(1) << 5); // Enable AVX-512
 			xcr0 |= (uint64_t(1) << 6); // Enable management of ZMM{0 -> 15}
 			xcr0 |= (uint64_t(1) << 7); // Enable management of ZMM{16 -> 31}
 		}else{
-			frigg::infoLogger() << "\e[37mthor: CPU does not support AVX-512!\e[39m" << frigg::endLog;
+			infoLogger() << "\e[37mthor: CPU does not support AVX-512!\e[39m" << frg::endlog;
 		}
 
 		frigg::arch_x86::wrxcr(0, xcr0);
@@ -591,12 +591,12 @@ void initializeThisProcessor() {
 		cpu_data->xsaveRegionSize = xsave_cpuid[2];
 		cpu_data->haveXsave = true;
 	}else{
-		frigg::infoLogger() << "\e[37mthor: CPU does not support XSAVE!\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU does not support XSAVE!\e[39m" << frg::endlog;
 	}
 
 	// Enable the SMAP extension.
 	if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 20)) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports SMAP\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports SMAP\e[39m" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -607,12 +607,12 @@ void initializeThisProcessor() {
 
 		cpu_data->haveSmap = true;
 	}else{
-		frigg::infoLogger() << "\e[37mthor: CPU does not support SMAP!\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU does not support SMAP!\e[39m" << frg::endlog;
 	}
 
 	// Enable the SMEP extension.
 	if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 6)) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports SMEP\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports SMEP\e[39m" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -620,12 +620,12 @@ void initializeThisProcessor() {
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
 	}else{
-		frigg::infoLogger() << "\e[37mthor: CPU does not support SMEP!\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU does not support SMEP!\e[39m" << frg::endlog;
 	}
 
 	// Enable the UMIP extension.
 	if(frigg::arch_x86::cpuid(0x07)[2] & (uint32_t(1) << 2)) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports UMIP\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports UMIP\e[39m" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -633,14 +633,14 @@ void initializeThisProcessor() {
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
 	}else{
-		frigg::infoLogger() << "\e[37mthor: CPU does not support UMIP!\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU does not support UMIP!\e[39m" << frg::endlog;
 	}
 
 	// Enable the PCID extension.
 	bool pcid_bit = frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
 	bool invpcid_bit = frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
 	if(pcid_bit && invpcid_bit) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports PCIDs\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports PCIDs\e[39m" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -649,35 +649,35 @@ void initializeThisProcessor() {
 
 		cpu_data->havePcids = true;
 	}else if(pcid_bit) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports PCIDs but no INVPCID;"
-				" will not use PCIDs!\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports PCIDs but no INVPCID;"
+				" will not use PCIDs!\e[39m" << frg::endlog;
 	}else{
-		frigg::infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frg::endlog;
 	}
 
 	if(frigg::arch_x86::cpuid(0x01)[2] & (1 << 24)) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports TSC deadline mode\e[39m"
-				<< frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports TSC deadline mode\e[39m"
+				<< frg::endlog;
 		cpu_data->haveTscDeadline = true;
 	}
 
 	auto intelPmLeaf = frigg::arch_x86::cpuid(0xA)[0];
 	if(intelPmLeaf & 0xFF) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports Intel performance counters\e[39m"
-				<< frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports Intel performance counters\e[39m"
+				<< frg::endlog;
 		cpu_data->profileFlags |= PlatformCpuData::profileIntelSupported;
 	}
 	auto amdPmLeaf = frigg::arch_x86::cpuid(0x8000'0001)[2];
 	if(amdPmLeaf & (1 << 23)) {
-		frigg::infoLogger() << "\e[37mthor: CPU supports AMD performance counters\e[39m"
-				<< frigg::endLog;
+		infoLogger() << "\e[37mthor: CPU supports AMD performance counters\e[39m"
+				<< frg::endlog;
 		cpu_data->profileFlags |= PlatformCpuData::profileAmdSupported;
 	}
 
 	//Check that both vmx and ept are supported.
 	bool vmxSupported = (frigg::arch_x86::cpuid(0x1)[2] >> 5) & 1 && frigg::arch_x86::rdmsr(0x0000048CU) * (1 << 6);
 	if(!vmxSupported) {
-		frigg::infoLogger() << "vmx: vmx not supported" << frigg::endLog;
+		infoLogger() << "vmx: vmx not supported" << frg::endlog;
 		cpu_data->haveVirtualization = false;
 	} else {
 		cpu_data->haveVirtualization = thor::vmx::vmxon();
@@ -686,8 +686,8 @@ void initializeThisProcessor() {
 	// setup the syscall interface
 	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]
 			& frigg::arch_x86::kCpuFlagSyscall) == 0)
-		frigg::panicLogger() << "CPU does not support the syscall instruction"
-				<< frigg::endLog;
+		panicLogger() << "CPU does not support the syscall instruction"
+				<< frg::endlog;
 
 	uint64_t efer = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrEfer);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrEfer,
@@ -724,7 +724,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 	initializeThisProcessor();
 	__atomic_store_n(&statusBlock->targetStage, 2, __ATOMIC_RELEASE);
 
-	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;
+	infoLogger() << "Hello world from CPU #" << getLocalApicId() << frg::endlog;
 	localScheduler()->update();
 	localScheduler()->reschedule();
 	localScheduler()->commit();
@@ -762,7 +762,7 @@ void bootSecondary(unsigned int apic_id) {
 	// Setup a status block to communicate information to the AP.
 	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
 			+ (kPageSize - sizeof(StatusBlock)));
-	frigg::infoLogger() << "status block accessed via: " << statusBlock << frigg::endLog;
+	infoLogger() << "status block accessed via: " << statusBlock << frg::endlog;
 
 	statusBlock->self = statusBlock;
 	statusBlock->targetStage = 0;
@@ -775,7 +775,7 @@ void bootSecondary(unsigned int apic_id) {
 	// Send the IPI sequence that starts up the AP.
 	// On modern processors INIT lets the processor enter the wait-for-SIPI state.
 	// The BIOS is not involved in this process at all.
-	frigg::infoLogger() << "thor: Booting AP " << apic_id << "." << frigg::endLog;
+	infoLogger() << "thor: Booting AP " << apic_id << "." << frg::endlog;
 	raiseInitAssertIpi(apic_id);
 	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(10'000'000)); // Wait for 10ms.
 
@@ -790,7 +790,7 @@ void bootSecondary(unsigned int apic_id) {
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 1) {
 		frigg::pause();
 	}
-	frigg::infoLogger() << "thor: AP did wake up." << frigg::endLog;
+	infoLogger() << "thor: AP did wake up." << frg::endlog;
 
 	// We only let the AP proceed after all IPIs have been sent.
 	// This ensures that the AP does not execute boot code twice (e.g. in case
@@ -801,7 +801,7 @@ void bootSecondary(unsigned int apic_id) {
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 2) {
 		frigg::pause();
 	}
-	frigg::infoLogger() << "thor: AP finished booting." << frigg::endLog;
+	infoLogger() << "thor: AP finished booting." << frg::endlog;
 }
 
 Error getEntropyFromCpu(void *buffer, size_t size) {

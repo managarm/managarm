@@ -18,8 +18,8 @@ void initializeProfile() {
 
 	if(!(getCpuData()->profileFlags & PlatformCpuData::profileIntelSupported)
 			&& !(getCpuData()->profileFlags & PlatformCpuData::profileAmdSupported)) {
-		frigg::infoLogger() << "\e[31m" "thor: Kernel profiling was requested but"
-				" no hardware support is available" "\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31m" "thor: Kernel profiling was requested but"
+				" no hardware support is available" "\e[39m" << frg::endlog;
 		return;
 	}
 

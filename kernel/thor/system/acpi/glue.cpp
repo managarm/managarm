@@ -23,11 +23,11 @@ namespace acpi {
 using namespace thor;
 
 void laihost_log(int, const char *msg) {
-	frigg::infoLogger() << "lai: " << msg << frigg::endLog;
+	infoLogger() << "lai: " << msg << frg::endlog;
 }
 
 void laihost_panic(const char *msg) {
-	frigg::panicLogger() << "\e[31m" "lai panic: " << msg << "\e[39m" << frigg::endLog;
+	panicLogger() << "\e[31m" "lai panic: " << msg << "\e[39m" << frg::endlog;
 	__builtin_unreachable();
 }
 

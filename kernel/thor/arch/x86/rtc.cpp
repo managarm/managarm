@@ -39,10 +39,10 @@ int64_t getCmosTime() {
 	
 	// Wait until the RTC update-in-progress bit gets set and reset.
 	// TODO: fiberSleep(1'000) does not seem to work here.
-//	frigg::infoLogger() << "thor: Waiting for RTC update in-progress" << frigg::endLog;
+//	infoLogger() << "thor: Waiting for RTC update in-progress" << frg::endlog;
 	while(!(readCmos(rtcStatusA) & 0x80))
 		;
-//	frigg::infoLogger() << "thor: Waiting for RTC update completion" << frigg::endLog;
+//	infoLogger() << "thor: Waiting for RTC update completion" << frg::endlog;
 	while(readCmos(rtcStatusA) & 0x80)
 		frigg::pause();
 
@@ -63,8 +63,8 @@ int64_t getCmosTime() {
 	int64_t s = decodeRtc(readCmos(rtcSeconds));
 	int64_t min = decodeRtc(readCmos(rtcMinutes));
 	int64_t h = decodeRtc(readCmos(rtcHours));
-	frigg::infoLogger() << "thor: Reading RTC returns " << y << "-" << mon << "-" << d
-			<< " " << h << ":" << min << ":" << s << frigg::endLog;
+	infoLogger() << "thor: Reading RTC returns " << y << "-" << mon << "-" << d
+			<< " " << h << ":" << min << ":" << s << frg::endlog;
 
 	// Code from http://howardhinnant.github.io/date_algorithms.html
 	y -= (mon <= 2);

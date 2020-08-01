@@ -25,11 +25,11 @@ namespace {
 			return;
 		if(rss & ((1 << (b - 1)) - 1))
 			return;
-		frigg::infoLogger() << "thor: RSS of " << space << " increases above "
-				<< (rss / 1024) << " KiB" << frigg::endLog;
-		frigg::infoLogger() << "thor:     Physical usage: "
+		infoLogger() << "thor: RSS of " << space << " increases above "
+				<< (rss / 1024) << " KiB" << frg::endlog;
+		infoLogger() << "thor:     Physical usage: "
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB, kernel usage: "
-				<< (kernelMemoryUsage / 1024) << " KiB" << frigg::endLog;
+				<< (kernelMemoryUsage / 1024) << " KiB" << frg::endlog;
 	}
 }
 
@@ -69,18 +69,18 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 		size = tree.get_right(hole)->largestHole;
 
 	if(hole->largestHole != size) {
-		frigg::infoLogger() << "largestHole violation: " << "Expected " << size
-				<< ", got " << hole->largestHole << "." << frigg::endLog;
+		infoLogger() << "largestHole violation: " << "Expected " << size
+				<< ", got " << hole->largestHole << "." << frg::endlog;
 		return false;
 	}
 
 	// Check non-overlapping memory areas invariant.
 	if(pred && hole->address() < pred->address() + pred->length()) {
-		frigg::infoLogger() << "Non-overlapping (left) violation" << frigg::endLog;
+		infoLogger() << "Non-overlapping (left) violation" << frg::endlog;
 		return false;
 	}
 	if(succ && hole->address() + hole->length() > succ->address()) {
-		frigg::infoLogger() << "Non-overlapping (right) violation" << frigg::endLog;
+		infoLogger() << "Non-overlapping (right) violation" << frg::endlog;
 		return false;
 	}
 
@@ -102,7 +102,7 @@ Mapping::Mapping(size_t length, MappingFlags flags,
 
 Mapping::~Mapping() {
 	assert(state == MappingState::retired);
-	//frigg::infoLogger() << "\e[31mthor: Mapping is destructed\e[39m" << frigg::endLog;
+	//infoLogger() << "\e[31mthor: Mapping is destructed\e[39m" << frg::endlog;
 }
 
 void Mapping::tie(smarter::shared_ptr<VirtualSpace> newOwner, VirtualAddr address) {
@@ -289,7 +289,7 @@ CowChain::CowChain(frigg::SharedPtr<CowChain> chain)
 
 CowChain::~CowChain() {
 	if(logCleanup)
-		frigg::infoLogger() << "thor: Releasing CowChain" << frigg::endLog;
+		infoLogger() << "thor: Releasing CowChain" << frg::endlog;
 
 	for(auto it = _pages.begin(); it != _pages.end(); ++it) {
 		auto physical = it->load(std::memory_order_relaxed);
@@ -312,7 +312,7 @@ void VirtualSpace::setupInitialHole(VirtualAddr address, size_t size) {
 
 VirtualSpace::~VirtualSpace() {
 	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: VirtualSpace is destructed\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31mthor: VirtualSpace is destructed\e[39m" << frg::endlog;
 
 	while(_holes.get_root()) {
 		auto hole = _holes.get_root();
@@ -323,7 +323,7 @@ VirtualSpace::~VirtualSpace() {
 
 void VirtualSpace::retire() {
 	if(logCleanup)
-		frigg::infoLogger() << "\e[31mthor: VirtualSpace is cleared\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31mthor: VirtualSpace is cleared\e[39m" << frg::endlog;
 
 	// TODO: Set some flag to make sure that no mappings are added/deleted.
 	auto mapping = _mappings.first();
@@ -414,8 +414,8 @@ void VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 		}
 		assert(actualAddress);
 
-	//	frigg::infoLogger() << "Creating new mapping at " << (void *)actualAddress
-	//			<< ", length: " << (void *)length << frigg::endLog;
+	//	infoLogger() << "Creating new mapping at " << (void *)actualAddress
+	//			<< ", length: " << (void *)length << frg::endlog;
 
 		// Setup a new Mapping object.
 		std::underlying_type_t<MappingFlags> mappingFlags = 0;
@@ -801,8 +801,8 @@ bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNo
 		// Spurious page faults are the result of race conditions.
 		// They should be rare. If they happen too often, something is probably wrong!
 		if(outcome.value().spurious)
-				frigg::infoLogger() << "\e[33m" "thor: Spurious page fault"
-						"\e[39m" << frigg::endLog;
+				infoLogger() << "\e[33m" "thor: Spurious page fault"
+						"\e[39m" << frg::endlog;
 		node->_resolved = true;
 		WorkQueue::post(node->_handled);
 	}(std::move(mapping), address, node));
@@ -829,8 +829,8 @@ smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
 VirtualAddr VirtualSpace::_allocate(size_t length, MapFlags flags) {
 	assert(length > 0);
 	assert((length % kPageSize) == 0);
-//	frigg::infoLogger() << "Allocate virtual memory area"
-//			<< ", size: 0x" << frigg::logHex(length) << frigg::endLog;
+//	infoLogger() << "Allocate virtual memory area"
+//			<< ", size: 0x" << frg::hex_fmt(length) << frg::endlog;
 
 	if(_holes.get_root()->largestHole < length)
 		return 0; // TODO: Return something else here?
