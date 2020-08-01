@@ -122,7 +122,7 @@ namespace acpi {
 
 struct SciDevice : IrqSink {
 	SciDevice()
-	: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "acpi-sci"}} { }
+	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "acpi-sci"}} { }
 
 	IrqStatus raise() override {
 		auto isr = lai_get_sci_event();

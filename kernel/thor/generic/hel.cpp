@@ -2609,7 +2609,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	auto this_universe = this_thread->getUniverse();
 
 	auto irq = frigg::makeShared<IrqObject>(*kernelAlloc,
-			frigg::String<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
+			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
 	IrqPin::attachSink(getGlobalSystemIrq(number), irq.get());
 
 	{

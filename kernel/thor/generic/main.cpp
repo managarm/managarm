@@ -14,6 +14,7 @@
 #include <thor-internal/servers.hpp>
 #include <frg/string.hpp>
 #include <frigg/elf.hpp>
+#include <frigg/string.hpp>
 #include <eir/interface.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/framebuffer/fb.hpp>

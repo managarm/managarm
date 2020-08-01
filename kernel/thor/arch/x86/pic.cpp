@@ -1,10 +1,9 @@
-
 #include <arch/bits.hpp>
-#include <arch/register.hpp>
-#include <arch/mem_space.hpp>
 #include <arch/io_space.hpp>
-
+#include <arch/mem_space.hpp>
+#include <arch/register.hpp>
 #include <thor-internal/arch/hpet.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
@@ -133,8 +132,8 @@ void LocalApicContext::handleTimerIrq() {
 	assert(apicIsCalibrated);
 
 	if(debugTimer)
-		frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
-				<< frigg::endLog;
+		infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
+				<< frg::endlog;
 	auto self = localApicContext();
 	auto now = systemClockSource()->currentNanos();
 
@@ -187,8 +186,8 @@ void LocalApicContext::_updateLocalTimer() {
 		ticks /= 1'000'000;
 		frigg::arch_x86::wrmsr(0x6E0, ticks);
 		if(debugTimer)
-			frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting TSC deadline to "
-					<< ticks << frigg::endLog;
+			infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting TSC deadline to "
+					<< ticks << frg::endlog;
 	}else{
 		if(!deadline) {
 			picBase.store(lApicInitCount, 0);
@@ -199,13 +198,13 @@ void LocalApicContext::_updateLocalTimer() {
 		uint64_t ticks;
 		if(deadline < now) {
 			if(debugTimer)
-				frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-						<< "]: Setting single tick timer" << frigg::endLog;
+				infoLogger() << "thor [CPU " << getLocalApicId()
+						<< "]: Setting single tick timer" << frg::endlog;
 			ticks = 1;
 		}else{
 			if(debugTimer)
-				frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
-						<< ((deadline - now)/1000) << " us in the future" << frigg::endLog;
+				infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
+						<< ((deadline - now)/1000) << " us in the future" << frg::endlog;
 			auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
 			assert(!of);
 			ticks /= 1'000'000;
@@ -241,11 +240,11 @@ static initgraph::Task discoverApicTask{&basicInitEngine, "x86.discover-apic",
 
 		bool haveX2apic = false;
 		if(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 21)){
-			frigg::infoLogger() << "\e[37mthor: CPU supports x2apic\e[39m" << frigg::endLog;
+			infoLogger() << "\e[37mthor: CPU supports x2apic\e[39m" << frg::endlog;
 			msr |= (1 << 10);
 			haveX2apic = true;
 		} else {
-			frigg::infoLogger() << "\e[37mthor: CPU does not support x2apic\e[39m" << frigg::endLog;
+			infoLogger() << "\e[37mthor: CPU does not support x2apic\e[39m" << frg::endlog;
 		}
 
 		frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLocalApicBase, msr);
@@ -275,10 +274,10 @@ void initLocalApicPerCpu() {
 	auto dumpLocalInt = [&] (int index) {
 		auto regstr = (index == 0 ? lApicLvtLocal0 : lApicLvtLocal1);
 		auto lvt = picBase.load(regstr);
-		frigg::infoLogger() << "thor: CPU #" << getLocalApicId()
+		infoLogger() << "thor: CPU #" << getLocalApicId()
 				<< " LINT " << index << " mode is " << (lvt & apicLvtMode)
 				<< ", it is " << ((lvt & apicLvtMask) ? "masked" : "not masked")
-				<< frigg::endLog;
+				<< frg::endlog;
 	};
 
 	// Enable the local APIC.
@@ -314,7 +313,7 @@ uint64_t localTicks() {
 struct TimeStampCounter : ClockSource {
 	uint64_t currentNanos() override {
 		auto r = getRawTimestampCounter() * 1'000'000 / tscTicksPerMilli;
-//		frigg::infoLogger() << r << frigg::endLog;
+//		infoLogger() << r << frg::endlog;
 		return r;
 	}
 };
@@ -338,7 +337,7 @@ void calibrateApicTimer() {
 		picBase.store(lApicInitCount, 0);
 
 		apicTicksPerMilli = elapsed / millis;
-		frigg::infoLogger() << "thor: Local APIC ticks/ms: " << apicTicksPerMilli << frigg::endLog;
+		infoLogger() << "thor: Local APIC ticks/ms: " << apicTicksPerMilli << frg::endlog;
 	}
 
 	// Calibrate the TSC.
@@ -347,7 +346,7 @@ void calibrateApicTimer() {
 	auto tsc_elapsed = getRawTimestampCounter() - tsc_start;
 
 	tscTicksPerMilli = tsc_elapsed / millis;
-	frigg::infoLogger() << "thor: TSC ticks/ms: " << tscTicksPerMilli << frigg::endLog;
+	infoLogger() << "thor: TSC ticks/ms: " << tscTicksPerMilli << frg::endlog;
 
 	apicIsCalibrated = true;
 
@@ -428,7 +427,7 @@ void sendShootdownIpi() {
 
 void sendPingIpi(int id) {
 	auto apic = getCpuData(id)->localApicId;
-//	frigg::infoLogger() << "thor [CPU" << getLocalApicId() << "]: Sending ping" << frigg::endLog;
+//	infoLogger() << "thor [CPU" << getLocalApicId() << "]: Sending ping" << frg::endlog;
 	if(picBase.isUsingX2apic()) {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF1) | x2apicIcrLowDelivMode(0)
 				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(0) | x2apicIcrHighDestField(apic));
@@ -542,11 +541,11 @@ namespace {
 		Pin **_pins;
 	};
 
-	static frigg::String<KernelAlloc> buildName(int apic_id, unsigned int index) {
-		return frigg::String<KernelAlloc>{*kernelAlloc, "io-apic."}
-				+ frigg::to_string(*kernelAlloc, apic_id)
-				+ frigg::String<KernelAlloc>{*kernelAlloc, ":"}
-				+ frigg::to_string(*kernelAlloc, index);
+	static frg::string<KernelAlloc> buildName(int apic_id, unsigned int index) {
+		return frg::string<KernelAlloc>{*kernelAlloc, "io-apic."}
+				+ frg::to_allocated_string(*kernelAlloc, apic_id)
+				+ frg::string<KernelAlloc>{*kernelAlloc, ":"}
+				+ frg::to_allocated_string(*kernelAlloc, index);
 	}
 
 	IoApic::Pin::Pin(IoApic *chip, unsigned int index)
@@ -575,15 +574,15 @@ namespace {
 			for(int i = 0; i < 64; i++) {
 				if(!globalIrqSlots[i]->isAvailable())
 					continue;
-				frigg::infoLogger() << "thor: Allocating IRQ slot " << i
-						<< " to " << name() << frigg::endLog;
+				infoLogger() << "thor: Allocating IRQ slot " << i
+						<< " to " << name() << frg::endlog;
 				globalIrqSlots[i]->link(this);
 				_vector = 64 + i;
 				break;
 			}
 		if(_vector == -1)
-			frigg::panicLogger() << "thor: Could not allocate interrupt vector for "
-					<< name() << frigg::endLog;
+			panicLogger() << "thor: Could not allocate interrupt vector for "
+					<< name() << frg::endlog;
 
 		_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
 				static_cast<uint32_t>(pin_word2::destination(0)));
@@ -595,7 +594,7 @@ namespace {
 	}
 
 	void IoApic::Pin::mask() {
-//		frigg::infoLogger() << "thor: Masking pin " << _index << frigg::endLog;
+//		infoLogger() << "thor: Masking pin " << _index << frg::endlog;
 		_chip->_storeRegister(kIoApicInts + _index * 2,
 				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
@@ -603,7 +602,7 @@ namespace {
 	}
 
 	void IoApic::Pin::unmask() {
-//		frigg::infoLogger() << "thor: Unmasking pin " << _index << frigg::endLog;
+//		infoLogger() << "thor: Unmasking pin " << _index << frg::endlog;
 		_chip->_storeRegister(kIoApicInts + _index * 2,
 				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
@@ -617,8 +616,8 @@ namespace {
 	IoApic::IoApic(int apic_id, arch::mem_space space)
 	: _apicId(apic_id), _space{std::move(space)} {
 		_numPins = ((_loadRegister(kIoApicVersion) >> 16) & 0xFF) + 1;
-		frigg::infoLogger() << "thor: I/O APIC " << apic_id << " supports "
-				<< _numPins << " pins" << frigg::endLog;
+		infoLogger() << "thor: I/O APIC " << apic_id << " supports "
+				<< _numPins << " pins" << frg::endlog;
 
 		_pins = frigg::constructN<Pin *>(*kernelAlloc, _numPins);
 		for(size_t i = 0; i < _numPins; i++) {
@@ -627,8 +626,8 @@ namespace {
 			// Dump interesting configurations.
 			arch::bit_value<uint32_t> current{_loadRegister(kIoApicInts + i * 2)};
 			if(!(current & pin_word1::masked))
-				frigg::infoLogger() << "    Pin " << i << " was not masked by BIOS."
-						<< frigg::endLog;
+				infoLogger() << "    Pin " << i << " was not masked by BIOS."
+						<< frg::endlog;
 
 			// Mask all interrupts before they are configured.
 			_storeRegister(kIoApicInts + i * 2, static_cast<uint32_t>(pin_word1::masked(true)));
@@ -775,4 +774,3 @@ void acknowledgeIrq(int irq) {
 }
 
 } // namespace thor
-

@@ -100,7 +100,7 @@ namespace {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			auto object = frigg::makeShared<IrqObject>(*kernelAlloc,
-					frigg::String<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
+					frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
 #ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(14);
 			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());

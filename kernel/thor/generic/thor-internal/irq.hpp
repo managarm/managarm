@@ -1,9 +1,9 @@
 #pragma once
 
 #include <frg/list.hpp>
+#include <frg/string.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/linked.hpp>
-#include <frigg/string.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -93,9 +93,9 @@ enum class IrqStatus {
 struct IrqSink {
 	friend struct IrqPin;
 
-	IrqSink(frigg::String<KernelAlloc> name);
+	IrqSink(frg::string<KernelAlloc> name);
 
-	const frigg::String<KernelAlloc> &name() {
+	const frg::string<KernelAlloc> &name() {
 		return _name;
 	}
 
@@ -118,7 +118,7 @@ protected:
 	}
 
 private:
-	frigg::String<KernelAlloc> _name;
+	frg::string<KernelAlloc> _name;
 
 	IrqPin *_pin;
 	
@@ -152,13 +152,13 @@ public:
 	static Error kickSink(IrqSink *sink);
 
 public:
-	IrqPin(frigg::String<KernelAlloc> name);
+	IrqPin(frg::string<KernelAlloc> name);
 
 	IrqPin(const IrqPin &) = delete;
 	
 	IrqPin &operator= (const IrqPin &) = delete;
 
-	const frigg::String<KernelAlloc> &name() {
+	const frg::string<KernelAlloc> &name() {
 		return _name;
 	}
 
@@ -188,7 +188,7 @@ private:
 	void _callSinks();
 	void _updateMask();
 
-	frigg::String<KernelAlloc> _name;
+	frg::string<KernelAlloc> _name;
 
 	// Must be protected against IRQs.
 	frigg::TicketLock _mutex;
@@ -224,7 +224,7 @@ private:
 
 // This class implements the user-visible part of IRQ handling.
 struct IrqObject final : IrqSink {
-	IrqObject(frigg::String<KernelAlloc> name);
+	IrqObject(frg::string<KernelAlloc> name);
 
 	void automate(frigg::SharedPtr<BoundKernlet> kernlet);
 

@@ -1,10 +1,7 @@
-
+#include <thor-internal/debug.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/timer.hpp>
-#ifdef __x86_64__
-#include <thor-internal/arch/hpet.hpp>
-#endif
 
 namespace thor {
 
@@ -26,7 +23,7 @@ void IrqSlot::link(IrqPin *pin) {
 // IrqSink
 // --------------------------------------------------------
 
-IrqSink::IrqSink(frigg::String<KernelAlloc> name)
+IrqSink::IrqSink(frg::string<KernelAlloc> name)
 : _name{frigg::move(name)}, _pin{nullptr}, _currentSequence{0},
 		_responseSequence{0}, _status{IrqStatus::null} { }
 
@@ -45,8 +42,8 @@ void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
 
 	// TODO: Decide what to do in this case.
 	if(pin->_inService)
-		frigg::infoLogger() << "thor: IRQ " << pin->name() << " is in service"
-				" while sink is attached" << frigg::endLog;
+		infoLogger() << "thor: IRQ " << pin->name() << " is in service"
+				" while sink is attached" << frg::endlog;
 
 	pin->_sinkList.push_back(sink);
 	sink->_pin = pin;
@@ -126,7 +123,7 @@ Error IrqPin::kickSink(IrqSink *sink) {
 // IrqPin
 // --------------------------------------------------------
 
-IrqPin::IrqPin(frigg::String<KernelAlloc> name)
+IrqPin::IrqPin(frg::string<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null},
 		_raiseSequence{0}, _sinkSequence{0}, _inService{false}, _dueSinks{0},
 		_maskState{0} { }
@@ -138,9 +135,9 @@ void IrqPin::configure(IrqConfiguration desired) {
 	auto lock = frigg::guard(&_mutex);
 
 	if(!_activeCfg.specified()) {
-		frigg::infoLogger() << "thor: Configuring IRQ " << _name
+		infoLogger() << "thor: Configuring IRQ " << _name
 				<< " to trigger mode: " << static_cast<int>(desired.trigger)
-				<< ", polarity: " << static_cast<int>(desired.polarity) << frigg::endLog;
+				<< ", polarity: " << static_cast<int>(desired.polarity) << frg::endlog;
 		_strategy = program(desired.trigger, desired.polarity);
 
 		_activeCfg = desired;
@@ -159,7 +156,7 @@ void IrqPin::raise() {
 	auto lock = frigg::guard(&_mutex);
 	
 	if(_strategy == IrqStrategy::null) {
-		frigg::infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frigg::endLog;
+		infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frg::endlog;
 	}else{
 		assert(_strategy == IrqStrategy::justEoi
 				|| _strategy == IrqStrategy::maskThenEoi);
@@ -179,8 +176,8 @@ void IrqPin::raise() {
 		_callSinks();
 
 		if(_inService && !_dueSinks) {
-			frigg::infoLogger() << "\e[31mthor: IRQ " << _name
-					<< " was nacked (synchronously)!\e[39m" << frigg::endLog;
+			infoLogger() << "\e[31mthor: IRQ " << _name
+					<< " was nacked (synchronously)!\e[39m" << frg::endlog;
 			_maskState |= maskedForNack;
 		}
 	}
@@ -213,8 +210,8 @@ void IrqPin::_nack() {
 	if(!_inService || _dueSinks)
 		return;
 
-	frigg::infoLogger() << "\e[31mthor: IRQ " << _name
-			<< " was nacked (asynchronously)!\e[39m" << frigg::endLog;
+	infoLogger() << "\e[31mthor: IRQ " << _name
+			<< " was nacked (asynchronously)!\e[39m" << frg::endlog;
 	_maskState |= maskedForNack;
 	_updateMask();
 }
@@ -240,13 +237,13 @@ void IrqPin::warnIfPending() {
 		return;
 
 	if(systemClockSource()->currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
-		auto log = frigg::infoLogger();
+		auto log = infoLogger();
 		log << "\e[35mthor: Pending IRQ " << _name << " has not been"
 				" acked/nacked for more than one second.";
 		for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)
 			if((*it)->_status == IrqStatus::null)
 				log << "\n   Sink " << (*it)->name() << " has not acked/nacked";
-		log << "\e[39m" << frigg::endLog;
+		log << "\e[39m" << frg::endlog;
 		_warnedAfterPending = true;
 	}
 }
@@ -262,8 +259,8 @@ void IrqPin::_callSinks() {
 	}
 
 	if(_sinkList.empty())
-		frigg::infoLogger() << "\e[35mthor: No sink for IRQ "
-				<< _name << "\e[39m" << frigg::endLog;
+		infoLogger() << "\e[35mthor: No sink for IRQ "
+				<< _name << "\e[39m" << frg::endlog;
 
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
 		auto lock = frigg::guard(&(*it)->_mutex);
@@ -300,7 +297,7 @@ void IrqPin::_updateMask() {
 // We create the IrqObject in latched state in order to ensure that users to not miss IRQs
 // that happened before the object was created.
 // However this can result in spurious raises.
-IrqObject::IrqObject(frigg::String<KernelAlloc> name)
+IrqObject::IrqObject(frg::string<KernelAlloc> name)
 : IrqSink{frigg::move(name)} { }
 
 // TODO: Add a sequence parameter to this function and run the kernlet if the sequence advanced.
@@ -346,4 +343,3 @@ void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 }
 
 } // namespace thor
-

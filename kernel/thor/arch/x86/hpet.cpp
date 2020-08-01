@@ -73,7 +73,7 @@ private:
 
 public:
 	HpetDevice()
-	: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "hpet-irq"}} { }
+	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "hpet-irq"}} { }
 
 	IrqStatus raise() override {
 		if(logIrqs)

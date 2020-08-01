@@ -109,12 +109,12 @@ namespace {
 
 			assert(device->interrupt);
 			auto object = frigg::makeShared<IrqObject>(*kernelAlloc,
-					frigg::String<KernelAlloc>{*kernelAlloc, "pci-irq."}
-					+ frigg::to_string(*kernelAlloc, device->bus)
-					+ frigg::String<KernelAlloc>{*kernelAlloc, "-"}
-					+ frigg::to_string(*kernelAlloc, device->slot)
-					+ frigg::String<KernelAlloc>{*kernelAlloc, "-"}
-					+ frigg::to_string(*kernelAlloc, device->function));
+					frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
+					+ frg::to_allocated_string(*kernelAlloc, device->bus)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, device->slot)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, device->function));
 			IrqPin::attachSink(device->interrupt, object.get());
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -130,9 +130,9 @@ namespace {
 			assert(descError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::CLAIM_DEVICE) {
 			if(device->associatedScreen) {
-				frigg::infoLogger() << "thor: Disabling screen associated with PCI device "
+				infoLogger() << "thor: Disabling screen associated with PCI device "
 						<< device->bus << "." << device->slot << "." << device->function
-						<< frigg::endLog;
+						<< frg::endlog;
 				disableLogHandler(device->associatedScreen);
 			}
 
@@ -485,27 +485,27 @@ PciBus::PciBus(PciBridge *associatedBridge_, uint32_t busId_, lai_nsnode_t *acpi
 	lai_nsnode_t *prtHandle = lai_resolve_path(acpiHandle, "_PRT");
 	if(!prtHandle) {
 		if(associatedBridge) {
-			frigg::infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
-					" assuming expansion bridge routing" << frigg::endLog;
+			infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
+					" assuming expansion bridge routing" << frg::endlog;
 			for(int i = 0; i < 4; i++) {
 				_bridgeIrqs[i] = associatedBridge->parentBus->resolveIrqRoute(
 						associatedBridge->slot, static_cast<IrqIndex>(i + 1));
 				if(_bridgeIrqs[i])
-					frigg::infoLogger() << "thor:     Bridge IRQ [" << i << "]: "
-							<< _bridgeIrqs[i]->name() << frigg::endLog;
+					infoLogger() << "thor:     Bridge IRQ [" << i << "]: "
+							<< _bridgeIrqs[i]->name() << frg::endlog;
 			}
 			_routingModel = RoutingModel::expansionBridge;
 		}else{
-			frigg::infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
-					" giving up IRQ routing of this bus" << frigg::endLog;
+			infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
+					" giving up IRQ routing of this bus" << frg::endlog;
 		}
 		return;
 	}
 
 	LAI_CLEANUP_VAR lai_variable_t prt = LAI_VAR_INITIALIZER;
 	if (lai_eval(&prt, prtHandle, &laiState)) {
-		frigg::infoLogger() << "thor: Failed to evaluate _PRT;"
-				" giving up IRQ routing of this bus" << frigg::endLog;
+		infoLogger() << "thor: Failed to evaluate _PRT;"
+				" giving up IRQ routing of this bus" << frg::endlog;
 		return;
 	}
 
@@ -516,9 +516,9 @@ PciBus::PciBus(PciBridge *associatedBridge_, uint32_t busId_, lai_nsnode_t *acpi
 		assert(iter.function == -1 && "TODO: support routing of individual functions");
 		auto index = static_cast<IrqIndex>(iter.pin + 1);
 
-		frigg::infoLogger() << "    Route for slot " << iter.slot
+		infoLogger() << "    Route for slot " << iter.slot
 				<< ", " << nameOf(index) << ": "
-				<< "GSI " << iter.gsi << frigg::endLog;
+				<< "GSI " << iter.gsi << frg::endlog;
 
 		// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
 		// Hence, for now we do not deal with link devices.
@@ -574,26 +574,26 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 
 	uint8_t header_type = readPciByte(bus->busId, slot, function, kPciHeaderType);
 	if((header_type & 0x7F) == 0) {
-		frigg::infoLogger() << "        Function " << function << ": Device";
+		infoLogger() << "        Function " << function << ": Device";
 	}else if((header_type & 0x7F) == 1) {
 		uint8_t downstreamId = readPciByte(bus->busId, slot, function, kPciBridgeSecondary);
-		frigg::infoLogger() << "        Function " << function
+		infoLogger() << "        Function " << function
 				<< ": PCI-to-PCI bridge to bus " << (int)downstreamId;
 	}else{
-		frigg::infoLogger() << "        Function " << function
+		infoLogger() << "        Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F);
 	}
 
 	auto command = readPciHalf(bus->busId, slot, function, kPciCommand);
 	if(command & 0x01)
-		frigg::infoLogger() << " (Decodes IO)";
+		infoLogger() << " (Decodes IO)";
 	if(command & 0x02)
-		frigg::infoLogger() << " (Decodes Memory)";
+		infoLogger() << " (Decodes Memory)";
 	if(command & 0x04)
-		frigg::infoLogger() << " (Busmaster)";
+		infoLogger() << " (Busmaster)";
 	if(command & 0x400)
-		frigg::infoLogger() << " (IRQs masked)";
-	frigg::infoLogger() << frigg::endLog;
+		infoLogger() << " (IRQs masked)";
+	infoLogger() << frg::endlog;
 	writePciHalf(bus->busId, slot, function, kPciCommand, command | 0x400);
 
 	lai_nsnode_t *deviceHandle = nullptr;
@@ -604,8 +604,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	}
 	if(deviceHandle) {
 		LAI_CLEANUP_FREE_STRING char *acpiPath = lai_stringify_node_path(deviceHandle);
-		frigg::infoLogger() << "            ACPI: " << const_cast<const char *>(acpiPath)
-				<< frigg::endLog;
+		infoLogger() << "            ACPI: " << const_cast<const char *>(acpiPath)
+				<< frg::endlog;
 	}
 
 	auto device_id = readPciHalf(bus->busId, slot, function, kPciDevice);
@@ -613,22 +613,22 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	auto class_code = readPciByte(bus->busId, slot, function, kPciClassCode);
 	auto sub_class = readPciByte(bus->busId, slot, function, kPciSubClass);
 	auto interface = readPciByte(bus->busId, slot, function, kPciInterface);
-	frigg::infoLogger() << "            Vendor/device: " << frigg::logHex(vendor)
-			<< "." << frigg::logHex(device_id) << "." << frigg::logHex(revision)
-			<< ", class: " << frigg::logHex(class_code)
-			<< "." << frigg::logHex(sub_class)
-			<< "." << frigg::logHex(interface) << frigg::endLog;
+	infoLogger() << "            Vendor/device: " << frg::hex_fmt(vendor)
+			<< "." << frg::hex_fmt(device_id) << "." << frg::hex_fmt(revision)
+			<< ", class: " << frg::hex_fmt(class_code)
+			<< "." << frg::hex_fmt(sub_class)
+			<< "." << frg::hex_fmt(interface) << frg::endlog;
 
 	if((header_type & 0x7F) == 0) {
 		uint16_t subsystem_vendor = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemVendor);
 		uint16_t subsystem_device = readPciHalf(bus->busId, slot, function, kPciRegularSubsystemDevice);
-//		frigg::infoLogger() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
-//				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::endLog;
+//		infoLogger() << "        Subsystem vendor: 0x" << frg::hex_fmt(subsystem_vendor)
+//				<< ", device: 0x" << frg::hex_fmt(subsystem_device) << frg::endlog;
 
 		auto status = readPciHalf(bus->busId, slot, function, kPciStatus);
 
 		if(status & 0x08)
-			frigg::infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frigg::endLog;
+			infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frg::endlog;
 
 		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface, subsystem_vendor, subsystem_device);
@@ -642,11 +642,11 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 
 				auto name = nameOfCapability(type);
 				if(name) {
-					frigg::infoLogger() << "            " << name << " capability"
-							<< frigg::endLog;
+					infoLogger() << "            " << name << " capability"
+							<< frg::endlog;
 				}else{
-					frigg::infoLogger() << "            Capability of type 0x"
-							<< frigg::logHex((int)type) << frigg::endLog;
+					infoLogger() << "            Capability of type 0x"
+							<< frg::hex_fmt((int)type) << frg::endlog;
 				}
 
 				// TODO: 
@@ -686,9 +686,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 					device->bars[i].io->addPort(address + p);
 				device->bars[i].offset = 0;
 
-				frigg::infoLogger() << "            I/O space BAR #" << i
-						<< " at 0x" << frigg::logHex(address)
-						<< ", length: " << length << " ports" << frigg::endLog;
+				infoLogger() << "            I/O space BAR #" << i
+						<< " at 0x" << frg::hex_fmt(address)
+						<< ", length: " << length << " ports" << frg::endlog;
 			}else if(((bar >> 1) & 3) == 0) {
 				uint32_t address = bar & 0xFFFFFFF0;
 
@@ -709,9 +709,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 						CachingMode::null);
 				device->bars[i].offset = offset;
 
-				frigg::infoLogger() << "            32-bit memory BAR #" << i
-						<< " at 0x" << frigg::logHex(address)
-						<< ", length: " << length << " bytes" << frigg::endLog;
+				infoLogger() << "            32-bit memory BAR #" << i
+						<< " at 0x" << frg::hex_fmt(address)
+						<< ", length: " << length << " bytes" << frg::endlog;
 			}else if(((bar >> 1) & 3) == 2) {
 				assert(i < 5); // Otherwise there is no next bar.
 				auto high = readPciWord(bus->busId, slot, function, offset + 4);;
@@ -737,9 +737,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 						CachingMode::null);
 				device->bars[i].offset = offset;
 
-				frigg::infoLogger() << "            64-bit memory BAR #" << i
-						<< " at 0x" << frigg::logHex(address)
-						<< ", length: " << length << " bytes" << frigg::endLog;
+				infoLogger() << "            64-bit memory BAR #" << i
+						<< " at 0x" << frg::hex_fmt(address)
+						<< ", length: " << length << " bytes" << frg::endlog;
 				i++;
 			}else{
 				assert(!"Unexpected BAR type");
@@ -751,13 +751,13 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		if(irq_index != IrqIndex::null) {
 			auto irq_pin = bus->resolveIrqRoute(slot, irq_index);
 			if(irq_pin) {
-				frigg::infoLogger() << "            Interrupt: "
+				infoLogger() << "            Interrupt: "
 						<< nameOf(irq_index)
-						<< " (routed to " << irq_pin->name() << ")" << frigg::endLog;
+						<< " (routed to " << irq_pin->name() << ")" << frg::endlog;
 				device->interrupt = irq_pin;
 			}else{
-				frigg::infoLogger() << "\e[31m" "            Interrupt routing not available!"
-					"\e[39m" << frigg::endLog;
+				infoLogger() << "\e[31m" "            Interrupt routing not available!"
+					"\e[39m" << frg::endlog;
 			}
 		}
 
@@ -776,8 +776,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 
 	// TODO: This should probably be moved somewhere else.
 	if(class_code == 0x0C && sub_class == 0x03 && interface == 0x00) {
-		frigg::infoLogger() << "            \e[32mDisabling UHCI SMI generation!\e[39m"
-				<< frigg::endLog;
+		infoLogger() << "            \e[32mDisabling UHCI SMI generation!\e[39m"
+				<< frg::endlog;
 		writePciHalf(bus->busId, slot, function, 0xC0, 0x2000);
 	}
 }
@@ -787,7 +787,7 @@ void checkPciDevice(PciBus *bus, uint32_t slot) {
 	if(vendor == 0xFFFF)
 		return;
 
-	frigg::infoLogger() << "    Bus: " << bus->busId << ", slot " << slot << frigg::endLog;
+	infoLogger() << "    Bus: " << bus->busId << ", slot " << slot << frg::endlog;
 
 	uint8_t header_type = readPciByte(bus->busId, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {
@@ -830,13 +830,13 @@ void enumerateSystemBusses() {
 				&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &laiState))
 			continue;
 
-		frigg::infoLogger() << "thor: Found PCI host bridge" << frigg::endLog;
+		infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
 		auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, 0, handle);
 		enumerationQueue->push_back(std::move(rootBus)); // FIXME: the move should not be necessary.
 	}
 
 	// Note that elements are added to this queue while it is being traversed.
-	frigg::infoLogger() << "thor: Discovering PCI devices" << frigg::endLog;
+	infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
 	for(size_t i = 0; i < enumerationQueue->size(); i++) {
 		auto bus = (*enumerationQueue)[i];
 		checkPciBus(bus);
