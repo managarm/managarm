@@ -1,24 +1,22 @@
-
 #include <algorithm>
-
-#include <thor-internal/main.hpp>
-#include <thor-internal/module.hpp>
+#include <eir/interface.hpp>
+#include <frg/string.hpp>
+#include <frigg/elf.hpp>
+#include <thor-internal/arch/system.hpp>
+#include <thor-internal/debug.hpp>
+#include <thor-internal/fiber.hpp>
+#include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
-#include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/kernlet.hpp>
+#include <thor-internal/main.hpp>
+#include <thor-internal/module.hpp>
+#include <thor-internal/pci/pci.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
-#include <frg/string.hpp>
-#include <frigg/elf.hpp>
-#include <frigg/string.hpp>
-#include <eir/interface.hpp>
-#include <thor-internal/pci/pci.hpp>
-#include <thor-internal/framebuffer/fb.hpp>
-#include <thor-internal/arch/system.hpp>
 #ifdef __x86_64__
 #include <thor-internal/arch/ept.hpp>
 #endif
@@ -44,7 +42,7 @@ frigg::LazyInitializer<frg::string<KernelAlloc>> kernelCommandLine;
 void setupDebugging();
 
 extern "C" void frg_panic(const char *cstring) {
-	frigg::panicLogger() << "frg: Panic! " << cstring << frigg::endLog;
+	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
 }
 
 frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
@@ -71,14 +69,14 @@ extern "C" void thorInitialize() {
 			thorBootInfoPtr->frameBuffer.fbBpp, thorBootInfoPtr->frameBuffer.fbType,
 			reinterpret_cast<void *>(thorBootInfoPtr->frameBuffer.fbEarlyWindow));
 
-	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
+	infoLogger() << "Starting Thor" << frg::endlog;
 
 	if(thorBootInfoPtr->signature == eirSignatureValue) {
-		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
-				<< frigg::endLog;
+		infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
+				<< frg::endlog;
 	}else{
-		frigg::panicLogger() << "\e[31mthor: Bootstrap information signature mismatch!\e[39m"
-				<< frigg::endLog;
+		panicLogger() << "\e[31mthor: Bootstrap information signature mismatch!\e[39m"
+				<< frg::endlog;
 	}
 
 	// TODO: Move this to an architecture specific file.
@@ -95,8 +93,8 @@ extern "C" void thorInitialize() {
 	for(int i = 0; i < thorBootInfoPtr->numRegions; i++)
 		physicalAllocator->bootstrapRegion(region[i].address, region[i].order,
 				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
-	frigg::infoLogger() << "thor: Number of available pages: "
-			<< physicalAllocator->numFreePages() << frigg::endLog;
+	infoLogger() << "thor: Number of available pages: "
+			<< physicalAllocator->numFreePages() << frg::endlog;
 
 	kernelVirtualAlloc.initialize();
 	kernelHeap.initialize(*kernelVirtualAlloc);
@@ -104,12 +102,12 @@ extern "C" void thorInitialize() {
 
 	initializePhysicalAccess();
 
-	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
+	infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frg::endlog;
 }
 
 extern "C" void thorRunConstructors() {
-	frigg::infoLogger() << "There are "
-			<< (__init_array_end - __init_array_start) << " constructors" << frigg::endLog;
+	infoLogger() << "There are "
+			<< (__init_array_end - __init_array_start) << " constructors" << frg::endlog;
 	for(InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
 			(*p)();
 }
@@ -131,8 +129,8 @@ extern "C" void thorMain() {
 	initializeReclaim();
 
 	if(logInitialization)
-		frigg::infoLogger() << "thor: Bootstrap processor initialized successfully."
-				<< frigg::endLog;
+		infoLogger() << "thor: Bootstrap processor initialized successfully."
+				<< frg::endlog;
 
 	for(auto it = earlyFibers->begin(); it != earlyFibers->end(); ++it)
 		Scheduler::resume(*it);
@@ -196,8 +194,8 @@ extern "C" void thorMain() {
 					}else if(*c >= '0' && *c <= '9') {
 						d = *c++ - '0';
 					}else{
-						frigg::panicLogger() << "Unexpected character 0x" << frigg::logHex(*c)
-								<< " in CPIO header" << frigg::endLog;
+						panicLogger() << "Unexpected character 0x" << frg::hex_fmt(*c)
+								<< " in CPIO header" << frg::endlog;
 						__builtin_unreachable();
 					}
 					v = (v << 4) | d;
@@ -241,10 +239,7 @@ extern "C" void thorMain() {
 				}
 
 				if((mode & type_mask) == directory_type) {
-					// TODO: Get rid of the explicit frigg::String constructor call here.
-					frigg::infoLogger() << "thor: initrd directory "
-							<< frigg::String<KernelAlloc>{*kernelAlloc, path.data(), path.size()}
-							<< frigg::endLog;
+					infoLogger() << "thor: initrd directory " << path << frg::endlog;
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
@@ -253,10 +248,7 @@ extern "C" void thorMain() {
 				}else{
 					assert((mode & type_mask) == regular_type);
 	//				if(logInitialization)
-						// TODO: Get rid of the explicit frigg::String constructor call here.
-						frigg::infoLogger() << "thor: initrd file "
-							<< frigg::String<KernelAlloc>{*kernelAlloc, path.data(), path.size()}
-							<< frigg::endLog;
+						infoLogger() << "thor: initrd file " << path << frg::endlog;
 
 					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
@@ -273,13 +265,13 @@ extern "C" void thorMain() {
 		}
 
 		if(logInitialization)
-			frigg::infoLogger() << "thor: Modules are set up successfully."
-					<< frigg::endLog;
+			infoLogger() << "thor: Modules are set up successfully."
+					<< frg::endlog;
 
 		// Launch initial user space programs.
 		initializeKerncfg();
 		initializeSvrctl();
-		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
+		infoLogger() << "thor: Launching user space." << frg::endlog;
 		KernelFiber::asyncBlockCurrent(runMbus());
 		initializeKernletCtl();
 		KernelFiber::asyncBlockCurrent(runServer("sbin/kernletcc"));
@@ -288,7 +280,7 @@ extern "C" void thorMain() {
 		KernelFiber::asyncBlockCurrent(runServer("sbin/virtio-console"));
 	});
 
-	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;
+	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	localScheduler()->update();
 	localScheduler()->reschedule();
 	localScheduler()->commit();
@@ -296,43 +288,43 @@ extern "C" void thorMain() {
 }
 
 extern "C" void handleStubInterrupt() {
-	frigg::panicLogger() << "Fault or IRQ from stub" << frigg::endLog;
+	panicLogger() << "Fault or IRQ from stub" << frg::endlog;
 }
 extern "C" void handleBadDomain() {
-	frigg::panicLogger() << "Fault or IRQ from bad domain" << frigg::endLog;
+	panicLogger() << "Fault or IRQ from bad domain" << frg::endlog;
 }
 
 extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
 	(void)image;
 
-	frigg::panicLogger() << "Divide by zero" << frigg::endLog;
+	panicLogger() << "Divide by zero" << frg::endlog;
 }
 
 extern "C" void handleDebugFault(FaultImageAccessor image) {
-	frigg::infoLogger() << "Debug fault at "
-			<< (void *)*image.ip() << frigg::endLog;
+	infoLogger() << "Debug fault at "
+			<< (void *)*image.ip() << frg::endlog;
 }
 
 extern "C" void handleOpcodeFault(FaultImageAccessor image) {
 	(void)image;
 
-	frigg::panicLogger() << "Invalid opcode" << frigg::endLog;
+	panicLogger() << "Invalid opcode" << frg::endlog;
 }
 
 extern "C" void handleNoFpuFault(FaultImageAccessor image) {
-	frigg::panicLogger() << "FPU invoked at "
-			<< (void *)*image.ip() << frigg::endLog;
+	panicLogger() << "FPU invoked at "
+			<< (void *)*image.ip() << frg::endlog;
 }
 
 extern "C" void handleDoubleFault(FaultImageAccessor image) {
-	frigg::panicLogger() << "Double fault at "
-			<< (void *)*image.ip() << frigg::endLog;
+	panicLogger() << "Double fault at "
+			<< (void *)*image.ip() << frg::endlog;
 }
 
 extern "C" void handleProtectionFault(FaultImageAccessor image) {
-	frigg::panicLogger() << "General protection fault\n"
+	panicLogger() << "General protection fault\n"
 			<< "    Faulting IP: " << (void *)*image.ip() << "\n"
-			<< "    Faulting segment: " << (void *)*image.code() << frigg::endLog;
+			<< "    Faulting segment: " << (void *)*image.code() << frg::endlog;
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address) {
@@ -347,7 +339,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	assert(!(*image.code() & kPfBadTable));
 
 	if(logEveryPageFault) {
-		auto msg = frigg::infoLogger();
+		auto msg = infoLogger();
 		msg << "thor: Page fault at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
@@ -368,7 +360,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		}else{
 			msg << " (Read)";
 		}
-		msg << frigg::endLog;
+		msg << frg::endlog;
 	}
 
 	uint32_t flags = 0;
@@ -379,7 +371,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 
 	bool handled = false;
 	if(image.inKernelDomain() && !image.allowUserPages()) {
-		frigg::infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
 	}else{
 		// TODO: Make sure that we're in a thread domain.
 		WorkScope wqs{this_thread->pagingWorkQueue()};
@@ -413,12 +405,12 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 			return;
 	}
 
-	frigg::infoLogger() << "thor: Unhandled page fault"
+	infoLogger() << "thor: Unhandled page fault"
 			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)*image.ip() << frigg::endLog;
+			<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 
 	if(!(*image.code() & kPfUser)) {
-		auto msg = frigg::panicLogger();
+		auto msg = panicLogger();
 		msg << "\e[31m" "thor: Page fault in kernel, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
@@ -439,9 +431,9 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		}else{
 			msg << " (Read)";
 		}
-		msg << "\e[39m" << frigg::endLog;
+		msg << "\e[39m" << frg::endlog;
 	}else if(this_thread->flags & Thread::kFlagServer) {
-		auto msg = frigg::infoLogger();
+		auto msg = infoLogger();
 		msg << "\e[31m" "thor: Page fault in server, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
@@ -462,7 +454,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		}else{
 			msg << " (Read)";
 		}
-		msg << "\e[39m" << frigg::endLog;
+		msg << "\e[39m" << frg::endlog;
 		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
 	}else{
 		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
@@ -478,15 +470,15 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	case kIntrGeneralFault: name = "general"; break;
 	case kIntrIllegalInstruction: name = "illegal-instruction"; break;
 	default:
-		frigg::panicLogger() << "Unexpected fault code" << frigg::endLog;
+		panicLogger() << "Unexpected fault code" << frg::endlog;
 	}
 
-	frigg::infoLogger() << "thor: Unhandled " << name << " fault"
-			<< ", faulting ip: " << (void *)*image.ip() << frigg::endLog;
+	infoLogger() << "thor: Unhandled " << name << " fault"
+			<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 
 	if(this_thread->flags & Thread::kFlagServer) {
-		frigg::infoLogger() << "\e[31m" "thor: " << name << " fault in server.\n"
-				<< "Last ip: " << (void *)*image.ip() << "\e[39m" << frigg::endLog;
+		infoLogger() << "\e[31m" "thor: " << name << " fault in server.\n"
+				<< "Last ip: " << (void *)*image.ip() << "\e[39m" << frg::endlog;
 		// TODO: Trigger a more-specific interrupt.
 		Thread::interruptCurrent(kIntrPanic, image);
 	}else{
@@ -499,7 +491,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 	auto cpuData = getCpuData();
 
 	if(logEveryIrq)
-		frigg::infoLogger() << "thor: IRQ slot #" << number << frigg::endLog;
+		infoLogger() << "thor: IRQ slot #" << number << frg::endlog;
 
 	globalIrqSlots[number]->raise();
 
@@ -547,7 +539,7 @@ void handlePreemption(IrqImageAccessor image) {
 	assert(!intsAreEnabled());
 
 	if(logPreemptionIrq)
-		frigg::infoLogger() << "thor: Preemption IRQ" << frigg::endLog;
+		infoLogger() << "thor: Preemption IRQ" << frg::endlog;
 
 	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
@@ -583,8 +575,8 @@ void handleSyscall(SyscallImageAccessor image) {
 	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 	auto cpuData = getCpuData();
 	if(logEverySyscall && *image.number() != kHelCallLog)
-		frigg::infoLogger() << this_thread.get() << " on CPU " << cpuData->cpuIndex
-				<< " syscall #" << *image.number() << frigg::endLog;
+		infoLogger() << this_thread.get() << " on CPU " << cpuData->cpuIndex
+				<< " syscall #" << *image.number() << frg::endlog;
 
 	// Run worklets before we run the syscall.
 	// This avoids useless FutexWait calls on IPC queues.
@@ -771,9 +763,9 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = actualSize;
 	} break;
 	case kHelCallCreateThread: {
-//		frigg::infoLogger() << "[" << this_thread->globalThreadId << "]"
+//		infoLogger() << "[" << this_thread->globalThreadId << "]"
 //				<< " helCreateThread()"
-//				<< frigg::endLog;
+//				<< frg::endlog;
 		HelHandle handle;
 		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
 				(int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
@@ -905,8 +897,7 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	Thread::raiseSignals(image);
 
-//	frigg::infoLogger() << "exit syscall" << frigg::endLog;
+//	infoLogger() << "exit syscall" << frg::endlog;
 }
 
 } // namespace thor
-

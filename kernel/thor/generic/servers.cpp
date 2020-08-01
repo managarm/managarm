@@ -1,17 +1,13 @@
-
 #include <algorithm>
-
 #include <frg/hash_map.hpp>
 #include <frg/string.hpp>
-#include <frigg/debug.hpp>
 #include <frigg/elf.hpp>
-#include <frigg/string.hpp>
-#include <thor-internal/descriptor.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/debug.hpp>
+#include <thor-internal/descriptor.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>
-
 #include "mbus.frigg_pb.hpp"
 #include "svrctl.frigg_pb.hpp"
 
@@ -215,8 +211,8 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 							| AddressSpace::kMapProtExecute);
 				assert(mapResult);
 			}else{
-				frigg::panicLogger() << "Illegal combination of segment permissions"
-						<< frigg::endLog;
+				panicLogger() << "Illegal combination of segment permissions"
+						<< frg::endlog;
 			}
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
@@ -238,7 +234,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 }
 
 template<typename T>
-uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
+uintptr_t copyToStack(frg::string<KernelAlloc> &stack_image, const T &data) {
 	uintptr_t misalign = stack_image.size() % alignof(T);
 	if(misalign)
 		stack_image.resize(alignof(T) - misalign);
@@ -276,7 +272,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	// build the stack data area (containing program arguments,
 	// environment strings and related data).
 	// TODO: do we actually need this buffer?
-	frigg::String<KernelAlloc> data_area(*kernelAlloc);
+	frg::string<KernelAlloc> data_area(*kernelAlloc);
 
 	uintptr_t data_disp = stack_size - data_area.size();
 	co_await copyToView(stack_memory.get(), data_disp, data_area.data(), data_area.size());
@@ -308,7 +304,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 		AT_MBUS_SERVER = 0x1103
 	};
 
-	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
+	frg::string<KernelAlloc> tail_area(*kernelAlloc);
 	
 	// Setup the stack with argc, argv and environment.
 	copyToStack<uintptr_t>(tail_area, 0); // argc.
@@ -373,7 +369,7 @@ void initializeMbusStream() {
 
 coroutine<void> runMbus() {
 	if(debugLaunch)
-		frigg::infoLogger() << "thor: Launching mbus" << frigg::endLog;
+		infoLogger() << "thor: Launching mbus" << frg::endlog;
 
 	frg::string<KernelAlloc> nameStr{*kernelAlloc, "/sbin/mbus"};
 	assert(!allServers->get(nameStr));
@@ -390,25 +386,19 @@ coroutine<void> runMbus() {
 
 coroutine<LaneHandle> runServer(frg::string_view name) {
 	if(debugLaunch)
-		// TODO: Get rid of the explicit frigg::String constructor call here.
-		frigg::infoLogger() << "thor: Launching server " << frigg::String<KernelAlloc>{*kernelAlloc,
-				name.data(), name.size()} << frigg::endLog;
+		infoLogger() << "thor: Launching server " << name << frg::endlog;
 
 	frg::string<KernelAlloc> nameStr{*kernelAlloc, name.data(), name.size()};
 	if(auto server = allServers->get(nameStr); server) {
 		if(debugLaunch)
-			// TODO: Get rid of the explicit frigg::String constructor call here.
-			frigg::infoLogger() << "thor: Server " << frigg::String<KernelAlloc>{*kernelAlloc,
-				name.data(), name.size()} << " is already running" << frigg::endLog;
+			infoLogger() << "thor: Server "
+					<< name << " is already running" << frg::endlog;
 		co_return *server;
 	}
 
 	auto module = resolveModule(name);
 	if(!module)
-		// TODO: Get rid of the explicit frigg::String constructor call here.
-		frigg::panicLogger() << "thor: Could not find module "
-				<< frigg::String<KernelAlloc>{*kernelAlloc,
-						name.data(), name.size()} << frigg::endLog;
+		panicLogger() << "thor: Could not find module " << name << frg::endlog;
 	assert(module->type == MfsType::regular);
 
 	auto controlStream = createStream();
@@ -607,8 +597,8 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 			if(error == Error::endOfLane)
 				break;
 			if(isRemoteIpcError(error))
-				frigg::infoLogger() << "thor: Aborting svrctl request"
-						" after remote violated the protocol" << frigg::endLog;
+				infoLogger() << "thor: Aborting svrctl request"
+						" after remote violated the protocol" << frg::endlog;
 			assert(error == Error::success);
 		}
 	})(boundLane));
@@ -626,4 +616,3 @@ void initializeSvrctl() {
 }
 
 } // namespace thor
-
