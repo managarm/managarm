@@ -2,13 +2,13 @@
 #include <frigg/c-support.h>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
-#include <frigg/debug.hpp>
 #include <frigg/support.hpp>
 #include <frigg/string.hpp>
 #include <frigg/libc.hpp>
 #include <eir/interface.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/debug.hpp>
 
 namespace eir {
 
@@ -126,7 +126,7 @@ extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
 
 extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	if(magic != 0x36d76289)
-		frigg::panicLogger() << "eir: Invalid multiboot2 signature, halting..." << frigg::endLog;
+		eir::panicLogger() << "eir: Invalid multiboot2 signature, halting..." << frg::endlog;
 
 	bootMemoryLimit = (uintptr_t)&eirImageCeiling; // Check if any modules are higher during iteration
 
@@ -142,7 +142,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 
 	uintptr_t kernel_module_start = 0;
 	
-	frigg::StringView cmdline{};
+	frg::string_view cmdline{};
 
 	for(size_t i = 8 /* Skip size and reserved fields*/; i < mb_info->size; i += add_size){
 		Mb2Tag* tag = (Mb2Tag*)((uint8_t*)info + i);
@@ -158,11 +158,11 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 			case kMb2TagFramebuffer: {
 				auto *framebuffer_tag = reinterpret_cast<Mb2TagFramebuffer*>(tag);
 				if(framebuffer_tag->address + framebuffer_tag->width * framebuffer_tag->pitch >= UINTPTR_MAX) {
-					frigg::panicLogger() << "eir: Framebuffer outside of addressable memory!"
-						<< frigg::endLog;
+					eir::panicLogger() << "eir: Framebuffer outside of addressable memory!"
+						<< frg::endlog;
 				}else if(framebuffer_tag->bpp != 32) {
-					frigg::panicLogger() << "eir: Framebuffer does not use 32 bpp!"
-						<< frigg::endLog;
+					eir::panicLogger() << "eir: Framebuffer does not use 32 bpp!"
+						<< frg::endlog;
 				}else{
 					setFbInfo(reinterpret_cast<void *>(framebuffer->address),
 							framebuffer_tag->width, framebuffer_tag->height, framebuffer_tag->pitch);
@@ -218,13 +218,13 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	assert(cmdline.data()); // Make sure it at least exists
 	assert(framebuffer);
 
-	frigg::infoLogger() << "Command line: " << cmdline << frigg::endLog;
+	eir::infoLogger() << "Command line: " << cmdline << frg::endlog;
 
-	frigg::infoLogger() << "Memory map:" << frigg::endLog;
+	eir::infoLogger() << "Memory map:" << frg::endlog;
 	for(Mb2MmapEntry* map = (Mb2MmapEntry*)mmap_start; map < (Mb2MmapEntry*)mmap_end; map++) {		
-		frigg::infoLogger() << "    Type " << map->type << " mapping."
-				<< " Base: 0x" << frigg::logHex(map->base)
-				<< ", length: 0x" << frigg::logHex(map->length) << frigg::endLog;
+		eir::infoLogger() << "    Type " << map->type << " mapping."
+				<< " Base: 0x" << frg::hex_fmt{map->base}
+				<< ", length: 0x" << frg::hex_fmt{map->length} << frg::endlog;
 	}
 
 	for(Mb2MmapEntry* map = (Mb2MmapEntry*)mmap_start; map < (Mb2MmapEntry*)mmap_end; map++) {
@@ -233,17 +233,17 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	}
 	setupRegionStructs();
 
-	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
+	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType == RegionType::null)
 			continue;
-		frigg::infoLogger() << "    Memory region [" << i << "]."
-				<< " Base: 0x" << frigg::logHex(regions[i].address)
-				<< ", length: 0x" << frigg::logHex(regions[i].size) << frigg::endLog;
+		eir::infoLogger() << "    Memory region [" << i << "]."
+				<< " Base: 0x" << frg::hex_fmt{regions[i].address}
+				<< ", length: 0x" << frg::hex_fmt{regions[i].size} << frg::endlog;
 		if(regions[i].regionType == RegionType::allocatable)
-			frigg::infoLogger() << "        Buddy tree at 0x" << frigg::logHex(regions[i].buddyTree)
-					<< ", overhead: 0x" << frigg::logHex(regions[i].buddyOverhead)
-					<< frigg::endLog;
+			eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
+					<< ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
+					<< frg::endlog;
 	}
 
 	uint64_t kernel_entry = 0;
@@ -306,7 +306,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	unpoisonKasanShadow(0xFFFF'FE00'4000'0000, framebuffer->pitch * framebuffer->height);
 	framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	
-	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
+	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }

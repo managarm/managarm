@@ -1,10 +1,9 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/debug.hpp>
 #include <arch/io_space.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/arch_x86/gdt.hpp>
-
-#include <frigg/debug.hpp>
 
 namespace eir {
 
@@ -89,8 +88,8 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 
 	// setup the new pt entry
 	if(pt_entry & kPagePresent)
-		frigg::panicLogger() << "eir: Trying to map 0x" << frigg::logHex(address)
-				<< " twice!" << frigg::endLog;
+		eir::panicLogger() << "eir: Trying to map 0x" << frg::hex_fmt{address}
+				<< " twice!" << frg::endlog;
 
 	uint64_t new_entry = physical | kPagePresent;
 	if (flags & PageFlags::write)
@@ -148,7 +147,7 @@ void initArchCpu();
 void initProcessorEarly() {
 	namespace arch = frigg::arch_x86;
 
-	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
+	eir::infoLogger() << "Starting Eir" << frg::endlog;
 
 	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
 	char vendor_str[13];
@@ -156,18 +155,18 @@ void initProcessorEarly() {
 	memcpy(&vendor_str[4], &vendor_res[3], 4);
 	memcpy(&vendor_str[8], &vendor_res[2], 4);
 	vendor_str[12] = 0;
-	frigg::infoLogger() << "CPU vendor: " << (const char *)vendor_str << frigg::endLog;
+	eir::infoLogger() << "CPU vendor: " << (const char *)vendor_str << frg::endlog;
 
 	// Make sure everything we require is supported by the CPU.
 	frigg::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
 	if((extended[3] & arch::kCpuFlagLongMode) == 0)
-		frigg::panicLogger() << "Long mode is not supported on this CPU" << frigg::endLog;
+		eir::panicLogger() << "Long mode is not supported on this CPU" << frg::endlog;
 	if((extended[3] & arch::kCpuFlagNx) == 0)
-		frigg::panicLogger() << "NX bit is not supported on this CPU" << frigg::endLog;
+		eir::panicLogger() << "NX bit is not supported on this CPU" << frg::endlog;
 
 	frigg::Array<uint32_t, 4> normal = arch::cpuid(arch::kCpuIndexFeatures);
 	if((normal[3] & arch::kCpuFlagPat) == 0)
-		frigg::panicLogger() << "PAT is not supported on this CPU" << frigg::endLog;
+		eir::panicLogger() << "PAT is not supported on this CPU" << frg::endlog;
 
 	initArchCpu();
 
@@ -184,8 +183,8 @@ void initProcessorEarly() {
 // Returns Core region index
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	setupPaging();
-	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after setting up paging" << frigg::endLog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
+			" after setting up paging" << frg::endlog;
 
 	// Identically map the first 128 MiB so that we can activate paging
 	// without causing a page fault.
@@ -199,8 +198,8 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 
 	// Setup the kernel image.
 	kernel_entry = loadKernelImage(kernel_start);
-	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after loading the kernel" << frigg::endLog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
+			" after loading the kernel" << frg::endlog;
 
 	// Setup the kernel stack.
 	for(address_t page = 0; page < 0x10000; page += pageSize)

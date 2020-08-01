@@ -2,13 +2,13 @@
 #include <frigg/c-support.h>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
-#include <frigg/debug.hpp>
 #include <frigg/support.hpp>
 #include <frigg/string.hpp>
 #include <frigg/libc.hpp>
 #include <eir/interface.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/debug.hpp>
 
 namespace eir {
 
@@ -44,9 +44,9 @@ extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
 
 extern "C" void eirStivaleMain(stivaleStruct* data){
 	if(data->framebufferAddr + data->framebufferWidth * data->framebufferPitch >= UINT32_MAX) {
-		frigg::infoLogger() << "eir: Framebuffer outside of addressable memory!" << frigg::endLog;
+		eir::infoLogger() << "eir: Framebuffer outside of addressable memory!" << frg::endlog;
 	}else if(data->framebufferBpp != 32){
-		frigg::infoLogger() << "eir: Framebuffer does not use 32 bpp!" << frigg::endLog;
+		eir::infoLogger() << "eir: Framebuffer does not use 32 bpp!" << frg::endlog;
 	}else{
 		setFbInfo(reinterpret_cast<void *>(data->framebufferAddr),
 				data->framebufferWidth, data->framebufferHeight, data->framebufferPitch);
@@ -63,18 +63,18 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 		module = (stivaleModule*)module->next;
 	}
 
-	frigg::infoLogger() << "Boot memory ceiling: " << frigg::logHex(bootMemoryLimit) << frigg::endLog;
+	eir::infoLogger() << "Boot memory ceiling: " << frg::hex_fmt{bootMemoryLimit} << frg::endlog;
 
 	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1))
 			& ~address_t(pageSize - 1);
 
-	frigg::infoLogger() << "Memory map:" << frigg::endLog;
+	eir::infoLogger() << "Memory map:" << frg::endlog;
 	for(size_t i = 0; i < data->memoryMapEntries; i++) {
 		auto map = &((e820Entry*)data->memoryMapAddr)[i];
 		
-		frigg::infoLogger() << "    Type " << map->type << " mapping."
-				<< " Base: 0x" << frigg::logHex(map->base)
-				<< ", length: 0x" << frigg::logHex(map->length) << frigg::endLog;
+		eir::infoLogger() << "    Type " << map->type << " mapping."
+				<< " Base: 0x" << frg::hex_fmt{map->base}
+				<< ", length: 0x" << frg::hex_fmt{map->length} << frg::endlog;
 	}
 
 	for(size_t i = 0; i < data->memoryMapEntries; i++) {
@@ -85,17 +85,17 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 
 	setupRegionStructs();
 
-	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
+	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType == RegionType::null)
 			continue;
-		frigg::infoLogger() << "    Memory region [" << i << "]."
-				<< " Base: 0x" << frigg::logHex(regions[i].address)
-				<< ", length: 0x" << frigg::logHex(regions[i].size) << frigg::endLog;
+		eir::infoLogger() << "    Memory region [" << i << "]."
+				<< " Base: 0x" << frg::hex_fmt{regions[i].address}
+				<< ", length: 0x" << frg::hex_fmt{regions[i].size} << frg::endlog;
 		if(regions[i].regionType == RegionType::allocatable)
-			frigg::infoLogger() << "        Buddy tree at 0x" << frigg::logHex(regions[i].buddyTree)
-					<< ", overhead: 0x" << frigg::logHex(regions[i].buddyOverhead)
-					<< frigg::endLog;
+			eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
+					<< ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
+					<< frg::endlog;
 	}
 
 	assert(data->moduleCount >= 2);
@@ -142,7 +142,7 @@ extern "C" void eirStivaleMain(stivaleStruct* data){
 	unpoisonKasanShadow(0xFFFF'FE00'4000'0000, data->framebufferPitch * data->framebufferHeight);
 	framebuf.fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 
-	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
+	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  
 }

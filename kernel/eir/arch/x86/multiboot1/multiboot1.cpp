@@ -2,13 +2,13 @@
 #include <frigg/c-support.h>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
-#include <frigg/debug.hpp>
 #include <frigg/support.hpp>
 #include <frigg/string.hpp>
 #include <eir/interface.hpp>
 #include <frigg/libc.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/debug.hpp>
 
 namespace eir {
 
@@ -64,17 +64,17 @@ extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
 
 extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	if(magic != 0x2BADB002)
-		frigg::panicLogger() << "eir: Invalid multiboot1 signature, halting..." << frigg::endLog;
+		eir::panicLogger() << "eir: Invalid multiboot1 signature, halting..." << frg::endlog;
 
 	MbInfo* mb_info = reinterpret_cast<MbInfo*>(info);
 
 	if(mb_info->flags & kMbInfoFramebuffer) {
 		if(mb_info->fbAddress + mb_info->fbWidth * mb_info->fbPitch >= UINTPTR_MAX) {
-			frigg::infoLogger() << "eir: Framebuffer outside of addressable memory!"
-					<< frigg::endLog;
+			eir::infoLogger() << "eir: Framebuffer outside of addressable memory!"
+					<< frg::endlog;
 		}else if(mb_info->fbBpp != 32) {
-			frigg::infoLogger() << "eir: Framebuffer does not use 32 bpp!"
-					<< frigg::endLog;
+			eir::infoLogger() << "eir: Framebuffer does not use 32 bpp!"
+					<< frg::endlog;
 		}else{
 			setFbInfo(reinterpret_cast<void *>(mb_info->fbAddress), mb_info->fbWidth,
 					mb_info->fbHeight, mb_info->fbPitch);
@@ -99,13 +99,13 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 
 	// Walk the memory map and retrieve all useable regions.
 	assert(mb_info->flags & kMbInfoMemoryMap);
-	frigg::infoLogger() << "Memory map:" << frigg::endLog;
+	eir::infoLogger() << "Memory map:" << frg::endlog;
 	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
 		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
 
-		frigg::infoLogger() << "    Type " << map->type << " mapping."
-				<< " Base: 0x" << frigg::logHex(map->baseAddress)
-				<< ", length: 0x" << frigg::logHex(map->length) << frigg::endLog;
+		eir::infoLogger() << "    Type " << map->type << " mapping."
+				<< " Base: 0x" << frg::hex_fmt{map->baseAddress}
+				<< ", length: 0x" << frg::hex_fmt{map->length} << frg::endlog;
 
 		offset += map->size + 4;
 	}
@@ -120,17 +120,17 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	}
 	setupRegionStructs();
 
-	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
+	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType == RegionType::null)
 			continue;
-		frigg::infoLogger() << "    Memory region [" << i << "]."
-				<< " Base: 0x" << frigg::logHex(regions[i].address)
-				<< ", length: 0x" << frigg::logHex(regions[i].size) << frigg::endLog;
+		eir::infoLogger() << "    Memory region [" << i << "]."
+				<< " Base: 0x" << frg::hex_fmt{regions[i].address}
+				<< ", length: 0x" << frg::hex_fmt{regions[i].size} << frg::endlog;
 		if(regions[i].regionType == RegionType::allocatable)
-			frigg::infoLogger() << "        Buddy tree at 0x" << frigg::logHex(regions[i].buddyTree)
-					<< ", overhead: 0x" << frigg::logHex(regions[i].buddyOverhead)
-					<< frigg::endLog;
+			eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
+					<< ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
+					<< frg::endlog;
 	}
 
 	assert((mb_info->flags & kMbInfoModules) != 0);
@@ -178,7 +178,7 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	}
 
-	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
+	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 
 	eirEnterKernel(eirPml4Pointer, kernel_entry,
 			0xFFFF'FE80'0001'0000);  

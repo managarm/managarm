@@ -1,6 +1,6 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
-#include <frigg/debug.hpp>
+#include <eir-internal/debug.hpp>
 
 namespace eir {
 
@@ -12,14 +12,14 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 address_t getSingle4kPage(address_t address) { return -1; }
 
 void initProcessorEarly() {
-	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
+	eir::infoLogger() << "Starting Eir" << frg::endlog;
 }
 
 // Returns Core region index
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	setupPaging();
-	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after setting up paging" << frigg::endLog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
+			" after setting up paging" << frg::endlog;
 
 	// Identically map the first 128 MiB so that we can activate paging
 	// without causing a page fault.
@@ -33,8 +33,8 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 
 	// Setup the kernel image.
 	kernel_entry = loadKernelImage(kernel_start);
-	frigg::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after loading the kernel" << frigg::endLog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
+			" after loading the kernel" << frg::endlog;
 
 	// Setup the kernel stack.
 	for(address_t page = 0; page < 0x10000; page += pageSize)

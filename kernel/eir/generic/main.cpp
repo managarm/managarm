@@ -1,16 +1,15 @@
+#include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/arch.hpp>
 
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
-#include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
 #include <frigg/array.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/libc.hpp>
 #include <frigg/string.hpp>
 #include <frigg/support.hpp>
-#include <render-text.hpp>
 #include <physical-buddy.hpp>
 
 namespace eir {
@@ -31,7 +30,7 @@ Region *obtainRegion() {
 		regions[i].regionType = RegionType::unconstructed;
 		return &regions[i];
 	}
-	frigg::panicLogger() << "Eir: Memory region limit exhausted" << frigg::endLog;
+	eir::panicLogger() << "Eir: Memory region limit exhausted" << frg::endlog;
 	__builtin_unreachable();
 }
 
@@ -46,8 +45,8 @@ void createInitialRegion(address_t base, address_t size) {
 	address = (address + 0x1FFFFF) & ~address_t(0x1FFFFF);
 
 	if(address >= limit) {
-		frigg::infoLogger() << "eir: Discarding memory region at 0x"
-				<< frigg::logHex(base) << " (smaller than alignment)" << frigg::endLog;
+		eir::infoLogger() << "eir: Discarding memory region at 0x"
+				<< frg::hex_fmt{base} << " (smaller than alignment)" << frg::endlog;
 		return;
 	}
 
@@ -66,8 +65,8 @@ void createInitialRegion(address_t base, address_t size) {
 	// For now we ensure that the kernel has some memory to work with.
 	// TODO: Handle small memory regions.
 	if(limit - address < 32 * address_t(0x100000)) {
-		frigg::infoLogger() << "eir: Discarding memory region at 0x"
-				<< frigg::logHex(base) << " (smaller than minimum size)" << frigg::endLog;
+		eir::infoLogger() << "eir: Discarding memory region at 0x"
+				<< frg::hex_fmt{base} << " (smaller than minimum size)" << frg::endlog;
 		return;
 	}
 
@@ -92,7 +91,7 @@ address_t cutFromRegion(size_t size) {
 		return regions[i].address + regions[i].size;
 	}
 	
-	frigg::panicLogger() << "Eir: Unable to cut memory from a region" << frigg::endLog;
+	eir::panicLogger() << "Eir: Unable to cut memory from a region" << frg::endlog;
 	__builtin_unreachable();
 }
 
@@ -125,57 +124,6 @@ void setupRegionStructs() {
 
 // ----------------------------------------------------------------------------
 
-constexpr int fontWidth = 8;
-constexpr int fontHeight = 16;
-
-void *displayFb;
-int displayWidth;
-int displayHeight;
-size_t displayPitch;
-int outputX;
-int outputY;
-
-void setFbInfo(void *ptr, int width, int height, size_t pitch) {
-	displayFb = ptr;
-	displayWidth = width;
-	displayHeight = height;
-	displayPitch = pitch;
-}
-
-struct OutputSink {
-	void print(char c);
-	void print(const char *str);
-};
-
-void OutputSink::print(char c) {
-	debugPrintChar(c);
-
-	if(displayFb) {
-		if(c == '\n') {
-			outputX = 0;
-			outputY++;
-		}else if(outputX >= displayWidth / fontWidth) {
-			outputX = 0;
-			outputY++;
-		}else if(outputY >= displayHeight / fontHeight) {
-			// TODO: Scroll.
-		}else{
-			renderChars(displayFb, displayPitch / sizeof(uint32_t),
-					outputX, outputY, &c, 1, 15, -1,
-					std::integral_constant<int, fontWidth>{},
-					std::integral_constant<int, fontHeight>{});
-			outputX++;
-		}
-	}
-}
-
-void OutputSink::print(const char *str) {
-	while(*str)
-		print(*(str++));
-}
-
-OutputSink infoSink;
-
 uintptr_t bootReserve(size_t length, size_t alignment) {
 	assert(length <= pageSize);
 	assert(alignment <= pageSize);
@@ -193,7 +141,7 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 		return physical;
 	}
 
-	frigg::panicLogger() << "Eir: Out of memory" << frigg::endLog;
+	eir::panicLogger() << "Eir: Out of memory" << frg::endlog;
 	__builtin_unreachable();
 }
 
@@ -212,7 +160,7 @@ uintptr_t allocPage() {
 		return physical;
 	}
 
-	frigg::panicLogger() << "Eir: Out of memory" << frigg::endLog;
+	eir::panicLogger() << "Eir: Out of memory" << frg::endlog;
 	__builtin_unreachable();
 }
 
@@ -271,8 +219,8 @@ void mapKasanShadow(address_t base, size_t size) {
 #ifdef EIR_KASAN
 	assert(!(base & (kasanScale - 1)));
 
-	frigg::infoLogger() << "eir: Mapping KASAN shadow for 0x" << frigg::logHex(base)
-			<< ", size: 0x" << frigg::logHex(size) << frigg::endLog;
+	eir::infoLogger() << "eir: Mapping KASAN shadow for 0x" << frg::hex_fmt{base}
+			<< ", size: 0x" << frg::hex_fmt{size} << frg::endlog;
 
 	size = (size + kasanScale - 1) & ~(kasanScale - 1);
 
@@ -293,8 +241,8 @@ void unpoisonKasanShadow(address_t base, size_t size) {
 #ifdef EIR_KASAN
 	assert(!(base & (kasanScale - 1)));
 
-	frigg::infoLogger() << "eir: Unpoisoning KASAN shadow for 0x" << frigg::logHex(base)
-			<< ", size: 0x" << frigg::logHex(size) << frigg::endLog;
+	eir::infoLogger() << "eir: Unpoisoning KASAN shadow for 0x" << frg::hex_fmt{base}
+			<< ", size: 0x" << frg::hex_fmt{size} << frg::endlog;
 
 	setShadowRange(base, size & ~(kasanScale - 1), 0);
 	if(size & (kasanScale - 1))
@@ -371,7 +319,7 @@ address_t loadKernelImage(void *image) {
 			|| ehdr->e_ident[1] != 'E'
 			|| ehdr->e_ident[2] != 'L'
 			|| ehdr->e_ident[3] != 'F') {
-		frigg::panicLogger() << "Illegal magic fields" << frigg::endLog;
+		eir::panicLogger() << "Illegal magic fields" << frg::endlog;
 	}
 	assert(ehdr->e_type == ET_EXEC);
 
@@ -392,8 +340,8 @@ address_t loadKernelImage(void *image) {
 		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 			map_flags |= PageFlags::execute;
 		}else{
-			frigg::panicLogger() << "Illegal combination of segment permissions"
-					<< frigg::endLog;
+			eir::panicLogger() << "Illegal combination of segment permissions"
+					<< frg::endlog;
 		}
 
 		uintptr_t pg = 0;
@@ -477,21 +425,4 @@ EirInfo *generateInfo(const char* cmdline){
 	return info_ptr;
 }
 
-}
-
-void friggBeginLog() { }
-void friggEndLog() { }
-
-void friggPrintCritical(char c) {
-	eir::infoSink.print(c);
-}
-
-void friggPrintCritical(const char *str) {
-	eir::infoSink.print(str);
-}
-
-void friggPanic() {
-	while(true) { }
-	__builtin_unreachable();
-}
-
+} // namespace eir
