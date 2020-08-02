@@ -123,6 +123,10 @@ KernelVirtualAlloc::KernelVirtualAlloc() { }
 uintptr_t KernelVirtualAlloc::map(size_t length) {
 	auto p = KernelVirtualMemory::global().allocate(length);
 
+	// TODO: The slab_pool unpoisons memory before calling this.
+	//       It would be better not to unpoison in the kernel's VMM code.
+	poisonKasanShadow(p, length);
+
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
@@ -137,6 +141,10 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	assert((address % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
+
+	// TODO: The slab_pool poisons memory before calling this.
+	//       It would be better not to poison in the kernel's VMM code.
+	unpoisonKasanShadow(reinterpret_cast<void *>(address), length);
 
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = KernelPageSpace::global().unmapSingle4k(address + offset);
@@ -179,6 +187,23 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 }
 
 frigg::LazyInitializer<LogRingBuffer> allocLog;
+
+void KernelVirtualAlloc::unpoison(void *pointer, size_t size) {
+	unpoisonKasanShadow(pointer, size);
+}
+
+void KernelVirtualAlloc::unpoison_expand(void *pointer, size_t size) {
+	cleanKasanShadow(pointer, size);
+}
+
+void KernelVirtualAlloc::poison(void *pointer, size_t size) {
+	if(reinterpret_cast<uintptr_t>(pointer) == 0xffffe00000ba8000
+			&& size == 0x20e0) {
+		frigg::infoLogger() << "CRITICAL MEMORY IS FREED" << frigg::endLog;
+		panic();
+	}
+	poisonKasanShadow(pointer, size);
+}
 
 void KernelVirtualAlloc::output_trace(uint8_t val) {
 	if (!allocLog)

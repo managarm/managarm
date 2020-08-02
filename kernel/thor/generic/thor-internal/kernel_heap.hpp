@@ -58,6 +58,10 @@ public:
 		walkThisStack(functor);
 	}
 
+	void unpoison(void *pointer, size_t size);
+	void unpoison_expand(void *pointer, size_t size);
+	void poison(void *pointer, size_t size);
+
 	void output_trace(uint8_t val);
 };
 
