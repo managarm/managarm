@@ -1,6 +1,5 @@
 #include <stddef.h>
 #include <stdint.h>
-
 #include <frigg/debug.hpp>
 #include <thor-internal/debug.hpp>
 
@@ -27,8 +26,7 @@ namespace {
 	auto shadow = kasanShadowOf(pointer);
 	if(debugKasan)
 		infoLogger() << "thor: Unpoisioning KASAN at " << pointer
-				<< ", size: " << (void *)size << " (shadow: " << shadow << ")"
-				<< frg::endlog;
+				<< ", size: " << (void *)size << frg::endlog;
 	for(size_t n = 0; n < (size >> kasanShift); ++n) {
 		assert(shadow[n] == static_cast<int8_t>(0xFF));
 		shadow[n] = 0;
@@ -46,8 +44,7 @@ namespace {
 	auto shadow = kasanShadowOf(pointer);
 	if(debugKasan)
 		infoLogger() << "thor: Poisioning KASAN at " << pointer
-				<< ", size: " << (void *)size << " (shadow: " << shadow << ")"
-				<< frg::endlog;
+				<< ", size: " << (void *)size << frg::endlog;
 	for(size_t n = 0; n < (size >> kasanShift); ++n) {
 		assert(shadow[n] == static_cast<int8_t>(0x00));
 		shadow[n] = 0xFF;
@@ -62,8 +59,9 @@ namespace {
 [[gnu::no_sanitize_address]] void cleanKasanShadow(void *pointer, size_t size) {
 #ifdef THOR_KASAN
 	assert(!(reinterpret_cast<uintptr_t>(pointer) & (kasanScale - 1)));
-//	infoLogger() << "thor: Cleaning KASAN at " << pointer
-//			<< ", size: " << (void *)size << frg::endlog;
+	if(debugKasan)
+		infoLogger() << "thor: Cleaning KASAN at " << pointer
+				<< ", size: " << (void *)size << frg::endlog;
 	auto shadow = kasanShadowOf(pointer);
 	for(size_t n = 0; n < (size >> kasanShift); ++n)
 		shadow[n] = 0;
