@@ -81,7 +81,14 @@ struct coroutine {
 				}
 
 				void await_suspend(std::experimental::coroutine_handle<void>) {
-					promise_->cont_->set_value(std::move(*promise_->value_));
+					// NOTE: Clang 10 mis-optimizes statement below. It elides a copy of the type T
+					//       temporary here; if the temporary is not placed on the stack, this
+					//       causes a failure after the coroutine state is deallocated within
+					//       set_value() and the dtor of the temporary runs within this function.
+					// promise_->cont_->set_value(std::move(*promise_->value_));
+
+					T temp{std::move(*promise_->value_)};
+					promise_->cont_->set_value(std::move(temp));
 				}
 
 				void await_resume() {
