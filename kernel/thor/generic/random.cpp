@@ -1,6 +1,5 @@
 #include <atomic>
 
-#include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
 #include <cralgo/aes.hpp>
 #include <cralgo/sha2_32.hpp>
@@ -10,6 +9,7 @@
 #endif
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/random.hpp>
+#include <thor-internal/debug.hpp>
 
 namespace thor {
 
