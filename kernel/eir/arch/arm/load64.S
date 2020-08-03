@@ -16,9 +16,7 @@ eirEnterKernel:
 	// Set page table pointers
 	msr TTBR0_EL1, x0
 	msr TTBR1_EL1, x1
-	// TODO: set proper value for TCR_EL1
-	mov xzr, x0
-	msr TCR_EL1, x0
+	dsb ish
 	isb
 
 	// Enable the MMU
