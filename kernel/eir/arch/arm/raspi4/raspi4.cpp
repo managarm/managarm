@@ -17,6 +17,9 @@
 #include <arch/aarch64/mem_space.hpp>
 #include <arch/register.hpp>
 
+#include <arch/bit.hpp>
+#include <arch/variable.hpp>
+
 //#define RASPI3
 //#define LOW_PERIPH
 
@@ -172,7 +175,7 @@ namespace PropertyMbox {
 		*ptr++ = 0x00040001; // Allocate buffer
 		*ptr++ = 8;
 		*ptr++ = 0;
-		*ptr++ = 16;
+		*ptr++ = 0x1000;
 		*ptr++ = 0;
 
 		*ptr++ = 0x00040008; // Get pitch
@@ -242,6 +245,64 @@ namespace PropertyMbox {
 		memcpy(dest, data, cmdlineLen + 1);
 
 		return cmdlineLen;
+	}
+
+	frg::tuple<size_t, size_t> getArmMemory() {
+		constexpr uint32_t req_size = 8 * 4;
+		frg::aligned_storage<req_size, 16> stor;
+		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
+
+		*ptr++ = req_size;
+		*ptr++ = 0x00000000; // Process request
+
+		*ptr++ = 0x00010005; // Set ARM memory
+		*ptr++ = 8;
+		*ptr++ = 0;
+		*ptr++ = 0; // base
+		*ptr++ = 0; // size
+
+		*ptr++ = 0x00000000;
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+
+		auto val = reinterpret_cast<uint64_t>(stor.buffer);
+		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
+		Mbox::write(Mbox::Channel::property, val);
+
+		auto ret = Mbox::read(Mbox::Channel::property);
+		assert(val == ret);
+
+		ptr = reinterpret_cast<volatile uint32_t *>(ret);
+
+		return frg::make_tuple(size_t(ptr[5]), size_t(ptr[6]));
+	}
+
+	frg::tuple<size_t, size_t> getGpuMemory() {
+		constexpr uint32_t req_size = 8 * 4;
+		frg::aligned_storage<req_size, 16> stor;
+		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
+
+		*ptr++ = req_size;
+		*ptr++ = 0x00000000; // Process request
+
+		*ptr++ = 0x00010006; // Set VC memory
+		*ptr++ = 8;
+		*ptr++ = 0;
+		*ptr++ = 0;
+		*ptr++ = 0;
+
+		*ptr++ = 0x00000000;
+		asm volatile ("dsb st; dmb st; isb" ::: "memory");
+
+		auto val = reinterpret_cast<uint64_t>(stor.buffer);
+		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
+		Mbox::write(Mbox::Channel::property, val);
+
+		auto ret = Mbox::read(Mbox::Channel::property);
+		assert(val == ret);
+
+		ptr = reinterpret_cast<volatile uint32_t *>(ret);
+
+		return frg::make_tuple(size_t(ptr[5]), size_t(ptr[6]));
 	}
 }
 
@@ -313,6 +374,35 @@ void debugPrintChar(char c) {
 	PL011::send(c);
 }
 
+struct DtbHeader {
+	arch::scalar_storage<uint32_t, arch::big_endian> magic;
+	arch::scalar_storage<uint32_t, arch::big_endian> totalsize;
+	arch::scalar_storage<uint32_t, arch::big_endian> off_dt_struct;
+	arch::scalar_storage<uint32_t, arch::big_endian> off_dt_strings;
+	arch::scalar_storage<uint32_t, arch::big_endian> off_mem_rsvmap;
+	arch::scalar_storage<uint32_t, arch::big_endian> version;
+	arch::scalar_storage<uint32_t, arch::big_endian> last_comp_version;
+	arch::scalar_storage<uint32_t, arch::big_endian> boot_cpuid_phys;
+	arch::scalar_storage<uint32_t, arch::big_endian> size_dt_strings;
+	arch::scalar_storage<uint32_t, arch::big_endian> size_dt_struct;
+};
+
+struct DtbReserveEntry {
+	arch::scalar_storage<uint64_t, arch::big_endian> address;
+	arch::scalar_storage<uint64_t, arch::big_endian> size;
+};
+
+DtbHeader getDtbHeader(void *dtb) {
+	DtbHeader hdr;
+	memcpy(&hdr, dtb, sizeof(hdr));
+
+	assert(hdr.magic.load() == 0xd00dfeed);
+
+	return hdr;
+}
+
+extern "C" void eirEnterKernel(uintptr_t, uintptr_t, uint64_t, uint64_t);
+
 extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	// the device tree pointer is 32-bit and the upper bits are undefined
 	deviceTreePtr &= 0x00000000FFFFFFFF;
@@ -326,17 +416,25 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 	// TODO: actually get display size from cmdline
 	eir::infoLogger() << "Attempting to get the display size" << frg::endlog;
-	int width = 1920, height = 1080;
-	if (!width || !height) {
+	int fb_width = 1920, fb_height = 1080;
+	uintptr_t fb_ptr = 0;
+	size_t fb_pitch = 0;
+	bool have_fb = false;
+	if (!fb_width || !fb_height) {
 		eir::infoLogger() << "Zero fb width or height, no display attached?" << frg::endlog;
 	} else {
 		eir::infoLogger() << "Attempting to set up the framebuffer" << frg::endlog;
-		auto [actualW, actualH, ptr, pitch] = PropertyMbox::setupFb(width, height, 32);
+		auto [actualW, actualH, ptr, pitch] = PropertyMbox::setupFb(fb_width, fb_height, 32);
 
 		if (!ptr || !pitch) {
 			eir::infoLogger() << "Mode setting failed..." << frg::endlog;
 		} else {
 			setFbInfo(ptr, actualW, actualH, pitch);
+			fb_ptr = reinterpret_cast<uintptr_t>(ptr);
+			fb_width = actualW;
+			fb_height = actualH;
+			fb_pitch = pitch;
+			have_fb = true;
 			eir::infoLogger() << "Framebuffer pointer: " << ptr << frg::endlog;
 			eir::infoLogger() << "Framebuffer pitch: " << pitch << frg::endlog;
 			eir::infoLogger() << "Framebuffer width: " << actualW << frg::endlog;
@@ -344,27 +442,146 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 		}
 	}
 
-	char buf[1024];
-	size_t len = PropertyMbox::getCmdline<1024>(buf);
+	char cmd_buf[1024];
+	size_t cmd_len = PropertyMbox::getCmdline<1024>(cmd_buf);
 
-	frg::string_view cmd_sv{buf, len};
+	frg::string_view cmd_sv{cmd_buf, cmd_len};
 	eir::infoLogger() << "Got cmdline: " << cmd_sv << frg::endlog;
+
+	auto [ram_base, ram_size] = PropertyMbox::getArmMemory();
+	auto [gpu_base, gpu_size] = PropertyMbox::getGpuMemory();
+
+	eir::infoLogger() << "Memory allocated to the cpu is at 0x" << frg::hex_fmt{ram_base}
+			<< " - 0x" << frg::hex_fmt{ram_base + ram_size} << " (0x"
+			<< frg::hex_fmt{ram_size} << " bytes)" << frg::endlog;
+
+	eir::infoLogger() << "Memory allocated to the gpu is at 0x" << frg::hex_fmt{gpu_base}
+			<< " - 0x" << frg::hex_fmt{gpu_base + gpu_size} << " (0x"
+			<< frg::hex_fmt{gpu_size} << " bytes)" << frg::endlog;
+
+	eir::infoLogger() << "Note: cpu memory size figure above is inaccurate" << frg::endlog;
 
 	auto dtb = reinterpret_cast<void *>(deviceTreePtr);
 
 	initProcessorEarly();
+
+	bootMemoryLimit = reinterpret_cast<uintptr_t>(&eirImageCeiling);
+
 	eir::infoLogger() << "DTB pointer " << dtb << frg::endlog;
 
-	auto initrd = reinterpret_cast<void *>(0x8000000);
+	auto dtb_hdr = getDtbHeader(dtb);
+	auto dtb_end = reinterpret_cast<uintptr_t>(dtb) + dtb_hdr.totalsize.load();
 
-	eir::infoLogger() << "Assuming initrd is at " << initrd << frg::endlog;
+	eir::infoLogger() << "DTB size: 0x" << frg::hex_fmt{dtb_hdr.totalsize.load()} << frg::endlog;
 
-	CpioRange range{initrd};
-	eir::infoLogger() << "Assuming initrd ends at " << range.eof() << frg::endlog;
+	uintptr_t dtb_rsv = reinterpret_cast<uintptr_t>(dtb) + dtb_hdr.off_mem_rsvmap.load();
 
-	for (auto entry : range) {
-		eir::infoLogger() << "Got initrd entry: " << entry.name << frg::endlog;
+	eir::infoLogger() << "Memory reservation entries:" << frg::endlog;
+	while (true) {
+		DtbReserveEntry ent;
+		memcpy(&ent, reinterpret_cast<void *>(dtb_rsv), 16);
+		dtb_rsv += 16;
+
+		if (!ent.address.load() && !ent.size.load())
+			break;
+
+		eir::infoLogger() << "At 0x" << frg::hex_fmt{ent.address.load()}
+			<< ", ends at 0x" << frg::hex_fmt{ent.address.load() + ent.size.load()}
+			<< " (0x" << frg::hex_fmt{ent.size.load()} << " bytes)" << frg::endlog;
+
+		if (auto end = ent.address.load() + ent.size.load(); end > bootMemoryLimit)
+			bootMemoryLimit = end;
 	}
+
+	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1)) & ~address_t(pageSize - 1);
+
+	// TODO: parse DTB to get memory regions instead of trusing the firmware property mailbox call
+
+	auto initrd = reinterpret_cast<void *>(0x8000000);
+	eir::infoLogger() << "Assuming initrd is at " << initrd << frg::endlog;
+	CpioRange cpio_range{initrd};
+	auto end_initrd = cpio_range.eof();
+	eir::infoLogger() << "Assuming initrd ends at " << end_initrd << frg::endlog;
+
+	auto free_space = 0x8000000 - bootMemoryLimit;
+
+	createInitialRegion(bootMemoryLimit, free_space & ~uintptr_t(0xFFF));
+	free_space = reinterpret_cast<uintptr_t>(dtb) - reinterpret_cast<uintptr_t>(end_initrd);
+	createInitialRegion((reinterpret_cast<uintptr_t>(end_initrd) + 0xFFF)
+				& ~uintptr_t(0xFFF), free_space & ~uintptr_t(0xFFF));
+
+	dtb_end = (dtb_end + address_t(pageSize - 1)) & ~address_t(pageSize - 1);
+	free_space = ram_base + ram_size - dtb_end;
+	createInitialRegion(dtb_end, free_space & ~uintptr_t(0xFFF));
+
+	setupRegionStructs();
+
+	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType == RegionType::null)
+			continue;
+		eir::infoLogger() << "    Memory region [" << i << "]."
+				<< " Base: 0x" << frg::hex_fmt{regions[i].address}
+				<< ", length: 0x" << frg::hex_fmt{regions[i].size} << frg::endlog;
+		if(regions[i].regionType == RegionType::allocatable)
+			eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
+					<< ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
+					<< frg::endlog;
+	}
+
+	frg::span<uint8_t> kernel_image{nullptr, 0};
+
+	for (auto entry : cpio_range) {
+		if (entry.name == "thor") {
+			kernel_image = entry.data;
+		}
+	}
+
+	assert(kernel_image.data() && kernel_image.size());
+
+	uint64_t kernel_entry = 0;
+	initProcessorPaging(kernel_image.data(), kernel_entry);
+
+	auto info_ptr = generateInfo(cmd_buf);
+
+	auto module = bootAlloc<EirModule>();
+	module->physicalBase = reinterpret_cast<uintptr_t>(initrd);
+	module->length = reinterpret_cast<uintptr_t>(end_initrd)
+			- reinterpret_cast<uintptr_t>(initrd);
+
+	char *name_ptr = bootAlloc<char>(11);
+	memcpy(name_ptr, "initrd.cpio", 11);
+	module->namePtr = mapBootstrapData(name_ptr);
+	module->nameLength = 11;
+
+	info_ptr->numModules = 1;
+	info_ptr->moduleInfo = mapBootstrapData(module);
+
+	if (have_fb) {
+		auto framebuf = &info_ptr->frameBuffer;
+		framebuf->fbAddress = fb_ptr;
+		framebuf->fbPitch = fb_pitch;
+		framebuf->fbWidth = fb_width;
+		framebuf->fbHeight = fb_height;
+		framebuf->fbBpp = 32;
+		framebuf->fbType = 0;
+
+		assert(fb_ptr & ~(pageSize - 1));
+		for(address_t pg = 0; pg < fb_pitch * fb_height; pg += 0x1000)
+			mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, fb_ptr + pg,
+					PageFlags::write, CachingMode::writeCombine);
+		mapKasanShadow(0xFFFF'FE00'4000'0000, fb_pitch * fb_height);
+		unpoisonKasanShadow(0xFFFF'FE00'4000'0000, fb_pitch * fb_height);
+		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
+	}
+
+	mapSingle4kPage(0xFFFF'0000'0000'0000, mmioBase + 0x201000,
+			PageFlags::write, CachingMode::writeCombine);
+
+	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
+
+	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry,
+			0xFFFF'FE80'0001'0000);
 
 	while(true);
 }
