@@ -273,16 +273,15 @@ void mapRegionsAndStructs() {
 		unpoisonKasanShadow(0xFFFF'8000'0000'0000 + regions[i].address, regions[i].size);
 
 		// Map the buddy tree.
-		auto buddyOverhead = BuddyAccessor::determineSize(regions[i].numRoots, regions[i].order);
 		address_t buddyMapping = treeMapping;
-		treeMapping += buddyOverhead;
+		treeMapping += regions[i].buddyOverhead;
 
-		for(address_t page = 0; page < buddyOverhead; page += pageSize) {
+		for(address_t page = 0; page < regions[i].buddyOverhead; page += pageSize) {
 			mapSingle4kPage(buddyMapping + page,
 					regions[i].buddyTree + page, PageFlags::write | PageFlags::global);
 		}
-		mapKasanShadow(buddyMapping, buddyOverhead);
-		unpoisonKasanShadow(buddyMapping, buddyOverhead);
+		mapKasanShadow(buddyMapping, regions[i].buddyOverhead);
+		unpoisonKasanShadow(buddyMapping, regions[i].buddyOverhead);
 		regions[i].buddyMap = buddyMapping;
 	}
 }
@@ -314,52 +313,58 @@ address_t mapBootstrapData(void *p) {
 // ----------------------------------------------------------------------------
 
 address_t loadKernelImage(void *image) {
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)image;
-	if(ehdr->e_ident[0] != '\x7F'
-			|| ehdr->e_ident[1] != 'E'
-			|| ehdr->e_ident[2] != 'L'
-			|| ehdr->e_ident[3] != 'F') {
+	Elf64_Ehdr ehdr;
+	memcpy(&ehdr, image, sizeof(Elf64_Ehdr));
+	if(ehdr.e_ident[0] != '\x7F'
+			|| ehdr.e_ident[1] != 'E'
+			|| ehdr.e_ident[2] != 'L'
+			|| ehdr.e_ident[3] != 'F') {
 		eir::panicLogger() << "Illegal magic fields" << frg::endlog;
 	}
-	assert(ehdr->e_type == ET_EXEC);
+	assert(ehdr.e_type == ET_EXEC);
 
-	for(int i = 0; i < ehdr->e_phnum; i++) {
-		Elf64_Phdr *phdr = (Elf64_Phdr *)((uintptr_t)image
-				+ (uintptr_t)ehdr->e_phoff
-				+ i * ehdr->e_phentsize);
-		if(phdr->p_type != PT_LOAD)
+	for(int i = 0; i < ehdr.e_phnum; i++) {
+		Elf64_Phdr phdr;
+		memcpy(&phdr, (void *)((uintptr_t)image
+				+ (uintptr_t)ehdr.e_phoff
+				+ i * ehdr.e_phentsize),
+				sizeof(Elf64_Phdr));
+		if(phdr.p_type != PT_LOAD)
 			continue;
-		assert(!(phdr->p_offset & (pageSize - 1)));
-		assert(!(phdr->p_vaddr & (pageSize - 1)));
+		assert(!(phdr.p_offset & (pageSize - 1)));
+		assert(!(phdr.p_vaddr & (pageSize - 1)));
 
 		uint32_t map_flags = PageFlags::global;
-		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == PF_R) {
+		if((phdr.p_flags & (PF_R | PF_W | PF_X)) == PF_R) {
 			// no additional flags
-		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+		}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 			map_flags |= PageFlags::write;
-		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+		}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 			map_flags |= PageFlags::execute;
+		}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W | PF_X)) {
+			eir::infoLogger() << "eir: warning: Mapping PHDR with RWX permissions" << frg::endlog;
+			map_flags |= PageFlags::write | PageFlags::execute;
 		}else{
 			eir::panicLogger() << "Illegal combination of segment permissions"
 					<< frg::endlog;
 		}
 
 		uintptr_t pg = 0;
-		while(pg < (uintptr_t)phdr->p_memsz) {
+		while(pg < (uintptr_t)phdr.p_memsz) {
 			auto backing = allocPage();
 			memset(reinterpret_cast<void *>(backing), 0, pageSize);
-			if(pg < (uintptr_t)phdr->p_filesz)
+			if(pg < (uintptr_t)phdr.p_filesz)
 				memcpy(reinterpret_cast<void *>(backing),
-						reinterpret_cast<void *>((uintptr_t)image + (uintptr_t)phdr->p_offset + pg),
-						frigg::min(pageSize, (uintptr_t)phdr->p_filesz - pg));
-			mapSingle4kPage(phdr->p_vaddr + pg, backing, map_flags);
+						reinterpret_cast<void *>((uintptr_t)image + (uintptr_t)phdr.p_offset + pg),
+						frigg::min(pageSize, (uintptr_t)phdr.p_filesz - pg));
+			mapSingle4kPage(phdr.p_vaddr + pg, backing, map_flags);
 			pg += pageSize;
 		}
-		mapKasanShadow(phdr->p_paddr, phdr->p_memsz);
-		unpoisonKasanShadow(phdr->p_paddr, phdr->p_memsz);
+		mapKasanShadow(phdr.p_paddr, phdr.p_memsz);
+		unpoisonKasanShadow(phdr.p_paddr, phdr.p_memsz);
 	}
 
-	return ehdr->e_entry;
+	return ehdr.e_entry;
 }
 
 EirInfo *generateInfo(const char* cmdline){

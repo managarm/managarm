@@ -96,7 +96,7 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 		new_entry |= kPageWrite;
 	if (!(flags & PageFlags::execute))
 		new_entry |= kPageXd;
-	if (!(flags & PageFlags::global))
+	if (flags & PageFlags::global)
 		new_entry |= kPageGlobal;
 	if (caching_mode == CachingMode::writeCombine)
 		new_entry |= kPagePat | kPagePwt;
