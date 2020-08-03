@@ -27,5 +27,5 @@ eirEnterKernel:
 	msr SCTLR_EL1, x0
 	isb
 
-	mov x3, sp
+	mov sp, x3
 	br x2

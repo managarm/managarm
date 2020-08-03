@@ -120,6 +120,8 @@ eirExcVectors:
 	b eirCommonHandler
 
 eirCommonHandler:
+	ldr x1, =eirStackTop
+	mov sp, x1
 	mrs x1, esr_el1
 	mrs x2, elr_el1
 	mrs x3, spsr_el1

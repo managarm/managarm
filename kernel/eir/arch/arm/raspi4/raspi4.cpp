@@ -379,42 +379,50 @@ enum class IntrType {
 extern "C" void eirExceptionHandler(IntrType i_type, uintptr_t syndrome, uintptr_t link,
 		uintptr_t state, uintptr_t fault_addr) {
 
-	eir::infoLogger() << "An unexpected fault has occured:" << frg::endlog;
-	eir::infoLogger() << "Interruption type: ";
+	// Disable MMU to gain back the ability to use the screen and uart
+	uint64_t sctlr;
+	asm volatile ("mrs %0, sctlr_el1" : "=r"(sctlr));
 
+	sctlr &= ~1;
+
+	asm volatile ("msr sctlr_el1, %0" :: "r"(sctlr));
+
+	eir::infoLogger() << "An unexpected fault has occured:" << frg::endlog;
+
+	const char *i_type_str = "Unknown";
 	switch (i_type) {
 		case IntrType::synchronous:
-			eir::infoLogger() << "synchronous";
+			i_type_str = "synchronous";
 			break;
 		case IntrType::irq:
-			eir::infoLogger() << "irq";
+			i_type_str = "irq";
 			break;
 		case IntrType::fiq:
-			eir::infoLogger() << "fiq";
+			i_type_str = "fiq";
 			break;
 		case IntrType::serror:
-			eir::infoLogger() << "SError";
+			i_type_str = "SError";
 			break;
 	}
 
-	eir::infoLogger() << frg::endlog << "Exception type: ";
+	eir::infoLogger() << "Interruption type: " << i_type_str << frg::endlog;
 
 	auto exc_type = syndrome >> 26;
+	const char *exc_type_str = "Unknown";
 	switch (exc_type) {
-		case 0x01: eir::infoLogger() << "Trapped WFI/WFE"; break;
-		case 0x0e: eir::infoLogger() << "Illegal execution"; break;
-		case 0x15: eir::infoLogger() << "System call"; break;
-		case 0x20: eir::infoLogger() << "Instruction abort, lower EL"; break;
-		case 0x21: eir::infoLogger() << "Instruction abort, same EL"; break;
-		case 0x22: eir::infoLogger() << "Instruction alignment fault"; break;
-		case 0x24: eir::infoLogger() << "Data abort, lower EL"; break;
-		case 0x25: eir::infoLogger() << "Data abort, same EL"; break;
-		case 0x26: eir::infoLogger() << "Stack alignment fault"; break;
-		case 0x2c: eir::infoLogger() << "Floating point"; break;
-		default: eir::infoLogger() << "Unknown"; break;
+		case 0x01: exc_type_str = "Trapped WFI/WFE"; break;
+		case 0x0e: exc_type_str = "Illegal execution"; break;
+		case 0x15: exc_type_str = "System call"; break;
+		case 0x20: exc_type_str = "Instruction abort, lower EL"; break;
+		case 0x21: exc_type_str = "Instruction abort, same EL"; break;
+		case 0x22: exc_type_str = "Instruction alignment fault"; break;
+		case 0x24: exc_type_str = "Data abort, lower EL"; break;
+		case 0x25: exc_type_str = "Data abort, same EL"; break;
+		case 0x26: exc_type_str = "Stack alignment fault"; break;
+		case 0x2c: exc_type_str = "Floating point"; break;
 	}
 
-	eir::infoLogger() << " (" << (void *)exc_type << ")" << frg::endlog;
+	eir::infoLogger() << "Exception type: " << exc_type_str << " (" << (void *)exc_type << ")" << frg::endlog;
 
 	auto iss = syndrome & ((1 << 25) - 1);
 
@@ -433,6 +441,8 @@ extern "C" void eirExceptionHandler(IntrType i_type, uintptr_t syndrome, uintptr
 		eir::infoLogger() << "Access type: " << (iss & (1 << 6) ? "Write" : "Read") << frg::endlog;
 		if ((iss & 0b111111) <= 0b001111)
 			eir::infoLogger() << "Data fault status code: " << dfsc_values[(iss >> 2) & 4] << " fault level " << (iss & 3) << frg::endlog;
+		else if ((iss & 0b111111) == 0b10000)
+			eir::infoLogger() << "Data fault status code: Synchronous external fault" << frg::endlog;
 		else if ((iss & 0b111111) == 0b100001)
 			eir::infoLogger() << "Data fault status code: Alignment fault" << frg::endlog;
 		else if ((iss & 0b111111) == 0b110000)
