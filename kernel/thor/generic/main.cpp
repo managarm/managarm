@@ -79,12 +79,7 @@ extern "C" void thorInitialize() {
 				<< frg::endlog;
 	}
 
-	// TODO: Move this to an architecture specific file.
-#ifdef __x86_64__
-	PhysicalAddr pml4_ptr;
-	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
-	KernelPageSpace::initialize(pml4_ptr);
-#endif
+	KernelPageSpace::initialize();
 	getCpuData()->globalBinding.bind();
 
 	SkeletalRegion::initialize();
@@ -99,8 +94,6 @@ extern "C" void thorInitialize() {
 	kernelVirtualAlloc.initialize();
 	kernelHeap.initialize(*kernelVirtualAlloc);
 	kernelAlloc.initialize(kernelHeap.get());
-
-	initializePhysicalAccess();
 
 	infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frg::endlog;
 }

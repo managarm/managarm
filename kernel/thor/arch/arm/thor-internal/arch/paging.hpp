@@ -11,8 +11,6 @@
 
 namespace thor {
 
-void initializePhysicalAccess();
-
 enum {
 	kPageSize = 0x1000,
 	kPageShift = 12
@@ -252,19 +250,19 @@ enum class CachingMode {
 struct KernelPageSpace {
 	friend struct GlobalPageBinding;
 public:
-	static void initialize(PhysicalAddr pml4_address);
+	static void initialize();
 
 	static KernelPageSpace &global();
 
 	// TODO: This should be private.
-	explicit KernelPageSpace(PhysicalAddr pml4_address);
+	explicit KernelPageSpace(PhysicalAddr ttbr1);
 
 	KernelPageSpace(const KernelPageSpace &) = delete;
 
 	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
 
 	PhysicalAddr rootTable() {
-		return _rootTable;
+		return ttbr1_;
 	}
 
 	bool submitShootdown(ShootNode *node);
@@ -274,7 +272,7 @@ public:
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 private:
-	PhysicalAddr _rootTable;
+	PhysicalAddr ttbr1_;
 
 	frigg::TicketLock _mutex;
 

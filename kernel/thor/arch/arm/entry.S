@@ -7,5 +7,12 @@ thorBootInfoPtr:
 .text
 .global thorRtEntry
 thorRtEntry:
-	wfi
-	b thorRtEntry
+	ldr x1, =thorBootInfoPtr
+	str x0, [x1]
+
+	.extern thorInitialize
+	.extern thorRunConstructors
+	.extern thorMain
+	bl thorInitialize
+	bl thorRunConstructors
+	bl thorMain

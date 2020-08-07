@@ -4,7 +4,7 @@
 
 namespace thor {
 
-struct DummyLogHandler : public LogHandler {
+struct UartLogHandler : public LogHandler {
 	void printChar(char c) override;
 };
 

@@ -49,10 +49,6 @@ void invalidateFullTlb() {
 	asm volatile ("mov %0, %%cr3" : : "r"(pml4) : "memory");
 }
 
-void initializePhysicalAccess() {
-	// Nothing to do here.
-}
-
 void poisonPhysicalAccess(PhysicalAddr physical) {
 	auto address = 0xFFFF'8000'0000'0000 + physical;
 	KernelPageSpace::global().unmapSingle4k(address);
@@ -503,8 +499,11 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 
 frigg::LazyInitializer<KernelPageSpace> kernelSpaceSingleton;
 
-void KernelPageSpace::initialize(PhysicalAddr pml4_address) {
-	kernelSpaceSingleton.initialize(pml4_address);
+void KernelPageSpace::initialize() {
+	PhysicalAddr pml4_ptr;
+	asm volatile ("mov %%cr3, %0" : "=r" (pml4_ptr));
+
+	kernelSpaceSingleton.initialize(pml4_ptr);
 }
 
 KernelPageSpace &KernelPageSpace::global() {

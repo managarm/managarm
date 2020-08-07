@@ -11,8 +11,6 @@
 
 namespace thor {
 
-void initializePhysicalAccess();
-
 enum {
 	kPageSize = 0x1000,
 	kPageShift = 12
@@ -265,7 +263,7 @@ enum class CachingMode {
 struct KernelPageSpace {
 	friend struct GlobalPageBinding;
 public:
-	static void initialize(PhysicalAddr pml4_address);
+	static void initialize();
 
 	static KernelPageSpace &global();
 

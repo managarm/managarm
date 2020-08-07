@@ -350,7 +350,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 inline PlatformCpuData *getPlatformCpuData() {
 	AssemblyCpuData *cpu_data = nullptr;
-	asm ("mrs %0, mpidr_el1" : "=r"(cpu_data));
+	asm ("mrs %0, tpidr_el1" : "=r"(cpu_data));
 	return static_cast<PlatformCpuData *>(cpu_data);
 }
 
@@ -407,5 +407,7 @@ Error getEntropyFromCpu(void *buffer, size_t size);
 void armPreemption(uint64_t nanos);
 void disarmPreemption();
 uint64_t getRawTimestampCounter();
+
+void setupBootCpuContext();
 
 } // namespace thor
