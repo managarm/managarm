@@ -6,9 +6,8 @@
 
 namespace thor {
 
-constexpr size_t guardedSize = 0x10000;
-
 UniqueKernelStack UniqueKernelStack::make() {
+	size_t guardedSize = kSize + kPageSize;
 	auto pointer = KernelVirtualMemory::global().allocate(guardedSize);
 
 	for(size_t offset = 0; offset < kSize; offset += kPageSize) {
@@ -26,6 +25,7 @@ UniqueKernelStack::~UniqueKernelStack() {
 	if(!_base)
 		return;
 
+	size_t guardedSize = kSize + kPageSize;
 	auto address = reinterpret_cast<uintptr_t>(_base - guardedSize);
 	for(size_t offset = 0; offset < kSize; offset += kPageSize) {
 		PhysicalAddr physical = KernelPageSpace::global().unmapSingle4k(

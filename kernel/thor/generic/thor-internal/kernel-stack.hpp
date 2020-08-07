@@ -7,7 +7,7 @@
 namespace thor {
 
 struct UniqueKernelStack {
-	static constexpr size_t kSize = 0x8000;
+	static constexpr size_t kSize = 0xF000;
 
 	static UniqueKernelStack make();
 
