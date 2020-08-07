@@ -115,6 +115,11 @@ extern "C" void thorRunConstructors() {
 constinit initgraph::Engine basicInitEngine;
 constinit initgraph::Engine extendedInitEngine;
 
+initgraph::Stage *getTaskingAvailableStage() {
+	static initgraph::Stage s{&basicInitEngine, "tasking-available"};
+	return &s;
+}
+
 extern "C" void thorMain() {
 	kernelCommandLine.initialize(*kernelAlloc,
 			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));

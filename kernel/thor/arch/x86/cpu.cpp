@@ -13,6 +13,8 @@ namespace {
 }
 
 namespace {
+	constinit bool cpuFeaturesKnown = false;
+
 	void activateTss(frigg::arch_x86::Tss64 *tss) {
 		frigg::arch_x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
 				tss, sizeof(frigg::arch_x86::Tss64));
@@ -36,11 +38,12 @@ bool FaultImageAccessor::allowUserPages() {
 // --------------------------------------------------------
 
 size_t Executor::determineSize() {
-	auto *cpu_data = getCpuData();
+	assert(cpuFeaturesKnown);
+	auto *cpuData = getCpuData();
 
 	// fxState is offset from General by 0x10 bytes to make it 64byte aligned for xsave
-	if(cpu_data->haveXsave){
-		return sizeof(General) + 0x10 + cpu_data->xsaveRegionSize;
+	if(cpuData->haveXsave){
+		return sizeof(General) + 0x10 + cpuData->xsaveRegionSize;
 	}else{
 		return sizeof(General) + 0x10 + sizeof(FxState);
 	}
@@ -470,6 +473,7 @@ void setupBootCpuContext() {
 
 static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-processor",
 	initgraph::Requires{getApicDiscoveryStage()},
+	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
 		allCpuContexts.initialize(*kernelAlloc);
 
@@ -699,6 +703,8 @@ void initializeThisProcessor() {
 			| (uint64_t(kSelExecutorSyscallCode) << 32));
 	// mask interrupt and trap flag
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x300);
+
+	cpuFeaturesKnown = true;
 
 	initLocalApicPerCpu();
 }

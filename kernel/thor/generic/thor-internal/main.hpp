@@ -6,5 +6,6 @@ namespace thor {
 
 extern initgraph::Engine basicInitEngine;
 extern initgraph::Engine extendedInitEngine;
+initgraph::Stage *getTaskingAvailableStage();
 
 } // namespace thor

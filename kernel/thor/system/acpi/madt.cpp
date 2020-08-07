@@ -265,7 +265,7 @@ static initgraph::Task initTablesTask{&basicInitEngine, "acpi.init-tables",
 };
 
 static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioapics",
-	initgraph::Requires{getTablesDiscoveredStage()},
+	initgraph::Requires{getTaskingAvailableStage(), getTablesDiscoveredStage()},
 	[] {
 		dumpMadt();
 
