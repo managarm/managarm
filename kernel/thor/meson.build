@@ -115,12 +115,14 @@ if get_option('kernel_kasan')
 	extra_c_args += [
 		'-DTHOR_KASAN',
 		'-fsanitize=kernel-address',
-		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000'
+		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000',
+		'-mllvm', '-asan-globals=false',
 	]
 	extra_cpp_args += [
 		'-DTHOR_KASAN',
 		'-fsanitize=kernel-address',
-		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000'
+		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000',
+		'-mllvm', '-asan-globals=false',
 	]
 endif
 if get_option('kernel_log_allocations')
