@@ -12,6 +12,7 @@ eirEnterKernel:
 	// x1 -> TTBR1 ptr
 	// x2 -> thor entry point
 	// x3 -> thor stack pointer
+	// x4 -> thor info ptr
 
 	// Set page table pointers
 	msr TTBR0_EL1, x0
@@ -26,4 +27,5 @@ eirEnterKernel:
 	isb
 
 	mov sp, x3
+	mov x0, x4
 	br x2

@@ -17,7 +17,8 @@ namespace PageFlags {
 
 enum class CachingMode {
 	null,
-	writeCombine
+	writeCombine,
+	mmio
 }; // enum class CachingMode
 
 static constexpr int pageShift = 12;

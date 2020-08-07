@@ -170,7 +170,7 @@ namespace PropertyMbox {
 		*ptr++ = 0x00048006; // Set pixel order
 		*ptr++ = 4;
 		*ptr++ = 0;
-		*ptr++ = 1; // RGB
+		*ptr++ = 0; // RGB
 
 		*ptr++ = 0x00040001; // Allocate buffer
 		*ptr++ = 8;
@@ -401,7 +401,7 @@ DtbHeader getDtbHeader(void *dtb) {
 	return hdr;
 }
 
-extern "C" void eirEnterKernel(uintptr_t, uintptr_t, uint64_t, uint64_t);
+extern "C" void eirEnterKernel(uintptr_t, uintptr_t, uint64_t, uint64_t, uintptr_t);
 
 extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	// the device tree pointer is 32-bit and the upper bits are undefined
@@ -575,13 +575,17 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	}
 
+	info_ptr->debugFlags |= eirDebugSerial;
+
 	mapSingle4kPage(0xFFFF'0000'0000'0000, mmioBase + 0x201000,
-			PageFlags::write, CachingMode::writeCombine);
+			PageFlags::write, CachingMode::mmio);
+	mapKasanShadow(0xFFFF'0000'0000'0000, 0x1000);
+	unpoisonKasanShadow(0xFFFF'0000'0000'0000, 0x1000);
 
 	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 
 	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry,
-			0xFFFF'FE80'0001'0000);
+			0xFFFF'FE80'0001'0000, reinterpret_cast<uintptr_t>(info_ptr));
 
 	while(true);
 }

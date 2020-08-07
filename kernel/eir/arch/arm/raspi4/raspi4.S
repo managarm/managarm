@@ -25,6 +25,8 @@ eirEntry:
 	orr x0, x0, #(1 << 22)
 	orr x0, x0, #(1 << 20)
 	orr x0, x0, #(1 << 11)
+	orr x0, x0, #(1 << 12)
+	orr x0, x0, #(1 << 2)
 	msr sctlr_el1, x0
 
 	// Enable access to counters
@@ -34,8 +36,9 @@ eirEntry:
 	msr cntvoff_el2, xzr
 
 	// Enable AArch64
-	mrs x0, hcr_el2
+	mov x0, xzr
 	orr x0, x0, #(1 << 31)
+	orr x0, x0, #(1 << 1)
 	msr hcr_el2, x0
 
 	// Load vector table

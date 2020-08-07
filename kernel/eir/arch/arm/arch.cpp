@@ -29,6 +29,7 @@ static inline constexpr uint64_t kPageInnerSh = (3 << 8);
 static inline constexpr uint64_t kPageOuterSh = (2 << 8);
 static inline constexpr uint64_t kPageWb = (0 << 2);
 static inline constexpr uint64_t kPageGRE = (1 << 2);
+static inline constexpr uint64_t kPagenGnRnE = (2 << 2);
 
 void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 		CachingMode caching_mode) {
@@ -95,9 +96,11 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 	if (!(flags & PageFlags::global))
 		new_entry |= kPageNotGlobal;
 
-	if (caching_mode == CachingMode::writeCombine)
+	if (caching_mode == CachingMode::writeCombine) {
 		new_entry |= kPageGRE | kPageOuterSh;
-	else {
+	} else if (caching_mode == CachingMode::mmio) {
+		new_entry |= kPagenGnRnE | kPageOuterSh;
+	} else {
 		assert(caching_mode == CachingMode::null);
 		new_entry |= kPageWb | kPageInnerSh;
 	}
@@ -146,32 +149,36 @@ address_t getSingle4kPage(address_t address) {
 void initProcessorEarly() {
 	eir::infoLogger() << "Starting Eir" << frg::endlog;
 
-	uint64_t aa64mmf0;
-	asm volatile ("mrs %0, id_aa64mmfr0_el1" : "=r" (aa64mmf0));
+	uint64_t aa64mmfr0;
+	asm volatile ("mrs %0, id_aa64mmfr0_el1" : "=r" (aa64mmfr0));
 
-	if (aa64mmf0 & (0xF << 28))
+	if (aa64mmfr0 & (0xF << 28))
 		eir::panicLogger() << "PANIC! This CPU doesn't support 4K memory translation granules" << frg::endlog;
 
-	if (!((aa64mmf0 & 0xF) < 5))
-		eir::panicLogger() << "PANIC! This CPU doesn't support at least 48 bit physical addresses" << frg::endlog;
+	if ((aa64mmfr0 & 0xF) < 1)
+		eir::panicLogger() << "PANIC! This CPU doesn't support at least 48 bit physical addresses (max "
+			<< (aa64mmfr0 & 0xF) << ")" << frg::endlog;
+
+	auto pa = frg::min(uint64_t(5), aa64mmfr0 & 0xF);
 
 	uint64_t mair =
 		0b11111111 | // Normal, Write-back RW-Allocate non-transient
-		(0b00001100 << 8); // Device, GRE
+		(0b00001100 << 8) | // Device, GRE
+		(0b01000100 << 16); // Device, nGnRnE
 
 	asm volatile ("msr mair_el1, %0" :: "r" (mair));
 
 	uint64_t tcr =
 		(16 << 0) | // T0SZ=16
 		(16 << 16) | // T1SZ=16
-		(1 << 8) | // TTRB0 Inner WB RW-Allocate
-		(1 << 10) | // TTRB0 Outer WB RW-Allocate
-		(1 << 24) | // TTRB1 Inner WB RW-Allocate
-		(1 << 26) | // TTRB1 Outer WB RW-Allocate
-		(3 << 12) | // TTRB0 Inner shareable
-		(3 << 28) | // TTRB1 Inner shareable
-		(uint64_t(5) << 32) | // 48-bit intermediate address
-		(2 << 30); // TTRB1 4K granule
+		(1 << 8) | // TTBR0 Inner WB RW-Allocate
+		(1 << 10) | // TTBR0 Outer WB RW-Allocate
+		(1 << 24) | // TTBR1 Inner WB RW-Allocate
+		(1 << 26) | // TTBR1 Outer WB RW-Allocate
+		(2 << 12) | // TTBR0 Inner shareable
+		(2 << 28) | // TTBR1 Inner shareable
+		(uint64_t(pa) << 32) | // 48-bit intermediate address
+		(2 << 30); // TTBR1 4K granule
 
 	asm volatile ("msr tcr_el1, %0" :: "r" (tcr));
 }
