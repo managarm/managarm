@@ -76,6 +76,16 @@ namespace {
 #endif // THOR_KASAN
 }
 
+[[gnu::no_sanitize_address]] void validateKasanClean(void *pointer, size_t size) {
+#ifdef THOR_KASAN
+	assert(!(reinterpret_cast<uintptr_t>(pointer) & (kasanScale - 1)));
+
+	auto shadow = kasanShadowOf(pointer);
+	for(size_t n = 0; n < (size >> kasanShift); ++n)
+		assert(!shadow[n]);
+#endif // THOR_KASAN
+}
+
 } // namespace thor
 
 #ifdef THOR_KASAN

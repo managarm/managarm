@@ -290,6 +290,9 @@ void scrubStack(FaultImageAccessor accessor, Continuation cont) {
 	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
 	assert(top >= bottom);
 	cleanKasanShadow(cont.sp, top - bottom);
+	// Perform some sanity checking.
+	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
+			bottom & (kPageSize - 1));
 }
 
 void scrubStack(IrqImageAccessor accessor, Continuation cont) {
@@ -297,6 +300,9 @@ void scrubStack(IrqImageAccessor accessor, Continuation cont) {
 	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
 	assert(top >= bottom);
 	cleanKasanShadow(cont.sp, top - bottom);
+	// Perform some sanity checking.
+	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
+			bottom & (kPageSize - 1));
 }
 
 void scrubStack(SyscallImageAccessor accessor, Continuation cont) {
@@ -304,6 +310,9 @@ void scrubStack(SyscallImageAccessor accessor, Continuation cont) {
 	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
 	assert(top >= bottom);
 	cleanKasanShadow(cont.sp, top - bottom);
+	// Perform some sanity checking.
+	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
+			bottom & (kPageSize - 1));
 }
 
 void scrubStack(Executor *executor, Continuation cont) {
@@ -311,6 +320,9 @@ void scrubStack(Executor *executor, Continuation cont) {
 	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
 	assert(top >= bottom);
 	cleanKasanShadow(cont.sp, top - bottom);
+	// Perform some sanity checking.
+	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
+			bottom & (kPageSize - 1));
 }
 
 // --------------------------------------------------------
