@@ -71,16 +71,16 @@ struct coroutine {
 			return awaiter{this};
 		}
 
-		auto final_suspend() {
+		auto final_suspend() noexcept {
 			struct awaiter {
 				awaiter(promise_type *promise)
 				: promise_{promise} { }
 
-				bool await_ready() {
+				bool await_ready() noexcept {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) {
+				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
 					// NOTE: Clang 10 mis-optimizes statement below. It elides a copy of the type T
 					//       temporary here; if the temporary is not placed on the stack, this
 					//       causes a failure after the coroutine state is deallocated within
@@ -91,7 +91,7 @@ struct coroutine {
 					promise_->cont_->set_value(std::move(temp));
 				}
 
-				void await_resume() {
+				void await_resume() noexcept {
 					__builtin_trap();
 				}
 
@@ -189,20 +189,20 @@ struct coroutine<void> {
 			return awaiter{this};
 		}
 
-		auto final_suspend() {
+		auto final_suspend() noexcept {
 			struct awaiter {
 				awaiter(promise_type *promise)
 				: promise_{promise} { }
 
-				bool await_ready() {
+				bool await_ready() noexcept {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) {
+				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
 					promise_->cont_->set_value();
 				}
 
-				void await_resume() {
+				void await_resume() noexcept {
 					__builtin_trap();
 				}
 
