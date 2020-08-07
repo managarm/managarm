@@ -72,12 +72,8 @@ thor_sources = [files(
 	'generic/ubsan.cpp',
 	'generic/work-queue.cpp',
 	'generic/kernel-stack.cpp',
-	'system/acpi/glue.cpp',
-	'system/acpi/madt.cpp',
-	'system/acpi/pm-interface.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',
-	'system/legacy-pc/ata.cpp',
 	'system/pci/pci_discover.cpp'
 )]
 
@@ -100,6 +96,9 @@ extra_c_args = []
 extra_cpp_args = ['-DCXXSHIM_INTEGRATE_GCC']
 extra_link_args = []
 extra_link_depends = []
+extra_includes = []
+extra_link_with = []
+want_acpi = false
 
 if get_option('kernel_ubsan')
 	# -fsanitize=function requires RTTI.
@@ -138,6 +137,24 @@ else
 	error('Unknown architecture')
 endif
 
+if want_acpi
+	thor_sources += files(
+		'system/acpi/glue.cpp',
+		'system/acpi/madt.cpp',
+		'system/acpi/pm-interface.cpp',
+		'system/pci/pci_acpi.cpp'
+	)
+
+	lai_lib = static_library('lai', lai_sources,
+		include_directories: lai_includes,
+		c_args: extra_c_args,
+		pic: false
+	)
+
+	extra_includes += lai_includes
+	extra_link_with += lai_lib
+endif
+
 cralgo_lib = static_library('cralgo',
 	cralgo_sources,
 	include_directories: cralgo_includes,
@@ -146,17 +163,11 @@ cralgo_lib = static_library('cralgo',
 	pic: false
 )
 
-lai_lib = static_library('lai', lai_sources,
-	include_directories: lai_includes,
-	c_args: extra_c_args,
-	pic: false
-)
-
 executable('thor', pb_sources, bragi_sources, thor_sources,
 	include_directories: [
 		thor_includes,
 		cralgo_includes,
-		lai_includes
+		extra_includes
 	],
 	dependencies: [
 		clang_coroutine_dep,
@@ -177,7 +188,7 @@ executable('thor', pb_sources, bragi_sources, thor_sources,
 	],
 	link_with: [
 		cralgo_lib,
-		lai_lib,
+		extra_link_with
 	],
 	link_args: [
 		'-nostdlib',

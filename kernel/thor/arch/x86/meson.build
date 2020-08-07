@@ -2,6 +2,7 @@ thor_sources += files(
 	'../../../../frigg/src/arch_x86/gdt.cpp',
 	'../../../../frigg/src/arch_x86/idt.cpp',
 	'../../../../frigg/src/arch_x86/tss.cpp',
+	'../../system/legacy-pc/ata.cpp',
 	'early_stubs.S',
 	'stubs.S',
 	'user-access.S',
@@ -58,3 +59,5 @@ extra_c_args += [
 ]
 
 extra_link_depends += [files('link.x')]
+
+want_acpi = true

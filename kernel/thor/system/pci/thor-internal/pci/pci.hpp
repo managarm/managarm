@@ -5,7 +5,6 @@
 
 #include <frigg/smart_ptr.hpp>
 #include <frigg/vector.hpp>
-#include <lai/core.h>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/irq.hpp>
 
@@ -63,26 +62,18 @@ struct PciBridge;
 struct PciBus;
 
 struct PciBus {
-	PciBus(PciBridge *associatedBridge_, uint32_t busId_, lai_nsnode_t *acpiHandle_);
+	PciBus(PciBridge *associatedBridge_, uint32_t busId_)
+	: associatedBridge{associatedBridge_}, busId{busId_} { }
 
 	PciBus(const PciBus &) = delete;
-
 	PciBus &operator=(const PciBus &) = delete;
 
-	IrqPin *resolveIrqRoute(unsigned int slot, IrqIndex index);
+	virtual IrqPin *resolveIrqRoute(uint32_t slot, IrqIndex index) = 0;
+	virtual PciBus *makeDownstreamBus(PciBridge *bridge, uint32_t busId) = 0;
 
 	PciBridge *associatedBridge;
 
 	uint32_t busId;
-
-	lai_nsnode_t *acpiHandle = nullptr;
-
-private:
-	RoutingModel _routingModel = RoutingModel::none;
-	// PRT of this bus (RoutingModel::rootTable).
-	frigg::Vector<RoutingEntry, KernelAlloc> _routingTable{*kernelAlloc};
-	// IRQs of the bridge (RoutingModel::expansionBridge).
-	IrqPin *_bridgeIrqs[4] = {};
 };
 
 // Either a device or a bridge.
@@ -199,6 +190,9 @@ extern frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelA
 void enumerateSystemBusses();
 
 void runAllDevices();
+
+void addToEnumerationQueue(PciBus *bus);
+void enumerateAll();
 
 } } // namespace thor::pci
 

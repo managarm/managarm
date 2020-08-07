@@ -7,7 +7,6 @@
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/pci/pci.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
 
@@ -372,7 +371,6 @@ static initgraph::Task enterAcpiModeTask{&extendedInitEngine, "acpi.enter-acpi-m
 		lai_enable_acpi(1);
 
 		bootOtherProcessors();
-		pci::enumerateSystemBusses();
 		initializePmInterface();
 
 		infoLogger() << "thor: ACPI configuration complete." << frg::endlog;

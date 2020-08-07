@@ -2,19 +2,12 @@
 #include <frigg/debug.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
-#ifdef __x86_64__
-#include <thor-internal/arch/pic.hpp>
-#endif
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/address-space.hpp>
-#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/framebuffer/boot-screen.hpp>
 #include <thor-internal/pci/pci.hpp>
-
-#include <lai/core.h>
-#include <lai/helpers/pci.h>
 
 namespace thor {
 
@@ -473,82 +466,6 @@ void runDevice(frigg::SharedPtr<PciDevice> device) {
 }
 
 // --------------------------------------------------------
-// PciBus implementation.
-// --------------------------------------------------------
-
-PciBus::PciBus(PciBridge *associatedBridge_, uint32_t busId_, lai_nsnode_t *acpiHandle_)
-: associatedBridge{associatedBridge_}, busId{busId_}, acpiHandle{acpiHandle_} {
-	LAI_CLEANUP_STATE lai_state_t laiState;
-	lai_init_state(&laiState);
-
-	// Look for a PRT and evaluate it.
-	lai_nsnode_t *prtHandle = lai_resolve_path(acpiHandle, "_PRT");
-	if(!prtHandle) {
-		if(associatedBridge) {
-			infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
-					" assuming expansion bridge routing" << frg::endlog;
-			for(int i = 0; i < 4; i++) {
-				_bridgeIrqs[i] = associatedBridge->parentBus->resolveIrqRoute(
-						associatedBridge->slot, static_cast<IrqIndex>(i + 1));
-				if(_bridgeIrqs[i])
-					infoLogger() << "thor:     Bridge IRQ [" << i << "]: "
-							<< _bridgeIrqs[i]->name() << frg::endlog;
-			}
-			_routingModel = RoutingModel::expansionBridge;
-		}else{
-			infoLogger() << "thor: There is no _PRT for bus " << busId_ << ";"
-					" giving up IRQ routing of this bus" << frg::endlog;
-		}
-		return;
-	}
-
-	LAI_CLEANUP_VAR lai_variable_t prt = LAI_VAR_INITIALIZER;
-	if (lai_eval(&prt, prtHandle, &laiState)) {
-		infoLogger() << "thor: Failed to evaluate _PRT;"
-				" giving up IRQ routing of this bus" << frg::endlog;
-		return;
-	}
-
-	// Walk through the PRT and determine the routing.
-	struct lai_prt_iterator iter = LAI_PRT_ITERATOR_INITIALIZER(&prt);
-	lai_api_error_t e;
-	while (!(e = lai_pci_parse_prt(&iter))) {
-		assert(iter.function == -1 && "TODO: support routing of individual functions");
-		auto index = static_cast<IrqIndex>(iter.pin + 1);
-
-		infoLogger() << "    Route for slot " << iter.slot
-				<< ", " << nameOf(index) << ": "
-				<< "GSI " << iter.gsi << frg::endlog;
-
-		// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
-		// Hence, for now we do not deal with link devices.
-		configureIrq(GlobalIrqInfo{iter.gsi, {
-				iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
-				iter.active_low ? Polarity::low : Polarity::high}});
-#ifdef __x86_64__
-		auto pin = getGlobalSystemIrq(iter.gsi);
-		_routingTable.push({static_cast<unsigned int>(iter.slot), index, pin});
-#endif
-	}
-	_routingModel = RoutingModel::rootTable;
-}
-
-IrqPin *PciBus::resolveIrqRoute(unsigned int slot, IrqIndex index) {
-	if(_routingModel == RoutingModel::rootTable) {
-		auto entry = std::find_if(_routingTable.begin(), _routingTable.end(),
-				[&] (const auto &ref) { return ref.slot == slot && ref.index == index; });
-		if(entry == _routingTable.end())
-			return nullptr;
-		assert(entry->pin);
-		return entry->pin;
-	}else if(_routingModel == RoutingModel::expansionBridge) {
-		return _bridgeIrqs[(static_cast<int>(index) - 1 + slot) % 4];
-	}else{
-		return nullptr;
-	}
-}
-
-// --------------------------------------------------------
 // Discovery functionality
 // --------------------------------------------------------
 
@@ -595,18 +512,6 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		infoLogger() << " (IRQs masked)";
 	infoLogger() << frg::endlog;
 	writePciHalf(bus->busId, slot, function, kPciCommand, command | 0x400);
-
-	lai_nsnode_t *deviceHandle = nullptr;
-	if(bus->acpiHandle) {
-		LAI_CLEANUP_STATE lai_state_t laiState;
-		lai_init_state(&laiState);
-		deviceHandle = lai_pci_find_device(bus->acpiHandle, slot, function, &laiState);
-	}
-	if(deviceHandle) {
-		LAI_CLEANUP_FREE_STRING char *acpiPath = lai_stringify_node_path(deviceHandle);
-		infoLogger() << "            ACPI: " << const_cast<const char *>(acpiPath)
-				<< frg::endlog;
-	}
 
 	auto device_id = readPciHalf(bus->busId, slot, function, kPciDevice);
 	auto revision = readPciByte(bus->busId, slot, function, kPciRevision);
@@ -763,14 +668,10 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 
 		allDevices->push(device);
 	}else if((header_type & 0x7F) == 1) {
-		LAI_CLEANUP_STATE lai_state_t laiState;
-		lai_init_state(&laiState);
-
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->busId, slot, function);
 
 		uint8_t downstreamId = readPciByte(bus->busId, slot, function, kPciBridgeSecondary);
-		auto downstreamBus = frg::construct<PciBus>(*kernelAlloc, bridge,
-				downstreamId, deviceHandle);
+		auto downstreamBus = bus->makeDownstreamBus(bridge, downstreamId);
 		enumerationQueue->push_back(std::move(downstreamBus)); // FIXME: move should be unnecessary.
 	}
 
@@ -809,34 +710,17 @@ void runAllDevices() {
 	}
 }
 
-void enumerateSystemBusses() {
-	enumerationQueue.initialize(*kernelAlloc);
-	allDevices.initialize(*kernelAlloc);
+void addToEnumerationQueue(PciBus *bus) {
+	if (!enumerationQueue)
+		enumerationQueue.initialize(*kernelAlloc);
 
-	LAI_CLEANUP_STATE lai_state_t laiState;
-	lai_init_state(&laiState);
+	enumerationQueue->push_back(bus);
+}
 
-	LAI_CLEANUP_VAR lai_variable_t pci_pnp_id = LAI_VAR_INITIALIZER;
-	LAI_CLEANUP_VAR lai_variable_t pcie_pnp_id = LAI_VAR_INITIALIZER;
-	lai_eisaid(&pci_pnp_id, "PNP0A03");
-	lai_eisaid(&pcie_pnp_id, "PNP0A08");
+void enumerateAll() {
+	if (!allDevices)
+		allDevices.initialize(*kernelAlloc);
 
-	lai_nsnode_t *sb_handle = lai_resolve_path(NULL, "\\_SB_");
-	LAI_ENSURE(sb_handle);
-	struct lai_ns_child_iterator iter = LAI_NS_CHILD_ITERATOR_INITIALIZER(sb_handle);
-	lai_nsnode_t *handle;
-	while ((handle = lai_ns_child_iterate(&iter))) {
-		if (lai_check_device_pnp_id(handle, &pci_pnp_id, &laiState)
-				&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &laiState))
-			continue;
-
-		infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
-		auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, 0, handle);
-		enumerationQueue->push_back(std::move(rootBus)); // FIXME: the move should not be necessary.
-	}
-
-	// Note that elements are added to this queue while it is being traversed.
-	infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
 	for(size_t i = 0; i < enumerationQueue->size(); i++) {
 		auto bus = (*enumerationQueue)[i];
 		checkPciBus(bus);
