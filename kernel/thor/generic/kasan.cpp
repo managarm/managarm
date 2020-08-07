@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <frigg/debug.hpp>
+#include <thor-internal/arch/paging.hpp>
 #include <thor-internal/debug.hpp>
 
 namespace thor {
@@ -16,6 +17,11 @@ namespace {
 	int8_t *kasanShadowOf(void *ptr) {
 		return reinterpret_cast<int8_t *>(
 			kasanShadowDelta + (reinterpret_cast<uintptr_t>(ptr) >> kasanShift));
+	}
+
+	void *kasanPointerOf(int8_t *shadow) {
+		return reinterpret_cast<void *>(
+			((reinterpret_cast<uintptr_t>(shadow) - kasanShadowDelta) << kasanShift));
 	}
 }
 #endif // THOR_KASAN
@@ -96,9 +102,26 @@ namespace {
 				<< size << "-byte "
 				<< (write ? "write to " : "read from ")
 				<< "address " << (void *)address << frg::endlog;
-		uint8_t value = *thor::kasanShadowOf(reinterpret_cast<void *>(address));
-		thor::infoLogger() << "thor: Shadow value is "
-				<< frg::hex_fmt(static_cast<unsigned int>(value)) << frg::endlog;
+		auto shadow = thor::kasanShadowOf(reinterpret_cast<void *>(address));
+		auto l = reinterpret_cast<uintptr_t>(shadow) & 15;
+		auto validBehind = (reinterpret_cast<uintptr_t>(shadow) - l) & (thor::kPageSize - 1);
+		auto validAhead = thor::kPageSize - validBehind;
+		auto shownBehind = frg::min(validBehind, size_t{2 * 16});
+		auto shownAhead = frg::min(validAhead, size_t{2 * 16});
+		ptrdiff_t i = -static_cast<ptrdiff_t>(shownBehind);
+		while(i < static_cast<ptrdiff_t>(16 + shownAhead)) {
+			auto msg = thor::infoLogger();
+			msg << "thor: Shadow[" << thor::kasanPointerOf(&shadow[-l + i]) << "]:";
+			for(size_t j = 0; j < 16; ++j) {
+				auto v = static_cast<uint8_t>(shadow[-l + i]);
+				msg << (i == l ? "[" : " ")
+					<< (v <= 8 ? "0" : "")
+					<< frg::hex_fmt(static_cast<unsigned int>(v))
+					<< (i == l ? "]" : " ");
+				++i;
+			}
+			msg << frg::endlog;
+		}
 		thor::panic();
 	}
 }
