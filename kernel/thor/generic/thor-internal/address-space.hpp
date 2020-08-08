@@ -720,6 +720,8 @@ public:
 
 	void dispose(BindableHandle);
 
+	Futex futexSpace;
+
 private:
 	Operations ops_;
 	ClientPageSpace pageSpace_;
