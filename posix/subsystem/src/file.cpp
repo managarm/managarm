@@ -150,6 +150,11 @@ async::result<void> File::ptSetFileFlags(void *object, int flags) {
 	return self->setFileFlags(flags);
 }
 
+async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPeername(void *object, void *addr_ptr, size_t max_addr_length) {
+	auto self = static_cast<File *>(object);
+	return self->peername(addr_ptr, max_addr_length);
+}
+
 async::result<protocols::fs::RecvResult>
 File::ptRecvMsg(void *object, const char *creds, uint32_t flags,
 		void *data, size_t len,
@@ -302,7 +307,7 @@ async::result<void> File::setOption(int, int) {
 	throw std::runtime_error("posix: Object has no File::setOption()");
 }
 
-async::result<AcceptResult> File::accept(Process *) {
+async::result<frg::expected<Error, AcceptResult>> File::accept(Process *) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement accept()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::accept()");
@@ -354,5 +359,11 @@ async::result<void> File::setFileFlags(int flags) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement setFileFlags()" << std::endl;
 	co_return;
+}
+
+async::result<frg::expected<protocols::fs::Error, size_t>> File::peername(void *addr_ptr, size_t max_addr_length) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement getPeerName()" << std::endl;
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 

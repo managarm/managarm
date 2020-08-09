@@ -702,7 +702,8 @@ DirectoryNode::mkfifo(std::string name, mode_t mode) {
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mksocket(std::string name) {
-	assert(_entries.find(name) == _entries.end());
+	if(!(_entries.find(name) == _entries.end()))
+		co_return Error::alreadyExists;
 	auto node = std::make_shared<SocketNode>(static_cast<Superblock *>(superblock()));
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);

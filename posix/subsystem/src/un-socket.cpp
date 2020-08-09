@@ -14,7 +14,7 @@
 
 namespace un_socket {
 
-bool logSockets = false;
+static constexpr bool logSockets = false;
 
 struct OpenFile;
 
@@ -45,6 +45,12 @@ struct OpenFile : File {
 		closed
 	};
 
+	enum class NameType {
+		unnamed,
+		path,
+		abstract
+	};
+
 public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
 		assert(a->_currentState == State::null);
@@ -66,15 +72,21 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(Process *process = nullptr)
+	OpenFile(Process *process = nullptr, bool nonBlock = false)
 	: File{StructName::get("un-socket"), File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
-			_remote{nullptr}, _passCreds{false} {
+			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
+			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false} {
 		if(process)
 			_ownerPid = process->pid();
 	}
 
 	void handleClose() override {
+		if (!_isInherited && _nameType == NameType::abstract) {
+			assert(abstractSocketsBindMap.find(_sockpath) != abstractSocketsBindMap.end());
+			abstractSocketsBindMap.erase(_sockpath);
+		}
+
 		if(_currentState == State::connected) {
 			auto rf = _remote;
 			rf->_currentState = State::remoteShutDown;
@@ -93,7 +105,13 @@ public:
 	readSome(Process *, void *data, size_t max_length) override {
 		assert(_currentState == State::connected);
 		if(logSockets)
-			std::cout << "posix: Read from socket " << this << std::endl;
+			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+
+		if(_recvQueue.empty() && nonBlock_) {
+			if(logSockets)
+				std::cout << "posix: UNIX socket would block" << std::endl;
+			co_return Error::wouldBlock;
+		}
 
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
@@ -115,7 +133,7 @@ public:
 		if(_currentState != State::connected)
 			co_return Error::notConnected;
 		if(logSockets)
-			std::cout << "posix: Write to socket " << this << std::endl;
+			std::cout << "posix: Write to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
 		Packet packet;
 		packet.senderPid = process->pid();
@@ -142,7 +160,7 @@ public:
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		if(_recvQueue.empty() && (flags & MSG_DONTWAIT)) {
+		if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
 			co_return protocols::fs::RecvResult { protocols::fs::Error::wouldBlock };
@@ -230,14 +248,24 @@ public:
 		co_return;
 	}
 
-	async::result<AcceptResult> accept(Process *process) override {
-		assert(!_acceptQueue.empty());
+	async::result<frg::expected<Error, AcceptResult>> accept(Process *process) override {
+		if(_acceptQueue.empty() && nonBlock_) {
+			if(logSockets)
+				std::cout << "posix: UNIX socket would block on accept" << std::endl;
+			co_return Error::wouldBlock;
+		}
+
+		while (!_acceptQueue.size())
+			co_await _statusBell.async_wait();
 
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
 
 		// Create a new socket and connect it to the queued one.
 		auto local = smarter::make_shared<OpenFile>(process);
+		local->_sockpath = _sockpath;
+		local->_nameType = _nameType;
+		local->_isInherited = true;
 		local->setupWeakFile(local);
 		OpenFile::serve(local);
 		connectPair(remote, local.get());
@@ -283,21 +311,22 @@ public:
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
 		std::string path;
-		bool abstract = false;
 
 		if(sa.sun_path[0] == '\0') {
 			path.resize(addr_length - sizeof(sa.sun_family) - 1);
 			memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
-			abstract = true;
+			_nameType = NameType::abstract;
 		} else {
 			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+			_nameType = NameType::path;
 		}
+		_sockpath = path;
 		if(logSockets)
 			std::cout << "posix: Bind to " << path << std::endl;
 
-		if(abstract) {
-			auto res = abstractSocketsBindMap.emplace(path.data(), this);
+		if (_nameType == NameType::abstract) {
+			auto res = abstractSocketsBindMap.emplace(path, this);
 			if(!res.second)
 				co_return protocols::fs::Error::addressInUse;
 			co_return protocols::fs::Error::none;
@@ -311,6 +340,9 @@ public:
 
 			auto parentNode = resolver.currentLink()->getTarget();
 			auto nodeResult = co_await parentNode->mksocket(resolver.nextComponent());
+			if(!nodeResult) {
+				co_return protocols::fs::Error::alreadyExists;
+			}
 			assert(nodeResult);
 			auto node = nodeResult.value();
 			// Associate the current socket with the node.
@@ -327,36 +359,118 @@ public:
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
+		std::string path;
 
-		std::string path{sa.sun_path, strnlen(sa.sun_path,
-				addr_length - offsetof(sockaddr_un, sun_path))};
+		if(sa.sun_path[0] == '\0') {
+			path.resize(addr_length - sizeof(sa.sun_family) - 1);
+			memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
+		} else {
+			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+		}
+
 		if(logSockets)
 			std::cout << "posix: Connect to " << path << std::endl;
 
-		PathResolver resolver;
-		resolver.setup(process->fsContext()->getRoot(),
-				process->fsContext()->getWorkingDirectory(), std::move(path));
-		co_await resolver.resolve();
-		assert(resolver.currentLink());
+		if (sa.sun_path[0] == '\0') {
+			assert(!_ownerPid);
+			_ownerPid = process->pid();
 
-		assert(!_ownerPid);
-		_ownerPid = process->pid();
+			auto server = abstractSocketsBindMap.at(path);
+			server->_acceptQueue.push_back(this);
+			server->_inSeq = ++server->_currentSeq;
+			server->_statusBell.ring();
 
-		// Lookup the socket associated with the node.
-		auto node = resolver.currentLink()->getTarget();
-		auto server = globalBindMap.at(node);
-		server->_acceptQueue.push_back(this);
-		server->_inSeq = ++server->_currentSeq;
-		server->_statusBell.ring();
+			while(_currentState == State::null)
+				co_await _statusBell.async_wait();
+			assert(_currentState == State::connected);
+			co_return protocols::fs::Error::none;
+		} else {
+			PathResolver resolver;
+			resolver.setup(process->fsContext()->getRoot(),
+					process->fsContext()->getWorkingDirectory(), std::move(path));
+			co_await resolver.resolve();
+			assert(resolver.currentLink());
 
-		while(_currentState == State::null)
-			co_await _statusBell.async_wait();
-		assert(_currentState == State::connected);
-		co_return protocols::fs::Error::none;
+			assert(!_ownerPid);
+			_ownerPid = process->pid();
+
+			// Lookup the socket associated with the node.
+			auto node = resolver.currentLink()->getTarget();
+			auto server = globalBindMap.at(node);
+			server->_acceptQueue.push_back(this);
+			server->_inSeq = ++server->_currentSeq;
+			server->_statusBell.ring();
+
+			while(_currentState == State::null)
+				co_await _statusBell.async_wait();
+			assert(_currentState == State::connected);
+			co_return protocols::fs::Error::none;
+		}
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
+	}
+
+	async::result<void> setFileFlags(int flags) override {
+		if(flags & ~O_NONBLOCK) {
+			std::cout << "posix: setFileFlags on socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+			co_return;
+		}
+		if(flags & O_NONBLOCK)
+			nonBlock_ = true;
+		else
+			nonBlock_ = false;
+		co_return;
+	}
+
+	async::result<int> getFileFlags() override {
+		if(nonBlock_)
+			co_return O_NONBLOCK;
+		co_return 0;
+	}
+
+private:
+	static size_t getNameFor(OpenFile *sock, void *addrPtr, size_t maxAddrLength) {
+		sockaddr_un sa;
+		size_t outSize = offsetof(sockaddr_un, sun_path) + sock->_sockpath.size() + 1;
+
+		memset(&sa, 0, sizeof(struct sockaddr_un));
+		sa.sun_family = AF_UNIX;
+
+		switch (sock->_nameType) {
+			case NameType::unnamed:
+				outSize = sizeof(sa_family_t);
+				break;
+			case NameType::abstract:
+				sa.sun_path[0] = '\0';
+				memcpy(sa.sun_path + 1, sock->_sockpath.data(),
+						std::min(sizeof(sa.sun_path) - 1, sock->_sockpath.size()));
+				break;
+			case NameType::path:
+				strncpy(sa.sun_path, sock->_sockpath.data(), sizeof(sa.sun_path));
+				break;
+		}
+
+		auto destSize = std::min(sizeof(sockaddr_un), maxAddrLength);
+		memcpy(addrPtr, &sa, destSize);
+
+		return outSize;
+	}
+
+public:
+	async::result<frg::expected<protocols::fs::Error, size_t>>
+	peername(void *addrPtr, size_t maxAddrLength) override {
+		if (_currentState != State::connected) {
+			co_return protocols::fs::Error::notConnected;
+		}
+
+		co_return getNameFor(_remote, addrPtr, maxAddrLength);
+	}
+
+	async::result<size_t> sockname(void *addrPtr, size_t maxAddrLength) override {
+		co_return getNameFor(this, addrPtr, maxAddrLength);
 	}
 
 private:
@@ -384,10 +498,17 @@ private:
 
 	// Socket options.
 	bool _passCreds;
+	bool nonBlock_;
+
+	std::string _sockpath;
+
+	NameType _nameType;
+
+	bool _isInherited;
 };
 
-smarter::shared_ptr<File, FileHandle> createSocketFile() {
-	auto file = smarter::make_shared<OpenFile>();
+smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(nullptr, nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));

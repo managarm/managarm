@@ -5,6 +5,7 @@ executable('posix-tests',
 		'src/epoll.cpp',
 		'src/inotify.cpp',
 		'src/pipes.cpp',
-		'src/stat.cpp'
+		'src/stat.cpp',
+		'src/unixnames.cpp',
 	],
 	install: true)

@@ -137,6 +137,12 @@ struct FileOperations {
 		return *this;
 	}
 
+	constexpr FileOperations &withPeername(async::result<frg::expected<Error, size_t>> (*f)(void *object,
+			void *addr_ptr, size_t max_addr_length)) {
+		peername = f;
+		return *this;
+	}
+
 	async::result<SeekResult> (*seekAbs)(void *object, int64_t offset);
 	async::result<SeekResult> (*seekRel)(void *object, int64_t offset);
 	async::result<SeekResult> (*seekEof)(void *object, int64_t offset);
@@ -172,6 +178,7 @@ struct FileOperations {
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size,
 			std::vector<uint32_t> fds);
+	async::result<frg::expected<Error, size_t>> (*peername)(void *object, void *addr_ptr, size_t max_addr_length);
 };
 
 struct StatusPageProvider {

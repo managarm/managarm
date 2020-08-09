@@ -47,7 +47,9 @@ enum class Error {
 
 	accessDenied,
 
-	notConnected
+	notConnected,
+
+	alreadyExists
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -153,6 +155,9 @@ public:
 	static async::result<protocols::fs::Error>
 	ptListen(void *object);
 
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
+	ptPeername(void *object, void *addr_ptr, size_t max_addr_length);
+
 
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
@@ -174,6 +179,7 @@ public:
 		.setFileFlags = &ptSetFileFlags,
 		.recvMsg = &ptRecvMsg,
 		.sendMsg = &ptSendMsg,
+		.peername = &ptPeername,
 	};
 
 	// ------------------------------------------------------------------------
@@ -283,7 +289,7 @@ public:
 	virtual async::result<int> getOption(int option);
 	virtual async::result<void> setOption(int option, int value);
 
-	virtual async::result<AcceptResult> accept(Process *process);
+	virtual async::result<frg::expected<Error, AcceptResult>> accept(Process *process);
 
 	virtual async::result<protocols::fs::Error> bind(Process *process,
 			const void *addr_ptr, size_t addr_length);
@@ -302,6 +308,8 @@ public:
 
 	virtual async::result<int> getFileFlags();
 	virtual async::result<void> setFileFlags(int flags);
+
+	virtual async::result<frg::expected<protocols::fs::Error, size_t>> peername(void *addr_ptr, size_t max_addr_length);
 
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
