@@ -10,6 +10,8 @@
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 
+#include <array>
+
 #include "ext2fs.hpp"
 
 namespace blockfs {
@@ -1032,14 +1034,14 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 		uint64_t offset, size_t num_blocks, void *buffer) {
 	// We perform "block-fusion" here i.e. we try to read/write multiple
 	// consecutive blocks in a single read/writeSectors() operation.
-	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) {
+	auto fuse = [] (size_t remaining, uint32_t *list, size_t limit) {
 		size_t n = 1;
-		while(n < remaining && index + n < limit) {
-			if(list[index + n] != list[index] + n)
+		while(n < remaining && n < limit) {
+			if(list[n] != list[0] + n)
 				break;
 			n++;
 		}
-		return std::pair<size_t, size_t>{list[index], n};
+		return std::pair<size_t, size_t>{list[0], n};
 	};
 
 	size_t per_indirect = blockSize / 4;
@@ -1054,6 +1056,10 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 	co_await inode->readyJump.async_wait();
 	// TODO: Assert that we do not read past the EOF.
 
+	constexpr size_t indirectBufferSize = 8;
+
+	std::array<uint32_t, indirectBufferSize> indirectBuffer;
+
 	size_t progress = 0;
 	while(progress < num_blocks) {
 		// Block number and block count of the readSectors() command that we will issue here.
@@ -1067,41 +1073,67 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 		if(index >= d_range) {
 			assert(!"Fix triple indirect blocks");
 		}else if(index >= s_range) { // Use the double indirect block.
-			// TODO: Use shift/and instead of div/mod.
+			auto remaining = num_blocks - progress;
 			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
 			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
 
-			helix::LockMemoryView lock_indirect;
-			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
-					indirect_frame << blockPagesShift, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(lock_indirect.error());
+			if (remaining > indirectBufferSize) {
+				helix::LockMemoryView lock_indirect;
+				auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
+						indirect_frame << blockPagesShift, 1 << blockPagesShift,
+						helix::Dispatcher::global());
+				co_await submit.async_wait();
+				HEL_CHECK(lock_indirect.error());
 
-			helix::Mapping indirect_map{inode->indirectOrder2,
-					indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
-					kHelMapProtRead | kHelMapDontRequireBacking};
+				helix::Mapping indirect_map{inode->indirectOrder2,
+						indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
+						kHelMapProtRead | kHelMapDontRequireBacking};
 
-			issue = fuse(indirect_index, num_blocks - progress,
-					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
+				issue = fuse(num_blocks - progress,
+						reinterpret_cast<uint32_t *>(indirect_map.get()) + indirect_index,
+						per_indirect - indirect_index);
+			} else {
+				auto readMemory = co_await helix_ng::readMemory(
+						helix::BorrowedDescriptor{inode->indirectOrder2},
+						(indirect_frame << blockPagesShift) + indirect_index * 4,
+						remaining * 4, indirectBuffer.data());
+				HEL_CHECK(readMemory.error());
+
+				issue = fuse(remaining, indirectBuffer.data(), remaining);
+			}
 		}else if(index >= i_range) { // Use the single indirect block.
-			helix::LockMemoryView lock_indirect;
-			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
-					&lock_indirect, 0, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(lock_indirect.error());
+			auto remaining = num_blocks - progress;
 
-			helix::Mapping indirect_map{inode->indirectOrder1,
-					0, size_t{1} << blockPagesShift,
-					kHelMapProtRead | kHelMapDontRequireBacking};
-			issue = fuse(index - i_range, num_blocks - progress,
-					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
+			if (remaining > indirectBufferSize) {
+				helix::LockMemoryView lock_indirect;
+				auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
+						&lock_indirect, 0, 1 << blockPagesShift,
+						helix::Dispatcher::global());
+				co_await submit.async_wait();
+				HEL_CHECK(lock_indirect.error());
+
+				helix::Mapping indirect_map{inode->indirectOrder1,
+						0, size_t{1} << blockPagesShift,
+						kHelMapProtRead | kHelMapDontRequireBacking};
+
+				auto indirect_index = index - i_range;
+				issue = fuse(remaining,
+						reinterpret_cast<uint32_t *>(indirect_map.get()) + indirect_index,
+						per_indirect - indirect_index);
+			} else {
+				auto indirect_index = index - i_range;
+				auto readMemory = co_await helix_ng::readMemory(
+						helix::BorrowedDescriptor{inode->indirectOrder1},
+						indirect_index * 4, remaining * 4, indirectBuffer.data());
+				HEL_CHECK(readMemory.error());
+
+				issue = fuse(remaining, indirectBuffer.data(), remaining);
+			}
 		}else{
 			auto disk_inode = inode->diskInode();
 
-			issue = fuse(index, num_blocks - progress,
-					disk_inode->data.blocks.direct, 12);
+			issue = fuse(num_blocks - progress,
+					disk_inode->data.blocks.direct + index, 12 - index);
 		}
 
 //		std::cout << "Issuing read of " << issue.second
