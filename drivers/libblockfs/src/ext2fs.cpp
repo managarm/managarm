@@ -43,18 +43,13 @@ Inode::findEntry(std::string name) {
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
-	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{frontalMemory},
-			0, map_size,
-			kHelMapProtRead | kHelMapDontRequireBacking};
-
 	// Read the directory structure.
 	uintptr_t offset = 0;
 	while(offset < fileSize()) {
 		assert(!(offset & 3));
 		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
-				reinterpret_cast<char *>(file_map.get()) + offset);
+				reinterpret_cast<char *>(fileMapping.get()) + offset);
 
 		if(disk_entry->inode
 				&& name.length() == disk_entry->nameLength
@@ -98,11 +93,6 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
-	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{frontalMemory},
-			0, map_size,
-			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
 	// Space required for the new directory entry.
 	// We use name.size() + 1 for the entry name length to account for the null terminator
 	auto required = (sizeof(DiskDirEntry) + name.size() + 1 + 3) & ~size_t(3);
@@ -113,7 +103,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		assert(!(offset & 3));
 		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto previous_entry = reinterpret_cast<DiskDirEntry *>(
-				reinterpret_cast<char *>(file_map.get()) + offset);
+				reinterpret_cast<char *>(fileMapping.get()) + offset);
 
 		// Calculate available space after we contract previous_entry.
 		auto contracted = (sizeof(DiskDirEntry) + previous_entry->nameLength + 3) & ~size_t(3);
@@ -124,7 +114,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		if(available >= required) {
 			// Create the new dentry.
 			auto disk_entry = reinterpret_cast<DiskDirEntry *>(
-					reinterpret_cast<char *>(file_map.get()) + offset + contracted);
+					reinterpret_cast<char *>(fileMapping.get()) + offset + contracted);
 			memset(disk_entry, 0, sizeof(DiskDirEntry));
 			disk_entry->inode = ino;
 			disk_entry->recordLength = available;
@@ -182,11 +172,6 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
-	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{frontalMemory},
-			0, map_size,
-			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
 	// Read the directory structure.
 	DiskDirEntry *previous_entry = nullptr;
 	uintptr_t offset = 0;
@@ -194,7 +179,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 		assert(!(offset & 3));
 		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
-				reinterpret_cast<char *>(file_map.get()) + offset);
+				reinterpret_cast<char *>(fileMapping.get()) + offset);
 
 		if(disk_entry->inode
 				&& name.length() == disk_entry->nameLength
@@ -246,11 +231,6 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
-	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{dir_node->frontalMemory},
-			0, map_size,
-			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
 	// XXX: this is a hack to make the directory accessible under
 	// OSes that respect the permissions, this means "drwxr-xr-x"
 	dir_node->diskInode()->mode = 0x41ED;
@@ -260,7 +240,7 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	HEL_CHECK(syncInode.error());
 
 	size_t offset = 0;
-	auto dot_entry = reinterpret_cast<DiskDirEntry *>(file_map.get());
+	auto dot_entry = reinterpret_cast<DiskDirEntry *>(fileMapping.get());
 	offset += (sizeof(DiskDirEntry) + 2 + 3) & ~size_t(3);
 
 	dir_node->diskInode()->linksCount++;
@@ -271,7 +251,7 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	memcpy(dot_entry->name, ".", 2);
 
 	auto dot_dot_entry = reinterpret_cast<DiskDirEntry *>(
-			reinterpret_cast<char *>(file_map.get()) + offset);
+			reinterpret_cast<char *>(fileMapping.get()) + offset);
 
 	diskInode()->linksCount++;
 	dot_dot_entry->inode = number;
@@ -745,8 +725,12 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	HEL_CHECK(helCreateManagedMemory(cache_size, kHelAllocBacked,
 			&inode->backingMemory, &inode->frontalMemory));
 
-	inode->isReady = true;
-	inode->readyJump.trigger();
+	if (inode->fileType == kTypeDirectory) {
+		auto map_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+		inode->fileMapping = helix::Mapping{helix::BorrowedDescriptor{inode->frontalMemory},
+				0, map_size,
+				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+	}
 
 	HelHandle frontalOrder1, frontalOrder2;
 	HelHandle backingOrder1, backingOrder2;
@@ -760,6 +744,9 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	manageIndirect(inode, 1, helix::UniqueDescriptor{backingOrder1});
 	manageIndirect(inode, 2, helix::UniqueDescriptor{backingOrder2});
 	manageFileData(inode);
+
+	inode->isReady = true;
+	inode->readyJump.trigger();
 }
 
 async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {

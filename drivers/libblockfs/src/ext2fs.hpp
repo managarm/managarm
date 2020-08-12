@@ -212,6 +212,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
+	helix::Mapping fileMapping;
 
 	// Caches indirection blocks reachable from the inode.
 	// - Indirection level 1/1 for single indirect blocks.
