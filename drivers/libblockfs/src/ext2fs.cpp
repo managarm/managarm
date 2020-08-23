@@ -31,11 +31,20 @@ namespace {
 Inode::Inode(FileSystem &fs, uint32_t number)
 : fs(fs), number(number), isReady(false) { }
 
-async::result<std::optional<DirEntry>>
+void Inode::setFileSize(size_t size) {
+	assert(!(size & ~uint64_t(0xFFFFFFFF)));
+	diskInode()->size = size;
+}
+
+async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 Inode::findEntry(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyJump.async_wait();
+
+	if(fileType != kTypeDirectory)
+		co_return protocols::fs::Error::notDirectory;
+	assert(fileMapping.size() == fileSize());
 
 	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
@@ -52,6 +61,7 @@ Inode::findEntry(std::string name) {
 		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(fileMapping.get()) + offset);
+		assert(disk_entry->recordLength);
 
 		if(disk_entry->inode
 				&& name.length() == disk_entry->nameLength
@@ -87,6 +97,9 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 
 	co_await readyJump.async_wait();
 
+	assert(fileType == kTypeDirectory);
+	assert(fileMapping.size() == fileSize());
+
 	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
@@ -106,6 +119,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto previous_entry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(fileMapping.get()) + offset);
+		assert(previous_entry->recordLength);
 
 		// Calculate available space after we contract previous_entry.
 		auto contracted = (sizeof(DiskDirEntry) + previous_entry->nameLength + 3) & ~size_t(3);
@@ -166,6 +180,10 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 
 	co_await readyJump.async_wait();
 
+	if(fileType != kTypeDirectory)
+		co_return protocols::fs::Error::notDirectory;
+	assert(fileMapping.size() == fileSize());
+
 	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
@@ -182,6 +200,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 		assert(offset + sizeof(DiskDirEntry) <= fileSize());
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(fileMapping.get()) + offset);
+		assert(disk_entry->recordLength);
 
 		if(disk_entry->inode
 				&& name.length() == disk_entry->nameLength

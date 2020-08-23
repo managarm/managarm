@@ -18,6 +18,8 @@ enum class Error {
 	seekOnPipe = 6,
 	brokenPipe = 7,
 	accessDenied = 8,
+	notDirectory = 20,
+
 	afNotSupported = 9,
 	destAddrRequired = 10,
 	netUnreachable = 11,

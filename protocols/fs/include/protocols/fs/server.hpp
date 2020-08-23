@@ -198,8 +198,8 @@ private:
 struct NodeOperations {
 	async::result<FileStats> (*getStats)(std::shared_ptr<void> object);
 
-	async::result<GetLinkResult> (*getLink)(std::shared_ptr<void> object,
-			std::string name);
+	async::result<frg::expected<protocols::fs::Error, GetLinkResult>>
+	(*getLink)(std::shared_ptr<void> object, std::string name);
 
 	async::result<GetLinkResult> (*link)(std::shared_ptr<void> object,
 			std::string name, int64_t ino);

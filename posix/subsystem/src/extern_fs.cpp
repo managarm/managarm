@@ -514,8 +514,11 @@ private:
 						pull_node.descriptor());
 				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
-		}else{
+		}else if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
 			co_return nullptr;
+		}else{
+			assert(resp.error() == managarm::fs::Errors::NOT_DIRECTORY);
+			co_return Error::notDirectory;
 		}
 	}
 

@@ -239,7 +239,8 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 		}else{
 			auto childResult = co_await _currentPath.second->getTarget()->getLink(std::move(name));
 			if(!childResult) {
-				assert(childResult.error() == Error::illegalOperationTarget);
+				assert(childResult.error() == Error::notDirectory
+						|| childResult.error() == Error::illegalOperationTarget);
 				_currentPath = ViewPath{_currentPath.first, nullptr};
 				co_return;
 			}

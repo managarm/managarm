@@ -182,12 +182,11 @@ struct Inode : std::enable_shared_from_this<Inode> {
 		return diskInode()->size;
 	}
 
-	void setFileSize(uint64_t size) {
-		assert(!(size & ~uint64_t(0xFFFFFFFF)));
-		diskInode()->size = size;
-	}
+	void setFileSize(uint64_t size);
 
-	async::result<std::optional<DirEntry>> findEntry(std::string name);
+	async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
+	findEntry(std::string name);
+
 	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<frg::expected<protocols::fs::Error>> unlink(std::string name);
 	async::result<std::optional<DirEntry>> mkdir(std::string name);

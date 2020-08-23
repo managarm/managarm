@@ -690,15 +690,28 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			helix::PushDescriptor push_node;
 
 			auto result = co_await node_ops->getLink(node, req.path());
-			if(std::get<0>(result)) {
+			if(!result) {
+				managarm::fs::SvrResponse resp;
+				assert(result.error() == protocols::fs::Error::notDirectory);
+				resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			if(std::get<0>(result.value())) {
 				helix::UniqueLane local_lane, remote_lane;
 				std::tie(local_lane, remote_lane) = helix::createStream();
-				serveNode(std::move(local_lane), std::move(std::get<0>(result)), node_ops);
+				serveNode(std::move(local_lane), std::move(std::get<0>(result.value())), node_ops);
 
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_id(std::get<1>(result));
-				switch(std::get<2>(result)) {
+				resp.set_id(std::get<1>(result.value()));
+				switch(std::get<2>(result.value())) {
 				case FileType::directory:
 					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
 					break;

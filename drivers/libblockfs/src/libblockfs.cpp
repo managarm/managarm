@@ -203,10 +203,11 @@ constexpr protocols::fs::FileOperations fileOperations {
 	.setFileFlags = &setFileFlags,
 };
 
-async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object,
+async::result<frg::expected<protocols::fs::Error, protocols::fs::GetLinkResult>>
+getLink(std::shared_ptr<void> object,
 		std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto entry = co_await self->findEntry(name);
+	auto entry = FRG_CO_TRY(co_await self->findEntry(name));
 	if(!entry)
 		co_return protocols::fs::GetLinkResult{nullptr, -1,
 				protocols::fs::FileType::unknown};
@@ -447,7 +448,20 @@ async::detached servePartition(helix::UniqueLane lane) {
 			auto oldInode = fs->accessInode(req.inode_source());
 			auto newInode = fs->accessInode(req.inode_target());
 
-			auto old_file = co_await oldInode->findEntry(req.old_name());
+			auto old_result = co_await oldInode->findEntry(req.old_name());
+			if(!old_result) {
+				managarm::fs::SvrResponse resp;
+				assert(old_result.error() == protocols::fs::Error::notDirectory);
+				resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			auto old_file = old_result.value();
 			managarm::fs::SvrResponse resp;
 			if(old_file) {
 				auto result = co_await newInode->unlink(req.new_name());
