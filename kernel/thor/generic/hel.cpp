@@ -95,72 +95,6 @@ HelError translateError(Error error) {
 	}
 }
 
-template<typename P>
-struct PostEvent {
-public:
-	struct Wrapper final : IpcNode {
-		template<typename... Args>
-		Wrapper(uintptr_t context, Args &&... args)
-		: _writer{frigg::forward<Args>(args)...} {
-			setupContext(context);
-			setupSource(&_writer.source);
-		}
-
-		void complete() override {
-			frigg::destruct(*kernelAlloc, this);
-		}
-
-	private:
-		P _writer;
-	};
-
-	PostEvent(frigg::SharedPtr<IpcQueue> queue, uintptr_t context)
-	: _queue(std::move(queue)), _context(context) { }
-
-	template<typename... Args>
-	void operator() (Args &&... args) {
-		auto wrapper = frigg::construct<Wrapper>(*kernelAlloc,
-				_context, frigg::forward<Args>(args)...);
-		_queue->submit(wrapper);
-	}
-
-private:
-	frigg::SharedPtr<IpcQueue> _queue;
-	uintptr_t _context;
-};
-
-struct ObserveThreadWriter {
-	ObserveThreadWriter(Error error, uint64_t sequence, Interrupt interrupt)
-	: source{&_result, sizeof(HelObserveResult), nullptr},
-			_result{translateError(error), 0, sequence} {
-		if(interrupt == kIntrNull) {
-			_result.observation = kHelObserveNull;
-		}else if(interrupt == kIntrRequested) {
-			_result.observation = kHelObserveInterrupt;
-		}else if(interrupt == kIntrPanic) {
-			_result.observation = kHelObservePanic;
-		}else if(interrupt == kIntrBreakpoint) {
-			_result.observation = kHelObserveBreakpoint;
-		}else if(interrupt == kIntrPageFault) {
-			_result.observation = kHelObservePageFault;
-		}else if(interrupt == kIntrGeneralFault) {
-			_result.observation = kHelObserveGeneralFault;
-		}else if(interrupt == kIntrIllegalInstruction) {
-			_result.observation = kHelObserveIllegalInstruction;
-		}else if(interrupt >= kIntrSuperCall) {
-			_result.observation = kHelObserveSuperCall + (interrupt - kIntrSuperCall);
-		}else{
-			panicLogger() << "Unexpected interrupt" << frg::endlog;
-			__builtin_unreachable();
-		}
-	}
-
-	QueueSource source;
-
-private:
-	HelObserveResult _result;
-};
-
 HelError helLog(const char *string, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
@@ -1727,38 +1661,64 @@ HelError helYield() {
 	return kHelErrNone;
 }
 
-HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
-		HelHandle queue_handle, uintptr_t context) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError helSubmitObserve(HelHandle handle, uint64_t inSeq,
+		HelHandle queueHandle, uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
 	frigg::SharedPtr<Thread> thread;
 	frigg::SharedPtr<IpcQueue> queue;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		Universe::Guard universe_guard(&this_universe->lock);
+		auto irqLock = frigg::guard(&irqMutex());
+		Universe::Guard universeGuard(&thisUniverse->lock);
 
-		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
-		if(!thread_wrapper)
+		auto threadWrapper = thisUniverse->getDescriptor(universeGuard, handle);
+		if(!threadWrapper)
 			return kHelErrNoDescriptor;
-		if(!thread_wrapper->is<ThreadDescriptor>())
+		if(!threadWrapper->is<ThreadDescriptor>())
 			return kHelErrBadDescriptor;
-		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+		thread = threadWrapper->get<ThreadDescriptor>().thread;
 
-		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
-		if(!queue_wrapper)
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, queueHandle);
+		if(!queueWrapper)
 			return kHelErrNoDescriptor;
-		if(!queue_wrapper->is<QueueDescriptor>())
+		if(!queueWrapper->is<QueueDescriptor>())
 			return kHelErrBadDescriptor;
-		queue = queue_wrapper->get<QueueDescriptor>().queue;
+		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelObserveResult))))
 		return kHelErrQueueTooSmall;
 
-	PostEvent<ObserveThreadWriter> functor{std::move(queue), context};
-	thread->submitObserve(in_seq, std::move(functor));
+	async::detach_with_allocator(*kernelAlloc, [] (
+			frigg::SharedPtr<Thread> thread, uint64_t inSeq,
+			frigg::SharedPtr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		auto [error, sequence, interrupt] = co_await thread->observe(inSeq);
 
+		HelObserveResult helResult{translateError(error), 0, sequence};
+		if(interrupt == kIntrNull) {
+			helResult.observation = kHelObserveNull;
+		}else if(interrupt == kIntrRequested) {
+			helResult.observation = kHelObserveInterrupt;
+		}else if(interrupt == kIntrPanic) {
+			helResult.observation = kHelObservePanic;
+		}else if(interrupt == kIntrBreakpoint) {
+			helResult.observation = kHelObserveBreakpoint;
+		}else if(interrupt == kIntrPageFault) {
+			helResult.observation = kHelObservePageFault;
+		}else if(interrupt == kIntrGeneralFault) {
+			helResult.observation = kHelObserveGeneralFault;
+		}else if(interrupt == kIntrIllegalInstruction) {
+			helResult.observation = kHelObserveIllegalInstruction;
+		}else if(interrupt >= kIntrSuperCall) {
+			helResult.observation = kHelObserveSuperCall + (interrupt - kIntrSuperCall);
+		}else{
+			frigg::panicLogger() << "Unexpected interrupt" << frigg::endLog;
+			__builtin_unreachable();
+		}
+		QueueSource ipcSource{&helResult, sizeof(HelObserveResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(thread), inSeq, std::move(queue), context));
 	return kHelErrNone;
 }
 
