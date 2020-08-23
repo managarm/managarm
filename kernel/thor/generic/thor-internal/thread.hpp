@@ -39,34 +39,6 @@ frigg::UnsafePtr<Thread> getCurrentThread();
 
 struct Thread final : frigg::SharedCounter, ScheduleEntity {
 private:
-	struct ObserveBase {
-		Error error;
-		uint64_t sequence;
-		Interrupt interrupt;
-
-		Worklet *triggered;
-		frg::default_list_hook<ObserveBase> hook;
-	};
-
-	template<typename F>
-	struct Observe : ObserveBase {
-		static void trigger(Worklet *base) {
-			auto self = frg::container_of(base, &Observe::_worklet);
-			self->_functor(self->error, self->sequence, self->interrupt);
-			frigg::destruct(*kernelAlloc, self);
-		}
-
-		Observe(F functor)
-		: _functor(frigg::move(functor)) {
-			_worklet.setup(&Observe::trigger);
-			triggered = &_worklet;
-		}
-
-	private:
-		Worklet _worklet;
-		F _functor;
-	};
-
 	struct AssociatedWorkQueue : WorkQueue {
 		AssociatedWorkQueue(Thread *thread)
 		: _thread{thread} { }
@@ -198,35 +170,28 @@ public:
 	// ----------------------------------------------------------------------------------
 	// observe() and its boilerplate.
 	// ----------------------------------------------------------------------------------
+private:
+	struct ObserveNode {
+		async::any_receiver<frg::tuple<Error, uint64_t, Interrupt>> receiver;
+		frg::default_list_hook<ObserveNode> hook;
+	};
 
-	template<typename F>
-	void submitObserve(uint64_t in_seq, F functor) {
-		auto observe = frigg::construct<Observe<F>>(*kernelAlloc, frigg::move(functor));
-		doSubmitObserve(in_seq, observe);
-	}
+	void observe_(uint64_t inSeq, ObserveNode *node);
 
+public:
 	template<typename Receiver>
 	struct [[nodiscard]] ObserveOperation {
 		ObserveOperation(Thread *self, uint64_t inSeq, Receiver receiver)
-		: self_{self}, inSeq_{inSeq}, receiver_{std::move(receiver)} {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &ObserveOperation::worklet_);
-				async::execution::set_value(op->receiver_, frg::make_tuple(op->node_.error,
-						op->node_.sequence, op->node_.interrupt));
-			});
-			node_.triggered = &worklet_;
-		}
+		: self_{self}, inSeq_{inSeq}, node_{.receiver = std::move(receiver)} { }
 
 		void start() {
-			self_->doSubmitObserve(inSeq_, &node_);
+			self_->observe_(inSeq_, &node_);
 		}
 
 	private:
 		Thread *self_;
 		uint64_t inSeq_;
-		Receiver receiver_;
-		ObserveBase node_;
-		Worklet worklet_;
+		ObserveNode node_;
 	};
 
 	struct [[nodiscard]] ObserveSender {
@@ -263,7 +228,6 @@ private:
 	void _kill();
 
 public:
-	void doSubmitObserve(uint64_t in_seq, ObserveBase *observe);
 	void setAffinityMask(frg::vector<uint8_t, KernelAlloc> &&mask) {
 		auto lock = frigg::guard(&_mutex);
 		_affinityMask = std::move(mask);
@@ -343,11 +307,11 @@ private:
 	LaneHandle _inferiorLane;
 
 	using ObserveQueue = frg::intrusive_list<
-		ObserveBase,
+		ObserveNode,
 		frg::locate_member<
-			ObserveBase,
-			frg::default_list_hook<ObserveBase>,
-			&ObserveBase::hook
+			ObserveNode,
+			frg::default_list_hook<ObserveNode>,
+			&ObserveNode::hook
 		>
 	>;
 

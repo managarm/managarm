@@ -199,11 +199,9 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 		lock.unlock();
 
 		while(!queue.empty()) {
-			auto observe = queue.pop_front();
-			observe->error = Error::success;
-			observe->sequence = sequence;
-			observe->interrupt = interrupt;
-			WorkQueue::post(observe->triggered);
+			auto node = queue.pop_front();
+			async::execution::set_value(node->receiver,
+					frg::make_tuple(Error::success, sequence, interrupt));
 		}
 
 		localScheduler()->commit();
@@ -240,11 +238,9 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 		lock.unlock();
 
 		while(!queue.empty()) {
-			auto observe = queue.pop_front();
-			observe->error = Error::success;
-			observe->sequence = sequence;
-			observe->interrupt = interrupt;
-			WorkQueue::post(observe->triggered);
+			auto node = queue.pop_front();
+			async::execution::set_value(node->receiver,
+					frg::make_tuple(Error::success, sequence, interrupt));
 		}
 
 		localScheduler()->commit();
@@ -285,11 +281,9 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			lock.unlock();
 
 			while(!queue.empty()) {
-				auto observe = queue.pop_front();
-				observe->error = Error::threadExited;
-				observe->sequence = 0;
-				observe->interrupt = kIntrNull;
-				WorkQueue::post(observe->triggered);
+				auto node = queue.pop_front();
+				async::execution::set_value(node->receiver,
+						frg::make_tuple(Error::threadExited, 0, kIntrNull));
 			}
 
 			localScheduler()->commit();
@@ -322,11 +316,9 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			lock.unlock();
 
 			while(!queue.empty()) {
-				auto observe = queue.pop_front();
-				observe->error = Error::success;
-				observe->sequence = sequence;
-				observe->interrupt = kIntrRequested;
-				WorkQueue::post(observe->triggered);
+				auto node = queue.pop_front();
+				async::execution::set_value(node->receiver,
+						frg::make_tuple(Error::success, sequence, kIntrRequested));
 			}
 
 			localScheduler()->commit();
@@ -430,17 +422,17 @@ void Thread::cleanup() {
 	frigg::destruct(*kernelAlloc, this);
 }
 
-void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {
+void Thread::observe_(uint64_t inSeq, ObserveNode *node) {
 	RunState state;
 	Interrupt interrupt;
 	uint64_t sequence;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
+		auto irqLock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
-		assert(in_seq <= _stateSeq);
-		if(in_seq == _stateSeq && _runState != kRunTerminated) {
-			_observeQueue.push_back(observe);
+		assert(inSeq <= _stateSeq);
+		if(inSeq == _stateSeq && _runState != kRunTerminated) {
+			_observeQueue.push_back(node);
 			return;
 		}else{
 			state = _runState;
@@ -451,19 +443,16 @@ void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {
 
 	switch(state) {
 	case kRunInterrupted:
-		observe->error = Error::success;
-		observe->sequence = sequence;
-		observe->interrupt = interrupt;
+		async::execution::set_value(node->receiver,
+				frg::make_tuple(Error::success, sequence, interrupt));
 		break;
 	case kRunTerminated:
-		observe->error = Error::threadExited;
-		observe->sequence = 0;
-		observe->interrupt = kIntrNull;
+		async::execution::set_value(node->receiver,
+				frg::make_tuple(Error::threadExited, 0, kIntrNull));
 		break;
 	default:
 		panicLogger() << "thor: Unexpected RunState" << frg::endlog;
 	}
-	WorkQueue::post(observe->triggered);
 }
 
 UserContext &Thread::getContext() {
@@ -531,11 +520,9 @@ void Thread::_kill() {
 		lock.unlock();
 
 		while(!queue.empty()) {
-			auto observe = queue.pop_front();
-			observe->error = Error::threadExited;
-			observe->sequence = 0;
-			observe->interrupt = kIntrNull;
-			WorkQueue::post(observe->triggered);
+			auto node = queue.pop_front();
+			async::execution::set_value(node->receiver,
+					frg::make_tuple(Error::threadExited, 0, kIntrNull));
 		}
 	}else{
 		// TODO: Wake up blocked threads.
