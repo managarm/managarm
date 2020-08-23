@@ -14,6 +14,7 @@
 #include <protocols/fs/common.hpp>
 #include <protocols/fs/defs.hpp>
 #include <smarter.hpp>
+#include <deque>
 
 namespace managarm::fs {
 	struct CntRequest;
@@ -47,6 +48,8 @@ using OpenResult = std::pair<helix::UniqueLane, helix::UniqueLane>;
 
 using MkdirResult = std::pair<std::shared_ptr<void>, int64_t>;
 using SymlinkResult = std::pair<std::shared_ptr<void>, int64_t>;
+
+using TraverseLinksResult = frg::expected<Error, std::tuple<std::vector<std::pair<std::shared_ptr<void>, int64_t>>, FileType, size_t>>;
 
 struct FileOperations {
 	constexpr FileOperations &withSeekAbs(async::result<SeekResult> (*f)(void *object,
@@ -219,6 +222,9 @@ struct NodeOperations {
 	async::result<Error> (*chmod)(std::shared_ptr<void> object, int mode);
 
 	async::result<Error> (*utimensat)(std::shared_ptr<void> object, uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
+
+	async::result<void> (*obstructLink)(std::shared_ptr<void> object, std::string name);
+	async::result<TraverseLinksResult> (*traverseLinks)(std::shared_ptr<void> object, std::deque<std::string> path);
 };
 
 async::result<void>

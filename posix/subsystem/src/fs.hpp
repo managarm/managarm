@@ -51,6 +51,7 @@ public:
 	virtual std::shared_ptr<FsNode> getOwner() = 0;
 	virtual std::string getName() = 0;
 	virtual std::shared_ptr<FsNode> getTarget() = 0;
+	virtual async::result<frg::expected<Error>> obstruct();
 };
 
 struct FsSuperblock {
@@ -168,6 +169,10 @@ public:
 
 	// Creates an socket
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name);
+
+	// Recursive path traversal
+	virtual bool hasTraverseLinks();
+	virtual async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> traverseLinks(std::deque<std::string> path);
 
 protected:
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie);

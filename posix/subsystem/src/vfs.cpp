@@ -36,7 +36,13 @@ std::shared_ptr<FsLink> MountView::getOrigin() const {
 	return _origin;
 }
 
-void MountView::mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin) {
+async::result<void> MountView::mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin) {
+	if (anchor) {
+		auto result = co_await anchor->obstruct();
+		(void)result;
+		// result is intentionally ignored to supress warnings
+	}
+
 	_mounts.insert(std::make_shared<MountView>(shared_from_this(),
 			std::move(anchor), std::move(origin)));
 	// TODO: check insert return value
@@ -64,7 +70,7 @@ async::result<void> populateRootView() {
 	
 	// TODO: Check for errors from mkdir().
 	auto dev = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir("dev"));
-	rootView->mount(std::move(dev), getDevtmpfs());
+	co_await rootView->mount(std::move(dev), getDevtmpfs());
 
 	// Populate the tmpfs from the fs we are running on.
 	std::vector<
@@ -237,53 +243,127 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 				_currentPath = ViewPath{_currentPath.first, owner->treeLink()};
 			}
 		}else{
-			auto childResult = co_await _currentPath.second->getTarget()->getLink(std::move(name));
-			if(!childResult) {
-				assert(childResult.error() == Error::notDirectory
-						|| childResult.error() == Error::illegalOperationTarget);
-				_currentPath = ViewPath{_currentPath.first, nullptr};
-				co_return;
-			}
-			auto child = childResult.value();
+			if (_currentPath.second->getTarget()->hasTraverseLinks()) {
+				_components.push_front(name);
+				std::string end;
 
-			if(!child) {
-				// TODO: Return an error code.
-				_currentPath = ViewPath{_currentPath.first, nullptr};
-				co_return;
-			}
-
-			// Next, we might need to traverse mount boundaries.
-			ViewPath next;
-			if(auto mount = _currentPath.first->getMount(child); mount) {
-				if(debugResolve)
-					std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
-				next = ViewPath{std::move(mount), mount->getOrigin()};
-			}else{
-				next = ViewPath{_currentPath.first, std::move(child)};
-			}
-
-			// Finally, we might need to follow symlinks.
-			if(next.second->getTarget()->getType() == VfsType::symlink
-					&& !(_components.empty() && (flags & resolveDontFollow))) {
-				auto result = co_await next.second->getTarget()->readSymlink(next.second.get());
-				auto link = Path::decompose(std::get<std::string>(result));
-
-				if(debugResolve) {
-					std::cout << "posix " << sn << ":     Link target is a symlink to '"
-							<< (link.isRelative() ? "" : "/");
-					for(auto it = link.begin(); it != link.end(); ++it) {
-						if(it != link.begin())
-							std::cout << "/";
-						std::cout << *it;
-					}
-					std::cout << "'" << std::endl;
+				if (flags & resolvePrefix) {
+					end = _components.back();
+					_components.pop_back();
 				}
 
-				if(!link.isRelative())
-					_currentPath = _rootPath;
-				_components.insert(_components.begin(), link.begin(), link.end());
-			}else{
-				_currentPath = std::move(next);
+				auto result = co_await _currentPath.second->getTarget()->traverseLinks(_components);
+
+				if (!result) {
+					assert(result.error() == Error::illegalOperationTarget
+							|| result.error() == Error::noSuchFile
+							|| result.error() == Error::notDirectory);
+					// TODO: Return an error code.
+					_currentPath = ViewPath{_currentPath.first, nullptr};
+					co_return;
+				}
+
+				auto [child, nLinks] = result.value();
+
+				if (flags & resolvePrefix) {
+					_components.push_back(end);
+				}
+
+				assert(nLinks <= _components.size());
+
+				while (nLinks--)
+					_components.pop_front();
+
+				if(!child) {
+					// TODO: Return an error code.
+					_currentPath = ViewPath{_currentPath.first, nullptr};
+					co_return;
+				}
+
+				// Next, we might need to traverse mount boundaries.
+				ViewPath next;
+				if(auto mount = _currentPath.first->getMount(child); mount) {
+					if(debugResolve)
+						std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
+					next = ViewPath{std::move(mount), mount->getOrigin()};
+				}else{
+					next = ViewPath{_currentPath.first, std::move(child)};
+				}
+
+				// Finally, we might need to follow symlinks.
+				if(next.second->getTarget()->getType() == VfsType::symlink
+						&& !(_components.empty() && (flags & resolveDontFollow))) {
+					auto result = co_await next.second->getTarget()->readSymlink(next.second.get());
+					auto link = Path::decompose(std::get<std::string>(result));
+
+					if(debugResolve) {
+						std::cout << "posix " << sn << ":     Link target is a symlink to '"
+								<< (link.isRelative() ? "" : "/");
+						for(auto it = link.begin(); it != link.end(); ++it) {
+							if(it != link.begin())
+								std::cout << "/";
+							std::cout << *it;
+						}
+						std::cout << "'" << std::endl;
+					}
+
+					if(!link.isRelative())
+						_currentPath = _rootPath;
+					else
+						_currentPath = ViewPath{_currentPath.first, next.second->getOwner()->treeLink()};
+					_components.insert(_components.begin(), link.begin(), link.end());
+				}else{
+					_currentPath = std::move(next);
+				}
+			} else {
+				auto childResult = co_await _currentPath.second->getTarget()->getLink(std::move(name));
+				if(!childResult) {
+					assert(childResult.error() == Error::notDirectory
+							|| childResult.error() == Error::illegalOperationTarget);
+					_currentPath = ViewPath{_currentPath.first, nullptr};
+					co_return;
+				}
+				auto child = childResult.value();
+
+				if(!child) {
+					// TODO: Return an error code.
+					_currentPath = ViewPath{_currentPath.first, nullptr};
+					co_return;
+				}
+
+				// Next, we might need to traverse mount boundaries.
+				ViewPath next;
+				if(auto mount = _currentPath.first->getMount(child); mount) {
+					if(debugResolve)
+						std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
+					next = ViewPath{std::move(mount), mount->getOrigin()};
+				}else{
+					next = ViewPath{_currentPath.first, std::move(child)};
+				}
+
+				// Finally, we might need to follow symlinks.
+				if(next.second->getTarget()->getType() == VfsType::symlink
+						&& !(_components.empty() && (flags & resolveDontFollow))) {
+					auto result = co_await next.second->getTarget()->readSymlink(next.second.get());
+					auto link = Path::decompose(std::get<std::string>(result));
+
+					if(debugResolve) {
+						std::cout << "posix " << sn << ":     Link target is a symlink to '"
+								<< (link.isRelative() ? "" : "/");
+						for(auto it = link.begin(); it != link.end(); ++it) {
+							if(it != link.begin())
+								std::cout << "/";
+							std::cout << *it;
+						}
+						std::cout << "'" << std::endl;
+					}
+
+					if(!link.isRelative())
+						_currentPath = _rootPath;
+					_components.insert(_components.begin(), link.begin(), link.end());
+				}else{
+					_currentPath = std::move(next);
+				}
 			}
 		}
 	}

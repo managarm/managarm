@@ -686,9 +686,6 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-
 			auto result = co_await node_ops->getLink(node, req.path());
 			if(!result) {
 				managarm::fs::SvrResponse resp;
@@ -743,6 +740,76 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+			}
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_TRAVERSE_LINKS) {
+			auto result = co_await node_ops->traverseLinks(node, std::deque(req.path_segments().begin(), req.path_segments().end()));
+
+			if (!result) {
+				managarm::fs::SvrResponse resp;
+				if (result.error() == protocols::fs::Error::notDirectory) {
+					resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+				} else {
+					assert(result.error() == protocols::fs::Error::fileNotFound);
+					resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+				}
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			auto [nodes, type, processedComponents] = result.value();
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_links_traversed(processedComponents);
+			switch(type) {
+			case FileType::directory:
+				resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+				break;
+			case FileType::regular:
+				resp.set_file_type(managarm::fs::FileType::REGULAR);
+				break;
+			case FileType::symlink:
+				resp.set_file_type(managarm::fs::FileType::SYMLINK);
+				break;
+			default:
+				throw std::runtime_error("Unexpected file type");
+			}
+
+			// TODO: this is a workaround for not being able to get the offer lane on the offer side
+			helix::UniqueLane local_push, remote_push;
+			std::tie(local_push, remote_push) = helix::createStream();
+
+			for (auto &[_, id] : nodes) {
+				resp.add_ids(id);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, push_desc] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_push)
+			);
+
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_desc.error());
+
+			for (auto &[node, _] : nodes) {
+				helix::UniqueLane local_lane, remote_lane;
+				std::tie(local_lane, remote_lane) = helix::createStream();
+				serveNode(std::move(local_lane), std::move(node), node_ops);
+
+				auto [push_node] = co_await helix_ng::exchangeMsgs(
+					local_push,
+					helix_ng::pushDescriptor(remote_lane)
+				);
+
+				HEL_CHECK(push_node.error());
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_MKDIR) {
 			auto result = co_await node_ops->mkdir(node, req.path());
@@ -951,6 +1018,18 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UTIMENSAT) {
 			co_await node_ops->utimensat(node, req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OBSTRUCT_LINK) {
+			co_await node_ops->obstructLink(node, req.link_name());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

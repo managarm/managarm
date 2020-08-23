@@ -1025,15 +1025,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			if(req->fs_type() == "procfs") {
-				target.first->mount(target.second, getProcfs());
+				co_await target.first->mount(target.second, getProcfs());
 			}else if(req->fs_type() == "sysfs") {
-				target.first->mount(target.second, getSysfs());
+				co_await target.first->mount(target.second, getSysfs());
 			}else if(req->fs_type() == "devtmpfs") {
-				target.first->mount(target.second, getDevtmpfs());
+				co_await target.first->mount(target.second, getDevtmpfs());
 			}else if(req->fs_type() == "tmpfs") {
-				target.first->mount(target.second, tmp_fs::createRoot());
+				co_await target.first->mount(target.second, tmp_fs::createRoot());
 			}else if(req->fs_type() == "devpts") {
-				target.first->mount(target.second, pts::getFsRoot());
+				co_await target.first->mount(target.second, pts::getFsRoot());
 			}else{
 				assert(req->fs_type() == "ext2");
 				auto source = co_await resolve(self->fsContext()->getRoot(),
@@ -1042,7 +1042,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 				auto link = co_await device->mount();
-				target.first->mount(target.second, std::move(link));
+				co_await target.first->mount(target.second, std::move(link));
 			}
 
 			if(logRequests)

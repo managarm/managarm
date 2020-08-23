@@ -70,6 +70,8 @@ enum CntReqType {
 	NODE_UNLINK = 29,
 	NODE_OPEN = 13,
 	NODE_READ_SYMLINK = 15,
+	NODE_OBSTRUCT_LINK = 43,
+	NODE_TRAVERSE_LINKS = 44,
 
 	// Primary file API.
 	FILE_POLL = 18,
@@ -232,6 +234,12 @@ head(128):
 		tag(64) uint64 atime_nsec;
 		tag(65) uint64 mtime_sec;
 		tag(66) uint64 mtime_nsec;
+
+		// used by NODE_OBSTRUCT_LINK
+		tag(67) string link_name;
+
+		// used by NODE_TRAVERSE_LINKS
+		tag(68) string[] path_segments;
 	}
 }
 
@@ -362,5 +370,9 @@ head(128):
 		tag(70) int32 input_resolution;
 
 		tag(77) int32 flags;
+
+		// used by NODE_TRAVERSE_LINKS
+		tag(79) uint64 links_traversed;
+		tag(80) int64[] ids;
 	}
 }

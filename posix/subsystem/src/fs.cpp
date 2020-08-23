@@ -7,6 +7,16 @@
 #include "fs.hpp"
 
 // --------------------------------------------------------
+// FsLink implementation.
+// --------------------------------------------------------
+
+async::result<frg::expected<Error>> FsLink::obstruct() {
+	assert(getOwner());
+	assert(!getOwner()->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
+	co_return Error::illegalOperationTarget;
+}
+
+// --------------------------------------------------------
 // FsNode implementation.
 // --------------------------------------------------------
 
@@ -89,6 +99,14 @@ expected<std::string> FsNode::readSymlink(FsLink *link) {
 
 DeviceId FsNode::readDevice() {
 	throw std::runtime_error("readDevice() is not implemented for this FsNode");
+}
+
+bool FsNode::hasTraverseLinks() {
+	return false;
+}
+
+async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> FsNode::traverseLinks(std::deque<std::string> path) {
+	throw std::runtime_error("traverseLinks() is not implemented for this FsNode");
 }
 
 async::result<Error> FsNode::chmod(int mode) {

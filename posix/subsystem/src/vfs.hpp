@@ -32,7 +32,7 @@ struct MountView : std::enable_shared_from_this<MountView> {
 	std::shared_ptr<FsLink> getAnchor() const;
 	std::shared_ptr<FsLink> getOrigin() const;
 
-	void mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin);
+	async::result<void> mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin);
 
 	std::shared_ptr<MountView> getMount(std::shared_ptr<FsLink> link) const;
 

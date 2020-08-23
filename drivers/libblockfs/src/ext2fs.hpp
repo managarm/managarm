@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <protocols/fs/file-locks.hpp>
 
@@ -233,6 +234,8 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	int numLinks; // number of links to this file
 	int uid, gid;
 	FlockManager flockManager;
+
+	std::unordered_set<std::string> obstructedLinks;
 };
 
 // --------------------------------------------------------

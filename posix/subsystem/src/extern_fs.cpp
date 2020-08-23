@@ -331,6 +331,32 @@ public:
 		return _owner;
 	}
 
+	async::result<frg::expected<Error>> obstruct() override {
+		assert(_owner);
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_OBSTRUCT_LINK);
+		req.set_link_name(_name);
+
+		auto lane = static_cast<Node *>(_owner.get())->getLane();
+
+		auto ser = req.SerializeAsString();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		co_return frg::success_tag{};
+	}
+
 private:
 	std::string getName() override {
 		assert(_owner);
@@ -399,6 +425,77 @@ private:
 	std::shared_ptr<FsLink> treeLink() override {
 		auto self = std::shared_ptr<FsNode>{weakNode()};
 		return std::shared_ptr<FsLink>{std::move(self), &_treeLink};
+	}
+
+	bool hasTraverseLinks() override {
+		return true;
+	}
+
+	async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>>
+	traverseLinks(std::deque<std::string> path) override {
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_TRAVERSE_LINKS);
+		for (auto &i : path)
+			req.add_path_segments(i);
+
+		auto ser = req.SerializeAsString();
+		auto [offer, send_req, recv_resp, pull_desc] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
+
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		std::shared_ptr<FsLink> link = nullptr;
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+
+		if (resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
+			co_return Error::noSuchFile;
+		} else if (resp.error() == managarm::fs::Errors::NOT_DIRECTORY) {
+			co_return Error::notDirectory;
+		} else {
+			assert(resp.error() == managarm::fs::Errors::SUCCESS);
+			HEL_CHECK(pull_desc.error());
+		}
+
+		helix::UniqueLane pull_lane = pull_desc.descriptor();
+
+		assert(resp.links_traversed());
+		assert(resp.links_traversed() <= path.size());
+
+		std::shared_ptr<Node> parentNode{weakNode()};
+		for (size_t i = 0; i < resp.ids().size(); i++) {
+			auto [pull_node] = co_await helix_ng::exchangeMsgs(
+				pull_lane,
+				helix_ng::pullDescriptor()
+			);
+
+			HEL_CHECK(pull_node.error());
+
+			if (i != resp.ids().size() - 1
+					|| resp.file_type() == managarm::fs::FileType::DIRECTORY) {
+				auto child = _sb->internalizeStructural(parentNode.get(), path[i],
+						resp.ids()[i], pull_node.descriptor());
+				if (i != resp.ids().size() - 1)
+					parentNode = child;
+				else
+					link = child->treeLink();
+			}else{
+				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.ids()[i],
+						pull_node.descriptor());
+				link = _sb->internalizePeripheralLink(parentNode.get(), path[i], std::move(child));
+			}
+		}
+
+		co_return std::make_pair(link, resp.links_traversed());
 	}
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
@@ -729,12 +826,12 @@ async::result<std::shared_ptr<FsLink>> Superblock::rename(FsLink *source,
 
 	auto ser = req.SerializeAsString();
 	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-        _lane,
-        helix_ng::offer(
-            helix_ng::sendBuffer(ser.data(), ser.size()),
-            helix_ng::recvInline()
-        )
-    );
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::recvInline()
+		)
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
