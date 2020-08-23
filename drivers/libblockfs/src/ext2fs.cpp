@@ -235,51 +235,54 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 
 	co_await readyJump.async_wait();
 
-	auto dir_node = co_await fs.createDirectory();
-	co_await dir_node->readyJump.async_wait();
+	auto dirNode = co_await fs.createDirectory();
+	co_await dirNode->readyJump.async_wait();
 
-	co_await fs.assignDataBlocks(dir_node.get(), 0, 1);
+	co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
 
-	dir_node->setFileSize(fs.blockSize);
-	HEL_CHECK(helResizeMemory(dir_node->backingMemory,
+	dirNode->setFileSize(fs.blockSize);
+	HEL_CHECK(helResizeMemory(dirNode->backingMemory,
 			(fs.blockSize + 0xFFF) & ~size_t(0xFFF)));
+	dirNode->fileMapping = helix::Mapping{helix::BorrowedDescriptor{dirNode->frontalMemory},
+			0, fs.blockSize,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-	helix::LockMemoryView lock_memory;
-	auto map_size = (dir_node->fileSize() + 0xFFF) & ~size_t(0xFFF);
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(dir_node->frontalMemory),
-			&lock_memory,
-			0, map_size, helix::Dispatcher::global());
+	helix::LockMemoryView lockMemory;
+	auto mapSize = (dirNode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(dirNode->frontalMemory),
+			&lockMemory,
+			0, mapSize, helix::Dispatcher::global());
 	co_await submit.async_wait();
-	HEL_CHECK(lock_memory.error());
+	HEL_CHECK(lockMemory.error());
 
 	// XXX: this is a hack to make the directory accessible under
 	// OSes that respect the permissions, this means "drwxr-xr-x"
-	dir_node->diskInode()->mode = 0x41ED;
+	dirNode->diskInode()->mode = 0x41ED;
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			dir_node->diskMapping.get(), fs.inodeSize);
+			dirNode->diskMapping.get(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
 	size_t offset = 0;
-	auto dot_entry = reinterpret_cast<DiskDirEntry *>(fileMapping.get());
+	auto dotEntry = reinterpret_cast<DiskDirEntry *>(dirNode->fileMapping.get());
 	offset += (sizeof(DiskDirEntry) + 2 + 3) & ~size_t(3);
 
-	dir_node->diskInode()->linksCount++;
-	dot_entry->inode = dir_node->number;
-	dot_entry->recordLength = offset;
-	dot_entry->nameLength = 1;
-	dot_entry->fileType = EXT2_FT_DIR;
-	memcpy(dot_entry->name, ".", 2);
+	dirNode->diskInode()->linksCount++;
+	dotEntry->inode = dirNode->number;
+	dotEntry->recordLength = offset;
+	dotEntry->nameLength = 1;
+	dotEntry->fileType = EXT2_FT_DIR;
+	memcpy(dotEntry->name, ".", 2);
 
-	auto dot_dot_entry = reinterpret_cast<DiskDirEntry *>(
-			reinterpret_cast<char *>(fileMapping.get()) + offset);
+	auto dotDotEntry = reinterpret_cast<DiskDirEntry *>(
+			reinterpret_cast<char *>(dirNode->fileMapping.get()) + offset);
 
 	diskInode()->linksCount++;
-	dot_dot_entry->inode = number;
-	dot_dot_entry->recordLength = dir_node->fileSize() - offset;
-	dot_dot_entry->nameLength = 2;
-	dot_dot_entry->fileType = EXT2_FT_DIR;
-	memcpy(dot_dot_entry->name, "..", 3);
+	dotDotEntry->inode = number;
+	dotDotEntry->recordLength = dirNode->fileSize() - offset;
+	dotDotEntry->nameLength = 2;
+	dotDotEntry->fileType = EXT2_FT_DIR;
+	memcpy(dotDotEntry->name, "..", 3);
 
 	// Synchronize this inode to update the linksCount
 	syncInode = co_await helix_ng::synchronizeSpace(
@@ -287,7 +290,7 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 			diskMapping.get(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
-	co_return co_await link(name, dir_node->number, kTypeDirectory);
+	co_return co_await link(name, dirNode->number, kTypeDirectory);
 }
 
 async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
@@ -747,9 +750,9 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 			&inode->backingMemory, &inode->frontalMemory));
 
 	if (inode->fileType == kTypeDirectory) {
-		auto map_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
+		auto mapSize = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
 		inode->fileMapping = helix::Mapping{helix::BorrowedDescriptor{inode->frontalMemory},
-				0, map_size,
+				0, mapSize,
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 	}
 
