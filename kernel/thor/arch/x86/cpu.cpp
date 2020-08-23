@@ -347,7 +347,8 @@ void UserContext::enableIoPort(uintptr_t port) {
 void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
 	tss.ist1 = (Word)cpu_data->irqStack.base();
-	tss.ist2 = (Word)cpu_data->nmiStack.base();
+	tss.ist2 = (Word)cpu_data->dfStack.base();
+	tss.ist3 = (Word)cpu_data->nmiStack.base();
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
