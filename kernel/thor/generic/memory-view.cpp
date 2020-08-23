@@ -1370,7 +1370,7 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 	// the root of the CoW chain, but copies are never evicted.
 	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
 			async::any_receiver<Error> receiver) -> coroutine<void> {
-		auto wq = WorkQueue::localQueue();
+		auto wq = WorkQueue::generalQueue();
 
 		size_t progress = 0;
 		while(progress < size) {
@@ -1513,7 +1513,7 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t offset,
 			FetchNode *node) -> coroutine<void> {
-		auto wq = WorkQueue::localQueue();
+		auto wq = WorkQueue::generalQueue();
 
 		frigg::SharedPtr<CowChain> chain;
 		frigg::SharedPtr<MemoryView> view;

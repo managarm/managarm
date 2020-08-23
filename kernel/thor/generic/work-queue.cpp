@@ -17,6 +17,12 @@ WorkScope::~WorkScope() {
 	context->associatedWorkQueue = _outerQueue;
 }
 
+WorkQueue *WorkQueue::generalQueue() {
+	auto cpuData = getCpuData();
+	assert(cpuData->generalWorkQueue);
+	return cpuData->generalWorkQueue.get();
+}
+
 WorkQueue *WorkQueue::localQueue() {
 	auto context = localExecutorContext();
 	assert(context);

@@ -500,6 +500,8 @@ static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-pr
 	}
 };
 
+extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+
 void initializeThisProcessor() {
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
@@ -718,6 +720,13 @@ void initializeThisProcessor() {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x300);
 
 	cpuFeaturesKnown = true;
+
+	auto wqFiber = KernelFiber::post([=] {
+		// Do nothing. Our only purpose is to run the associated work queue.
+	});
+	cpu_data->generalWorkQueue = wqFiber->associatedWorkQueue()->selfPtr.grab();
+	assert(cpu_data->generalWorkQueue);
+	earlyFibers->push(wqFiber);
 
 	initLocalApicPerCpu();
 }
