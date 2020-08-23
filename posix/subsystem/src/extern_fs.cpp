@@ -585,6 +585,8 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND)
+			co_return Error::noSuchFile;
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 		co_return {};
 	}
