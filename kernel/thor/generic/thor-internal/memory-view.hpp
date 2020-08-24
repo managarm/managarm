@@ -519,6 +519,44 @@ public:
 	}
 
 	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for fork()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct ForkOperation;
+
+	struct [[nodiscard]] ForkSender {
+		using value_type = frg::tuple<Error, frigg::SharedPtr<MemoryView>>;
+
+		template<typename R>
+		friend ForkOperation<R>
+		connect(ForkSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		MemoryView *self;
+	};
+
+	ForkSender fork() {
+		return {this};
+	}
+
+	template<typename R>
+	struct ForkOperation {
+		ForkOperation(ForkSender s, R receiver)
+		: v_{s.self}, receiver_{std::move(receiver)} { }
+
+		ForkOperation(const ForkOperation &) = delete;
+		ForkOperation &operator= (const ForkOperation &) = delete;
+
+		void start_inline() {
+			v_->fork(std::move(receiver_));
+		}
+
+	private:
+		MemoryView *v_;
+		R receiver_;
+	};
 
 private:
 	EvictionQueue *associatedEvictionQueue_;

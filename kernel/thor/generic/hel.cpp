@@ -562,36 +562,18 @@ HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
 		view = viewWrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	struct Closure {
-		ThreadBlocker blocker;
-		Error error;
-		frigg::SharedPtr<MemoryView> forkedView;
-	} closure;
+	auto [error, forkedView] = Thread::asyncBlockCurrent(view->fork());
 
-	struct Receiver {
-		void set_value(frg::tuple<Error, frigg::SharedPtr<MemoryView>> result) {
-			closure->error = result.get<0>();
-			closure->forkedView = std::move(result.get<1>());
-			Thread::unblockOther(&closure->blocker);
-		}
-
-		Closure *closure;
-	};
-
-	closure.blocker.setup();
-	view->fork(Receiver{&closure});
-	Thread::blockCurrent(&closure.blocker);
-
-	if(closure.error == Error::illegalObject)
+	if(error == Error::illegalObject)
 		return kHelErrUnsupportedOperation;
-	assert(closure.error == Error::success);
+	assert(error == Error::success);
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*forkedHandle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(closure.forkedView));
+				MemoryViewDescriptor(forkedView));
 	}
 
 	return kHelErrNone;
