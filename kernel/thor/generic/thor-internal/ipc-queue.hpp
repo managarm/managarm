@@ -174,7 +174,6 @@ public:
 
 private:
 	coroutine<void> _runQueue();
-	void _wakeProgressFutex(bool done);
 
 private:
 	Mutex _mutex;
@@ -187,13 +186,8 @@ private:
 
 	unsigned int _sizeShift;
 
-	// Index into the queue that we're currently processing.
-	int _nextIndex;
-
-	// Points to the chunk that we're currently writing.
-	Chunk *_currentChunk;
-	// Accessor for the current chunk.
-	AddressSpaceLockHandle _chunkLock;
+	// Index into the queue that we are currently processing.
+	int _currentIndex;
 	// Progress into the current chunk.
 	int _currentProgress;
 
