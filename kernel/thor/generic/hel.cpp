@@ -808,44 +808,20 @@ HelError helSubmitProtectMemory(HelHandle space_handle,
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	struct Closure final : IpcNode {
-		Closure()
-		: ipcSource{&helResult, sizeof(HelSimpleResult), nullptr} {
-			setupSource(&ipcSource);
-		}
+	async::detach_with_allocator(*kernelAlloc, [](
+				smarter::shared_ptr<AddressSpace, BindableHandle> space,
+				frigg::SharedPtr<IpcQueue> queue,
+				VirtualAddr pointer, size_t length,
+				uint32_t protectFlags, uintptr_t context) -> coroutine<void> {
+			co_await space->protect(pointer, length, protectFlags);
 
-		void complete() override {
-			frigg::destruct(*kernelAlloc, this);
-		}
-
-		frigg::SharedPtr<IpcQueue> ipcQueue;
-		Worklet worklet;
-		AddressProtectNode protect;
-		QueueSource ipcSource;
-
-		HelSimpleResult helResult;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	struct Ops {
-		static void managed(Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-
-			closure->helResult = HelSimpleResult{kHelErrNone};
-			closure->ipcQueue->submit(closure);
-		}
-	};
-
-	closure->ipcQueue = std::move(queue);
-	closure->setupContext(context);
-
-	closure->worklet.setup(&Ops::managed);
-	closure->protect.setup(&closure->worklet);
-	if(space->protect(reinterpret_cast<VirtualAddr>(pointer), length, protectFlags,
-			&closure->protect)) {
-		closure->helResult = HelSimpleResult{kHelErrNone};
-		closure->ipcQueue->submit(closure);
-		return kHelErrNone;
-	}
+			HelSimpleResult helResult{kHelErrNone};
+			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+	}(
+		std::move(space), std::move(queue), reinterpret_cast<VirtualAddr>(pointer),
+		length, protectFlags, context)
+	);
 
 	return kHelErrNone;
 }
