@@ -371,27 +371,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
 	}else{
-		// TODO: Make sure that we're in a thread domain.
-		WorkScope wqs{this_thread->pagingWorkQueue()};
-
-		struct Closure {
-			ThreadBlocker blocker;
-			Worklet worklet;
-			FaultNode fault;
-		} closure;
-
-		// TODO: It is safe to use the thread's WQ here (as PFs never interrupt WQ dequeue).
-		// However, it might be desirable to handle PFs on their own WQ.
-		closure.worklet.setup([] (Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-			Thread::unblockOther(&closure->blocker);
-		});
-		closure.fault.setup(&closure.worklet);
-		closure.blocker.setup();
-		if(!address_space->handleFault(address, flags, &closure.fault))
-			Thread::blockCurrent(&closure.blocker);
-
-		handled = closure.fault.resolved();
+		handled = Thread::asyncBlockCurrent(address_space->handleFault(address, flags));
 	}
 
 	if(handled)

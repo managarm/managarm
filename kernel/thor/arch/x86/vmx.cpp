@@ -352,30 +352,14 @@ namespace thor::vmx {
 				return exitInfo;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
 				size_t address = vmread(EPT_VIOLATION_ADDRESS);
-				struct Closure {
-					ThreadBlocker blocker;
-					Worklet worklet;
-					FaultNode fault;
-				} closure;
-
-				closure.worklet.setup([] (Worklet *base) {
-					auto closure = frg::container_of(base, &Closure::worklet);
-					Thread::unblockOther(&closure->blocker);
-				});
-				closure.fault.setup(&closure.worklet);
-				closure.blocker.setup();
 				size_t exitFlags = vmread(EPT_VIOLATION_FLAGS);
 				uint32_t flags = 0;
-				if(exitFlags & 1) {
+				if(exitFlags & 1)
 					flags |= AddressSpace::kFaultWrite;
-				}
-				if(exitFlags & (1 << 2)) {
+				if(exitFlags & (1 << 2))
 					flags |= AddressSpace::kFaultExecute;
-				}
-				if(!space->handleFault(address, flags, &closure.fault))
-					Thread::blockCurrent(&closure.blocker);
 
-				bool handled = closure.fault.resolved();
+				bool handled = Thread::asyncBlockCurrent(space->handleFault(address, flags));
 				if(!handled) {
 					exitInfo.exitReason = khelVmexitTranslationFault;
 					exitInfo.address = address;
