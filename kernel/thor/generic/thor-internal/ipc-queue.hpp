@@ -178,20 +178,20 @@ private:
 private:
 	Mutex _mutex;
 
-	async::recurring_event _doorbell;
-
 	// Pointer (+ address space) to queue head struct.
 	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
 	void *_pointer;
 
 	unsigned int _sizeShift;
 
+	frigg::Vector<Chunk, KernelAlloc> _chunks;
+
 	// Index into the queue that we are currently processing.
 	int _currentIndex;
 	// Progress into the current chunk.
 	int _currentProgress;
 
-	frigg::Vector<Chunk, KernelAlloc> _chunks;
+	async::recurring_event _doorbell;
 
 	frg::intrusive_list<
 		IpcNode,
@@ -201,6 +201,10 @@ private:
 			&IpcNode::_queueNode
 		>
 	> _nodeQueue;
+
+	// Stores whether any nodes are in the queue.
+	// Written only when _mutex is held (but read outside of _mutex).
+	std::atomic<bool> _anyNodes;
 };
 
 } // namespace thor

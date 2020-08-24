@@ -15,8 +15,8 @@ namespace thor {
 IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer,
 		unsigned int size_shift, size_t)
 : _space{frigg::move(space)}, _pointer{pointer}, _sizeShift{size_shift},
-		_currentIndex{0}, _currentProgress{0},
-		_chunks{*kernelAlloc} {
+		_chunks{*kernelAlloc},
+		_currentIndex{0}, _currentProgress{0}, _anyNodes{false} {
 	_chunks.resize(1 << _sizeShift);
 
 	async::detach_with_allocator(*kernelAlloc, _runQueue());
@@ -43,6 +43,7 @@ void IpcQueue::submit(IpcNode *node) {
 		assert(!node->_queueNode.in_list);
 		node->_queue = this;
 		_nodeQueue.push_back(node);
+		_anyNodes.store(true, std::memory_order_relaxed);
 	}
 
 	_doorbell.raise();
@@ -55,19 +56,10 @@ coroutine<void> IpcQueue::_runQueue() {
 
 	while(true) {
 		co_await _doorbell.async_wait_if([&] () -> bool {
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_mutex);
-
-			return _nodeQueue.empty();
+			return !_anyNodes.load(std::memory_order_relaxed);
 		});
-
-		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_mutex);
-
-			if(_nodeQueue.empty())
-				continue;
-		}
+		if(!_anyNodes.load(std::memory_order_relaxed))
+			continue;
 
 		// Wait until the futex advances past _currentIndex.
 		DirectSpaceAccessor<int> headFutexAccessor{queueLock, offsetof(QueueStruct, headFutex)};
@@ -114,19 +106,10 @@ coroutine<void> IpcQueue::_runQueue() {
 		// This inner loop runs until the chunk is exhausted.
 		while(true) {
 			co_await _doorbell.async_wait_if([&] () -> bool {
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&_mutex);
-
-				return _nodeQueue.empty();
+				return !_anyNodes.load(std::memory_order_relaxed);
 			});
-
-			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&_mutex);
-
-				if(_nodeQueue.empty())
-					continue;
-			}
+			if(!_anyNodes.load(std::memory_order_relaxed))
+				continue;
 
 			// Check if there is enough space in the current chunk.
 			IpcNode *node;
@@ -212,6 +195,10 @@ coroutine<void> IpcQueue::_runQueue() {
 
 				_currentProgress += sizeof(ElementStruct) + length;
 				_nodeQueue.pop_front();
+
+				assert(_anyNodes.load(std::memory_order_relaxed));
+				if(_nodeQueue.empty())
+					_anyNodes.store(false, std::memory_order_relaxed);
 			}
 
 			node->complete();
