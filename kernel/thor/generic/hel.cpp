@@ -1257,49 +1257,26 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	if(!queue->validSize(ipcSourceSize(sizeof(HelManageResult))))
 		return kHelErrQueueTooSmall;
 
-	struct Closure final : IpcNode {
-		Closure()
-		: ipcSource{&helResult, sizeof(HelManageResult), nullptr} {
-			setupSource(&ipcSource);
-		}
+	async::detach_with_allocator(*kernelAlloc, [](
+				frigg::SharedPtr<IpcQueue> queue,
+				frigg::SharedPtr<MemoryView> memory,
+				uintptr_t context) -> coroutine<void> {
+			auto [error, type, offset, size] = co_await memory->submitManage();
 
-		void complete() override {
-			frigg::destruct(*kernelAlloc, this);
-		}
-
-		frigg::SharedPtr<IpcQueue> ipcQueue;
-		Worklet worklet;
-		ManageNode manage;
-		QueueSource ipcSource;
-
-		HelManageResult helResult;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	struct Ops {
-		static void managed(Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-
-			int hel_type;
-			switch(closure->manage.type()) {
-			case ManageRequest::initialize: hel_type = kHelManageInitialize; break;
-			case ManageRequest::writeback: hel_type = kHelManageWriteback; break;
-			default:
-				assert(!"unexpected ManageRequest");
-				__builtin_trap();
+			int helType;
+			switch (type) {
+				case ManageRequest::initialize: helType = kHelManageInitialize; break;
+				case ManageRequest::writeback: helType = kHelManageWriteback; break;
+				default:
+					assert(!"unexpected ManageRequest");
+					__builtin_trap();
 			}
 
-			closure->helResult = HelManageResult{translateError(closure->manage.error()),
-					hel_type, closure->manage.offset(), closure->manage.size()};
-			closure->ipcQueue->submit(closure);
-		}
-	};
-
-	closure->ipcQueue = std::move(queue);
-	closure->setupContext(context);
-
-	closure->worklet.setup(&Ops::managed);
-	closure->manage.setup(&closure->worklet);
-	memory->submitManage(&closure->manage);
+			HelManageResult helResult{translateError(error),
+					helType, offset, size};
+			QueueSource ipcSource{&helResult, sizeof(HelManageResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+	}(std::move(queue), std::move(memory), context));
 
 	return kHelErrNone;
 }

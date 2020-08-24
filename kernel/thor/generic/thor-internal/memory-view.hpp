@@ -519,6 +519,61 @@ public:
 	}
 
 	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for submitManage()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct SubmitManageOperation;
+
+	struct [[nodiscard]] SubmitManageSender {
+		using value_type = frg::tuple<Error, ManageRequest, uintptr_t, size_t>;
+
+		template<typename R>
+		friend SubmitManageOperation<R>
+		connect(SubmitManageSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		MemoryView *self;
+	};
+
+	SubmitManageSender submitManage() {
+		return {this};
+	}
+
+	template<typename R>
+	struct SubmitManageOperation {
+		SubmitManageOperation(SubmitManageSender s, R receiver)
+		: s_{s.self}, receiver_{std::move(receiver)} { }
+
+		SubmitManageOperation(const SubmitManageOperation &) = delete;
+		SubmitManageOperation &operator= (const SubmitManageOperation &) = delete;
+
+		bool start_inline() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &SubmitManageOperation::worklet_);
+				async::execution::set_value_noinline(op->receiver_,
+						frg::tuple<Error, ManageRequest, uintptr_t, size_t>{op->node_.error(), op->node_.type(),
+								op->node_.offset(), op->node_.size()});
+			});
+			node_.setup(&worklet_);
+			s_->submitManage(&node_);
+			return false;
+		}
+
+	private:
+		MemoryView *s_;
+		R receiver_;
+		ManageNode node_;
+		Worklet worklet_;
+	};
+
+	friend async::sender_awaiter<SubmitManageSender, frg::tuple<Error, ManageRequest, uintptr_t, size_t>>
+	operator co_await(SubmitManageSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for fork()
 	// ----------------------------------------------------------------------------------
 
