@@ -689,8 +689,6 @@ namespace posix {
 				if(auto e = Thread::resumeOther(_thread); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 64) {
-				AcquireNode node;
-
 				ManagarmServerData data = {
 					controlHandle
 				};

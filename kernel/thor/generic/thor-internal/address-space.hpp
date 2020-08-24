@@ -871,19 +871,14 @@ private:
 struct AcquireNode {
 	friend struct AddressSpaceLockHandle;
 
-	AcquireNode()
-	: _acquired{nullptr} { }
+	AcquireNode() = default;
 
 	AcquireNode(const AcquireNode &) = delete;
 
 	AcquireNode &operator= (const AcquireNode &) = delete;
 
-	void setup(Worklet *acquire) {
-		_acquired = acquire;
-	}
-
-private:
-	Worklet *_acquired;
+protected:
+	virtual void complete() = 0;
 };
 
 struct AddressSpaceLockHandle {
@@ -954,7 +949,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct [[nodiscard]] AcquireOperation {
+	struct [[nodiscard]] AcquireOperation : private AcquireNode {
 		AcquireOperation(AddressSpaceLockHandle *handle, R receiver)
 		: handle_{handle}, receiver_{std::move(receiver)} { }
 
@@ -963,12 +958,7 @@ public:
 		AcquireOperation &operator= (const AcquireOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &AcquireOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(&worklet_);
-			if(handle_->acquire(&node_)) {
+			if(handle_->acquire(this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -976,9 +966,12 @@ public:
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		AddressSpaceLockHandle *handle_;
 		R receiver_;
-		AcquireNode node_;
 		Worklet worklet_;
 	};
 

@@ -969,9 +969,11 @@ bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
 				(self->_address - self->_mapping->address) & ~(kPageSize - 1),
 				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
 		assert(populateOutcome);
+
 		self->_active = true;
-		WorkQueue::post(node->_acquired);
+		node->complete();
 	}(this, node));
+
 	return false;
 }
 
