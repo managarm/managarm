@@ -359,32 +359,15 @@ using MappingTree = frg::rbtree<
 
 struct FaultNode {
 	friend struct VirtualSpace;
-	friend struct Mapping;
 
-	FaultNode()
-	: _resolved{false} { }
+	FaultNode() = default;
 
 	FaultNode(const FaultNode &) = delete;
 
 	FaultNode &operator= (const FaultNode &) = delete;
 
-	void setup(Worklet *handled) {
-		_handled = handled;
-	}
-
-	bool resolved() {
-		return _resolved;
-	}
-
-private:
-	VirtualAddr _address;
-	uint32_t _flags;
-	Worklet *_handled;
-
-	bool _resolved;
-
-	smarter::shared_ptr<Mapping> _mapping;
-	Worklet _worklet;
+protected:
+	virtual void complete(bool resolved) = 0;
 };
 
 struct AddressProtectNode {
@@ -466,7 +449,7 @@ public:
 
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
-	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
+	frg::optional<bool> handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
 
 	size_t rss() {
 		return _residuentSize;
@@ -637,7 +620,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct HandleFaultOperation {
+	struct HandleFaultOperation : private FaultNode {
 		HandleFaultOperation(VirtualSpace *self, VirtualAddr address, uint32_t flags,
 				R receiver)
 		: self_{self}, address_{address}, flags_{flags}, receiver_{std::move(receiver)} { }
@@ -647,25 +630,23 @@ public:
 		HandleFaultOperation &operator= (const HandleFaultOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &HandleFaultOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_, op->node_.resolved());
-			});
-			node_.setup(&worklet_);
-			if(self_->handleFault(address_, flags_, &node_)) {
-				async::execution::set_value_inline(receiver_, node_.resolved());
+			auto result = self_->handleFault(address_, flags_, this);
+			if(result) {
+				async::execution::set_value_inline(receiver_, *result);
 				return true;
 			}
 			return false;
 		}
 
 	private:
+		void complete(bool resolved) {
+			async::execution::set_value_noinline(receiver_, resolved);
+		}
+
 		VirtualSpace *self_;
 		VirtualAddr address_;
 		uint32_t flags_;
 		R receiver_;
-		FaultNode node_;
-		Worklet worklet_;
 	};
 
 	struct [[nodiscard]] HandleFaultSender {

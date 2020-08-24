@@ -758,43 +758,34 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 	}(this, alignedAddress, alignedSize, std::move(receiver)));
 }
 
-bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *node) {
-	node->_address = address;
-	node->_flags = faultFlags;
-
+frg::optional<bool>
+VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *node) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto space_guard = frigg::guard(&_mutex);
 
 		mapping = _findMapping(address);
-		if(!mapping) {
-			node->_resolved = false;
-			return true;
-		}
 	}
-
-	node->_mapping = mapping;
+	if(!mapping)
+		return false;
 
 	// Here we do the mapping-based fault handling.
-	if(node->_flags & VirtualSpace::kFaultWrite)
+	if(faultFlags & VirtualSpace::kFaultWrite)
 		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
-			node->_resolved = false;
 			return true;
 		}
-	if(node->_flags & VirtualSpace::kFaultExecute)
+	if(faultFlags & VirtualSpace::kFaultExecute)
 		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
-			node->_resolved = false;
 			return true;
 		}
 
 	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<Mapping> mapping,
 			uintptr_t address, FaultNode *node) -> coroutine<void> {
-		auto faultPage = (node->_address - mapping->address) & ~(kPageSize - 1);
+		auto faultPage = (address - mapping->address) & ~(kPageSize - 1);
 		auto outcome = co_await mapping->touchVirtualPage(faultPage);
 		if(!outcome) {
-			node->_resolved = false;
-			WorkQueue::post(node->_handled);
+			node->complete(false);
 			co_return;
 		}
 
@@ -803,10 +794,10 @@ bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNo
 		if(outcome.value().spurious)
 				infoLogger() << "\e[33m" "thor: Spurious page fault"
 						"\e[39m" << frg::endlog;
-		node->_resolved = true;
-		WorkQueue::post(node->_handled);
+		node->complete(true);
 	}(std::move(mapping), address, node));
-	return false;
+
+	return {};
 }
 
 smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
