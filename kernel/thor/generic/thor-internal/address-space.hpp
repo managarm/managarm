@@ -566,6 +566,8 @@ public:
 	struct UnmapOperation;
 
 	struct [[nodiscard]] UnmapSender {
+		using value_type = void;
+
 		template<typename R>
 		friend UnmapOperation<R>
 		connect(UnmapSender sender, R receiver) {

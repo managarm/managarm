@@ -871,21 +871,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 		}
 	}
 
-	struct Closure {
-		ThreadBlocker blocker;
-		Worklet worklet;
-		AddressUnmapNode node;
-	} closure;
-
-	closure.worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		Thread::unblockOther(&closure->blocker);
-	});
-	closure.node.setup(&closure.worklet);
-	closure.blocker.setup();
-
-	if(!space->unmap((VirtualAddr)pointer, length, &closure.node))
-		Thread::blockCurrent(&closure.blocker);
+	Thread::asyncBlockCurrent(space->unmap((VirtualAddr)pointer, length));
 
 	return kHelErrNone;
 }
