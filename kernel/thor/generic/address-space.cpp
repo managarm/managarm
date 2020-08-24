@@ -249,31 +249,9 @@ coroutine<void> Mapping::runEvictionLoop() {
 			owner->_residuentSize -= kPageSize;
 		}
 
-		// Perform shootdown.
-		struct Closure {
-			smarter::shared_ptr<Mapping> mapping; // Need to keep the Mapping alive.
-			Worklet worklet;
-			ShootNode node;
-			Eviction eviction;
-		} *closure = frigg::construct<Closure>(*kernelAlloc);
+		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
 
-		closure->worklet.setup([] (Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-			closure->eviction.done();
-			frigg::destruct(*kernelAlloc, closure);
-		});
-		closure->mapping = selfPtr.lock();
-		closure->eviction = std::move(eviction);
-
-		closure->node.address = address + shootOffset;
-		closure->node.size = shootSize;
-		closure->node.setup(&closure->worklet);
-		if(!owner->_ops->submitShootdown(&closure->node))
-			continue;
-
-		closure->eviction.done();
-		frigg::destruct(*kernelAlloc, closure);
-		continue;
+		eviction.done();
 	}
 
 	evictionDoneEvent.raise();
