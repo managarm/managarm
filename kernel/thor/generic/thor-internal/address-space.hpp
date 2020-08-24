@@ -920,6 +920,8 @@ public:
 	};
 
 	struct [[nodiscard]] AcquireSender {
+		using value_type = void;
+
 		template<typename R>
 		AcquireOperation<R> connect(R receiver) {
 			return {handle, std::move(receiver)};
