@@ -2270,22 +2270,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto space = this_thread->getAddressSpace().lock();
 			auto accessor = AddressSpaceLockHandle{std::move(space),
 					action.buffer, action.length};
-
-			// TODO: Instead of blocking here, the stream should acquire this asynchronously.
-			struct AcqClosure {
-				ThreadBlocker blocker;
-				Worklet worklet;
-				AcquireNode acquire;
-			} acq_closure;
-
-			acq_closure.worklet.setup([] (Worklet *base) {
-				auto acq_closure = frg::container_of(base, &AcqClosure::worklet);
-				Thread::unblockOther(&acq_closure->blocker);
-			});
-			acq_closure.acquire.setup(&acq_closure.worklet);
-			acq_closure.blocker.setup();
-			if(!accessor.acquire(&acq_closure.acquire))
-				Thread::blockCurrent(&acq_closure.blocker);
+			Thread::asyncBlockCurrent(accessor.acquire());
 
 			closure->items[i].transmit.setup(kTagRecvToBuffer, closure);
 			closure->items[i].transmit._inAccessor = std::move(accessor);
