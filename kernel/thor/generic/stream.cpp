@@ -116,10 +116,12 @@ void Stream::Submitter::run() {
 		StreamNode *v = nullptr;
 
 		// Note: Try to do as little work as possible while holding the lock.
+		auto s = u->_transmitLane.getStream();
+		bool laneShutdown = false;
+		bool laneBroken = false;
 		{
 			// p/q is the number of the local/remote lane.
 			// u/v is the local/remote item that we are processing.
-			auto s = u->_transmitLane.getStream();
 			int p = u->_transmitLane.getLane();
 			assert(!(p & ~int(1)));
 			int q = 1 - p;
@@ -130,21 +132,28 @@ void Stream::Submitter::run() {
 
 			if(s->_laneShutDown[p]) {
 				assert(s->_processQueue[q].empty());
-				s->_cancelItem(u, Error::laneShutdown);
-				continue;
+				laneShutdown = true;
 			}else if(s->_laneBroken[q] || s->_laneShutDown[q]) {
 				assert(s->_processQueue[q].empty());
-				s->_cancelItem(u, Error::endOfLane);
-				continue;
+				laneBroken = true;
+			}else{
+				// If both lanes have items, we need to process them.
+				// Otherwise, we just queue the new node.
+				if(s->_processQueue[q].empty()) {
+					s->_processQueue[p].push_back(u);
+					continue;
+				}
+				v = s->_processQueue[q].pop_front();
 			}
+		}
 
-			// If both lanes have items, we need to process them.
-			// Otherwise, we just queue the new node.
-			if(s->_processQueue[q].empty()) {
-				s->_processQueue[p].push_back(u);
-				continue;
-			}
-			v = s->_processQueue[q].pop_front();
+		if(laneShutdown) {
+			s->_cancelItem(u, Error::laneShutdown);
+			continue;
+		}
+		if(laneBroken) {
+			s->_cancelItem(u, Error::endOfLane);
+			continue;
 		}
 
 		// Make sure that we only need to consider one permutation of tags.
@@ -195,20 +204,29 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 
 	std::atomic_thread_fence(std::memory_order_acquire);
 
-// TODO: remove debugging messages?
-//	infoLogger() << "\e[31mClosing lane " << lane << "\e[0m" << frg::endlog;
+	frg::intrusive_list<
+		StreamNode,
+		frg::locate_member<
+			StreamNode,
+			frg::default_list_hook<StreamNode>,
+			&StreamNode::processQueueItem
+		>
+	> pending;
+
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&stream->_mutex);
 		assert(!stream->_laneBroken[lane]);
 
 		stream->_laneBroken[lane] = true;
-
-		while(!stream->_processQueue[!lane].empty()) {
-			auto item = stream->_processQueue[!lane].pop_front();
-			_cancelItem(item, Error::endOfLane);
-		}
+		pending.splice(pending.end(), stream->_processQueue[!lane]);
 	}
+
+	while(!pending.empty()) {
+		auto item = pending.pop_front();
+		_cancelItem(item, Error::endOfLane);
+	}
+
 	return true;
 }
 
@@ -224,20 +242,32 @@ Stream::~Stream() {
 }
 
 void Stream::shutdownLane(int lane) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-	assert(!_laneBroken[lane]);
+	frg::intrusive_list<
+		StreamNode,
+		frg::locate_member<
+			StreamNode,
+			frg::default_list_hook<StreamNode>,
+			&StreamNode::processQueueItem
+		>
+	> pendingOnThisLane, pendingOnOtherLane;
 
-//	infoLogger() << "Shutting down lane" << frg::endlog;
-	_laneShutDown[lane] = true;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+		assert(!_laneBroken[lane]);
 
-	while(!_processQueue[lane].empty()) {
-		auto item = _processQueue[lane].pop_front();
+		_laneShutDown[lane] = true;
+		pendingOnThisLane.splice(pendingOnThisLane.end(), _processQueue[lane]);
+		pendingOnOtherLane.splice(pendingOnOtherLane.end(), _processQueue[!lane]);
+	}
+
+	while(!pendingOnThisLane.empty()) {
+		auto item = pendingOnThisLane.pop_front();
 		_cancelItem(item, Error::laneShutdown);
 	}
 
-	while(!_processQueue[!lane].empty()) {
-		auto item = _processQueue[!lane].pop_front();
+	while(!pendingOnOtherLane.empty()) {
+		auto item = pendingOnOtherLane.pop_front();
 		_cancelItem(item, Error::endOfLane);
 	}
 }

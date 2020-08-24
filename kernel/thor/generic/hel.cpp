@@ -2179,26 +2179,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		};
 	};
 
-	struct Closure final : IpcNode {
-		void complete() override {
-			// TODO: Turn items into a unique_ptr.
-			frigg::destructN(*kernelAlloc, items, count);
-			frigg::destruct(*kernelAlloc, this);
-		}
-
-		size_t count;
-		frigg::WeakPtr<Universe> weakUniverse;
-		frigg::SharedPtr<IpcQueue> ipcQueue;
-
-		Worklet worklet;
-		StreamPacket packet;
-		Item *items;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	struct Ops {
-		static void transmitted(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &Closure::worklet);
-
+	struct Closure final : StreamPacket, IpcNode {
+		static void transmitted(Closure *closure) {
 			QueueSource *tail = nullptr;
 			auto link = [&] (QueueSource *source) {
 				if(tail)
@@ -2287,14 +2269,29 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			closure->setupSource(&closure->items[0].mainSource);
 			closure->ipcQueue->submit(closure);
 		}
-	};
+
+		void completePacket() override {
+			transmitted(this);
+		}
+
+		void complete() override {
+			// TODO: Turn items into a unique_ptr.
+			frigg::destructN(*kernelAlloc, items, count);
+			frigg::destruct(*kernelAlloc, this);
+		}
+
+		size_t count;
+		frigg::WeakPtr<Universe> weakUniverse;
+		frigg::SharedPtr<IpcQueue> ipcQueue;
+
+		Item *items;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
 
 	closure->count = count;
 	closure->weakUniverse = this_universe.toWeak();
 	closure->ipcQueue = std::move(queue);
 
-	closure->worklet.setup(&Ops::transmitted);
-	closure->packet.setup(count, &closure->worklet);
+	closure->setup(count);
 	closure->setupContext(context);
 	closure->items = frigg::constructN<Item>(*kernelAlloc, count);
 
@@ -2313,25 +2310,25 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 		switch(action.type) {
 		case kHelActionOffer: {
-			closure->items[i].transmit.setup(kTagOffer, &closure->packet);
+			closure->items[i].transmit.setup(kTagOffer, closure);
 		} break;
 		case kHelActionAccept: {
-			closure->items[i].transmit.setup(kTagAccept, &closure->packet);
+			closure->items[i].transmit.setup(kTagAccept, closure);
 		} break;
 		case kHelActionImbueCredentials: {
-			closure->items[i].transmit.setup(kTagImbueCredentials, &closure->packet);
+			closure->items[i].transmit.setup(kTagImbueCredentials, closure);
 			memcpy(closure->items[i].transmit._inCredentials.data(),
 					this_thread->credentials(), 16);
 		} break;
 		case kHelActionExtractCredentials: {
-			closure->items[i].transmit.setup(kTagExtractCredentials, &closure->packet);
+			closure->items[i].transmit.setup(kTagExtractCredentials, closure);
 		} break;
 		case kHelActionSendFromBuffer: {
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
 			if(!readUserMemory(buffer.data(), action.buffer, action.length))
 				return kHelErrFault;
 
-			closure->items[i].transmit.setup(kTagSendFromBuffer, &closure->packet);
+			closure->items[i].transmit.setup(kTagSendFromBuffer, closure);
 			closure->items[i].transmit._inBuffer = std::move(buffer);
 		} break;
 		case kHelActionSendFromBufferSg: {
@@ -2354,13 +2351,13 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				offset += item.length;
 			}
 
-			closure->items[i].transmit.setup(kTagSendFromBuffer, &closure->packet);
+			closure->items[i].transmit.setup(kTagSendFromBuffer, closure);
 			closure->items[i].transmit._inBuffer = std::move(buffer);
 		} break;
 		case kHelActionRecvInline: {
 			// TODO: For now, we hardcode a size of 128 bytes.
 			auto space = this_thread->getAddressSpace().lock();
-			closure->items[i].transmit.setup(kTagRecvInline, &closure->packet);
+			closure->items[i].transmit.setup(kTagRecvInline, closure);
 			closure->items[i].transmit._maxLength = 128;
 		} break;
 		case kHelActionRecvToBuffer: {
@@ -2384,7 +2381,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			if(!accessor.acquire(&acq_closure.acquire))
 				Thread::blockCurrent(&acq_closure.blocker);
 
-			closure->items[i].transmit.setup(kTagRecvToBuffer, &closure->packet);
+			closure->items[i].transmit.setup(kTagRecvToBuffer, closure);
 			closure->items[i].transmit._inAccessor = std::move(accessor);
 		} break;
 		case kHelActionPushDescriptor: {
@@ -2399,11 +2396,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				operand = *wrapper;
 			}
 
-			closure->items[i].transmit.setup(kTagPushDescriptor, &closure->packet);
+			closure->items[i].transmit.setup(kTagPushDescriptor, closure);
 			closure->items[i].transmit._inDescriptor = std::move(operand);
 		} break;
 		case kHelActionPullDescriptor: {
-			closure->items[i].transmit.setup(kTagPullDescriptor, &closure->packet);
+			closure->items[i].transmit.setup(kTagPullDescriptor, closure);
 		} break;
 		default:
 			// TODO: Turn this into an error return.
