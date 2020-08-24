@@ -173,13 +173,13 @@ public:
 	// ----------------------------------------------------------------------------------
 
 private:
-	void _progress();
-	bool _advanceChunk();
-	bool _waitHeadFutex();
+	coroutine<void> _runQueue();
 	void _wakeProgressFutex(bool done);
 
 private:
 	Mutex _mutex;
+
+	async::recurring_event _doorbell;
 
 	// Pointer (+ address space) to queue head struct.
 	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
@@ -187,17 +187,8 @@ private:
 
 	unsigned int _sizeShift;
 
-	Worklet _worklet;
-	AcquireNode _acquireNode;
-	FutexNode _futex;
-
-	// Accessor for the queue header.
-	AddressSpaceLockHandle _queueLock;
-
 	// Index into the queue that we're currently processing.
 	int _nextIndex;
-
-	bool _inProgressLoop = false;
 
 	// Points to the chunk that we're currently writing.
 	Chunk *_currentChunk;
@@ -205,9 +196,6 @@ private:
 	AddressSpaceLockHandle _chunkLock;
 	// Progress into the current chunk.
 	int _currentProgress;
-
-	// Accessor for the current element.
-	AddressSpaceLockHandle _elementLock;
 
 	frigg::Vector<Chunk, KernelAlloc> _chunks;
 

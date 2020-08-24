@@ -19,6 +19,8 @@ IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void
 		_currentChunk{nullptr}, _currentProgress{0},
 		_chunks{*kernelAlloc} {
 	_chunks.resize(1 << _sizeShift);
+
+	async::detach_with_allocator(*kernelAlloc, _runQueue());
 }
 
 bool IpcQueue::validSize(size_t size) {
@@ -36,198 +38,141 @@ void IpcQueue::setupChunk(size_t index, smarter::shared_ptr<AddressSpace, Bindab
 }
 
 void IpcQueue::submit(IpcNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
 
-	assert(!node->_queueNode.in_list);
-	node->_queue = this;
-	_nodeQueue.push_back(node);
-
-	if(!_inProgressLoop) {
-		_worklet.setup([] (Worklet *worklet) {
-			auto self = frg::container_of(worklet, &IpcQueue::_worklet);
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
-
-			self->_progress();
-		});
-		_inProgressLoop = true;
-		WorkQueue::post(&_worklet);
+		assert(!node->_queueNode.in_list);
+		node->_queue = this;
+		_nodeQueue.push_back(node);
 	}
+
+	_doorbell.raise();
 }
 
-void IpcQueue::_progress() {
-	struct Ops {
-		static void acquiredQueue(Worklet *worklet) {
-			auto self = frg::container_of(worklet, &IpcQueue::_worklet);
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
+coroutine<void> IpcQueue::_runQueue() {
+	AddressSpaceLockHandle queueLock{_space, _pointer, sizeof(QueueStruct)
+			+ (size_t{1} << _sizeShift) * sizeof(int)};
+	co_await queueLock.acquire();
 
-			assert(self->_queueLock);
-			self->_progress();
-		}
+	while(true) {
+		co_await _doorbell.async_wait_if([&] () -> bool {
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_mutex);
 
-		static void acquiredElement(Worklet *worklet) {
-			auto self = frg::container_of(worklet, &IpcQueue::_worklet);
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
+			return _nodeQueue.empty();
+		});
 
-			emitElement(self);
-			self->_progress();
-		}
+		if(!_currentChunk) {
+			DirectSpaceAccessor<int> accessor{queueLock, offsetof(QueueStruct, headFutex)};
 
-		// Emit the next element to the current chunk.
-		static void emitElement(IpcQueue *self) {
-			assert(self->_elementLock);
+			// Wait until the futex advances past _nextIndex.
+			while(true) {
+				bool gotNextIndex = false;
+				auto futex = __atomic_load_n(accessor.get(), __ATOMIC_ACQUIRE);
+				do {
+					if(_nextIndex != (futex & kHeadMask)) {
+						gotNextIndex = true;
+						break;
+					}
 
-			auto node = self->_nodeQueue.front();
+					// TODO: Contract violation errors should be reported to user-space.
+					assert(futex == _nextIndex);
+				} while(!__atomic_compare_exchange_n(accessor.get(), &futex,
+						_nextIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
+				if(gotNextIndex)
+					break;
 
-			size_t length = 0;
-			for(auto source = node->_source; source; source = source->link)
-				length += (source->size + 7) & ~size_t(7);
-
-			ElementStruct element;
-			memset(&element, 0, sizeof(element));
-			element.length = length;
-			element.context = reinterpret_cast<void *>(node->_context);
-			auto err = self->_elementLock.write(0, &element, sizeof(ElementStruct));
-			assert(err == Error::success);
-
-			size_t disp = sizeof(ElementStruct);
-			for(auto source = node->_source; source; source = source->link) {
-				err = self->_elementLock.write(disp, source->pointer, source->size);
-				assert(err == Error::success);
-				disp += (source->size + 7) & ~size_t(7);
+				auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
+				co_await _space->futexSpace.wait(fa, [&] {
+					return __atomic_load_n(accessor.get(), __ATOMIC_RELAXED)
+							== (_nextIndex | kHeadWaiters);
+				});
 			}
 
-			self->_elementLock = AddressSpaceLockHandle{};
-			self->_nodeQueue.pop_front();
-			node->complete();
+			// Lock the chunk.
+			{
+				auto irqLock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&_mutex);
 
-			// Update the chunk progress futex.
-			self->_currentProgress += sizeof(ElementStruct) + length;
-			self->_wakeProgressFutex(false);
-		}
-	};
+				size_t iq = + _nextIndex & ((size_t{1} << _sizeShift) - 1);
+				size_t cn = queueLock.read<int>(offsetof(QueueStruct, indexQueue) + iq * sizeof(int));
+				assert(cn < _chunks.size());
+				assert(_chunks[cn].space);
 
-	assert(_inProgressLoop);
-
-	if(!_queueLock) {
-		_queueLock = AddressSpaceLockHandle{_space, _pointer, sizeof(QueueStruct)
-				+ (size_t{1} << _sizeShift) * sizeof(int)};
-		_worklet.setup(&Ops::acquiredQueue);
-		_acquireNode.setup(&_worklet);
-		if(!_queueLock.acquire(&_acquireNode))
-			return;
-	}
-
-	while(!_nodeQueue.empty()) {
-		// Advance the queue if necessary.
-		if(!_currentChunk) {
-			if(!_advanceChunk())
-				return;
+				_currentChunk = &_chunks[cn];
+				_nextIndex = ((_nextIndex + 1) & kHeadMask);
+				_chunkLock = AddressSpaceLockHandle{_currentChunk->space,
+						_currentChunk->pointer, sizeof(ChunkStruct)};
+			}
+			co_await _chunkLock.acquire();
 		}
 
 		// Check if there is enough space in the current chunk.
+		uintptr_t dest = 0;
 		size_t length = 0;
-		for(auto source = _nodeQueue.front()->_source; source; source = source->link)
-			length += (source->size + 7) & ~size_t(7);
+		bool chunkExhausted = false;
+		{
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_mutex);
 
-		assert(length <= _currentChunk->bufferSize);
+			dest = reinterpret_cast<Address>(_currentChunk->pointer)
+					+ offsetof(ChunkStruct, buffer) + _currentProgress;
+			assert(!(dest & 0x7));
 
-		// Check if we need to retire the current chunk.
-		if(_currentProgress + length > _currentChunk->bufferSize) {
+			for(auto source = _nodeQueue.front()->_source; source; source = source->link)
+				length += (source->size + 7) & ~size_t(7);
+			assert(length <= _currentChunk->bufferSize);
+
+			// Check if we need to retire the current chunk.
+			if(_currentProgress + length > _currentChunk->bufferSize) {
+				chunkExhausted = true;
+			}
+		}
+
+		if(chunkExhausted) {
 			_wakeProgressFutex(true);
-
 			_chunkLock = AddressSpaceLockHandle{};
 			_currentChunk = nullptr;
 			_currentProgress = 0;
 			continue;
 		}
 
-		// Emit the next element to the current chunk.
-		auto dest = reinterpret_cast<Address>(_currentChunk->pointer)
-				+ offsetof(ChunkStruct, buffer) + _currentProgress;
-		assert(!(dest & 0x7));
-		_elementLock = AddressSpaceLockHandle{_currentChunk->space,
+		AddressSpaceLockHandle elementLock{_currentChunk->space,
 				reinterpret_cast<void *>(dest), sizeof(ElementStruct) + length};
-		_worklet.setup(&Ops::acquiredElement);
-		_acquireNode.setup(&_worklet);
-		if(!_elementLock.acquire(&_acquireNode))
-			return;
-		Ops::emitElement(this);
-	}
+		co_await elementLock.acquire();
 
-	_inProgressLoop = false;
-}
+		IpcNode *node;
+		{
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_mutex);
 
-// Returns true if the operation was done synchronously.
-bool IpcQueue::_advanceChunk() {
-	struct Ops {
-		static void acquired(Worklet *worklet) {
-			auto self = frg::container_of(worklet, &IpcQueue::_worklet);
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
+			node = _nodeQueue.front();
 
-			assert(self->_chunkLock);
-			self->_progress();
+			// Emit the next element to the current chunk.
+			ElementStruct element;
+			memset(&element, 0, sizeof(element));
+			element.length = length;
+			element.context = reinterpret_cast<void *>(node->_context);
+			auto err = elementLock.write(0, &element, sizeof(ElementStruct));
+			assert(err == Error::success);
+
+			size_t disp = sizeof(ElementStruct);
+			for(auto source = node->_source; source; source = source->link) {
+				err = elementLock.write(disp, source->pointer, source->size);
+				assert(err == Error::success);
+				disp += (source->size + 7) & ~size_t(7);
+			}
+
+			elementLock = AddressSpaceLockHandle{};
+			_nodeQueue.pop_front();
+
+			// Update the chunk progress futex.
+			_currentProgress += sizeof(ElementStruct) + length;
+			_wakeProgressFutex(false);
 		}
-	};
 
-	assert(!_currentChunk);
-
-	if(!_waitHeadFutex())
-		return false;
-
-	size_t iq = + _nextIndex & ((size_t{1} << _sizeShift) - 1);
-	size_t cn = _queueLock.read<int>(offsetof(QueueStruct, indexQueue) + iq * sizeof(int));
-	assert(cn < _chunks.size());
-	assert(_chunks[cn].space);
-
-	_currentChunk = &_chunks[cn];
-	_nextIndex = ((_nextIndex + 1) & kHeadMask);
-	_chunkLock = AddressSpaceLockHandle{_currentChunk->space,
-			_currentChunk->pointer, sizeof(ChunkStruct)};
-	_worklet.setup(&Ops::acquired);
-	_acquireNode.setup(&_worklet);
-	return _chunkLock.acquire(&_acquireNode);
-}
-
-// Returns true if the operation was done synchronously.
-bool IpcQueue::_waitHeadFutex() {
-	struct Ops {
-		static void woken(Worklet *worklet) {
-			auto self = frg::container_of(worklet, &IpcQueue::_worklet);
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
-
-			self->_progress();
-		}
-	};
-
-	DirectSpaceAccessor<int> accessor{_queueLock, offsetof(QueueStruct, headFutex)};
-
-	while(true) {
-		auto futex = __atomic_load_n(accessor.get(), __ATOMIC_ACQUIRE);
-		do {
-			if(_nextIndex != (futex & kHeadMask))
-				return true;
-
-			// TODO: Contract violation errors should be reported to user-space.
-			assert(futex == _nextIndex);
-		} while(!__atomic_compare_exchange_n(accessor.get(), &futex,
-				_nextIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
-
-		auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
-		_worklet.setup(&Ops::woken);
-		_futex.setup(&_worklet);
-		auto wait_in_futex = _space->futexSpace.checkSubmitWait(fa, [&] {
-			return __atomic_load_n(accessor.get(), __ATOMIC_RELAXED)
-					== (_nextIndex | kHeadWaiters);
-		}, &_futex);
-
-		if(wait_in_futex)
-			return false;
+		node->complete();
 	}
 }
 
