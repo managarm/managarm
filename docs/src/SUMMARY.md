@@ -19,6 +19,8 @@
         - [libasync](design/libasync/index.md)
         - [mbus](design/mbus/index.md)
         - [bragi](design/bragi/index.md)
+        - [posix subsystem](design/posix/index.md)
+        - [libblockfs](design/libblockfs/index.md)
 
 
 - [Contributing](contributing/contributing.md)

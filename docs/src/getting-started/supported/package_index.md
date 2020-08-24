@@ -19,7 +19,9 @@ Currently, the following packages are available by default in Managarm:
 - freetype
 - gawk
 - gcc
+- glew
 - glib
+- glu
 - gmp
 - grep
 - gzip
@@ -62,6 +64,7 @@ Currently, the following packages are available by default in Managarm:
 - lua
 - mednafen
 - mesa
+- mesa-progs
 - mini-lspci
 - mpc
 - mpfr
