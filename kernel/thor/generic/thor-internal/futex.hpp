@@ -28,16 +28,14 @@ struct FutexNode {
 	FutexNode()
 	: _cancelCb{this} { }
 
-	void setup(Worklet *woken) {
-		_woken = woken;
-	}
+protected:
+	virtual void complete() = 0;
 
 private:
 	void onCancel();
 
 	Futex *_futex = nullptr;
 	uintptr_t _address;
-	Worklet *_woken;
 	async::cancellation_token _cancellation;
 	FutexState _state = FutexState::none;
 	bool _wasCancelled = false;
@@ -60,11 +58,6 @@ struct Futex {
 	template<typename C>
 	bool checkSubmitWait(Address address, C condition, FutexNode *node,
 			async::cancellation_token cancellation = {}) {
-		// TODO: avoid reuse of FutexNode and remove this condition.
-		if(node->_state == FutexState::retired) {
-			node->_futex = nullptr;
-			node->_state = FutexState::none;
-		}
 		assert(!node->_futex);
 		node->_futex = this;
 		node->_address = address;
@@ -96,12 +89,6 @@ struct Futex {
 		return true;
 	}
 
-	template<typename C>
-	void submitWait(Address address, C condition, FutexNode *node) {
-		if(!checkSubmitWait(address, std::move(condition), node))
-			WorkQueue::post(node->_woken);
-	}
-
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for wait()
 	// ----------------------------------------------------------------------------------
@@ -131,7 +118,7 @@ struct Futex {
 	}
 
 	template<typename R, typename Condition>
-	struct WaitOperation {
+	struct WaitOperation : private FutexNode {
 		WaitOperation(WaitSender<Condition> s, R receiver)
 		: s_{std::move(s)}, receiver_{std::move(receiver)} { }
 
@@ -140,12 +127,7 @@ struct Futex {
 		WaitOperation &operator= (const WaitOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &WaitOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(&worklet_);
-			if(!s_.self->checkSubmitWait(s_.address, std::move(s_.c), &node_, s_.cancellation)) {
+			if(!s_.self->checkSubmitWait(s_.address, std::move(s_.c), this, s_.cancellation)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -153,10 +135,12 @@ struct Futex {
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		WaitSender<Condition> s_;
 		R receiver_;
-		FutexNode node_;
-		Worklet worklet_;
 	};
 
 	template<typename Condition>
@@ -169,27 +153,30 @@ struct Futex {
 
 private:
 	void cancel(FutexNode *node) {
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		{
+			auto irqLock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&_mutex);
 
-		if(node->_state == FutexState::waiting) {
-			auto sit = _slots.get(node->_address);
-			// Invariant: If the slot exists then its queue is not empty.
-			assert(!sit->queue.empty());
+			if(node->_state == FutexState::waiting) {
+				auto sit = _slots.get(node->_address);
+				// Invariant: If the slot exists then its queue is not empty.
+				assert(!sit->queue.empty());
 
-			auto nit = sit->queue.iterator_to(node);
-			sit->queue.erase(nit);
-			node->_wasCancelled = true;
+				auto nit = sit->queue.iterator_to(node);
+				sit->queue.erase(nit);
+				node->_wasCancelled = true;
 
-			if(sit->queue.empty())
-				_slots.remove(node->_address);
-		}else{
-			// Let the cancellation handler invoke the continuation.
-			assert(node->_state == FutexState::woken);
+				if(sit->queue.empty())
+					_slots.remove(node->_address);
+			}else{
+				// Let the cancellation handler invoke the continuation.
+				assert(node->_state == FutexState::woken);
+			}
+
+			node->_state = FutexState::retired;
 		}
 
-		node->_state = FutexState::retired;
-		WorkQueue::post(node->_woken);
+		node->complete();
 	}
 
 public:
@@ -232,7 +219,7 @@ public:
 
 		while(!pending.empty()) {
 			auto node = pending.pop_front();
-			WorkQueue::post(node->_woken);
+			node->complete();
 		}
 	}
 
