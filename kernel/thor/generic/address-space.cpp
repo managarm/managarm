@@ -554,19 +554,23 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 }
 
 bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto space_guard = frigg::guard(&_mutex);
+	smarter::shared_ptr<Mapping> mapping;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
 
-	auto mapping = _findMapping(address);
-	assert(mapping);
+		mapping = _findMapping(address);
+		assert(mapping);
 
-	// TODO: Allow shrinking of the mapping.
-	assert(mapping->address == address);
-	assert(mapping->length == length);
+		// TODO: Allow shrinking of the mapping.
+		assert(mapping->address == address);
+		assert(mapping->length == length);
 
-	assert(mapping->state == MappingState::active);
-	mapping->state = MappingState::zombie;
+		assert(mapping->state == MappingState::active);
+		mapping->state = MappingState::zombie;
+	}
 
+	// Mark pages as dirty and unmap without holding a lock.
 	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 		VirtualAddr vaddr = mapping->address + progress;
 		auto status = _ops->unmapSingle4k(vaddr);
