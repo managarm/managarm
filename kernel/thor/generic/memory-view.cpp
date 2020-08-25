@@ -706,11 +706,19 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 }
 
 void ManagedSpace::submitManagement(ManageNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	ManageList pending;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&mutex);
 
-	_managementQueue.push_back(node);
-	_progressManagement();
+		_managementQueue.push_back(node);
+		_progressManagement(pending);
+	}
+
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 }
 
 void ManagedSpace::submitMonitor(MonitorNode *node) {
@@ -727,7 +735,7 @@ void ManagedSpace::submitMonitor(MonitorNode *node) {
 	_progressMonitors();
 }
 
-void ManagedSpace::_progressManagement() {
+void ManagedSpace::_progressManagement(ManageList &pending) {
 	// For now, we prefer writeback to initialization.
 	// "Proper" priorization should probably be done in the userspace driver
 	// (we do not want to store per-page priorities here).
@@ -754,7 +762,7 @@ void ManagedSpace::_progressManagement() {
 		auto node = _managementQueue.pop_front();
 		node->setup(Error::success, ManageRequest::writeback,
 				index << kPageShift, count << kPageShift);
-		node->complete();
+		pending.push_back(node);
 	}
 
 	while(!_initializationList.empty() && !_managementQueue.empty()) {
@@ -779,7 +787,7 @@ void ManagedSpace::_progressManagement() {
 		auto node = _managementQueue.pop_front();
 		node->setup(Error::success, ManageRequest::initialize,
 				index << kPageShift, count << kPageShift);
-		node->complete();
+		pending.push_back(node);
 	}
 }
 
@@ -995,101 +1003,109 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 }
 
 bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	ManageList pending;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_managed->mutex);
 
-	auto index = offset >> kPageShift;
-	auto misalign = offset & (kPageSize - 1);
-	assert(index < _managed->numPages);
+		auto index = offset >> kPageShift;
+		auto misalign = offset & (kPageSize - 1);
+		assert(index < _managed->numPages);
 
-	// Try the fast-paths first.
-	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
-	assert(pit);
-	if(pit->loadState == ManagedSpace::kStatePresent
-			|| pit->loadState == ManagedSpace::kStateWantWriteback
-			|| pit->loadState == ManagedSpace::kStateWriteback
-			|| pit->loadState == ManagedSpace::kStateAnotherWriteback
-			|| pit->loadState == ManagedSpace::kStateEvicting) {
-		auto physical = pit->physical;
-		assert(physical != PhysicalAddr(-1));
-
-		if(pit->loadState == ManagedSpace::kStatePresent) {
-			if(!pit->lockCount)
-				globalReclaimer->bumpPage(&pit->cachePage);
-		}else if(pit->loadState == ManagedSpace::kStateEvicting) {
-			// Cancel evication -- the page is still needed.
-			pit->loadState = ManagedSpace::kStatePresent;
-			globalReclaimer->addPage(&pit->cachePage);
-		}
-
-		completeFetch(node, Error::success,
-				physical + misalign, kPageSize - misalign, CachingMode::null);
-		return true;
-	}else{
-		assert(pit->loadState == ManagedSpace::kStateMissing
-				|| pit->loadState == ManagedSpace::kStateWantInitialization
-				|| pit->loadState == ManagedSpace::kStateInitialization);
-	}
-
-	if(node->flags() & FetchNode::disallowBacking) {
-		infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
-				<< frg::endlog;
-		completeFetch(node, Error::fault);
-		return true;
-	}
-
-	// We have to take the slow-path, i.e., perform the fetch asynchronously.
-	if(pit->loadState == ManagedSpace::kStateMissing) {
-		pit->loadState = ManagedSpace::kStateWantInitialization;
-		_managed->_initializationList.push_back(&pit->cachePage);
-	}
-	_managed->_progressManagement();
-
-	// TODO: Do not allocate memory here; use pre-allocated nodes instead.
-	struct Closure {
-		uintptr_t offset;
-		ManagedSpace::ManagedPage *page;
-		FetchNode *fetch;
-		ManagedSpace *bundle;
-
-		Worklet worklet;
-		MonitorNode initiate;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	struct Ops {
-		static void initiated(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &Closure::worklet);
-			assert(closure->initiate.error() == Error::success);
-
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&closure->bundle->mutex);
-
-			auto misalign = closure->offset & (kPageSize - 1);
-			assert(closure->page->loadState == ManagedSpace::kStatePresent);
-			auto physical = closure->page->physical;
+		// Try the fast-paths first.
+		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
+		assert(pit);
+		if(pit->loadState == ManagedSpace::kStatePresent
+				|| pit->loadState == ManagedSpace::kStateWantWriteback
+				|| pit->loadState == ManagedSpace::kStateWriteback
+				|| pit->loadState == ManagedSpace::kStateAnotherWriteback
+				|| pit->loadState == ManagedSpace::kStateEvicting) {
+			auto physical = pit->physical;
 			assert(physical != PhysicalAddr(-1));
 
-			lock.unlock();
-			irq_lock.unlock();
+			if(pit->loadState == ManagedSpace::kStatePresent) {
+				if(!pit->lockCount)
+					globalReclaimer->bumpPage(&pit->cachePage);
+			}else if(pit->loadState == ManagedSpace::kStateEvicting) {
+				// Cancel evication -- the page is still needed.
+				pit->loadState = ManagedSpace::kStatePresent;
+				globalReclaimer->addPage(&pit->cachePage);
+			}
 
-			completeFetch(closure->fetch, Error::success, physical + misalign, kPageSize - misalign,
-					CachingMode::null);
-			callbackFetch(closure->fetch);
-			frigg::destruct(*kernelAlloc, closure);
+			completeFetch(node, Error::success,
+					physical + misalign, kPageSize - misalign, CachingMode::null);
+			return true;
+		}else{
+			assert(pit->loadState == ManagedSpace::kStateMissing
+					|| pit->loadState == ManagedSpace::kStateWantInitialization
+					|| pit->loadState == ManagedSpace::kStateInitialization);
 		}
-	};
 
-	closure->offset = offset;
-	closure->page = pit;
-	closure->fetch = node;
-	closure->bundle = _managed.get();
+		if(node->flags() & FetchNode::disallowBacking) {
+			infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
+					<< frg::endlog;
+			completeFetch(node, Error::fault);
+			return true;
+		}
 
-	closure->worklet.setup(&Ops::initiated);
-	closure->initiate.setup(ManageRequest::initialize,
-			offset, kPageSize, &closure->worklet);
-	closure->initiate.progress = 0;
-	_managed->_monitorQueue.push_back(&closure->initiate);
-	_managed->_progressMonitors();
+		// We have to take the slow-path, i.e., perform the fetch asynchronously.
+		if(pit->loadState == ManagedSpace::kStateMissing) {
+			pit->loadState = ManagedSpace::kStateWantInitialization;
+			_managed->_initializationList.push_back(&pit->cachePage);
+		}
+		_managed->_progressManagement(pending);
+
+		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
+		struct Closure {
+			uintptr_t offset;
+			ManagedSpace::ManagedPage *page;
+			FetchNode *fetch;
+			ManagedSpace *bundle;
+
+			Worklet worklet;
+			MonitorNode initiate;
+		} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+		struct Ops {
+			static void initiated(Worklet *worklet) {
+				auto closure = frg::container_of(worklet, &Closure::worklet);
+				assert(closure->initiate.error() == Error::success);
+
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&closure->bundle->mutex);
+
+				auto misalign = closure->offset & (kPageSize - 1);
+				assert(closure->page->loadState == ManagedSpace::kStatePresent);
+				auto physical = closure->page->physical;
+				assert(physical != PhysicalAddr(-1));
+
+				lock.unlock();
+				irq_lock.unlock();
+
+				completeFetch(closure->fetch, Error::success, physical + misalign, kPageSize - misalign,
+						CachingMode::null);
+				callbackFetch(closure->fetch);
+				frigg::destruct(*kernelAlloc, closure);
+			}
+		};
+
+		closure->offset = offset;
+		closure->page = pit;
+		closure->fetch = node;
+		closure->bundle = _managed.get();
+
+		closure->worklet.setup(&Ops::initiated);
+		closure->initiate.setup(ManageRequest::initialize,
+				offset, kPageSize, &closure->worklet);
+		closure->initiate.progress = 0;
+		_managed->_monitorQueue.push_back(&closure->initiate);
+		_managed->_progressMonitors();
+	}
+
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 
 	return false;
 }
@@ -1098,32 +1114,40 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	assert(!(offset % kPageSize));
 	assert(!(size % kPageSize));
 
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	ManageList pending;
+	{
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_managed->mutex);
 
-	// Put the pages into the dirty state.
-	for(size_t pg = 0; pg < size; pg += kPageSize) {
-		auto index = (offset + pg) >> kPageShift;
-		auto pit = _managed->pages.find(index);
-		assert(pit);
-		if(pit->loadState == ManagedSpace::kStatePresent) {
-			pit->loadState = ManagedSpace::kStateWantWriteback;
-			if(!pit->lockCount)
-				globalReclaimer->removePage(&pit->cachePage);
-			_managed->_writebackList.push_back(&pit->cachePage);
-		}else if(pit->loadState == ManagedSpace::kStateEvicting) {
-			pit->loadState = ManagedSpace::kStateWantWriteback;
-			assert(!pit->lockCount);
-			_managed->_writebackList.push_back(&pit->cachePage);
-		}else if(pit->loadState == ManagedSpace::kStateWriteback) {
-			pit->loadState = ManagedSpace::kStateAnotherWriteback;
-		}else{
-			assert(pit->loadState == ManagedSpace::kStateWantWriteback
-					|| pit->loadState == ManagedSpace::kStateAnotherWriteback);
+		// Put the pages into the dirty state.
+		for(size_t pg = 0; pg < size; pg += kPageSize) {
+			auto index = (offset + pg) >> kPageShift;
+			auto pit = _managed->pages.find(index);
+			assert(pit);
+			if(pit->loadState == ManagedSpace::kStatePresent) {
+				pit->loadState = ManagedSpace::kStateWantWriteback;
+				if(!pit->lockCount)
+					globalReclaimer->removePage(&pit->cachePage);
+				_managed->_writebackList.push_back(&pit->cachePage);
+			}else if(pit->loadState == ManagedSpace::kStateEvicting) {
+				pit->loadState = ManagedSpace::kStateWantWriteback;
+				assert(!pit->lockCount);
+				_managed->_writebackList.push_back(&pit->cachePage);
+			}else if(pit->loadState == ManagedSpace::kStateWriteback) {
+				pit->loadState = ManagedSpace::kStateAnotherWriteback;
+			}else{
+				assert(pit->loadState == ManagedSpace::kStateWantWriteback
+						|| pit->loadState == ManagedSpace::kStateAnotherWriteback);
+			}
 		}
+
+		_managed->_progressManagement(pending);
 	}
 
-	_managed->_progressManagement();
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 }
 
 size_t FrontalMemory::getLength() {
@@ -1132,21 +1156,33 @@ size_t FrontalMemory::getLength() {
 }
 
 void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
-	// TODO: This assumes that we want to load the range (which might not be true).
-	assert(node->offset % kPageSize == 0);
-	assert(node->length % kPageSize == 0);
-	for(size_t pg = 0; pg < node->length; pg += kPageSize) {
-		auto index = (node->offset + pg) >> kPageShift;
-		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
-		assert(pit);
-		if(pit->loadState == ManagedSpace::kStateMissing) {
-			pit->loadState = ManagedSpace::kStateWantInitialization;
-			_managed->_initializationList.push_back(&pit->cachePage);
+	ManageList pending;
+	{
+		// TODO: This assumes that we want to load the range (which might not be true).
+		auto irqLock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_managed->mutex);
+
+		assert(node->offset % kPageSize == 0);
+		assert(node->length % kPageSize == 0);
+		for(size_t pg = 0; pg < node->length; pg += kPageSize) {
+			auto index = (node->offset + pg) >> kPageShift;
+			auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
+			assert(pit);
+			if(pit->loadState == ManagedSpace::kStateMissing) {
+				pit->loadState = ManagedSpace::kStateWantInitialization;
+				_managed->_initializationList.push_back(&pit->cachePage);
+			}
 		}
+
+		_managed->_progressManagement(pending);
 	}
-	_managed->_progressManagement();
 
 	_managed->submitMonitor(node);
+
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 }
 
 // --------------------------------------------------------

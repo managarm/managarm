@@ -76,10 +76,6 @@ struct CachePage {
 using PhysicalRange = frg::tuple<PhysicalAddr, size_t, CachingMode>;
 
 struct ManageNode {
-	void setup(Worklet *worklet) {
-		_worklet = worklet;
-	}
-
 	Error error() { return _error; }
 	ManageRequest type() { return _type; }
 	uintptr_t offset() { return _offset; }
@@ -92,9 +88,7 @@ struct ManageNode {
 		_size = size;
 	}
 
-	void complete() {
-		WorkQueue::post(_worklet);
-	}
+	virtual void complete() = 0;
 
 	frg::default_list_hook<ManageNode> processQueueItem;
 
@@ -104,8 +98,6 @@ private:
 	ManageRequest _type;
 	uintptr_t _offset;
 	size_t _size;
-
-	Worklet *_worklet;
 };
 
 using ManageList = frg::intrusive_list<
@@ -542,33 +534,32 @@ public:
 	}
 
 	template<typename R>
-	struct SubmitManageOperation {
+	struct SubmitManageOperation : private ManageNode {
 		SubmitManageOperation(SubmitManageSender s, R receiver)
 		: s_{s.self}, receiver_{std::move(receiver)} { }
 
 		SubmitManageOperation(const SubmitManageOperation &) = delete;
+
 		SubmitManageOperation &operator= (const SubmitManageOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &SubmitManageOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_,
-						frg::tuple<Error, ManageRequest, uintptr_t, size_t>{op->node_.error(), op->node_.type(),
-								op->node_.offset(), op->node_.size()});
-			});
-			node_.setup(&worklet_);
-			s_->submitManage(&node_);
+			s_->submitManage(this);
 			return false;
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_,
+					frg::tuple<Error, ManageRequest, uintptr_t, size_t>{error(),
+							type(), offset(), size()});
+		}
+
 		MemoryView *s_;
 		R receiver_;
-		ManageNode node_;
-		Worklet worklet_;
 	};
 
-	friend async::sender_awaiter<SubmitManageSender, frg::tuple<Error, ManageRequest, uintptr_t, size_t>>
+	friend async::sender_awaiter<SubmitManageSender,
+			frg::tuple<Error, ManageRequest, uintptr_t, size_t>>
 	operator co_await(SubmitManageSender sender) {
 		return {sender};
 	}
@@ -911,7 +902,7 @@ struct ManagedSpace : CacheBundle {
 
 	void submitManagement(ManageNode *node);
 	void submitMonitor(MonitorNode *node);
-	void _progressManagement();
+	void _progressManagement(ManageList &pending);
 	void _progressMonitors();
 
 	frigg::TicketLock mutex;
