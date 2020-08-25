@@ -545,17 +545,12 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 		}
 	}
 
-	node->_worklet.setup([] (Worklet *base) {
-		auto node = frg::container_of(base, &AddressProtectNode::_worklet);
+	async::detach_with_allocator(*kernelAlloc,
+			async::transform(_ops->shootdown(address, length), [=] () {
 		node->complete();
-	});
+	}));
 
-	node->_shootNode.address = address;
-	node->_shootNode.size = length;
-	node->_shootNode.setup(&node->_worklet);
-	if(!_ops->submitShootdown(&node->_shootNode))
-		return false;
-	return true;
+	return false;
 }
 
 bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
@@ -662,28 +657,14 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 		}
 	};
 
-	node->_worklet.setup([] (Worklet *base) {
-		auto node = frg::container_of(base, &AddressUnmapNode::_worklet);
-
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto space_guard = frigg::guard(&node->_space->_mutex);
-
-		deleteMapping(node->_space, node->_mapping.get());
-		closeHole(node->_space, node->_shootNode.address, node->_shootNode.size);
+	async::detach_with_allocator(*kernelAlloc,
+			async::transform(_ops->shootdown(address, length), [=] () {
+		deleteMapping(this, mapping.get());
+		closeHole(this, address, length);
 		node->complete();
-	});
+	}));
 
-	node->_space = this;
-	node->_mapping = mapping;
-	node->_shootNode.address = address;
-	node->_shootNode.size = length;
-	node->_shootNode.setup(&node->_worklet);
-	if(!_ops->submitShootdown(&node->_shootNode))
-		return false;
-
-	deleteMapping(this, mapping.get());
-	closeHole(this, address, length);
-	return true;
+	return false;
 }
 
 void VirtualSpace::synchronize(VirtualAddr address, size_t size,

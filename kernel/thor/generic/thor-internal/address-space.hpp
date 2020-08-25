@@ -30,6 +30,8 @@ struct VirtualOperations {
 	struct ShootdownOperation;
 
 	struct [[nodiscard]] ShootdownSender {
+		using value_type = void;
+
 		template<typename R>
 		friend ShootdownOperation<R>
 		connect(ShootdownSender sender, R receiver) {
@@ -373,37 +375,15 @@ protected:
 struct AddressProtectNode {
 	friend struct VirtualSpace;
 
-	void setup(Worklet *completion) {
-		_completion = completion;
-	}
-
-	void complete() {
-		WorkQueue::post(_completion);
-	}
-
-private:
-	Worklet *_completion;
-	Worklet _worklet;
-	ShootNode _shootNode;
+protected:
+	virtual void complete() = 0;
 };
 
 struct AddressUnmapNode {
 	friend struct VirtualSpace;
 
-	void setup(Worklet *completion) {
-		_completion = completion;
-	}
-
-	void complete() {
-		WorkQueue::post(_completion);
-	}
-
-private:
-	Worklet *_completion;
-	VirtualSpace *_space;
-	smarter::shared_ptr<Mapping> _mapping;
-	Worklet _worklet;
-	ShootNode _shootNode;
+protected:
+	virtual void complete() = 0;
 };
 
 struct VirtualSpace {
@@ -584,7 +564,7 @@ public:
 	}
 
 	template<typename R>
-	struct UnmapOperation {
+	struct UnmapOperation : private AddressUnmapNode {
 		UnmapOperation(UnmapSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -593,12 +573,7 @@ public:
 		UnmapOperation &operator= (const UnmapOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &UnmapOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(&worklet_);
-			if(s_.self->unmap(s_.address, s_.size, &node_)) {
+			if(s_.self->unmap(s_.address, s_.size, this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -606,10 +581,12 @@ public:
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		UnmapSender s_;
 		R receiver_;
-		AddressUnmapNode node_;
-		Worklet worklet_;
 	};
 
 	friend async::sender_awaiter<UnmapSender>
@@ -644,21 +621,17 @@ public:
 	}
 
 	template<typename R>
-	struct ProtectOperation {
+	struct ProtectOperation : private AddressProtectNode {
 		ProtectOperation(ProtectSender s, R receiver)
 		: self_{s.self}, address_{s.address}, size_{s.size},
-		flags_{s.flags}, receiver_{std::move(receiver)} { }
+				flags_{s.flags}, receiver_{std::move(receiver)} { }
 
 		ProtectOperation(const ProtectOperation &) = delete;
+
 		ProtectOperation &operator= (const ProtectOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &ProtectOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(&worklet_);
-			if(self_->protect(address_, size_, flags_, &node_)) {
+			if(self_->protect(address_, size_, flags_, this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -666,13 +639,15 @@ public:
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		VirtualSpace *self_;
 		VirtualAddr address_;
 		size_t size_;
 		uint32_t flags_;
 		R receiver_;
-		AddressProtectNode node_;
-		Worklet worklet_;
 	};
 
 	friend async::sender_awaiter<ProtectSender>
