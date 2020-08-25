@@ -62,12 +62,7 @@ struct RetireNode {
 	friend struct PageSpace;
 	friend struct PageBinding;
 
-	void setup(Worklet *worklet) {
-		_worklet = worklet;
-	}
-	Worklet *_worklet;
-
-private:
+	virtual void complete() = 0;
 };
 
 struct ShootNode {

@@ -23,6 +23,45 @@ struct VirtualOperations {
 	virtual bool isMapped(VirtualAddr pointer) = 0;
 
 	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for retire()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct RetireOperation : private RetireNode {
+		RetireOperation(VirtualOperations *self, R receiver)
+		: self_{self}, receiver_{std::move(receiver)} { }
+
+		void start() {
+			self_->retire(this);
+		}
+
+	private:
+		void complete() override {
+			async::execution::set_value(receiver_);
+		}
+
+		VirtualOperations *self_;
+		R receiver_;
+	};
+
+	struct RetireSender {
+		template<typename R>
+		RetireOperation<R> connect(R receiver) {
+			return {self, std::move(receiver)};
+		}
+
+		async::sender_awaiter<RetireSender> operator co_await() {
+			return {*this};
+		}
+
+		VirtualOperations *self;
+	};
+
+	RetireSender retire() {
+		return {};
+	}
+
+	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for shootdown()
 	// ----------------------------------------------------------------------------------
 

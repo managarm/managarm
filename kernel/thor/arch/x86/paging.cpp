@@ -176,7 +176,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 
 		unbound_space->_numBindings--;
 		if(!unbound_space->_numBindings && unbound_space->_retireNode) {
-			WorkQueue::post(unbound_space->_retireNode->_worklet);
+			unbound_space->_retireNode->complete();
 			unbound_space->_retireNode = nullptr;
 		}
 	}
@@ -239,7 +239,7 @@ void PageBinding::unbind() {
 
 		_boundSpace->_numBindings--;
 		if(!_boundSpace->_numBindings && _boundSpace->_retireNode) {
-			WorkQueue::post(_boundSpace->_retireNode->_worklet);
+			_boundSpace->_retireNode->complete();
 			_boundSpace->_retireNode = nullptr;
 		}
 	}
@@ -442,7 +442,7 @@ void PageSpace::retire(RetireNode *node) {
 	}
 
 	if(!any_bindings)
-		WorkQueue::post(node->_worklet);
+		node->complete();
 
 	sendShootdownIpi();
 }

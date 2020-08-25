@@ -322,18 +322,10 @@ void VirtualSpace::retire() {
 		mapping = MappingTree::successor(mapping);
 	}
 
-	struct Closure {
-		smarter::shared_ptr<VirtualSpace> self;
-		RetireNode retireNode;
-		Worklet worklet;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	closure->self = selfPtr.lock();
-
-	closure->retireNode.setup(&closure->worklet);
-	closure->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		auto self = closure->self.get();
+	// TODO: It would be less ugly to run this in a non-detached way.
+	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<VirtualSpace> self)
+			-> coroutine<void> {
+		co_await self->_ops->retire();
 
 		while(self->_mappings.get_root()) {
 			auto mapping = self->_mappings.get_root();
@@ -342,22 +334,14 @@ void VirtualSpace::retire() {
 			assert(mapping->state == MappingState::zombie);
 			mapping->state = MappingState::retired;
 
-			if(mapping->view->canEvictMemory())
+			if(mapping->view->canEvictMemory()) {
 				mapping->cancelEviction.cancel();
-
-			// TODO: It would be less ugly to run this in a non-detached way.
-			auto cleanUpObserver = [] (Mapping *mapping) -> coroutine<void> {
-				if(mapping->view->canEvictMemory())
-					co_await mapping->evictionDoneEvent.wait();
-				mapping->view->removeObserver(&mapping->observer);
-				mapping->selfPtr.ctr()->decrement();
-			};
-			async::detach_with_allocator(*kernelAlloc, cleanUpObserver(mapping));
+				co_await mapping->evictionDoneEvent.wait();
+			}
+			mapping->view->removeObserver(&mapping->observer);
+			mapping->selfPtr.ctr()->decrement();
 		}
-
-		frg::destruct(*kernelAlloc, closure);
-	});
-	_ops->retire(&closure->retireNode);
+	}(selfPtr.lock()));
 }
 
 smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
