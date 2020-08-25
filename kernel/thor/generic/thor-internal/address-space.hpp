@@ -48,7 +48,7 @@ struct VirtualOperations {
 	}
 
 	template<typename R>
-	struct ShootdownOperation {
+	struct ShootdownOperation : private ShootNode {
 		ShootdownOperation(ShootdownSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -57,14 +57,9 @@ struct VirtualOperations {
 		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &ShootdownOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.address = s_.address;
-			node_.size = s_.size;
-			node_.setup(&worklet_);
-			if(s_.self->submitShootdown(&node_)) {
+			ShootNode::address = s_.address;
+			ShootNode::size = s_.size;
+			if(s_.self->submitShootdown(this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -72,10 +67,12 @@ struct VirtualOperations {
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		ShootdownSender s_;
 		R receiver_;
-		ShootNode node_;
-		Worklet worklet_;
 	};
 
 	friend async::sender_awaiter<ShootdownSender>

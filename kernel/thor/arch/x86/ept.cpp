@@ -244,7 +244,7 @@ bool EptSpace::submitShootdown(ShootNode *node) {
 		"invept (%0), %1;"
 		: : "r"(&ptr), "r"((uint64_t)1)
 	);
-	WorkQueue::post(node->_worklet);
+	node->complete();
 	return false;
 }
 

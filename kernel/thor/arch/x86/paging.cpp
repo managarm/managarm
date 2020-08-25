@@ -183,7 +183,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 
@@ -249,7 +249,7 @@ void PageBinding::unbind() {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 
@@ -314,7 +314,7 @@ void PageBinding::shootdown() {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 
@@ -387,7 +387,7 @@ void GlobalPageBinding::shootdown() {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 

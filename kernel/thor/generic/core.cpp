@@ -152,12 +152,16 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	}
 	kernelMemoryUsage -= length;
 
-	struct Closure {
+	struct Closure : ShootNode {
+		void complete() override {
+			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
+			auto physical = thisPage;
+			Closure::~Closure();
+			asm volatile ("" : : : "memory");
+			physicalAllocator->free(physical, kPageSize);
+		}
+
 		PhysicalAddr thisPage;
-		size_t address;
-		size_t length;
-		Worklet worklet;
-		ShootNode shootNode;
 	};
 	static_assert(sizeof(Closure) <= kPageSize);
 
@@ -169,21 +173,9 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	auto p = new (accessor.get()) Closure;
 	p->thisPage = physical;
 	p->address = address;
-	p->length = length;
-	p->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(closure->address),
-				closure->length);
-		auto physical = closure->thisPage;
-		closure->~Closure();
-		asm volatile ("" : : : "memory");
-		physicalAllocator->free(physical, kPageSize);
-	});
-	p->shootNode.address = address;
-	p->shootNode.size = length;
-	p->shootNode.setup(&p->worklet);
-	if(KernelPageSpace::global().submitShootdown(&p->shootNode))
-		WorkQueue::post(&p->worklet);
+	p->size = length;
+	if(KernelPageSpace::global().submitShootdown(p))
+		p->complete();
 }
 
 frigg::LazyInitializer<LogRingBuffer> allocLog;

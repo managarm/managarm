@@ -79,13 +79,9 @@ struct ShootNode {
 	VirtualAddr address;
 	size_t size;
 
-	void setup(Worklet *worklet) {
-		_worklet = worklet;
-	}
-	Worklet *_worklet;
+	virtual void complete() = 0;
 
 private:
-
 	// This CPU already performed synchronous shootdown,
 	// hence it can ignore this request during asynchronous shootdown.
 	void *_initiatorCpu;
