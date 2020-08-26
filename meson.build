@@ -1,18 +1,28 @@
+project('managarm')
 
-project('managarm', 'c', 'cpp')
-add_project_arguments('--std=c++2a', language: 'cpp')
-c_compiler = meson.get_compiler('cpp')
-cpp_compiler = meson.get_compiler('cpp')
+build_code = get_option('build_kernel') \
+	or get_option('build_drivers') \
+	or get_option('build_tools')
 
-protoc = find_program('protoc')
-bragi = find_program('bragi')
+if build_code
+	add_languages('c', 'cpp')
+	c_compiler = meson.get_compiler('cpp')
+	cpp_compiler = meson.get_compiler('cpp')
 
-# clang needs an additional flag to enable sized allocation/deallocation.
-if cpp_compiler.get_id() == 'clang'
-	add_project_arguments('-fsized-deallocation', language: 'cpp')
+	protoc = find_program('protoc')
+	bragi = find_program('bragi')
+
+	add_project_arguments('--std=c++2a', language: 'cpp')
+
+	# clang needs an additional flag to enable sized allocation/deallocation.
+	if cpp_compiler.get_id() == 'clang'
+		add_project_arguments('-fsized-deallocation', language: 'cpp')
+	endif
+
+	bragi_dep = declare_dependency(
+		include_directories: include_directories('subprojects/bragi/include')
+	)
 endif
-
-bragi_dep = declare_dependency(include_directories: include_directories('subprojects/bragi/include'))
 
 if get_option('build_kernel')
 	pb2frigg = find_program('pb2frigg')
@@ -66,9 +76,11 @@ if get_option('build_drivers')
 
 	libarch = subproject('libarch', default_options: 'install_headers=true')
 	libarch_dep = libarch.get_variable('libarch_dep')
+endif
 
-	subdir('hel')
+subdir('hel')
 
+if get_option('build_drivers')
 	subdir('protocols/clock/')
 	subdir('protocols/fs/')
 	subdir('protocols/hw/')

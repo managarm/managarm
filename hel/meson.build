@@ -1,23 +1,24 @@
+if get_option('build_drivers')
+	helix = shared_library('helix', 'src/globals.cpp',
+		dependencies: [clang_coroutine_dep, bragi_dep],
+		include_directories: [include_directories('include/')],
+		cpp_args: ['-Wall'],
+		install: true)
 
-helix = shared_library('helix', 'src/globals.cpp',
-	dependencies: [clang_coroutine_dep, bragi_dep],
-	include_directories: [include_directories('include/')],
-	cpp_args: ['-Wall'],
-	install: true)
+	install_headers(
+		'include/hel.h',
+		'include/hel-stubs.h',
+		'include/hel-syscalls.h')
 
-install_headers(
-    'include/hel.h',
-    'include/hel-stubs.h',
-    'include/hel-syscalls.h')
+	install_headers(
+		'include/helix/ipc.hpp',
+		'include/helix/memory.hpp')
 
-install_headers(
-	'include/helix/ipc.hpp',
-	'include/helix/memory.hpp')
-
-lib_helix_dep = declare_dependency(
-	dependencies: [bragi_dep],
-	include_directories: [include_directories('include/')],
-	link_with: helix)
+	lib_helix_dep = declare_dependency(
+		dependencies: [bragi_dep],
+		include_directories: [include_directories('include/')],
+		link_with: helix)
+endif
 
 doxyfile = configure_file(
 	input: 'Doxyfile.in',

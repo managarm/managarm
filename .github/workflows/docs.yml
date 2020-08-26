@@ -1,0 +1,40 @@
+name: Documentation
+
+on: [push, pull_request]
+
+jobs:
+    build-mlibc:
+        name: Build documentation
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Install prerequisites
+            run: |
+                sudo apt-get install doxygen ninja-build
+                sudo pip3 install meson
+          - name: Install mdbook
+            run: |
+                wget -O mdbook.tar.gz https://github.com/rust-lang/mdBook/releases/download/v0.3.7/mdbook-v0.3.7-x86_64-unknown-linux-gnu.tar.gz
+                tar xf mdbook.tar.gz
+                sudo install -D mdbook /usr/local/bin/mdbook
+          - name: Checkout
+            uses: actions/checkout@v2
+            with:
+              path: src/
+          - name: Configure
+            run: meson build/ src/
+          - name: Build handbook
+            run: ninja mdbook
+            working-directory: build/
+          - name: Build hel reference
+            run: ninja hel/doc
+            working-directory: build/
+          - name: Upload handbook artifact
+            uses: actions/upload-artifact@v2
+            with:
+                name: handbook
+                path: build/docs/
+          - name: Upload hel reference artifact
+            uses: actions/upload-artifact@v2
+            with:
+                name: hel-reference
+                path: build/hel/doc/html/
