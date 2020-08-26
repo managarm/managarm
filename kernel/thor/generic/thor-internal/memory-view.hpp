@@ -520,6 +520,67 @@ public:
 	}
 
 	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for submitInitiateLoad()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct SubmitInitiateLoadOperation;
+
+	struct [[nodiscard]] SubmitInitiateLoadSender {
+		using value_type = Error;
+
+		template<typename R>
+		friend SubmitInitiateLoadOperation<R>
+		connect(SubmitInitiateLoadSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		MemoryView *self;
+		ManageRequest type;
+		uintptr_t offset;
+		size_t size;
+	};
+
+	SubmitInitiateLoadSender submitInitiateLoad(ManageRequest type, uintptr_t offset, size_t size) {
+		return {this, type, offset, size};
+	}
+
+	template<typename R>
+	struct SubmitInitiateLoadOperation {
+		SubmitInitiateLoadOperation(SubmitInitiateLoadSender s, R receiver)
+		: self_{s.self}, type_{s.type}, offset_{s.offset},
+		size_{s.size}, receiver_{std::move(receiver)} { }
+
+		SubmitInitiateLoadOperation(const SubmitInitiateLoadOperation &) = delete;
+		SubmitInitiateLoadOperation &operator= (const SubmitInitiateLoadOperation &) = delete;
+
+		bool start_inline() {
+			worklet_.setup([] (Worklet *base) {
+				auto op = frg::container_of(base, &SubmitInitiateLoadOperation::worklet_);
+				async::execution::set_value_noinline(op->receiver_,
+						op->node_.error());
+			});
+			node_.setup(type_, offset_, size_, &worklet_);
+			self_->submitInitiateLoad(&node_);
+			return false;
+		}
+
+	private:
+		MemoryView *self_;
+		ManageRequest type_;
+		uintptr_t offset_;
+		size_t size_;
+		R receiver_;
+		MonitorNode node_;
+		Worklet worklet_;
+	};
+
+	friend async::sender_awaiter<SubmitInitiateLoadSender, Error>
+	operator co_await(SubmitInitiateLoadSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for submitManage()
 	// ----------------------------------------------------------------------------------
 
