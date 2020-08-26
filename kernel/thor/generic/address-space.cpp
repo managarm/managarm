@@ -656,15 +656,14 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	return false;
 }
 
-void VirtualSpace::synchronize(VirtualAddr address, size_t size,
-		async::any_receiver<void> receiver) {
+void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode *node) {
 	auto misalign = address & (kPageSize - 1);
 	auto alignedAddress = address & ~(kPageSize - 1);
 	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
 	async::detach_with_allocator(*kernelAlloc, [] (VirtualSpace *self,
 			VirtualAddr alignedAddress, size_t alignedSize,
-			async::any_receiver<void> receiver) -> coroutine<void> {
+			SynchronizeNode *node) -> coroutine<void> {
 		size_t overallProgress = 0;
 		while(overallProgress < alignedSize) {
 			smarter::shared_ptr<Mapping> mapping;
@@ -702,8 +701,8 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 		}
 		co_await self->_ops->shootdown(alignedAddress, alignedSize);
 
-		receiver.set_value();
-	}(this, alignedAddress, alignedSize, std::move(receiver)));
+		node->resume();
+	}(this, alignedAddress, alignedSize, node));
 }
 
 frg::optional<bool>

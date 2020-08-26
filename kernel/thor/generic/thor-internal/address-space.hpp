@@ -415,6 +415,19 @@ private:
 	frg::optional<frg::expected<Error, VirtualAddr>> nodeResult_;
 };
 
+struct SynchronizeNode {
+	friend struct VirtualSpace;
+
+	SynchronizeNode() = default;
+
+	SynchronizeNode(const SynchronizeNode &) = delete;
+
+	SynchronizeNode &operator= (const SynchronizeNode &) = delete;
+
+protected:
+	virtual void resume() = 0;
+};
+
 struct FaultNode {
 	friend struct VirtualSpace;
 
@@ -480,8 +493,7 @@ public:
 
 	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
-	void synchronize(VirtualAddr address, size_t length,
-			async::any_receiver<void> receiver);
+	void synchronize(VirtualAddr address, size_t length, SynchronizeNode *node);
 
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
@@ -561,13 +573,38 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct SynchronizeOperation;
+	struct SynchronizeOperation : private SynchronizeNode {
+		SynchronizeOperation(VirtualSpace *self, VirtualAddr address, size_t size, R receiver)
+		: self_{self}, address_{address}, size_{size}, receiver_{std::move(receiver)} { }
+
+		SynchronizeOperation(const SynchronizeOperation &) = delete;
+
+		SynchronizeOperation &operator= (const SynchronizeOperation &) = delete;
+
+		void start() {
+			self_->synchronize(address_, size_, this);
+		}
+
+	private:
+		void resume() override {
+			async::execution::set_value(receiver_);
+		}
+
+		VirtualSpace *self_;
+		VirtualAddr address_;
+		size_t size_;
+		R receiver_;
+	};
 
 	struct [[nodiscard]] SynchronizeSender {
+		async::sender_awaiter<SynchronizeSender>
+		operator co_await() {
+			return {*this};
+		}
+
 		template<typename R>
-		friend SynchronizeOperation<R>
-		connect(SynchronizeSender sender, R receiver) {
-			return {sender, std::move(receiver)};
+		SynchronizeOperation<R> connect(R receiver) {
+			return {self, address, size, std::move(receiver)};
 		}
 
 		VirtualSpace *self;
@@ -577,29 +614,6 @@ public:
 
 	SynchronizeSender synchronize(VirtualAddr address, size_t size) {
 		return {this, address, size};
-	}
-
-	template<typename R>
-	struct SynchronizeOperation {
-		SynchronizeOperation(SynchronizeSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		SynchronizeOperation(const SynchronizeOperation &) = delete;
-
-		SynchronizeOperation &operator= (const SynchronizeOperation &) = delete;
-
-		void start() {
-			s_.self->synchronize(s_.address, s_.size, std::move(receiver_));
-		}
-
-	private:
-		SynchronizeSender s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<SynchronizeSender>
-	operator co_await(SynchronizeSender sender) {
-		return {sender};
 	}
 
 	// ----------------------------------------------------------------------------------
