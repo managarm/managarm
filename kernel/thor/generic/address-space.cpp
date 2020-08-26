@@ -884,14 +884,6 @@ void AddressSpace::dispose(BindableHandle) {
 // MemoryViewLockHandle.
 // --------------------------------------------------------
 
-MemoryViewLockHandle::MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view,
-		uintptr_t offset, size_t size)
-: _view{std::move(view)}, _offset{offset}, _size{size} {
-	if(auto e = _view->lockRange(_offset, _size); e != Error::success)
-		return;
-	_active = true;
-}
-
 MemoryViewLockHandle::~MemoryViewLockHandle() {
 	if(_active)
 		_view->unlockRange(_offset, _size);

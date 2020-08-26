@@ -894,7 +894,8 @@ struct MemoryViewLockHandle {
 
 	MemoryViewLockHandle() = default;
 
-	MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view, uintptr_t offset, size_t size);
+	MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view, uintptr_t offset, size_t size)
+	: _view{view}, _offset{offset}, _size{size}, _active{true} { }
 
 	MemoryViewLockHandle(const MemoryViewLockHandle &) = delete;
 
@@ -912,6 +913,10 @@ struct MemoryViewLockHandle {
 
 	explicit operator bool () {
 		return _active;
+	}
+
+	auto acquire() {
+		return async::transform(_view->asyncLockRange(_offset, _size), [&] (Error e) { _active = e == Error::success; });
 	}
 
 private:

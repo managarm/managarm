@@ -1352,66 +1352,43 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
 		return kHelErrQueueTooSmall;
 
-	struct Closure final : IpcNode {
-		Closure()
-		: ipcSource{&helResult, sizeof(HelHandleResult), nullptr} {
-			setupSource(&ipcSource);
-		}
+	async::detach_with_allocator(*kernelAlloc, [](
+				frigg::UnsafePtr<thor::Universe, frigg::SharedControl> universe,
+				frigg::SharedPtr<MemoryView> memory,
+				frigg::SharedPtr<IpcQueue> queue,
+				uintptr_t offset, size_t size,
+				uintptr_t context) -> coroutine<void> {
+			auto initiateError = co_await memory->submitInitiateLoad(ManageRequest::initialize, offset, size);
 
-		void complete() override {
-			frigg::destruct(*kernelAlloc, this);
-		}
-
-		frigg::WeakPtr<Universe> weakUniverse;
-		frigg::SharedPtr<IpcQueue> ipcQueue;
-		Worklet worklet;
-		frigg::SharedPtr<NamedMemoryViewLock> lock;
-		MonitorNode initiate;
-		QueueSource ipcSource;
-
-		HelHandleResult helResult;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	struct Ops {
-		static void initiated(Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
+			MemoryViewLockHandle lock_handle{memory, offset, size};
+			co_await lock_handle.acquire();
+			if(!lock_handle) {
+				// TODO: Return a better error.
+				HelHandleResult helResult{kHelErrFault, 0, 0};
+				QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+				co_await queue->submit(&ipcSource, context);
+				co_return;
+			}
 
 			// Attach the descriptor.
 			HelHandle handle;
 			{
-				auto universe = closure->weakUniverse.grab();
-				assert(universe);
-
 				auto irq_lock = frigg::guard(&irqMutex());
 				Universe::Guard lock(&universe->lock);
 
 				handle = universe->attachDescriptor(lock,
-						MemoryViewLockDescriptor{std::move(closure->lock)});
+						MemoryViewLockDescriptor{
+							frigg::makeShared<NamedMemoryViewLock>(
+								*kernelAlloc, std::move(lock_handle))});
 			}
 
-			closure->helResult = HelHandleResult{translateError(closure->initiate.error()),
-					0, handle};
-			closure->ipcQueue->submit(closure);
-		}
-	};
-
-	closure->ipcQueue = std::move(queue);
-	closure->setupContext(context);
-
-	MemoryViewLockHandle lock_handle{memory, offset, size};
-	if(!lock_handle) {
-		// TODO: Return a better error.
-		closure->helResult = HelHandleResult{kHelErrFault, 0, 0};
-		closure->ipcQueue->submit(closure);
-		return kHelErrNone;
-	}
-
-	closure->weakUniverse = this_universe.toWeak();
-	closure->lock = frigg::makeShared<NamedMemoryViewLock>(*kernelAlloc, std::move(lock_handle));
-
-	closure->worklet.setup(&Ops::initiated);
-	closure->initiate.setup(ManageRequest::initialize, offset, size, &closure->worklet);
-	memory->submitInitiateLoad(&closure->initiate);
+			HelHandleResult helResult{translateError(initiateError), 0, handle};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+	}(
+		std::move(this_universe), std::move(memory), std::move(queue),
+		offset, size, context
+	));
 
 	return kHelErrNone;
 }
