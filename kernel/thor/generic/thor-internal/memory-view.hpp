@@ -39,6 +39,11 @@ private:
 	Worklet *_worklet;
 };
 
+struct LockRangeNode {
+	virtual ~LockRangeNode() {}
+	virtual void complete(Error value) = 0;
+};
+
 // This is the "backend" part of a memory object.
 struct CacheBundle {
 	virtual ~CacheBundle() = default;
@@ -315,7 +320,7 @@ public:
 	// (e.g. due to fetchRange()), it cannot be evicted until the lock is released.
 	virtual Error lockRange(uintptr_t offset, size_t size) = 0;
 	virtual void asyncLockRange(uintptr_t offset, size_t size,
-			async::any_receiver<Error> receiver);
+			LockRangeNode *node);
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
@@ -428,7 +433,7 @@ public:
 	}
 
 	template<typename R>
-	struct LockRangeOperation {
+	struct LockRangeOperation final : LockRangeNode {
 		LockRangeOperation(LockRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -437,7 +442,11 @@ public:
 		LockRangeOperation &operator= (const LockRangeOperation &) = delete;
 
 		void start() {
-			s_.self->asyncLockRange(s_.offset, s_.size, std::move(receiver_));
+			s_.self->asyncLockRange(s_.offset, s_.size, this);
+		}
+
+		void complete(Error e) override {
+			async::execution::set_value(std::move(receiver_), std::move(e));
 		}
 
 	private:
@@ -1041,7 +1050,7 @@ public:
 	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void asyncLockRange(uintptr_t offset, size_t size,
-			async::any_receiver<Error> receiver) override;
+			LockRangeNode *node) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;

@@ -188,8 +188,8 @@ void MemoryView::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<Mem
 }
 
 void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
-		async::any_receiver<Error> receiver) {
-	receiver.set_value(lockRange(offset, size));
+		LockRangeNode *node) {
+	node->complete(lockRange(offset, size));
 }
 
 Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
@@ -1401,11 +1401,11 @@ Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
 }
 
 void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
-		async::any_receiver<Error> receiver) {
+		LockRangeNode *node) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
 	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
-			async::any_receiver<Error> receiver) -> coroutine<void> {
+			LockRangeNode *node) -> coroutine<void> {
 		auto wq = WorkQueue::generalQueue();
 
 		size_t progress = 0;
@@ -1517,8 +1517,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			progress += kPageSize;
 		}
 
-		receiver.set_value(Error::success);
-	}(this, offset, size, receiver));
+		node->complete(Error::success);
+	}(this, offset, size, node));
 }
 
 void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
