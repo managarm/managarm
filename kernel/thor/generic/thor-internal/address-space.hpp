@@ -395,6 +395,26 @@ using MappingTree = frg::rbtree<
 	MappingLess
 >;
 
+struct MapNode {
+	friend struct VirtualSpace;
+
+	MapNode() = default;
+
+	MapNode(const MapNode &) = delete;
+
+	MapNode &operator= (const MapNode &) = delete;
+
+	frg::expected<Error, VirtualAddr> result() {
+		return *nodeResult_;
+	}
+
+protected:
+	virtual void resume() = 0;
+
+private:
+	frg::optional<frg::expected<Error, VirtualAddr>> nodeResult_;
+};
+
 struct FaultNode {
 	friend struct VirtualSpace;
 
@@ -454,9 +474,9 @@ public:
 
 	void setupInitialHole(VirtualAddr address, size_t size);
 
-	void map(frigg::UnsafePtr<MemorySlice> view,
+	bool map(frigg::UnsafePtr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-			async::any_receiver<frg::expected<Error, VirtualAddr>> receiver);
+			MapNode *node);
 
 	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
@@ -472,11 +492,11 @@ public:
 	}
 
 	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for synchronize()
+	// Sender boilerplate for map()
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct [[nodiscard]] MapOperation {
+	struct [[nodiscard]] MapOperation : private MapNode {
 		MapOperation(VirtualSpace *self, frigg::UnsafePtr<MemorySlice> slice,
 				VirtualAddr address, size_t offset, size_t length, uint32_t flags,
 				R receiver)
@@ -488,11 +508,19 @@ public:
 
 		MapOperation &operator= (const MapOperation &) = delete;
 
-		void start() {
-			self_->map(slice_, address_, offset_, length_, flags_, std::move(receiver_));
+		bool start_inline() {
+			if(self_->map(slice_, address_, offset_, length_, flags_, this)) {
+				async::execution::set_value_inline(receiver_, result());
+				return true;
+			}
+			return false;
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value_noinline(receiver_, result());
+		}
+
 		VirtualSpace *self_;
 		frigg::UnsafePtr<MemorySlice> slice_;
 		VirtualAddr address_;
@@ -983,7 +1011,6 @@ public:
 
 		AddressSpaceLockHandle *handle_;
 		R receiver_;
-		Worklet worklet_;
 	};
 
 	struct [[nodiscard]] AcquireSender {

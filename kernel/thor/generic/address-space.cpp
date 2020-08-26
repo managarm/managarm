@@ -351,15 +351,15 @@ smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
 	return _findMapping(address);
 }
 
-void VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
+bool VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 		VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-		async::any_receiver<frg::expected<Error, VirtualAddr>> receiver) {
+		MapNode *node) {
 	assert(length);
 	assert(!(length % kPageSize));
 
 	if(offset + length > slice->length()) {
-		async::execution::set_value(receiver, Error::bufferTooSmall);
-		return;
+		node->nodeResult_.emplace(Error::bufferTooSmall);
+		return true;
 	}
 
 	VirtualAddr actualAddress;
@@ -456,7 +456,8 @@ void VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 		mapping.release(); // VirtualSpace owns one reference.
 	}
 
-	async::execution::set_value(receiver, actualAddress);
+	node->nodeResult_.emplace(actualAddress);
+	return true;
 }
 
 bool VirtualSpace::protect(VirtualAddr address, size_t length,
