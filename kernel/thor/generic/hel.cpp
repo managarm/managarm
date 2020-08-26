@@ -808,6 +808,9 @@ HelError helSubmitProtectMemory(HelHandle space_handle,
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
 	async::detach_with_allocator(*kernelAlloc, [](
 				smarter::shared_ptr<AddressSpace, BindableHandle> space,
 				frigg::SharedPtr<IpcQueue> queue,
