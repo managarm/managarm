@@ -20,7 +20,8 @@
         - [mbus](design/mbus/index.md)
         - [bragi](design/bragi/index.md)
         - [posix subsystem](design/posix/index.md)
-        - [libblockfs](design/libblockfs/index.md)
+    - [Drivers](design/drivers/index.md)
+        - [libblockfs](design/drivers/libblockfs/index.md)
 
 
 - [Contributing](contributing/contributing.md)
