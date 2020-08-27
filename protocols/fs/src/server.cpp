@@ -21,7 +21,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
 		if(!file_ops->seekAbs) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -46,7 +46,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
 		if(!file_ops->seekRel) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -77,7 +77,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
 		if(!file_ops->seekEof) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -102,7 +102,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
 		if(!file_ops->read) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -159,7 +159,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
 		if(!file_ops->pread) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -216,7 +216,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
 		if(!file_ops->write) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -252,7 +252,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
 		if(!file_ops->flock) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -282,7 +282,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
 		if(!file_ops->readEntries) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -310,7 +310,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
 		if(!file_ops->accessMemory) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -336,7 +336,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_TRUNCATE) {
 		if(!file_ops->truncate) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -360,7 +360,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_FALLOCATE) {
 		if(!file_ops->fallocate) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -384,7 +384,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
 		if(!file_ops->ioctl) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -398,7 +398,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
 		if(!file_ops->getOption) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -423,7 +423,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_OPTION) {
 		if(!file_ops->setOption) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -447,7 +447,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
 		if(!file_ops->poll) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -481,7 +481,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
 		if(!file_ops->bind) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -515,7 +515,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
 		if(!file_ops->connect) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -549,7 +549,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
 		if(!file_ops->sockname) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -582,7 +582,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		addr.resize(req.size());
 		if(!file_ops->peername) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -627,7 +627,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
 		if(!file_ops->getFileFlags) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -652,7 +652,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_FILE_FLAGS) {
 		if(!file_ops->setFileFlags) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -676,7 +676,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_LISTEN) {
 		if(!file_ops->listen) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -700,7 +700,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
 		if(!file_ops->recvMsg) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -760,7 +760,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	} else if (req.req_type() == managarm::fs::CntReqType::PT_SENDMSG) {
 		if(!file_ops->sendMsg) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
