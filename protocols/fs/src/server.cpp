@@ -19,70 +19,65 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		const FileOperations *file_ops,
 		managarm::fs::CntRequest req, helix::UniqueLane conversation) {
 	if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-		assert(file_ops->seekAbs);
-		auto result = co_await file_ops->seekAbs(file.get(), req.rel_offset());
+		if(!file_ops->seekAbs) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(std::get<int64_t>(result));
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto result = co_await file_ops->seekAbs(file.get(), req.rel_offset());
 
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-		assert(file_ops->seekRel);
-		auto result = co_await file_ops->seekRel(file.get(), req.rel_offset());
-		auto error = std::get_if<Error>(&result);
-
-		managarm::fs::SvrResponse resp;
-		if(error && *error == Error::seekOnPipe) {
-			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
-		}else{
-			assert(!error);
+			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_offset(std::get<int64_t>(result));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		}
+	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+		if(!file_ops->seekRel) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto result = co_await file_ops->seekRel(file.get(), req.rel_offset());
+			auto error = std::get_if<Error>(&result);
+
+			managarm::fs::SvrResponse resp;
+			if(error && *error == Error::seekOnPipe) {
+				resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
+			}else{
+				assert(!error);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				resp.set_offset(std::get<int64_t>(result));
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
 	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
-		assert(file_ops->seekEof);
-		auto result = co_await file_ops->seekEof(file.get(), req.rel_offset());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(std::get<int64_t>(result));
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials()
-		);
-		HEL_CHECK(extract_creds.error());
-
-		std::string data;
-		data.resize(req.size());
-		assert(file_ops->read);
-		auto res = co_await file_ops->read(file.get(), extract_creds.credentials(),
-				data.data(), req.size());
-
-		managarm::fs::SvrResponse resp;
-		auto error = std::get_if<Error>(&res);
-		if(error && *error == Error::wouldBlock) {
-			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+		if(!file_ops->seekEof) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -90,45 +85,81 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(error && *error == Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			auto result = co_await file_ops->seekEof(file.get(), req.rel_offset());
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-		}else{
-			assert(!error);
+			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(std::get<int64_t>(result));
 
 			auto ser = resp.SerializeAsString();
-			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_data.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
+		if(!file_ops->read) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::extractCredentials()
+			);
+			HEL_CHECK(extract_creds.error());
+
+			std::string data;
+			data.resize(req.size());
+			auto res = co_await file_ops->read(file.get(), extract_creds.credentials(),
+					data.data(), req.size());
+
+			managarm::fs::SvrResponse resp;
+			auto error = std::get_if<Error>(&res);
+			if(error && *error == Error::wouldBlock) {
+				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			}else if(error && *error == Error::illegalArguments) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			}else{
+				assert(!error);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+				);
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(send_data.error());
+			}
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials()
-		);
-		HEL_CHECK(extract_creds.error());
-
-		std::string data;
-		data.resize(req.size());
-		assert(file_ops->pread);
-		auto res = co_await file_ops->pread(file.get(), req.offset(), extract_creds.credentials(),
-				data.data(), req.size());
-
-		managarm::fs::SvrResponse resp;
-		auto error = std::get_if<Error>(&res);
-		if(error && *error == Error::wouldBlock) {
-			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+		if(!file_ops->pread) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -136,8 +167,56 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(error && *error == Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::extractCredentials()
+			);
+			HEL_CHECK(extract_creds.error());
+
+			std::string data;
+			data.resize(req.size());
+			auto res = co_await file_ops->pread(file.get(), req.offset(), extract_creds.credentials(),
+					data.data(), req.size());
+
+			managarm::fs::SvrResponse resp;
+			auto error = std::get_if<Error>(&res);
+			if(error && *error == Error::wouldBlock) {
+				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			}else if(error && *error == Error::illegalArguments) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			}else{
+				assert(!error);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+				);
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(send_data.error());
+			}
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+		if(!file_ops->write) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -145,240 +224,359 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else{
-			assert(!error);
+		} else {
+			std::vector<uint8_t> buffer;
+			buffer.resize(req.size());
+
+			auto [extract_creds, recv_buffer] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::extractCredentials(),
+				helix_ng::recvBuffer(buffer.data(), buffer.size())
+			);
+			HEL_CHECK(extract_creds.error());
+			HEL_CHECK(recv_buffer.error());
+
+			co_await file_ops->write(file.get(), extract_creds.credentials(),
+					buffer.data(), recv_buffer.actualLength());
+
+			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
+		if(!file_ops->flock) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto result = co_await file_ops->flock(file.get(), req.flock_flags());
+
+			managarm::fs::SvrResponse resp;
+			if(result == protocols::fs::Error::illegalArguments) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			} else if(result == protocols::fs::Error::wouldBlock) {
+				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+			} else {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
+		if(!file_ops->readEntries) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto result = co_await file_ops->readEntries(file.get());
+
+			managarm::fs::SvrResponse resp;
+			if(result) {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				resp.set_path(std::move(*result));
+			}else{
+				resp.set_error(managarm::fs::Errors::END_OF_FILE);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
+		if(!file_ops->accessMemory) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto memory = co_await file_ops->accessMemory(file.get());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, push_memory] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(memory)
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_memory.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_TRUNCATE) {
+		if(!file_ops->truncate) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await file_ops->truncate(file.get(), req.size());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_FALLOCATE) {
+		if(!file_ops->fallocate) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await file_ops->fallocate(file.get(), req.rel_offset(), req.size());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
+		if(!file_ops->ioctl) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
+		if(!file_ops->getOption) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto result = co_await file_ops->getOption(file.get(), req.command());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_pid(result);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_OPTION) {
+		if(!file_ops->setOption) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await file_ops->setOption(file.get(), req.command(), req.value());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
+		if(!file_ops->poll) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::pullDescriptor()
+			);
+			HEL_CHECK(pull_cancel.error());
+
+			auto result = co_await file_ops->poll(file.get(), req.sequence(),
+					async::cancellation_token{});
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_sequence(std::get<0>(result));
+			resp.set_edges(std::get<1>(result));
+			resp.set_status(std::get<2>(result));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
+		if(!file_ops->bind) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::extractCredentials(),
+				helix_ng::recvInline()
+			);
+			HEL_CHECK(extract_creds.error());
+			HEL_CHECK(recv_addr.error());
+
+			auto error = co_await file_ops->bind(file.get(),
+				extract_creds.credentials(),
+				recv_addr.data(), recv_addr.length());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(static_cast<managarm::fs::Errors>(error));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
+		if(!file_ops->connect) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::extractCredentials(),
+				helix_ng::recvInline()
+			);
+			HEL_CHECK(extract_creds.error());
+			HEL_CHECK(recv_addr.error());
+
+			auto error = co_await file_ops->connect(file.get(),
+				extract_creds.credentials(),
+				recv_addr.data(), recv_addr.length());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(static_cast<managarm::fs::Errors>(error));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
+		if(!file_ops->sockname) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			std::vector<char> addr;
+			addr.resize(req.size());
+			auto actual_length = co_await file_ops->sockname(file.get(),
+					addr.data(), req.size());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_file_size(actual_length);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+				helix_ng::sendBuffer(addr.data(),
+						std::min(size_t(req.size()), actual_length))
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}
-	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
-		std::vector<uint8_t> buffer;
-		buffer.resize(req.size());
-
-		auto [extract_creds, recv_buffer] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials(),
-			helix_ng::recvBuffer(buffer.data(), buffer.size())
-		);
-		HEL_CHECK(extract_creds.error());
-		HEL_CHECK(recv_buffer.error());
-
-		assert(file_ops->write);
-		co_await file_ops->write(file.get(), extract_creds.credentials(),
-				buffer.data(), recv_buffer.actualLength());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
-		assert(file_ops->flock);
-		auto result = co_await file_ops->flock(file.get(), req.flock_flags());
-
-		managarm::fs::SvrResponse resp;
-		if(result == protocols::fs::Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-		} else if(result == protocols::fs::Error::wouldBlock) {
-			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-		} else {
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-		}
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
-		assert(file_ops->readEntries);
-		auto result = co_await file_ops->readEntries(file.get());
-
-		managarm::fs::SvrResponse resp;
-		if(result) {
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_path(std::move(*result));
-		}else{
-			resp.set_error(managarm::fs::Errors::END_OF_FILE);
-		}
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()));
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
-		assert(file_ops->accessMemory);
-		auto memory = co_await file_ops->accessMemory(file.get());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp, push_memory] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::pushDescriptor(memory)
-		);
-		HEL_CHECK(send_resp.error());
-		HEL_CHECK(push_memory.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_TRUNCATE) {
-		assert(file_ops->truncate);
-		co_await file_ops->truncate(file.get(), req.size());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_FALLOCATE) {
-		assert(file_ops->fallocate);
-		co_await file_ops->fallocate(file.get(), req.rel_offset(), req.size());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
-		assert(file_ops->ioctl);
-		co_await file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
-		assert(file_ops->getOption);
-		auto result = co_await file_ops->getOption(file.get(), req.command());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_pid(result);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_OPTION) {
-		assert(file_ops->setOption);
-		co_await file_ops->setOption(file.get(), req.command(), req.value());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
-		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::pullDescriptor()
-		);
-		HEL_CHECK(pull_cancel.error());
-
-		assert(file_ops->poll);
-		auto result = co_await file_ops->poll(file.get(), req.sequence(),
-				async::cancellation_token{});
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_sequence(std::get<0>(result));
-		resp.set_edges(std::get<1>(result));
-		resp.set_status(std::get<2>(result));
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
-		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials(),
-			helix_ng::recvInline()
-		);
-		HEL_CHECK(extract_creds.error());
-		HEL_CHECK(recv_addr.error());
-
-		assert(file_ops->bind);
-		auto error = co_await file_ops->bind(file.get(),
-			extract_creds.credentials(),
-			recv_addr.data(), recv_addr.length());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<managarm::fs::Errors>(error));
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
-		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials(),
-			helix_ng::recvInline()
-		);
-		HEL_CHECK(extract_creds.error());
-		HEL_CHECK(recv_addr.error());
-
-		assert(file_ops->connect);
-		auto error = co_await file_ops->connect(file.get(),
-			extract_creds.credentials(),
-			recv_addr.data(), recv_addr.length());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<managarm::fs::Errors>(error));
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
-		std::vector<char> addr;
-		addr.resize(req.size());
-		assert(file_ops->sockname);
-		auto actual_length = co_await file_ops->sockname(file.get(),
-				addr.data(), req.size());
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_file_size(actual_length);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::sendBuffer(addr.data(),
-					std::min(size_t(req.size()), actual_length))
-		);
-		HEL_CHECK(send_resp.error());
-		HEL_CHECK(send_data.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PEERNAME) {
 		std::vector<char> addr;
 		addr.resize(req.size());
@@ -427,70 +625,82 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_data.error());
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
-		assert(file_ops->getFileFlags);
-		auto flags = co_await file_ops->getFileFlags(file.get());
+		if(!file_ops->getFileFlags) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_flags(flags);
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			auto flags = co_await file_ops->getFileFlags(file.get());
 
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_flags(flags);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_FILE_FLAGS) {
-		assert(file_ops->setFileFlags);
-		co_await file_ops->setFileFlags(file.get(), req.flags());
+		if(!file_ops->setFileFlags) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await file_ops->setFileFlags(file.get(), req.flags());
 
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_LISTEN) {
-		assert(file_ops->listen);
-		co_await file_ops->listen(file.get());
+		if(!file_ops->listen) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await file_ops->listen(file.get());
 
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials()
-		);
-		HEL_CHECK(extract_creds.error());
-
-		// ensure we have a handler
-		assert(file_ops->recvMsg);
-		std::vector<char> buffer;
-		buffer.resize(req.size());
-		std::vector<char> addr;
-		addr.resize(req.addr_size());
-
-		auto result = co_await file_ops->recvMsg(file.get(),
-			extract_creds.credentials(), req.flags(),
-			buffer.data(), buffer.size(),
-			addr.data(), addr.size(),
-			req.ctrl_size());
-		auto error = std::get_if<Error>(&result);
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-
-		if (error) {
-			resp.set_error(static_cast<managarm::fs::Errors>(*error));
+		if(!file_ops->recvMsg) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -498,52 +708,59 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-			co_return;
-		}
+		} else {
+			auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::extractCredentials()
+			);
+			HEL_CHECK(extract_creds.error());
 
-		auto data = std::get<RecvData>(result);
-		resp.set_addr_size(data.addressLength);
-		auto ser = resp.SerializeAsString();
-		auto [send_resp, send_addr, send_data, send_ctrl]
-				= co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::sendBuffer(addr.data(),
-				std::min(addr.size(), data.addressLength)),
-			helix_ng::sendBuffer(buffer.data(), data.dataLength),
-			helix_ng::sendBuffer(data.ctrl.data(), data.ctrl.size())
-		);
-		HEL_CHECK(send_resp.error());
-		HEL_CHECK(send_addr.error());
-		HEL_CHECK(send_data.error());
-		HEL_CHECK(send_ctrl.error());
-	} else if (req.req_type() == managarm::fs::CntReqType::PT_SENDMSG) {
-		std::vector<uint8_t> buffer;
-		buffer.resize(req.size());
+			std::vector<char> buffer;
+			buffer.resize(req.size());
+			std::vector<char> addr;
+			addr.resize(req.addr_size());
 
-		assert(file_ops->sendMsg);
-		auto [recv_data, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::recvBuffer(buffer.data(), buffer.size()),
-			helix_ng::extractCredentials(),
-			helix_ng::recvInline()
-		);
-		HEL_CHECK(recv_data.error());
-		HEL_CHECK(extract_creds.error());
-		HEL_CHECK(recv_addr.error());
-
-		std::vector<uint32_t> files(req.fds().cbegin(), req.fds().cend());
-
-		auto result_or_error = co_await file_ops->sendMsg(file.get(),
+			auto result = co_await file_ops->recvMsg(file.get(),
 				extract_creds.credentials(), req.flags(),
-				buffer.data(), recv_data.actualLength(),
-				recv_addr.data(), recv_addr.length(),
-				std::move(files));
+				buffer.data(), buffer.size(),
+				addr.data(), addr.size(),
+				req.ctrl_size());
+			auto error = std::get_if<Error>(&result);
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
 
-		managarm::fs::SvrResponse resp;
+			if (error) {
+				resp.set_error(static_cast<managarm::fs::Errors>(*error));
 
-		auto error = std::get_if<Error>(&result_or_error);
-		if(error) {
-			resp.set_error(static_cast<managarm::fs::Errors>(*error));
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			}
+
+			auto data = std::get<RecvData>(result);
+			resp.set_addr_size(data.addressLength);
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, send_addr, send_data, send_ctrl]
+					= co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(addr.data(),
+					std::min(addr.size(), data.addressLength)),
+				helix_ng::sendBuffer(buffer.data(), data.dataLength),
+				helix_ng::sendBuffer(data.ctrl.data(), data.ctrl.size())
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_addr.error());
+			HEL_CHECK(send_data.error());
+			HEL_CHECK(send_ctrl.error());
+		}
+	} else if (req.req_type() == managarm::fs::CntReqType::PT_SENDMSG) {
+		if(!file_ops->sendMsg) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -551,18 +768,53 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-			co_return;
+		} else {
+			std::vector<uint8_t> buffer;
+			buffer.resize(req.size());
+
+			auto [recv_data, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(buffer.data(), buffer.size()),
+				helix_ng::extractCredentials(),
+				helix_ng::recvInline()
+			);
+			HEL_CHECK(recv_data.error());
+			HEL_CHECK(extract_creds.error());
+			HEL_CHECK(recv_addr.error());
+
+			std::vector<uint32_t> files(req.fds().cbegin(), req.fds().cend());
+
+			auto result_or_error = co_await file_ops->sendMsg(file.get(),
+					extract_creds.credentials(), req.flags(),
+					buffer.data(), recv_data.actualLength(),
+					recv_addr.data(), recv_addr.length(),
+					std::move(files));
+
+			managarm::fs::SvrResponse resp;
+
+			auto error = std::get_if<Error>(&result_or_error);
+			if(error) {
+				resp.set_error(static_cast<managarm::fs::Errors>(*error));
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			}
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_size(std::get<size_t>(result_or_error));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		}
-
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_size(std::get<size_t>(result_or_error));
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
 	} else {
 		throw std::runtime_error("libfs_protocol: Unexpected"
 				" request type in servePassthrough()");
@@ -686,19 +938,29 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-
 			auto result = co_await node_ops->getLink(node, req.path());
-			if(std::get<0>(result)) {
+			if(!result) {
+				managarm::fs::SvrResponse resp;
+				assert(result.error() == protocols::fs::Error::notDirectory);
+				resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			if(std::get<0>(result.value())) {
 				helix::UniqueLane local_lane, remote_lane;
 				std::tie(local_lane, remote_lane) = helix::createStream();
-				serveNode(std::move(local_lane), std::move(std::get<0>(result)), node_ops);
+				serveNode(std::move(local_lane), std::move(std::get<0>(result.value())), node_ops);
 
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_id(std::get<1>(result));
-				switch(std::get<2>(result)) {
+				resp.set_id(std::get<1>(result.value()));
+				switch(std::get<2>(result.value())) {
 				case FileType::directory:
 					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
 					break;
@@ -730,6 +992,76 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+			}
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_TRAVERSE_LINKS) {
+			auto result = co_await node_ops->traverseLinks(node, std::deque(req.path_segments().begin(), req.path_segments().end()));
+
+			if (!result) {
+				managarm::fs::SvrResponse resp;
+				if (result.error() == protocols::fs::Error::notDirectory) {
+					resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+				} else {
+					assert(result.error() == protocols::fs::Error::fileNotFound);
+					resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+				}
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			auto [nodes, type, processedComponents] = result.value();
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_links_traversed(processedComponents);
+			switch(type) {
+			case FileType::directory:
+				resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+				break;
+			case FileType::regular:
+				resp.set_file_type(managarm::fs::FileType::REGULAR);
+				break;
+			case FileType::symlink:
+				resp.set_file_type(managarm::fs::FileType::SYMLINK);
+				break;
+			default:
+				throw std::runtime_error("Unexpected file type");
+			}
+
+			// TODO: this is a workaround for not being able to get the offer lane on the offer side
+			helix::UniqueLane local_push, remote_push;
+			std::tie(local_push, remote_push) = helix::createStream();
+
+			for (auto &[_, id] : nodes) {
+				resp.add_ids(id);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, push_desc] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_push)
+			);
+
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_desc.error());
+
+			for (auto &[node, _] : nodes) {
+				helix::UniqueLane local_lane, remote_lane;
+				std::tie(local_lane, remote_lane) = helix::createStream();
+				serveNode(std::move(local_lane), std::move(node), node_ops);
+
+				auto [push_node] = co_await helix_ng::exchangeMsgs(
+					local_push,
+					helix_ng::pushDescriptor(remote_lane)
+				);
+
+				HEL_CHECK(push_node.error());
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_MKDIR) {
 			auto result = co_await node_ops->mkdir(node, req.path());
@@ -938,6 +1270,18 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UTIMENSAT) {
 			co_await node_ops->utimensat(node, req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OBSTRUCT_LINK) {
+			co_await node_ops->obstructLink(node, req.link_name());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
