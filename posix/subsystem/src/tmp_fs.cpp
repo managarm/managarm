@@ -237,6 +237,8 @@ public:
 
 	explicit DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
 
+	async::result<frg::expected<Error, off_t>> seek(off_t delta, VfsSeek whence) override;
+
 	void handleClose() override;
 
 	FutureMaybe<ReadEntriesResult> readEntries() override;
@@ -315,6 +317,15 @@ private:
 	}
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name) override;
+
+	async::result<frg::expected<Error>> rmdir(std::string name) override {
+		auto result = co_await unlink(name);
+		if(!result) {
+			std::cout << "tmpfs: Unexpected failure from unlink()" << std::endl;
+			co_return {};
+		}
+		co_return {};
+	}
 
 public:
 	DirectoryNode(Superblock *superblock);
