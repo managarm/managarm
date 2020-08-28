@@ -262,7 +262,7 @@ struct DirectoryNode final : Node, std::enable_shared_from_this<DirectoryNode> {
 
 private:
 	VfsType getType() override {
-  		return VfsType::directory;
+		return VfsType::directory;
 	}
 
 	std::shared_ptr<FsLink> treeLink() override {
@@ -478,16 +478,15 @@ struct Superblock final : FsSuperblock {
 		co_return std::move(node);
 	}
 
-	async::result<std::shared_ptr<FsLink>> rename(FsLink *src_fs_link,
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> rename(FsLink *src_fs_link,
 			FsNode *dest_fs_dir, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
 		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir);
 
 		auto src_dir = static_cast<DirectoryNode *>(src_link->getOwner().get());
 		auto it = src_dir->_entries.find(src_link->getName());
-		// TODO: This should really return an error, frg::expected style.
 		if(it == src_dir->_entries.end() || it->get() != src_link)
-			co_return nullptr;
+			co_return Error:alreadyExists;
 
 		// Unlink an existing link if such a link exists.
 		if(auto dest_it = dest_dir->_entries.find(dest_name);
