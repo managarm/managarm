@@ -1,0 +1,75 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+    build-kernel:
+        name: Build managarm-kernel
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Checkout bootstrap-managarm
+            uses: actions/checkout@v2
+            with:
+                repository: managarm/bootstrap-managarm
+                path: src/
+          - name: Checkout Managarm
+            uses: actions/checkout@v2
+            with:
+                path: src/managarm/
+          - name: Build container
+            run: docker build -t managarm-build --target base src/docker
+          - name: Prepare src/ and worker/
+            run: |
+                touch src/managarm/checkedout.xbstrap
+                mkdir worker/
+                mkdir worker/tools/
+                echo '{"pkg_management": {"format": "xbps"}}' > worker/bootstrap-site.yml
+                cd worker/tools/
+                for t in cross-binutils host-llvm-toolchain host-managarm-tools host-protoc kernel-gcc system-gcc; do
+                    curl -o $t.tar.gz https://pkgs.managarm.org/tools/$t.tar.gz
+                    mkdir $t
+                    tar -C $t -xzf $t.tar.gz
+                done
+                find
+          - name: Build managarm-kernel package
+            run: |
+                docker run --rm -t \
+                    --mount type=bind,source=$GITHUB_WORKSPACE,target=/builder \
+                    -w /builder/worker \
+                    managarm-build \
+                    bash -c 'xbstrap init ../src && xbstrap download mlibc mlibc-headers && xbstrap pack managarm-kernel'
+    build-system:
+        name: Build managarm-system
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Checkout bootstrap-managarm
+            uses: actions/checkout@v2
+            with:
+                repository: managarm/bootstrap-managarm
+                path: src/
+          - name: Checkout Managarm
+            uses: actions/checkout@v2
+            with:
+                path: src/managarm/
+          - name: Build container
+            run: docker build -t managarm-build --target base src/docker
+          - name: Prepare src/ and worker/
+            run: |
+                touch src/managarm/checkedout.xbstrap
+                mkdir worker/
+                mkdir worker/tools/
+                echo '{"pkg_management": {"format": "xbps"}}' > worker/bootstrap-site.yml
+                cd worker/tools/
+                for t in cross-binutils host-autoconf-v2.69 host-automake-v1.11 host-automake-v1.15 host-libtool host-llvm-toolchain host-managarm-tools host-pkg-config host-protoc host-xorg-macros system-gcc; do
+                    curl -o $t.tar.gz https://pkgs.managarm.org/tools/$t.tar.gz
+                    mkdir $t
+                    tar -C $t -xzf $t.tar.gz
+                done
+                find
+          - name: Build managarm-system package
+            run: |
+                docker run --rm -t \
+                    --mount type=bind,source=$GITHUB_WORKSPACE,target=/builder \
+                    -w /builder/worker \
+                    managarm-build \
+                    bash -c 'xbstrap init ../src && xbstrap download boost eudev mlibc mlibc-headers protobuf && xbstrap pack managarm-system'
