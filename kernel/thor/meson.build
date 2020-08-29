@@ -157,7 +157,10 @@ endif
 
 cralgo_lib = static_library('cralgo',
 	cralgo_sources,
-	include_directories: cralgo_includes,
+	include_directories: [
+		'private-include/',
+		cralgo_includes,
+	],
 	cpp_args: extra_cpp_args,
 	dependencies: cxxshim_dep,
 	pic: false
