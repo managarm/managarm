@@ -467,6 +467,8 @@ public:
 	struct FetchRangeOperation;
 
 	struct [[nodiscard]] FetchRangeSender {
+		using value_type = frg::tuple<Error, PhysicalRange, uint32_t>;
+
 		template<typename R>
 		friend FetchRangeOperation<R>
 		connect(FetchRangeSender sender, R receiver) {
@@ -742,29 +744,10 @@ private:
 	FetchNode _fetch;
 };
 
-struct CopyFromBundleNode {
-	friend bool copyFromBundle(MemoryView *, ptrdiff_t, void *, size_t,
-		CopyFromBundleNode *, void (*)(CopyFromBundleNode *));
-
-private:
-	MemoryView *_view;
-	uintptr_t _viewOffset;
-	void *_buffer;
-	size_t _size;
-	void (*_complete)(CopyFromBundleNode *);
-
-	size_t _progress;
-	Worklet _worklet;
-	FetchNode _fetch;
-};
-
 bool transferBetweenViews(TransferNode *node);
 
 bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *));
-
-bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *pointer, size_t size,
-		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
 // ----------------------------------------------------------------------------------
 // Sender boilerplate for copyToView()
@@ -826,63 +809,55 @@ operator co_await(CopyToViewSender sender) {
 }
 
 // ----------------------------------------------------------------------------------
-// Sender boilerplate for copyFromView()
+// copyFromView().
 // ----------------------------------------------------------------------------------
 
-template<typename R>
-struct CopyFromViewOperation;
-
-struct [[nodiscard]] CopyFromViewSender {
-	using value_type = void;
-
-	template<typename R>
-	friend CopyFromViewOperation<R>
-	connect(CopyFromViewSender sender, R receiver) {
-		return {sender, std::move(receiver)};
-	}
-
-	MemoryView *view;
-	uintptr_t offset;
-	void *pointer;
-	size_t size;
-};
-
-inline CopyFromViewSender copyFromView(MemoryView *view, uintptr_t offset,
+inline auto copyFromView(MemoryView *view, uintptr_t offset,
 		void *pointer, size_t size) {
-	return {view, offset, pointer, size};
-}
+	struct Node {
+		MemoryView *view;
+		uintptr_t offset;
+		void *pointer;
+		size_t size;
 
-template<typename R>
-struct CopyFromViewOperation {
-	CopyFromViewOperation(CopyFromViewSender s, R receiver)
-	: s_{s}, receiver_{std::move(receiver)} { }
+		uintptr_t progress = 0;
+	};
 
-	CopyFromViewOperation(const CopyFromViewOperation &) = delete;
+	return async::let([=] {
+		return Node{view, offset, pointer, size};
+	}, [] (Node &nd) {
+		return async::sequence(
+			async::transform(nd.view->asyncLockRange(nd.offset, nd.size), [] (Error e) {
+				// TODO: properly propagate the error.
+				assert(e == Error::success);
+			}),
+			async::repeat_while([&nd] { return nd.progress < nd.size; },
+				[&nd] {
+					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
+					return async::transform(nd.view->fetchRange(fetchOffset),
+							[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
+						auto [error, range, flags] = result;
+						assert(error == Error::success);
+						assert(range.get<1>() >= kPageSize);
 
-	CopyFromViewOperation &operator= (const CopyFromViewOperation &) = delete;
+						auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
+						size_t chunk = frigg::min(kPageSize - misalign, nd.size - nd.progress);
 
-	bool start_inline() {
-		auto complete = [] (CopyFromBundleNode *base) {
-			auto op = frg::container_of(base, &CopyFromViewOperation::node_);
-			async::execution::set_value_noinline(op->receiver_);
-		};
-		if(copyFromBundle(s_.view, s_.offset, s_.pointer, s_.size, &node_, complete)) {
-			async::execution::set_value_inline(receiver_);
-			return true;
-		}
-		return false;
-	}
-
-private:
-	CopyFromViewSender s_;
-	R receiver_;
-	CopyFromBundleNode node_;
+						auto physical = range.get<0>();
+						assert(physical != PhysicalAddr(-1));
+						PageAccessor accessor{physical};
+						memcpy(reinterpret_cast<uint8_t *>(nd.pointer) + nd.progress,
+								reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+						nd.progress += chunk;
+					});
+				}
+			),
+			async::invocable([&nd] {
+				nd.view->unlockRange(nd.offset, nd.size);
+			})
+		);
+	});
 };
-
-inline async::sender_awaiter<CopyFromViewSender, void>
-operator co_await(CopyFromViewSender sender) {
-	return {sender};
-}
 
 // ----------------------------------------------------------------------------------
 
