@@ -728,85 +728,63 @@ struct TransferNode {
 	Worklet _worklet;
 };
 
-struct CopyToBundleNode {
-	friend bool copyToBundle(MemoryView *, ptrdiff_t, const void *, size_t,
-		CopyToBundleNode *, void (*)(CopyToBundleNode *));
-
-private:
-	MemoryView *_view;
-	uintptr_t _viewOffset;
-	const void *_buffer;
-	size_t _size;
-	void (*_complete)(CopyToBundleNode *);
-
-	size_t _progress;
-	Worklet _worklet;
-	FetchNode _fetch;
-};
-
 bool transferBetweenViews(TransferNode *node);
 
-bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *pointer, size_t size,
-		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *));
-
 // ----------------------------------------------------------------------------------
-// Sender boilerplate for copyToView()
+// copyToView().
 // ----------------------------------------------------------------------------------
 
-template<typename R>
-struct CopyToViewOperation;
-
-struct [[nodiscard]] CopyToViewSender {
-	using value_type = void;
-
-	template<typename R>
-	friend CopyToViewOperation<R>
-	connect(CopyToViewSender sender, R receiver) {
-		return {sender, std::move(receiver)};
-	}
-
-	MemoryView *view;
-	uintptr_t offset;
-	const void *pointer;
-	size_t size;
-};
-
-inline CopyToViewSender copyToView(MemoryView *view, uintptr_t offset,
+// In addition to what copyFromView() does, we also have to mark the memory as dirty.
+inline auto copyToView(MemoryView *view, uintptr_t offset,
 		const void *pointer, size_t size) {
-	return {view, offset, pointer, size};
-}
+	struct Node {
+		MemoryView *view;
+		uintptr_t offset;
+		const void *pointer;
+		size_t size;
 
-template<typename R>
-struct CopyToViewOperation {
-	CopyToViewOperation(CopyToViewSender s, R receiver)
-	: s_{s}, receiver_{std::move(receiver)} { }
+		uintptr_t progress = 0;
+	};
 
-	CopyToViewOperation(const CopyToViewOperation &) = delete;
+	return async::let([=] {
+		return Node{view, offset, pointer, size};
+	}, [] (Node &nd) {
+		return async::sequence(
+			async::transform(nd.view->asyncLockRange(nd.offset, nd.size), [] (Error e) {
+				// TODO: properly propagate the error.
+				assert(e == Error::success);
+			}),
+			async::repeat_while([&nd] { return nd.progress < nd.size; },
+				[&nd] {
+					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
+					return async::transform(nd.view->fetchRange(fetchOffset),
+							[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
+						auto [error, range, flags] = result;
+						assert(error == Error::success);
+						assert(range.get<1>() >= kPageSize);
 
-	CopyToViewOperation &operator= (const CopyToViewOperation &) = delete;
+						auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
+						size_t chunk = frigg::min(kPageSize - misalign, nd.size - nd.progress);
 
-	bool start_inline() {
-		auto complete = [] (CopyToBundleNode *base) {
-			auto op = frg::container_of(base, &CopyToViewOperation::node_);
-			async::execution::set_value_noinline(op->receiver_);
-		};
-		if(copyToBundle(s_.view, s_.offset, s_.pointer, s_.size, &node_, complete)) {
-			async::execution::set_value_inline(receiver_);
-			return true;
-		}
-		return false;
-	}
+						auto physical = range.get<0>();
+						assert(physical != PhysicalAddr(-1));
+						PageAccessor accessor{physical};
+						memcpy(reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
+								reinterpret_cast<const uint8_t *>(nd.pointer) + nd.progress, chunk);
+						nd.progress += chunk;
+					});
+				}
+			),
+			async::invocable([&nd] {
+				auto misalign = nd.offset & (kPageSize - 1);
+				nd.view->markDirty(nd.offset & ~(kPageSize - 1),
+						(nd.size + misalign + kPageSize - 1) & ~(kPageSize - 1));
 
-private:
-	CopyToViewSender s_;
-	R receiver_;
-	CopyToBundleNode node_;
+				nd.view->unlockRange(nd.offset, nd.size);
+			})
+		);
+	});
 };
-
-inline async::sender_awaiter<CopyToViewSender, void>
-operator co_await(CopyToViewSender sender) {
-	return {sender};
-}
 
 // ----------------------------------------------------------------------------------
 // copyFromView().
