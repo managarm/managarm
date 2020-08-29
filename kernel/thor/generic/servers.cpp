@@ -189,11 +189,8 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 				virt_length += kPageSize - virt_length % kPageSize;
 			
 			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, virt_length);
-			TransferNode copy;
-			copy.setup(memory.get(), phdr.p_vaddr - virt_address,
-					image.get(), phdr.p_offset, phdr.p_filesz, nullptr);
-			if(!transferBetweenViews(&copy))
-				assert(!"Fix the asynchronous case");
+			co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
+					image.get(), phdr.p_offset, phdr.p_filesz);
 
 			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					frigg::move(memory), 0, virt_length);

@@ -703,33 +703,6 @@ private:
 	size_t _viewSize;
 };
 
-struct TransferNode {
-	void setup(MemoryView *dest_memory, uintptr_t dest_offset,
-			MemoryView *src_memory, uintptr_t src_offset, size_t length,
-			Worklet *copied) {
-		_destBundle = dest_memory;
-		_srcBundle = src_memory;
-		_destOffset = dest_offset;
-		_srcOffset = src_offset;
-		_size = length;
-		_copied = copied;
-	}
-
-	MemoryView *_destBundle;
-	MemoryView *_srcBundle;
-	uintptr_t _destOffset;
-	uintptr_t _srcOffset;
-	size_t _size;
-	Worklet *_copied;
-
-	size_t _progress;
-	FetchNode _destFetch;
-	FetchNode _srcFetch;
-	Worklet _worklet;
-};
-
-bool transferBetweenViews(TransferNode *node);
-
 // ----------------------------------------------------------------------------------
 // copyToView().
 // ----------------------------------------------------------------------------------
@@ -832,6 +805,89 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 			),
 			async::invocable([&nd] {
 				nd.view->unlockRange(nd.offset, nd.size);
+			})
+		);
+	});
+};
+
+// ----------------------------------------------------------------------------------
+// copyBetweenViews().
+// ----------------------------------------------------------------------------------
+
+// In addition to what copyFromView() does, we also have to mark the memory as dirty.
+inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
+		MemoryView *srcView, uintptr_t srcOffset, size_t size) {
+	struct Node {
+		MemoryView *destView;
+		MemoryView *srcView;
+		uintptr_t destOffset;
+		uintptr_t srcOffset;
+		size_t size;
+
+		uintptr_t progress = 0;
+		PhysicalRange destRange;
+		PhysicalRange srcRange;
+	};
+
+	return async::let([=] {
+		return Node{destView, srcView, destOffset, srcOffset, size};
+	}, [] (Node &nd) {
+		return async::sequence(
+			async::transform(nd.destView->asyncLockRange(nd.destOffset, nd.size), [] (Error e) {
+				// TODO: properly propagate the error.
+				assert(e == Error::success);
+			}),
+			async::transform(nd.srcView->asyncLockRange(nd.srcOffset, nd.size), [] (Error e) {
+				// TODO: properly propagate the error.
+				assert(e == Error::success);
+			}),
+			async::repeat_while([&nd] { return nd.progress < nd.size; },
+				[&nd] {
+					auto destFetchOffset = (nd.destOffset + nd.progress) & ~(kPageSize - 1);
+					auto srcFetchOffset = (nd.srcOffset + nd.progress) & ~(kPageSize - 1);
+					return async::sequence(
+						async::transform(nd.destView->fetchRange(destFetchOffset),
+								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
+							auto [error, range, flags] = result;
+							assert(error == Error::success);
+							assert(range.get<1>() >= kPageSize);
+							nd.destRange = range;
+						}),
+						async::transform(nd.srcView->fetchRange(srcFetchOffset),
+								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
+							auto [error, range, flags] = result;
+							assert(error == Error::success);
+							assert(range.get<1>() >= kPageSize);
+							nd.srcRange = range;
+						}),
+						async::invocable([&nd] {
+							auto destMisalign = (nd.destOffset + nd.progress) % kPageSize;
+							auto srcMisalign = (nd.srcOffset + nd.progress) % kPageSize;
+							size_t chunk = frigg::min(frigg::min(kPageSize - destMisalign,
+									kPageSize - srcMisalign), nd.size - nd.progress);
+
+							auto destPhysical = nd.destRange.get<0>();
+							auto srcPhysical = nd.srcRange.get<0>();
+							assert(destPhysical != PhysicalAddr(-1));
+							assert(srcPhysical != PhysicalAddr(-1));
+
+							PageAccessor destAccessor{destPhysical};
+							PageAccessor srcAccessor{srcPhysical};
+							memcpy((uint8_t *)destAccessor.get() + destMisalign,
+									(uint8_t *)srcAccessor.get() + srcMisalign, chunk);
+
+							nd.progress += chunk;
+						})
+					);
+				}
+			),
+			async::invocable([&nd] {
+				auto misalign = nd.destOffset & (kPageSize - 1);
+				nd.destView->markDirty(nd.destOffset & ~(kPageSize - 1),
+						(nd.size + misalign + kPageSize - 1) & ~(kPageSize - 1));
+
+				nd.srcView->unlockRange(nd.srcOffset, nd.size);
+				nd.destView->unlockRange(nd.destOffset, nd.size);
 			})
 		);
 	});
