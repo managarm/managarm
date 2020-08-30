@@ -2,7 +2,7 @@
 
 #include <frg/slab.hpp>
 #include <frg/spinlock.hpp>
-#include <frigg/initializer.hpp>
+#include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/arch/stack.hpp>
 
@@ -67,16 +67,16 @@ public:
 
 using KernelAlloc = frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock>;
 
-extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+extern frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
 
-extern frigg::LazyInitializer<
+extern frg::manual_box<
 	frg::slab_pool<
 		KernelVirtualAlloc,
 		IrqSpinlock
 	>
 > kernelHeap;
 
-extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;
+extern frg::manual_box<KernelAlloc> kernelAlloc;
 
 struct Allocator {
 	void *allocate(size_t size) {

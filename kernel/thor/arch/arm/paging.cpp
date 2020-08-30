@@ -43,7 +43,7 @@ PageSpace::~PageSpace() { assert(!"Not implemented"); }
 void PageSpace::retire(RetireNode *node) { assert(!"Not implemented"); }
 bool PageSpace::submitShootdown(ShootNode *node) { assert(!"Not implemented"); return false; }
 
-frigg::LazyInitializer<KernelPageSpace> kernelSpaceSingleton;
+frg::manual_box<KernelPageSpace> kernelSpaceSingleton;
 
 void KernelPageSpace::initialize() {
 	PhysicalAddr ttbr1_ptr;

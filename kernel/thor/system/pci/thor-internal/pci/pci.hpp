@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #include <frigg/smart_ptr.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/irq.hpp>
 
@@ -154,7 +154,7 @@ struct PciDevice : PciEntity {
 	// device configuration
 	Bar bars[6];
 
-	frigg::Vector<Capability, KernelAlloc> caps;
+	frg::vector<Capability, KernelAlloc> caps;
 
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
@@ -185,7 +185,7 @@ enum {
 	kPciBridgeSecondary = 0x19
 };
 
-extern frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
+extern frg::manual_box<frg::vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
 
 void enumerateSystemBusses();
 

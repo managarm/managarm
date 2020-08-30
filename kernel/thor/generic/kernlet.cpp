@@ -26,7 +26,7 @@ namespace {
 	constexpr bool logIo = false;
 }
 
-extern frigg::LazyInitializer<LaneHandle> mbusClient;
+extern frg::manual_box<LaneHandle> mbusClient;
 
 // ------------------------------------------------------------------------
 // KernletObject class.

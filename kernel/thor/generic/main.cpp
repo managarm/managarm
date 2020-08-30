@@ -34,10 +34,10 @@ static constexpr bool noScheduleOnIrq = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
 
-frigg::LazyInitializer<IrqSlot> globalIrqSlots[64];
+frg::manual_box<IrqSlot> globalIrqSlots[64];
 
 MfsDirectory *mfsRoot;
-frigg::LazyInitializer<frg::string<KernelAlloc>> kernelCommandLine;
+frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
 
 void setupDebugging();
 
@@ -45,7 +45,7 @@ extern "C" void frg_panic(const char *cstring) {
 	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
 }
 
-frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 extern "C" EirInfo *thorBootInfoPtr;
 

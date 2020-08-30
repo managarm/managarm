@@ -6,7 +6,7 @@
 
 #include <frg/container_of.hpp>
 #include <frigg/array.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/core.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel_heap.hpp>

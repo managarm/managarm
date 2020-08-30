@@ -124,7 +124,7 @@ private:
 	bool _comparatorIs64Bit = true;
 };
 
-frigg::LazyInitializer<HpetDevice> hpetDevice;
+frg::manual_box<HpetDevice> hpetDevice;
 ClockSource *hpetClockSource;
 AlarmTracker *hpetAlarmTracker;
 

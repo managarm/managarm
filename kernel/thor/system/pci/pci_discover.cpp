@@ -11,11 +11,11 @@
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frigg::LazyInitializer<LaneHandle> mbusClient;
+extern frg::manual_box<LaneHandle> mbusClient;
 
 namespace pci {
 
-frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
+frg::manual_box<frg::vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
 
 namespace {
 	coroutine<bool> handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
@@ -481,7 +481,7 @@ size_t computeBarLength(uintptr_t mask) {
 	return size_t(1) << length_bits;
 }
 
-frigg::LazyInitializer<frg::vector<PciBus *, KernelAlloc>> enumerationQueue;
+frg::manual_box<frg::vector<PciBus *, KernelAlloc>> enumerationQueue;
 
 void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	uint16_t vendor = readPciHalf(bus->busId, slot, function, kPciVendor);

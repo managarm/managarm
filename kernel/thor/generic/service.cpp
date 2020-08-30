@@ -375,7 +375,7 @@ namespace posix {
 		frigg::SharedPtr<Thread> _thread;
 
 		Handle controlHandle;
-		frigg::Vector<OpenFile *, KernelAlloc> openFiles;
+		frg::vector<OpenFile *, KernelAlloc> openFiles;
 		frigg::SharedPtr<MemoryView> fileTableMemory;
 		VirtualAddr clientFileTable;
 	};

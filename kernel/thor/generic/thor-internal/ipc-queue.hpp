@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/list.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/accessors.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/cancel.hpp>
@@ -184,7 +184,7 @@ private:
 
 	unsigned int _sizeShift;
 
-	frigg::Vector<Chunk, KernelAlloc> _chunks;
+	frg::vector<Chunk, KernelAlloc> _chunks;
 
 	// Index into the queue that we are currently processing.
 	int _currentIndex;

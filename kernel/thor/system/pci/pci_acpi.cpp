@@ -26,7 +26,7 @@ struct AcpiPciBus : PciBus {
 private:
 	RoutingModel _routingModel = RoutingModel::none;
 	// PRT of this bus (RoutingModel::rootTable).
-	frigg::Vector<RoutingEntry, KernelAlloc> _routingTable{*kernelAlloc};
+	frg::vector<RoutingEntry, KernelAlloc> _routingTable{*kernelAlloc};
 	// IRQs of the bridge (RoutingModel::expansionBridge).
 	IrqPin *_bridgeIrqs[4] = {};
 

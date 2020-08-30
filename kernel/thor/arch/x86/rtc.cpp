@@ -10,7 +10,7 @@
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frigg::LazyInitializer<LaneHandle> mbusClient;
+extern frg::manual_box<LaneHandle> mbusClient;
 
 namespace {
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frigg/smart_ptr.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/thread.hpp>
 
 namespace thor {
@@ -19,7 +19,7 @@ public:
 	void enableInThread(frigg::UnsafePtr<Thread> thread);
 
 private:
-	frigg::Vector<uintptr_t, KernelAlloc> p_ports;
+	frg::vector<uintptr_t, KernelAlloc> p_ports;
 };
 
 } // namespace thor

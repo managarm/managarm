@@ -12,7 +12,7 @@ static bool logPhysicalAllocs = false;
 // SkeletalRegion
 // --------------------------------------------------------
 
-frigg::LazyInitializer<SkeletalRegion> skeletalSingleton;
+frg::manual_box<SkeletalRegion> skeletalSingleton;
 
 void SkeletalRegion::initialize() {
 	skeletalSingleton.initialize();

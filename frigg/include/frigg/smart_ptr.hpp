@@ -3,8 +3,8 @@
 #define FRIGG_SMART_PTR_HPP
 
 #include <frigg/macros.hpp>
-#include <frigg/traits.hpp>
 #include <frg/allocation.hpp>
+#include <type_traits>
 #include <frigg/c-support.h>
 
 namespace frigg FRIGG_VISIBILITY {
@@ -238,7 +238,7 @@ public:
 		pointer._object = nullptr;
 	}
 	
-	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
+	template<typename U, typename = std::enable_if_t<std::is_convertible_v<U *, T *>>>
 	SharedPtr(SharedPtr<U, Control> pointer)
 	: _control(pointer._control), _object(pointer._object) {
 		// manually empty the argument pointer so that
@@ -377,7 +377,7 @@ public:
 	UnsafePtr(decltype(nullptr))
 	: UnsafePtr() { }
 	
-	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
+	template<typename U, typename = std::enable_if_t<std::is_convertible_v<U *, T *>>>
 	UnsafePtr(const SharedPtr<U, Control> &shared)
 	: _control(shared._control), _object(shared._object) { }
 	
@@ -388,7 +388,7 @@ public:
 	UnsafePtr(UnsafePtr<U, Control> pointer, T *object)
 	: _control(pointer._control), _object(object) { }
 	
-	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
+	template<typename U, typename = std::enable_if_t<std::is_convertible_v<U *, T *>>>
 	UnsafePtr(UnsafePtr<U, Control> pointer)
 	: _control(pointer._control), _object(pointer._object) { }
 

@@ -433,7 +433,7 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 // --------------------------------------------------------
 
 namespace {
-	frigg::LazyInitializer<frigg::Vector<CpuData *, KernelAlloc>> allCpuContexts;
+	frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
 }
 
 size_t getStateSize() {
@@ -469,7 +469,7 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 
 extern "C" void syscallStub();
 
-frigg::LazyInitializer<CpuData> staticBootCpuContext;
+frg::manual_box<CpuData> staticBootCpuContext;
 
 // Set up the kernel GS segment.
 void setupCpuContext(AssemblyCpuData *context) {
@@ -499,7 +499,7 @@ static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-pr
 	}
 };
 
-extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 void initializeThisProcessor() {
 	// FIXME: the stateSize should not be CPU specific!

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/string.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/kernel_heap.hpp>
 

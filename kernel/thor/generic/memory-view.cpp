@@ -19,7 +19,7 @@ namespace {
 // Reclaim implementation.
 // --------------------------------------------------------
 
-extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 struct MemoryReclaimer {
 	void addPage(CachePage *page) {
@@ -166,7 +166,7 @@ private:
 	size_t _cachedSize = 0;
 };
 
-frigg::LazyInitializer<MemoryReclaimer> globalReclaimer;
+frg::manual_box<MemoryReclaimer> globalReclaimer;
 
 void initializeReclaim() {
 	globalReclaimer.initialize();

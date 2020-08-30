@@ -497,7 +497,7 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 // Kernel paging management.
 // --------------------------------------------------------
 
-frigg::LazyInitializer<KernelPageSpace> kernelSpaceSingleton;
+frg::manual_box<KernelPageSpace> kernelSpaceSingleton;
 
 void KernelPageSpace::initialize() {
 	PhysicalAddr pml4_ptr;

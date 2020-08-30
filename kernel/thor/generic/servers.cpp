@@ -15,14 +15,14 @@ namespace thor {
 
 static bool debugLaunch = true;
 
-frigg::LazyInitializer<LaneHandle> mbusClient;
-static frigg::LazyInitializer<LaneHandle> futureMbusServer;
+frg::manual_box<LaneHandle> mbusClient;
+static frg::manual_box<LaneHandle> futureMbusServer;
 
 frg::ticket_spinlock globalMfsMutex;
 
 extern MfsDirectory *mfsRoot;
 
-static frigg::LazyInitializer<
+static frg::manual_box<
 	frg::hash_map<
 		frg::string<KernelAlloc>,
 		LaneHandle,

@@ -15,7 +15,7 @@ namespace {
 	constexpr bool debugTimer = false;
 }
 
-extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 inline constexpr arch::bit_register<uint32_t> lApicId(0x0020);
 inline constexpr arch::scalar_register<uint32_t> lApicEoi(0x00B0);
@@ -470,7 +470,7 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 // --------------------------------------------------------
 
 // TODO: Replace this by proper IRQ allocation.
-extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[64];
+extern frg::manual_box<IrqSlot> globalIrqSlots[64];
 
 inline constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
 inline constexpr arch::scalar_register<uint32_t> apicData(0x10);

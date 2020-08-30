@@ -6,7 +6,7 @@
 #include <mbus.frigg_pb.hpp>
 
 namespace thor {
-	extern frigg::LazyInitializer<LaneHandle> mbusClient;
+	extern frg::manual_box<LaneHandle> mbusClient;
 }
 
 namespace thor::legacy_pc {

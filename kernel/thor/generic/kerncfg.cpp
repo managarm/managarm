@@ -14,9 +14,9 @@
 
 namespace thor {
 
-extern frigg::LazyInitializer<LaneHandle> mbusClient;
-extern frigg::LazyInitializer<frg::string<KernelAlloc>> kernelCommandLine;
-extern frigg::LazyInitializer<LogRingBuffer> allocLog;
+extern frg::manual_box<LaneHandle> mbusClient;
+extern frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
+extern frg::manual_box<LogRingBuffer> allocLog;
 
 namespace {
 

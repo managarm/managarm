@@ -1,6 +1,6 @@
 #include <atomic>
 
-#include <frigg/initializer.hpp>
+#include <frg/manual_box.hpp>
 #include <cralgo/aes.hpp>
 #include <cralgo/sha2_32.hpp>
 #include <thor-internal/arch/cpu.hpp>
@@ -190,7 +190,7 @@ private:
 	std::atomic<size_t> injectedIntoPoolZero_{0};
 };
 
-frigg::LazyInitializer<Fortuna> csprng;
+frg::manual_box<Fortuna> csprng;
 
 } // anonymous namespace
 

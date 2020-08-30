@@ -47,7 +47,7 @@ void copyLogMessage(size_t sequence, char *text) {
 	memcpy(text, logQueue[sequence % 1024].text, 100);
 }
 
-frigg::LazyInitializer<frg::intrusive_list<
+frg::manual_box<frg::intrusive_list<
 	LogHandler,
 	frg::locate_member<
 		LogHandler,

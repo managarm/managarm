@@ -89,9 +89,9 @@ void FbDisplay::_clearScreen(uint32_t rgb_color) {
 }
 
 namespace {
-	frigg::LazyInitializer<FbInfo> bootInfo;
-	frigg::LazyInitializer<FbDisplay> bootDisplay;
-	frigg::LazyInitializer<BootScreen> bootScreen;
+	frg::manual_box<FbInfo> bootInfo;
+	frg::manual_box<FbDisplay> bootDisplay;
+	frg::manual_box<BootScreen> bootScreen;
 }
 
 void initializeBootFb(uint64_t address, uint64_t pitch, uint64_t width,

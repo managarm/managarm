@@ -108,7 +108,7 @@ void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
 	kernelVirtualUsage -= (size_t{1} << (kPageShift + order));
 }
 
-frigg::LazyInitializer<KernelVirtualMemory> kernelVirtualMemory;
+frg::manual_box<KernelVirtualMemory> kernelVirtualMemory;
 
 KernelVirtualMemory &KernelVirtualMemory::global() {
 	// TODO: This should be initialized at a well-defined stage in the
@@ -178,7 +178,7 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 		p->complete();
 }
 
-frigg::LazyInitializer<LogRingBuffer> allocLog;
+frg::manual_box<LogRingBuffer> allocLog;
 
 void KernelVirtualAlloc::unpoison(void *pointer, size_t size) {
 	unpoisonKasanShadow(pointer, size);
@@ -199,18 +199,18 @@ void KernelVirtualAlloc::output_trace(uint8_t val) {
 	allocLog->enqueue(val);
 }
 
-frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
 
-frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
 
-frigg::LazyInitializer<
+frg::manual_box<
 	frg::slab_pool<
 		KernelVirtualAlloc,
 		IrqSpinlock
 	>
 > kernelHeap;
 
-frigg::LazyInitializer<KernelAlloc> kernelAlloc;
+frg::manual_box<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
 // CpuData
