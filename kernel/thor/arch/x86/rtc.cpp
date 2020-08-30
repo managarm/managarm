@@ -7,7 +7,6 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <clock.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
-#include <frigg/arch_x86/atomic_impl.hpp>
 
 namespace thor {
 
@@ -44,7 +43,7 @@ int64_t getCmosTime() {
 		;
 //	infoLogger() << "thor: Waiting for RTC update completion" << frg::endlog;
 	while(readCmos(rtcStatusA) & 0x80)
-		frigg::pause();
+		pause();
 
 	// Perform the actual RTC read.
 	bool status_b = readCmos(rtcStatusB);

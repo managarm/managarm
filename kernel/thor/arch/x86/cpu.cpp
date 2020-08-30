@@ -1,4 +1,3 @@
-#include <frigg/arch_x86/atomic_impl.hpp>
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -816,7 +815,7 @@ void bootSecondary(unsigned int apic_id) {
 
 	// Wait until the AP wakes up.
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 1) {
-		frigg::pause();
+		pause();
 	}
 	infoLogger() << "thor: AP did wake up." << frg::endlog;
 
@@ -827,7 +826,7 @@ void bootSecondary(unsigned int apic_id) {
 
 	// Wait until the AP exits the boot code.
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 2) {
-		frigg::pause();
+		pause();
 	}
 	infoLogger() << "thor: AP finished booting." << frg::endlog;
 }

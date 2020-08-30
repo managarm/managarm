@@ -651,4 +651,8 @@ void disarmPreemption();
 
 uint64_t getRawTimestampCounter();
 
+inline void pause() {
+	asm volatile ("pause");
+}
+
 } // namespace thor

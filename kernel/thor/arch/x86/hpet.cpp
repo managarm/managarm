@@ -9,9 +9,9 @@
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/irq.hpp>
-#include <frigg/arch_x86/atomic_impl.hpp>
 
 namespace thor {
 
@@ -208,7 +208,7 @@ void pollSleepNano(uint64_t nanotime) {
 	uint64_t counter = hpetBase.load(mainCounter);
 	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetPeriod;
 	while(hpetBase.load(mainCounter) < goal) {
-		frigg::pause();
+		pause();
 	}
 }
 
