@@ -350,12 +350,12 @@ void calibrateApicTimer() {
 
 	apicIsCalibrated = true;
 
-	globalTscInstance = frigg::construct<TimeStampCounter>(*kernelAlloc);
-	globalApicContextInstance = frigg::construct<GlobalApicContext>(*kernelAlloc);
+	globalTscInstance = frg::construct<TimeStampCounter>(*kernelAlloc);
+	globalApicContextInstance = frg::construct<GlobalApicContext>(*kernelAlloc);
 
 	globalClockSource = globalTscInstance;
 //	globalClockSource = hpetClockSource;
-	globalTimerEngine = frigg::construct<PrecisionTimerEngine>(*kernelAlloc,
+	globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
 			globalClockSource, globalApicContext()->globalAlarm());
 //			globalClockSource, hpetAlarmTracker);
 }
@@ -619,9 +619,9 @@ namespace {
 		infoLogger() << "thor: I/O APIC " << apic_id << " supports "
 				<< _numPins << " pins" << frg::endlog;
 
-		_pins = frigg::constructN<Pin *>(*kernelAlloc, _numPins);
+		_pins = frg::construct_n<Pin *>(*kernelAlloc, _numPins);
 		for(size_t i = 0; i < _numPins; i++) {
-			_pins[i] = frigg::construct<Pin>(*kernelAlloc, this, i);
+			_pins[i] = frg::construct<Pin>(*kernelAlloc, this, i);
 
 			// Dump interesting configurations.
 			arch::bit_value<uint32_t> current{_loadRegister(kIoApicInts + i * 2)};
@@ -651,7 +651,7 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 
 	picModel = kModelApic;
 
-	auto apic = frigg::construct<IoApic>(*kernelAlloc, apic_id, arch::mem_space{register_ptr});
+	auto apic = frg::construct<IoApic>(*kernelAlloc, apic_id, arch::mem_space{register_ptr});
 	for(size_t i = 0; i < apic->pinCount(); i++) {
 		auto pin = apic->accessPin(i);
 		globalSystemIrqs[gsi_base + i] = pin;

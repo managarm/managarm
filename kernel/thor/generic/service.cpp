@@ -450,7 +450,7 @@ namespace posix {
 
 				if(module->type == MfsType::directory) {
 					auto stream = createStream();
-					auto file = frigg::construct<initrd::OpenDirectory>(*kernelAlloc,
+					auto file = frg::construct<initrd::OpenDirectory>(*kernelAlloc,
 							static_cast<MfsDirectory *>(module));
 					file->clientLane = frigg::move(stream.get<1>());
 
@@ -474,7 +474,7 @@ namespace posix {
 					assert(module->type == MfsType::regular);
 
 					auto stream = createStream();
-					auto file = frigg::construct<initrd::OpenRegular>(*kernelAlloc,
+					auto file = frg::construct<initrd::OpenRegular>(*kernelAlloc,
 							static_cast<MfsRegular *>(module));
 					file->clientLane = frigg::move(stream.get<1>());
 
@@ -721,13 +721,13 @@ void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 		frigg::SharedPtr<Thread> thread) {
 	KernelFiber::run([name, thread, controlLane = std::move(controlLane)] () mutable {
 		auto stdioStream = createStream();
-		auto stdioFile = frigg::construct<StdioFile>(*kernelAlloc);
+		auto stdioFile = frg::construct<StdioFile>(*kernelAlloc);
 		stdioFile->clientLane = frigg::move(stdioStream.get<1>());
 
 		async::detach_with_allocator(*kernelAlloc,
 				stdio::runStdioRequests(stdioStream.get<0>()));
 
-		auto process = frigg::construct<posix::Process>(*kernelAlloc, std::move(name), thread);
+		auto process = frg::construct<posix::Process>(*kernelAlloc, std::move(name), thread);
 		KernelFiber::asyncBlockCurrent(process->setupAddressSpace());
 		process->attachControl(std::move(controlLane));
 		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));

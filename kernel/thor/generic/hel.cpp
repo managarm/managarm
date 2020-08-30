@@ -1880,7 +1880,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	struct Closure final : CancelNode, PrecisionTimerNode, IpcNode {
 		static void issue(uint64_t nanos, frigg::SharedPtr<IpcQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
-			auto closure = frigg::construct<Closure>(*kernelAlloc, nanos,
+			auto closure = frg::construct<Closure>(*kernelAlloc, nanos,
 					std::move(queue), context);
 			closure->queue->registerNode(closure);
 			*async_id = closure->asyncId();
@@ -1912,7 +1912,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		}
 
 		void complete() override {
-			frigg::destruct(*kernelAlloc, this);
+			frg::destruct(*kernelAlloc, this);
 		}
 
 		Worklet worklet;
@@ -2162,8 +2162,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 		void complete() override {
 			// TODO: Turn items into a unique_ptr.
-			frigg::destructN(*kernelAlloc, items, count);
-			frigg::destruct(*kernelAlloc, this);
+			frg::destruct_n(*kernelAlloc, items, count);
+			frg::destruct(*kernelAlloc, this);
 		}
 
 		size_t count;
@@ -2171,7 +2171,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		frigg::SharedPtr<IpcQueue> ipcQueue;
 
 		Item *items;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
+	} *closure = frg::construct<Closure>(*kernelAlloc);
 
 	closure->count = count;
 	closure->weakUniverse = this_universe.toWeak();
@@ -2179,7 +2179,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 	closure->setup(count);
 	closure->setupContext(context);
-	closure->items = frigg::constructN<Item>(*kernelAlloc, count);
+	closure->items = frg::construct_n<Item>(*kernelAlloc, count);
 
 	StreamList root_chain;
 	frg::vector<StreamNode *, KernelAlloc> ancillary_stack(*kernelAlloc);
@@ -2501,7 +2501,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	struct IrqClosure final : IpcNode {
 		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
-			auto closure = frigg::construct<IrqClosure>(*kernelAlloc,
+			auto closure = frg::construct<IrqClosure>(*kernelAlloc,
 					std::move(queue), context);
 			irq->submitAwait(&closure->irqNode, sequence);
 		}
@@ -2525,7 +2525,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		}
 
 		void complete() override {
-			frigg::destruct(*kernelAlloc, this);
+			frg::destruct(*kernelAlloc, this);
 		}
 
 	private:
@@ -2539,14 +2539,14 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	struct EventClosure final : IpcNode {
 		static void issue(frigg::SharedPtr<OneshotEvent> event, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
-			auto closure = frigg::construct<EventClosure>(*kernelAlloc,
+			auto closure = frg::construct<EventClosure>(*kernelAlloc,
 					std::move(queue), context);
 			event->submitAwait(&closure->eventNode, sequence);
 		}
 
 		static void issue(frigg::SharedPtr<BitsetEvent> event, uint64_t sequence,
 				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
-			auto closure = frigg::construct<EventClosure>(*kernelAlloc,
+			auto closure = frg::construct<EventClosure>(*kernelAlloc,
 					std::move(queue), context);
 			event->submitAwait(&closure->eventNode, sequence);
 		}
@@ -2571,7 +2571,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		}
 
 		void complete() override {
-			frigg::destruct(*kernelAlloc, this);
+			frg::destruct(*kernelAlloc, this);
 		}
 
 	private:

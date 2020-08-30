@@ -419,7 +419,7 @@ void Thread::cleanup() {
 	// TODO: Make sure that this is called!
 	if(logCleanup)
 		infoLogger() << "\e[31mthor: Thread is destructed\e[39m" << frg::endlog;
-	frigg::destruct(*kernelAlloc, this);
+	frg::destruct(*kernelAlloc, this);
 }
 
 void Thread::observe_(uint64_t inSeq, ObserveNode *node) {

@@ -53,7 +53,7 @@ public:
 	static frigg::SharedPtr<Thread> create(frigg::SharedPtr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
-		auto thread = frigg::construct<Thread>(*kernelAlloc,
+		auto thread = frg::construct<Thread>(*kernelAlloc,
 				frigg::move(universe), frigg::move(address_space), abi);
 		frigg::SharedPtr<Thread> sptr{frigg::adoptShared, thread,
 				frigg::SharedControl{thread}};

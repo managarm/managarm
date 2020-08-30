@@ -67,7 +67,7 @@ void KernelFiber::run(UniqueKernelStack stack,
 	params.ip = (uintptr_t)function;
 	params.argument = (uintptr_t)argument;
 
-	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
+	auto fiber = frg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
 	Scheduler::associate(fiber, localScheduler());
 	Scheduler::resume(fiber);
 }
@@ -78,7 +78,7 @@ KernelFiber *KernelFiber::post(UniqueKernelStack stack,
 	params.ip = (uintptr_t)function;
 	params.argument = (uintptr_t)argument;
 
-	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
+	auto fiber = frg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
 	Scheduler::associate(fiber, localScheduler());
 	return fiber;
 }

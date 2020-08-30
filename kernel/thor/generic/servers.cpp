@@ -71,7 +71,7 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 			if(target) {
 				node = target;
 			}else{
-				node = frigg::construct<MfsDirectory>(*kernelAlloc);
+				node = frg::construct<MfsDirectory>(*kernelAlloc);
 				directory->link(frg::string<KernelAlloc>{*kernelAlloc, component}, node);
 			}
 		}
@@ -95,7 +95,7 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 	co_await copyToView(memory.get(), 0, buffer, size);
 
-	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
+	auto file = frg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
 	directory->link(frg::string<KernelAlloc>{*kernelAlloc, name}, file);
 	*out = file;
 	co_return true;

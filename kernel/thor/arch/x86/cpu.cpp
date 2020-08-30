@@ -777,7 +777,7 @@ void bootSecondary(unsigned int apic_id) {
 	constexpr size_t stack_size = 0x10000;
 	void *stack_ptr = kernelAlloc->allocate(stack_size);
 
-	auto context = frigg::construct<CpuData>(*kernelAlloc);
+	auto context = frg::construct<CpuData>(*kernelAlloc);
 	context->localApicId = apic_id;
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.

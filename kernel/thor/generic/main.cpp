@@ -151,7 +151,7 @@ extern "C" void thorMain() {
 		auto modules = reinterpret_cast<EirModule *>(thorBootInfoPtr->moduleInfo);
 		assert(thorBootInfoPtr->numModules == 1);
 
-		mfsRoot = frigg::construct<MfsDirectory>(*kernelAlloc);
+		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{
 			assert(modules[0].physicalBase % kPageSize == 0);
 			assert(modules[0].length <= 0x1000000);
@@ -242,7 +242,7 @@ extern "C" void thorMain() {
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
 					dir->link(frg::string<KernelAlloc>{*kernelAlloc, std::move(name)},
-							frigg::construct<MfsDirectory>(*kernelAlloc));
+							frg::construct<MfsDirectory>(*kernelAlloc));
 				}else{
 					assert((mode & type_mask) == regular_type);
 	//				if(logInitialization)
@@ -254,7 +254,7 @@ extern "C" void thorMain() {
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
-					dir->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
+					dir->link(std::move(name), frg::construct<MfsRegular>(*kernelAlloc,
 							std::move(memory), file_size));
 				}
 

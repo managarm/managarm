@@ -284,7 +284,7 @@ VirtualSpace::VirtualSpace(VirtualOperations *ops)
 : _ops{ops} { }
 
 void VirtualSpace::setupInitialHole(VirtualAddr address, size_t size) {
-	auto hole = frigg::construct<Hole>(*kernelAlloc, address, size);
+	auto hole = frg::construct<Hole>(*kernelAlloc, address, size);
 	_holes.insert(hole);
 }
 
@@ -616,30 +616,30 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 		// Try to merge the new hole and the existing ones.
 		if(pre && pre->address() + pre->length() == address
 				&& succ && address + length == succ->address()) {
-			auto hole = frigg::construct<Hole>(*kernelAlloc, pre->address(),
+			auto hole = frg::construct<Hole>(*kernelAlloc, pre->address(),
 					pre->length() + length + succ->length());
 
 			space->_holes.remove(pre);
 			space->_holes.remove(succ);
 			space->_holes.insert(hole);
-			frigg::destruct(*kernelAlloc, pre);
-			frigg::destruct(*kernelAlloc, succ);
+			frg::destruct(*kernelAlloc, pre);
+			frg::destruct(*kernelAlloc, succ);
 		}else if(pre && pre->address() + pre->length() == address) {
-			auto hole = frigg::construct<Hole>(*kernelAlloc,
+			auto hole = frg::construct<Hole>(*kernelAlloc,
 					pre->address(), pre->length() + length);
 
 			space->_holes.remove(pre);
 			space->_holes.insert(hole);
-			frigg::destruct(*kernelAlloc, pre);
+			frg::destruct(*kernelAlloc, pre);
 		}else if(succ && address + length == succ->address()) {
-			auto hole = frigg::construct<Hole>(*kernelAlloc,
+			auto hole = frg::construct<Hole>(*kernelAlloc,
 					address, length + succ->length());
 
 			space->_holes.remove(succ);
 			space->_holes.insert(hole);
-			frigg::destruct(*kernelAlloc, succ);
+			frg::destruct(*kernelAlloc, succ);
 		}else{
-			auto hole = frigg::construct<Hole>(*kernelAlloc,
+			auto hole = frg::construct<Hole>(*kernelAlloc,
 					address, length);
 
 			space->_holes.insert(hole);
@@ -849,17 +849,17 @@ void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	_holes.remove(hole);
 
 	if(offset) {
-		auto predecessor = frigg::construct<Hole>(*kernelAlloc, hole->address(), offset);
+		auto predecessor = frg::construct<Hole>(*kernelAlloc, hole->address(), offset);
 		_holes.insert(predecessor);
 	}
 
 	if(offset + length < hole->length()) {
-		auto successor = frigg::construct<Hole>(*kernelAlloc,
+		auto successor = frg::construct<Hole>(*kernelAlloc,
 				hole->address() + offset + length, hole->length() - (offset + length));
 		_holes.insert(successor);
 	}
 
-	frigg::destruct(*kernelAlloc, hole);
+	frg::destruct(*kernelAlloc, hole);
 }
 
 // --------------------------------------------------------

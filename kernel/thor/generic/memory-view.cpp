@@ -839,7 +839,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 			Worklet worklet;
 			MonitorNode initiate;
-		} *closure = frigg::construct<Closure>(*kernelAlloc);
+		} *closure = frg::construct<Closure>(*kernelAlloc);
 
 		struct Ops {
 			static void initiated(Worklet *worklet) {
@@ -860,7 +860,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				completeFetch(closure->fetch, Error::success, physical + misalign, kPageSize - misalign,
 						CachingMode::null);
 				callbackFetch(closure->fetch);
-				frigg::destruct(*kernelAlloc, closure);
+				frg::destruct(*kernelAlloc, closure);
 			}
 		};
 
