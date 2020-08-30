@@ -1,6 +1,6 @@
 #pragma once
 
-#include <frigg/variant.hpp>
+#include <frg/variant.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/arch/paging.hpp>
 
@@ -141,7 +141,7 @@ public:
 	}
 
 private:
-	frigg::Variant<
+	frg::variant<
 		KernelAccessor,
 		AddressSpaceLockHandle
 	> _variant;

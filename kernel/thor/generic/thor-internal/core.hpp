@@ -2,7 +2,7 @@
 
 #include <frg/hash_map.hpp>
 #include <frg/optional.hpp>
-#include <frigg/variant.hpp>
+#include <frg/variant.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/ring-buffer.hpp>

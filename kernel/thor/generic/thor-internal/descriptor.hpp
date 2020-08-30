@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frigg/smart_ptr.hpp>
-#include <frigg/variant.hpp>
+#include <frg/variant.hpp>
 #include <smarter.hpp>
 #ifdef __x86_64__
 #include <thor-internal/arch/ept.hpp>
@@ -218,7 +218,7 @@ struct BoundKernletDescriptor {
 	frigg::SharedPtr<BoundKernlet> boundKernlet;
 };
 
-typedef frigg::Variant<
+typedef frg::variant<
 	UniverseDescriptor,
 	QueueDescriptor,
 	MemoryViewDescriptor,

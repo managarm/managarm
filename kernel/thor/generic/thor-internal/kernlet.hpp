@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/vector.hpp>
-#include <frigg/variant.hpp>
+#include <frg/variant.hpp>
 #include <thor-internal/event.hpp>
 
 namespace thor {
