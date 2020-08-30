@@ -1,6 +1,5 @@
 #include <stddef.h>
 #include <stdint.h>
-#include <frigg/support.hpp>
 
 extern "C" {
 

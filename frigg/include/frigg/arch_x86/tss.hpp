@@ -1,10 +1,9 @@
 #ifndef FRIGG_ARCH_X86_TSS_HPP
 #define FRIGG_ARCH_X86_TSS_HPP
 
-#include <frigg/macros.hpp>
 #include <stdint.h>
 
-namespace frigg FRIGG_VISIBILITY {
+namespace frigg {
 namespace arch_x86 {
 
 struct Tss64 {

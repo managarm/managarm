@@ -149,7 +149,7 @@ void initProcessorEarly() {
 
 	eir::infoLogger() << "Starting Eir" << frg::endlog;
 
-	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
+	frg::array<uint32_t, 4> vendor_res = arch::cpuid(0);
 	char vendor_str[13];
 	memcpy(&vendor_str[0], &vendor_res[1], 4);
 	memcpy(&vendor_str[4], &vendor_res[3], 4);
@@ -158,13 +158,13 @@ void initProcessorEarly() {
 	eir::infoLogger() << "CPU vendor: " << (const char *)vendor_str << frg::endlog;
 
 	// Make sure everything we require is supported by the CPU.
-	frigg::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
+	frg::array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
 	if((extended[3] & arch::kCpuFlagLongMode) == 0)
 		eir::panicLogger() << "Long mode is not supported on this CPU" << frg::endlog;
 	if((extended[3] & arch::kCpuFlagNx) == 0)
 		eir::panicLogger() << "NX bit is not supported on this CPU" << frg::endlog;
 
-	frigg::Array<uint32_t, 4> normal = arch::cpuid(arch::kCpuIndexFeatures);
+	frg::array<uint32_t, 4> normal = arch::cpuid(arch::kCpuIndexFeatures);
 	if((normal[3] & arch::kCpuFlagPat) == 0)
 		eir::panicLogger() << "PAT is not supported on this CPU" << frg::endlog;
 

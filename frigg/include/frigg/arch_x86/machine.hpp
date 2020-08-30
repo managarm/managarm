@@ -2,11 +2,10 @@
 #ifndef FRIGG_MACHINE_HPP
 #define FRIGG_MACHINE_HPP
 
-#include <frigg/macros.hpp>
-#include <frigg/array.hpp>
+#include <frg/array.hpp>
 #include <frigg/c-support.h>
 
-namespace frigg FRIGG_VISIBILITY {
+namespace frigg {
 namespace arch_x86 {
 
 enum {
@@ -28,8 +27,8 @@ enum {
 	kCpuFlagLongMode = 0x20000000
 };
 
-inline Array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
-	Array<uint32_t, 4> out;
+inline frg::array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
+	frg::array<uint32_t, 4> out;
 	asm volatile ( "cpuid"
 			: "=a" (out[0]), "=b" (out[1]), "=c" (out[2]), "=d" (out[3])
 			: "a" (eax), "c" (ecx) );
@@ -122,7 +121,7 @@ inline void ioOutByte(uint16_t port, uint8_t value) {
 
 } } // namespace frigg::arch_x86
 
-namespace frigg FRIGG_VISIBILITY {
+namespace frigg {
 
 template<typename T>
 T readIo(uint16_t port);

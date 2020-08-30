@@ -4,11 +4,9 @@
 
 #include <frg/utility.hpp>
 #include <frg/manual_box.hpp>
-#include <frigg/array.hpp>
+#include <frg/array.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/libc.hpp>
-#include <frigg/string.hpp>
-#include <frigg/support.hpp>
 #include <physical-buddy.hpp>
 
 namespace eir {
@@ -366,7 +364,7 @@ address_t loadKernelImage(void *image) {
 	return ehdr.e_entry;
 }
 
-EirInfo *generateInfo(const char* cmdline){
+EirInfo *generateInfo(const char *cmdline){
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
@@ -409,7 +407,7 @@ EirInfo *generateInfo(const char* cmdline){
 		while(*s && *s != ' ')
 			s++;
 
-		frigg::StringView token{l, static_cast<size_t>(s - l)};
+		frg::string_view token{l, static_cast<size_t>(s - l)};
 		if(token == "serial") {
 			info_ptr->debugFlags |= eirDebugSerial;
 		}else if(token == "bochs") {

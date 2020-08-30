@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <frg/optional.hpp>
 #include <frg/manual_box.hpp>
-#include <frigg/string.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/kernel_heap.hpp>

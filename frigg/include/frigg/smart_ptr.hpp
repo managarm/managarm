@@ -2,12 +2,11 @@
 #ifndef FRIGG_SMART_PTR_HPP
 #define FRIGG_SMART_PTR_HPP
 
-#include <frigg/macros.hpp>
 #include <frg/allocation.hpp>
 #include <type_traits>
 #include <frigg/c-support.h>
 
-namespace frigg FRIGG_VISIBILITY {
+namespace frigg {
 
 // --------------------------------------------------------
 // SharedPtr

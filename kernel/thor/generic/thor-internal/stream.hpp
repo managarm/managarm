@@ -5,7 +5,7 @@
 #include <atomic>
 
 #include <frg/container_of.hpp>
-#include <frigg/array.hpp>
+#include <frg/array.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/core.hpp>
 #include <thor-internal/error.hpp>
@@ -99,7 +99,7 @@ public:
 	// Transmission inputs.
 	// ------------------------------------------------------------------------
 
-	frigg::Array<char, 16> _inCredentials;
+	frg::array<char, 16> _inCredentials;
 	size_t _maxLength;
 	frigg::UniqueMemory<KernelAlloc> _inBuffer;
 	AnyBufferAccessor _inAccessor;
@@ -125,7 +125,7 @@ public:
 		return _error;
 	}
 
-	frigg::Array<char, 16> credentials() {
+	frg::array<char, 16> credentials() {
 		return _transmitCredentials;
 	}
 
@@ -137,7 +137,7 @@ public:
 		return std::move(_transmitBuffer);
 	}
 
-	const frigg::Array<char, 16> &transmitCredentials() {
+	const frg::array<char, 16> &transmitCredentials() {
 		return _transmitCredentials;
 	}
 
@@ -151,7 +151,7 @@ public:
 
 public:
 	Error _error;
-	frigg::Array<char, 16> _transmitCredentials;
+	frg::array<char, 16> _transmitCredentials;
 	size_t _actualLength;
 	frigg::UniqueMemory<KernelAlloc> _transmitBuffer;
 	LaneHandle _lane;
@@ -349,7 +349,7 @@ inline ExtractCredentialsOperation<R> connect(ExtractCredentialsSender s, R rece
 	return {std::move(s), std::move(receiver)};
 }
 
-inline async::sender_awaiter<ExtractCredentialsSender, frg::tuple<Error, frigg::Array<char, 16>>>
+inline async::sender_awaiter<ExtractCredentialsSender, frg::tuple<Error, frg::array<char, 16>>>
 operator co_await(ExtractCredentialsSender s) {
 	return {std::move(s)};
 }

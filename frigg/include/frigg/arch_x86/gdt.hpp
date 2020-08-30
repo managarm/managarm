@@ -1,9 +1,9 @@
 #ifndef FRIGG_ARCH_X86_GDT_HPP
 #define FRIGG_ARCH_X86_GDT_HPP
 
-#include <frigg/macros.hpp>
+#include <stdint.h>
 
-namespace frigg FRIGG_VISIBILITY {
+namespace frigg {
 namespace arch_x86 {
 
 enum GdtFlags : uint32_t {
