@@ -1,5 +1,7 @@
 # The managarm Operating System
 
+![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg) ![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg)
+
 ![Screenshot](../assets/screenshots/echo-hello-managarm.png?raw=true)
 
 ## What is this about?
