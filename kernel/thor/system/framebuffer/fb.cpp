@@ -1,5 +1,4 @@
 
-#include <frigg/debug.hpp>
 #include <render-text.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/fiber.hpp>

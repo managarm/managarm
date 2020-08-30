@@ -1,6 +1,5 @@
 #include <assert.h>
 
-#include <frigg/debug.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/core.hpp>

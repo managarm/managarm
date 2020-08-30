@@ -1,6 +1,5 @@
 #include <stddef.h>
 #include <stdint.h>
-#include <frigg/debug.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/debug.hpp>
 

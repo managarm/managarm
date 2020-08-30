@@ -58,7 +58,7 @@ void Thread::migrateCurrent() {
 			lock.unlock();
 			localScheduler()->commit();
 			localScheduler()->invoke();
-		}, &this_thread->_executor, frigg::move(lock));
+		}, &this_thread->_executor, std::move(lock));
 	}, &this_thread->_executor);
 }
 
@@ -94,7 +94,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 				lock.unlock();
 				localScheduler()->commit();
 				localScheduler()->invoke();
-			}, &this_thread->_executor, frigg::move(lock));
+			}, &this_thread->_executor, std::move(lock));
 		}, &this_thread->_executor);
 	}
 }
@@ -385,7 +385,7 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 		_numTicks{0}, _activationTick{0},
 		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},
-		_universe{frigg::move(universe)}, _addressSpace{frigg::move(address_space)},
+		_universe{std::move(universe)}, _addressSpace{std::move(address_space)},
 		_affinityMask{*kernelAlloc} {
 	// TODO: Generate real UUIDs instead of ascending numbers.
 	uint64_t id = globalThreadId.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -395,8 +395,8 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 	_executorContext.associatedWorkQueue = &_mainWorkQueue;
 
 	auto stream = createStream();
-	_superiorLane = frigg::move(stream.get<0>());
-	_inferiorLane = frigg::move(stream.get<1>());
+	_superiorLane = std::move(stream.get<0>());
+	_inferiorLane = std::move(stream.get<1>());
 }
 
 Thread::~Thread() {

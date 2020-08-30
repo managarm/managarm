@@ -189,11 +189,6 @@ void KernelVirtualAlloc::unpoison_expand(void *pointer, size_t size) {
 }
 
 void KernelVirtualAlloc::poison(void *pointer, size_t size) {
-	if(reinterpret_cast<uintptr_t>(pointer) == 0xffffe00000ba8000
-			&& size == 0x20e0) {
-		frigg::infoLogger() << "CRITICAL MEMORY IS FREED" << frigg::endLog;
-		panic();
-	}
 	poisonKasanShadow(pointer, size);
 }
 
@@ -246,7 +241,7 @@ Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {
 	assert(guard.protects(&lock));
 
 	Handle handle = _nextHandle++;
-	_descriptorMap.insert(handle, frigg::move(descriptor));
+	_descriptorMap.insert(handle, std::move(descriptor));
 	return handle;
 }
 

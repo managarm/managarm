@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <frigg/debug.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 #include <thor-internal/fiber.hpp>

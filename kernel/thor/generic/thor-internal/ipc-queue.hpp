@@ -94,7 +94,7 @@ private:
 		: pointer{nullptr} { }
 
 		Chunk(smarter::shared_ptr<AddressSpace, BindableHandle> space_, void *pointer_)
-		: space{frigg::move(space_)}, pointer{pointer_}, bufferSize{4096} { }
+		: space{std::move(space_)}, pointer{pointer_}, bufferSize{4096} { }
 
 		// Pointer (+ address space) to queue chunk struct.
 		smarter::shared_ptr<AddressSpace, BindableHandle> space;

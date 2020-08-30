@@ -24,7 +24,7 @@ void IrqSlot::link(IrqPin *pin) {
 // --------------------------------------------------------
 
 IrqSink::IrqSink(frg::string<KernelAlloc> name)
-: _name{frigg::move(name)}, _pin{nullptr}, _currentSequence{0},
+: _name{std::move(name)}, _pin{nullptr}, _currentSequence{0},
 		_responseSequence{0}, _status{IrqStatus::null} { }
 
 IrqPin *IrqSink::getPin() {
@@ -298,7 +298,7 @@ void IrqPin::_updateMask() {
 // that happened before the object was created.
 // However this can result in spurious raises.
 IrqObject::IrqObject(frg::string<KernelAlloc> name)
-: IrqSink{frigg::move(name)} { }
+: IrqSink{std::move(name)} { }
 
 // TODO: Add a sequence parameter to this function and run the kernlet if the sequence advanced.
 //       This would prevent races between automate() and IRQs.

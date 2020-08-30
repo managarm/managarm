@@ -3,8 +3,8 @@
 #define FRIGG_MACHINE_HPP
 
 #include <frigg/macros.hpp>
-#include <frigg/cxx-support.hpp>
 #include <frigg/array.hpp>
+#include <frigg/c-support.h>
 
 namespace frigg FRIGG_VISIBILITY {
 namespace arch_x86 {

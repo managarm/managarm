@@ -953,7 +953,7 @@ void AddressSpaceLockHandle::load(size_t offset, void *pointer, size_t size) {
 	while(progress < size) {
 		VirtualAddr write = (VirtualAddr)_address + offset + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _resolvePhysical(write - misalign);
 		assert(page != PhysicalAddr(-1));
@@ -972,7 +972,7 @@ Error AddressSpaceLockHandle::write(size_t offset, const void *pointer, size_t s
 	while(progress < size) {
 		VirtualAddr write = (VirtualAddr)_address + offset + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _resolvePhysical(write - misalign);
 		assert(page != PhysicalAddr(-1));

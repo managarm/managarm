@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <frigg/c-support.h>
 
 #include <frg/optional.hpp>
 

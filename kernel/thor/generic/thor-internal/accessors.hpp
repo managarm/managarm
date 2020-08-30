@@ -123,10 +123,10 @@ public:
 	AnyBufferAccessor() { }
 
 	AnyBufferAccessor(KernelAccessor accessor)
-	: _variant(frigg::move(accessor)) { }
+	: _variant(std::move(accessor)) { }
 	
 	AnyBufferAccessor(AddressSpaceLockHandle accessor)
-	: _variant(frigg::move(accessor)) { }
+	: _variant(std::move(accessor)) { }
 
 	size_t length() {
 		return _variant.apply([&] (auto &accessor) -> size_t {

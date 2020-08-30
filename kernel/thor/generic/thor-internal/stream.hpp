@@ -366,7 +366,7 @@ struct SendBufferOperation : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagSendFromBuffer, this);
-		_inBuffer = frigg::move(s_.buffer);
+		_inBuffer = std::move(s_.buffer);
 
 		StreamList list;
 		list.push_back(this);

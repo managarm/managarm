@@ -2,9 +2,8 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/arch.hpp>
 
-#include <frigg/cxx-support.hpp>
-#include <frigg/traits.hpp>
-#include <frigg/initializer.hpp>
+#include <frg/utility.hpp>
+#include <frg/manual_box.hpp>
 #include <frigg/array.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/libc.hpp>
@@ -38,7 +37,7 @@ void createInitialRegion(address_t base, address_t size) {
 	auto limit = base + size;
 
 	// For now we do not touch memory that is required during boot.
-	address_t address = frigg::max(base, bootMemoryLimit);
+	address_t address = frg::max(base, bootMemoryLimit);
 
 	// Align address to 2 MiB.
 	// This ensures thor can allocate contiguous chunks of up to 2 MiB.
@@ -356,7 +355,7 @@ address_t loadKernelImage(void *image) {
 			if(pg < (uintptr_t)phdr.p_filesz)
 				memcpy(reinterpret_cast<void *>(backing),
 						reinterpret_cast<void *>((uintptr_t)image + (uintptr_t)phdr.p_offset + pg),
-						frigg::min(pageSize, (uintptr_t)phdr.p_filesz - pg));
+						frg::min(pageSize, (uintptr_t)phdr.p_filesz - pg));
 			mapSingle4kPage(phdr.p_vaddr + pg, backing, map_flags);
 			pg += pageSize;
 		}

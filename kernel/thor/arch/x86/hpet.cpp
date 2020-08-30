@@ -3,7 +3,6 @@
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <frg/intrusive.hpp>
-#include <frigg/debug.hpp>
 #include <lai/core.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/hpet.hpp>

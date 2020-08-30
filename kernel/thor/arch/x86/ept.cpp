@@ -203,7 +203,7 @@ Error EptSpace::store(uintptr_t guestAddress, size_t size, const void* buffer) {
 	while(progress < size) {
 		VirtualAddr write = guestAddress + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = translate(write - misalign);
 		if(page == PhysicalAddr(-1)) {
@@ -224,7 +224,7 @@ Error EptSpace::load(uintptr_t guestAddress, size_t size, void* buffer) {
 	while(progress < size) {
 		VirtualAddr write = guestAddress + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = translate(write - misalign);
 		if(page == PhysicalAddr(-1)) {

@@ -1,7 +1,5 @@
 #include <limits.h>
 
-#include <frigg/debug.hpp>
-#include <frigg/printf.hpp>
 #include <frg/allocation.hpp>
 #include <thor-internal/arch/paging.hpp>
 #ifdef __x86_64__

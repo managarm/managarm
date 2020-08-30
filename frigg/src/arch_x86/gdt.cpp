@@ -1,5 +1,5 @@
-
-#include <frigg/cxx-support.hpp>
+#include <stdint.h>
+#include <stddef.h>
 #include <frigg/arch_x86/gdt.hpp>
 
 namespace frigg {

@@ -98,7 +98,7 @@ HelError translateError(Error error) {
 HelError helLog(const char *string, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
-		auto chunk = frigg::min(length - offset, size_t{100});
+		auto chunk = frg::min(length - offset, size_t{100});
 
 		char buffer[100];
 		if(!readUserArray(string + offset, buffer, chunk))
@@ -962,7 +962,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frigg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{128});
 				co_await copyFromView(view.get(), address + progress, temp, chunk);
 
 				// Enter the submitter's work-queue so that we can access memory directly.
@@ -1007,7 +1007,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frigg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{128});
 				lockHandle.load(progress, temp, chunk);
 				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
 					error = Error::fault;
@@ -1107,7 +1107,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frigg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{128});
 
 				// Enter the submitter's work-queue so that we can access memory directly.
 				co_await submitThread->mainWorkQueue()->schedule();
@@ -1154,7 +1154,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frigg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{128});
 				if(!readUserMemory(temp,
 						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
 					error = Error::fault;
@@ -1599,7 +1599,7 @@ HelError helSubmitObserve(HelHandle handle, uint64_t inSeq,
 		}else if(interrupt >= kIntrSuperCall) {
 			helResult.observation = kHelObserveSuperCall + (interrupt - kIntrSuperCall);
 		}else{
-			frigg::panicLogger() << "Unexpected interrupt" << frigg::endLog;
+			thor::panicLogger() << "Unexpected interrupt" << frg::endlog;
 			__builtin_unreachable();
 		}
 		QueueSource ipcSource{&helResult, sizeof(HelObserveResult), nullptr};

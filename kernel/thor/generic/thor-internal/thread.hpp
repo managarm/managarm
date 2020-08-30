@@ -54,7 +54,7 @@ public:
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
 		auto thread = frg::construct<Thread>(*kernelAlloc,
-				frigg::move(universe), frigg::move(address_space), abi);
+				std::move(universe), std::move(address_space), abi);
 		frigg::SharedPtr<Thread> sptr{frigg::adoptShared, thread,
 				frigg::SharedControl{thread}};
 		thread->_mainWorkQueue.selfPtr = frigg::SharedPtr<WorkQueue>(sptr,

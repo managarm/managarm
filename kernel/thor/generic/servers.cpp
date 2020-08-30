@@ -193,16 +193,16 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 					image.get(), phdr.p_offset, phdr.p_filesz);
 
 			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
-					frigg::move(memory), 0, virt_length);
+					std::move(memory), 0, virt_length);
 
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				auto mapResult = co_await space->map(frigg::move(view),
+				auto mapResult = co_await space->map(std::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtWrite);
 				assert(mapResult);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				auto mapResult = co_await space->map(frigg::move(view),
+				auto mapResult = co_await space->map(std::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtExecute);
@@ -261,7 +261,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	auto stack_view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 			stack_memory, 0, stack_size);
 
-	auto mapResult = co_await space->map(frigg::move(stack_view), 0, 0, stack_size,
+	auto mapResult = co_await space->map(std::move(stack_view), 0, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
 				| AddressSpace::kMapProtWrite);
 	assert(mapResult);
@@ -341,7 +341,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	params.sp = mapResult.value() + tail_disp;
 	params.argument = 0;
 
-	auto thread = Thread::create(std::move(universe), frigg::move(space), params);
+	auto thread = Thread::create(std::move(universe), std::move(space), params);
 	thread->self = thread;
 	thread->flags |= Thread::kFlagServer;
 	

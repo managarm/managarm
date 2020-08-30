@@ -2,6 +2,7 @@
 #define FRIGG_ARCH_X86_TSS_HPP
 
 #include <frigg/macros.hpp>
+#include <stdint.h>
 
 namespace frigg FRIGG_VISIBILITY {
 namespace arch_x86 {

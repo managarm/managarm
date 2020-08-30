@@ -316,14 +316,14 @@ namespace posix {
 
 	struct Process {
 		Process(frg::string<KernelAlloc> name, frigg::SharedPtr<Thread> thread)
-		: _name{std::move(name)}, _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
+		: _name{std::move(name)}, _thread(std::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, 0x1000);
 		}
 
 		coroutine<void> setupAddressSpace() {
 			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
 					fileTableMemory, 0, 0x1000);
-			auto result = co_await _thread->getAddressSpace()->map(frigg::move(view),
+			auto result = co_await _thread->getAddressSpace()->map(std::move(view),
 					0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
 			assert(result);
@@ -452,7 +452,7 @@ namespace posix {
 					auto stream = createStream();
 					auto file = frg::construct<initrd::OpenDirectory>(*kernelAlloc,
 							static_cast<MfsDirectory *>(module));
-					file->clientLane = frigg::move(stream.get<1>());
+					file->clientLane = std::move(stream.get<1>());
 
 					async::detach_with_allocator(*kernelAlloc,
 							runDirectoryRequests(file, std::move(stream.get<0>())));
@@ -476,7 +476,7 @@ namespace posix {
 					auto stream = createStream();
 					auto file = frg::construct<initrd::OpenRegular>(*kernelAlloc,
 							static_cast<MfsRegular *>(module));
-					file->clientLane = frigg::move(stream.get<1>());
+					file->clientLane = std::move(stream.get<1>());
 
 					async::detach_with_allocator(*kernelAlloc,
 							runRegularRequests(file, std::move(stream.get<0>())));
@@ -722,7 +722,7 @@ void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 	KernelFiber::run([name, thread, controlLane = std::move(controlLane)] () mutable {
 		auto stdioStream = createStream();
 		auto stdioFile = frg::construct<StdioFile>(*kernelAlloc);
-		stdioFile->clientLane = frigg::move(stdioStream.get<1>());
+		stdioFile->clientLane = std::move(stdioStream.get<1>());
 
 		async::detach_with_allocator(*kernelAlloc,
 				stdio::runStdioRequests(stdioStream.get<0>()));

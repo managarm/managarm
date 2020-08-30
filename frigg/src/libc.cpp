@@ -1,6 +1,8 @@
-
-#include <frigg/cxx-support.hpp>
+#include <stddef.h>
+#include <stdint.h>
 #include <frigg/support.hpp>
+
+extern "C" {
 
 int isspace(int ch) {
 	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v';
@@ -181,6 +183,8 @@ char *strcat(char *dest, const char *src) {
 // GCC and Clang both recognize __builtin_memcpy() even with no optimizations.
 // If a compiler doesn't do this and translates to memcpy(), this will fail horribly.
 namespace {
+	extern "C++" {
+
 	template<typename T>
 	[[gnu::always_inline, gnu::artificial]]
 	inline T alias_load(const unsigned char *&p) {
@@ -196,6 +200,8 @@ namespace {
 		__builtin_memcpy(p, &value, sizeof(T));
 		p += sizeof(T);
 	}
+
+	} // extern "C++"
 }
 
 #ifdef __LP64__
@@ -338,3 +344,5 @@ void *memset(void *dest, int byte, size_t count) {
 }
 
 #endif // __LP64__ / !__LP64__
+
+} // extern "C"

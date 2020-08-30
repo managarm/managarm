@@ -33,7 +33,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 				lock.unlock();
 				localScheduler()->commit();
 				localScheduler()->invoke();
-			}, &this_fiber->_executor, frigg::move(lock));
+			}, &this_fiber->_executor, std::move(lock));
 		}, &this_fiber->_executor);
 	}
 }

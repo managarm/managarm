@@ -146,3 +146,14 @@ void OutputSink::print(const char *str) {
 }
 
 } // namespace thor
+
+extern "C" void __assert_fail(const char *assertion, const char *file,
+		unsigned int line, const char *function) {
+	thor::panicLogger() << "Assertion failed: " << assertion << "\n"
+			<< "In function " << function
+			<< " at " << file << ":" << line << frg::endlog;
+}
+
+extern "C" void __cxa_pure_virtual() {
+	thor::panicLogger() << "Pure virtual call" << frg::endlog;
+}

@@ -2,7 +2,6 @@
 #include <string.h>
 
 #include <frg/container_of.hpp>
-#include <frigg/debug.hpp>
 #include <thor-internal/core.hpp>
 #include <thor-internal/ipc-queue.hpp>
 
@@ -14,7 +13,7 @@ namespace thor {
 
 IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer,
 		unsigned int size_shift, size_t)
-: _space{frigg::move(space)}, _pointer{pointer}, _sizeShift{size_shift},
+: _space{std::move(space)}, _pointer{pointer}, _sizeShift{size_shift},
 		_chunks{*kernelAlloc},
 		_currentIndex{0}, _currentProgress{0}, _anyNodes{false} {
 	_chunks.resize(1 << _sizeShift);
@@ -32,7 +31,7 @@ void IpcQueue::setupChunk(size_t index, smarter::shared_ptr<AddressSpace, Bindab
 	auto lock = frg::guard(&_mutex);
 
 	assert(index < _chunks.size());
-	_chunks[index] = Chunk{frigg::move(space), pointer};
+	_chunks[index] = Chunk{std::move(space), pointer};
 }
 
 void IpcQueue::submit(IpcNode *node) {

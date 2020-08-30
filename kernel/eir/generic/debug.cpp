@@ -68,10 +68,13 @@ void PanicSink::operator()(const char *c) {
 
 } // namespace eir
 
-// Frigg glue functions
+extern "C" void __assert_fail(const char *assertion, const char *file,
+		unsigned int line, const char *function) {
+	eir::panicLogger() << "Assertion failed: " << assertion << "\n"
+			<< "In function " << function
+			<< " at " << file << ":" << line << frg::endlog;
+}
 
-void friggBeginLog() { }
-void friggEndLog() { }
-void friggPrintCritical(char c) { eir::infoSink.print(c); }
-void friggPrintCritical(char const *c) { eir::infoSink.print(c); }
-void friggPanic() { while(true); }
+extern "C" void __cxa_pure_virtual() {
+	eir::panicLogger() << "Pure virtual call" << frg::endlog;
+}

@@ -3,8 +3,9 @@
 #define FRIGG_STRING_HPP
 
 #include <frg/optional.hpp>
+#include <frg/utility.hpp>
 #include <frigg/macros.hpp>
-#include <frigg/debug.hpp>
+#include <frigg/c-support.h>
 
 namespace frigg FRIGG_VISIBILITY {
 
@@ -266,22 +267,6 @@ String<Allocator> uintToString(Allocator &allocator, T number, int radix = 10) {
 	return move(string);
 }
 
-template<typename P, typename Allocator>
-struct Print<P, String<Allocator>> {
-	static void print(P &printer, String<Allocator> string) {
-		for(size_t i = 0; i < string.size(); i++)
-			printer.print(string.data()[i]);
-	}
-};
-
-template<typename P>
-struct Print<P, StringView> {
-	static void print(P &printer, StringView string) {
-		for(size_t i = 0; i < string.size(); i++)
-			printer.print(string.data()[i]);
-	}
-};
-
 // ----------------------------------------------------------------------------
 
 template<typename T>
@@ -323,8 +308,8 @@ String<Pool> to_string(Pool &pool, T v, int radix = 10, size_t precision = 1,
 	}
 
 	String<Pool> result(pool);
-	auto len = max(precision, n);
-	result.resize(max(precision, n));
+	auto len = frg::max(precision, n);
+	result.resize(frg::max(precision, n));
 
 	for(size_t i = 0; i < len - n; i++)
 		result[i] = '0';

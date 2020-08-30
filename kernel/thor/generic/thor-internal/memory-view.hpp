@@ -737,7 +737,7 @@ inline auto copyToView(MemoryView *view, uintptr_t offset,
 						assert(range.get<1>() >= kPageSize);
 
 						auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-						size_t chunk = frigg::min(kPageSize - misalign, nd.size - nd.progress);
+						size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
 
 						auto physical = range.get<0>();
 						assert(physical != PhysicalAddr(-1));
@@ -792,7 +792,7 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 						assert(range.get<1>() >= kPageSize);
 
 						auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-						size_t chunk = frigg::min(kPageSize - misalign, nd.size - nd.progress);
+						size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
 
 						auto physical = range.get<0>();
 						assert(physical != PhysicalAddr(-1));
@@ -863,7 +863,7 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 						async::invocable([&nd] {
 							auto destMisalign = (nd.destOffset + nd.progress) % kPageSize;
 							auto srcMisalign = (nd.srcOffset + nd.progress) % kPageSize;
-							size_t chunk = frigg::min(frigg::min(kPageSize - destMisalign,
+							size_t chunk = frg::min(frg::min(kPageSize - destMisalign,
 									kPageSize - srcMisalign), nd.size - nd.progress);
 
 							auto destPhysical = nd.destRange.get<0>();

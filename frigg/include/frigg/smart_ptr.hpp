@@ -5,6 +5,7 @@
 #include <frigg/macros.hpp>
 #include <frigg/traits.hpp>
 #include <frg/allocation.hpp>
+#include <frigg/c-support.h>
 
 namespace frigg FRIGG_VISIBILITY {
 
@@ -20,7 +21,7 @@ namespace _shared_ptr {
 
 		template<typename... Args>
 		void construct(Args &&... args) {
-			new (&object) T(forward<Args>(args)...);
+			new (&object) T(std::forward<Args>(args)...);
 		}
 		
 		void destruct() {
@@ -162,7 +163,7 @@ struct SharedBlock final : public SharedCounter {
 	template<typename... Args>
 	SharedBlock(Allocator &allocator, Args &&... args)
 	: _allocator(allocator) {
-		_storage.construct(forward<Args>(args)...);
+		_storage.construct(std::forward<Args>(args)...);
 	}
 
 	T *get() {
@@ -446,7 +447,7 @@ UnsafePtr<T> staticPtrCast(UnsafePtr<U> pointer) {
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T> makeShared(Allocator &allocator, Args &&... args) {
 	auto block = frg::construct<SharedBlock<T, Allocator>>(allocator,
-			allocator, forward<Args>(args)...);
+			allocator, std::forward<Args>(args)...);
 	return SharedPtr<T>(adoptShared, block);
 
 }

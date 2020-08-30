@@ -1,5 +1,4 @@
 #include <arch/io_space.hpp>
-#include <frigg/debug.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
