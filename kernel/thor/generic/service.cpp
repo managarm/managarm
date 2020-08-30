@@ -1,7 +1,6 @@
 #include <bragi/helpers-frigg.hpp>
 #include <frg/span.hpp>
 #include <frg/string.hpp>
-#include <frigg/callback.hpp>
 #include <fs.frigg_bragi.hpp>
 #include <posix.frigg_bragi.hpp>
 #include <thor-internal/coroutine.hpp>

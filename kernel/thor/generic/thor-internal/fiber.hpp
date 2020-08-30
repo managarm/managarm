@@ -1,7 +1,6 @@
 #pragma once
 
 #include <frg/container_of.hpp>
-#include <frigg/callback.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/core.hpp>
 #include <thor-internal/schedule.hpp>

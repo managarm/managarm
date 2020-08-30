@@ -5,7 +5,6 @@
 #include <frg/hash_map.hpp>
 #include <frg/list.hpp>
 #include <frg/spinlock.hpp>
-#include <frigg/linked.hpp>
 #include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/kernel_heap.hpp>

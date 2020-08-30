@@ -3,7 +3,6 @@
 #include <frg/list.hpp>
 #include <frg/string.hpp>
 #include <frigg/debug.hpp>
-#include <frigg/linked.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/kernlet.hpp>

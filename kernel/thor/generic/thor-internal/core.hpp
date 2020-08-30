@@ -2,7 +2,6 @@
 
 #include <frg/hash_map.hpp>
 #include <frg/optional.hpp>
-#include <frigg/callback.hpp>
 #include <frigg/variant.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/error.hpp>
