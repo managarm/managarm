@@ -360,7 +360,7 @@ struct Mapping {
 	frigg::SharedPtr<MemoryView> view;
 	size_t viewOffset;
 
-	frigg::TicketLock evictMutex;
+	frg::ticket_spinlock evictMutex;
 };
 
 struct HoleLess {
@@ -805,7 +805,7 @@ private:
 
 	VirtualOperations *_ops;
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 	HoleTree _holes;
 	MappingTree _mappings;
 

@@ -126,8 +126,8 @@ void Stream::Submitter::run() {
 			assert(!(p & ~int(1)));
 			int q = 1 - p;
 
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&s->_mutex);
+			auto irq_lock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&s->_mutex);
 			assert(!s->_laneBroken[p]);
 
 			if(s->_laneShutDown[p]) {
@@ -214,8 +214,8 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 	> pending;
 
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&stream->_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&stream->_mutex);
 		assert(!stream->_laneBroken[lane]);
 
 		stream->_laneBroken[lane] = true;
@@ -252,8 +252,8 @@ void Stream::shutdownLane(int lane) {
 	> pendingOnThisLane, pendingOnOtherLane;
 
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 		assert(!_laneBroken[lane]);
 
 		_laneShutDown[lane] = true;

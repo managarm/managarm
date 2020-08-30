@@ -229,7 +229,7 @@ private:
 
 public:
 	void setAffinityMask(frg::vector<uint8_t, KernelAlloc> &&mask) {
-		auto lock = frigg::guard(&_mutex);
+		auto lock = frg::guard(&_mutex);
 		_affinityMask = std::move(mask);
 	}
 
@@ -239,7 +239,7 @@ public:
 	uint32_t flags;
 
 private:
-	typedef frigg::TicketLock Mutex;
+	typedef frg::ticket_spinlock Mutex;
 
 	enum RunState {
 		kRunNone,
@@ -265,8 +265,6 @@ private:
 		// Thread exited or was killed.
 		kRunTerminated
 	};
-
-	static void _blockLocked(frigg::LockGuard<Mutex> lock);
 
 	char _credentials[16];
 

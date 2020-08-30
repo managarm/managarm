@@ -67,10 +67,10 @@ private:
 	// Protects the cancel operation.
 	// This is indexed by the asyncId of the operation.
 	// Taken *before* _mapMutex.
-	frigg::TicketLock _cancelMutex[lockGranularity];
+	frg::ticket_spinlock _cancelMutex[lockGranularity];
 
 	// Protects the _nodeMap.
-	frigg::TicketLock _mapMutex;
+	frg::ticket_spinlock _mapMutex;
 
 	frg::hash_map<
 		uint64_t,

@@ -18,7 +18,7 @@ static bool debugLaunch = true;
 frigg::LazyInitializer<LaneHandle> mbusClient;
 static frigg::LazyInitializer<LaneHandle> futureMbusServer;
 
-frigg::TicketLock globalMfsMutex;
+frg::ticket_spinlock globalMfsMutex;
 
 extern MfsDirectory *mfsRoot;
 
@@ -41,8 +41,8 @@ void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
 
 coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
 		MfsRegular **out) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&globalMfsMutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&globalMfsMutex);
 
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
@@ -102,8 +102,8 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 }
 
 MfsNode *resolveModule(frg::string_view path) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&globalMfsMutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&globalMfsMutex);
 
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
@@ -280,12 +280,12 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	Handle xpipe_handle = 0;
 	Handle mbus_handle = 0;
 	if(xpipe_lane) {
-		auto lock = frigg::guard(&universe->lock);
+		auto lock = frg::guard(&universe->lock);
 		xpipe_handle = universe->attachDescriptor(lock,
 				LaneDescriptor(xpipe_lane));
 	}
 	if(mbus_lane) {
-		auto lock = frigg::guard(&universe->lock);
+		auto lock = frg::guard(&universe->lock);
 		mbus_handle = universe->attachDescriptor(lock,
 				LaneDescriptor(mbus_lane));
 	}

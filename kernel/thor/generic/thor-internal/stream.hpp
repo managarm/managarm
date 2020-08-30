@@ -201,7 +201,7 @@ private:
 
 	std::atomic<int> _peerCount[2];
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	// protected by _mutex.
 	frg::intrusive_list<

@@ -24,7 +24,7 @@ void Thread::migrateCurrent() {
 	auto this_thread = getCurrentThread().get();
 
 	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&this_thread->_mutex);
 
 	assert(this_thread->_runState == kRunActive);
 	getCpuData()->scheduler.update();
@@ -53,7 +53,7 @@ void Thread::migrateCurrent() {
 	localScheduler()->reschedule();
 
 	forkExecutor([&] {
-		runDetached([] (Continuation cont, Executor *executor, frigg::LockGuard<Mutex> lock) {
+		runDetached([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
 			scrubStack(executor, cont);
 			lock.unlock();
 			localScheduler()->commit();
@@ -69,7 +69,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 		WorkQueue::localQueue()->run();
 
 		StatelessIrqLock irq_lock;
-		auto lock = frigg::guard(&this_thread->_mutex);
+		auto lock = frg::guard(&this_thread->_mutex);
 
 		// Those are the important tests; they are protected by the thread's mutex.
 		if(blocker->_done)
@@ -89,7 +89,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 		this_thread->_uninvoke();
 
 		forkExecutor([&] {
-			runDetached([] (Continuation cont, Executor *executor, frigg::LockGuard<Mutex> lock) {
+			runDetached([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
 				scrubStack(executor, cont);
 				lock.unlock();
 				localScheduler()->commit();
@@ -103,7 +103,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 void Thread::deferCurrent() {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
@@ -115,7 +115,7 @@ void Thread::deferCurrent() {
 	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation, frigg::LockGuard<Mutex> lock) {
+	runDetached([] (Continuation, frg::unique_lock<Mutex> lock) {
 		lock.unlock();
 		localScheduler()->commit();
 		localScheduler()->invoke();
@@ -125,7 +125,7 @@ void Thread::deferCurrent() {
 void Thread::deferCurrent(IrqImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
@@ -138,7 +138,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation cont, IrqImageAccessor image, frigg::LockGuard<Mutex> lock) {
+	runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
 		lock.unlock();
 		localScheduler()->commit();
@@ -149,7 +149,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 void Thread::suspendCurrent(IrqImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
@@ -162,7 +162,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	getCpuData()->scheduler.reschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation cont, IrqImageAccessor image, frigg::LockGuard<Mutex> lock) {
+	runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
 		lock.unlock();
 		localScheduler()->commit();
@@ -173,7 +173,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&this_thread->_mutex);
 
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
@@ -190,7 +190,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	this_thread->_uninvoke();
 
 	runDetached([] (Continuation cont, FaultImageAccessor image,
-			Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
+			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
 		auto sequence = thread->_stateSeq;
@@ -212,7 +212,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&this_thread->_mutex);
 	
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
@@ -229,7 +229,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	this_thread->_uninvoke();
 
 	runDetached([] (Continuation cont, SyscallImageAccessor image,
-			Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
+			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
 		auto sequence = thread->_stateSeq;
@@ -251,7 +251,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 void Thread::raiseSignals(SyscallImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
-	auto lock = frigg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&this_thread->_mutex);
 
 	if(logTransitions)
 		infoLogger() << "thor: raiseSignals() in " << (void *)this_thread.get()
@@ -273,7 +273,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		this_thread->_uninvoke();
 
 		runDetached([] (Continuation cont, SyscallImageAccessor image,
-				Thread *thread, frigg::LockGuard<Mutex> lock) {
+				Thread *thread, frg::unique_lock<Mutex> lock) {
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
 
@@ -307,7 +307,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		this_thread->_uninvoke();
 
 		runDetached([] (Continuation cont, SyscallImageAccessor image,
-				Thread *thread, frigg::LockGuard<Mutex> lock) {
+				Thread *thread, frg::unique_lock<Mutex> lock) {
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
 			auto sequence = thread->_stateSeq;
@@ -329,8 +329,8 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 void Thread::unblockOther(ThreadBlocker *blocker) {
 	auto thread = blocker->_thread;
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&thread->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&thread->_mutex);
 
 	assert(!blocker->_done);
 	blocker->_done = true;
@@ -351,8 +351,8 @@ void Thread::killOther(frigg::UnsafePtr<Thread> thread) {
 }
 
 void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&thread->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&thread->_mutex);
 
 	// TODO: Perform the interrupt immediately if possible.
 
@@ -361,8 +361,8 @@ void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
 }
 
 Error Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&thread->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&thread->_mutex);
 
 	if(thread->_runState == kRunTerminated)
 		return Error::threadExited;
@@ -427,8 +427,8 @@ void Thread::observe_(uint64_t inSeq, ObserveNode *node) {
 	Interrupt interrupt;
 	uint64_t sequence;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		assert(inSeq <= _stateSeq);
 		if(inSeq == _stateSeq && _runState != kRunTerminated) {
@@ -468,7 +468,7 @@ smarter::borrowed_ptr<AddressSpace, BindableHandle> Thread::getAddressSpace() {
 
 void Thread::invoke() {
 	assert(!intsAreEnabled());
-	auto lock = frigg::guard(&_mutex);
+	auto lock = frg::guard(&_mutex);
 	
 	if(logRunStates)
 		infoLogger() << "thor: "
@@ -503,8 +503,8 @@ void Thread::_uninvoke() {
 }
 
 void Thread::_kill() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	if(_runState == kRunTerminated)
 		return;
@@ -531,8 +531,8 @@ void Thread::_kill() {
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_thread->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_thread->_mutex);
 
 	if(_thread->_runState != kRunBlocked)
 		return;

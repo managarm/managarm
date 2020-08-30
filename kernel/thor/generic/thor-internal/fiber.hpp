@@ -122,7 +122,7 @@ public:
 	}
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 	bool _blocked;
 
 	frigg::SharedPtr<AssociatedWorkQueue> _associatedWorkQueue;

@@ -107,8 +107,8 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(AddressSpaceLockHandle &lock, ptrdif
 
 struct Universe {
 public:
-	typedef frigg::TicketLock Lock;
-	typedef frigg::LockGuard<frigg::TicketLock> Guard;
+	typedef frg::ticket_spinlock Lock;
+	typedef frg::unique_lock<frg::ticket_spinlock> Guard;
 
 	Universe();
 	~Universe();

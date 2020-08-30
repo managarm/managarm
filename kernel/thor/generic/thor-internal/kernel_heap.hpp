@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/slab.hpp>
-#include <frigg/atomic.hpp>
+#include <frg/spinlock.hpp>
 #include <frigg/initializer.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/arch/stack.hpp>
@@ -15,11 +15,11 @@ struct IrqSpinlock {
 	void unlock();
 
 private:
-	frigg::TicketLock _spinlock;
+	frg::ticket_spinlock _spinlock;
 };
 
 struct KernelVirtualMemory {
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 public:
 	static KernelVirtualMemory &global();
 

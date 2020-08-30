@@ -203,7 +203,7 @@ private:
 
 	RetireNode * _retireNode = nullptr;
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	unsigned int _numBindings;
 
@@ -278,9 +278,9 @@ public:
 private:
 	PhysicalAddr _rootTable;
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
-	frigg::TicketLock _shootMutex;
+	frg::ticket_spinlock _shootMutex;
 
 	unsigned int _numBindings;
 
@@ -342,7 +342,7 @@ public:
 	bool isMapped(VirtualAddr pointer);
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 };
 
 void invalidatePage(const void *address);

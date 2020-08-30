@@ -4,7 +4,7 @@
 #include <frg/functional.hpp>
 #include <frg/hash_map.hpp>
 #include <frg/list.hpp>
-#include <frigg/atomic.hpp>
+#include <frg/spinlock.hpp>
 #include <frigg/linked.hpp>
 #include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/cancel.hpp>
@@ -63,8 +63,8 @@ struct Futex {
 		node->_address = address;
 		node->_cancellation = cancellation;
 
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 		assert(node->_state == FutexState::none);
 
 		if(!condition()) {
@@ -154,8 +154,8 @@ struct Futex {
 private:
 	void cancel(FutexNode *node) {
 		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
 
 			if(node->_state == FutexState::waiting) {
 				auto sit = _slots.get(node->_address);
@@ -190,8 +190,8 @@ public:
 			>
 		> pending;
 		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
 
 			auto sit = _slots.get(address);
 			if(!sit)
@@ -224,7 +224,7 @@ public:
 	}
 
 private:
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 
 	struct Slot {
 		frg::intrusive_list<

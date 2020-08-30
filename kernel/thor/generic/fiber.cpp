@@ -10,7 +10,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		this_fiber->_associatedWorkQueue->run();
 
 		StatelessIrqLock irq_lock;
-		auto lock = frigg::guard(&this_fiber->_mutex);
+		auto lock = frg::guard(&this_fiber->_mutex);
 		
 		// Those are the important tests; they are protected by the fiber's mutex.
 		if(blocker->_done)
@@ -28,7 +28,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 
 		forkExecutor([&] {
 			runDetached([] (Continuation cont, Executor *executor,
-					frigg::LockGuard<frigg::TicketLock> lock) {
+					frg::unique_lock<frg::ticket_spinlock> lock) {
 				scrubStack(executor, cont);
 				lock.unlock();
 				localScheduler()->commit();
@@ -48,8 +48,8 @@ void KernelFiber::exitCurrent() {
 
 void KernelFiber::unblockOther(FiberBlocker *blocker) {
 	auto fiber = blocker->_fiber;
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&fiber->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&fiber->_mutex);
 
 	assert(!blocker->_done);
 	blocker->_done = true;
@@ -99,8 +99,8 @@ void KernelFiber::invoke() {
 }
 
 void KernelFiber::AssociatedWorkQueue::wakeup() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&fiber_->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&fiber_->_mutex);
 
 	if(!fiber_->_blocked)
 		return;

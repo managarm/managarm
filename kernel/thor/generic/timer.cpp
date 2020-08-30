@@ -19,8 +19,8 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 	assert(!timer->_engine);
 	timer->_engine = this;
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 	assert(timer->_state == TimerState::none);
 
 	if(logTimers) {
@@ -46,8 +46,8 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 }
 
 void PrecisionTimerEngine::cancelTimer(PrecisionTimerNode *timer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	if(timer->_state == TimerState::queued) {
 		_timerQueue.remove(timer);
@@ -62,8 +62,8 @@ void PrecisionTimerEngine::cancelTimer(PrecisionTimerNode *timer) {
 }
 
 void PrecisionTimerEngine::firedAlarm() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	_progress();
 }

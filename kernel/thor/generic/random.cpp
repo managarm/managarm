@@ -48,7 +48,7 @@ struct Fortuna {
 		auto k = seqNum & (numPools - 1);
 		auto pool = &pools_[k];
 		{
-			auto poolLock = frigg::guard(&pool->poolMutex);
+			auto poolLock = frg::guard(&pool->poolMutex);
 
 			cralgo::sha256_update(&pool->entropyHash, prefix, 2);
 			cralgo::sha256_update(&pool->entropyHash, (const uint8_t *)buffer, size);
@@ -64,7 +64,7 @@ struct Fortuna {
 		cralgo::sha2_32_secrets keyHash;
 		uint8_t tempDigest[keySize];
 
-		auto generatorLock = frigg::guard(&generatorMutex_);
+		auto generatorLock = frg::guard(&generatorMutex_);
 
 		// First, hash in the current block cipher key.
 		cralgo::sha256_clear(&keyHash);
@@ -85,7 +85,7 @@ struct Fortuna {
 		// we need 64 bytes until we reach 128 bits of entropy.
 		const size_t entropyThreshold = 64;
 
-		auto generatorLock = frigg::guard(&generatorMutex_);
+		auto generatorLock = frg::guard(&generatorMutex_);
 
 		if(injectedIntoPoolZero_.load(std::memory_order_acquire) >= entropyThreshold) {
 			infoLogger() << "thor: Reseeding PRNG from entropy accumulator" << frg::endlog;
@@ -104,7 +104,7 @@ struct Fortuna {
 					break;
 				auto pool = &pools_[k];
 				{
-					auto poolLock = frigg::guard(&pool->poolMutex);
+					auto poolLock = frg::guard(&pool->poolMutex);
 
 					cralgo::sha256_finalize(&pool->entropyHash, tempDigest);
 					cralgo::sha256_clear(&pool->entropyHash);

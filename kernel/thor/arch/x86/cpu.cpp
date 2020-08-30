@@ -782,7 +782,7 @@ void bootSecondary(unsigned int apic_id) {
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	{
-		auto irqLock = frigg::guard(&irqMutex());
+		auto irqLock = frg::guard(&irqMutex());
 
 		context->globalBinding.bind();
 	}

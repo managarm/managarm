@@ -17,14 +17,14 @@ constinit frg::stack_buffer_logger<PanicSink> panicLogger;
 static constinit IrqSpinlock logMutex;
 
 void LogSink::operator() (const char *msg) {
-	auto lock = frigg::guard(&logMutex);
+	auto lock = frg::guard(&logMutex);
 	infoSink.print(msg);
 	infoSink.print('\n');
 }
 
 void PanicSink::operator() (const char *msg) {
 	{
-		auto lock = frigg::guard(&logMutex);
+		auto lock = frg::guard(&logMutex);
 		infoSink.print(msg);
 		infoSink.print('\n');
 	}

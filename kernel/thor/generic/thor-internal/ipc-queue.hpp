@@ -87,7 +87,7 @@ private:
 		>
 	>;
 
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 
 	struct Chunk {
 		Chunk()

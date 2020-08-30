@@ -12,8 +12,8 @@ CancelRegistry::CancelRegistry()
 void CancelRegistry::registerNode(CancelNode *node) {
 	assert(!node->_registry && !node->_asyncId);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mapMutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mapMutex);
 
 	uint64_t id = _nextAsyncId++;
 	_nodeMap.insert(id, node);
@@ -26,22 +26,22 @@ void CancelRegistry::unregisterNode(CancelNode *node) {
 	assert(node->_registry.get() == this && node->_asyncId);
 	auto async_id = node->_asyncId;
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto cancel_lock = frigg::guard(&_cancelMutex[async_id % lockGranularity]);
-	auto map_lock = frigg::guard(&_mapMutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto cancel_lock = frg::guard(&_cancelMutex[async_id % lockGranularity]);
+	auto map_lock = frg::guard(&_mapMutex);
 
 	_nodeMap.remove(async_id);
 }
 
 void CancelRegistry::cancel(uint64_t async_id) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto cancel_lock = frigg::guard(&_cancelMutex[async_id % lockGranularity]);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto cancel_lock = frg::guard(&_cancelMutex[async_id % lockGranularity]);
 
 	// Hold the map mutex only to get a pointer to the node.
 	// In particular, release it before calling handleCancellation().
 	CancelNode *node;
 	{
-		auto map_lock = frigg::guard(&_mapMutex);
+		auto map_lock = frg::guard(&_mapMutex);
 
 		// TODO: Return an error in this case.
 		assert(async_id && async_id < _nextAsyncId);

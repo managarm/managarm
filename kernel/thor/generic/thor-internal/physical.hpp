@@ -2,7 +2,7 @@
 
 #include <atomic>
 
-#include <frigg/atomic.hpp>
+#include <frg/spinlock.hpp>
 #include <frigg/initializer.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/types.hpp>
@@ -26,7 +26,7 @@ public:
 };
 
 class PhysicalChunkAllocator {
-	typedef frigg::TicketLock Mutex;
+	typedef frg::ticket_spinlock Mutex;
 public:
 	PhysicalChunkAllocator();
 	

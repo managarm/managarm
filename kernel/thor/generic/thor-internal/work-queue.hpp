@@ -5,7 +5,7 @@
 #include <async/basic.hpp>
 #include <frg/container_of.hpp>
 #include <frg/list.hpp>
-#include <frigg/atomic.hpp>
+#include <frg/spinlock.hpp>
 #include <frigg/smart_ptr.hpp>
 
 namespace thor {
@@ -112,7 +112,7 @@ private:
 		>
 	> _pending;
 	
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	std::atomic<bool> _anyPosted;
 

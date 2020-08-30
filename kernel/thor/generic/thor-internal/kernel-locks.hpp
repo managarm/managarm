@@ -2,6 +2,7 @@
 
 #include <thor-internal/arch/ints.hpp>
 #include <atomic>
+#include <frg/mutex.hpp>
 
 namespace thor {
 
@@ -64,7 +65,7 @@ struct StatelessIrqLock {
 		lock();
 	}
 
-	StatelessIrqLock(frigg::DontLock)
+	StatelessIrqLock(frg::dont_lock_t)
 	: _locked{false} { }
 
 	StatelessIrqLock(const StatelessIrqLock &) = delete;

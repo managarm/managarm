@@ -71,7 +71,7 @@ private:
 	GlobalAlarmSlot _globalAlarmInstance;
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	uint64_t _globalDeadline;
 };

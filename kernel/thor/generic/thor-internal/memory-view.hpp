@@ -226,8 +226,8 @@ private:
 
 struct EvictionQueue {
 	void addObserver(MemoryObserver *observer) {
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&mutex_);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
 
 		observer->agent_.attach(&mechanism_);
 		observers_.push_back(observer);
@@ -235,8 +235,8 @@ struct EvictionQueue {
 	}
 
 	void removeObserver(MemoryObserver *observer) {
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&mutex_);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
 
 		observer->agent_.detach();
 		auto it = observers_.iterator_to(observer);
@@ -253,7 +253,7 @@ struct EvictionQueue {
 	}
 
 private:
-	frigg::TicketLock mutex_;
+	frg::ticket_spinlock mutex_;
 
 	frg::intrusive_list<
 		MemoryObserver,
@@ -934,7 +934,7 @@ struct AllocatedMemory final : MemoryView {
 	void markDirty(uintptr_t offset, size_t size) override;
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	frg::vector<PhysicalAddr, KernelAlloc> _physicalChunks;
 	int _addressBits;
@@ -984,7 +984,7 @@ struct ManagedSpace : CacheBundle {
 	void _progressManagement(ManageList &pending);
 	void _progressMonitors();
 
-	frigg::TicketLock mutex;
+	frg::ticket_spinlock mutex;
 
 	frg::rcu_radixtree<ManagedPage, KernelAlloc> pages;
 
@@ -1088,7 +1088,7 @@ private:
 		MemoryObserver observer;
 	};
 
-	frigg::TicketLock mutex_;
+	frg::ticket_spinlock mutex_;
 	frg::vector<smarter::shared_ptr<IndirectionSlot>, KernelAlloc> indirections_;
 };
 
@@ -1098,7 +1098,7 @@ struct CowChain {
 	~CowChain();
 
 // TODO: Either this private again or make this class POD-like.
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	frigg::SharedPtr<CowChain> _superChain;
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
@@ -1139,7 +1139,7 @@ private:
 		unsigned int lockCount = 0;
 	};
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	frigg::SharedPtr<MemoryView> _view;
 	uintptr_t _viewOffset;

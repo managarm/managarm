@@ -111,8 +111,8 @@ void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
 	assert(apicIsCalibrated);
 
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&globalApicContext()->_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&globalApicContext()->_mutex);
 		globalApicContext()->_globalDeadline = nanos;
 	}
 	LocalApicContext::_updateLocalTimer();
@@ -146,8 +146,8 @@ void LocalApicContext::handleTimerIrq() {
 
 		// Update the global deadline to avoid calling fireAlarm() on the next IRQ.
 		{
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&globalApicContext()->_mutex);
+			auto irq_lock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&globalApicContext()->_mutex);
 			localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
 		}
 	}
@@ -166,8 +166,8 @@ void LocalApicContext::_updateLocalTimer() {
 
 	// Copy the global deadline so we can access it without locking.
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&globalApicContext()->_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&globalApicContext()->_mutex);
 		localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
 	}
 

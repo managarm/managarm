@@ -65,8 +65,8 @@ KernelVirtualMemory::KernelVirtualMemory() {
 }
 
 void *KernelVirtualMemory::allocate(size_t length) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	// TODO: use a smarter implementation here.
 	int order = 0;
@@ -94,8 +94,8 @@ void *KernelVirtualMemory::allocate(size_t length) {
 }
 
 void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	// TODO: use a smarter implementation here.
 	int order = 0;
@@ -268,7 +268,7 @@ frg::optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle han
 // Frigg glue functions
 // --------------------------------------------------------
 
-frigg::TicketLock logLock;
+frg::ticket_spinlock logLock;
 
 void friggBeginLog() {
 	thor::irqMutex().lock();

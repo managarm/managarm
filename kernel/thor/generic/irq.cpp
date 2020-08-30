@@ -36,8 +36,8 @@ IrqPin *IrqSink::getPin() {
 // --------------------------------------------------------
 
 void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&pin->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&pin->_mutex);
 	assert(!sink->_pin);
 
 	// TODO: Decide what to do in this case.
@@ -53,8 +53,8 @@ Error IrqPin::ackSink(IrqSink *sink, uint64_t sequence) {
 	auto pin = sink->getPin();
 	assert(pin);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&pin->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&pin->_mutex);
 	assert(sink->currentSequence() == pin->_sinkSequence);
 
 	if(sequence <= sink->_responseSequence)
@@ -88,8 +88,8 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 	auto pin = sink->getPin();
 	assert(pin);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&pin->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&pin->_mutex);
 	assert(sink->currentSequence() == pin->_sinkSequence);
 	
 	if(sequence <= sink->_responseSequence)
@@ -112,8 +112,8 @@ Error IrqPin::kickSink(IrqSink *sink) {
 	auto pin = sink->getPin();
 	assert(pin);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&pin->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&pin->_mutex);
 	
 	pin->_kick();
 	return Error::success;
@@ -131,8 +131,8 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 void IrqPin::configure(IrqConfiguration desired) {
 	assert(desired.specified());
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	if(!_activeCfg.specified()) {
 		infoLogger() << "thor: Configuring IRQ " << _name
@@ -153,7 +153,7 @@ void IrqPin::configure(IrqConfiguration desired) {
 
 void IrqPin::raise() {
 	assert(!intsAreEnabled());
-	auto lock = frigg::guard(&_mutex);
+	auto lock = frg::guard(&_mutex);
 	
 	if(_strategy == IrqStrategy::null) {
 		infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frg::endlog;
@@ -230,8 +230,8 @@ void IrqPin::_kick() {
 }
 
 void IrqPin::warnIfPending() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	if(!_inService || !_dueSinks)
 		return;
@@ -263,7 +263,7 @@ void IrqPin::_callSinks() {
 				<< _name << "\e[39m" << frg::endlog;
 
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
-		auto lock = frigg::guard(&(*it)->_mutex);
+		auto lock = frg::guard(&(*it)->_mutex);
 		(*it)->_currentSequence = _sinkSequence;
 		auto status = (*it)->raise();
 
@@ -329,8 +329,8 @@ IrqStatus IrqObject::raise() {
 }
 
 void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(sinkMutex());
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(sinkMutex());
 
 	assert(sequence <= currentSequence());
 	if(sequence < currentSequence()) {

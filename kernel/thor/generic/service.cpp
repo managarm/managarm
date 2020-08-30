@@ -339,8 +339,8 @@ namespace posix {
 		}
 
 		void attachControl(LaneHandle lane) {
-			auto irq_lock = frigg::guard(&irqMutex());
-			Universe::Guard universe_guard(&_thread->getUniverse()->lock);
+			auto irq_lock = frg::guard(&irqMutex());
+			Universe::Guard universe_guard(_thread->getUniverse()->lock);
 
 			controlHandle = _thread->getUniverse()->attachDescriptor(universe_guard,
 					LaneDescriptor{lane});
@@ -349,8 +349,8 @@ namespace posix {
 		coroutine<int> attachFile(OpenFile *file) {
 			Handle handle;
 			{
-				auto irq_lock = frigg::guard(&irqMutex());
-				Universe::Guard universe_guard(&_thread->getUniverse()->lock);
+				auto irq_lock = frg::guard(&irqMutex());
+				Universe::Guard universe_guard(_thread->getUniverse()->lock);
 
 				handle = _thread->getUniverse()->attachDescriptor(universe_guard,
 						LaneDescriptor(file->clientLane));

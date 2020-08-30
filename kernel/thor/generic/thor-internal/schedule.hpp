@@ -5,7 +5,7 @@
 
 #include <frg/list.hpp>
 #include <frg/pairing_heap.hpp>
-#include <frigg/atomic.hpp>
+#include <frg/spinlock.hpp>
 
 namespace thor {
 
@@ -44,7 +44,7 @@ struct ScheduleEntity {
 	[[ noreturn ]] virtual void invoke() = 0;
 
 private:
-	frigg::TicketLock _associationMutex;
+	frg::ticket_spinlock _associationMutex;
 	Scheduler *_scheduler;
 
 	ScheduleState state;
@@ -149,7 +149,7 @@ private:
 	// ----------------------------------------------------------------------------------
 
 	// Note that _mutex *only* protects _pendingList and nothing more!
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	frg::intrusive_list<
 		ScheduleEntity,

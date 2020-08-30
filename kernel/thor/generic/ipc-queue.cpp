@@ -28,8 +28,8 @@ bool IpcQueue::validSize(size_t size) {
 }
 
 void IpcQueue::setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	assert(index < _chunks.size());
 	_chunks[index] = Chunk{frigg::move(space), pointer};
@@ -37,8 +37,8 @@ void IpcQueue::setupChunk(size_t index, smarter::shared_ptr<AddressSpace, Bindab
 
 void IpcQueue::submit(IpcNode *node) {
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		assert(!node->_queueNode.in_list);
 		node->_queue = this;
@@ -89,8 +89,8 @@ coroutine<void> IpcQueue::_runQueue() {
 		// Lock the chunk.
 		Chunk *currentChunk;
 		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
 
 			size_t iq = + _currentIndex & ((size_t{1} << _sizeShift) - 1);
 			size_t cn = queueLock.read<int>(offsetof(QueueStruct, indexQueue) + iq * sizeof(int));
@@ -115,8 +115,8 @@ coroutine<void> IpcQueue::_runQueue() {
 			IpcNode *node;
 			uintptr_t progress;
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_mutex);
 
 				assert(!_nodeQueue.empty());
 				node = _nodeQueue.front();
@@ -180,8 +180,8 @@ coroutine<void> IpcQueue::_runQueue() {
 
 			// Update our internal state and retire the chunk.
 			if(!emitElement) {
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_mutex);
 
 				_currentIndex = ((_currentIndex + 1) & kHeadMask);
 				_currentProgress = 0;
@@ -190,8 +190,8 @@ coroutine<void> IpcQueue::_runQueue() {
 
 			// Update our internal state and retire the node.
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_mutex);
 
 				_currentProgress += sizeof(ElementStruct) + length;
 				_nodeQueue.pop_front();

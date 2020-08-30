@@ -233,8 +233,8 @@ coroutine<void> Mapping::runEvictionLoop() {
 		// Wait until we are allowed to evict existing pages.
 		// TODO: invent a more specialized synchronization mechanism for this.
 		{
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&evictMutex);
+			auto irq_lock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&evictMutex);
 		}
 
 		// TODO: Perform proper locking here!
@@ -345,8 +345,8 @@ void VirtualSpace::retire() {
 }
 
 smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto space_guard = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto space_guard = frg::guard(&_mutex);
 
 	return _findMapping(address);
 }
@@ -364,8 +364,8 @@ bool VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 
 	VirtualAddr actualAddress;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto spaceLock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto spaceLock = frg::guard(&_mutex);
 
 		if(flags & kMapFixed) {
 			assert(address);
@@ -436,8 +436,8 @@ bool VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 
 		{
 			// Synchronize with the eviction loop.
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&mapping->evictMutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mapping->evictMutex);
 
 			for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 				auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
@@ -486,8 +486,8 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 		assert(!(flags & mask));
 	}
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto space_guard = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto space_guard = frg::guard(&_mutex);
 
 	auto mapping = _findMapping(address);
 	assert(mapping);
@@ -509,8 +509,8 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 
 	{
 		// Synchronize with the eviction loop.
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&mapping->evictMutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mapping->evictMutex);
 
 		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
@@ -541,8 +541,8 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		mapping = _findMapping(address);
 		assert(mapping);
@@ -668,8 +668,8 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode
 		while(overallProgress < alignedSize) {
 			smarter::shared_ptr<Mapping> mapping;
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto spaceGuard = frigg::guard(&self->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto spaceGuard = frg::guard(&self->_mutex);
 
 				mapping = self->_findMapping(alignedAddress + overallProgress);
 			}
@@ -683,8 +683,8 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode
 
 			// Synchronize with the eviction loop.
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&mapping->evictMutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&mapping->evictMutex);
 
 				for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
 						chunkProgress += kPageSize) {
@@ -709,8 +709,8 @@ frg::optional<bool>
 VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *node) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto space_guard = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto space_guard = frg::guard(&_mutex);
 
 		mapping = _findMapping(address);
 	}

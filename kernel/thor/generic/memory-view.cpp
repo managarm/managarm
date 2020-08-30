@@ -24,8 +24,8 @@ extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFi
 struct MemoryReclaimer {
 	void addPage(CachePage *page) {
 		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		// The reclaimer owns one reference to the page.
 		// This ensures that it can safely initiate uncaching operations.
@@ -39,8 +39,8 @@ struct MemoryReclaimer {
 
 	void bumpPage(CachePage *page) {
 		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
 			auto it = _lruList.iterator_to(page);
@@ -57,8 +57,8 @@ struct MemoryReclaimer {
 
 	void removePage(CachePage *page) {
 		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
 			auto it = _lruList.iterator_to(page);
@@ -82,8 +82,8 @@ struct MemoryReclaimer {
 			// TODO: We have to acquire a refcount here.
 			CachePage *page;
 			{
-				auto irq_lock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&_mutex);
+				auto irq_lock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_mutex);
 
 				if(_lruList.empty())
 					return false;
@@ -138,8 +138,8 @@ struct MemoryReclaimer {
 		return KernelFiber::post([=] {
 			while(true) {
 				if(logUncaching) {
-					auto irq_lock = frigg::guard(&irqMutex());
-					auto lock = frigg::guard(&_mutex);
+					auto irq_lock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&_mutex);
 					infoLogger() << "thor: " << (_cachedSize / 1024)
 							<< " KiB of cached pages" << frg::endlog;
 				}
@@ -152,7 +152,7 @@ struct MemoryReclaimer {
 	}
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	frg::intrusive_list<
 		CachePage,
@@ -299,8 +299,8 @@ AllocatedMemory::~AllocatedMemory() {
 }
 
 void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	assert(!(newSize % _chunkSize));
 	size_t num_chunks = newSize / _chunkSize;
@@ -325,8 +325,8 @@ void AllocatedMemory::unlockRange(uintptr_t offset, size_t size) {
 frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto index = offset / _chunkSize;
 	auto disp = offset & (_chunkSize - 1);
@@ -339,8 +339,8 @@ frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offse
 }
 
 bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto index = offset / _chunkSize;
 	auto disp = offset & (_chunkSize - 1);
@@ -369,8 +369,8 @@ void AllocatedMemory::markDirty(uintptr_t offset, size_t size) {
 }
 
 size_t AllocatedMemory::getLength() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	return _physicalChunks.size() * _chunkSize;
 }
@@ -393,8 +393,8 @@ ManagedSpace::~ManagedSpace() {
 bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	ManagedPage *pit;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
 
 		size_t index = page->identity;
 		pit = pages.find(index);
@@ -410,8 +410,8 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 			ReclaimNode *continuation) -> coroutine<void> {
 		co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
 
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&self->mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&self->mutex);
 
 		if(pit->loadState != kStateEvicting)
 			co_return;
@@ -436,8 +436,8 @@ void ManagedSpace::retirePage(CachePage *page) {
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
 Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
 	if((offset + size) / kPageSize > numPages)
 		return Error::bufferTooSmall;
 
@@ -461,8 +461,8 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
 void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
 	assert((offset + size) / kPageSize <= numPages);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
@@ -483,8 +483,8 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 void ManagedSpace::submitManagement(ManageNode *node) {
 	ManageList pending;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
 
 		_managementQueue.push_back(node);
 		_progressManagement(pending);
@@ -499,8 +499,8 @@ void ManagedSpace::submitManagement(ManageNode *node) {
 void ManagedSpace::submitMonitor(MonitorNode *node) {
 	node->progress = 0;
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
 
 	assert(node->offset % kPageSize == 0);
 	assert(node->length % kPageSize == 0);
@@ -611,8 +611,8 @@ void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 			async::any_receiver<void> receiver) -> coroutine<void> {
 		size_t oldPages;
 		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_managed->mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&self->_managed->mutex);
 
 			oldPages = self->_managed->numPages;
 			self->_managed->numPages = newPages;
@@ -645,8 +645,8 @@ void BackingMemory::unlockRange(uintptr_t offset, size_t size) {
 frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 
 	auto index = offset / kPageSize;
 	assert(index < _managed->numPages);
@@ -658,8 +658,8 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 }
 
 bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
@@ -698,8 +698,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	assert((offset % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 	assert((offset + length) / kPageSize <= _managed->numPages);
 
 /*	assert(length == kPageSize);
@@ -765,8 +765,8 @@ void FrontalMemory::unlockRange(uintptr_t offset, size_t size) {
 frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 
 	auto index = offset / kPageSize;
 	assert(index < _managed->numPages);
@@ -780,8 +780,8 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	ManageList pending;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_managed->mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
 
 		auto index = offset >> kPageShift;
 		auto misalign = offset & (kPageSize - 1);
@@ -846,8 +846,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				auto closure = frg::container_of(worklet, &Closure::worklet);
 				assert(closure->initiate.error() == Error::success);
 
-				auto irq_lock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&closure->bundle->mutex);
+				auto irq_lock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&closure->bundle->mutex);
 
 				auto misalign = closure->offset & (kPageSize - 1);
 				assert(closure->page->loadState == ManagedSpace::kStatePresent);
@@ -891,8 +891,8 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 
 	ManageList pending;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_managed->mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
 
 		// Put the pages into the dirty state.
 		for(size_t pg = 0; pg < size; pg += kPageSize) {
@@ -934,8 +934,8 @@ void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
 	ManageList pending;
 	{
 		// TODO: This assumes that we want to load the range (which might not be true).
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_managed->mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
 
 		assert(node->offset % kPageSize == 0);
 		assert(node->length % kPageSize == 0);
@@ -974,8 +974,8 @@ IndirectMemory::~IndirectMemory() {
 }
 
 frg::expected<Error, AddressIdentity> IndirectMemory::getAddressIdentity(uintptr_t offset) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -987,8 +987,8 @@ frg::expected<Error, AddressIdentity> IndirectMemory::getAddressIdentity(uintptr
 }
 
 Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1003,8 +1003,8 @@ Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
 }
 
 void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1016,8 +1016,8 @@ void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
 }
 
 frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1028,8 +1028,8 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 }
 
 bool IndirectMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1040,8 +1040,8 @@ bool IndirectMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 }
 
 void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1058,8 +1058,8 @@ size_t IndirectMemory::getLength() {
 
 Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> memory,
 		uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	if(slot >= indirections_.size())
 		return Error::outOfBounds;
@@ -1108,8 +1108,8 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 	// Therefore, they are special-cased below.
 	frigg::SharedPtr<CopyOnWriteMemory> forked;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		// Create a new CowChain for both the original and the forked mapping.
 		// To correct handle locks pages, we move only non-locked pages from
@@ -1194,8 +1194,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			bool waitForCopy = false;
 			{
 				// If the page is present in our private chain, we just return it.
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&self->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->_mutex);
 
 				cowIt = self->_ownedPages.find(offset >> kPageShift);
 				if(cowIt) {
@@ -1225,8 +1225,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 				do {
 					stillWaiting = co_await self->_copyEvent.async_wait_if([&] () -> bool {
 						// TODO: this could be faster if cowIt->state was atomic.
-						auto irqLock = frigg::guard(&irqMutex());
-						auto lock = frigg::guard(&self->_mutex);
+						auto irqLock = frg::guard(&irqMutex());
+						auto lock = frg::guard(&self->_mutex);
 
 						if(cowIt->state == CowState::inProgress)
 							return true;
@@ -1237,8 +1237,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 				} while(stillWaiting);
 
 				{
-					auto irqLock = frigg::guard(&irqMutex());
-					auto lock = frigg::guard(&self->_mutex);
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&self->_mutex);
 
 					assert(cowIt->state == CowState::hasCopy);
 					cowIt->lockCount++;
@@ -1254,8 +1254,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			// Try to copy from a descendant CoW chain.
 			auto pageOffset = viewOffset + offset;
 			while(chain) {
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&chain->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&chain->_mutex);
 
 				if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
 					// We can just copy synchronously here -- the descendant is not evicted.
@@ -1280,8 +1280,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			co_await self->_evictQueue.evictRange(offset & ~(kPageSize - 1), kPageSize);
 
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&self->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->_mutex);
 
 				assert(cowIt->state == CowState::inProgress);
 				cowIt->state = CowState::hasCopy;
@@ -1297,8 +1297,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 }
 
 void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		auto it = _ownedPages.find((offset + pg) >> kPageShift);
@@ -1310,8 +1310,8 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 }
 
 frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t offset) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 		assert(it->state == CowState::hasCopy);
@@ -1333,8 +1333,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		bool waitForCopy = false;
 		{
 			// If the page is present in our private chain, we just return it.
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&self->_mutex);
 
 			cowIt = self->_ownedPages.find(offset >> kPageShift);
 			if(cowIt) {
@@ -1364,8 +1364,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			do {
 				stillWaiting = co_await self->_copyEvent.async_wait_if([&] () -> bool {
 					// TODO: this could be faster if cowIt->state was atomic.
-					auto irqLock = frigg::guard(&irqMutex());
-					auto lock = frigg::guard(&self->_mutex);
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&self->_mutex);
 
 					if(cowIt->state == CowState::inProgress)
 						return true;
@@ -1387,8 +1387,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		// Try to copy from a descendant CoW chain.
 		auto pageOffset = viewOffset + offset;
 		while(chain) {
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&chain->_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&chain->_mutex);
 
 			if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
 				// We can just copy synchronously here -- the descendant is not evicted.
@@ -1413,8 +1413,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		co_await self->_evictQueue.evictRange(offset, kPageSize);
 
 		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&self->_mutex);
 
 			assert(cowIt->state == CowState::inProgress);
 			cowIt->state = CowState::hasCopy;

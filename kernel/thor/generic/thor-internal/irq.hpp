@@ -108,7 +108,7 @@ struct IrqSink {
 	frg::default_list_hook<IrqSink> hook;
 
 protected:
-	frigg::TicketLock *sinkMutex() {
+	frg::ticket_spinlock *sinkMutex() {
 		return &_mutex;
 	}
 
@@ -123,7 +123,7 @@ private:
 	IrqPin *_pin;
 	
 	// Must be protected against IRQs.
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	// The following fields are protected by pin->_mutex and _mutex.
 private:
@@ -191,7 +191,7 @@ private:
 	frg::string<KernelAlloc> _name;
 
 	// Must be protected against IRQs.
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	IrqConfiguration _activeCfg;
 

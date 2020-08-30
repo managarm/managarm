@@ -4,7 +4,6 @@
 
 #include <frigg/macros.hpp>
 #include <frigg/traits.hpp>
-#include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 
 namespace frigg FRIGG_VISIBILITY {

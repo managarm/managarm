@@ -67,7 +67,7 @@ struct HpetDevice : IrqSink, ClockSource, AlarmTracker {
 	friend void setupHpet(PhysicalAddr);
 
 private:
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 
 	static constexpr bool logIrqs = false;
 
@@ -78,8 +78,8 @@ public:
 	IrqStatus raise() override {
 		if(logIrqs)
 			infoLogger() << "hpet: Irq was raised." << frg::endlog;
-//		auto irq_lock = frigg::guard(&irqMutex());
-//		auto lock = frigg::guard(&_mutex);
+//		auto irq_lock = frg::guard(&irqMutex());
+//		auto lock = frg::guard(&_mutex);
 
 		fireAlarm();
 

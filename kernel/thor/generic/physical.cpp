@@ -55,8 +55,8 @@ void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto currentFree = _freePages.load(std::memory_order_relaxed);
 	auto currentUsed = _usedPages.load(std::memory_order_relaxed);
@@ -89,8 +89,8 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 }
 
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 	
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))
