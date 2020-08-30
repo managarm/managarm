@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <deque>
-#include <experimental/optional>
+#include <optional>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -16,8 +16,6 @@
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <fafnir/dsl.hpp>
-#include <frigg/arch_x86/machine.hpp>
-#include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/kernlet/compiler.hpp>
@@ -249,9 +247,9 @@ private:
 
 async::result<void> StandardHub::initialize() {
 	// Read the generic USB device configuration.
-	std::experimental::optional<int> cfg_number;
-	std::experimental::optional<int> intf_number;
-	std::experimental::optional<int> end_number;
+	std::optional<int> cfg_number;
+	std::optional<int> intf_number;
+	std::optional<int> end_number;
 
 	auto cfg_descriptor = co_await _device.configurationDescriptor();
 	walkConfiguration(cfg_descriptor, [&] (int type, size_t, void *, const auto &info) {
@@ -441,7 +439,7 @@ std::shared_ptr<StandardHub> create(Device device) {
 
 Controller::Controller(protocols::hw::Device hw_device, uintptr_t base,
 		arch::io_space space, helix::UniqueIrq irq)
-: _hwDevice{std::move(hw_device)}, _ioBase{base}, _ioSpace{space}, _irq{frigg::move(irq)},
+: _hwDevice{std::move(hw_device)}, _ioBase{base}, _ioSpace{space}, _irq{std::move(irq)},
 		_lastFrame{0}, _frameCounter{0},
 		_enumerator{this} {
 	for(int i = 1; i < 128; i++) {

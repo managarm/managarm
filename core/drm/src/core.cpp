@@ -14,9 +14,6 @@
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
-#include <boost/intrusive/list.hpp>
-#include <frigg/arch_x86/machine.hpp>
-#include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/defs.hpp>
 #include <protocols/fs/server.hpp>
