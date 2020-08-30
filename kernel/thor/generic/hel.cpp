@@ -1903,7 +1903,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			setupContext(context);
 			setupSource(&source);
 
-			worklet.setup(&Closure::elapsed);
+			worklet.setup(&Closure::elapsed, getCurrentThread()->mainWorkQueue());
 			PrecisionTimerNode::setup(nanos, cancelEvent, &worklet);
 		}
 
@@ -2520,7 +2520,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 			memset(&result, 0, sizeof(HelEventResult));
 			setupContext(context);
 			setupSource(&source);
-			worklet.setup(&IrqClosure::awaited);
+			worklet.setup(&IrqClosure::awaited, getCurrentThread()->mainWorkQueue());
 			irqNode.setup(&worklet);
 		}
 
@@ -2566,7 +2566,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 			memset(&result, 0, sizeof(HelEventResult));
 			setupContext(context);
 			setupSource(&source);
-			worklet.setup(&EventClosure::awaited);
+			worklet.setup(&EventClosure::awaited, getCurrentThread()->mainWorkQueue());
 			eventNode.setup(&worklet);
 		}
 

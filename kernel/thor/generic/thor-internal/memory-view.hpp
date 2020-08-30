@@ -498,7 +498,7 @@ public:
 				async::execution::set_value_noinline(op->receiver_,
 						frg::tuple<Error, PhysicalRange, uint32_t>{op->node_.error(),
 								op->node_.range(), op->node_.flags()});
-			});
+			}, WorkQueue::generalQueue());
 			node_.setup(&worklet_);
 			if(s_.self->fetchRange(s_.offset, &node_)) {
 				async::execution::set_value_inline(receiver_,
@@ -561,7 +561,7 @@ public:
 				auto op = frg::container_of(base, &SubmitInitiateLoadOperation::worklet_);
 				async::execution::set_value_noinline(op->receiver_,
 						op->node_.error());
-			});
+			}, WorkQueue::generalQueue());
 			node_.setup(type_, offset_, size_, &worklet_);
 			self_->submitInitiateLoad(&node_);
 			return false;

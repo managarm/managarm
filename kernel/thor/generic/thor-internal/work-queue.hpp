@@ -16,7 +16,6 @@ struct Worklet {
 	friend struct WorkQueue;
 
 	void setup(void (*run)(Worklet *), WorkQueue *wq);
-	void setup(void (*run)(Worklet *));
 
 private:
 	frigg::SharedPtr<WorkQueue> _workQueue;
@@ -131,10 +130,6 @@ inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
 	assert(swq);
 	_run = run;
 	_workQueue = std::move(swq);
-}
-
-inline void Worklet::setup(void (*run)(Worklet *)) {
-	setup(run, WorkQueue::generalQueue());
 }
 
 } // namespace thor

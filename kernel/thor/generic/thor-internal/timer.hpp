@@ -160,7 +160,7 @@ public:
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &SleepOperation::worklet_);
 				op->receiver_.set_value();
-			});
+			}, WorkQueue::generalQueue());
 			node_.setup(s_.deadline, &worklet_);
 			s_.self->installTimer(&node_);
 		}

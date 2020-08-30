@@ -122,7 +122,7 @@ struct MemoryReclaimer {
 			closure.worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
 				KernelFiber::unblockOther(&closure->blocker);
-			});
+			}, thisFiber()->associatedWorkQueue());
 
 			closure.blocker.setup();
 			closure.node.setup(&closure.worklet);
@@ -869,7 +869,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		closure->fetch = node;
 		closure->bundle = _managed.get();
 
-		closure->worklet.setup(&Ops::initiated);
+		closure->worklet.setup(&Ops::initiated, WorkQueue::generalQueue());
 		closure->initiate.setup(ManageRequest::initialize,
 				offset, kPageSize, &closure->worklet);
 		closure->initiate.progress = 0;
