@@ -89,7 +89,7 @@ namespace stdio {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -100,7 +100,7 @@ namespace stdio {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -114,7 +114,7 @@ namespace stdio {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -172,7 +172,7 @@ namespace initrd {
 					co_return;
 				}
 
-				frigg::UniqueMemory<KernelAlloc> dataBuffer{*kernelAlloc,
+				frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc,
 						frg::min(size_t(req.size()), file->module->size() - file->offset)};
 				co_await copyFromView(file->module->getMemory().get(), file->offset,
 					dataBuffer.data(), dataBuffer.size());
@@ -183,7 +183,7 @@ namespace initrd {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -200,7 +200,7 @@ namespace initrd {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -211,7 +211,7 @@ namespace initrd {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -230,7 +230,7 @@ namespace initrd {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -276,7 +276,7 @@ namespace initrd {
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 					// TODO: improve error handling here.
@@ -287,7 +287,7 @@ namespace initrd {
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 					// TODO: improve error handling here.
@@ -299,7 +299,7 @@ namespace initrd {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -315,13 +315,13 @@ namespace posix {
 	// ----------------------------------------------------
 
 	struct Process {
-		Process(frg::string<KernelAlloc> name, frigg::SharedPtr<Thread> thread)
+		Process(frg::string<KernelAlloc> name, smarter::shared_ptr<Thread, ActiveHandle> thread)
 		: _name{std::move(name)}, _thread(std::move(thread)), openFiles(*kernelAlloc) {
-			fileTableMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, 0x1000);
+			fileTableMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, 0x1000);
 		}
 
 		coroutine<void> setupAddressSpace() {
-			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
+			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 					fileTableMemory, 0, 0x1000);
 			auto result = co_await _thread->getAddressSpace()->map(std::move(view),
 					0, 0, 0x1000,
@@ -372,11 +372,11 @@ namespace posix {
 		}
 
 		frg::string<KernelAlloc> _name;
-		frigg::SharedPtr<Thread> _thread;
+		smarter::shared_ptr<Thread, ActiveHandle> _thread;
 
 		Handle controlHandle;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
-		frigg::SharedPtr<MemoryView> fileTableMemory;
+		smarter::shared_ptr<MemoryView> fileTableMemory;
 		VirtualAddr clientFileTable;
 	};
 
@@ -410,7 +410,7 @@ namespace posix {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -440,7 +440,7 @@ namespace posix {
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 					// TODO: improve error handling here.
@@ -465,7 +465,7 @@ namespace posix {
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 					// TODO: improve error handling here.
@@ -489,7 +489,7 @@ namespace posix {
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 					// TODO: improve error handling here.
@@ -512,7 +512,7 @@ namespace posix {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -531,7 +531,7 @@ namespace posix {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -550,7 +550,7 @@ namespace posix {
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
-					frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
 					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 					// TODO: improve error handling here.
@@ -569,10 +569,10 @@ namespace posix {
 				if(req->mode() & 4)
 					protFlags |= AddressSpace::kMapProtExecute;
 
-				frigg::SharedPtr<MemoryView> fileMemory;
+				smarter::shared_ptr<MemoryView> fileMemory;
 				if(req->flags() & 8) { // MAP_ANONYMOUS.
 					// TODO: Use some always-zero memory for private anonymous mappings.
-					fileMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, req->size());
+					fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, req->size());
 				}else{
 					// TODO: improve error handling here.
 					assert((size_t)req->fd() < openFiles.size());
@@ -581,11 +581,11 @@ namespace posix {
 					fileMemory = moduleFile->module->getMemory();
 				}
 
-				frigg::SharedPtr<MemorySlice> slice;
+				smarter::shared_ptr<MemorySlice> slice;
 				if(req->flags() & 1) { // MAP_PRIVATE.
-					auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+					auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 							std::move(fileMemory), req->rel_offset(), req->size());
-					slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
+					slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 							std::move(cowMemory), 0, req->size());
 				}else{
 					assert(!"TODO: implement shared mappings");
@@ -604,7 +604,7 @@ namespace posix {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
@@ -639,10 +639,10 @@ namespace posix {
 			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
 				auto size = *_thread->_executor.arg0();
-				auto fileMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
-				auto cowMemory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
+				auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 						std::move(fileMemory), 0, size);
-				auto slice = frigg::makeShared<MemorySlice>(*kernelAlloc,
+				auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 						std::move(cowMemory), 0, size);
 
 				auto space = _thread->getAddressSpace();
@@ -655,7 +655,7 @@ namespace posix {
 
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = mapResult.value();
-				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
 				auto address = *_thread->_executor.arg0();
@@ -665,7 +665,7 @@ namespace posix {
 
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = 0;
-				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 1) {
 				ManagarmProcessData data = {
@@ -685,7 +685,7 @@ namespace posix {
 				}
 
 				*_thread->_executor.result0() = kHelErrNone;
-				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 64) {
 				ManagarmServerData data = {
@@ -702,12 +702,12 @@ namespace posix {
 				}
 
 				*_thread->_executor.result0() = kHelErrNone;
-				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = 0;
-				if(auto e = Thread::resumeOther(_thread); e != Error::success)
+				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else{
 				panicLogger() << "thor: Unexpected observation "
@@ -718,7 +718,7 @@ namespace posix {
 } // namepace posix
 
 void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
-		frigg::SharedPtr<Thread> thread) {
+		smarter::shared_ptr<Thread, ActiveHandle> thread) {
 	KernelFiber::run([name, thread, controlLane = std::move(controlLane)] () mutable {
 		auto stdioStream = createStream();
 		auto stdioFile = frg::construct<StdioFile>(*kernelAlloc);

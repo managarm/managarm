@@ -35,9 +35,22 @@ private:
 	bool _done;
 };
 
-frigg::UnsafePtr<Thread> getCurrentThread();
+template <template<typename, typename> typename Ptr, typename T, typename H>
+	requires (!std::is_same_v<H, void>)
+Ptr<T, void> remove_tag_cast(const Ptr<T, H> &other) {
+	other.ctr()->holder()->increment();
+	auto ret = Ptr<T, void>{smarter::adopt_rc, other.get(), other.ctr()->holder()};
+	return ret;
+}
 
-struct Thread final : frigg::SharedCounter, ScheduleEntity {
+smarter::borrowed_ptr<Thread> getCurrentThread();
+
+struct ActiveHandle { };
+
+struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntity {
+	// Silence Clang warning about hidden overloads.
+	using smarter::crtp_counter<Thread, ActiveHandle>::dispose;
+
 private:
 	struct AssociatedWorkQueue : WorkQueue {
 		AssociatedWorkQueue(Thread *thread)
@@ -50,17 +63,20 @@ private:
 	};
 
 public:
-	static frigg::SharedPtr<Thread> create(frigg::SharedPtr<Universe> universe,
+	static smarter::shared_ptr<Thread, ActiveHandle> create(smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
-		auto thread = frg::construct<Thread>(*kernelAlloc,
+		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc,
 				std::move(universe), std::move(address_space), abi);
-		frigg::SharedPtr<Thread> sptr{frigg::adoptShared, thread,
-				frigg::SharedControl{thread}};
-		thread->_mainWorkQueue.selfPtr = frigg::SharedPtr<WorkQueue>(sptr,
-				&thread->_mainWorkQueue);
-		thread->_pagingWorkQueue.selfPtr = frigg::SharedPtr<WorkQueue>(sptr,
-				&thread->_pagingWorkQueue);
+		auto ptr = thread.get();
+		ptr->setup(smarter::adopt_rc, thread.ctr(), 1);
+		thread.release();
+		smarter::shared_ptr<Thread, ActiveHandle> sptr{smarter::adopt_rc, ptr, ptr};
+
+		ptr->_mainWorkQueue.selfPtr = remove_tag_cast(smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr,
+				&ptr->_mainWorkQueue});
+		ptr->_pagingWorkQueue.selfPtr = remove_tag_cast(smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr,
+				&ptr->_pagingWorkQueue});
 		return sptr;
 	}
 
@@ -123,9 +139,9 @@ public:
 	// State transitions that apply to arbitrary threads.
 	// TODO: interruptOther() needs an Interrupt argument.
 	static void unblockOther(ThreadBlocker *blocker);
-	static void killOther(frigg::UnsafePtr<Thread> thread);
-	static void interruptOther(frigg::UnsafePtr<Thread> thread);
-	static Error resumeOther(frigg::UnsafePtr<Thread> thread);
+	static void killOther(smarter::borrowed_ptr<Thread> thread);
+	static void interruptOther(smarter::borrowed_ptr<Thread> thread);
+	static Error resumeOther(smarter::borrowed_ptr<Thread> thread);
 
 	// These signals let the thread change its RunState.
 	// Do not confuse them with POSIX signals!
@@ -139,7 +155,7 @@ public:
 		kFlagServer = 1
 	};
 
-	Thread(frigg::SharedPtr<Universe> universe,
+	Thread(smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi);
 	~Thread();
@@ -156,7 +172,7 @@ public:
 	}
 
 	UserContext &getContext();
-	frigg::UnsafePtr<Universe> getUniverse();
+	smarter::borrowed_ptr<Universe> getUniverse();
 	smarter::borrowed_ptr<AddressSpace, BindableHandle> getAddressSpace();
 
 	LaneHandle inferiorLane() {
@@ -218,8 +234,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	// TODO: Do not expose these functions publically.
-	void destruct() override; // Called when shared_ptr refcount reaches zero.
-	void cleanup() override; // Called when weak_ptr refcount reaches zero.
+	void dispose(ActiveHandle); // Called when shared_ptr refcount reaches zero.
 
 	[[ noreturn ]] void invoke() override;
 
@@ -234,7 +249,7 @@ public:
 	}
 
 	// TODO: Tidy this up.
-	frigg::UnsafePtr<Thread> self;
+	smarter::borrowed_ptr<Thread> self;
 
 	uint32_t flags;
 
@@ -298,7 +313,7 @@ public:
 	Executor _executor;
 
 private:
-	frigg::SharedPtr<Universe> _universe;
+	smarter::shared_ptr<Universe> _universe;
 	smarter::shared_ptr<AddressSpace, BindableHandle> _addressSpace;
 
 	LaneHandle _superiorLane;

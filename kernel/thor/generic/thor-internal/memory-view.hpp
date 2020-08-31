@@ -312,7 +312,7 @@ public:
 	// This is used as a key to access futexes.
 	virtual frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) = 0;
 
-	virtual void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver);
+	virtual void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver);
 
 	// Acquire/release a lock on a memory range.
 	// While a lock is active, results of peekRange() and fetchRange() stay consistent.
@@ -343,7 +343,7 @@ public:
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
 
-	virtual Error setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
+	virtual Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t size);
 
 	// ----------------------------------------------------------------------------------
@@ -644,7 +644,7 @@ public:
 	struct ForkOperation;
 
 	struct [[nodiscard]] ForkSender {
-		using value_type = frg::tuple<Error, frigg::SharedPtr<MemoryView>>;
+		using value_type = frg::tuple<Error, smarter::shared_ptr<MemoryView>>;
 
 		template<typename R>
 		friend ForkOperation<R>
@@ -687,10 +687,10 @@ struct SliceRange {
 };
 
 struct MemorySlice {
-	MemorySlice(frigg::SharedPtr<MemoryView> view,
+	MemorySlice(smarter::shared_ptr<MemoryView> view,
 			ptrdiff_t view_offset, size_t view_size);
 
-	frigg::SharedPtr<MemoryView> getView() {
+	smarter::shared_ptr<MemoryView> getView() {
 		return _view;
 	}
 
@@ -698,7 +698,7 @@ struct MemorySlice {
 	size_t length() { return _viewSize; }
 
 private:
-	frigg::SharedPtr<MemoryView> _view;
+	smarter::shared_ptr<MemoryView> _view;
 	ptrdiff_t _viewOffset;
 	size_t _viewSize;
 };
@@ -1016,7 +1016,7 @@ struct ManagedSpace : CacheBundle {
 
 struct BackingMemory final : MemoryView {
 public:
-	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
+	BackingMemory(smarter::shared_ptr<ManagedSpace> managed)
 	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	BackingMemory(const BackingMemory &) = delete;
@@ -1035,12 +1035,12 @@ public:
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 
 private:
-	frigg::SharedPtr<ManagedSpace> _managed;
+	smarter::shared_ptr<ManagedSpace> _managed;
 };
 
 struct FrontalMemory final : MemoryView {
 public:
-	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
+	FrontalMemory(smarter::shared_ptr<ManagedSpace> managed)
 	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	FrontalMemory(const FrontalMemory &) = delete;
@@ -1057,7 +1057,7 @@ public:
 	void submitInitiateLoad(MonitorNode *initiate) override;
 
 private:
-	frigg::SharedPtr<ManagedSpace> _managed;
+	smarter::shared_ptr<ManagedSpace> _managed;
 };
 
 struct IndirectMemory final : MemoryView {
@@ -1075,14 +1075,20 @@ struct IndirectMemory final : MemoryView {
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
-	Error setIndirection(size_t slot, frigg::SharedPtr<MemoryView> memory,
+	Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
 			uintptr_t offset, size_t size) override;
 
 private:
 	struct IndirectionSlot {
+		IndirectionSlot(IndirectMemory *owner, size_t slot,
+				smarter::shared_ptr<MemoryView> memory,
+				uintptr_t offset, size_t size)
+		: owner{owner}, slot{slot}, memory{std::move(memory)}, offset{offset},
+			size{size}, observer{} { }
+
 		IndirectMemory *owner;
 		size_t slot;
-		frigg::SharedPtr<MemoryView> memory;
+		smarter::shared_ptr<MemoryView> memory;
 		uintptr_t offset;
 		size_t size;
 		MemoryObserver observer;
@@ -1093,22 +1099,22 @@ private:
 };
 
 struct CowChain {
-	CowChain(frigg::SharedPtr<CowChain> chain);
+	CowChain(smarter::shared_ptr<CowChain> chain);
 
 	~CowChain();
 
 // TODO: Either this private again or make this class POD-like.
 	frg::ticket_spinlock _mutex;
 
-	frigg::SharedPtr<CowChain> _superChain;
+	smarter::shared_ptr<CowChain> _superChain;
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
 };
 
 struct CopyOnWriteMemory final : MemoryView /*, MemoryObserver */ {
 public:
-	CopyOnWriteMemory(frigg::SharedPtr<MemoryView> view,
+	CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length,
-			frigg::SharedPtr<CowChain> chain = nullptr);
+			smarter::shared_ptr<CowChain> chain = nullptr);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
 
 	~CopyOnWriteMemory();
@@ -1116,7 +1122,7 @@ public:
 	CopyOnWriteMemory &operator= (const CopyOnWriteMemory &) = delete;
 
 	size_t getLength() override;
-	void fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) override;
+	void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) override;
 	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void asyncLockRange(uintptr_t offset, size_t size,
@@ -1141,10 +1147,10 @@ private:
 
 	frg::ticket_spinlock _mutex;
 
-	frigg::SharedPtr<MemoryView> _view;
+	smarter::shared_ptr<MemoryView> _view;
 	uintptr_t _viewOffset;
 	size_t _length;
-	frigg::SharedPtr<CowChain> _copyChain;
+	smarter::shared_ptr<CowChain> _copyChain;
 	frg::rcu_radixtree<CowPage, KernelAlloc> _ownedPages;
 	async::recurring_event _copyEvent;
 	EvictionQueue _evictQueue;

@@ -18,7 +18,7 @@ void CancelRegistry::registerNode(CancelNode *node) {
 	uint64_t id = _nextAsyncId++;
 	_nodeMap.insert(id, node);
 
-	node->_registry = _selfPtr.toShared();
+	node->_registry = _selfPtr.lock();
 	node->_asyncId = id;
 }
 

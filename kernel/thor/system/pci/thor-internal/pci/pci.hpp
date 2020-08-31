@@ -3,7 +3,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <frigg/smart_ptr.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/irq.hpp>
@@ -113,8 +112,8 @@ struct PciDevice : PciEntity {
 		uintptr_t address;
 		size_t length;
 		
-		frigg::SharedPtr<MemoryView> memory;
-		frigg::SharedPtr<IoSpace> io;
+		smarter::shared_ptr<MemoryView> memory;
+		smarter::shared_ptr<IoSpace> io;
 		ptrdiff_t offset;
 	};
 
@@ -185,7 +184,7 @@ enum {
 	kPciBridgeSecondary = 0x19
 };
 
-extern frg::manual_box<frg::vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
+extern frg::manual_box<frg::vector<smarter::shared_ptr<PciDevice>, KernelAlloc>> allDevices;
 
 void enumerateSystemBusses();
 

@@ -302,7 +302,7 @@ IrqObject::IrqObject(frg::string<KernelAlloc> name)
 
 // TODO: Add a sequence parameter to this function and run the kernlet if the sequence advanced.
 //       This would prevent races between automate() and IRQs.
-void IrqObject::automate(frigg::SharedPtr<BoundKernlet> kernlet) {
+void IrqObject::automate(smarter::shared_ptr<BoundKernlet> kernlet) {
 	_automationKernlet = std::move(kernlet);
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <frigg/c-support.h>
 #include <frg/slab.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <frigg/smart_ptr.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/thread.hpp>
 
@@ -16,7 +15,7 @@ public:
 
 	void addPort(uintptr_t port);
 
-	void enableInThread(frigg::UnsafePtr<Thread> thread);
+	void enableInThread(smarter::borrowed_ptr<Thread> thread);
 
 private:
 	frg::vector<uintptr_t, KernelAlloc> p_ports;

@@ -55,12 +55,12 @@ private:
 };
 
 struct MfsRegular : MfsNode {
-	MfsRegular(frigg::SharedPtr<MemoryView> memory, size_t size)
+	MfsRegular(smarter::shared_ptr<MemoryView> memory, size_t size)
 	: MfsNode{MfsType::regular}, _memory{std::move(memory)}, _size{size} {
 		assert(_size <= _memory->getLength());
 	}
 
-	frigg::SharedPtr<MemoryView> getMemory() {
+	smarter::shared_ptr<MemoryView> getMemory() {
 		return _memory;
 	}
 
@@ -69,7 +69,7 @@ struct MfsRegular : MfsNode {
 	}
 
 private:
-	frigg::SharedPtr<MemoryView> _memory;
+	smarter::shared_ptr<MemoryView> _memory;
 	size_t _size;
 };
 

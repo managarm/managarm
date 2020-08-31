@@ -248,7 +248,7 @@ extern "C" void thorMain() {
 	//				if(logInitialization)
 						infoLogger() << "thor: initrd file " << path << frg::endlog;
 
-					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size));
 
@@ -326,7 +326,7 @@ extern "C" void handleProtectionFault(FaultImageAccessor image) {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 	auto address_space = this_thread->getAddressSpace();
 
 	const Word kPfAccess = 1;
@@ -440,7 +440,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 }
 
 void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 
 	const char *name;
 	switch(fault) {
@@ -550,7 +550,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 }
 
 void handleSyscall(SyscallImageAccessor image) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 	auto cpuData = getCpuData();
 	if(logEverySyscall && *image.number() != kHelCallLog)
 		infoLogger() << this_thread.get() << " on CPU " << cpuData->cpuIndex

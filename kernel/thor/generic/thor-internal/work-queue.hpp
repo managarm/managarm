@@ -6,7 +6,7 @@
 #include <frg/container_of.hpp>
 #include <frg/list.hpp>
 #include <frg/spinlock.hpp>
-#include <frigg/smart_ptr.hpp>
+#include <smarter.hpp>
 
 namespace thor {
 
@@ -18,7 +18,7 @@ struct Worklet {
 	void setup(void (*run)(Worklet *), WorkQueue *wq);
 
 private:
-	frigg::SharedPtr<WorkQueue> _workQueue;
+	smarter::shared_ptr<WorkQueue> _workQueue;
 	void (*_run)(Worklet *);
 	frg::default_list_hook<Worklet> _hook;
 };
@@ -96,7 +96,7 @@ struct WorkQueue {
 
 	// ----------------------------------------------------------------------------------
 
-	frigg::WeakPtr<WorkQueue> selfPtr;
+	smarter::weak_ptr<WorkQueue> selfPtr;
 
 protected:
 	virtual void wakeup() = 0;
@@ -126,7 +126,7 @@ private:
 };
 
 inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
-	auto swq = wq->selfPtr.grab();
+	auto swq = wq->selfPtr.lock();
 	assert(swq);
 	_run = run;
 	_workQueue = std::move(swq);

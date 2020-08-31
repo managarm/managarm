@@ -183,7 +183,7 @@ void MemoryView::resize(size_t newSize, async::any_receiver<void> receiver) {
 	panicLogger() << "MemoryView does not support resize!" << frg::endlog;
 }
 
-void MemoryView::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+void MemoryView::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) {
 	receiver.set_value({Error::illegalObject, nullptr});
 }
 
@@ -205,7 +205,7 @@ void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
 	initiate->complete();
 }
 
-Error MemoryView::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
+Error MemoryView::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t size) {
 	return Error::illegalObject;
 }
@@ -1056,7 +1056,7 @@ size_t IndirectMemory::getLength() {
 	return indirections_.size() << 32;
 }
 
-Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> memory,
+Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
 		uintptr_t offset, size_t size) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
@@ -1075,9 +1075,9 @@ Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> m
 // CopyOnWriteMemory
 // --------------------------------------------------------
 
-CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<MemoryView> view,
+CopyOnWriteMemory::CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length,
-		frigg::SharedPtr<CowChain> chain)
+		smarter::shared_ptr<CowChain> chain)
 : MemoryView{&_evictQueue}, _view{std::move(view)},
 		_viewOffset{offset}, _length{length}, _copyChain{std::move(chain)},
 		_ownedPages{*kernelAlloc} {
@@ -1102,11 +1102,11 @@ frg::expected<Error, AddressIdentity> CopyOnWriteMemory::getAddressIdentity(uint
 	return AddressIdentity{this, offset};
 }
 
-void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) {
 	// Note that locked pages require special attention during CoW: as we cannot
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
-	frigg::SharedPtr<CopyOnWriteMemory> forked;
+	smarter::shared_ptr<CopyOnWriteMemory> forked;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
@@ -1114,13 +1114,13 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 		// Create a new CowChain for both the original and the forked mapping.
 		// To correct handle locks pages, we move only non-locked pages from
 		// the original mapping to the new chain.
-		auto newChain = frigg::makeShared<CowChain>(*kernelAlloc, _copyChain);
+		auto newChain = smarter::allocate_shared<CowChain>(*kernelAlloc, _copyChain);
 
 		// Update the original mapping
 		_copyChain = newChain;
 
 		// Create a new mapping in the forked space.
-		forked = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 				_view, _viewOffset, _length, newChain);
 
 		// Finally, inspect all copied pages owned by the original mapping.
@@ -1161,8 +1161,8 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 	}
 
 	async::detach_with_allocator(*kernelAlloc,
-			[] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
-			async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver)
+			[] (CopyOnWriteMemory *self, smarter::shared_ptr<CopyOnWriteMemory> forked,
+			async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver)
 			-> coroutine<void> {
 		co_await self->_evictQueue.evictRange(0, self->_length);
 		receiver.set_value({Error::success, std::move(forked)});
@@ -1187,8 +1187,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 		while(progress < size) {
 			auto offset = overallOffset + progress;
 
-			frigg::SharedPtr<CowChain> chain;
-			frigg::SharedPtr<MemoryView> view;
+			smarter::shared_ptr<CowChain> chain;
+			smarter::shared_ptr<MemoryView> view;
 			uintptr_t viewOffset;
 			CowPage *cowIt;
 			bool waitForCopy = false;
@@ -1326,8 +1326,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			FetchNode *node) -> coroutine<void> {
 		auto wq = WorkQueue::generalQueue();
 
-		frigg::SharedPtr<CowChain> chain;
-		frigg::SharedPtr<MemoryView> view;
+		smarter::shared_ptr<CowChain> chain;
+		smarter::shared_ptr<MemoryView> view;
 		uintptr_t viewOffset;
 		CowPage *cowIt;
 		bool waitForCopy = false;

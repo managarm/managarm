@@ -124,7 +124,7 @@ private:
 	frg::ticket_spinlock _mutex;
 	bool _blocked;
 
-	frigg::SharedPtr<AssociatedWorkQueue> _associatedWorkQueue;
+	smarter::shared_ptr<AssociatedWorkQueue> _associatedWorkQueue;
 	FiberContext _fiberContext;
 	ExecutorContext _executorContext;
 	Executor _executor;

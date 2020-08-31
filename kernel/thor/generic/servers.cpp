@@ -33,7 +33,7 @@ static frg::manual_box<
 
 // TODO: move this declaration to a header file
 void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
-		frigg::SharedPtr<Thread> thread);
+		smarter::shared_ptr<Thread, ActiveHandle> thread);
 
 // ------------------------------------------------------------------------
 // File management.
@@ -91,7 +91,7 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 		co_return false;
 	}
 
-	auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+	auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 	co_await copyToView(memory.get(), 0, buffer, size);
 
@@ -157,7 +157,7 @@ struct ImageInfo {
 };
 
 coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
-		VirtualAddr base, frigg::SharedPtr<MemoryView> image) {
+		VirtualAddr base, smarter::shared_ptr<MemoryView> image) {
 	ImageInfo info;
 
 	// parse the ELf file format
@@ -188,11 +188,11 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, virt_length);
+			auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, virt_length);
 			co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
 					image.get(), phdr.p_offset, phdr.p_filesz);
 
-			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
+			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 					std::move(memory), 0, virt_length);
 
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
@@ -257,8 +257,8 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stack_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, stack_size);
-	auto stack_view = frigg::makeShared<MemorySlice>(*kernelAlloc,
+	auto stack_memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, stack_size);
+	auto stack_view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 			stack_memory, 0, stack_size);
 
 	auto mapResult = co_await space->map(std::move(stack_view), 0, 0, stack_size,
@@ -275,7 +275,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	co_await copyToView(stack_memory.get(), data_disp, data_area.data(), data_area.size());
 
 	// build the stack tail area (containing the aux vector).
-	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
+	auto universe = smarter::allocate_shared<Universe>(*kernelAlloc);
 
 	Handle xpipe_handle = 0;
 	Handle mbus_handle = 0;
@@ -342,7 +342,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	params.argument = 0;
 
 	auto thread = Thread::create(std::move(universe), std::move(space), params);
-	thread->self = thread;
+	thread->self = remove_tag_cast(thread);
 	thread->flags |= Thread::kFlagServer;
 	
 	// listen to POSIX calls from the thread.
@@ -351,11 +351,11 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 			thread);
 
 	// see helCreateThread for the reasoning here
-	thread.control().increment();
-	thread.control().increment();
+	thread.ctr()->increment();
+	thread.ctr()->increment();
 
 	Scheduler::associate(thread.get(), scheduler);
-	Thread::resumeOther(thread);
+	Thread::resumeOther(remove_tag_cast(thread));
 }
 
 void initializeMbusStream() {
@@ -434,7 +434,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
@@ -446,7 +446,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
@@ -467,7 +467,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 				if(respError != Error::success)
@@ -481,7 +481,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -494,7 +494,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -508,7 +508,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -544,7 +544,7 @@ coroutine<void> createObject(LaneHandle mbusLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
 	assert(reqError == Error::success && "Unexpected mbus transaction");
@@ -578,7 +578,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 	memcpy(respBuffer.data(), ser.data(), ser.size());
 	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 	assert(respError == Error::success && "Unexpected mbus transaction");

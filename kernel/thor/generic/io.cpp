@@ -13,7 +13,7 @@ void IoSpace::addPort(uintptr_t port) {
 	p_ports.push(port);
 }
 
-void IoSpace::enableInThread(frigg::UnsafePtr<Thread> thread) {
+void IoSpace::enableInThread(smarter::borrowed_ptr<Thread> thread) {
 #ifdef __x86_64__
 	for(size_t i = 0; i < p_ports.size(); i++)
 		thread->getContext().enableIoPort(p_ports[i]);

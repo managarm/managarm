@@ -59,7 +59,7 @@ struct CpuData : public PlatformCpuData {
 
 	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;
-	frigg::SharedPtr<WorkQueue> generalWorkQueue;
+	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
 
 	unsigned int irqEntropySeq = 0;

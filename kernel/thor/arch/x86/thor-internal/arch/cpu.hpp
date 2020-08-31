@@ -9,7 +9,6 @@
 #include <frigg/arch_x86/idt.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/arch_x86/tss.hpp>
-#include <frigg/smart_ptr.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
@@ -518,9 +517,9 @@ size_t getStateSize();
 // switches the active executor.
 // does NOT restore the executor's state.
 struct Thread;
-void switchExecutor(frigg::UnsafePtr<Thread> executor);
+void switchExecutor(smarter::borrowed_ptr<Thread> executor);
 
-frigg::UnsafePtr<Thread> activeExecutor();
+smarter::borrowed_ptr<Thread> activeExecutor();
 
 // Note: These constants we mirrored in assembly.
 // Do not change their values!
@@ -576,7 +575,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	LocalApicContext apicContext;
 
 	// TODO: This is not really arch-specific!
-	frigg::UnsafePtr<Thread> activeExecutor;
+	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
 inline PlatformCpuData *getPlatformCpuData() {

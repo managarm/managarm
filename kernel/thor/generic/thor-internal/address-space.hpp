@@ -170,7 +170,7 @@ enum class MappingState {
 
 struct Mapping {
 	Mapping(size_t length, MappingFlags flags,
-			frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
+			smarter::shared_ptr<MemorySlice> view, uintptr_t offset);
 
 	Mapping(const Mapping &) = delete;
 
@@ -356,8 +356,8 @@ struct Mapping {
 	MemoryObserver observer;
 	async::cancellation_event cancelEviction;
 	async::oneshot_event evictionDoneEvent;
-	frigg::SharedPtr<MemorySlice> slice;
-	frigg::SharedPtr<MemoryView> view;
+	smarter::shared_ptr<MemorySlice> slice;
+	smarter::shared_ptr<MemoryView> view;
 	size_t viewOffset;
 
 	frg::ticket_spinlock evictMutex;
@@ -487,7 +487,7 @@ public:
 
 	void setupInitialHole(VirtualAddr address, size_t size);
 
-	bool map(frigg::UnsafePtr<MemorySlice> view,
+	bool map(smarter::borrowed_ptr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length, uint32_t flags,
 			MapNode *node);
 
@@ -509,7 +509,7 @@ public:
 
 	template<typename R>
 	struct [[nodiscard]] MapOperation : private MapNode {
-		MapOperation(VirtualSpace *self, frigg::UnsafePtr<MemorySlice> slice,
+		MapOperation(VirtualSpace *self, smarter::borrowed_ptr<MemorySlice> slice,
 				VirtualAddr address, size_t offset, size_t length, uint32_t flags,
 				R receiver)
 		: self_{self}, slice_{slice},
@@ -534,7 +534,7 @@ public:
 		}
 
 		VirtualSpace *self_;
-		frigg::UnsafePtr<MemorySlice> slice_;
+		smarter::borrowed_ptr<MemorySlice> slice_;
 		VirtualAddr address_;
 		size_t offset_;
 		size_t length_;
@@ -556,14 +556,14 @@ public:
 		}
 
 		VirtualSpace *self;
-		frigg::UnsafePtr<MemorySlice> slice;
+		smarter::borrowed_ptr<MemorySlice> slice;
 		VirtualAddr address;
 		size_t offset;
 		size_t length;
 		uint32_t flags;
 	};
 
-	MapSender map(frigg::UnsafePtr<MemorySlice> slice,
+	MapSender map(smarter::borrowed_ptr<MemorySlice> slice,
 			VirtualAddr address, size_t offset, size_t length, uint32_t flags) {
 		return {this, slice, address, offset, length, flags};
 	}
@@ -894,7 +894,7 @@ struct MemoryViewLockHandle {
 
 	MemoryViewLockHandle() = default;
 
-	MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view, uintptr_t offset, size_t size)
+	MemoryViewLockHandle(smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t size)
 	: _view{view}, _offset{offset}, _size{size}, _active{true} { }
 
 	MemoryViewLockHandle(const MemoryViewLockHandle &) = delete;
@@ -920,7 +920,7 @@ struct MemoryViewLockHandle {
 	}
 
 private:
-	frigg::SharedPtr<MemoryView> _view = nullptr;
+	smarter::shared_ptr<MemoryView> _view = nullptr;
 	uintptr_t _offset = 0;
 	size_t _size = 0;
 	bool _active = false;

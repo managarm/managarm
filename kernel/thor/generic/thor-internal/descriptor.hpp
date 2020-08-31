@@ -1,7 +1,7 @@
 #pragma once
 
-#include <frigg/smart_ptr.hpp>
 #include <frg/variant.hpp>
+#include <frigg/c-support.h>
 #include <smarter.hpp>
 #ifdef __x86_64__
 #include <thor-internal/arch/ept.hpp>
@@ -22,19 +22,20 @@ struct MemorySlice;
 struct NamedMemoryViewLock;
 struct KernletObject;
 struct BoundKernlet;
+struct ActiveHandle;
 
 struct QueueDescriptor {
-	QueueDescriptor(frigg::SharedPtr<IpcQueue> queue)
+	QueueDescriptor(smarter::shared_ptr<IpcQueue> queue)
 	: queue(std::move(queue)) { }
 
-	frigg::SharedPtr<IpcQueue> queue;
+	smarter::shared_ptr<IpcQueue> queue;
 };
 
 struct UniverseDescriptor {
-	UniverseDescriptor(frigg::SharedPtr<Universe> universe)
+	UniverseDescriptor(smarter::shared_ptr<Universe> universe)
 	: universe(std::move(universe)) { }
 
-	frigg::SharedPtr<Universe> universe;
+	smarter::shared_ptr<Universe> universe;
 };
 
 // --------------------------------------------------------
@@ -42,17 +43,17 @@ struct UniverseDescriptor {
 // --------------------------------------------------------
 
 struct MemoryViewDescriptor {
-	MemoryViewDescriptor(frigg::SharedPtr<MemoryView> memory)
+	MemoryViewDescriptor(smarter::shared_ptr<MemoryView> memory)
 	: memory(std::move(memory)) { }
 
-	frigg::SharedPtr<MemoryView> memory;
+	smarter::shared_ptr<MemoryView> memory;
 };
 
 struct MemorySliceDescriptor {
-	MemorySliceDescriptor(frigg::SharedPtr<MemorySlice> slice)
+	MemorySliceDescriptor(smarter::shared_ptr<MemorySlice> slice)
 	: slice(std::move(slice)) { }
 
-	frigg::SharedPtr<MemorySlice> slice;
+	smarter::shared_ptr<MemorySlice> slice;
 };
 
 struct AddressSpaceDescriptor {
@@ -63,10 +64,10 @@ struct AddressSpaceDescriptor {
 };
 
 struct MemoryViewLockDescriptor {
-	MemoryViewLockDescriptor(frigg::SharedPtr<NamedMemoryViewLock> lock)
+	MemoryViewLockDescriptor(smarter::shared_ptr<NamedMemoryViewLock> lock)
 	: lock(std::move(lock)) { }
 
-	frigg::SharedPtr<NamedMemoryViewLock> lock;
+	smarter::shared_ptr<NamedMemoryViewLock> lock;
 };
 
 struct VirtualizedSpaceDescriptor {
@@ -89,10 +90,10 @@ struct VirtualizedCpuDescriptor {
 // --------------------------------------------------------
 
 struct ThreadDescriptor {
-	ThreadDescriptor(frigg::SharedPtr<Thread> thread)
+	ThreadDescriptor(smarter::shared_ptr<Thread, ActiveHandle> thread)
 	: thread(std::move(thread)) { }
 
-	frigg::SharedPtr<Thread> thread;
+	smarter::shared_ptr<Thread, ActiveHandle> thread;
 };
 
 // --------------------------------------------------------
@@ -117,7 +118,7 @@ struct LaneHandle {
 	LaneHandle()
 	: _lane{-1} { };
 
-	explicit LaneHandle(AdoptLane, frigg::UnsafePtr<Stream> stream, int lane)
+	explicit LaneHandle(AdoptLane, smarter::borrowed_ptr<Stream> stream, int lane)
 	: _stream(stream), _lane(lane) { }
 
 	LaneHandle(const LaneHandle &other);
@@ -138,7 +139,7 @@ struct LaneHandle {
 		return *this;
 	}
 
-	frigg::UnsafePtr<Stream> getStream() {
+	smarter::borrowed_ptr<Stream> getStream() {
 		return _stream;
 	}
 
@@ -147,7 +148,7 @@ struct LaneHandle {
 	}
 
 private:
-	frigg::UnsafePtr<Stream> _stream;
+	smarter::borrowed_ptr<Stream> _stream;
 	int _lane;
 };
 
@@ -169,24 +170,24 @@ struct OneshotEvent;
 struct BitsetEvent;
 
 struct OneshotEventDescriptor {
-	OneshotEventDescriptor(frigg::SharedPtr<OneshotEvent> event)
+	OneshotEventDescriptor(smarter::shared_ptr<OneshotEvent> event)
 	: event{std::move(event)} { }
 
-	frigg::SharedPtr<OneshotEvent> event;
+	smarter::shared_ptr<OneshotEvent> event;
 };
 
 struct BitsetEventDescriptor {
-	BitsetEventDescriptor(frigg::SharedPtr<BitsetEvent> event)
+	BitsetEventDescriptor(smarter::shared_ptr<BitsetEvent> event)
 	: event{std::move(event)} { }
 
-	frigg::SharedPtr<BitsetEvent> event;
+	smarter::shared_ptr<BitsetEvent> event;
 };
 
 struct IrqDescriptor {
-	IrqDescriptor(frigg::SharedPtr<IrqObject> irq)
+	IrqDescriptor(smarter::shared_ptr<IrqObject> irq)
 	: irq{std::move(irq)} { }
 
-	frigg::SharedPtr<IrqObject> irq;
+	smarter::shared_ptr<IrqObject> irq;
 };
 
 // --------------------------------------------------------
@@ -194,10 +195,10 @@ struct IrqDescriptor {
 // --------------------------------------------------------
 
 struct IoDescriptor {
-	IoDescriptor(frigg::SharedPtr<IoSpace> io_space)
+	IoDescriptor(smarter::shared_ptr<IoSpace> io_space)
 	: ioSpace(std::move(io_space)) { }
 
-	frigg::SharedPtr<IoSpace> ioSpace;
+	smarter::shared_ptr<IoSpace> ioSpace;
 };
 
 // --------------------------------------------------------
@@ -205,17 +206,17 @@ struct IoDescriptor {
 // --------------------------------------------------------
 
 struct KernletObjectDescriptor {
-	KernletObjectDescriptor(frigg::SharedPtr<KernletObject> kernlet_object)
+	KernletObjectDescriptor(smarter::shared_ptr<KernletObject> kernlet_object)
 	: kernletObject(std::move(kernlet_object)) { }
 
-	frigg::SharedPtr<KernletObject> kernletObject;
+	smarter::shared_ptr<KernletObject> kernletObject;
 };
 
 struct BoundKernletDescriptor {
-	BoundKernletDescriptor(frigg::SharedPtr<BoundKernlet> bound_kernlet)
+	BoundKernletDescriptor(smarter::shared_ptr<BoundKernlet> bound_kernlet)
 	: boundKernlet(std::move(bound_kernlet)) { }
 
-	frigg::SharedPtr<BoundKernlet> boundKernlet;
+	smarter::shared_ptr<BoundKernlet> boundKernlet;
 };
 
 typedef frg::variant<

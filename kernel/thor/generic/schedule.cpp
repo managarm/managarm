@@ -384,7 +384,7 @@ Scheduler *localScheduler() {
 	return &getCpuData()->scheduler;
 }
 
-frigg::UnsafePtr<Thread> getCurrentThread() {
+smarter::borrowed_ptr<Thread> getCurrentThread() {
 	return activeExecutor();
 }
 

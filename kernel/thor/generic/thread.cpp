@@ -346,11 +346,11 @@ void Thread::unblockOther(ThreadBlocker *blocker) {
 	Scheduler::resume(thread);
 }
 
-void Thread::killOther(frigg::UnsafePtr<Thread> thread) {
+void Thread::killOther(smarter::borrowed_ptr<Thread> thread) {
 	thread->_kill();
 }
 
-void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
+void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&thread->_mutex);
 
@@ -360,7 +360,7 @@ void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
 	thread->_pendingSignal = kSigInterrupt;
 }
 
-Error Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
+Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&thread->_mutex);
 
@@ -378,7 +378,7 @@ Error Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	return Error::success;
 }
 
-Thread::Thread(frigg::SharedPtr<Universe> universe,
+Thread::Thread(smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this}, _pagingWorkQueue{this},
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
@@ -405,21 +405,13 @@ Thread::~Thread() {
 }
 
 // This function has to initiate the thread's shutdown.
-void Thread::destruct() {
+void Thread::dispose(ActiveHandle) {
 	if(logCleanup)
 		infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m"
 				<< frg::endlog;
 	_kill();
 	_mainWorkQueue.selfPtr = {};
 	_pagingWorkQueue.selfPtr = {};
-}
-
-void Thread::cleanup() {
-	// TODO: Audit code to make sure this is called late enough (i.e. after termination completes).
-	// TODO: Make sure that this is called!
-	if(logCleanup)
-		infoLogger() << "\e[31mthor: Thread is destructed\e[39m" << frg::endlog;
-	frg::destruct(*kernelAlloc, this);
 }
 
 void Thread::observe_(uint64_t inSeq, ObserveNode *node) {
@@ -459,7 +451,7 @@ UserContext &Thread::getContext() {
 	return _userContext;
 }
 
-frigg::UnsafePtr<Universe> Thread::getUniverse() {
+smarter::borrowed_ptr<Universe> Thread::getUniverse() {
 	return _universe;
 }
 smarter::borrowed_ptr<AddressSpace, BindableHandle> Thread::getAddressSpace() {

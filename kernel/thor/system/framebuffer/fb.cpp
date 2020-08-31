@@ -125,7 +125,7 @@ void transitionBootFb() {
 	bootDisplay->setWindow(window);
 	
 	assert(!(bootInfo->address & (kPageSize - 1)));
-	bootInfo->memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
+	bootInfo->memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 			bootInfo->address & ~(kPageSize - 1),
 			(bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1),
 			CachingMode::writeCombine);	

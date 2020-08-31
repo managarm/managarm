@@ -224,14 +224,14 @@ private:
 struct IrqObject final : IrqSink {
 	IrqObject(frg::string<KernelAlloc> name);
 
-	void automate(frigg::SharedPtr<BoundKernlet> kernlet);
+	void automate(smarter::shared_ptr<BoundKernlet> kernlet);
 
 	IrqStatus raise() override;
 
 	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
 
 private:
-	frigg::SharedPtr<BoundKernlet> _automationKernlet;
+	smarter::shared_ptr<BoundKernlet> _automationKernlet;
 
 	// Protected by the sinkMutex.
 	frg::intrusive_list<

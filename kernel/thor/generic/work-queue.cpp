@@ -60,7 +60,7 @@ void WorkQueue::run() {
 	}
 
 	// Keep this shared pointer to avoid destructing *this here.
-	frigg::SharedPtr<WorkQueue> self;
+	smarter::shared_ptr<WorkQueue> self;
 	while(!_pending.empty()) {
 		auto worklet = _pending.pop_front();
 		self = std::move(worklet->_workQueue);

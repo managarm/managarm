@@ -33,7 +33,7 @@ namespace {
 	}
 }
 
-MemorySlice::MemorySlice(frigg::SharedPtr<MemoryView> view,
+MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size)
 : _view{std::move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
 	assert(!(_viewOffset & (kPageSize - 1)));
@@ -92,7 +92,7 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 // --------------------------------------------------------
 
 Mapping::Mapping(size_t length, MappingFlags flags,
-		frigg::SharedPtr<MemorySlice> slice_, uintptr_t viewOffset)
+		smarter::shared_ptr<MemorySlice> slice_, uintptr_t viewOffset)
 : length{length}, flags{flags},
 		slice{std::move(slice_)}, viewOffset{viewOffset} {
 	assert(viewOffset >= slice->offset());
@@ -261,7 +261,7 @@ coroutine<void> Mapping::runEvictionLoop() {
 // CowMapping
 // --------------------------------------------------------
 
-CowChain::CowChain(frigg::SharedPtr<CowChain> chain)
+CowChain::CowChain(smarter::shared_ptr<CowChain> chain)
 : _superChain{std::move(chain)}, _pages{*kernelAlloc} {
 }
 
@@ -351,7 +351,7 @@ smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
 	return _findMapping(address);
 }
 
-bool VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
+bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		VirtualAddr address, size_t offset, size_t length, uint32_t flags,
 		MapNode *node) {
 	assert(length);
@@ -409,7 +409,7 @@ bool VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 
 		auto mapping = smarter::allocate_shared<Mapping>(Allocator{},
 				length, static_cast<MappingFlags>(mappingFlags),
-				slice.toShared(), slice->offset() + offset);
+				slice.lock(), slice->offset() + offset);
 		mapping->selfPtr = mapping;
 
 		assert(!(flags & kMapPopulate));

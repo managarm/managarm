@@ -70,7 +70,7 @@ const KernletParameterDefn &KernletObject::defnOfBindParameter(size_t index) {
 // BoundKernlet class.
 // ------------------------------------------------------------------------
 
-BoundKernlet::BoundKernlet(frigg::SharedPtr<KernletObject> object)
+BoundKernlet::BoundKernlet(smarter::shared_ptr<KernletObject> object)
 : _object{std::move(object)} {
 	_instance = reinterpret_cast<char *>(kernelAlloc->allocate(_object->instanceSize()));
 }
@@ -93,7 +93,7 @@ void BoundKernlet::setupMemoryViewBinding(size_t index, void *p) {
 	memcpy(_instance + defn.offset, &p, sizeof(void *));
 }
 
-void BoundKernlet::setupBitsetEventBinding(size_t index, frigg::SharedPtr<BitsetEvent> event) {
+void BoundKernlet::setupBitsetEventBinding(size_t index, smarter::shared_ptr<BitsetEvent> event) {
 	assert(index < _object->numberOfBindParameters());
 	const auto &defn = _object->defnOfBindParameter(index);
 	if(logBinding)
@@ -114,7 +114,7 @@ int BoundKernlet::invokeIrqAutomation() {
 
 namespace {
 
-frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
+smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 		const frg::vector<KernletParameterType, KernelAlloc> &bind_types) {
 	auto base = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));
 
@@ -349,7 +349,7 @@ frigg::SharedPtr<KernletObject> processElfDso(const char *buffer,
 	};
 
 	auto entry = lookup("automate_irq");
-	return frigg::makeShared<KernletObject>(*kernelAlloc, entry, bind_types);
+	return smarter::allocate_shared<KernletObject>(*kernelAlloc, entry, bind_types);
 }
 
 coroutine<Error> handleReq(LaneHandle boundLane) {
@@ -391,7 +391,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -406,7 +406,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -442,7 +442,7 @@ coroutine<void> createObject(LaneHandle mbusLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
 	assert(reqError == Error::success && "Unexpected mbus transaction");
@@ -476,7 +476,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 	memcpy(respBuffer.data(), ser.data(), ser.size());
 	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 	assert(respError == Error::success && "Unexpected mbus transaction");

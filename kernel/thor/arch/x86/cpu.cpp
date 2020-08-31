@@ -220,7 +220,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	}
 }
 
-void switchExecutor(frigg::UnsafePtr<Thread> thread) {
+void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
 	assert(!intsAreEnabled());
 	getCpuData()->activeExecutor = thread;
 }
@@ -350,7 +350,7 @@ void UserContext::migrate(CpuData *cpu_data) {
 	tss.ist3 = (Word)cpu_data->nmiStack.base();
 }
 
-frigg::UnsafePtr<Thread> activeExecutor() {
+smarter::borrowed_ptr<Thread> activeExecutor() {
 	return getCpuData()->activeExecutor;
 }
 
@@ -723,7 +723,7 @@ void initializeThisProcessor() {
 	auto wqFiber = KernelFiber::post([=] {
 		// Do nothing. Our only purpose is to run the associated work queue.
 	});
-	cpu_data->generalWorkQueue = wqFiber->associatedWorkQueue()->selfPtr.grab();
+	cpu_data->generalWorkQueue = wqFiber->associatedWorkQueue()->selfPtr.lock();
 	assert(cpu_data->generalWorkQueue);
 	earlyFibers->push(wqFiber);
 

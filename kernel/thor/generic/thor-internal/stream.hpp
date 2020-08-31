@@ -101,7 +101,7 @@ public:
 
 	frg::array<char, 16> _inCredentials;
 	size_t _maxLength;
-	frigg::UniqueMemory<KernelAlloc> _inBuffer;
+	frg::unique_memory<KernelAlloc> _inBuffer;
 	AnyBufferAccessor _inAccessor;
 	AnyDescriptor _inDescriptor;
 
@@ -133,7 +133,7 @@ public:
 		return _actualLength;
 	}
 
-	frigg::UniqueMemory<KernelAlloc> transmitBuffer() {
+	frg::unique_memory<KernelAlloc> transmitBuffer() {
 		return std::move(_transmitBuffer);
 	}
 
@@ -153,7 +153,7 @@ public:
 	Error _error;
 	frg::array<char, 16> _transmitCredentials;
 	size_t _actualLength;
-	frigg::UniqueMemory<KernelAlloc> _transmitBuffer;
+	frg::unique_memory<KernelAlloc> _transmitBuffer;
 	LaneHandle _lane;
 	AnyDescriptor _descriptor;
 };
@@ -358,7 +358,7 @@ operator co_await(ExtractCredentialsSender s) {
 
 struct SendBufferSender {
 	LaneHandle lane;
-	frigg::UniqueMemory<KernelAlloc> buffer;
+	frg::unique_memory<KernelAlloc> buffer;
 };
 
 template<typename R>
@@ -431,7 +431,7 @@ inline RecvBufferOperation<R> connect(RecvBufferSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline async::sender_awaiter<RecvBufferSender, frg::tuple<Error, frigg::UniqueMemory<KernelAlloc>>>
+inline async::sender_awaiter<RecvBufferSender, frg::tuple<Error, frg::unique_memory<KernelAlloc>>>
 operator co_await(RecvBufferSender s) {
 	return {std::move(s)};
 }

@@ -14,7 +14,7 @@ LaneHandle::~LaneHandle() {
 		return;
 
 	if(Stream::decrementPeers(_stream.get(), _lane))
-		_stream.control().decrement();
+		_stream.ctr()->decrement();
 }
 
 struct OfferAccept { };
@@ -165,8 +165,10 @@ void Stream::Submitter::run() {
 			// Initially there will be 3 references to the new stream:
 			// * One reference for the original shared pointer.
 			// * One reference for each of the two lanes.
-			auto branch = frigg::makeShared<Stream>(*kernelAlloc);
-			branch.control().counter()->setRelaxed(3);
+			auto branch = smarter::allocate_shared<Stream>(*kernelAlloc);
+			assert(branch.ctr()->check_count() == 1);
+			branch.ctr()->increment();
+			branch.ctr()->increment();
 			u->_lane = LaneHandle{adoptLane, branch, 0};
 			v->_lane = LaneHandle{adoptLane, branch, 1};
 
@@ -287,8 +289,9 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 }
 
 frg::tuple<LaneHandle, LaneHandle> createStream() {
-	auto stream = frigg::makeShared<Stream>(*kernelAlloc);
-	stream.control().counter()->setRelaxed(2);
+	auto stream = smarter::allocate_shared<Stream>(*kernelAlloc);
+	assert(stream.ctr()->check_count() == 1);
+	stream.ctr()->increment();
 	LaneHandle handle1(adoptLane, stream, 0);
 	LaneHandle handle2(adoptLane, stream, 1);
 	stream.release();

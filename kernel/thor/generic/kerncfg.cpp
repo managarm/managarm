@@ -37,11 +37,11 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		assert(respError == Error::success && "Unexpected mbus transaction");
-		frigg::UniqueMemory<KernelAlloc> cmdlineBuffer{*kernelAlloc, kernelCommandLine->size()};
+		frg::unique_memory<KernelAlloc> cmdlineBuffer{*kernelAlloc, kernelCommandLine->size()};
 		memcpy(cmdlineBuffer.data(), kernelCommandLine->data(), kernelCommandLine->size());
 		auto cmdlineError = co_await SendBufferSender{lane, std::move(cmdlineBuffer)};
 		assert(cmdlineError == Error::success && "Unexpected mbus transaction");
@@ -51,7 +51,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		assert(respError == Error::success && "Unexpected mbus transaction");
@@ -79,7 +79,7 @@ coroutine<Error> handleByteRingReq(LogRingBuffer *ringBuffer, LaneHandle boundLa
 		while (!ringBuffer->hasEnoughBytes(oldDequeue, minSize))
 			co_await generalTimerEngine()->sleep(systemClockSource()->currentNanos() + nanos);
 
-		frigg::UniqueMemory<KernelAlloc> dataBuffer{*kernelAlloc, wantedSize};
+		frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc, wantedSize};
 		auto [newDequeue, actualSize] =
 			ringBuffer->dequeueInto(dataBuffer.data(), oldDequeue, wantedSize);
 
@@ -91,7 +91,7 @@ coroutine<Error> handleByteRingReq(LogRingBuffer *ringBuffer, LaneHandle boundLa
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		assert(respError == Error::success && "Unexpected mbus transaction");
@@ -103,7 +103,7 @@ coroutine<Error> handleByteRingReq(LogRingBuffer *ringBuffer, LaneHandle boundLa
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		assert(respError == Error::success && "Unexpected mbus transaction");
@@ -140,7 +140,7 @@ coroutine<void> createObject(LaneHandle mbusLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
 	assert(reqError == Error::success && "Unexpected mbus transaction");
@@ -182,7 +182,7 @@ coroutine<void> createByteRingObject(LogRingBuffer *ringBuffer,
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
 	assert(reqError == Error::success && "Unexpected mbus transaction");
@@ -216,7 +216,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 	memcpy(respBuffer.data(), ser.data(), ser.size());
 	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 	assert(respError == Error::success && "Unexpected mbus transaction");
@@ -255,7 +255,7 @@ coroutine<void> handleByteRingBind(LogRingBuffer *ringBuffer, LaneHandle objectL
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 	memcpy(respBuffer.data(), ser.data(), ser.size());
 	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 	assert(respError == Error::success && "Unexpected mbus transaction");
