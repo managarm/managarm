@@ -5,10 +5,10 @@
 #include <utility>
 
 #include <frg/tuple.hpp>
-#include <frigg/arch_x86/gdt.hpp>
-#include <frigg/arch_x86/idt.hpp>
-#include <frigg/arch_x86/machine.hpp>
-#include <frigg/arch_x86/tss.hpp>
+#include <x86/gdt.hpp>
+#include <x86/idt.hpp>
+#include <x86/machine.hpp>
+#include <x86/tss.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
@@ -346,7 +346,7 @@ struct UserContext {
 
 	// TODO: This should be private.
 	UniqueKernelStack kernelStack;
-	frigg::arch_x86::Tss64 tss;
+	common::x86::Tss64 tss;
 };
 
 struct FiberContext {
@@ -495,7 +495,7 @@ public:
 private:
 	char *_pointer;
 	void *_syscallStack;
-	frigg::arch_x86::Tss64 *_tss;
+	common::x86::Tss64 *_tss;
 };
 
 void saveExecutor(Executor *executor, FaultImageAccessor accessor);
@@ -559,7 +559,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack nmiStack;
 	UniqueKernelStack detachedStack;
 
-	frigg::arch_x86::Tss64 tss;
+	common::x86::Tss64 tss;
 
 	PageContext pageContext;
 	PageBinding pcidBindings[maxPcidCount];
@@ -631,7 +631,7 @@ void forkExecutor(F functor, Executor *executor) {
 	};
 
 	if(getPlatformCpuData()->haveXsave) {
-		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	} else {
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 	}

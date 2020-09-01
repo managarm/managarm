@@ -1,7 +1,4 @@
 thor_sources += files(
-	'../../../../frigg/src/arch_x86/gdt.cpp',
-	'../../../../frigg/src/arch_x86/idt.cpp',
-	'../../../../frigg/src/arch_x86/tss.cpp',
 	'../../system/legacy-pc/ata.cpp',
 	'early_stubs.S',
 	'stubs.S',

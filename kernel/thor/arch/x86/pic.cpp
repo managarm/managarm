@@ -176,7 +176,7 @@ void LocalApicContext::_updateLocalTimer() {
 
 	if(getCpuData()->haveTscDeadline) {
 		if(!deadline) {
-			frigg::arch_x86::wrmsr(0x6E0, 0);
+			common::x86::wrmsr(0x6E0, 0);
 			return;
 		}
 
@@ -184,7 +184,7 @@ void LocalApicContext::_updateLocalTimer() {
 		auto of = __builtin_mul_overflow(deadline, tscTicksPerMilli, &ticks);
 		assert(!of);
 		ticks /= 1'000'000;
-		frigg::arch_x86::wrmsr(0x6E0, ticks);
+		common::x86::wrmsr(0x6E0, ticks);
 		if(debugTimer)
 			infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting TSC deadline to "
 					<< ticks << frg::endlog;
@@ -235,11 +235,11 @@ initgraph::Stage *getApicDiscoveryStage() {
 static initgraph::Task discoverApicTask{&basicInitEngine, "x86.discover-apic",
 	initgraph::Entails{getApicDiscoveryStage()},
 	[] {
-		uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
+		uint64_t msr = common::x86::rdmsr(common::x86::kMsrLocalApicBase);
 		msr |= (1 << 11); // Enable APIC
 
 		bool haveX2apic = false;
-		if(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 21)){
+		if(common::x86::cpuid(0x01)[2] & (uint32_t(1) << 21)){
 			infoLogger() << "\e[37mthor: CPU supports x2apic\e[39m" << frg::endlog;
 			msr |= (1 << 10);
 			haveX2apic = true;
@@ -247,7 +247,7 @@ static initgraph::Task discoverApicTask{&basicInitEngine, "x86.discover-apic",
 			infoLogger() << "\e[37mthor: CPU does not support x2apic\e[39m" << frg::endlog;
 		}
 
-		frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLocalApicBase, msr);
+		common::x86::wrmsr(common::x86::kMsrLocalApicBase, msr);
 
 		// TODO: We really only need a single page.
 		auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
@@ -261,15 +261,15 @@ static initgraph::Task discoverApicTask{&basicInitEngine, "x86.discover-apic",
 };
 
 void initLocalApicPerCpu() {
-	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
+	uint64_t msr = common::x86::rdmsr(common::x86::kMsrLocalApicBase);
 	msr |= (1 << 11); // Enable APIC
 
 	if(picBase.isUsingX2apic()){
-		assert(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 21));
+		assert(common::x86::cpuid(0x01)[2] & (uint32_t(1) << 21));
 		msr |= (1 << 10);
 	}
 
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLocalApicBase, msr);
+	common::x86::wrmsr(common::x86::kMsrLocalApicBase, msr);
 
 	auto dumpLocalInt = [&] (int index) {
 		auto regstr = (index == 0 ? lApicLvtLocal0 : lApicLvtLocal1);
@@ -709,49 +709,49 @@ enum LegacyPicFlags {
 
 void remapLegacyPic(int offset) {
 	// save masks
-	uint8_t a1 = frigg::arch_x86::ioInByte(kPic1Data);
-	uint8_t a2 = frigg::arch_x86::ioInByte(kPic2Data);
+	uint8_t a1 = common::x86::ioInByte(kPic1Data);
+	uint8_t a2 = common::x86::ioInByte(kPic2Data);
 
 	// start initilization
-	frigg::arch_x86::ioOutByte(kPic1Command, kIcw1Init | kIcw1Icw4);
+	common::x86::ioOutByte(kPic1Command, kIcw1Init | kIcw1Icw4);
 	ioWait();
-	frigg::arch_x86::ioOutByte(kPic2Command, kIcw1Init | kIcw1Icw4);
+	common::x86::ioOutByte(kPic2Command, kIcw1Init | kIcw1Icw4);
 	ioWait();
-	frigg::arch_x86::ioOutByte(kPic1Data, offset);
+	common::x86::ioOutByte(kPic1Data, offset);
 	ioWait();
-	frigg::arch_x86::ioOutByte(kPic2Data, offset + 8);
+	common::x86::ioOutByte(kPic2Data, offset + 8);
 	ioWait();
 
 	// setup cascade
-	frigg::arch_x86::ioOutByte(kPic1Data, 4);
+	common::x86::ioOutByte(kPic1Data, 4);
 	ioWait();
-	frigg::arch_x86::ioOutByte(kPic2Data, 2);
+	common::x86::ioOutByte(kPic2Data, 2);
 	ioWait();
 
-	frigg::arch_x86::ioOutByte(kPic1Data, kIcw4Mode8086);
+	common::x86::ioOutByte(kPic1Data, kIcw4Mode8086);
 	ioWait();
-	frigg::arch_x86::ioOutByte(kPic2Data, kIcw4Mode8086);
+	common::x86::ioOutByte(kPic2Data, kIcw4Mode8086);
 	ioWait();
 
 	// restore saved masks
-	frigg::arch_x86::ioOutByte(kPic1Data, a1);
-	frigg::arch_x86::ioOutByte(kPic2Data, a2);
+	common::x86::ioOutByte(kPic1Data, a1);
+	common::x86::ioOutByte(kPic2Data, a2);
 }
 
 void maskLegacyPic() {
-	frigg::arch_x86::ioOutByte(kPic1Data, 0xFF);
-	frigg::arch_x86::ioOutByte(kPic2Data, 0xFF);
+	common::x86::ioOutByte(kPic1Data, 0xFF);
+	common::x86::ioOutByte(kPic2Data, 0xFF);
 }
 
 bool checkLegacyPicIsr(int irq) {
 	if(irq < 8) {
-		frigg::arch_x86::ioOutByte(kPic1Command, kOcw3ReadIsr);
-		auto isr = frigg::arch_x86::ioInByte(kPic1Command);
+		common::x86::ioOutByte(kPic1Command, kOcw3ReadIsr);
+		auto isr = common::x86::ioInByte(kPic1Command);
 		return isr & (1 << irq);
 	}else{
 		assert(irq < 16);
-		frigg::arch_x86::ioOutByte(kPic2Command, kOcw3ReadIsr);
-		auto isr = frigg::arch_x86::ioInByte(kPic2Command);
+		common::x86::ioOutByte(kPic2Command, kOcw3ReadIsr);
+		auto isr = common::x86::ioInByte(kPic2Command);
 		return isr & (1 << (irq - 8));
 	}
 }
@@ -766,8 +766,8 @@ void acknowledgeIrq(int irq) {
 		picBase.store(lApicEoi, 0);
 	}else if(picModel == kModelLegacy) {
 		if(irq >= 8)
-			frigg::arch_x86::ioOutByte(kPic2Command, kPicEoi);
-		frigg::arch_x86::ioOutByte(kPic1Command, kPicEoi);
+			common::x86::ioOutByte(kPic2Command, kPicEoi);
+		common::x86::ioOutByte(kPic1Command, kPicEoi);
 	}else{
 		assert(!"Illegal PIC model");
 	}

@@ -1,6 +1,5 @@
 eir_x86_sources = files(
-	'arch.cpp',
-	'../../../../frigg/src/arch_x86/gdt.cpp')
+	'arch.cpp')
 
 eir_includes += include_directories('.')
 

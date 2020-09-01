@@ -1862,7 +1862,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 
 HelError helWriteFsBase(void *pointer) {
 #ifdef __x86_64__
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, (uintptr_t)pointer);
+	common::x86::wrmsr(common::x86::kMsrIndexFsBase, (uintptr_t)pointer);
 	return kHelErrNone;
 #else
 	return kHelErrUnsupportedOperation;

@@ -1,8 +1,8 @@
 #include <stdint.h>
-#include <frigg/arch_x86/machine.hpp>
-#include <frigg/arch_x86/gdt.hpp>
+#include <x86/machine.hpp>
+#include <x86/gdt.hpp>
 
-namespace arch = frigg::arch_x86;
+namespace arch = common::x86;
 
 // TODO: eirLoadGdt could be written using inline assembly.
 extern "C" void eirLoadGdt(uint32_t *pointer, uint32_t size);
@@ -16,7 +16,7 @@ void initArchCpu() {
 	arch::makeGdtFlatCode32SystemSegment(gdtEntries, 1);
 	arch::makeGdtFlatData32SystemSegment(gdtEntries, 2);
 	arch::makeGdtCode64SystemSegment(gdtEntries, 3);
-	
+
 	eirLoadGdt(gdtEntries, 4 * 8 - 1);
 }
 

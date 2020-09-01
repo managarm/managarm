@@ -2,8 +2,8 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
 #include <arch/io_space.hpp>
-#include <frigg/arch_x86/machine.hpp>
-#include <frigg/arch_x86/gdt.hpp>
+#include <x86/machine.hpp>
+#include <x86/gdt.hpp>
 
 namespace eir {
 
@@ -145,7 +145,7 @@ address_t getSingle4kPage(address_t address) {
 void initArchCpu();
 
 void initProcessorEarly() {
-	namespace arch = frigg::arch_x86;
+	namespace arch = common::x86;
 
 	eir::infoLogger() << "Starting Eir" << frg::endlog;
 
@@ -177,7 +177,7 @@ void initProcessorEarly() {
 	// 06: Write Back
 	// Keep in sync with the SMP trampoline in thor.
 	uint64_t pat = 0x00'00'01'00'00'00'04'06;
-	frigg::arch_x86::wrmsr(0x277, pat);
+	common::x86::wrmsr(0x277, pat);
 }
 
 // Returns Core region index
