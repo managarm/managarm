@@ -1,10 +1,9 @@
+#include <elf.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/auxv.h>
 #include <iostream>
-
-#include <frigg/elf.hpp>
 
 #include "common.hpp"
 #include "vfs.hpp"
