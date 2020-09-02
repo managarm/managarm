@@ -32,20 +32,27 @@ namespace {
 	extern "C++" {
 
 	template<typename T>
-	[[gnu::always_inline, gnu::artificial]]
-	inline T alias_load(const unsigned char *&p) {
-		T value;
-		__builtin_memcpy(&value, p, sizeof(T));
-		p += sizeof(T);
-		return value;
-	}
+	struct word_helper {
+		enum class [[gnu::may_alias]] word_enum : T { };
+	};
 
 	template<typename T>
-	[[gnu::always_inline, gnu::artificial]]
-	inline void alias_store(unsigned char *&p, T value) {
-		__builtin_memcpy(p, &value, sizeof(T));
-		p += sizeof(T);
-	}
+	using word = typename word_helper<T>::word_enum;
+
+    template<typename T>
+    [[gnu::always_inline, gnu::artificial]]
+    inline word<T> alias_load(const unsigned char *&p) {
+        word<T> value = *reinterpret_cast<const word<T> *>(p);
+        p += sizeof(T);
+        return value;
+    }
+
+    template<typename T>
+    [[gnu::always_inline, gnu::artificial]]
+    inline void alias_store(unsigned char *&p, word<T> value) {
+        *reinterpret_cast<word<T> *>(p) = value;
+        p += sizeof(T);
+    }
 
 	} // extern "C++"
 }
@@ -132,52 +139,63 @@ void *memcpy(void *dest, const void *src, size_t n) {
 void *memset(void *dest, int byte, size_t n) {
 	auto curDest = reinterpret_cast<unsigned char *>(dest);
 
-	uint64_t pattern = static_cast<uint64_t>(byte)
+	auto pattern64 = static_cast<word<uint64_t>>(
+			static_cast<uint64_t>(byte)
 			| (static_cast<uint64_t>(byte) << 8)
 			| (static_cast<uint64_t>(byte) << 16)
 			| (static_cast<uint64_t>(byte) << 24)
 			| (static_cast<uint64_t>(byte) << 32)
 			| (static_cast<uint64_t>(byte) << 40)
 			| (static_cast<uint64_t>(byte) << 48)
-			| (static_cast<uint64_t>(byte) << 56);
+			| (static_cast<uint64_t>(byte) << 56));
+
+	auto pattern32 = static_cast<word<uint32_t>>(
+			static_cast<uint32_t>(byte)
+			| (static_cast<uint32_t>(byte) << 8)
+			| (static_cast<uint32_t>(byte) << 16)
+			| (static_cast<uint32_t>(byte) << 24));
+
+	auto pattern16 = static_cast<word<uint16_t>>(
+			static_cast<uint16_t>(byte)
+			| (static_cast<uint16_t>(byte) << 8));
 
 	while(n >= 8 * 8) {
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
 		n -= 8 * 8;
 	}
 	if(n >= 4 * 8) {
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
 		n -= 4 * 8;
 	}
 	if(n >= 2 * 8) {
-		alias_store<uint64_t>(curDest, pattern);
-		alias_store<uint64_t>(curDest, pattern);
+		alias_store<uint64_t>(curDest, pattern64);
+		alias_store<uint64_t>(curDest, pattern64);
 		n -= 2 * 8;
 	}
 	if(n >= 8) {
-		alias_store<uint64_t>(curDest, pattern);
+		alias_store<uint64_t>(curDest, pattern64);
 		n -= 8;
 	}
 	if(n >= 4) {
-		alias_store<uint32_t>(curDest, pattern);
+		alias_store<uint32_t>(curDest, pattern32);
 		n -= 4;
 	}
 	if(n >= 2) {
-		alias_store<uint16_t>(curDest, pattern);
+		alias_store<uint16_t>(curDest, pattern16);
 		n -= 2;
 	}
 	if(n)
-		*curDest = pattern;
+		*curDest = byte;
 	return dest;
 }
 
