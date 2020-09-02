@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <eir/interface.hpp>
 #include <frg/string.hpp>
-#include <frigg/elf.hpp>
+#include <elf.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>

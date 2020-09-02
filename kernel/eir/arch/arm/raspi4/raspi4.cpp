@@ -2,7 +2,6 @@
 #include <frigg/c-support.h>
 #include <eir-internal/debug.hpp>
 #include <eir/interface.hpp>
-#include <frigg/libc.hpp>
 #include <render-text.hpp>
 #include "../cpio.hpp"
 #include <frg/eternal.hpp> // for aligned_storage

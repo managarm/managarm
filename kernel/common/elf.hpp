@@ -1,5 +1,4 @@
-#ifndef FRIGG_ELF_HPP
-#define FRIGG_ELF_HPP
+#pragma once
 
 #include <stdint.h>
 
@@ -173,5 +172,3 @@ struct Elf64_Dyn {
 		Elf64_Addr d_ptr;
 	};
 };
-
-#endif

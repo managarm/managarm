@@ -1,5 +1,5 @@
 eir_generic_sources = files(
-	'../../frigg/src/libc.cpp',
+	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
 	'generic/main.cpp',
 	'generic/debug.cpp')

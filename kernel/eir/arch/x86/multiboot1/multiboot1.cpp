@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <frigg/c-support.h>
 #include <eir/interface.hpp>
-#include <frigg/libc.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
