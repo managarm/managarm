@@ -26,8 +26,6 @@ size_t strlen(const char *str) {
 // memcpy() implementation.
 // --------------------------------------------------------------------------------------
 
-// GCC and Clang both recognize __builtin_memcpy() even with no optimizations.
-// If a compiler doesn't do this and translates to memcpy(), this will fail horribly.
 namespace {
 	extern "C++" {
 
@@ -39,20 +37,20 @@ namespace {
 	template<typename T>
 	using word = typename word_helper<T>::word_enum;
 
-    template<typename T>
-    [[gnu::always_inline, gnu::artificial]]
-    inline word<T> alias_load(const unsigned char *&p) {
-        word<T> value = *reinterpret_cast<const word<T> *>(p);
-        p += sizeof(T);
-        return value;
-    }
+	template<typename T>
+	[[gnu::always_inline, gnu::artificial]]
+	inline word<T> alias_load(const unsigned char *&p) {
+		word<T> value = *reinterpret_cast<const word<T> *>(p);
+		p += sizeof(T);
+		return value;
+	}
 
-    template<typename T>
-    [[gnu::always_inline, gnu::artificial]]
-    inline void alias_store(unsigned char *&p, word<T> value) {
-        *reinterpret_cast<word<T> *>(p) = value;
-        p += sizeof(T);
-    }
+	template<typename T>
+	[[gnu::always_inline, gnu::artificial]]
+	inline void alias_store(unsigned char *&p, word<T> value) {
+		*reinterpret_cast<word<T> *>(p) = value;
+		p += sizeof(T);
+	}
 
 	} // extern "C++"
 }
@@ -136,9 +134,10 @@ void *memcpy(void *dest, const void *src, size_t n) {
 
 #ifdef __LP64__
 
-void *memset(void *dest, int byte, size_t n) {
+void *memset(void *dest, int val, size_t n) {
 	auto curDest = reinterpret_cast<unsigned char *>(dest);
 
+	unsigned char byte = val;
 	auto pattern64 = static_cast<word<uint64_t>>(
 			static_cast<uint64_t>(byte)
 			| (static_cast<uint64_t>(byte) << 8)
