@@ -1538,7 +1538,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(superblock == directory->superblock());
 			auto result = co_await superblock->rename(resolver.currentLink().get(),
 					directory.get(), new_resolver.nextComponent());
-			assert(result);
+			if(!result) {
+				assert(result.error() == Error::alreadyExists);
+				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+				continue;
+			}
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(preamble.id() == managarm::posix::FstatAtRequest::message_id) {

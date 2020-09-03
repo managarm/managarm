@@ -237,8 +237,6 @@ public:
 
 	explicit DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
 
-	async::result<frg::expected<Error, off_t>> seek(off_t delta, VfsSeek whence) override;
-
 	void handleClose() override;
 
 	FutureMaybe<ReadEntriesResult> readEntries() override;
@@ -311,7 +309,7 @@ private:
 	async::result<frg::expected<Error>> unlink(std::string name) override {
 		auto it = _entries.find(name);
 		if(it == _entries.end())
-			co_return Error::alreadyExists;
+			co_return Error::noSuchFile;
 		_entries.erase(it);
 
 		notifyObservers(FsObserver::deleteEvent, name, 0);
@@ -323,8 +321,8 @@ private:
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
 		auto result = co_await unlink(name);
 		if(!result) {
-			std::cout << "tmpfs: Unexpected failure from unlink()" << std::endl;
-			co_return {};
+			assert(result.error() == Error::noSuchFile);
+			co_return result.error();
 		}
 		co_return {};
 	}
@@ -486,7 +484,7 @@ struct Superblock final : FsSuperblock {
 		auto src_dir = static_cast<DirectoryNode *>(src_link->getOwner().get());
 		auto it = src_dir->_entries.find(src_link->getName());
 		if(it == src_dir->_entries.end() || it->get() != src_link)
-			co_return Error:alreadyExists;
+			co_return Error::alreadyExists;
 
 		// Unlink an existing link if such a link exists.
 		if(auto dest_it = dest_dir->_entries.find(dest_name);
