@@ -39,11 +39,6 @@ private:
 	Worklet *_worklet;
 };
 
-struct LockRangeNode {
-	virtual ~LockRangeNode() {}
-	virtual void complete(Error value) = 0;
-};
-
 // This is the "backend" part of a memory object.
 struct CacheBundle {
 	virtual ~CacheBundle() = default;
@@ -155,6 +150,16 @@ using InitiateList = frg::intrusive_list<
 		&MonitorNode::processQueueItem
 	>
 >;
+
+struct LockRangeNode {
+protected:
+	 ~LockRangeNode() = default;
+
+public:
+	virtual void resume() = 0;
+
+	Error result;
+};
 
 using FetchFlags = uint32_t;
 
@@ -319,7 +324,7 @@ public:
 	// Locks do *not* force all pages to be available, but once a page is available
 	// (e.g. due to fetchRange()), it cannot be evicted until the lock is released.
 	virtual Error lockRange(uintptr_t offset, size_t size) = 0;
-	virtual void asyncLockRange(uintptr_t offset, size_t size,
+	virtual bool asyncLockRange(uintptr_t offset, size_t size,
 			LockRangeNode *node);
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
@@ -433,7 +438,7 @@ public:
 	}
 
 	template<typename R>
-	struct LockRangeOperation final : LockRangeNode {
+	struct LockRangeOperation final : private LockRangeNode {
 		LockRangeOperation(LockRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -441,15 +446,19 @@ public:
 
 		LockRangeOperation &operator= (const LockRangeOperation &) = delete;
 
-		void start() {
-			s_.self->asyncLockRange(s_.offset, s_.size, this);
-		}
-
-		void complete(Error e) override {
-			async::execution::set_value(std::move(receiver_), std::move(e));
+		bool start_inline() {
+			if(s_.self->asyncLockRange(s_.offset, s_.size, this)) {
+				async::execution::set_value_inline(std::move(receiver_), result);
+				return true;
+			}
+			return false;
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value_noinline(std::move(receiver_), result);
+		}
+
 		LockRangeSender s_;
 		R receiver_;
 	};
@@ -1125,7 +1134,7 @@ public:
 	void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) override;
 	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
-	void asyncLockRange(uintptr_t offset, size_t size,
+	bool asyncLockRange(uintptr_t offset, size_t size,
 			LockRangeNode *node) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;

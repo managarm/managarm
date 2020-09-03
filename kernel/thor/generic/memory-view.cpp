@@ -187,9 +187,10 @@ void MemoryView::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<
 	receiver.set_value({Error::illegalObject, nullptr});
 }
 
-void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
+bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
 		LockRangeNode *node) {
-	node->complete(lockRange(offset, size));
+	node->result = lockRange(offset, size);
+	return true;
 }
 
 Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
@@ -1175,7 +1176,7 @@ Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
 	__builtin_unreachable();
 }
 
-void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
+bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 		LockRangeNode *node) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
@@ -1292,8 +1293,10 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			progress += kPageSize;
 		}
 
-		node->complete(Error::success);
+		node->result = Error::success;
+		node->resume();
 	}(this, offset, size, node));
+	return false;
 }
 
 void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
