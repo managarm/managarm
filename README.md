@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg) ![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg)
 
-![Screenshot](../assets/screenshots/echo-hello-managarm.png?raw=true)
+![Screenshot](../assets/screenshots/managarm-glxgears-xclock.png?raw=true)
 
 ## What is this about?
 
