@@ -120,21 +120,23 @@ void Mapping::protect(MappingFlags protectFlags) {
 }
 
 void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
-		async::any_receiver<frg::expected<Error>> receiver) {
+		PopulateVirtualRangeNode *node) {
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self,
 			uintptr_t offset, size_t size,
-			async::any_receiver<frg::expected<Error>> receiver) -> coroutine<void> {
+			PopulateVirtualRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
 			auto outcome = co_await self->touchVirtualPage(offset + progress);
 			if(!outcome) {
-				async::execution::set_value(receiver, outcome.error());
+				node->result = outcome.error();
+				node->resume();
 				co_return;
 			}
 			progress += outcome.value().range.get<1>();
 		}
-		async::execution::set_value(receiver, frg::success);
-	}(this, offset, size, std::move(receiver)));
+		node->result = frg::success;
+		node->resume();
+	}(this, offset, size, node));
 }
 
 uint32_t Mapping::compilePageFlags() {
@@ -149,16 +151,18 @@ uint32_t Mapping::compilePageFlags() {
 }
 
 void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
-		async::any_receiver<frg::expected<Error>> receiver) {
+		LockVirtualRangeNode *node) {
 	// This can be removed if we change the return type of asyncLockRange to frg::expected.
-	auto transformError = [] (Error e) -> frg::expected<Error> {
-		if(e == Error::success)
-			return {};
-		return e;
+	auto transformError = [node] (Error e) {
+		if(e == Error::success) {
+			node->result = {};
+		}else{
+			node->result = e;
+		}
+		node->resume();
 	};
-	async::spawn_with_allocator(*kernelAlloc,
-			async::transform(view->asyncLockRange(viewOffset + offset, size), transformError),
-			std::move(receiver));
+	async::detach_with_allocator(*kernelAlloc,
+			async::transform(view->asyncLockRange(viewOffset + offset, size), transformError));
 }
 
 void Mapping::unlockVirtualRange(uintptr_t offset, size_t size) {
@@ -175,13 +179,11 @@ Mapping::resolveRange(ptrdiff_t offset) {
 	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
-void Mapping::touchVirtualPage(uintptr_t offset,
-		async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver) {
+void Mapping::touchVirtualPage(uintptr_t offset, TouchVirtualPageNode *node) {
 	assert(state == MappingState::active);
 
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, uintptr_t offset,
-			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver)
-			-> coroutine<void> {
+			TouchVirtualPageNode *node) -> coroutine<void> {
 		FetchFlags fetchFlags = 0;
 		if(self->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
@@ -203,8 +205,10 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 		logRss(self->owner.get());
 
 		self->view->unlockRange((self->viewOffset + offset) & ~(kPageSize - 1), kPageSize);
-		async::execution::set_value(receiver, TouchVirtualResult{range, false});
-	}(this, offset, std::move(receiver)));
+
+		node->result = TouchVirtualResult{range, false};
+		node->resume();
+	}(this, offset, node));
 }
 
 coroutine<void> Mapping::runEvictionLoop() {

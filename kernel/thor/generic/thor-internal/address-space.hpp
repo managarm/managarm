@@ -182,28 +182,26 @@ struct Mapping {
 
 	void protect(MappingFlags flags);
 
-	// Makes sure that pages are not evicted from virtual memory.
-	void lockVirtualRange(uintptr_t offset, size_t length,
-			async::any_receiver<frg::expected<Error>> receiver);
 	void unlockVirtualRange(uintptr_t offset, size_t length);
 
 	frg::tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset);
 
-	// Ensures that a page of virtual memory is present.
-	// Note that this does *not* guarantee that the page is not evicted immediately,
-	// unless you hold a lock (via lockVirtualRange()).
-	void touchVirtualPage(uintptr_t offset,
-			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver);
-
-	// Helper function that calls touchVirtualPage() on a certain range.
-	void populateVirtualRange(uintptr_t offset, size_t size,
-			async::any_receiver<frg::expected<Error>> receiver);
-
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for lockVirtualRange()
 	// ----------------------------------------------------------------------------------
+private:
+	struct LockVirtualRangeNode {
+		virtual void resume() = 0;
 
+		frg::expected<Error> result;
+	};
+
+	// Makes sure that pages are not evicted from virtual memory.
+	void lockVirtualRange(uintptr_t offset, size_t length,
+			LockVirtualRangeNode *node);
+
+public:
 	template<typename R>
 	struct LockVirtualRangeOperation;
 
@@ -224,7 +222,7 @@ struct Mapping {
 	}
 
 	template<typename R>
-	struct LockVirtualRangeOperation {
+	struct LockVirtualRangeOperation : private LockVirtualRangeNode {
 		LockVirtualRangeOperation(LockVirtualRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -233,10 +231,14 @@ struct Mapping {
 		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
 
 		void start() {
-			s_.self->lockVirtualRange(s_.offset, s_.size, std::move(receiver_));
+			s_.self->lockVirtualRange(s_.offset, s_.size, this);
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value(receiver_, result);
+		}
+
 		LockVirtualRangeSender s_;
 		R receiver_;
 	};
@@ -249,7 +251,19 @@ struct Mapping {
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for touchVirtualPage()
 	// ----------------------------------------------------------------------------------
+private:
+	struct TouchVirtualPageNode {
+		virtual void resume() = 0;
 
+		frg::expected<Error, TouchVirtualResult> result;
+	};
+
+	// Ensures that a page of virtual memory is present.
+	// Note that this does *not* guarantee that the page is not evicted immediately,
+	// unless you hold a lock (via lockVirtualRange()).
+	void touchVirtualPage(uintptr_t offset, TouchVirtualPageNode *node);
+
+public:
 	template<typename R>
 	struct TouchVirtualPageOperation;
 
@@ -269,7 +283,7 @@ struct Mapping {
 	}
 
 	template<typename R>
-	struct TouchVirtualPageOperation {
+	struct TouchVirtualPageOperation : private TouchVirtualPageNode {
 		TouchVirtualPageOperation(TouchVirtualPageSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -278,10 +292,14 @@ struct Mapping {
 		TouchVirtualPageOperation &operator= (const TouchVirtualPageOperation &) = delete;
 
 		void start() {
-			s_.self->touchVirtualPage(s_.offset, std::move(receiver_));
+			s_.self->touchVirtualPage(s_.offset, this);
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value(receiver_, result);
+		}
+
 		TouchVirtualPageSender s_;
 		R receiver_;
 	};
@@ -294,7 +312,18 @@ struct Mapping {
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for populateVirtualRange()
 	// ----------------------------------------------------------------------------------
+private:
+	struct PopulateVirtualRangeNode {
+		virtual void resume() = 0;
 
+		frg::expected<Error> result;
+	};
+
+	// Helper function that calls touchVirtualPage() on a certain range.
+	void populateVirtualRange(uintptr_t offset, size_t size,
+			PopulateVirtualRangeNode *node);
+
+public:
 	template<typename R>
 	struct PopulateVirtualRangeOperation;
 
@@ -315,7 +344,7 @@ struct Mapping {
 	}
 
 	template<typename R>
-	struct PopulateVirtualRangeOperation {
+	struct PopulateVirtualRangeOperation : private PopulateVirtualRangeNode {
 		PopulateVirtualRangeOperation(PopulateVirtualRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -324,10 +353,14 @@ struct Mapping {
 		PopulateVirtualRangeOperation &operator= (const PopulateVirtualRangeOperation &) = delete;
 
 		void start() {
-			s_.self->populateVirtualRange(s_.offset, s_.size, std::move(receiver_));
+			s_.self->populateVirtualRange(s_.offset, s_.size, this);
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value(receiver_, result);
+		}
+
 		PopulateVirtualRangeSender s_;
 		R receiver_;
 	};
