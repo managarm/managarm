@@ -188,7 +188,7 @@ void MemoryView::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<
 }
 
 bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
-		LockRangeNode *node) {
+		smarter::shared_ptr<WorkQueue>, LockRangeNode *node) {
 	node->result = lockRange(offset, size);
 	return true;
 }
@@ -243,7 +243,8 @@ frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset
 	return frg::tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
 }
 
-bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool HardwareMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
 	assert(offset % kPageSize == 0);
 
 	completeFetch(node, Error::success, _base + offset, _length - offset, _cacheMode);
@@ -339,7 +340,8 @@ frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offse
 			CachingMode::null};
 }
 
-bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool AllocatedMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -658,7 +660,8 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
-bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool BackingMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
@@ -778,7 +781,8 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
-bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool FrontalMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
 	ManageList pending;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -870,7 +874,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		closure->fetch = node;
 		closure->bundle = _managed.get();
 
-		closure->worklet.setup(&Ops::initiated, WorkQueue::generalQueue());
+		closure->worklet.setup(&Ops::initiated, wq.get());
 		closure->initiate.setup(ManageRequest::initialize,
 				offset, kPageSize, &closure->worklet);
 		closure->initiate.progress = 0;
@@ -1028,7 +1032,8 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 			+ inSlotOffset);
 }
 
-bool IndirectMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool IndirectMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 
@@ -1037,7 +1042,7 @@ bool IndirectMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(slot < indirections_.size()); // TODO: Return Error::fault.
 	assert(indirections_[slot]); // TODO: Return Error::fault.
 	return indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
-			+ inSlotOffset, node);
+			+ inSlotOffset, std::move(wq), node);
 }
 
 void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
@@ -1177,13 +1182,11 @@ Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
 }
 
 bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
-		LockRangeNode *node) {
+		smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
 	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
-			LockRangeNode *node) -> coroutine<void> {
-		auto wq = WorkQueue::generalQueue();
-
+			smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
 			auto offset = overallOffset + progress;
@@ -1273,7 +1276,7 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			// Copy from the root view.
 			if(!chain) {
 				co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
-						accessor.get(), kPageSize);
+						accessor.get(), kPageSize, wq);
 			}
 
 			// To make CoW unobservable, we first need to evict the page here.
@@ -1295,7 +1298,7 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 
 		node->result = Error::success;
 		node->resume();
-	}(this, offset, size, node));
+	}(this, offset, size, std::move(wq), node));
 	return false;
 }
 
@@ -1324,11 +1327,10 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
 }
 
-bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool CopyOnWriteMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
 	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t offset,
-			FetchNode *node) -> coroutine<void> {
-		auto wq = WorkQueue::generalQueue();
-
+			smarter::shared_ptr<WorkQueue> wq, FetchNode *node) -> coroutine<void> {
 		smarter::shared_ptr<CowChain> chain;
 		smarter::shared_ptr<MemoryView> view;
 		uintptr_t viewOffset;
@@ -1408,7 +1410,7 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		// Copy from the root view.
 		if(!chain) {
 			co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
-					accessor.get(), kPageSize);
+					accessor.get(), kPageSize, wq);
 		}
 
 		// To make CoW unobservable, we first need to evict the page here.
@@ -1426,7 +1428,7 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		self->_copyEvent.raise();
 		completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
 		callbackFetch(node);
-	}(this, offset, node));
+	}(this, offset, std::move(wq), node));
 	return false;
 }
 

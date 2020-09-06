@@ -199,7 +199,7 @@ private:
 
 	// Makes sure that pages are not evicted from virtual memory.
 	void lockVirtualRange(uintptr_t offset, size_t length,
-			LockVirtualRangeNode *node);
+			smarter::shared_ptr<WorkQueue> wq, LockVirtualRangeNode *node);
 
 public:
 	template<typename R>
@@ -215,10 +215,12 @@ public:
 		Mapping *self;
 		uintptr_t offset;
 		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	LockVirtualRangeSender lockVirtualRange(uintptr_t offset, size_t size) {
-		return {this, offset, size};
+	LockVirtualRangeSender lockVirtualRange(uintptr_t offset, size_t size,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, size, std::move(wq)};
 	}
 
 	template<typename R>
@@ -231,7 +233,9 @@ public:
 		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
 
 		void start() {
-			s_.self->lockVirtualRange(s_.offset, s_.size, this);
+			// XXX: work around Clang bug that runs s_.wq dtor after the call.
+			auto wq = s_.wq;
+			s_.self->lockVirtualRange(s_.offset, s_.size, std::move(wq), this);
 		}
 
 	private:
@@ -261,7 +265,8 @@ private:
 	// Ensures that a page of virtual memory is present.
 	// Note that this does *not* guarantee that the page is not evicted immediately,
 	// unless you hold a lock (via lockVirtualRange()).
-	void touchVirtualPage(uintptr_t offset, TouchVirtualPageNode *node);
+	void touchVirtualPage(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node);
 
 public:
 	template<typename R>
@@ -276,10 +281,12 @@ public:
 
 		Mapping *self;
 		uintptr_t offset;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	TouchVirtualPageSender touchVirtualPage(uintptr_t offset) {
-		return {this, offset};
+	TouchVirtualPageSender touchVirtualPage(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, std::move(wq)};
 	}
 
 	template<typename R>
@@ -292,7 +299,9 @@ public:
 		TouchVirtualPageOperation &operator= (const TouchVirtualPageOperation &) = delete;
 
 		void start() {
-			s_.self->touchVirtualPage(s_.offset, this);
+			// XXX: work around Clang bug that runs s_.wq dtor after the call.
+			auto wq = s_.wq;
+			s_.self->touchVirtualPage(s_.offset, std::move(wq), this);
 		}
 
 	private:
@@ -321,7 +330,7 @@ private:
 
 	// Helper function that calls touchVirtualPage() on a certain range.
 	void populateVirtualRange(uintptr_t offset, size_t size,
-			PopulateVirtualRangeNode *node);
+			smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node);
 
 public:
 	template<typename R>
@@ -337,10 +346,12 @@ public:
 		Mapping *self;
 		uintptr_t offset;
 		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	PopulateVirtualRangeSender populateVirtualRange(uintptr_t offset, size_t size) {
-		return {this, offset, size};
+	PopulateVirtualRangeSender populateVirtualRange(uintptr_t offset, size_t size,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, size, std::move(wq)};
 	}
 
 	template<typename R>
@@ -353,7 +364,9 @@ public:
 		PopulateVirtualRangeOperation &operator= (const PopulateVirtualRangeOperation &) = delete;
 
 		void start() {
-			s_.self->populateVirtualRange(s_.offset, s_.size, this);
+			// XXX: work around Clang bug that runs s_.wq dtor after the call.
+			auto wq = s_.wq;
+			s_.self->populateVirtualRange(s_.offset, s_.size, std::move(wq), this);
 		}
 
 	private:
@@ -530,7 +543,8 @@ public:
 
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
-	frg::optional<bool> handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
+	frg::optional<bool> handleFault(VirtualAddr address, uint32_t flags,
+			smarter::shared_ptr<WorkQueue> wq, FaultNode *node);
 
 	size_t rss() {
 		return _residuentSize;
@@ -773,15 +787,16 @@ public:
 	template<typename R>
 	struct HandleFaultOperation : private FaultNode {
 		HandleFaultOperation(VirtualSpace *self, VirtualAddr address, uint32_t flags,
-				R receiver)
-		: self_{self}, address_{address}, flags_{flags}, receiver_{std::move(receiver)} { }
+				smarter::shared_ptr<WorkQueue> wq, R receiver)
+		: self_{self}, address_{address}, flags_{flags},
+				wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
 
 		HandleFaultOperation(const HandleFaultOperation &) = delete;
 
 		HandleFaultOperation &operator= (const HandleFaultOperation &) = delete;
 
 		bool start_inline() {
-			auto result = self_->handleFault(address_, flags_, this);
+			auto result = self_->handleFault(address_, flags_, std::move(wq_), this);
 			if(result) {
 				async::execution::set_value_inline(receiver_, *result);
 				return true;
@@ -797,6 +812,7 @@ public:
 		VirtualSpace *self_;
 		VirtualAddr address_;
 		uint32_t flags_;
+		smarter::shared_ptr<WorkQueue> wq_;
 		R receiver_;
 	};
 
@@ -805,7 +821,7 @@ public:
 
 		template<typename R>
 		HandleFaultOperation<R> connect(R receiver) {
-			return {self, address, flags, std::move(receiver)};
+			return {self, address, flags, std::move(wq), std::move(receiver)};
 		}
 
 		async::sender_awaiter<HandleFaultSender, bool> operator co_await() {
@@ -815,10 +831,12 @@ public:
 		VirtualSpace *self;
 		VirtualAddr address;
 		uint32_t flags;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	HandleFaultSender handleFault(VirtualAddr address, uint32_t flags) {
-		return {this, address, flags};
+	HandleFaultSender handleFault(VirtualAddr address, uint32_t flags,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, address, flags, std::move(wq)};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -948,8 +966,9 @@ struct MemoryViewLockHandle {
 		return _active;
 	}
 
-	auto acquire() {
-		return async::transform(_view->asyncLockRange(_offset, _size), [&] (Error e) { _active = e == Error::success; });
+	auto acquire(smarter::shared_ptr<WorkQueue> wq) {
+		return async::transform(_view->asyncLockRange(_offset, _size, std::move(wq)),
+			[&] (Error e) { _active = e == Error::success; });
 	}
 
 private:
@@ -1016,7 +1035,7 @@ public:
 		return _length;
 	}
 
-	bool acquire(AcquireNode *node);
+	bool acquire(smarter::shared_ptr<WorkQueue> wq, AcquireNode *node);
 
 	PhysicalAddr getPhysical(size_t offset);
 
@@ -1041,15 +1060,16 @@ public:
 
 	template<typename R>
 	struct [[nodiscard]] AcquireOperation : private AcquireNode {
-		AcquireOperation(AddressSpaceLockHandle *handle, R receiver)
-		: handle_{handle}, receiver_{std::move(receiver)} { }
+		AcquireOperation(AddressSpaceLockHandle *handle,
+				smarter::shared_ptr<WorkQueue> wq, R receiver)
+		: handle_{handle}, wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
 
 		AcquireOperation(const AcquireOperation &) = delete;
 
 		AcquireOperation &operator= (const AcquireOperation &) = delete;
 
 		bool start_inline() {
-			if(handle_->acquire(this)) {
+			if(handle_->acquire(wq_, this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -1062,6 +1082,7 @@ public:
 		}
 
 		AddressSpaceLockHandle *handle_;
+		smarter::shared_ptr<WorkQueue> wq_;
 		R receiver_;
 	};
 
@@ -1070,7 +1091,7 @@ public:
 
 		template<typename R>
 		AcquireOperation<R> connect(R receiver) {
-			return {handle, std::move(receiver)};
+			return {handle, std::move(wq), std::move(receiver)};
 		}
 
 		async::sender_awaiter<AcquireSender> operator co_await() {
@@ -1078,10 +1099,11 @@ public:
 		}
 
 		AddressSpaceLockHandle *handle;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	AcquireSender acquire() {
-		return {this};
+	AcquireSender acquire(smarter::shared_ptr<WorkQueue> wq) {
+		return {this, std::move(wq)};
 	}
 
 	// ----------------------------------------------------------------------------------

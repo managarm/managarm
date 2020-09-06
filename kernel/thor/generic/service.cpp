@@ -175,7 +175,7 @@ namespace initrd {
 				frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc,
 						frg::min(size_t(req.size()), file->module->size() - file->offset)};
 				co_await copyFromView(file->module->getMemory().get(), file->offset,
-					dataBuffer.data(), dataBuffer.size());
+					dataBuffer.data(), dataBuffer.size(), WorkQueue::generalQueue()->take());
 				file->offset += dataBuffer.size();
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -360,14 +360,14 @@ namespace posix {
 					continue;
 				openFiles[fd] = file;
 				co_await copyToView(fileTableMemory.get(), sizeof(Handle) * fd,
-						&handle, sizeof(Handle));
+						&handle, sizeof(Handle), WorkQueue::generalQueue()->take());
 				co_return fd;
 			}
 
 			int fd = openFiles.size();
 			openFiles.push(file);
 			co_await copyToView(fileTableMemory.get(), sizeof(Handle) * fd,
-					&handle, sizeof(Handle));
+					&handle, sizeof(Handle), WorkQueue::generalQueue()->take());
 			co_return fd;
 		}
 
@@ -679,7 +679,7 @@ namespace posix {
 					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
 							reinterpret_cast<void *>(*_thread->_executor.arg0()),
 							sizeof(ManagarmProcessData)};
-					co_await spaceLock.acquire();
+					co_await spaceLock.acquire(WorkQueue::generalQueue()->take());
 
 					spaceLock.write(0, &data, sizeof(ManagarmProcessData));
 				}
@@ -696,7 +696,7 @@ namespace posix {
 					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
 							reinterpret_cast<void *>(*_thread->_executor.arg0()),
 							sizeof(ManagarmServerData)};
-					co_await spaceLock.acquire();
+					co_await spaceLock.acquire(WorkQueue::generalQueue()->take());
 
 					spaceLock.write(0, &data, sizeof(ManagarmServerData));
 				}

@@ -120,13 +120,13 @@ void Mapping::protect(MappingFlags protectFlags) {
 }
 
 void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
-		PopulateVirtualRangeNode *node) {
+		smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node) {
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self,
 			uintptr_t offset, size_t size,
-			PopulateVirtualRangeNode *node) -> coroutine<void> {
+			smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
-			auto outcome = co_await self->touchVirtualPage(offset + progress);
+			auto outcome = co_await self->touchVirtualPage(offset + progress, wq);
 			if(!outcome) {
 				node->result = outcome.error();
 				node->resume();
@@ -136,7 +136,7 @@ void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
 		}
 		node->result = frg::success;
 		node->resume();
-	}(this, offset, size, node));
+	}(this, offset, size, std::move(wq), node));
 }
 
 uint32_t Mapping::compilePageFlags() {
@@ -151,7 +151,7 @@ uint32_t Mapping::compilePageFlags() {
 }
 
 void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
-		LockVirtualRangeNode *node) {
+		smarter::shared_ptr<WorkQueue> wq, LockVirtualRangeNode *node) {
 	// This can be removed if we change the return type of asyncLockRange to frg::expected.
 	auto transformError = [node] (Error e) {
 		if(e == Error::success) {
@@ -162,7 +162,8 @@ void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
 		node->resume();
 	};
 	async::detach_with_allocator(*kernelAlloc,
-			async::transform(view->asyncLockRange(viewOffset + offset, size), transformError));
+			async::transform(view->asyncLockRange(viewOffset + offset, size, std::move(wq)),
+					transformError));
 }
 
 void Mapping::unlockVirtualRange(uintptr_t offset, size_t size) {
@@ -179,21 +180,23 @@ Mapping::resolveRange(ptrdiff_t offset) {
 	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
-void Mapping::touchVirtualPage(uintptr_t offset, TouchVirtualPageNode *node) {
+void Mapping::touchVirtualPage(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node) {
 	assert(state == MappingState::active);
 
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, uintptr_t offset,
-			TouchVirtualPageNode *node) -> coroutine<void> {
+			smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node) -> coroutine<void> {
 		FetchFlags fetchFlags = 0;
 		if(self->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
 
 		if(auto e = co_await self->view->asyncLockRange(
-				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize); e != Error::success)
+				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize,
+				wq); e != Error::success)
 			assert(!"asyncLockRange() failed");
 
 		auto [error, range, rangeFlags] = co_await self->view->fetchRange(
-				self->viewOffset + offset);
+				self->viewOffset + offset, wq);
 
 		// TODO: Update RSS, handle dirty pages, etc.
 		auto pageOffset = self->address + offset;
@@ -208,7 +211,7 @@ void Mapping::touchVirtualPage(uintptr_t offset, TouchVirtualPageNode *node) {
 
 		node->result = TouchVirtualResult{range, false};
 		node->resume();
-	}(this, offset, node));
+	}(this, offset, std::move(wq), node));
 }
 
 coroutine<void> Mapping::runEvictionLoop() {
@@ -710,7 +713,8 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode
 }
 
 frg::optional<bool>
-VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *node) {
+VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
+		smarter::shared_ptr<WorkQueue> wq, FaultNode *node) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -732,9 +736,10 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *n
 		}
 
 	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<Mapping> mapping,
-			uintptr_t address, FaultNode *node) -> coroutine<void> {
+			uintptr_t address,
+			smarter::shared_ptr<WorkQueue> wq, FaultNode *node) -> coroutine<void> {
 		auto faultPage = (address - mapping->address) & ~(kPageSize - 1);
-		auto outcome = co_await mapping->touchVirtualPage(faultPage);
+		auto outcome = co_await mapping->touchVirtualPage(faultPage, std::move(wq));
 		if(!outcome) {
 			node->complete(false);
 			co_return;
@@ -746,7 +751,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *n
 				infoLogger() << "\e[33m" "thor: Spurious page fault"
 						"\e[39m" << frg::endlog;
 		node->complete(true);
-	}(std::move(mapping), address, node));
+	}(std::move(mapping), address, std::move(wq), node));
 
 	return {};
 }
@@ -917,27 +922,27 @@ AddressSpaceLockHandle::~AddressSpaceLockHandle() {
 		_mapping->unlockVirtualRange(_address - _mapping->address, _length);
 }
 
-bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
+bool AddressSpaceLockHandle::acquire(smarter::shared_ptr<WorkQueue> wq, AcquireNode *node) {
 	if(!_length) {
 		_active = true;
 		return true;
 	}
 
 	async::detach_with_allocator(*kernelAlloc, [] (AddressSpaceLockHandle *self,
-			AcquireNode *node) -> coroutine<void> {
+			smarter::shared_ptr<WorkQueue> wq, AcquireNode *node) -> coroutine<void> {
 		auto misalign = self->_address & (kPageSize - 1);
 		auto lockOutcome = co_await self->_mapping->lockVirtualRange(
 				(self->_address - self->_mapping->address) & ~(kPageSize - 1),
-				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
+				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1), wq);
 		assert(lockOutcome);
 		auto populateOutcome = co_await self->_mapping->populateVirtualRange(
 				(self->_address - self->_mapping->address) & ~(kPageSize - 1),
-				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
+				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1), wq);
 		assert(populateOutcome);
 
 		self->_active = true;
 		node->complete();
-	}(this, node));
+	}(this, std::move(wq), node));
 
 	return false;
 }

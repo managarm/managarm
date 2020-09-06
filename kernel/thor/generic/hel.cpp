@@ -909,7 +909,7 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 
 	// FIXME: The physical page can change after we destruct the accessor!
 	// We need a better hel API to properly handle that case.
-	Thread::asyncBlockCurrent(accessor.acquire());
+	Thread::asyncBlockCurrent(accessor.acquire(WorkQueue::localQueue()->take()));
 
 	auto page_physical = accessor.getPhysical(0);
 
@@ -963,7 +963,8 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{128});
-				co_await copyFromView(view.get(), address + progress, temp, chunk);
+				co_await copyFromView(view.get(), address + progress, temp, chunk,
+						submitThread->mainWorkQueue()->take());
 
 				// Enter the submitter's work-queue so that we can access memory directly.
 				co_await submitThread->mainWorkQueue()->schedule();
@@ -976,6 +977,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 			}
 		}
 
+		assert(error == Error::success);
 		HelSimpleResult helResult{translateError(error)};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
@@ -999,7 +1001,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		{
 			auto lockHandle = AddressSpaceLockHandle{std::move(space),
 					(void *)address, length};
-			co_await lockHandle.acquire();
+			co_await lockHandle.acquire(submitThread->mainWorkQueue()->take());
 
 			// Enter the submitter's work-queue so that we can access memory directly.
 			co_await submitThread->mainWorkQueue()->schedule();
@@ -1118,7 +1120,8 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 					break;
 				}
 
-				co_await copyToView(view.get(), address + progress, temp, chunk);
+				co_await copyToView(view.get(), address + progress, temp, chunk,
+						submitThread->mainWorkQueue()->take());
 				progress += chunk;
 			}
 		}
@@ -1146,7 +1149,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		{
 			auto lockHandle = AddressSpaceLockHandle{std::move(space),
 					(void *)address, length};
-			co_await lockHandle.acquire();
+			co_await lockHandle.acquire(submitThread->mainWorkQueue()->take());
 
 			// Enter the submitter's work-queue so that we can access memory directly.
 			co_await submitThread->mainWorkQueue()->schedule();
@@ -1357,11 +1360,11 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 				smarter::shared_ptr<MemoryView> memory,
 				smarter::shared_ptr<IpcQueue> queue,
 				uintptr_t offset, size_t size,
-				uintptr_t context) -> coroutine<void> {
+				uintptr_t context, smarter::shared_ptr<WorkQueue> wq) -> coroutine<void> {
 			auto initiateError = co_await memory->submitInitiateLoad(ManageRequest::initialize, offset, size);
 
 			MemoryViewLockHandle lock_handle{memory, offset, size};
-			co_await lock_handle.acquire();
+			co_await lock_handle.acquire(wq);
 			if(!lock_handle) {
 				// TODO: Return a better error.
 				HelHandleResult helResult{kHelErrFault, 0, 0};
@@ -1387,7 +1390,7 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 			co_await queue->submit(&ipcSource, context);
 	}(
 		std::move(this_universe), std::move(memory), std::move(queue),
-		offset, size, context
+		offset, size, context, WorkQueue::localQueue()->take()
 	));
 
 	return kHelErrNone;
@@ -2250,7 +2253,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto space = this_thread->getAddressSpace().lock();
 			auto accessor = AddressSpaceLockHandle{std::move(space),
 					action.buffer, action.length};
-			Thread::asyncBlockCurrent(accessor.acquire());
+			Thread::asyncBlockCurrent(accessor.acquire(WorkQueue::localQueue()->take()));
 
 			closure->items[i].transmit.setup(kTagRecvToBuffer, closure);
 			closure->items[i].transmit._inAccessor = std::move(accessor);

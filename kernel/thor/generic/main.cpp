@@ -250,7 +250,8 @@ extern "C" void thorMain() {
 
 					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size));
+					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size,
+							thisFiber()->associatedWorkQueue()->take()));
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
@@ -371,7 +372,8 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
 	}else{
-		handled = Thread::asyncBlockCurrent(address_space->handleFault(address, flags));
+		handled = Thread::asyncBlockCurrent(address_space->handleFault(address, flags,
+				WorkQueue::localQueue()->take()));
 	}
 
 	if(handled)

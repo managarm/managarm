@@ -325,7 +325,7 @@ public:
 	// (e.g. due to fetchRange()), it cannot be evicted until the lock is released.
 	virtual Error lockRange(uintptr_t offset, size_t size) = 0;
 	virtual bool asyncLockRange(uintptr_t offset, size_t size,
-			LockRangeNode *node);
+			smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node);
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
@@ -335,7 +335,8 @@ public:
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
-	virtual bool fetchRange(uintptr_t offset, FetchNode *node) = 0;
+	virtual bool fetchRange(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq, FetchNode *node) = 0;
 
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
@@ -417,37 +418,18 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct LockRangeOperation;
-
-	struct [[nodiscard]] LockRangeSender {
-		using value_type = Error;
-
-		template<typename R>
-		friend LockRangeOperation<R>
-		connect(LockRangeSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		MemoryView *self;
-		uintptr_t offset;
-		size_t size;
-	};
-
-	LockRangeSender asyncLockRange(uintptr_t offset, size_t size) {
-		return {this, offset, size};
-	}
-
-	template<typename R>
-	struct LockRangeOperation final : private LockRangeNode {
-		LockRangeOperation(LockRangeSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
+	struct [[nodiscard]] LockRangeOperation final : LockRangeNode {
+		LockRangeOperation(MemoryView *self, uintptr_t offset, size_t size,
+				smarter::shared_ptr<WorkQueue> wq, R receiver)
+		: self_{self}, offset_{offset}, size_{size}, wq_{std::move(wq)},
+				receiver_{std::move(receiver)} { }
 
 		LockRangeOperation(const LockRangeOperation &) = delete;
 
 		LockRangeOperation &operator= (const LockRangeOperation &) = delete;
 
 		bool start_inline() {
-			if(s_.self->asyncLockRange(s_.offset, s_.size, this)) {
+			if(self_->asyncLockRange(offset_, size_, std::move(wq_), this)) {
 				async::execution::set_value_inline(std::move(receiver_), result);
 				return true;
 			}
@@ -459,9 +441,33 @@ public:
 			async::execution::set_value_noinline(std::move(receiver_), result);
 		}
 
-		LockRangeSender s_;
+		MemoryView *self_;
+		uintptr_t offset_;
+		size_t size_;
+		smarter::shared_ptr<WorkQueue> wq_;
 		R receiver_;
 	};
+
+	struct [[nodiscard]] LockRangeSender {
+		using value_type = Error;
+
+		template<typename R>
+		friend LockRangeOperation<R>
+		connect(LockRangeSender sender, R receiver) {
+			return {sender.self, sender.offset, sender.size,
+					std::move(sender.wq), std::move(receiver)};
+		}
+
+		MemoryView *self;
+		uintptr_t offset;
+		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
+	};
+
+	LockRangeSender asyncLockRange(uintptr_t offset, size_t size,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, size, std::move(wq)};
+	}
 
 	friend async::sender_awaiter<LockRangeSender, Error>
 	operator co_await(LockRangeSender sender) {
@@ -473,29 +479,10 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct FetchRangeOperation;
-
-	struct [[nodiscard]] FetchRangeSender {
-		using value_type = frg::tuple<Error, PhysicalRange, uint32_t>;
-
-		template<typename R>
-		friend FetchRangeOperation<R>
-		connect(FetchRangeSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		MemoryView *self;
-		uintptr_t offset;
-	};
-
-	FetchRangeSender fetchRange(uintptr_t offset) {
-		return {this, offset};
-	}
-
-	template<typename R>
-	struct FetchRangeOperation {
-		FetchRangeOperation(FetchRangeSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
+	struct [[nodiscard]] FetchRangeOperation {
+		FetchRangeOperation(MemoryView *self, uintptr_t offset,
+				smarter::shared_ptr<WorkQueue> wq, R receiver)
+		: self_{self}, offset_{offset}, wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
 
 		FetchRangeOperation(const FetchRangeOperation &) = delete;
 
@@ -507,9 +494,9 @@ public:
 				async::execution::set_value_noinline(op->receiver_,
 						frg::tuple<Error, PhysicalRange, uint32_t>{op->node_.error(),
 								op->node_.range(), op->node_.flags()});
-			}, WorkQueue::generalQueue());
+			}, wq_.get());
 			node_.setup(&worklet_);
-			if(s_.self->fetchRange(s_.offset, &node_)) {
+			if(self_->fetchRange(offset_, std::move(wq_), &node_)) {
 				async::execution::set_value_inline(receiver_,
 						frg::tuple<Error, PhysicalRange, uint32_t>{node_.error(),
 								node_.range(), node_.flags()});
@@ -519,11 +506,31 @@ public:
 		}
 
 	private:
-		FetchRangeSender s_;
+		MemoryView *self_;
+		uintptr_t offset_;
+		smarter::shared_ptr<WorkQueue> wq_;
 		R receiver_;
 		FetchNode node_;
 		Worklet worklet_;
 	};
+
+	struct [[nodiscard]] FetchRangeSender {
+		using value_type = frg::tuple<Error, PhysicalRange, uint32_t>;
+
+		template<typename R>
+		friend FetchRangeOperation<R>
+		connect(FetchRangeSender sender, R receiver) {
+			return {sender.self, sender.offset, std::move(sender.wq), std::move(receiver)};
+		}
+
+		MemoryView *self;
+		uintptr_t offset;
+		smarter::shared_ptr<WorkQueue> wq;
+	};
+
+	FetchRangeSender fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, std::move(wq)};
+	}
 
 	friend async::sender_awaiter<FetchRangeSender, frg::tuple<Error, PhysicalRange, uint32_t>>
 	operator co_await(FetchRangeSender sender) {
@@ -718,28 +725,31 @@ private:
 
 // In addition to what copyFromView() does, we also have to mark the memory as dirty.
 inline auto copyToView(MemoryView *view, uintptr_t offset,
-		const void *pointer, size_t size) {
+		const void *pointer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq) {
 	struct Node {
 		MemoryView *view;
 		uintptr_t offset;
 		const void *pointer;
 		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
 	};
 
 	return async::let([=] {
-		return Node{view, offset, pointer, size};
+		return Node{view, offset, pointer, size, std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size), [] (Error e) {
+			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
+					nd.wq), [] (Error e) {
 				// TODO: properly propagate the error.
 				assert(e == Error::success);
 			}),
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::transform(nd.view->fetchRange(fetchOffset),
+					return async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
 							[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
 						auto [error, range, flags] = result;
 						assert(error == Error::success);
@@ -773,28 +783,31 @@ inline auto copyToView(MemoryView *view, uintptr_t offset,
 // ----------------------------------------------------------------------------------
 
 inline auto copyFromView(MemoryView *view, uintptr_t offset,
-		void *pointer, size_t size) {
+		void *pointer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq) {
 	struct Node {
 		MemoryView *view;
 		uintptr_t offset;
 		void *pointer;
 		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
 	};
 
 	return async::let([=] {
-		return Node{view, offset, pointer, size};
+		return Node{view, offset, pointer, size, std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size), [] (Error e) {
+			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
+					nd.wq), [] (Error e) {
 				// TODO: properly propagate the error.
 				assert(e == Error::success);
 			}),
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::transform(nd.view->fetchRange(fetchOffset),
+					return async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
 							[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
 						auto [error, range, flags] = result;
 						assert(error == Error::success);
@@ -825,13 +838,15 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 
 // In addition to what copyFromView() does, we also have to mark the memory as dirty.
 inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
-		MemoryView *srcView, uintptr_t srcOffset, size_t size) {
+		MemoryView *srcView, uintptr_t srcOffset, size_t size,
+		smarter::shared_ptr<WorkQueue> wq) {
 	struct Node {
 		MemoryView *destView;
 		MemoryView *srcView;
 		uintptr_t destOffset;
 		uintptr_t srcOffset;
 		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
 		PhysicalRange destRange;
@@ -839,14 +854,16 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 	};
 
 	return async::let([=] {
-		return Node{destView, srcView, destOffset, srcOffset, size};
+		return Node{destView, srcView, destOffset, srcOffset, size, std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.destView->asyncLockRange(nd.destOffset, nd.size), [] (Error e) {
+			async::transform(nd.destView->asyncLockRange(nd.destOffset, nd.size,
+					nd.wq), [] (Error e) {
 				// TODO: properly propagate the error.
 				assert(e == Error::success);
 			}),
-			async::transform(nd.srcView->asyncLockRange(nd.srcOffset, nd.size), [] (Error e) {
+			async::transform(nd.srcView->asyncLockRange(nd.srcOffset, nd.size,
+					nd.wq), [] (Error e) {
 				// TODO: properly propagate the error.
 				assert(e == Error::success);
 			}),
@@ -855,14 +872,14 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 					auto destFetchOffset = (nd.destOffset + nd.progress) & ~(kPageSize - 1);
 					auto srcFetchOffset = (nd.srcOffset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.destView->fetchRange(destFetchOffset),
+						async::transform(nd.destView->fetchRange(destFetchOffset, nd.wq),
 								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
 							auto [error, range, flags] = result;
 							assert(error == Error::success);
 							assert(range.get<1>() >= kPageSize);
 							nd.destRange = range;
 						}),
-						async::transform(nd.srcView->fetchRange(srcFetchOffset),
+						async::transform(nd.srcView->fetchRange(srcFetchOffset, nd.wq),
 								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
 							auto [error, range, flags] = result;
 							assert(error == Error::success);
@@ -916,7 +933,7 @@ struct HardwareMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 private:
@@ -939,7 +956,7 @@ struct AllocatedMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 private:
@@ -1038,7 +1055,7 @@ public:
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 	void submitManage(ManageNode *handle) override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
@@ -1061,7 +1078,7 @@ public:
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 	void submitInitiateLoad(MonitorNode *initiate) override;
 
@@ -1081,7 +1098,7 @@ struct IndirectMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
@@ -1135,10 +1152,10 @@ public:
 	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	bool asyncLockRange(uintptr_t offset, size_t size,
-			LockRangeNode *node) override;
+			smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 private:

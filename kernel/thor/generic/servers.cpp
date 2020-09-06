@@ -93,7 +93,8 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 
 	auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-	co_await copyToView(memory.get(), 0, buffer, size);
+	co_await copyToView(memory.get(), 0, buffer, size,
+			WorkQueue::generalQueue()->take());
 
 	auto file = frg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
 	directory->link(frg::string<KernelAlloc>{*kernelAlloc, name}, file);
@@ -162,7 +163,8 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 
 	// parse the ELf file format
 	Elf64_Ehdr ehdr;
-	co_await copyFromView(image.get(), 0, &ehdr, sizeof(Elf64_Ehdr));
+	co_await copyFromView(image.get(), 0, &ehdr, sizeof(Elf64_Ehdr),
+			WorkQueue::generalQueue()->take());
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
@@ -175,7 +177,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
 		co_await copyFromView(image.get(), ehdr.e_phoff + i * ehdr.e_phentsize,
-				&phdr, sizeof(Elf64_Phdr));
+				&phdr, sizeof(Elf64_Phdr), WorkQueue::generalQueue()->take());
 		
 		if(phdr.p_type == PT_LOAD) {
 			assert(phdr.p_memsz > 0);
@@ -190,7 +192,8 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			
 			auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, virt_length);
 			co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
-					image.get(), phdr.p_offset, phdr.p_filesz);
+					image.get(), phdr.p_offset, phdr.p_filesz,
+					WorkQueue::generalQueue()->take());
 
 			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 					std::move(memory), 0, virt_length);
@@ -214,7 +217,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
 			co_await copyFromView(image.get(), phdr.p_offset,
-					info.interpreter.data(), phdr.p_filesz);
+					info.interpreter.data(), phdr.p_filesz, WorkQueue::generalQueue()->take());
 		}else if(phdr.p_type == PT_PHDR) {
 			info.phdrPtr = reinterpret_cast<void *>(base + phdr.p_vaddr);
 		}else if(phdr.p_type == PT_DYNAMIC
@@ -272,7 +275,8 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	frg::string<KernelAlloc> data_area(*kernelAlloc);
 
 	uintptr_t data_disp = stack_size - data_area.size();
-	co_await copyToView(stack_memory.get(), data_disp, data_area.data(), data_area.size());
+	co_await copyToView(stack_memory.get(), data_disp, data_area.data(), data_area.size(),
+			WorkQueue::generalQueue()->take());
 
 	// build the stack tail area (containing the aux vector).
 	auto universe = smarter::allocate_shared<Universe>(*kernelAlloc);
@@ -333,7 +337,8 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	
 	uintptr_t tail_disp = data_disp - tail_area.size();
 	assert(!(tail_disp % 16));
-	co_await copyToView(stack_memory.get(), tail_disp, tail_area.data(), tail_area.size());
+	co_await copyToView(stack_memory.get(), tail_disp, tail_area.data(), tail_area.size(),
+			WorkQueue::generalQueue()->take());
 
 	// create a thread for the module
 	AbiParameters params;

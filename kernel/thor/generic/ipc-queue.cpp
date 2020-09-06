@@ -51,7 +51,7 @@ void IpcQueue::submit(IpcNode *node) {
 coroutine<void> IpcQueue::_runQueue() {
 	AddressSpaceLockHandle queueLock{_space, _pointer, sizeof(QueueStruct)
 			+ (size_t{1} << _sizeShift) * sizeof(int)};
-	co_await queueLock.acquire();
+	co_await queueLock.acquire(WorkQueue::generalQueue()->take());
 
 	while(true) {
 		co_await _doorbell.async_wait_if([&] () -> bool {
@@ -100,7 +100,7 @@ coroutine<void> IpcQueue::_runQueue() {
 		}
 		AddressSpaceLockHandle chunkLock{currentChunk->space,
 					currentChunk->pointer, sizeof(ChunkStruct)};
-		co_await chunkLock.acquire();
+		co_await chunkLock.acquire(WorkQueue::generalQueue()->take());
 
 		// This inner loop runs until the chunk is exhausted.
 		while(true) {
@@ -137,7 +137,7 @@ coroutine<void> IpcQueue::_runQueue() {
 			if(progress + length <= currentChunk->bufferSize) {
 				AddressSpaceLockHandle elementLock{currentChunk->space,
 						reinterpret_cast<void *>(dest), sizeof(ElementStruct) + length};
-				co_await elementLock.acquire();
+				co_await elementLock.acquire(WorkQueue::generalQueue()->take());
 
 				// Emit the next element to the current chunk.
 				ElementStruct element;
