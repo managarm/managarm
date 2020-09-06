@@ -125,7 +125,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 	// Bind the new space.
 	uint64_t target_seq;
 	{
-		auto lock = frigg::guard(&space->_mutex);
+		auto lock = frg::guard(&space->_mutex);
 
 		target_seq = space->_shootSequence;
 		space->_numBindings++;
@@ -152,7 +152,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 	> complete;
 
 	if(unbound_space) {
-		auto lock = frigg::guard(&unbound_space->_mutex);
+		auto lock = frg::guard(&unbound_space->_mutex);
 
 		if(!unbound_space->_shootQueue.empty()) {
 			auto current = unbound_space->_shootQueue.back();
@@ -176,14 +176,14 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 
 		unbound_space->_numBindings--;
 		if(!unbound_space->_numBindings && unbound_space->_retireNode) {
-			WorkQueue::post(unbound_space->_retireNode->_worklet);
+			unbound_space->_retireNode->complete();
 			unbound_space->_retireNode = nullptr;
 		}
 	}
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 
@@ -214,7 +214,7 @@ void PageBinding::unbind() {
 	> complete;
 
 	{
-		auto lock = frigg::guard(&_boundSpace->_mutex);
+		auto lock = frg::guard(&_boundSpace->_mutex);
 
 		if(!_boundSpace->_shootQueue.empty()) {
 			auto current = _boundSpace->_shootQueue.back();
@@ -239,7 +239,7 @@ void PageBinding::unbind() {
 
 		_boundSpace->_numBindings--;
 		if(!_boundSpace->_numBindings && _boundSpace->_retireNode) {
-			WorkQueue::post(_boundSpace->_retireNode->_worklet);
+			_boundSpace->_retireNode->complete();
 			_boundSpace->_retireNode = nullptr;
 		}
 	}
@@ -249,7 +249,7 @@ void PageBinding::unbind() {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 
@@ -276,7 +276,7 @@ void PageBinding::shootdown() {
 
 	uint64_t target_seq;
 	{
-		auto lock = frigg::guard(&_boundSpace->_mutex);
+		auto lock = frg::guard(&_boundSpace->_mutex);
 
 		if(!_boundSpace->_shootQueue.empty()) {
 			auto current = _boundSpace->_shootQueue.back();
@@ -314,7 +314,7 @@ void PageBinding::shootdown() {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 
@@ -330,7 +330,7 @@ void GlobalPageBinding::bind() {
 
 	uint64_t targetSeq;
 	{
-		auto lock = frigg::guard(&space->_shootMutex);
+		auto lock = frg::guard(&space->_shootMutex);
 
 		targetSeq = space->_shootSequence;
 		space->_numBindings++;
@@ -355,7 +355,7 @@ void GlobalPageBinding::shootdown() {
 
 	uint64_t targetSeq;
 	{
-		auto lock = frigg::guard(&space->_shootMutex);
+		auto lock = frg::guard(&space->_shootMutex);
 
 		if(!space->_shootQueue.empty()) {
 			auto current = space->_shootQueue.back();
@@ -387,7 +387,7 @@ void GlobalPageBinding::shootdown() {
 
 	while(!complete.empty()) {
 		auto current = complete.pop_front();
-		WorkQueue::post(current->_worklet);
+		current->complete();
 	}
 }
 
@@ -431,8 +431,8 @@ PageSpace::~PageSpace() {
 void PageSpace::retire(RetireNode *node) {
 	bool any_bindings;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		any_bindings = _numBindings;
 		if(any_bindings) {
@@ -442,7 +442,7 @@ void PageSpace::retire(RetireNode *node) {
 	}
 
 	if(!any_bindings)
-		WorkQueue::post(node->_worklet);
+		node->complete();
 
 	sendShootdownIpi();
 }
@@ -452,8 +452,8 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 	assert(!(node->size & (kPageSize - 1)));
 
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		auto unshot_bindings = _numBindings;
 
@@ -497,7 +497,7 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 // Kernel paging management.
 // --------------------------------------------------------
 
-frigg::LazyInitializer<KernelPageSpace> kernelSpaceSingleton;
+frg::manual_box<KernelPageSpace> kernelSpaceSingleton;
 
 void KernelPageSpace::initialize() {
 	PhysicalAddr pml4_ptr;
@@ -518,8 +518,8 @@ bool KernelPageSpace::submitShootdown(ShootNode *node) {
 	assert(!(node->size & (kPageSize - 1)));
 
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		auto unshotBindings = _numBindings;
 
@@ -547,8 +547,8 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto &region = SkeletalRegion::global();
 
@@ -634,8 +634,8 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto &region = SkeletalRegion::global();
 
@@ -733,8 +733,8 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	PageAccessor accessor4;
 	PageAccessor accessor3;
@@ -831,8 +831,8 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	PageAccessor accessor4;
 	PageAccessor accessor3;
@@ -883,8 +883,8 @@ PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
 PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	PageAccessor accessor4;
 	PageAccessor accessor3;
@@ -936,8 +936,8 @@ void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode
 	assert(!(pointer & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	PageAccessor accessor4;
 	PageAccessor accessor3;
@@ -990,8 +990,8 @@ void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	PageAccessor accessor4;
 	PageAccessor accessor3;

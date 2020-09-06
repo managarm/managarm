@@ -1,5 +1,4 @@
 
-#include <frigg/debug.hpp>
 #include <thor-internal/framebuffer/boot-screen.hpp>
 
 namespace thor {
@@ -20,7 +19,7 @@ void BootScreen::Formatter::print(const char *c) {
 				int n = 0;
 				while(c[n] && c[n] != '\x1B')
 					n++;
-				int m = frigg::min(_screen->_width - _x, n);
+				int m = frg::min(_screen->_width - _x, n);
 				if(m) {
 					_screen->_display->setChars(_x, _y, c, m, _fg, _bg);
 					_x += m;
@@ -96,7 +95,7 @@ void BootScreen::printChar(char c) {
 
 		// Clear the last line.
 		_bottomSequence = cs;
-		_display->setBlanks(0, _height - 1, frigg::min(100, _width), -1);
+		_display->setBlanks(0, _height - 1, frg::min(100, _width), -1);
 		_fmt = Formatter{this, 0, _height - 1};
 	}
 

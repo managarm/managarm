@@ -11,8 +11,8 @@ namespace thor {
 void OneshotEvent::trigger() {
 	assert(!_triggered); // TODO: Return an error!
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	_triggered = true;
 
@@ -26,8 +26,8 @@ void OneshotEvent::trigger() {
 }
 
 void OneshotEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	assert(sequence <= 1); // TODO: Return an error.
 
@@ -63,8 +63,8 @@ void BitsetEvent::trigger(uint32_t bits) {
 	if(!bits)
 		return; // TODO: Return an error!
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	_currentSequence++;
 	for(int i = 0; i < 32; i++)
@@ -81,8 +81,8 @@ void BitsetEvent::trigger(uint32_t bits) {
 }
 
 void BitsetEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	assert(sequence <= _currentSequence);
 	if(sequence < _currentSequence) {

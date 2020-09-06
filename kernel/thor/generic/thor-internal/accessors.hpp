@@ -1,6 +1,6 @@
 #pragma once
 
-#include <frigg/variant.hpp>
+#include <frg/variant.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/arch/paging.hpp>
 
@@ -123,10 +123,10 @@ public:
 	AnyBufferAccessor() { }
 
 	AnyBufferAccessor(KernelAccessor accessor)
-	: _variant(frigg::move(accessor)) { }
+	: _variant(std::move(accessor)) { }
 	
 	AnyBufferAccessor(AddressSpaceLockHandle accessor)
-	: _variant(frigg::move(accessor)) { }
+	: _variant(std::move(accessor)) { }
 
 	size_t length() {
 		return _variant.apply([&] (auto &accessor) -> size_t {
@@ -141,7 +141,7 @@ public:
 	}
 
 private:
-	frigg::Variant<
+	frg::variant<
 		KernelAccessor,
 		AddressSpaceLockHandle
 	> _variant;

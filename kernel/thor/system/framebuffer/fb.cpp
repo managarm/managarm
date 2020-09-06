@@ -1,5 +1,4 @@
 
-#include <frigg/debug.hpp>
 #include <render-text.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/fiber.hpp>
@@ -90,9 +89,9 @@ void FbDisplay::_clearScreen(uint32_t rgb_color) {
 }
 
 namespace {
-	frigg::LazyInitializer<FbInfo> bootInfo;
-	frigg::LazyInitializer<FbDisplay> bootDisplay;
-	frigg::LazyInitializer<BootScreen> bootScreen;
+	frg::manual_box<FbInfo> bootInfo;
+	frg::manual_box<FbDisplay> bootDisplay;
+	frg::manual_box<BootScreen> bootScreen;
 }
 
 void initializeBootFb(uint64_t address, uint64_t pitch, uint64_t width,
@@ -126,7 +125,7 @@ void transitionBootFb() {
 	bootDisplay->setWindow(window);
 	
 	assert(!(bootInfo->address & (kPageSize - 1)));
-	bootInfo->memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
+	bootInfo->memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 			bootInfo->address & ~(kPageSize - 1),
 			(bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1),
 			CachingMode::writeCombine);	

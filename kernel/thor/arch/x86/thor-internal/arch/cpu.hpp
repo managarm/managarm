@@ -5,11 +5,10 @@
 #include <utility>
 
 #include <frg/tuple.hpp>
-#include <frigg/arch_x86/gdt.hpp>
-#include <frigg/arch_x86/idt.hpp>
-#include <frigg/arch_x86/machine.hpp>
-#include <frigg/arch_x86/tss.hpp>
-#include <frigg/smart_ptr.hpp>
+#include <x86/gdt.hpp>
+#include <x86/idt.hpp>
+#include <x86/machine.hpp>
+#include <x86/tss.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
@@ -347,7 +346,7 @@ struct UserContext {
 
 	// TODO: This should be private.
 	UniqueKernelStack kernelStack;
-	frigg::arch_x86::Tss64 tss;
+	common::x86::Tss64 tss;
 };
 
 struct FiberContext {
@@ -496,7 +495,7 @@ public:
 private:
 	char *_pointer;
 	void *_syscallStack;
-	frigg::arch_x86::Tss64 *_tss;
+	common::x86::Tss64 *_tss;
 };
 
 void saveExecutor(Executor *executor, FaultImageAccessor accessor);
@@ -518,9 +517,9 @@ size_t getStateSize();
 // switches the active executor.
 // does NOT restore the executor's state.
 struct Thread;
-void switchExecutor(frigg::UnsafePtr<Thread> executor);
+void switchExecutor(smarter::borrowed_ptr<Thread> executor);
 
-frigg::UnsafePtr<Thread> activeExecutor();
+smarter::borrowed_ptr<Thread> activeExecutor();
 
 // Note: These constants we mirrored in assembly.
 // Do not change their values!
@@ -560,7 +559,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack nmiStack;
 	UniqueKernelStack detachedStack;
 
-	frigg::arch_x86::Tss64 tss;
+	common::x86::Tss64 tss;
 
 	PageContext pageContext;
 	PageBinding pcidBindings[maxPcidCount];
@@ -576,7 +575,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	LocalApicContext apicContext;
 
 	// TODO: This is not really arch-specific!
-	frigg::UnsafePtr<Thread> activeExecutor;
+	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
 inline PlatformCpuData *getPlatformCpuData() {
@@ -632,7 +631,7 @@ void forkExecutor(F functor, Executor *executor) {
 	};
 
 	if(getPlatformCpuData()->haveXsave) {
-		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	} else {
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 	}
@@ -650,5 +649,9 @@ void disarmPreemption();
 // --------------------------------------------------------
 
 uint64_t getRawTimestampCounter();
+
+inline void pause() {
+	asm volatile ("pause");
+}
 
 } // namespace thor

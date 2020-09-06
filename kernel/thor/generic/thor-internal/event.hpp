@@ -36,7 +36,7 @@ struct OneshotEvent {
 	void submitAwait(AwaitEventNode *node, uint64_t sequence);
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	bool _triggered = false;
 
@@ -59,7 +59,7 @@ struct BitsetEvent {
 	void submitAwait(AwaitEventNode *node, uint64_t sequence);
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	uint64_t _lastTrigger[32];
 	uint64_t _currentSequence;

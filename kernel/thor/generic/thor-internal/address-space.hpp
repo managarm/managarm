@@ -23,6 +23,45 @@ struct VirtualOperations {
 	virtual bool isMapped(VirtualAddr pointer) = 0;
 
 	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for retire()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct RetireOperation : private RetireNode {
+		RetireOperation(VirtualOperations *self, R receiver)
+		: self_{self}, receiver_{std::move(receiver)} { }
+
+		void start() {
+			self_->retire(this);
+		}
+
+	private:
+		void complete() override {
+			async::execution::set_value(receiver_);
+		}
+
+		VirtualOperations *self_;
+		R receiver_;
+	};
+
+	struct RetireSender {
+		template<typename R>
+		RetireOperation<R> connect(R receiver) {
+			return {self, std::move(receiver)};
+		}
+
+		async::sender_awaiter<RetireSender> operator co_await() {
+			return {*this};
+		}
+
+		VirtualOperations *self;
+	};
+
+	RetireSender retire() {
+		return {};
+	}
+
+	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for shootdown()
 	// ----------------------------------------------------------------------------------
 
@@ -30,6 +69,8 @@ struct VirtualOperations {
 	struct ShootdownOperation;
 
 	struct [[nodiscard]] ShootdownSender {
+		using value_type = void;
+
 		template<typename R>
 		friend ShootdownOperation<R>
 		connect(ShootdownSender sender, R receiver) {
@@ -46,7 +87,7 @@ struct VirtualOperations {
 	}
 
 	template<typename R>
-	struct ShootdownOperation {
+	struct ShootdownOperation : private ShootNode {
 		ShootdownOperation(ShootdownSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -55,14 +96,9 @@ struct VirtualOperations {
 		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &ShootdownOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.address = s_.address;
-			node_.size = s_.size;
-			node_.setup(&worklet_);
-			if(s_.self->submitShootdown(&node_)) {
+			ShootNode::address = s_.address;
+			ShootNode::size = s_.size;
+			if(s_.self->submitShootdown(this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -70,10 +106,12 @@ struct VirtualOperations {
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		ShootdownSender s_;
 		R receiver_;
-		ShootNode node_;
-		Worklet worklet_;
 	};
 
 	friend async::sender_awaiter<ShootdownSender>
@@ -132,7 +170,7 @@ enum class MappingState {
 
 struct Mapping {
 	Mapping(size_t length, MappingFlags flags,
-			frigg::SharedPtr<MemorySlice> view, uintptr_t offset);
+			smarter::shared_ptr<MemorySlice> view, uintptr_t offset);
 
 	Mapping(const Mapping &) = delete;
 
@@ -144,28 +182,26 @@ struct Mapping {
 
 	void protect(MappingFlags flags);
 
-	// Makes sure that pages are not evicted from virtual memory.
-	void lockVirtualRange(uintptr_t offset, size_t length,
-			async::any_receiver<frg::expected<Error>> receiver);
 	void unlockVirtualRange(uintptr_t offset, size_t length);
 
 	frg::tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset);
 
-	// Ensures that a page of virtual memory is present.
-	// Note that this does *not* guarantee that the page is not evicted immediately,
-	// unless you hold a lock (via lockVirtualRange()).
-	void touchVirtualPage(uintptr_t offset,
-			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver);
-
-	// Helper function that calls touchVirtualPage() on a certain range.
-	void populateVirtualRange(uintptr_t offset, size_t size,
-			async::any_receiver<frg::expected<Error>> receiver);
-
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for lockVirtualRange()
 	// ----------------------------------------------------------------------------------
+private:
+	struct LockVirtualRangeNode {
+		virtual void resume() = 0;
 
+		frg::expected<Error> result;
+	};
+
+	// Makes sure that pages are not evicted from virtual memory.
+	void lockVirtualRange(uintptr_t offset, size_t length,
+			smarter::shared_ptr<WorkQueue> wq, LockVirtualRangeNode *node);
+
+public:
 	template<typename R>
 	struct LockVirtualRangeOperation;
 
@@ -179,14 +215,16 @@ struct Mapping {
 		Mapping *self;
 		uintptr_t offset;
 		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	LockVirtualRangeSender lockVirtualRange(uintptr_t offset, size_t size) {
-		return {this, offset, size};
+	LockVirtualRangeSender lockVirtualRange(uintptr_t offset, size_t size,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, size, std::move(wq)};
 	}
 
 	template<typename R>
-	struct LockVirtualRangeOperation {
+	struct LockVirtualRangeOperation : private LockVirtualRangeNode {
 		LockVirtualRangeOperation(LockVirtualRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -195,10 +233,16 @@ struct Mapping {
 		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
 
 		void start() {
-			s_.self->lockVirtualRange(s_.offset, s_.size, std::move(receiver_));
+			// XXX: work around Clang bug that runs s_.wq dtor after the call.
+			auto wq = s_.wq;
+			s_.self->lockVirtualRange(s_.offset, s_.size, std::move(wq), this);
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value(receiver_, result);
+		}
+
 		LockVirtualRangeSender s_;
 		R receiver_;
 	};
@@ -211,7 +255,20 @@ struct Mapping {
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for touchVirtualPage()
 	// ----------------------------------------------------------------------------------
+private:
+	struct TouchVirtualPageNode {
+		virtual void resume() = 0;
 
+		frg::expected<Error, TouchVirtualResult> result;
+	};
+
+	// Ensures that a page of virtual memory is present.
+	// Note that this does *not* guarantee that the page is not evicted immediately,
+	// unless you hold a lock (via lockVirtualRange()).
+	void touchVirtualPage(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node);
+
+public:
 	template<typename R>
 	struct TouchVirtualPageOperation;
 
@@ -224,14 +281,16 @@ struct Mapping {
 
 		Mapping *self;
 		uintptr_t offset;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	TouchVirtualPageSender touchVirtualPage(uintptr_t offset) {
-		return {this, offset};
+	TouchVirtualPageSender touchVirtualPage(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, std::move(wq)};
 	}
 
 	template<typename R>
-	struct TouchVirtualPageOperation {
+	struct TouchVirtualPageOperation : private TouchVirtualPageNode {
 		TouchVirtualPageOperation(TouchVirtualPageSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -240,10 +299,16 @@ struct Mapping {
 		TouchVirtualPageOperation &operator= (const TouchVirtualPageOperation &) = delete;
 
 		void start() {
-			s_.self->touchVirtualPage(s_.offset, std::move(receiver_));
+			// XXX: work around Clang bug that runs s_.wq dtor after the call.
+			auto wq = s_.wq;
+			s_.self->touchVirtualPage(s_.offset, std::move(wq), this);
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value(receiver_, result);
+		}
+
 		TouchVirtualPageSender s_;
 		R receiver_;
 	};
@@ -256,7 +321,18 @@ struct Mapping {
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for populateVirtualRange()
 	// ----------------------------------------------------------------------------------
+private:
+	struct PopulateVirtualRangeNode {
+		virtual void resume() = 0;
 
+		frg::expected<Error> result;
+	};
+
+	// Helper function that calls touchVirtualPage() on a certain range.
+	void populateVirtualRange(uintptr_t offset, size_t size,
+			smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node);
+
+public:
 	template<typename R>
 	struct PopulateVirtualRangeOperation;
 
@@ -270,14 +346,16 @@ struct Mapping {
 		Mapping *self;
 		uintptr_t offset;
 		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	PopulateVirtualRangeSender populateVirtualRange(uintptr_t offset, size_t size) {
-		return {this, offset, size};
+	PopulateVirtualRangeSender populateVirtualRange(uintptr_t offset, size_t size,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, offset, size, std::move(wq)};
 	}
 
 	template<typename R>
-	struct PopulateVirtualRangeOperation {
+	struct PopulateVirtualRangeOperation : private PopulateVirtualRangeNode {
 		PopulateVirtualRangeOperation(PopulateVirtualRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -286,10 +364,16 @@ struct Mapping {
 		PopulateVirtualRangeOperation &operator= (const PopulateVirtualRangeOperation &) = delete;
 
 		void start() {
-			s_.self->populateVirtualRange(s_.offset, s_.size, std::move(receiver_));
+			// XXX: work around Clang bug that runs s_.wq dtor after the call.
+			auto wq = s_.wq;
+			s_.self->populateVirtualRange(s_.offset, s_.size, std::move(wq), this);
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value(receiver_, result);
+		}
+
 		PopulateVirtualRangeSender s_;
 		R receiver_;
 	};
@@ -318,11 +402,11 @@ struct Mapping {
 	MemoryObserver observer;
 	async::cancellation_event cancelEviction;
 	async::oneshot_event evictionDoneEvent;
-	frigg::SharedPtr<MemorySlice> slice;
-	frigg::SharedPtr<MemoryView> view;
+	smarter::shared_ptr<MemorySlice> slice;
+	smarter::shared_ptr<MemoryView> view;
 	size_t viewOffset;
 
-	frigg::TicketLock evictMutex;
+	frg::ticket_spinlock evictMutex;
 };
 
 struct HoleLess {
@@ -357,70 +441,64 @@ using MappingTree = frg::rbtree<
 	MappingLess
 >;
 
+struct MapNode {
+	friend struct VirtualSpace;
+
+	MapNode() = default;
+
+	MapNode(const MapNode &) = delete;
+
+	MapNode &operator= (const MapNode &) = delete;
+
+	frg::expected<Error, VirtualAddr> result() {
+		return *nodeResult_;
+	}
+
+protected:
+	virtual void resume() = 0;
+
+private:
+	frg::optional<frg::expected<Error, VirtualAddr>> nodeResult_;
+};
+
+struct SynchronizeNode {
+	friend struct VirtualSpace;
+
+	SynchronizeNode() = default;
+
+	SynchronizeNode(const SynchronizeNode &) = delete;
+
+	SynchronizeNode &operator= (const SynchronizeNode &) = delete;
+
+protected:
+	virtual void resume() = 0;
+};
+
 struct FaultNode {
 	friend struct VirtualSpace;
-	friend struct Mapping;
 
-	FaultNode()
-	: _resolved{false} { }
+	FaultNode() = default;
 
 	FaultNode(const FaultNode &) = delete;
 
 	FaultNode &operator= (const FaultNode &) = delete;
 
-	void setup(Worklet *handled) {
-		_handled = handled;
-	}
-
-	bool resolved() {
-		return _resolved;
-	}
-
-private:
-	VirtualAddr _address;
-	uint32_t _flags;
-	Worklet *_handled;
-
-	bool _resolved;
-
-	smarter::shared_ptr<Mapping> _mapping;
-	Worklet _worklet;
+protected:
+	virtual void complete(bool resolved) = 0;
 };
 
 struct AddressProtectNode {
 	friend struct VirtualSpace;
 
-	void setup(Worklet *completion) {
-		_completion = completion;
-	}
-
-	void complete() {
-		WorkQueue::post(_completion);
-	}
-
-private:
-	Worklet *_completion;
-	Worklet _worklet;
-	ShootNode _shootNode;
+protected:
+	virtual void complete() = 0;
 };
 
 struct AddressUnmapNode {
 	friend struct VirtualSpace;
 
-	void setup(Worklet *completion) {
-		_completion = completion;
-	}
-
-	void complete() {
-		WorkQueue::post(_completion);
-	}
-
-private:
-	Worklet *_completion;
-	VirtualSpace *_space;
-	smarter::shared_ptr<Mapping> _mapping;
-	Worklet _worklet;
-	ShootNode _shootNode;
+protected:
+	virtual void complete() = 0;
 };
 
 struct VirtualSpace {
@@ -455,30 +533,30 @@ public:
 
 	void setupInitialHole(VirtualAddr address, size_t size);
 
-	void map(frigg::UnsafePtr<MemorySlice> view,
+	bool map(smarter::borrowed_ptr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-			async::any_receiver<frg::expected<Error, VirtualAddr>> receiver);
+			MapNode *node);
 
 	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
-	void synchronize(VirtualAddr address, size_t length,
-			async::any_receiver<void> receiver);
+	void synchronize(VirtualAddr address, size_t length, SynchronizeNode *node);
 
 	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
 
-	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
+	frg::optional<bool> handleFault(VirtualAddr address, uint32_t flags,
+			smarter::shared_ptr<WorkQueue> wq, FaultNode *node);
 
 	size_t rss() {
 		return _residuentSize;
 	}
 
 	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for synchronize()
+	// Sender boilerplate for map()
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct [[nodiscard]] MapOperation {
-		MapOperation(VirtualSpace *self, frigg::UnsafePtr<MemorySlice> slice,
+	struct [[nodiscard]] MapOperation : private MapNode {
+		MapOperation(VirtualSpace *self, smarter::borrowed_ptr<MemorySlice> slice,
 				VirtualAddr address, size_t offset, size_t length, uint32_t flags,
 				R receiver)
 		: self_{self}, slice_{slice},
@@ -489,13 +567,21 @@ public:
 
 		MapOperation &operator= (const MapOperation &) = delete;
 
-		void start() {
-			self_->map(slice_, address_, offset_, length_, flags_, std::move(receiver_));
+		bool start_inline() {
+			if(self_->map(slice_, address_, offset_, length_, flags_, this)) {
+				async::execution::set_value_inline(receiver_, result());
+				return true;
+			}
+			return false;
 		}
 
 	private:
+		void resume() override {
+			async::execution::set_value_noinline(receiver_, result());
+		}
+
 		VirtualSpace *self_;
-		frigg::UnsafePtr<MemorySlice> slice_;
+		smarter::borrowed_ptr<MemorySlice> slice_;
 		VirtualAddr address_;
 		size_t offset_;
 		size_t length_;
@@ -517,14 +603,14 @@ public:
 		}
 
 		VirtualSpace *self;
-		frigg::UnsafePtr<MemorySlice> slice;
+		smarter::borrowed_ptr<MemorySlice> slice;
 		VirtualAddr address;
 		size_t offset;
 		size_t length;
 		uint32_t flags;
 	};
 
-	MapSender map(frigg::UnsafePtr<MemorySlice> slice,
+	MapSender map(smarter::borrowed_ptr<MemorySlice> slice,
 			VirtualAddr address, size_t offset, size_t length, uint32_t flags) {
 		return {this, slice, address, offset, length, flags};
 	}
@@ -534,13 +620,38 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct SynchronizeOperation;
+	struct SynchronizeOperation : private SynchronizeNode {
+		SynchronizeOperation(VirtualSpace *self, VirtualAddr address, size_t size, R receiver)
+		: self_{self}, address_{address}, size_{size}, receiver_{std::move(receiver)} { }
+
+		SynchronizeOperation(const SynchronizeOperation &) = delete;
+
+		SynchronizeOperation &operator= (const SynchronizeOperation &) = delete;
+
+		void start() {
+			self_->synchronize(address_, size_, this);
+		}
+
+	private:
+		void resume() override {
+			async::execution::set_value(receiver_);
+		}
+
+		VirtualSpace *self_;
+		VirtualAddr address_;
+		size_t size_;
+		R receiver_;
+	};
 
 	struct [[nodiscard]] SynchronizeSender {
+		async::sender_awaiter<SynchronizeSender>
+		operator co_await() {
+			return {*this};
+		}
+
 		template<typename R>
-		friend SynchronizeOperation<R>
-		connect(SynchronizeSender sender, R receiver) {
-			return {sender, std::move(receiver)};
+		SynchronizeOperation<R> connect(R receiver) {
+			return {self, address, size, std::move(receiver)};
 		}
 
 		VirtualSpace *self;
@@ -552,29 +663,6 @@ public:
 		return {this, address, size};
 	}
 
-	template<typename R>
-	struct SynchronizeOperation {
-		SynchronizeOperation(SynchronizeSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		SynchronizeOperation(const SynchronizeOperation &) = delete;
-
-		SynchronizeOperation &operator= (const SynchronizeOperation &) = delete;
-
-		void start() {
-			s_.self->synchronize(s_.address, s_.size, std::move(receiver_));
-		}
-
-	private:
-		SynchronizeSender s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<SynchronizeSender>
-	operator co_await(SynchronizeSender sender) {
-		return {sender};
-	}
-
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for unmap()
 	// ----------------------------------------------------------------------------------
@@ -583,6 +671,8 @@ public:
 	struct UnmapOperation;
 
 	struct [[nodiscard]] UnmapSender {
+		using value_type = void;
+
 		template<typename R>
 		friend UnmapOperation<R>
 		connect(UnmapSender sender, R receiver) {
@@ -599,7 +689,7 @@ public:
 	}
 
 	template<typename R>
-	struct UnmapOperation {
+	struct UnmapOperation : private AddressUnmapNode {
 		UnmapOperation(UnmapSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -608,12 +698,7 @@ public:
 		UnmapOperation &operator= (const UnmapOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &UnmapOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(&worklet_);
-			if(s_.self->unmap(s_.address, s_.size, &node_)) {
+			if(s_.self->unmap(s_.address, s_.size, this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -621,15 +706,137 @@ public:
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		UnmapSender s_;
 		R receiver_;
-		AddressUnmapNode node_;
-		Worklet worklet_;
 	};
 
 	friend async::sender_awaiter<UnmapSender>
 	operator co_await(UnmapSender sender) {
 		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for protect()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct ProtectOperation;
+
+	struct [[nodiscard]] ProtectSender {
+		using value_type = void;
+
+		template<typename R>
+		friend ProtectOperation<R>
+		connect(ProtectSender sender, R receiver) {
+			return {sender, std::move(receiver)};
+		}
+
+		VirtualSpace *self;
+		VirtualAddr address;
+		size_t size;
+		uint32_t flags;
+	};
+
+	ProtectSender protect(VirtualAddr address, size_t size, uint32_t flags) {
+		return {this, address, size, flags};
+	}
+
+	template<typename R>
+	struct ProtectOperation : private AddressProtectNode {
+		ProtectOperation(ProtectSender s, R receiver)
+		: self_{s.self}, address_{s.address}, size_{s.size},
+				flags_{s.flags}, receiver_{std::move(receiver)} { }
+
+		ProtectOperation(const ProtectOperation &) = delete;
+
+		ProtectOperation &operator= (const ProtectOperation &) = delete;
+
+		bool start_inline() {
+			if(self_->protect(address_, size_, flags_, this)) {
+				async::execution::set_value_inline(receiver_);
+				return true;
+			}
+			return false;
+		}
+
+	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
+		VirtualSpace *self_;
+		VirtualAddr address_;
+		size_t size_;
+		uint32_t flags_;
+		R receiver_;
+	};
+
+	friend async::sender_awaiter<ProtectSender>
+	operator co_await(ProtectSender sender) {
+		return {sender};
+	}
+
+	// ----------------------------------------------------------------------------------
+	// Sender boilerplate for handleFault()
+	// ----------------------------------------------------------------------------------
+
+	template<typename R>
+	struct HandleFaultOperation : private FaultNode {
+		HandleFaultOperation(VirtualSpace *self, VirtualAddr address, uint32_t flags,
+				smarter::shared_ptr<WorkQueue> wq, R receiver)
+		: self_{self}, address_{address}, flags_{flags},
+				wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
+
+		HandleFaultOperation(const HandleFaultOperation &) = delete;
+
+		HandleFaultOperation &operator= (const HandleFaultOperation &) = delete;
+
+		bool start_inline() {
+			auto result = self_->handleFault(address_, flags_, std::move(wq_), this);
+			if(result) {
+				async::execution::set_value_inline(receiver_, *result);
+				return true;
+			}
+			return false;
+		}
+
+	private:
+		void complete(bool resolved) {
+			async::execution::set_value_noinline(receiver_, resolved);
+		}
+
+		VirtualSpace *self_;
+		VirtualAddr address_;
+		uint32_t flags_;
+		smarter::shared_ptr<WorkQueue> wq_;
+		R receiver_;
+	};
+
+	struct [[nodiscard]] HandleFaultSender {
+		using value_type = bool;
+
+		template<typename R>
+		HandleFaultOperation<R> connect(R receiver) {
+			return {self, address, flags, std::move(wq), std::move(receiver)};
+		}
+
+		async::sender_awaiter<HandleFaultSender, bool> operator co_await() {
+			return {*this};
+		}
+
+		VirtualSpace *self;
+		VirtualAddr address;
+		uint32_t flags;
+		smarter::shared_ptr<WorkQueue> wq;
+	};
+
+	HandleFaultSender handleFault(VirtualAddr address, uint32_t flags,
+			smarter::shared_ptr<WorkQueue> wq) {
+		return {this, address, flags, std::move(wq)};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -649,7 +856,7 @@ private:
 
 	VirtualOperations *_ops;
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 	HoleTree _holes;
 	MappingTree _mappings;
 
@@ -738,7 +945,8 @@ struct MemoryViewLockHandle {
 
 	MemoryViewLockHandle() = default;
 
-	MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view, uintptr_t offset, size_t size);
+	MemoryViewLockHandle(smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t size)
+	: _view{view}, _offset{offset}, _size{size}, _active{true} { }
 
 	MemoryViewLockHandle(const MemoryViewLockHandle &) = delete;
 
@@ -758,8 +966,13 @@ struct MemoryViewLockHandle {
 		return _active;
 	}
 
+	auto acquire(smarter::shared_ptr<WorkQueue> wq) {
+		return async::transform(_view->asyncLockRange(_offset, _size, std::move(wq)),
+			[&] (Error e) { _active = e == Error::success; });
+	}
+
 private:
-	frigg::SharedPtr<MemoryView> _view = nullptr;
+	smarter::shared_ptr<MemoryView> _view = nullptr;
 	uintptr_t _offset = 0;
 	size_t _size = 0;
 	bool _active = false;
@@ -768,19 +981,14 @@ private:
 struct AcquireNode {
 	friend struct AddressSpaceLockHandle;
 
-	AcquireNode()
-	: _acquired{nullptr} { }
+	AcquireNode() = default;
 
 	AcquireNode(const AcquireNode &) = delete;
 
 	AcquireNode &operator= (const AcquireNode &) = delete;
 
-	void setup(Worklet *acquire) {
-		_acquired = acquire;
-	}
-
-private:
-	Worklet *_acquired;
+protected:
+	virtual void complete() = 0;
 };
 
 struct AddressSpaceLockHandle {
@@ -827,7 +1035,7 @@ public:
 		return _length;
 	}
 
-	bool acquire(AcquireNode *node);
+	bool acquire(smarter::shared_ptr<WorkQueue> wq, AcquireNode *node);
 
 	PhysicalAddr getPhysical(size_t offset);
 
@@ -851,21 +1059,17 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct [[nodiscard]] AcquireOperation {
-		AcquireOperation(AddressSpaceLockHandle *handle, R receiver)
-		: handle_{handle}, receiver_{std::move(receiver)} { }
+	struct [[nodiscard]] AcquireOperation : private AcquireNode {
+		AcquireOperation(AddressSpaceLockHandle *handle,
+				smarter::shared_ptr<WorkQueue> wq, R receiver)
+		: handle_{handle}, wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
 
 		AcquireOperation(const AcquireOperation &) = delete;
 
 		AcquireOperation &operator= (const AcquireOperation &) = delete;
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &AcquireOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_);
-			});
-			node_.setup(&worklet_);
-			if(handle_->acquire(&node_)) {
+			if(handle_->acquire(wq_, this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
@@ -873,16 +1077,21 @@ public:
 		}
 
 	private:
+		void complete() override {
+			async::execution::set_value_noinline(receiver_);
+		}
+
 		AddressSpaceLockHandle *handle_;
+		smarter::shared_ptr<WorkQueue> wq_;
 		R receiver_;
-		AcquireNode node_;
-		Worklet worklet_;
 	};
 
 	struct [[nodiscard]] AcquireSender {
+		using value_type = void;
+
 		template<typename R>
 		AcquireOperation<R> connect(R receiver) {
-			return {handle, std::move(receiver)};
+			return {handle, std::move(wq), std::move(receiver)};
 		}
 
 		async::sender_awaiter<AcquireSender> operator co_await() {
@@ -890,10 +1099,11 @@ public:
 		}
 
 		AddressSpaceLockHandle *handle;
+		smarter::shared_ptr<WorkQueue> wq;
 	};
 
-	AcquireSender acquire() {
-		return {this};
+	AcquireSender acquire(smarter::shared_ptr<WorkQueue> wq) {
+		return {this, std::move(wq)};
 	}
 
 	// ----------------------------------------------------------------------------------

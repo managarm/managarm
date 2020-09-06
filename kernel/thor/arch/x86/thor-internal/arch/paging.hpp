@@ -3,7 +3,7 @@
 #include <atomic>
 
 #include <frg/list.hpp>
-#include <frigg/smart_ptr.hpp>
+#include <frigg/c-support.h>
 #include <smarter.hpp>
 #include <thor-internal/mm-rc.hpp>
 #include <thor-internal/types.hpp>
@@ -62,12 +62,7 @@ struct RetireNode {
 	friend struct PageSpace;
 	friend struct PageBinding;
 
-	void setup(Worklet *worklet) {
-		_worklet = worklet;
-	}
-	Worklet *_worklet;
-
-private:
+	virtual void complete() = 0;
 };
 
 struct ShootNode {
@@ -79,13 +74,9 @@ struct ShootNode {
 	VirtualAddr address;
 	size_t size;
 
-	void setup(Worklet *worklet) {
-		_worklet = worklet;
-	}
-	Worklet *_worklet;
+	virtual void complete() = 0;
 
 private:
-
 	// This CPU already performed synchronous shootdown,
 	// hence it can ignore this request during asynchronous shootdown.
 	void *_initiatorCpu;
@@ -212,7 +203,7 @@ private:
 
 	RetireNode * _retireNode = nullptr;
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	unsigned int _numBindings;
 
@@ -287,9 +278,9 @@ public:
 private:
 	PhysicalAddr _rootTable;
 
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
-	frigg::TicketLock _shootMutex;
+	frg::ticket_spinlock _shootMutex;
 
 	unsigned int _numBindings;
 
@@ -351,7 +342,7 @@ public:
 	bool isMapped(VirtualAddr pointer);
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 };
 
 void invalidatePage(const void *address);

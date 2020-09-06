@@ -5,8 +5,8 @@
 namespace thor::vmx {
 
 Error EptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int flags) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
 	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
@@ -197,13 +197,13 @@ PageStatus EptSpace::unmap(uint64_t guestAddress) {
 }
 
 Error EptSpace::store(uintptr_t guestAddress, size_t size, const void* buffer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 	size_t progress = 0;
 	while(progress < size) {
 		VirtualAddr write = guestAddress + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = translate(write - misalign);
 		if(page == PhysicalAddr(-1)) {
@@ -218,13 +218,13 @@ Error EptSpace::store(uintptr_t guestAddress, size_t size, const void* buffer) {
 }
 
 Error EptSpace::load(uintptr_t guestAddress, size_t size, void* buffer) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 	size_t progress = 0;
 	while(progress < size) {
 		VirtualAddr write = guestAddress + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = translate(write - misalign);
 		if(page == PhysicalAddr(-1)) {
@@ -244,7 +244,7 @@ bool EptSpace::submitShootdown(ShootNode *node) {
 		"invept (%0), %1;"
 		: : "r"(&ptr), "r"((uint64_t)1)
 	);
-	WorkQueue::post(node->_worklet);
+	node->complete();
 	return false;
 }
 
@@ -254,7 +254,7 @@ void EptSpace::retire(RetireNode *node) {
 		"invept (%0), %1;"
 		: : "r"(&ptr), "r"((uint64_t)1)
 	);
-	WorkQueue::post(node->_worklet);
+	node->complete();
 }
 
 EptSpace::~EptSpace() {

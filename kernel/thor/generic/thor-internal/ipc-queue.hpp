@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/list.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/accessors.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/cancel.hpp>
@@ -87,14 +87,14 @@ private:
 		>
 	>;
 
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 
 	struct Chunk {
 		Chunk()
 		: pointer{nullptr} { }
 
 		Chunk(smarter::shared_ptr<AddressSpace, BindableHandle> space_, void *pointer_)
-		: space{frigg::move(space_)}, pointer{pointer_}, bufferSize{4096} { }
+		: space{std::move(space_)}, pointer{pointer_}, bufferSize{4096} { }
 
 		// Pointer (+ address space) to queue chunk struct.
 		smarter::shared_ptr<AddressSpace, BindableHandle> space;
@@ -173,10 +173,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 private:
-	void _progress();
-	bool _advanceChunk();
-	bool _waitHeadFutex();
-	void _wakeProgressFutex(bool done);
+	coroutine<void> _runQueue();
 
 private:
 	Mutex _mutex;
@@ -187,29 +184,14 @@ private:
 
 	unsigned int _sizeShift;
 
-	Worklet _worklet;
-	AcquireNode _acquireNode;
-	FutexNode _futex;
+	frg::vector<Chunk, KernelAlloc> _chunks;
 
-	// Accessor for the queue header.
-	AddressSpaceLockHandle _queueLock;
-
-	// Index into the queue that we're currently processing.
-	int _nextIndex;
-
-	bool _inProgressLoop = false;
-
-	// Points to the chunk that we're currently writing.
-	Chunk *_currentChunk;
-	// Accessor for the current chunk.
-	AddressSpaceLockHandle _chunkLock;
+	// Index into the queue that we are currently processing.
+	int _currentIndex;
 	// Progress into the current chunk.
 	int _currentProgress;
 
-	// Accessor for the current element.
-	AddressSpaceLockHandle _elementLock;
-
-	frigg::Vector<Chunk, KernelAlloc> _chunks;
+	async::recurring_event _doorbell;
 
 	frg::intrusive_list<
 		IpcNode,
@@ -219,6 +201,10 @@ private:
 			&IpcNode::_queueNode
 		>
 	> _nodeQueue;
+
+	// Stores whether any nodes are in the queue.
+	// Written only when _mutex is held (but read outside of _mutex).
+	std::atomic<bool> _anyNodes;
 };
 
 } // namespace thor

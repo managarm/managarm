@@ -10,7 +10,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		this_fiber->_associatedWorkQueue->run();
 
 		StatelessIrqLock irq_lock;
-		auto lock = frigg::guard(&this_fiber->_mutex);
+		auto lock = frg::guard(&this_fiber->_mutex);
 		
 		// Those are the important tests; they are protected by the fiber's mutex.
 		if(blocker->_done)
@@ -28,12 +28,12 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 
 		forkExecutor([&] {
 			runDetached([] (Continuation cont, Executor *executor,
-					frigg::LockGuard<frigg::TicketLock> lock) {
+					frg::unique_lock<frg::ticket_spinlock> lock) {
 				scrubStack(executor, cont);
 				lock.unlock();
 				localScheduler()->commit();
 				localScheduler()->invoke();
-			}, &this_fiber->_executor, frigg::move(lock));
+			}, &this_fiber->_executor, std::move(lock));
 		}, &this_fiber->_executor);
 	}
 }
@@ -48,8 +48,8 @@ void KernelFiber::exitCurrent() {
 
 void KernelFiber::unblockOther(FiberBlocker *blocker) {
 	auto fiber = blocker->_fiber;
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&fiber->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&fiber->_mutex);
 
 	assert(!blocker->_done);
 	blocker->_done = true;
@@ -67,7 +67,7 @@ void KernelFiber::run(UniqueKernelStack stack,
 	params.ip = (uintptr_t)function;
 	params.argument = (uintptr_t)argument;
 
-	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
+	auto fiber = frg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
 	Scheduler::associate(fiber, localScheduler());
 	Scheduler::resume(fiber);
 }
@@ -78,15 +78,15 @@ KernelFiber *KernelFiber::post(UniqueKernelStack stack,
 	params.ip = (uintptr_t)function;
 	params.argument = (uintptr_t)argument;
 
-	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
+	auto fiber = frg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
 	Scheduler::associate(fiber, localScheduler());
 	return fiber;
 }
 
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
 : _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} {
-	_associatedWorkQueue = frigg::makeShared<AssociatedWorkQueue>(*kernelAlloc, this);
-	_associatedWorkQueue->selfPtr = frigg::SharedPtr<WorkQueue>{_associatedWorkQueue};
+	_associatedWorkQueue = smarter::allocate_shared<AssociatedWorkQueue>(*kernelAlloc, this);
+	_associatedWorkQueue->selfPtr = smarter::shared_ptr<WorkQueue>{_associatedWorkQueue};
 	_executorContext.associatedWorkQueue = _associatedWorkQueue.get();
 }
 
@@ -99,8 +99,8 @@ void KernelFiber::invoke() {
 }
 
 void KernelFiber::AssociatedWorkQueue::wakeup() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&fiber_->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&fiber_->_mutex);
 
 	if(!fiber_->_blocked)
 		return;

@@ -2,8 +2,7 @@
 
 #include <frg/hash_map.hpp>
 #include <frg/optional.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/variant.hpp>
+#include <frg/variant.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/ring-buffer.hpp>
@@ -60,6 +59,7 @@ struct CpuData : public PlatformCpuData {
 
 	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;
+	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
 
 	unsigned int irqEntropySeq = 0;
@@ -106,8 +106,8 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(AddressSpaceLockHandle &lock, ptrdif
 
 struct Universe {
 public:
-	typedef frigg::TicketLock Lock;
-	typedef frigg::LockGuard<frigg::TicketLock> Guard;
+	typedef frg::ticket_spinlock Lock;
+	typedef frg::unique_lock<frg::ticket_spinlock> Guard;
 
 	Universe();
 	~Universe();

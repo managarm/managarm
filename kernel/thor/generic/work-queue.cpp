@@ -17,6 +17,12 @@ WorkScope::~WorkScope() {
 	context->associatedWorkQueue = _outerQueue;
 }
 
+WorkQueue *WorkQueue::generalQueue() {
+	auto cpuData = getCpuData();
+	assert(cpuData->generalWorkQueue);
+	return cpuData->generalWorkQueue.get();
+}
+
 WorkQueue *WorkQueue::localQueue() {
 	auto context = localExecutorContext();
 	assert(context);
@@ -26,8 +32,8 @@ WorkQueue *WorkQueue::localQueue() {
 // TODO: Optimize for the case where we are on the correct thread.
 void WorkQueue::post(Worklet *worklet) {
 	auto wq = worklet->_workQueue;
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&wq->_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&wq->_mutex);
 
 	auto was_empty = wq->_posted.empty();
 	wq->_posted.push_back(worklet);
@@ -46,15 +52,15 @@ bool WorkQueue::check() {
 
 void WorkQueue::run() {
 	if(_anyPosted.load(std::memory_order_relaxed)) {
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 		
 		_pending.splice(_pending.end(), _posted);
 		_anyPosted.store(false, std::memory_order_relaxed);
 	}
 
 	// Keep this shared pointer to avoid destructing *this here.
-	frigg::SharedPtr<WorkQueue> self;
+	smarter::shared_ptr<WorkQueue> self;
 	while(!_pending.empty()) {
 		auto worklet = _pending.pop_front();
 		self = std::move(worklet->_workQueue);

@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <frg/hash_map.hpp>
 #include <frg/string.hpp>
-#include <frigg/elf.hpp>
+#include <elf.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/descriptor.hpp>
@@ -15,14 +15,14 @@ namespace thor {
 
 static bool debugLaunch = true;
 
-frigg::LazyInitializer<LaneHandle> mbusClient;
-static frigg::LazyInitializer<LaneHandle> futureMbusServer;
+frg::manual_box<LaneHandle> mbusClient;
+static frg::manual_box<LaneHandle> futureMbusServer;
 
-frigg::TicketLock globalMfsMutex;
+frg::ticket_spinlock globalMfsMutex;
 
 extern MfsDirectory *mfsRoot;
 
-static frigg::LazyInitializer<
+static frg::manual_box<
 	frg::hash_map<
 		frg::string<KernelAlloc>,
 		LaneHandle,
@@ -33,7 +33,7 @@ static frigg::LazyInitializer<
 
 // TODO: move this declaration to a header file
 void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
-		frigg::SharedPtr<Thread> thread);
+		smarter::shared_ptr<Thread, ActiveHandle> thread);
 
 // ------------------------------------------------------------------------
 // File management.
@@ -41,8 +41,8 @@ void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
 
 coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
 		MfsRegular **out) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&globalMfsMutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&globalMfsMutex);
 
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
@@ -71,7 +71,7 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 			if(target) {
 				node = target;
 			}else{
-				node = frigg::construct<MfsDirectory>(*kernelAlloc);
+				node = frg::construct<MfsDirectory>(*kernelAlloc);
 				directory->link(frg::string<KernelAlloc>{*kernelAlloc, component}, node);
 			}
 		}
@@ -91,19 +91,20 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 		co_return false;
 	}
 
-	auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+	auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-	co_await copyToView(memory.get(), 0, buffer, size);
+	co_await copyToView(memory.get(), 0, buffer, size,
+			WorkQueue::generalQueue()->take());
 
-	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
+	auto file = frg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
 	directory->link(frg::string<KernelAlloc>{*kernelAlloc, name}, file);
 	*out = file;
 	co_return true;
 }
 
 MfsNode *resolveModule(frg::string_view path) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&globalMfsMutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&globalMfsMutex);
 
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
@@ -157,12 +158,13 @@ struct ImageInfo {
 };
 
 coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableHandle> space,
-		VirtualAddr base, frigg::SharedPtr<MemoryView> image) {
+		VirtualAddr base, smarter::shared_ptr<MemoryView> image) {
 	ImageInfo info;
 
 	// parse the ELf file format
 	Elf64_Ehdr ehdr;
-	co_await copyFromView(image.get(), 0, &ehdr, sizeof(Elf64_Ehdr));
+	co_await copyFromView(image.get(), 0, &ehdr, sizeof(Elf64_Ehdr),
+			WorkQueue::generalQueue()->take());
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
@@ -175,7 +177,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
 		co_await copyFromView(image.get(), ehdr.e_phoff + i * ehdr.e_phentsize,
-				&phdr, sizeof(Elf64_Phdr));
+				&phdr, sizeof(Elf64_Phdr), WorkQueue::generalQueue()->take());
 		
 		if(phdr.p_type == PT_LOAD) {
 			assert(phdr.p_memsz > 0);
@@ -188,24 +190,22 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, virt_length);
-			TransferNode copy;
-			copy.setup(memory.get(), phdr.p_vaddr - virt_address,
-					image.get(), phdr.p_offset, phdr.p_filesz, nullptr);
-			if(!transferBetweenViews(&copy))
-				assert(!"Fix the asynchronous case");
+			auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, virt_length);
+			co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
+					image.get(), phdr.p_offset, phdr.p_filesz,
+					WorkQueue::generalQueue()->take());
 
-			auto view = frigg::makeShared<MemorySlice>(*kernelAlloc,
-					frigg::move(memory), 0, virt_length);
+			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
+					std::move(memory), 0, virt_length);
 
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				auto mapResult = co_await space->map(frigg::move(view),
+				auto mapResult = co_await space->map(std::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtWrite);
 				assert(mapResult);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				auto mapResult = co_await space->map(frigg::move(view),
+				auto mapResult = co_await space->map(std::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtExecute);
@@ -217,7 +217,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
 			co_await copyFromView(image.get(), phdr.p_offset,
-					info.interpreter.data(), phdr.p_filesz);
+					info.interpreter.data(), phdr.p_filesz, WorkQueue::generalQueue()->take());
 		}else if(phdr.p_type == PT_PHDR) {
 			info.phdrPtr = reinterpret_cast<void *>(base + phdr.p_vaddr);
 		}else if(phdr.p_type == PT_DYNAMIC
@@ -260,11 +260,11 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stack_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, stack_size);
-	auto stack_view = frigg::makeShared<MemorySlice>(*kernelAlloc,
+	auto stack_memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, stack_size);
+	auto stack_view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 			stack_memory, 0, stack_size);
 
-	auto mapResult = co_await space->map(frigg::move(stack_view), 0, 0, stack_size,
+	auto mapResult = co_await space->map(std::move(stack_view), 0, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
 				| AddressSpace::kMapProtWrite);
 	assert(mapResult);
@@ -275,20 +275,21 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	frg::string<KernelAlloc> data_area(*kernelAlloc);
 
 	uintptr_t data_disp = stack_size - data_area.size();
-	co_await copyToView(stack_memory.get(), data_disp, data_area.data(), data_area.size());
+	co_await copyToView(stack_memory.get(), data_disp, data_area.data(), data_area.size(),
+			WorkQueue::generalQueue()->take());
 
 	// build the stack tail area (containing the aux vector).
-	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
+	auto universe = smarter::allocate_shared<Universe>(*kernelAlloc);
 
 	Handle xpipe_handle = 0;
 	Handle mbus_handle = 0;
 	if(xpipe_lane) {
-		auto lock = frigg::guard(&universe->lock);
+		auto lock = frg::guard(&universe->lock);
 		xpipe_handle = universe->attachDescriptor(lock,
 				LaneDescriptor(xpipe_lane));
 	}
 	if(mbus_lane) {
-		auto lock = frigg::guard(&universe->lock);
+		auto lock = frg::guard(&universe->lock);
 		mbus_handle = universe->attachDescriptor(lock,
 				LaneDescriptor(mbus_lane));
 	}
@@ -336,7 +337,8 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	
 	uintptr_t tail_disp = data_disp - tail_area.size();
 	assert(!(tail_disp % 16));
-	co_await copyToView(stack_memory.get(), tail_disp, tail_area.data(), tail_area.size());
+	co_await copyToView(stack_memory.get(), tail_disp, tail_area.data(), tail_area.size(),
+			WorkQueue::generalQueue()->take());
 
 	// create a thread for the module
 	AbiParameters params;
@@ -344,8 +346,8 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	params.sp = mapResult.value() + tail_disp;
 	params.argument = 0;
 
-	auto thread = Thread::create(std::move(universe), frigg::move(space), params);
-	thread->self = thread;
+	auto thread = Thread::create(std::move(universe), std::move(space), params);
+	thread->self = remove_tag_cast(thread);
 	thread->flags |= Thread::kFlagServer;
 	
 	// listen to POSIX calls from the thread.
@@ -354,11 +356,11 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 			thread);
 
 	// see helCreateThread for the reasoning here
-	thread.control().increment();
-	thread.control().increment();
+	thread.ctr()->increment();
+	thread.ctr()->increment();
 
 	Scheduler::associate(thread.get(), scheduler);
-	Thread::resumeOther(thread);
+	Thread::resumeOther(remove_tag_cast(thread));
 }
 
 void initializeMbusStream() {
@@ -437,7 +439,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
@@ -449,7 +451,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
@@ -470,7 +472,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
 				resp.SerializeToString(&ser);
-				frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
 				auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 				if(respError != Error::success)
@@ -484,7 +486,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -497,7 +499,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -511,7 +513,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
@@ -547,7 +549,7 @@ coroutine<void> createObject(LaneHandle mbusLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
 	assert(reqError == Error::success && "Unexpected mbus transaction");
@@ -581,7 +583,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 	memcpy(respBuffer.data(), ser.data(), ser.size());
 	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 	assert(respError == Error::success && "Unexpected mbus transaction");

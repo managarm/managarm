@@ -4,7 +4,7 @@
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/core.hpp>
-#include <frigg/arch_x86/machine.hpp>
+#include <x86/machine.hpp>
 
 extern "C" void vmLaunch(void* state);
 extern "C" void vmResume(void* state);
@@ -18,27 +18,27 @@ namespace thor::vmx {
 
 		PageAccessor vmxonAccessor{vmxonRegion};
 		memset(vmxonAccessor.get(), 0, kPageSize);
-		size_t control = frigg::arch_x86::rdmsr(0x3a);
+		size_t control = common::x86::rdmsr(0x3a);
 		if((control & (0x1 | 0x4)) != (0x1 | 0x04)) {
 			//Enabled outside of SMX and lock bit.
-			frigg::arch_x86::wrmsr(0x3a, control | 0x1 | 0x4);
+			common::x86::wrmsr(0x3a, control | 0x1 | 0x4);
 		}
 
 		uint64_t cr0;
 		asm volatile ("mov %%cr0, %0" : "=r" (cr0));
-		cr0 &= frigg::arch_x86::rdmsr(0x487);
-		cr0 |= frigg::arch_x86::rdmsr(0x486);
+		cr0 &= common::x86::rdmsr(0x487);
+		cr0 |= common::x86::rdmsr(0x486);
 		asm volatile ("mov %0, %%cr0" : : "r" (cr0));
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
 		cr4 |= 1 << 13;
-		cr4 &= frigg::arch_x86::rdmsr(0x489);
-		cr4 |= frigg::arch_x86::rdmsr(0x488);
+		cr4 &= common::x86::rdmsr(0x489);
+		cr4 |= common::x86::rdmsr(0x488);
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
 		//Set vmx revision
-		uint32_t vmxRevision = frigg::arch_x86::rdmsr(0x480);
+		uint32_t vmxRevision = common::x86::rdmsr(0x480);
 		*(uint32_t*)vmxonAccessor.get() = static_cast<uint32_t>(vmxRevision);
 		uint16_t successful = 0;
 		asm volatile(
@@ -113,17 +113,17 @@ namespace thor::vmx {
 		region = (void*)physicalAllocator->allocate(kPageSize);
 		PageAccessor regionAccessor{(PhysicalAddr)region};
 		memset(regionAccessor.get(), 0, kPageSize);
-		uint32_t vmxRevision = frigg::arch_x86::rdmsr(0x480);
+		uint32_t vmxRevision = common::x86::rdmsr(0x480);
 		*(uint32_t*)regionAccessor.get() = static_cast<uint32_t>(vmxRevision);
 		if(vmptrld((PhysicalAddr)region)) {
 			infoLogger() << "vmx: VMCS load failed" << frg::endlog;
 		}
 
 		//Set up basic controls.
-		uint64_t allowedPinBased = frigg::arch_x86::rdmsr(MSR_IA32_VMX_PINBASED_CTLS);
+		uint64_t allowedPinBased = common::x86::rdmsr(MSR_IA32_VMX_PINBASED_CTLS);
 		uint32_t pinbased = (uint32_t)allowedPinBased & (uint32_t)(allowedPinBased >> 32);
 		vmwrite(PIN_BASED_VM_EXEC_CONTROLS, pinbased | 1);
-		uint64_t allowedCpu = frigg::arch_x86::rdmsr(MSR_IA32_VMX_PROCBASED_CTLS);
+		uint64_t allowedCpu = common::x86::rdmsr(MSR_IA32_VMX_PROCBASED_CTLS);
 		uint32_t cpu = (uint32_t)allowedCpu & (uint32_t)(allowedCpu >> 32);
 		vmwrite(PROC_BASED_VM_EXEC_CONTROLS,
 				cpu |
@@ -136,7 +136,7 @@ namespace thor::vmx {
 				VMEXIT_ON_DESCRIPTOR);
 		vmwrite(EXCEPTION_BITMAP, 0);
 
-		uint64_t vmExitCtrls = frigg::arch_x86::rdmsr(0x483);
+		uint64_t vmExitCtrls = common::x86::rdmsr(0x483);
 		uint32_t vmExitCtrlsLo = (uint32_t)vmExitCtrls;
 		uint32_t vmExitCtrlsHi = (uint32_t)(vmExitCtrls >> 32);
 		uint32_t vm_exit_ctls = 0;
@@ -146,7 +146,7 @@ namespace thor::vmx {
 		vm_exit_ctls &= vmExitCtrlsHi;
 		vmwrite(VM_EXIT_CONTROLS, vm_exit_ctls);
 
-		uint64_t vmEntryCtrls = frigg::arch_x86::rdmsr(0x484);
+		uint64_t vmEntryCtrls = common::x86::rdmsr(0x484);
 		uint32_t vmEntryCtrlsLo = (uint32_t)vmEntryCtrls;
 		uint32_t vmEntryCtrlsHi = (uint32_t)(vmEntryCtrls >> 32);
 		uint32_t vm_entry_ctls = 0;
@@ -160,14 +160,14 @@ namespace thor::vmx {
 		asm("\t mov %%cr4,%0" : "=r"(cr4));
 
 		//Set up host state on vmexit.
-		uint32_t cr0Fixed = (uint32_t)frigg::arch_x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
+		uint32_t cr0Fixed = (uint32_t)common::x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
 		vmwrite(HOST_CR0, cr0Fixed | cr0);
-		uint32_t cr4Fixed = (uint32_t)frigg::arch_x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
+		uint32_t cr4Fixed = (uint32_t)common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
 		vmwrite(HOST_CR4, cr4Fixed | cr4);
 
-		frigg::arch_x86::Gdtr gdtr;
+		common::x86::Gdtr gdtr;
 		asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
-		frigg::arch_x86::Idtr idtr;
+		common::x86::Idtr idtr;
 		asm volatile("sidt %[idt]": [idt]"=m"(idtr));
 
 		uint32_t* gdt = gdtr.pointer;
@@ -182,7 +182,7 @@ namespace thor::vmx {
 		vmwrite(HOST_TR_BASE, trAddr);
 		vmwrite(HOST_GDTR_BASE, (size_t)gdtr.pointer);
 		vmwrite(HOST_IDTR_BASE, (size_t)idtr.pointer);
-		vmwrite(HOST_EFER_FULL, frigg::arch_x86::rdmsr(0xc0000080));
+		vmwrite(HOST_EFER_FULL, common::x86::rdmsr(0xc0000080));
 
 		//Set up guest state on vm entry.
 		vmwrite(GUEST_ES_SELECTOR, 0x0);
@@ -233,14 +233,14 @@ namespace thor::vmx {
 
 		vmwrite(GUEST_INTR_STATUS, 0);
 		vmwrite(GUEST_PML_INDEX, 0);
-		uint64_t cr0FixedGuest = frigg::arch_x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
+		uint64_t cr0FixedGuest = common::x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
 		uint32_t cr0FixedLo = (uint32_t)cr0FixedGuest;
 		uint32_t cr0FixedHi = (uint32_t)(cr0FixedGuest >> 32);
 		cr0FixedLo &= ~(1 << 0); // disable PE
 		cr0FixedLo &= ~(1 << 31); // disable PG
 		vmwrite(GUEST_CR0, cr0FixedLo | ((uint64_t)cr0FixedHi) << 32);
 		vmwrite(GUEST_CR3, 0x0);
-		uint64_t cr4FixedGuest = frigg::arch_x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
+		uint64_t cr4FixedGuest = common::x86::rdmsr(IA32_VMX_CR4_FIXED0_MSR);
 		uint32_t cr4FixedLo = (uint32_t)cr4FixedGuest;
 		uint32_t cr4FixedHi = (uint32_t)(cr4FixedGuest >> 32);
 		vmwrite(GUEST_CR4, cr4FixedLo | ((uint64_t)cr4FixedHi) << 32);
@@ -291,8 +291,8 @@ namespace thor::vmx {
 		vmwrite(HOST_FS_SELECTOR, fs);
 		vmwrite(HOST_GS_SELECTOR, gs);
 		vmwrite(HOST_TR_SELECTOR, tr);
-		vmwrite(HOST_FS_BASE, frigg::arch_x86::rdmsr(MSR_FS_BASE));
-		vmwrite(HOST_GS_BASE, frigg::arch_x86::rdmsr(MSR_GS_BASE));
+		vmwrite(HOST_FS_BASE, common::x86::rdmsr(MSR_FS_BASE));
+		vmwrite(HOST_GS_BASE, common::x86::rdmsr(MSR_GS_BASE));
 		vmwrite(HOST_CR3, cr3);
 
 		HelVmexitReason exitInfo{0};
@@ -309,8 +309,8 @@ namespace thor::vmx {
 			vmclear((PhysicalAddr)region);
 			vmptrld((PhysicalAddr)region);
 			if(getCpuData()->haveXsave){
-				frigg::arch_x86::xsave((uint8_t*)hostFstate, ~0);
-				frigg::arch_x86::xrstor((uint8_t*)guestFstate, ~0);
+				common::x86::xsave((uint8_t*)hostFstate, ~0);
+				common::x86::xrstor((uint8_t*)guestFstate, ~0);
 			} else {
 				asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
 				asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
@@ -324,15 +324,15 @@ namespace thor::vmx {
 			}
 
 			if(getCpuData()->haveXsave){
-				frigg::arch_x86::xsave((uint8_t*)guestFstate, ~0);
-				frigg::arch_x86::xrstor((uint8_t*)hostFstate, ~0);
+				common::x86::xsave((uint8_t*)guestFstate, ~0);
+				common::x86::xrstor((uint8_t*)hostFstate, ~0);
 			} else {
 				asm volatile ("fxsaveq %0" : : "m" (*guestFstate));
 				asm volatile ("fxrstorq %0" : : "m" (*hostFstate));
 			}
 
 			//Vm exits don't restore the gdt limit
-			frigg::arch_x86::Gdtr gdtr;
+			common::x86::Gdtr gdtr;
 			asm volatile("sgdt %[gdt]": [gdt]"=m"(gdtr));
 			gdtr.limit = HOST_GDT_LIMIT;
 			asm volatile("lgdt %[gdt]": [gdt]"=m"(gdtr));
@@ -352,30 +352,15 @@ namespace thor::vmx {
 				return exitInfo;
 			} else if(reason == VMEXIT_EPT_VIOLATION) {
 				size_t address = vmread(EPT_VIOLATION_ADDRESS);
-				struct Closure {
-					ThreadBlocker blocker;
-					Worklet worklet;
-					FaultNode fault;
-				} closure;
-
-				closure.worklet.setup([] (Worklet *base) {
-					auto closure = frg::container_of(base, &Closure::worklet);
-					Thread::unblockOther(&closure->blocker);
-				});
-				closure.fault.setup(&closure.worklet);
-				closure.blocker.setup();
 				size_t exitFlags = vmread(EPT_VIOLATION_FLAGS);
 				uint32_t flags = 0;
-				if(exitFlags & 1) {
+				if(exitFlags & 1)
 					flags |= AddressSpace::kFaultWrite;
-				}
-				if(exitFlags & (1 << 2)) {
+				if(exitFlags & (1 << 2))
 					flags |= AddressSpace::kFaultExecute;
-				}
-				if(!space->handleFault(address, flags, &closure.fault))
-					Thread::blockCurrent(&closure.blocker);
 
-				bool handled = closure.fault.resolved();
+				bool handled = Thread::asyncBlockCurrent(space->handleFault(address, flags,
+						WorkQueue::localQueue()->take()));
 				if(!handled) {
 					exitInfo.exitReason = khelVmexitTranslationFault;
 					exitInfo.address = address;

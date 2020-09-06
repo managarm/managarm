@@ -2,8 +2,6 @@
 
 #include <frg/list.hpp>
 #include <frg/string.hpp>
-#include <frigg/debug.hpp>
-#include <frigg/linked.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -108,7 +106,7 @@ struct IrqSink {
 	frg::default_list_hook<IrqSink> hook;
 
 protected:
-	frigg::TicketLock *sinkMutex() {
+	frg::ticket_spinlock *sinkMutex() {
 		return &_mutex;
 	}
 
@@ -123,7 +121,7 @@ private:
 	IrqPin *_pin;
 	
 	// Must be protected against IRQs.
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	// The following fields are protected by pin->_mutex and _mutex.
 private:
@@ -191,7 +189,7 @@ private:
 	frg::string<KernelAlloc> _name;
 
 	// Must be protected against IRQs.
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	IrqConfiguration _activeCfg;
 
@@ -226,14 +224,14 @@ private:
 struct IrqObject final : IrqSink {
 	IrqObject(frg::string<KernelAlloc> name);
 
-	void automate(frigg::SharedPtr<BoundKernlet> kernlet);
+	void automate(smarter::shared_ptr<BoundKernlet> kernlet);
 
 	IrqStatus raise() override;
 
 	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
 
 private:
-	frigg::SharedPtr<BoundKernlet> _automationKernlet;
+	smarter::shared_ptr<BoundKernlet> _automationKernlet;
 
 	// Protected by the sinkMutex.
 	frg::intrusive_list<

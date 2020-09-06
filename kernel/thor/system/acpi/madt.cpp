@@ -1,9 +1,7 @@
 #include <algorithm>
 #include <frg/optional.hpp>
-#include <frigg/debug.hpp>
-#include <frigg/initializer.hpp>
-#include <frigg/string.hpp>
-#include <frigg/vector.hpp>
+#include <frg/manual_box.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
@@ -84,7 +82,7 @@ struct [[gnu::packed]] MadtLocalNmiEntry {
 
 namespace thor {
 
-frigg::LazyInitializer<frg::optional<GlobalIrqInfo>> isaIrqOverrides[16];
+frg::manual_box<frg::optional<GlobalIrqInfo>> isaIrqOverrides[16];
 
 GlobalIrqInfo resolveIsaIrq(unsigned int irq) {
 	assert(irq < 16);
@@ -135,7 +133,7 @@ struct SciDevice : IrqSink {
 	}
 };
 
-frigg::LazyInitializer<SciDevice> sciDevice;
+frg::manual_box<SciDevice> sciDevice;
 
 // --------------------------------------------------------
 

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <frg/container_of.hpp>
-#include <frigg/callback.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/core.hpp>
 #include <thor-internal/schedule.hpp>
@@ -122,10 +121,10 @@ public:
 	}
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 	bool _blocked;
 
-	frigg::SharedPtr<AssociatedWorkQueue> _associatedWorkQueue;
+	smarter::shared_ptr<AssociatedWorkQueue> _associatedWorkQueue;
 	FiberContext _fiberContext;
 	ExecutorContext _executorContext;
 	Executor _executor;

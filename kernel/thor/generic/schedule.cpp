@@ -1,6 +1,5 @@
 #include <assert.h>
 
-#include <frigg/debug.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/core.hpp>
@@ -51,7 +50,7 @@ void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
 
 void Scheduler::unassociate(ScheduleEntity *entity) {
 	// TODO: This is only really need to assert against _current.
-	auto irqLock = frigg::guard(&irqMutex());
+	auto irqLock = frg::guard(&irqMutex());
 
 	auto self = entity->_scheduler;
 	assert(self);
@@ -63,7 +62,7 @@ void Scheduler::unassociate(ScheduleEntity *entity) {
 }
 
 void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
-	auto scheduleLock = frigg::guard(&irqMutex());
+	auto scheduleLock = frg::guard(&irqMutex());
 
 	auto self = entity->_scheduler;
 	assert(self);
@@ -84,8 +83,8 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	assert(entity != self->_current);
 	bool wasEmpty;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&self->_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&self->_mutex);
 
 		entity->state = ScheduleState::pending;
 
@@ -103,7 +102,7 @@ void Scheduler::resume(ScheduleEntity *entity) {
 }
 
 void Scheduler::suspendCurrent() {
-	auto scheduleLock = frigg::guard(&irqMutex());
+	auto scheduleLock = frg::guard(&irqMutex());
 
 	auto self = localScheduler();
 	auto entity = self->_current;
@@ -175,8 +174,8 @@ void Scheduler::update() {
 		>
 	> pendingSnapshot;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		pendingSnapshot.splice(pendingSnapshot.end(), _pendingList);
 	}
@@ -385,7 +384,7 @@ Scheduler *localScheduler() {
 	return &getCpuData()->scheduler;
 }
 
-frigg::UnsafePtr<Thread> getCurrentThread() {
+smarter::borrowed_ptr<Thread> getCurrentThread() {
 	return activeExecutor();
 }
 

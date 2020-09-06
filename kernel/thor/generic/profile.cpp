@@ -9,7 +9,7 @@
 namespace thor {
 
 bool wantKernelProfile = false;
-frigg::LazyInitializer<LogRingBuffer> globalProfileRing;
+frg::manual_box<LogRingBuffer> globalProfileRing;
 
 void initializeProfile() {
 #ifdef __x86_64__

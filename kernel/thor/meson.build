@@ -41,8 +41,7 @@ bragi_sources = [
 ]
 
 thor_sources = [files(
-	'../../frigg/src/debug.cpp',
-	'../../frigg/src/libc.cpp',
+	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
 	'generic/address-space.cpp',
 	'generic/physical.cpp',

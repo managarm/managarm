@@ -33,7 +33,7 @@ namespace {
 	}
 }
 
-MemorySlice::MemorySlice(frigg::SharedPtr<MemoryView> view,
+MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size)
 : _view{std::move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
 	assert(!(_viewOffset & (kPageSize - 1)));
@@ -92,7 +92,7 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 // --------------------------------------------------------
 
 Mapping::Mapping(size_t length, MappingFlags flags,
-		frigg::SharedPtr<MemorySlice> slice_, uintptr_t viewOffset)
+		smarter::shared_ptr<MemorySlice> slice_, uintptr_t viewOffset)
 : length{length}, flags{flags},
 		slice{std::move(slice_)}, viewOffset{viewOffset} {
 	assert(viewOffset >= slice->offset());
@@ -120,21 +120,23 @@ void Mapping::protect(MappingFlags protectFlags) {
 }
 
 void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
-		async::any_receiver<frg::expected<Error>> receiver) {
+		smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node) {
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self,
 			uintptr_t offset, size_t size,
-			async::any_receiver<frg::expected<Error>> receiver) -> coroutine<void> {
+			smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
-			auto outcome = co_await self->touchVirtualPage(offset + progress);
+			auto outcome = co_await self->touchVirtualPage(offset + progress, wq);
 			if(!outcome) {
-				async::execution::set_value(receiver, outcome.error());
+				node->result = outcome.error();
+				node->resume();
 				co_return;
 			}
 			progress += outcome.value().range.get<1>();
 		}
-		async::execution::set_value(receiver, frg::success);
-	}(this, offset, size, std::move(receiver)));
+		node->result = frg::success;
+		node->resume();
+	}(this, offset, size, std::move(wq), node));
 }
 
 uint32_t Mapping::compilePageFlags() {
@@ -149,16 +151,19 @@ uint32_t Mapping::compilePageFlags() {
 }
 
 void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
-		async::any_receiver<frg::expected<Error>> receiver) {
+		smarter::shared_ptr<WorkQueue> wq, LockVirtualRangeNode *node) {
 	// This can be removed if we change the return type of asyncLockRange to frg::expected.
-	auto transformError = [] (Error e) -> frg::expected<Error> {
-		if(e == Error::success)
-			return {};
-		return e;
+	auto transformError = [node] (Error e) {
+		if(e == Error::success) {
+			node->result = {};
+		}else{
+			node->result = e;
+		}
+		node->resume();
 	};
-	async::spawn_with_allocator(*kernelAlloc,
-			async::transform(view->asyncLockRange(viewOffset + offset, size), transformError),
-			std::move(receiver));
+	async::detach_with_allocator(*kernelAlloc,
+			async::transform(view->asyncLockRange(viewOffset + offset, size, std::move(wq)),
+					transformError));
 }
 
 void Mapping::unlockVirtualRange(uintptr_t offset, size_t size) {
@@ -176,22 +181,22 @@ Mapping::resolveRange(ptrdiff_t offset) {
 }
 
 void Mapping::touchVirtualPage(uintptr_t offset,
-		async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver) {
+		smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node) {
 	assert(state == MappingState::active);
 
 	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, uintptr_t offset,
-			async::any_receiver<frg::expected<Error, TouchVirtualResult>> receiver)
-			-> coroutine<void> {
+			smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node) -> coroutine<void> {
 		FetchFlags fetchFlags = 0;
 		if(self->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= FetchNode::disallowBacking;
 
 		if(auto e = co_await self->view->asyncLockRange(
-				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize); e != Error::success)
+				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize,
+				wq); e != Error::success)
 			assert(!"asyncLockRange() failed");
 
 		auto [error, range, rangeFlags] = co_await self->view->fetchRange(
-				self->viewOffset + offset);
+				self->viewOffset + offset, wq);
 
 		// TODO: Update RSS, handle dirty pages, etc.
 		auto pageOffset = self->address + offset;
@@ -203,8 +208,10 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 		logRss(self->owner.get());
 
 		self->view->unlockRange((self->viewOffset + offset) & ~(kPageSize - 1), kPageSize);
-		async::execution::set_value(receiver, TouchVirtualResult{range, false});
-	}(this, offset, std::move(receiver)));
+
+		node->result = TouchVirtualResult{range, false};
+		node->resume();
+	}(this, offset, std::move(wq), node));
 }
 
 coroutine<void> Mapping::runEvictionLoop() {
@@ -233,8 +240,8 @@ coroutine<void> Mapping::runEvictionLoop() {
 		// Wait until we are allowed to evict existing pages.
 		// TODO: invent a more specialized synchronization mechanism for this.
 		{
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&evictMutex);
+			auto irq_lock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&evictMutex);
 		}
 
 		// TODO: Perform proper locking here!
@@ -249,31 +256,9 @@ coroutine<void> Mapping::runEvictionLoop() {
 			owner->_residuentSize -= kPageSize;
 		}
 
-		// Perform shootdown.
-		struct Closure {
-			smarter::shared_ptr<Mapping> mapping; // Need to keep the Mapping alive.
-			Worklet worklet;
-			ShootNode node;
-			Eviction eviction;
-		} *closure = frigg::construct<Closure>(*kernelAlloc);
+		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
 
-		closure->worklet.setup([] (Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-			closure->eviction.done();
-			frigg::destruct(*kernelAlloc, closure);
-		});
-		closure->mapping = selfPtr.lock();
-		closure->eviction = std::move(eviction);
-
-		closure->node.address = address + shootOffset;
-		closure->node.size = shootSize;
-		closure->node.setup(&closure->worklet);
-		if(!owner->_ops->submitShootdown(&closure->node))
-			continue;
-
-		closure->eviction.done();
-		frigg::destruct(*kernelAlloc, closure);
-		continue;
+		eviction.done();
 	}
 
 	evictionDoneEvent.raise();
@@ -283,7 +268,7 @@ coroutine<void> Mapping::runEvictionLoop() {
 // CowMapping
 // --------------------------------------------------------
 
-CowChain::CowChain(frigg::SharedPtr<CowChain> chain)
+CowChain::CowChain(smarter::shared_ptr<CowChain> chain)
 : _superChain{std::move(chain)}, _pages{*kernelAlloc} {
 }
 
@@ -306,7 +291,7 @@ VirtualSpace::VirtualSpace(VirtualOperations *ops)
 : _ops{ops} { }
 
 void VirtualSpace::setupInitialHole(VirtualAddr address, size_t size) {
-	auto hole = frigg::construct<Hole>(*kernelAlloc, address, size);
+	auto hole = frg::construct<Hole>(*kernelAlloc, address, size);
 	_holes.insert(hole);
 }
 
@@ -344,18 +329,10 @@ void VirtualSpace::retire() {
 		mapping = MappingTree::successor(mapping);
 	}
 
-	struct Closure {
-		smarter::shared_ptr<VirtualSpace> self;
-		RetireNode retireNode;
-		Worklet worklet;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	closure->self = selfPtr.lock();
-
-	closure->retireNode.setup(&closure->worklet);
-	closure->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		auto self = closure->self.get();
+	// TODO: It would be less ugly to run this in a non-detached way.
+	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<VirtualSpace> self)
+			-> coroutine<void> {
+		co_await self->_ops->retire();
 
 		while(self->_mappings.get_root()) {
 			auto mapping = self->_mappings.get_root();
@@ -364,46 +341,38 @@ void VirtualSpace::retire() {
 			assert(mapping->state == MappingState::zombie);
 			mapping->state = MappingState::retired;
 
-			if(mapping->view->canEvictMemory())
+			if(mapping->view->canEvictMemory()) {
 				mapping->cancelEviction.cancel();
-
-			// TODO: It would be less ugly to run this in a non-detached way.
-			auto cleanUpObserver = [] (Mapping *mapping) -> coroutine<void> {
-				if(mapping->view->canEvictMemory())
-					co_await mapping->evictionDoneEvent.wait();
-				mapping->view->removeObserver(&mapping->observer);
-				mapping->selfPtr.ctr()->decrement();
-			};
-			async::detach_with_allocator(*kernelAlloc, cleanUpObserver(mapping));
+				co_await mapping->evictionDoneEvent.wait();
+			}
+			mapping->view->removeObserver(&mapping->observer);
+			mapping->selfPtr.ctr()->decrement();
 		}
-
-		frg::destruct(*kernelAlloc, closure);
-	});
-	_ops->retire(&closure->retireNode);
+	}(selfPtr.lock()));
 }
 
 smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto space_guard = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto space_guard = frg::guard(&_mutex);
 
 	return _findMapping(address);
 }
 
-void VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
+bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-		async::any_receiver<frg::expected<Error, VirtualAddr>> receiver) {
+		MapNode *node) {
 	assert(length);
 	assert(!(length % kPageSize));
 
 	if(offset + length > slice->length()) {
-		async::execution::set_value(receiver, Error::bufferTooSmall);
-		return;
+		node->nodeResult_.emplace(Error::bufferTooSmall);
+		return true;
 	}
 
 	VirtualAddr actualAddress;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto spaceLock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto spaceLock = frg::guard(&_mutex);
 
 		if(flags & kMapFixed) {
 			assert(address);
@@ -447,7 +416,7 @@ void VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 
 		auto mapping = smarter::allocate_shared<Mapping>(Allocator{},
 				length, static_cast<MappingFlags>(mappingFlags),
-				slice.toShared(), slice->offset() + offset);
+				slice.lock(), slice->offset() + offset);
 		mapping->selfPtr = mapping;
 
 		assert(!(flags & kMapPopulate));
@@ -474,8 +443,8 @@ void VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 
 		{
 			// Synchronize with the eviction loop.
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&mapping->evictMutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mapping->evictMutex);
 
 			for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 				auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
@@ -494,7 +463,8 @@ void VirtualSpace::map(frigg::UnsafePtr<MemorySlice> slice,
 		mapping.release(); // VirtualSpace owns one reference.
 	}
 
-	async::execution::set_value(receiver, actualAddress);
+	node->nodeResult_.emplace(actualAddress);
+	return true;
 }
 
 bool VirtualSpace::protect(VirtualAddr address, size_t length,
@@ -523,8 +493,8 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 		assert(!(flags & mask));
 	}
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto space_guard = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto space_guard = frg::guard(&_mutex);
 
 	auto mapping = _findMapping(address);
 	assert(mapping);
@@ -546,8 +516,8 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 
 	{
 		// Synchronize with the eviction loop.
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&mapping->evictMutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mapping->evictMutex);
 
 		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
@@ -567,33 +537,32 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 		}
 	}
 
-	node->_worklet.setup([] (Worklet *base) {
-		auto node = frg::container_of(base, &AddressProtectNode::_worklet);
+	async::detach_with_allocator(*kernelAlloc,
+			async::transform(_ops->shootdown(address, length), [=] () {
 		node->complete();
-	});
+	}));
 
-	node->_shootNode.address = address;
-	node->_shootNode.size = length;
-	node->_shootNode.setup(&node->_worklet);
-	if(!_ops->submitShootdown(&node->_shootNode))
-		return false;
-	return true;
+	return false;
 }
 
 bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto space_guard = frigg::guard(&_mutex);
+	smarter::shared_ptr<Mapping> mapping;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	auto mapping = _findMapping(address);
-	assert(mapping);
+		mapping = _findMapping(address);
+		assert(mapping);
 
-	// TODO: Allow shrinking of the mapping.
-	assert(mapping->address == address);
-	assert(mapping->length == length);
+		// TODO: Allow shrinking of the mapping.
+		assert(mapping->address == address);
+		assert(mapping->length == length);
 
-	assert(mapping->state == MappingState::active);
-	mapping->state = MappingState::zombie;
+		assert(mapping->state == MappingState::active);
+		mapping->state = MappingState::zombie;
+	}
 
+	// Mark pages as dirty and unmap without holding a lock.
 	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 		VirtualAddr vaddr = mapping->address + progress;
 		auto status = _ops->unmapSingle4k(vaddr);
@@ -654,75 +623,60 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 		// Try to merge the new hole and the existing ones.
 		if(pre && pre->address() + pre->length() == address
 				&& succ && address + length == succ->address()) {
-			auto hole = frigg::construct<Hole>(*kernelAlloc, pre->address(),
+			auto hole = frg::construct<Hole>(*kernelAlloc, pre->address(),
 					pre->length() + length + succ->length());
 
 			space->_holes.remove(pre);
 			space->_holes.remove(succ);
 			space->_holes.insert(hole);
-			frigg::destruct(*kernelAlloc, pre);
-			frigg::destruct(*kernelAlloc, succ);
+			frg::destruct(*kernelAlloc, pre);
+			frg::destruct(*kernelAlloc, succ);
 		}else if(pre && pre->address() + pre->length() == address) {
-			auto hole = frigg::construct<Hole>(*kernelAlloc,
+			auto hole = frg::construct<Hole>(*kernelAlloc,
 					pre->address(), pre->length() + length);
 
 			space->_holes.remove(pre);
 			space->_holes.insert(hole);
-			frigg::destruct(*kernelAlloc, pre);
+			frg::destruct(*kernelAlloc, pre);
 		}else if(succ && address + length == succ->address()) {
-			auto hole = frigg::construct<Hole>(*kernelAlloc,
+			auto hole = frg::construct<Hole>(*kernelAlloc,
 					address, length + succ->length());
 
 			space->_holes.remove(succ);
 			space->_holes.insert(hole);
-			frigg::destruct(*kernelAlloc, succ);
+			frg::destruct(*kernelAlloc, succ);
 		}else{
-			auto hole = frigg::construct<Hole>(*kernelAlloc,
+			auto hole = frg::construct<Hole>(*kernelAlloc,
 					address, length);
 
 			space->_holes.insert(hole);
 		}
 	};
 
-	node->_worklet.setup([] (Worklet *base) {
-		auto node = frg::container_of(base, &AddressUnmapNode::_worklet);
-
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto space_guard = frigg::guard(&node->_space->_mutex);
-
-		deleteMapping(node->_space, node->_mapping.get());
-		closeHole(node->_space, node->_shootNode.address, node->_shootNode.size);
+	async::detach_with_allocator(*kernelAlloc,
+			async::transform(_ops->shootdown(address, length), [=] () {
+		deleteMapping(this, mapping.get());
+		closeHole(this, address, length);
 		node->complete();
-	});
+	}));
 
-	node->_space = this;
-	node->_mapping = mapping;
-	node->_shootNode.address = address;
-	node->_shootNode.size = length;
-	node->_shootNode.setup(&node->_worklet);
-	if(!_ops->submitShootdown(&node->_shootNode))
-		return false;
-
-	deleteMapping(this, mapping.get());
-	closeHole(this, address, length);
-	return true;
+	return false;
 }
 
-void VirtualSpace::synchronize(VirtualAddr address, size_t size,
-		async::any_receiver<void> receiver) {
+void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode *node) {
 	auto misalign = address & (kPageSize - 1);
 	auto alignedAddress = address & ~(kPageSize - 1);
 	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
 	async::detach_with_allocator(*kernelAlloc, [] (VirtualSpace *self,
 			VirtualAddr alignedAddress, size_t alignedSize,
-			async::any_receiver<void> receiver) -> coroutine<void> {
+			SynchronizeNode *node) -> coroutine<void> {
 		size_t overallProgress = 0;
 		while(overallProgress < alignedSize) {
 			smarter::shared_ptr<Mapping> mapping;
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto spaceGuard = frigg::guard(&self->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto spaceGuard = frg::guard(&self->_mutex);
 
 				mapping = self->_findMapping(alignedAddress + overallProgress);
 			}
@@ -736,8 +690,8 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 
 			// Synchronize with the eviction loop.
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&mapping->evictMutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&mapping->evictMutex);
 
 				for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
 						chunkProgress += kPageSize) {
@@ -754,47 +708,40 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size,
 		}
 		co_await self->_ops->shootdown(alignedAddress, alignedSize);
 
-		receiver.set_value();
-	}(this, alignedAddress, alignedSize, std::move(receiver)));
+		node->resume();
+	}(this, alignedAddress, alignedSize, node));
 }
 
-bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNode *node) {
-	node->_address = address;
-	node->_flags = faultFlags;
-
+frg::optional<bool>
+VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
+		smarter::shared_ptr<WorkQueue> wq, FaultNode *node) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto space_guard = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto space_guard = frg::guard(&_mutex);
 
 		mapping = _findMapping(address);
-		if(!mapping) {
-			node->_resolved = false;
-			return true;
-		}
 	}
-
-	node->_mapping = mapping;
+	if(!mapping)
+		return false;
 
 	// Here we do the mapping-based fault handling.
-	if(node->_flags & VirtualSpace::kFaultWrite)
+	if(faultFlags & VirtualSpace::kFaultWrite)
 		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
-			node->_resolved = false;
 			return true;
 		}
-	if(node->_flags & VirtualSpace::kFaultExecute)
+	if(faultFlags & VirtualSpace::kFaultExecute)
 		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
-			node->_resolved = false;
 			return true;
 		}
 
 	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<Mapping> mapping,
-			uintptr_t address, FaultNode *node) -> coroutine<void> {
-		auto faultPage = (node->_address - mapping->address) & ~(kPageSize - 1);
-		auto outcome = co_await mapping->touchVirtualPage(faultPage);
+			uintptr_t address,
+			smarter::shared_ptr<WorkQueue> wq, FaultNode *node) -> coroutine<void> {
+		auto faultPage = (address - mapping->address) & ~(kPageSize - 1);
+		auto outcome = co_await mapping->touchVirtualPage(faultPage, std::move(wq));
 		if(!outcome) {
-			node->_resolved = false;
-			WorkQueue::post(node->_handled);
+			node->complete(false);
 			co_return;
 		}
 
@@ -803,10 +750,10 @@ bool VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags, FaultNo
 		if(outcome.value().spurious)
 				infoLogger() << "\e[33m" "thor: Spurious page fault"
 						"\e[39m" << frg::endlog;
-		node->_resolved = true;
-		WorkQueue::post(node->_handled);
-	}(std::move(mapping), address, node));
-	return false;
+		node->complete(true);
+	}(std::move(mapping), address, std::move(wq), node));
+
+	return {};
 }
 
 smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
@@ -911,17 +858,17 @@ void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	_holes.remove(hole);
 
 	if(offset) {
-		auto predecessor = frigg::construct<Hole>(*kernelAlloc, hole->address(), offset);
+		auto predecessor = frg::construct<Hole>(*kernelAlloc, hole->address(), offset);
 		_holes.insert(predecessor);
 	}
 
 	if(offset + length < hole->length()) {
-		auto successor = frigg::construct<Hole>(*kernelAlloc,
+		auto successor = frg::construct<Hole>(*kernelAlloc,
 				hole->address() + offset + length, hole->length() - (offset + length));
 		_holes.insert(successor);
 	}
 
-	frigg::destruct(*kernelAlloc, hole);
+	frg::destruct(*kernelAlloc, hole);
 }
 
 // --------------------------------------------------------
@@ -945,14 +892,6 @@ void AddressSpace::dispose(BindableHandle) {
 // --------------------------------------------------------
 // MemoryViewLockHandle.
 // --------------------------------------------------------
-
-MemoryViewLockHandle::MemoryViewLockHandle(frigg::SharedPtr<MemoryView> view,
-		uintptr_t offset, size_t size)
-: _view{std::move(view)}, _offset{offset}, _size{size} {
-	if(auto e = _view->lockRange(_offset, _size); e != Error::success)
-		return;
-	_active = true;
-}
 
 MemoryViewLockHandle::~MemoryViewLockHandle() {
 	if(_active)
@@ -983,26 +922,28 @@ AddressSpaceLockHandle::~AddressSpaceLockHandle() {
 		_mapping->unlockVirtualRange(_address - _mapping->address, _length);
 }
 
-bool AddressSpaceLockHandle::acquire(AcquireNode *node) {
+bool AddressSpaceLockHandle::acquire(smarter::shared_ptr<WorkQueue> wq, AcquireNode *node) {
 	if(!_length) {
 		_active = true;
 		return true;
 	}
 
 	async::detach_with_allocator(*kernelAlloc, [] (AddressSpaceLockHandle *self,
-			AcquireNode *node) -> coroutine<void> {
+			smarter::shared_ptr<WorkQueue> wq, AcquireNode *node) -> coroutine<void> {
 		auto misalign = self->_address & (kPageSize - 1);
 		auto lockOutcome = co_await self->_mapping->lockVirtualRange(
 				(self->_address - self->_mapping->address) & ~(kPageSize - 1),
-				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
+				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1), wq);
 		assert(lockOutcome);
 		auto populateOutcome = co_await self->_mapping->populateVirtualRange(
 				(self->_address - self->_mapping->address) & ~(kPageSize - 1),
-				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1));
+				(self->_length + misalign + kPageSize - 1) & ~(kPageSize - 1), wq);
 		assert(populateOutcome);
+
 		self->_active = true;
-		WorkQueue::post(node->_acquired);
-	}(this, node));
+		node->complete();
+	}(this, std::move(wq), node));
+
 	return false;
 }
 
@@ -1021,7 +962,7 @@ void AddressSpaceLockHandle::load(size_t offset, void *pointer, size_t size) {
 	while(progress < size) {
 		VirtualAddr write = (VirtualAddr)_address + offset + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _resolvePhysical(write - misalign);
 		assert(page != PhysicalAddr(-1));
@@ -1040,7 +981,7 @@ Error AddressSpaceLockHandle::write(size_t offset, const void *pointer, size_t s
 	while(progress < size) {
 		VirtualAddr write = (VirtualAddr)_address + offset + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _resolvePhysical(write - misalign);
 		assert(page != PhysicalAddr(-1));

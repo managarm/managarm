@@ -19,13 +19,13 @@ namespace {
 // Reclaim implementation.
 // --------------------------------------------------------
 
-extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 struct MemoryReclaimer {
 	void addPage(CachePage *page) {
 		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		// The reclaimer owns one reference to the page.
 		// This ensures that it can safely initiate uncaching operations.
@@ -39,8 +39,8 @@ struct MemoryReclaimer {
 
 	void bumpPage(CachePage *page) {
 		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
 			auto it = _lruList.iterator_to(page);
@@ -57,8 +57,8 @@ struct MemoryReclaimer {
 
 	void removePage(CachePage *page) {
 		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
 			auto it = _lruList.iterator_to(page);
@@ -82,8 +82,8 @@ struct MemoryReclaimer {
 			// TODO: We have to acquire a refcount here.
 			CachePage *page;
 			{
-				auto irq_lock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&_mutex);
+				auto irq_lock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_mutex);
 
 				if(_lruList.empty())
 					return false;
@@ -122,7 +122,7 @@ struct MemoryReclaimer {
 			closure.worklet.setup([] (Worklet *base) {
 				auto closure = frg::container_of(base, &Closure::worklet);
 				KernelFiber::unblockOther(&closure->blocker);
-			});
+			}, thisFiber()->associatedWorkQueue());
 
 			closure.blocker.setup();
 			closure.node.setup(&closure.worklet);
@@ -138,8 +138,8 @@ struct MemoryReclaimer {
 		return KernelFiber::post([=] {
 			while(true) {
 				if(logUncaching) {
-					auto irq_lock = frigg::guard(&irqMutex());
-					auto lock = frigg::guard(&_mutex);
+					auto irq_lock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&_mutex);
 					infoLogger() << "thor: " << (_cachedSize / 1024)
 							<< " KiB of cached pages" << frg::endlog;
 				}
@@ -152,7 +152,7 @@ struct MemoryReclaimer {
 	}
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	frg::intrusive_list<
 		CachePage,
@@ -166,7 +166,7 @@ private:
 	size_t _cachedSize = 0;
 };
 
-frigg::LazyInitializer<MemoryReclaimer> globalReclaimer;
+frg::manual_box<MemoryReclaimer> globalReclaimer;
 
 void initializeReclaim() {
 	globalReclaimer.initialize();
@@ -183,13 +183,14 @@ void MemoryView::resize(size_t newSize, async::any_receiver<void> receiver) {
 	panicLogger() << "MemoryView does not support resize!" << frg::endlog;
 }
 
-void MemoryView::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+void MemoryView::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) {
 	receiver.set_value({Error::illegalObject, nullptr});
 }
 
-void MemoryView::asyncLockRange(uintptr_t offset, size_t size,
-		async::any_receiver<Error> receiver) {
-	receiver.set_value(lockRange(offset, size));
+bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
+		smarter::shared_ptr<WorkQueue>, LockRangeNode *node) {
+	node->result = lockRange(offset, size);
+	return true;
 }
 
 Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
@@ -205,234 +206,9 @@ void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
 	initiate->complete();
 }
 
-Error MemoryView::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> view,
+Error MemoryView::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t size) {
 	return Error::illegalObject;
-}
-
-// --------------------------------------------------------
-// Copy operations.
-// --------------------------------------------------------
-
-bool transferBetweenViews(TransferNode *node) {
-	node->_progress = 0;
-
-	if(auto e = node->_srcBundle->lockRange(node->_srcOffset, node->_size); e != Error::success)
-		assert(!"lockRange() failed");
-	if(auto e = node->_destBundle->lockRange(node->_destOffset, node->_size); e != Error::success)
-		assert(!"lockRange() failed");
-
-	struct Ops {
-		static bool process(TransferNode *node) {
-			while(node->_progress < node->_size) {
-				if(!prepareDestAndCopy(node))
-					return false;
-			}
-
-			node->_srcBundle->unlockRange(node->_srcOffset, node->_size);
-			node->_destBundle->unlockRange(node->_destOffset, node->_size);
-
-			return true;
-		}
-
-		static bool prepareDestAndCopy(TransferNode *node) {
-			auto dest_misalign = (node->_destOffset + node->_progress) % kPageSize;
-
-			node->_worklet.setup(&Ops::fetchedDest);
-			node->_destFetch.setup(&node->_worklet);
-			if(!node->_destBundle->fetchRange(node->_destOffset + node->_progress - dest_misalign,
-					&node->_destFetch))
-				return false;
-			return prepareSrcAndCopy(node);
-		}
-
-		static bool prepareSrcAndCopy(TransferNode *node) {
-			auto src_misalign = (node->_srcOffset + node->_progress) % kPageSize;
-
-			node->_worklet.setup(&Ops::fetchedSrc);
-			node->_srcFetch.setup(&node->_worklet);
-			if(!node->_srcBundle->fetchRange(node->_srcOffset + node->_progress - src_misalign,
-					&node->_srcFetch))
-				return false;
-			return doCopy(node);
-		}
-
-		static bool doCopy(TransferNode *node) {
-			assert(node->_destFetch.error() == Error::success);
-			assert(node->_srcFetch.error() == Error::success);
-
-			auto dest_misalign = (node->_destOffset + node->_progress) % kPageSize;
-			auto src_misalign = (node->_srcOffset + node->_progress) % kPageSize;
-			size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
-					kPageSize - src_misalign), node->_size - node->_progress);
-
-			auto dest_page = node->_destFetch.range().get<0>();
-			auto src_page = node->_srcFetch.range().get<0>();
-			assert(dest_page != PhysicalAddr(-1));
-			assert(src_page != PhysicalAddr(-1));
-
-			PageAccessor dest_accessor{dest_page};
-			PageAccessor src_accessor{src_page};
-			memcpy((uint8_t *)dest_accessor.get() + dest_misalign,
-					(uint8_t *)src_accessor.get() + src_misalign, chunk);
-
-			node->_progress += chunk;
-			return true;
-		}
-
-		static void fetchedDest(Worklet *base) {
-			auto node = frg::container_of(base, &TransferNode::_worklet);
-			if(!prepareSrcAndCopy(node))
-				return;
-			if(!process(node))
-				return;
-
-			WorkQueue::post(node->_copied);
-		}
-
-		static void fetchedSrc(Worklet *base) {
-			auto node = frg::container_of(base, &TransferNode::_worklet);
-			if(!doCopy(node))
-				return;
-			if(!process(node))
-				return;
-
-			WorkQueue::post(node->_copied);
-		}
-	};
-
-	return Ops::process(node);
-}
-
-// In addition to what copyFromBundle() does, we also have to mark the memory as dirty.
-bool copyToBundle(MemoryView *view, ptrdiff_t offset, const void *buffer, size_t size,
-		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *)) {
-	struct Ops {
-		static bool process(CopyToBundleNode *node) {
-			while(node->_progress < node->_size) {
-				if(!fetchAndCopy(node))
-					return false;
-			}
-
-			auto misalign = node->_viewOffset & (kPageSize - 1);
-			node->_view->markDirty(node->_viewOffset & ~(kPageSize - 1),
-					(node->_size + misalign + kPageSize - 1) & ~(kPageSize - 1));
-
-			node->_view->unlockRange(node->_viewOffset, node->_size);
-			return true;
-		}
-
-		static bool fetchAndCopy(CopyToBundleNode *node) {
-			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
-			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
-
-			node->_fetch.setup(&node->_worklet);
-			node->_worklet.setup([] (Worklet *base) {
-				auto node = frg::container_of(base, &CopyToBundleNode::_worklet);
-				doCopy(node);
-
-				// Tail of asynchronous path.
-				if(!process(node))
-					return;
-				node->_complete(node);
-			});
-			if(!node->_view->fetchRange(node->_viewOffset + node->_progress - misalign,
-					&node->_fetch))
-				return false;
-			doCopy(node);
-			return true;
-		}
-
-		static void doCopy(CopyToBundleNode *node) {
-			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
-			assert(node->_fetch.error() == Error::success);
-			assert(node->_fetch.range().get<1>() >= kPageSize);
-			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
-			size_t chunk = frigg::min(kPageSize - misalign, node->_size - node->_progress);
-
-			auto physical = node->_fetch.range().get<0>();
-			assert(physical != PhysicalAddr(-1));
-			PageAccessor accessor{physical};
-			memcpy(reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
-					reinterpret_cast<const uint8_t *>(node->_buffer) + node->_progress, chunk);
-			node->_progress += chunk;
-		}
-	};
-
-	node->_view = view;
-	node->_viewOffset = offset;
-	node->_buffer = buffer;
-	node->_size = size;
-	node->_complete = complete;
-
-	node->_progress = 0;
-	if(auto e = view->lockRange(offset, size); e != Error::success)
-		assert(!"lockRange() failed");
-
-	return Ops::process(node);
-}
-
-bool copyFromBundle(MemoryView *view, ptrdiff_t offset, void *buffer, size_t size,
-		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *)) {
-	struct Ops {
-		static bool process(CopyFromBundleNode *node) {
-			while(node->_progress < node->_size) {
-				if(!fetchAndCopy(node))
-					return false;
-			}
-
-			node->_view->unlockRange(node->_viewOffset, node->_size);
-			return true;
-		}
-
-		static bool fetchAndCopy(CopyFromBundleNode *node) {
-			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
-			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
-
-			node->_fetch.setup(&node->_worklet);
-			node->_worklet.setup([] (Worklet *base) {
-				auto node = frg::container_of(base, &CopyFromBundleNode::_worklet);
-				doCopy(node);
-
-				// Tail of asynchronous path.
-				if(!process(node))
-					return;
-				node->_complete(node);
-			});
-			if(!node->_view->fetchRange(node->_viewOffset + node->_progress - misalign,
-					&node->_fetch))
-				return false;
-			doCopy(node);
-			return true;
-		}
-
-		static void doCopy(CopyFromBundleNode *node) {
-			// TODO: In principle, we do not need to call fetchRange() with page-aligned args.
-			assert(node->_fetch.error() == Error::success);
-			assert(node->_fetch.range().get<1>() >= kPageSize);
-			auto misalign = (node->_viewOffset + node->_progress) % kPageSize;
-			size_t chunk = frigg::min(kPageSize - misalign, node->_size - node->_progress);
-
-			auto physical = node->_fetch.range().get<0>();
-			assert(physical != PhysicalAddr(-1));
-			PageAccessor accessor{physical};
-			memcpy(reinterpret_cast<uint8_t *>(node->_buffer) + node->_progress,
-					reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
-			node->_progress += chunk;
-		}
-	};
-
-	node->_view = view;
-	node->_viewOffset = offset;
-	node->_buffer = buffer;
-	node->_size = size;
-	node->_complete = complete;
-
-	node->_progress = 0;
-	if(auto e = view->lockRange(offset, size); e != Error::success)
-		assert(!"lockRange() failed");
-
-	return Ops::process(node);
 }
 
 // --------------------------------------------------------
@@ -467,7 +243,8 @@ frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset
 	return frg::tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
 }
 
-bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool HardwareMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
 	assert(offset % kPageSize == 0);
 
 	completeFetch(node, Error::success, _base + offset, _length - offset, _cacheMode);
@@ -524,8 +301,8 @@ AllocatedMemory::~AllocatedMemory() {
 }
 
 void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	assert(!(newSize % _chunkSize));
 	size_t num_chunks = newSize / _chunkSize;
@@ -550,8 +327,8 @@ void AllocatedMemory::unlockRange(uintptr_t offset, size_t size) {
 frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto index = offset / _chunkSize;
 	auto disp = offset & (_chunkSize - 1);
@@ -563,9 +340,10 @@ frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offse
 			CachingMode::null};
 }
 
-bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+bool AllocatedMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto index = offset / _chunkSize;
 	auto disp = offset & (_chunkSize - 1);
@@ -594,8 +372,8 @@ void AllocatedMemory::markDirty(uintptr_t offset, size_t size) {
 }
 
 size_t AllocatedMemory::getLength() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	return _physicalChunks.size() * _chunkSize;
 }
@@ -618,8 +396,8 @@ ManagedSpace::~ManagedSpace() {
 bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	ManagedPage *pit;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
 
 		size_t index = page->identity;
 		pit = pages.find(index);
@@ -635,8 +413,8 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 			ReclaimNode *continuation) -> coroutine<void> {
 		co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
 
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&self->mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&self->mutex);
 
 		if(pit->loadState != kStateEvicting)
 			co_return;
@@ -661,8 +439,8 @@ void ManagedSpace::retirePage(CachePage *page) {
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
 Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
 	if((offset + size) / kPageSize > numPages)
 		return Error::bufferTooSmall;
 
@@ -686,8 +464,8 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
 void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
 	assert((offset + size) / kPageSize <= numPages);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
@@ -706,18 +484,26 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 }
 
 void ManagedSpace::submitManagement(ManageNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	ManageList pending;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
 
-	_managementQueue.push_back(node);
-	_progressManagement();
+		_managementQueue.push_back(node);
+		_progressManagement(pending);
+	}
+
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 }
 
 void ManagedSpace::submitMonitor(MonitorNode *node) {
 	node->progress = 0;
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
 
 	assert(node->offset % kPageSize == 0);
 	assert(node->length % kPageSize == 0);
@@ -727,7 +513,7 @@ void ManagedSpace::submitMonitor(MonitorNode *node) {
 	_progressMonitors();
 }
 
-void ManagedSpace::_progressManagement() {
+void ManagedSpace::_progressManagement(ManageList &pending) {
 	// For now, we prefer writeback to initialization.
 	// "Proper" priorization should probably be done in the userspace driver
 	// (we do not want to store per-page priorities here).
@@ -754,7 +540,7 @@ void ManagedSpace::_progressManagement() {
 		auto node = _managementQueue.pop_front();
 		node->setup(Error::success, ManageRequest::writeback,
 				index << kPageShift, count << kPageShift);
-		node->complete();
+		pending.push_back(node);
 	}
 
 	while(!_initializationList.empty() && !_managementQueue.empty()) {
@@ -779,7 +565,7 @@ void ManagedSpace::_progressManagement() {
 		auto node = _managementQueue.pop_front();
 		node->setup(Error::success, ManageRequest::initialize,
 				index << kPageShift, count << kPageShift);
-		node->complete();
+		pending.push_back(node);
 	}
 }
 
@@ -828,8 +614,8 @@ void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 			async::any_receiver<void> receiver) -> coroutine<void> {
 		size_t oldPages;
 		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_managed->mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&self->_managed->mutex);
 
 			oldPages = self->_managed->numPages;
 			self->_managed->numPages = newPages;
@@ -862,8 +648,8 @@ void BackingMemory::unlockRange(uintptr_t offset, size_t size) {
 frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 
 	auto index = offset / kPageSize;
 	assert(index < _managed->numPages);
@@ -874,9 +660,10 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
-bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+bool BackingMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
@@ -915,8 +702,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	assert((offset % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 	assert((offset + length) / kPageSize <= _managed->numPages);
 
 /*	assert(length == kPageSize);
@@ -982,8 +769,8 @@ void FrontalMemory::unlockRange(uintptr_t offset, size_t size) {
 frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
 
 	auto index = offset / kPageSize;
 	assert(index < _managed->numPages);
@@ -994,102 +781,111 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
-bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+bool FrontalMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
+	ManageList pending;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
 
-	auto index = offset >> kPageShift;
-	auto misalign = offset & (kPageSize - 1);
-	assert(index < _managed->numPages);
+		auto index = offset >> kPageShift;
+		auto misalign = offset & (kPageSize - 1);
+		assert(index < _managed->numPages);
 
-	// Try the fast-paths first.
-	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
-	assert(pit);
-	if(pit->loadState == ManagedSpace::kStatePresent
-			|| pit->loadState == ManagedSpace::kStateWantWriteback
-			|| pit->loadState == ManagedSpace::kStateWriteback
-			|| pit->loadState == ManagedSpace::kStateAnotherWriteback
-			|| pit->loadState == ManagedSpace::kStateEvicting) {
-		auto physical = pit->physical;
-		assert(physical != PhysicalAddr(-1));
-
-		if(pit->loadState == ManagedSpace::kStatePresent) {
-			if(!pit->lockCount)
-				globalReclaimer->bumpPage(&pit->cachePage);
-		}else if(pit->loadState == ManagedSpace::kStateEvicting) {
-			// Cancel evication -- the page is still needed.
-			pit->loadState = ManagedSpace::kStatePresent;
-			globalReclaimer->addPage(&pit->cachePage);
-		}
-
-		completeFetch(node, Error::success,
-				physical + misalign, kPageSize - misalign, CachingMode::null);
-		return true;
-	}else{
-		assert(pit->loadState == ManagedSpace::kStateMissing
-				|| pit->loadState == ManagedSpace::kStateWantInitialization
-				|| pit->loadState == ManagedSpace::kStateInitialization);
-	}
-
-	if(node->flags() & FetchNode::disallowBacking) {
-		infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
-				<< frg::endlog;
-		completeFetch(node, Error::fault);
-		return true;
-	}
-
-	// We have to take the slow-path, i.e., perform the fetch asynchronously.
-	if(pit->loadState == ManagedSpace::kStateMissing) {
-		pit->loadState = ManagedSpace::kStateWantInitialization;
-		_managed->_initializationList.push_back(&pit->cachePage);
-	}
-	_managed->_progressManagement();
-
-	// TODO: Do not allocate memory here; use pre-allocated nodes instead.
-	struct Closure {
-		uintptr_t offset;
-		ManagedSpace::ManagedPage *page;
-		FetchNode *fetch;
-		ManagedSpace *bundle;
-
-		Worklet worklet;
-		MonitorNode initiate;
-	} *closure = frigg::construct<Closure>(*kernelAlloc);
-
-	struct Ops {
-		static void initiated(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &Closure::worklet);
-			assert(closure->initiate.error() == Error::success);
-
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&closure->bundle->mutex);
-
-			auto misalign = closure->offset & (kPageSize - 1);
-			assert(closure->page->loadState == ManagedSpace::kStatePresent);
-			auto physical = closure->page->physical;
+		// Try the fast-paths first.
+		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
+		assert(pit);
+		if(pit->loadState == ManagedSpace::kStatePresent
+				|| pit->loadState == ManagedSpace::kStateWantWriteback
+				|| pit->loadState == ManagedSpace::kStateWriteback
+				|| pit->loadState == ManagedSpace::kStateAnotherWriteback
+				|| pit->loadState == ManagedSpace::kStateEvicting) {
+			auto physical = pit->physical;
 			assert(physical != PhysicalAddr(-1));
 
-			lock.unlock();
-			irq_lock.unlock();
+			if(pit->loadState == ManagedSpace::kStatePresent) {
+				if(!pit->lockCount)
+					globalReclaimer->bumpPage(&pit->cachePage);
+			}else if(pit->loadState == ManagedSpace::kStateEvicting) {
+				// Cancel evication -- the page is still needed.
+				pit->loadState = ManagedSpace::kStatePresent;
+				globalReclaimer->addPage(&pit->cachePage);
+			}
 
-			completeFetch(closure->fetch, Error::success, physical + misalign, kPageSize - misalign,
-					CachingMode::null);
-			callbackFetch(closure->fetch);
-			frigg::destruct(*kernelAlloc, closure);
+			completeFetch(node, Error::success,
+					physical + misalign, kPageSize - misalign, CachingMode::null);
+			return true;
+		}else{
+			assert(pit->loadState == ManagedSpace::kStateMissing
+					|| pit->loadState == ManagedSpace::kStateWantInitialization
+					|| pit->loadState == ManagedSpace::kStateInitialization);
 		}
-	};
 
-	closure->offset = offset;
-	closure->page = pit;
-	closure->fetch = node;
-	closure->bundle = _managed.get();
+		if(node->flags() & FetchNode::disallowBacking) {
+			infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
+					<< frg::endlog;
+			completeFetch(node, Error::fault);
+			return true;
+		}
 
-	closure->worklet.setup(&Ops::initiated);
-	closure->initiate.setup(ManageRequest::initialize,
-			offset, kPageSize, &closure->worklet);
-	closure->initiate.progress = 0;
-	_managed->_monitorQueue.push_back(&closure->initiate);
-	_managed->_progressMonitors();
+		// We have to take the slow-path, i.e., perform the fetch asynchronously.
+		if(pit->loadState == ManagedSpace::kStateMissing) {
+			pit->loadState = ManagedSpace::kStateWantInitialization;
+			_managed->_initializationList.push_back(&pit->cachePage);
+		}
+		_managed->_progressManagement(pending);
+
+		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
+		struct Closure {
+			uintptr_t offset;
+			ManagedSpace::ManagedPage *page;
+			FetchNode *fetch;
+			ManagedSpace *bundle;
+
+			Worklet worklet;
+			MonitorNode initiate;
+		} *closure = frg::construct<Closure>(*kernelAlloc);
+
+		struct Ops {
+			static void initiated(Worklet *worklet) {
+				auto closure = frg::container_of(worklet, &Closure::worklet);
+				assert(closure->initiate.error() == Error::success);
+
+				auto irq_lock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&closure->bundle->mutex);
+
+				auto misalign = closure->offset & (kPageSize - 1);
+				assert(closure->page->loadState == ManagedSpace::kStatePresent);
+				auto physical = closure->page->physical;
+				assert(physical != PhysicalAddr(-1));
+
+				lock.unlock();
+				irq_lock.unlock();
+
+				completeFetch(closure->fetch, Error::success, physical + misalign, kPageSize - misalign,
+						CachingMode::null);
+				callbackFetch(closure->fetch);
+				frg::destruct(*kernelAlloc, closure);
+			}
+		};
+
+		closure->offset = offset;
+		closure->page = pit;
+		closure->fetch = node;
+		closure->bundle = _managed.get();
+
+		closure->worklet.setup(&Ops::initiated, wq.get());
+		closure->initiate.setup(ManageRequest::initialize,
+				offset, kPageSize, &closure->worklet);
+		closure->initiate.progress = 0;
+		_managed->_monitorQueue.push_back(&closure->initiate);
+		_managed->_progressMonitors();
+	}
+
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 
 	return false;
 }
@@ -1098,32 +894,40 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	assert(!(offset % kPageSize));
 	assert(!(size % kPageSize));
 
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_managed->mutex);
+	ManageList pending;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
 
-	// Put the pages into the dirty state.
-	for(size_t pg = 0; pg < size; pg += kPageSize) {
-		auto index = (offset + pg) >> kPageShift;
-		auto pit = _managed->pages.find(index);
-		assert(pit);
-		if(pit->loadState == ManagedSpace::kStatePresent) {
-			pit->loadState = ManagedSpace::kStateWantWriteback;
-			if(!pit->lockCount)
-				globalReclaimer->removePage(&pit->cachePage);
-			_managed->_writebackList.push_back(&pit->cachePage);
-		}else if(pit->loadState == ManagedSpace::kStateEvicting) {
-			pit->loadState = ManagedSpace::kStateWantWriteback;
-			assert(!pit->lockCount);
-			_managed->_writebackList.push_back(&pit->cachePage);
-		}else if(pit->loadState == ManagedSpace::kStateWriteback) {
-			pit->loadState = ManagedSpace::kStateAnotherWriteback;
-		}else{
-			assert(pit->loadState == ManagedSpace::kStateWantWriteback
-					|| pit->loadState == ManagedSpace::kStateAnotherWriteback);
+		// Put the pages into the dirty state.
+		for(size_t pg = 0; pg < size; pg += kPageSize) {
+			auto index = (offset + pg) >> kPageShift;
+			auto pit = _managed->pages.find(index);
+			assert(pit);
+			if(pit->loadState == ManagedSpace::kStatePresent) {
+				pit->loadState = ManagedSpace::kStateWantWriteback;
+				if(!pit->lockCount)
+					globalReclaimer->removePage(&pit->cachePage);
+				_managed->_writebackList.push_back(&pit->cachePage);
+			}else if(pit->loadState == ManagedSpace::kStateEvicting) {
+				pit->loadState = ManagedSpace::kStateWantWriteback;
+				assert(!pit->lockCount);
+				_managed->_writebackList.push_back(&pit->cachePage);
+			}else if(pit->loadState == ManagedSpace::kStateWriteback) {
+				pit->loadState = ManagedSpace::kStateAnotherWriteback;
+			}else{
+				assert(pit->loadState == ManagedSpace::kStateWantWriteback
+						|| pit->loadState == ManagedSpace::kStateAnotherWriteback);
+			}
 		}
+
+		_managed->_progressManagement(pending);
 	}
 
-	_managed->_progressManagement();
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 }
 
 size_t FrontalMemory::getLength() {
@@ -1132,21 +936,33 @@ size_t FrontalMemory::getLength() {
 }
 
 void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
-	// TODO: This assumes that we want to load the range (which might not be true).
-	assert(node->offset % kPageSize == 0);
-	assert(node->length % kPageSize == 0);
-	for(size_t pg = 0; pg < node->length; pg += kPageSize) {
-		auto index = (node->offset + pg) >> kPageShift;
-		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
-		assert(pit);
-		if(pit->loadState == ManagedSpace::kStateMissing) {
-			pit->loadState = ManagedSpace::kStateWantInitialization;
-			_managed->_initializationList.push_back(&pit->cachePage);
+	ManageList pending;
+	{
+		// TODO: This assumes that we want to load the range (which might not be true).
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
+
+		assert(node->offset % kPageSize == 0);
+		assert(node->length % kPageSize == 0);
+		for(size_t pg = 0; pg < node->length; pg += kPageSize) {
+			auto index = (node->offset + pg) >> kPageShift;
+			auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
+			assert(pit);
+			if(pit->loadState == ManagedSpace::kStateMissing) {
+				pit->loadState = ManagedSpace::kStateWantInitialization;
+				_managed->_initializationList.push_back(&pit->cachePage);
+			}
 		}
+
+		_managed->_progressManagement(pending);
 	}
-	_managed->_progressManagement();
 
 	_managed->submitMonitor(node);
+
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->complete();
+	}
 }
 
 // --------------------------------------------------------
@@ -1163,8 +979,8 @@ IndirectMemory::~IndirectMemory() {
 }
 
 frg::expected<Error, AddressIdentity> IndirectMemory::getAddressIdentity(uintptr_t offset) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1176,8 +992,8 @@ frg::expected<Error, AddressIdentity> IndirectMemory::getAddressIdentity(uintptr
 }
 
 Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1192,8 +1008,8 @@ Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
 }
 
 void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1205,8 +1021,8 @@ void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
 }
 
 frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1216,21 +1032,22 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 			+ inSlotOffset);
 }
 
-bool IndirectMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+bool IndirectMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
 	assert(slot < indirections_.size()); // TODO: Return Error::fault.
 	assert(indirections_[slot]); // TODO: Return Error::fault.
 	return indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
-			+ inSlotOffset, node);
+			+ inSlotOffset, std::move(wq), node);
 }
 
 void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
@@ -1245,10 +1062,10 @@ size_t IndirectMemory::getLength() {
 	return indirections_.size() << 32;
 }
 
-Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> memory,
+Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
 		uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	if(slot >= indirections_.size())
 		return Error::outOfBounds;
@@ -1264,9 +1081,9 @@ Error IndirectMemory::setIndirection(size_t slot, frigg::SharedPtr<MemoryView> m
 // CopyOnWriteMemory
 // --------------------------------------------------------
 
-CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<MemoryView> view,
+CopyOnWriteMemory::CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length,
-		frigg::SharedPtr<CowChain> chain)
+		smarter::shared_ptr<CowChain> chain)
 : MemoryView{&_evictQueue}, _view{std::move(view)},
 		_viewOffset{offset}, _length{length}, _copyChain{std::move(chain)},
 		_ownedPages{*kernelAlloc} {
@@ -1291,25 +1108,25 @@ frg::expected<Error, AddressIdentity> CopyOnWriteMemory::getAddressIdentity(uint
 	return AddressIdentity{this, offset};
 }
 
-void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver) {
+void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) {
 	// Note that locked pages require special attention during CoW: as we cannot
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
-	frigg::SharedPtr<CopyOnWriteMemory> forked;
+	smarter::shared_ptr<CopyOnWriteMemory> forked;
 	{
-		auto irqLock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
 		// Create a new CowChain for both the original and the forked mapping.
 		// To correct handle locks pages, we move only non-locked pages from
 		// the original mapping to the new chain.
-		auto newChain = frigg::makeShared<CowChain>(*kernelAlloc, _copyChain);
+		auto newChain = smarter::allocate_shared<CowChain>(*kernelAlloc, _copyChain);
 
 		// Update the original mapping
 		_copyChain = newChain;
 
 		// Create a new mapping in the forked space.
-		forked = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 				_view, _viewOffset, _length, newChain);
 
 		// Finally, inspect all copied pages owned by the original mapping.
@@ -1350,8 +1167,8 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, frigg::Shared
 	}
 
 	async::detach_with_allocator(*kernelAlloc,
-			[] (CopyOnWriteMemory *self, frigg::SharedPtr<CopyOnWriteMemory> forked,
-			async::any_receiver<frg::tuple<Error, frigg::SharedPtr<MemoryView>>> receiver)
+			[] (CopyOnWriteMemory *self, smarter::shared_ptr<CopyOnWriteMemory> forked,
+			async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver)
 			-> coroutine<void> {
 		co_await self->_evictQueue.evictRange(0, self->_length);
 		receiver.set_value({Error::success, std::move(forked)});
@@ -1364,27 +1181,25 @@ Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
 	__builtin_unreachable();
 }
 
-void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
-		async::any_receiver<Error> receiver) {
+bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
+		smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
 	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
-			async::any_receiver<Error> receiver) -> coroutine<void> {
-		auto wq = WorkQueue::localQueue();
-
+			smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
 			auto offset = overallOffset + progress;
 
-			frigg::SharedPtr<CowChain> chain;
-			frigg::SharedPtr<MemoryView> view;
+			smarter::shared_ptr<CowChain> chain;
+			smarter::shared_ptr<MemoryView> view;
 			uintptr_t viewOffset;
 			CowPage *cowIt;
 			bool waitForCopy = false;
 			{
 				// If the page is present in our private chain, we just return it.
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&self->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->_mutex);
 
 				cowIt = self->_ownedPages.find(offset >> kPageShift);
 				if(cowIt) {
@@ -1414,8 +1229,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 				do {
 					stillWaiting = co_await self->_copyEvent.async_wait_if([&] () -> bool {
 						// TODO: this could be faster if cowIt->state was atomic.
-						auto irqLock = frigg::guard(&irqMutex());
-						auto lock = frigg::guard(&self->_mutex);
+						auto irqLock = frg::guard(&irqMutex());
+						auto lock = frg::guard(&self->_mutex);
 
 						if(cowIt->state == CowState::inProgress)
 							return true;
@@ -1426,8 +1241,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 				} while(stillWaiting);
 
 				{
-					auto irqLock = frigg::guard(&irqMutex());
-					auto lock = frigg::guard(&self->_mutex);
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&self->_mutex);
 
 					assert(cowIt->state == CowState::hasCopy);
 					cowIt->lockCount++;
@@ -1443,8 +1258,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			// Try to copy from a descendant CoW chain.
 			auto pageOffset = viewOffset + offset;
 			while(chain) {
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&chain->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&chain->_mutex);
 
 				if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
 					// We can just copy synchronously here -- the descendant is not evicted.
@@ -1461,7 +1276,7 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			// Copy from the root view.
 			if(!chain) {
 				co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
-						accessor.get(), kPageSize);
+						accessor.get(), kPageSize, wq);
 			}
 
 			// To make CoW unobservable, we first need to evict the page here.
@@ -1469,8 +1284,8 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			co_await self->_evictQueue.evictRange(offset & ~(kPageSize - 1), kPageSize);
 
 			{
-				auto irqLock = frigg::guard(&irqMutex());
-				auto lock = frigg::guard(&self->_mutex);
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->_mutex);
 
 				assert(cowIt->state == CowState::inProgress);
 				cowIt->state = CowState::hasCopy;
@@ -1481,13 +1296,15 @@ void CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 			progress += kPageSize;
 		}
 
-		receiver.set_value(Error::success);
-	}(this, offset, size, receiver));
+		node->result = Error::success;
+		node->resume();
+	}(this, offset, size, std::move(wq), node));
+	return false;
 }
 
 void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		auto it = _ownedPages.find((offset + pg) >> kPageShift);
@@ -1499,8 +1316,8 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 }
 
 frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t offset) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 		assert(it->state == CowState::hasCopy);
@@ -1510,20 +1327,19 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
 }
 
-bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
+bool CopyOnWriteMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
 	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t offset,
-			FetchNode *node) -> coroutine<void> {
-		auto wq = WorkQueue::localQueue();
-
-		frigg::SharedPtr<CowChain> chain;
-		frigg::SharedPtr<MemoryView> view;
+			smarter::shared_ptr<WorkQueue> wq, FetchNode *node) -> coroutine<void> {
+		smarter::shared_ptr<CowChain> chain;
+		smarter::shared_ptr<MemoryView> view;
 		uintptr_t viewOffset;
 		CowPage *cowIt;
 		bool waitForCopy = false;
 		{
 			// If the page is present in our private chain, we just return it.
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&self->_mutex);
 
 			cowIt = self->_ownedPages.find(offset >> kPageShift);
 			if(cowIt) {
@@ -1553,8 +1369,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 			do {
 				stillWaiting = co_await self->_copyEvent.async_wait_if([&] () -> bool {
 					// TODO: this could be faster if cowIt->state was atomic.
-					auto irqLock = frigg::guard(&irqMutex());
-					auto lock = frigg::guard(&self->_mutex);
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&self->_mutex);
 
 					if(cowIt->state == CowState::inProgress)
 						return true;
@@ -1576,8 +1392,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		// Try to copy from a descendant CoW chain.
 		auto pageOffset = viewOffset + offset;
 		while(chain) {
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&chain->_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&chain->_mutex);
 
 			if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
 				// We can just copy synchronously here -- the descendant is not evicted.
@@ -1594,7 +1410,7 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		// Copy from the root view.
 		if(!chain) {
 			co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
-					accessor.get(), kPageSize);
+					accessor.get(), kPageSize, wq);
 		}
 
 		// To make CoW unobservable, we first need to evict the page here.
@@ -1602,8 +1418,8 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		co_await self->_evictQueue.evictRange(offset, kPageSize);
 
 		{
-			auto irqLock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&self->_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&self->_mutex);
 
 			assert(cowIt->state == CowState::inProgress);
 			cowIt->state = CowState::hasCopy;
@@ -1612,7 +1428,7 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		self->_copyEvent.raise();
 		completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
 		callbackFetch(node);
-	}(this, offset, node));
+	}(this, offset, std::move(wq), node));
 	return false;
 }
 

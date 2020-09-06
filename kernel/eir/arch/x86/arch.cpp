@@ -2,8 +2,8 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
 #include <arch/io_space.hpp>
-#include <frigg/arch_x86/machine.hpp>
-#include <frigg/arch_x86/gdt.hpp>
+#include <x86/machine.hpp>
+#include <x86/gdt.hpp>
 
 namespace eir {
 
@@ -145,11 +145,11 @@ address_t getSingle4kPage(address_t address) {
 void initArchCpu();
 
 void initProcessorEarly() {
-	namespace arch = frigg::arch_x86;
+	namespace arch = common::x86;
 
 	eir::infoLogger() << "Starting Eir" << frg::endlog;
 
-	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
+	frg::array<uint32_t, 4> vendor_res = arch::cpuid(0);
 	char vendor_str[13];
 	memcpy(&vendor_str[0], &vendor_res[1], 4);
 	memcpy(&vendor_str[4], &vendor_res[3], 4);
@@ -158,13 +158,13 @@ void initProcessorEarly() {
 	eir::infoLogger() << "CPU vendor: " << (const char *)vendor_str << frg::endlog;
 
 	// Make sure everything we require is supported by the CPU.
-	frigg::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
+	frg::array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
 	if((extended[3] & arch::kCpuFlagLongMode) == 0)
 		eir::panicLogger() << "Long mode is not supported on this CPU" << frg::endlog;
 	if((extended[3] & arch::kCpuFlagNx) == 0)
 		eir::panicLogger() << "NX bit is not supported on this CPU" << frg::endlog;
 
-	frigg::Array<uint32_t, 4> normal = arch::cpuid(arch::kCpuIndexFeatures);
+	frg::array<uint32_t, 4> normal = arch::cpuid(arch::kCpuIndexFeatures);
 	if((normal[3] & arch::kCpuFlagPat) == 0)
 		eir::panicLogger() << "PAT is not supported on this CPU" << frg::endlog;
 
@@ -177,7 +177,7 @@ void initProcessorEarly() {
 	// 06: Write Back
 	// Keep in sync with the SMP trampoline in thor.
 	uint64_t pat = 0x00'00'01'00'00'00'04'06;
-	frigg::arch_x86::wrmsr(0x277, pat);
+	common::x86::wrmsr(0x277, pat);
 }
 
 // Returns Core region index

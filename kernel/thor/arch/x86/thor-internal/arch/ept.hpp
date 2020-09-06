@@ -47,7 +47,7 @@ struct EptSpace : VirtualizedPageSpace {
 private:
 	uintptr_t translate(uintptr_t guestAddress);
 	PhysicalAddr spaceRoot;
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 };
 
 } // namespace thor

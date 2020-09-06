@@ -33,12 +33,16 @@ UniqueKernelStack::~UniqueKernelStack() {
 		physicalAllocator->free(physical, kPageSize);
 	}
 
-	struct Closure {
+	struct Closure : ShootNode {
+		void complete() override {
+			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
+			auto physical = thisPage;
+			Closure::~Closure();
+			asm volatile ("" : : : "memory");
+			physicalAllocator->free(physical, kPageSize);
+		}
+
 		PhysicalAddr thisPage;
-		uintptr_t address;
-		size_t size;
-		Worklet worklet;
-		ShootNode shootNode;
 	};
 	static_assert(sizeof(Closure) <= kPageSize);
 
@@ -51,20 +55,8 @@ UniqueKernelStack::~UniqueKernelStack() {
 	p->thisPage = physical;
 	p->address = address;
 	p->size = guardedSize;
-	p->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(closure->address),
-				closure->size);
-		auto physical = closure->thisPage;
-		closure->~Closure();
-		asm volatile ("" : : : "memory");
-		physicalAllocator->free(physical, kPageSize);
-	});
-	p->shootNode.address = address;
-	p->shootNode.size = guardedSize;
-	p->shootNode.setup(&p->worklet);
-	if(KernelPageSpace::global().submitShootdown(&p->shootNode))
-		WorkQueue::post(&p->worklet);
+	if(KernelPageSpace::global().submitShootdown(p))
+		p->complete();
 }
 
 } //namespace thor

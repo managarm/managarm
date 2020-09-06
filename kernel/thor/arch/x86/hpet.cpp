@@ -3,15 +3,14 @@
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <frg/intrusive.hpp>
-#include <frigg/debug.hpp>
 #include <lai/core.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/irq.hpp>
-#include <frigg/arch_x86/atomic_impl.hpp>
 
 namespace thor {
 
@@ -67,7 +66,7 @@ struct HpetDevice : IrqSink, ClockSource, AlarmTracker {
 	friend void setupHpet(PhysicalAddr);
 
 private:
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 
 	static constexpr bool logIrqs = false;
 
@@ -78,8 +77,8 @@ public:
 	IrqStatus raise() override {
 		if(logIrqs)
 			infoLogger() << "hpet: Irq was raised." << frg::endlog;
-//		auto irq_lock = frigg::guard(&irqMutex());
-//		auto lock = frigg::guard(&_mutex);
+//		auto irq_lock = frg::guard(&irqMutex());
+//		auto lock = frg::guard(&_mutex);
 
 		fireAlarm();
 
@@ -125,7 +124,7 @@ private:
 	bool _comparatorIs64Bit = true;
 };
 
-frigg::LazyInitializer<HpetDevice> hpetDevice;
+frg::manual_box<HpetDevice> hpetDevice;
 ClockSource *hpetClockSource;
 AlarmTracker *hpetAlarmTracker;
 
@@ -208,7 +207,7 @@ void pollSleepNano(uint64_t nanotime) {
 	uint64_t counter = hpetBase.load(mainCounter);
 	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetPeriod;
 	while(hpetBase.load(mainCounter) < goal) {
-		frigg::pause();
+		pause();
 	}
 }
 

@@ -1,10 +1,7 @@
-#ifndef FRIGG_ARCH_X86_TSS_HPP
-#define FRIGG_ARCH_X86_TSS_HPP
+#pragma once
+#include <stdint.h>
 
-#include <frigg/macros.hpp>
-
-namespace frigg FRIGG_VISIBILITY {
-namespace arch_x86 {
+namespace common::x86 {
 
 struct Tss64 {
 	uint32_t reserved0;
@@ -26,8 +23,12 @@ struct Tss64 {
 	uint8_t ioAllOnes;
 } __attribute__ (( packed ));
 
-void initializeTss64(Tss64 *tss);
+inline void initializeTss64(Tss64 *tss) {
+	tss->ioMapOffset = __builtin_offsetof(Tss64, ioBitmap);
 
-}} // namespace frigg::arch_x86
+	for(int i = 0; i < 8192; i++)
+		tss->ioBitmap[i] = 0xFF;
+	tss->ioAllOnes = 0xFF;
+}
 
-#endif
+} // namespace common::x86

@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <eir/interface.hpp>
 #include <frg/string.hpp>
-#include <frigg/elf.hpp>
+#include <elf.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -34,10 +34,10 @@ static constexpr bool noScheduleOnIrq = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
 
-frigg::LazyInitializer<IrqSlot> globalIrqSlots[64];
+frg::manual_box<IrqSlot> globalIrqSlots[64];
 
 MfsDirectory *mfsRoot;
-frigg::LazyInitializer<frg::string<KernelAlloc>> kernelCommandLine;
+frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
 
 void setupDebugging();
 
@@ -45,7 +45,7 @@ extern "C" void frg_panic(const char *cstring) {
 	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
 }
 
-frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 extern "C" EirInfo *thorBootInfoPtr;
 
@@ -151,7 +151,7 @@ extern "C" void thorMain() {
 		auto modules = reinterpret_cast<EirModule *>(thorBootInfoPtr->moduleInfo);
 		assert(thorBootInfoPtr->numModules == 1);
 
-		mfsRoot = frigg::construct<MfsDirectory>(*kernelAlloc);
+		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{
 			assert(modules[0].physicalBase % kPageSize == 0);
 			assert(modules[0].length <= 0x1000000);
@@ -242,19 +242,20 @@ extern "C" void thorMain() {
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
 					dir->link(frg::string<KernelAlloc>{*kernelAlloc, std::move(name)},
-							frigg::construct<MfsDirectory>(*kernelAlloc));
+							frg::construct<MfsDirectory>(*kernelAlloc));
 				}else{
 					assert((mode & type_mask) == regular_type);
 	//				if(logInitialization)
 						infoLogger() << "thor: initrd file " << path << frg::endlog;
 
-					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size));
+					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size,
+							thisFiber()->associatedWorkQueue()->take()));
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};
-					dir->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
+					dir->link(std::move(name), frg::construct<MfsRegular>(*kernelAlloc,
 							std::move(memory), file_size));
 				}
 
@@ -326,7 +327,7 @@ extern "C" void handleProtectionFault(FaultImageAccessor image) {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 	auto address_space = this_thread->getAddressSpace();
 
 	const Word kPfAccess = 1;
@@ -371,27 +372,8 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
 	}else{
-		// TODO: Make sure that we're in a thread domain.
-		WorkScope wqs{this_thread->pagingWorkQueue()};
-
-		struct Closure {
-			ThreadBlocker blocker;
-			Worklet worklet;
-			FaultNode fault;
-		} closure;
-
-		// TODO: It is safe to use the thread's WQ here (as PFs never interrupt WQ dequeue).
-		// However, it might be desirable to handle PFs on their own WQ.
-		closure.worklet.setup([] (Worklet *base) {
-			auto closure = frg::container_of(base, &Closure::worklet);
-			Thread::unblockOther(&closure->blocker);
-		});
-		closure.fault.setup(&closure.worklet);
-		closure.blocker.setup();
-		if(!address_space->handleFault(address, flags, &closure.fault))
-			Thread::blockCurrent(&closure.blocker);
-
-		handled = closure.fault.resolved();
+		handled = Thread::asyncBlockCurrent(address_space->handleFault(address, flags,
+				WorkQueue::localQueue()->take()));
 	}
 
 	if(handled)
@@ -460,7 +442,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 }
 
 void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 
 	const char *name;
 	switch(fault) {
@@ -570,7 +552,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 }
 
 void handleSyscall(SyscallImageAccessor image) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 	auto cpuData = getCpuData();
 	if(logEverySyscall && *image.number() != kHelCallLog)
 		infoLogger() << this_thread.get() << " on CPU " << cpuData->cpuIndex

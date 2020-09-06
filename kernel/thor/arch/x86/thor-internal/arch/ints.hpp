@@ -2,8 +2,7 @@
 
 #include <atomic>
 
-#include <frigg/atomic.hpp>
-#include <frigg/debug.hpp>
+#include <frg/spinlock.hpp>
 
 namespace thor {
 

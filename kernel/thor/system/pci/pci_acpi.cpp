@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <frigg/debug.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 #include <thor-internal/arch/pic.hpp>
@@ -27,7 +26,7 @@ struct AcpiPciBus : PciBus {
 private:
 	RoutingModel _routingModel = RoutingModel::none;
 	// PRT of this bus (RoutingModel::rootTable).
-	frigg::Vector<RoutingEntry, KernelAlloc> _routingTable{*kernelAlloc};
+	frg::vector<RoutingEntry, KernelAlloc> _routingTable{*kernelAlloc};
 	// IRQs of the bridge (RoutingModel::expansionBridge).
 	IrqPin *_bridgeIrqs[4] = {};
 

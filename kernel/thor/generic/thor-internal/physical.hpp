@@ -2,8 +2,8 @@
 
 #include <atomic>
 
-#include <frigg/atomic.hpp>
-#include <frigg/initializer.hpp>
+#include <frg/spinlock.hpp>
+#include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/types.hpp>
 
@@ -26,7 +26,7 @@ public:
 };
 
 class PhysicalChunkAllocator {
-	typedef frigg::TicketLock Mutex;
+	typedef frg::ticket_spinlock Mutex;
 public:
 	PhysicalChunkAllocator();
 	
@@ -63,6 +63,6 @@ private:
 	std::atomic<size_t> _freePages{0};
 };
 
-extern frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+extern frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
 
 } // namespace thor

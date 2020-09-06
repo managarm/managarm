@@ -26,7 +26,7 @@ void GlobalPageBinding::bind() {
 
 	uint64_t targetSeq;
 	{
-		auto lock = frigg::guard(&space->_shootMutex);
+		auto lock = frg::guard(&space->_shootMutex);
 
 		targetSeq = space->_shootSequence;
 		space->_numBindings++;
@@ -43,7 +43,7 @@ PageSpace::~PageSpace() { assert(!"Not implemented"); }
 void PageSpace::retire(RetireNode *node) { assert(!"Not implemented"); }
 bool PageSpace::submitShootdown(ShootNode *node) { assert(!"Not implemented"); return false; }
 
-frigg::LazyInitializer<KernelPageSpace> kernelSpaceSingleton;
+frg::manual_box<KernelPageSpace> kernelSpaceSingleton;
 
 void KernelPageSpace::initialize() {
 	PhysicalAddr ttbr1_ptr;
@@ -82,8 +82,8 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	auto ttbr = (pointer >> 63) & 1;
 	assert(ttbr == 1);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto &region = SkeletalRegion::global();
 
@@ -174,8 +174,8 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	auto ttbr = (pointer >> 63) & 1;
 	assert(ttbr == 1);
 
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
 	auto &region = SkeletalRegion::global();
 

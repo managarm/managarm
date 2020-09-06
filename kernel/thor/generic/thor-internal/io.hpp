@@ -1,7 +1,6 @@
 #pragma once
 
-#include <frigg/smart_ptr.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/thread.hpp>
 
 namespace thor {
@@ -16,10 +15,10 @@ public:
 
 	void addPort(uintptr_t port);
 
-	void enableInThread(frigg::UnsafePtr<Thread> thread);
+	void enableInThread(smarter::borrowed_ptr<Thread> thread);
 
 private:
-	frigg::Vector<uintptr_t, KernelAlloc> p_ports;
+	frg::vector<uintptr_t, KernelAlloc> p_ports;
 };
 
 } // namespace thor

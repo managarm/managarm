@@ -1,7 +1,4 @@
 thor_sources += files(
-	'../../../../frigg/src/arch_x86/gdt.cpp',
-	'../../../../frigg/src/arch_x86/idt.cpp',
-	'../../../../frigg/src/arch_x86/tss.cpp',
 	'../../system/legacy-pc/ata.cpp',
 	'early_stubs.S',
 	'stubs.S',
@@ -26,7 +23,7 @@ thor_sources += files(
 trampoline = custom_target('trampoline',
 	command: c_compiler.cmd_array() + ['-o', '@OUTPUT@',
 		'-nostdlib', '-Wl,-Ttext,0', '-Wl,--oformat,binary',
-		'@INPUT@'] + meson.get_cross_property('cpp_args'),
+		'@INPUT@'] + get_option('cpp_args'),
 	input: 'trampoline.S',
 	output: 'trampoline.bin')
 

@@ -7,14 +7,11 @@
 
 #ifdef FRIGG_NO_LIBC
 
-#include <frigg/libc.hpp>
-#include <frigg/macros.hpp>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-FRIGG_VISIBILITY void __assert_fail(const char *assertion,
+void __assert_fail(const char *assertion,
 		const char *file, unsigned int line, const char *function);
 
 #define assert(c) do { if(!(c)) __assert_fail(#c, __FILE__, __LINE__, __func__); } while(0)
@@ -34,7 +31,7 @@ FRIGG_VISIBILITY void __assert_fail(const char *assertion,
 extern "C" {
 #endif
 
-FRIGG_VISIBILITY void __frigg_assert_fail(const char *assertion,
+void __frigg_assert_fail(const char *assertion,
 		const char *file, unsigned int line, const char *function);
 
 #define FRIGG_ASSERT(c) \

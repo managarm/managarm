@@ -149,12 +149,12 @@ extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
 
 void setupEarlyInterruptHandlers() {
 	// setup the gdt
-	frigg::arch_x86::makeGdtNullSegment(earlyGdt, 0);
+	common::x86::makeGdtNullSegment(earlyGdt, 0);
 	// for simplicity, match the layout with the "real" gdt we load later
-	frigg::arch_x86::makeGdtCode64SystemSegment(earlyGdt, 1);
-	frigg::arch_x86::makeGdtFlatData32SystemSegment(earlyGdt, 2);
+	common::x86::makeGdtCode64SystemSegment(earlyGdt, 1);
+	common::x86::makeGdtFlatData32SystemSegment(earlyGdt, 2);
 
-	frigg::arch_x86::Gdtr gdtr;
+	common::x86::Gdtr gdtr;
 	gdtr.limit = 3 * 8;
 	gdtr.pointer = earlyGdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
@@ -165,21 +165,21 @@ void setupEarlyInterruptHandlers() {
 			".L_reloadEarlyCs:" );
 	
 	// setup the idt
-	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubDivideByZero, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 6, 0x8, (void *)&earlyStubOpcode, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 8, 0x8, (void *)&earlyStubDouble, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 13, 0x8, (void *)&earlyStubProtection, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 14, 0x8, (void *)&earlyStubPage, 0);
+	common::x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubDivideByZero, 0);
+	common::x86::makeIdt64IntSystemGate(earlyIdt, 6, 0x8, (void *)&earlyStubOpcode, 0);
+	common::x86::makeIdt64IntSystemGate(earlyIdt, 8, 0x8, (void *)&earlyStubDouble, 0);
+	common::x86::makeIdt64IntSystemGate(earlyIdt, 13, 0x8, (void *)&earlyStubProtection, 0);
+	common::x86::makeIdt64IntSystemGate(earlyIdt, 14, 0x8, (void *)&earlyStubPage, 0);
 	
-	frigg::arch_x86::Idtr idtr;
+	common::x86::Idtr idtr;
 	idtr.limit = 256 * 16;
 	idtr.pointer = earlyIdt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) : "memory" );
 }
 
 void setupIdt(uint32_t *table) {
-	using frigg::arch_x86::makeIdt64IntSystemGate;
-	using frigg::arch_x86::makeIdt64IntUserGate;
+	using common::x86::makeIdt64IntSystemGate;
+	using common::x86::makeIdt64IntUserGate;
 	
 	int fault_selector = kSelExecutorFaultCode;
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
@@ -279,7 +279,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 2, nmi_selector, (void *)&nmiStub, 3);
 
 	//FIXME
-//	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
+//	common::x86::makeIdt64IntSystemGate(table, 0x82,
 //			0x8, (void *)&thorRtIsrPreempted, 0);
 }
 
@@ -496,8 +496,8 @@ extern "C" void onPlatformWork() {
 
 extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	// If we interrupted user space or a kernel stub, we might need to update GS.
-	auto gs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexGsBase);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
+	auto gs = common::x86::rdmsr(common::x86::kMsrIndexGsBase);
+	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
 			reinterpret_cast<uintptr_t>(*image.expectedGs()));
 
 	auto cpuData = getCpuData();
@@ -531,7 +531,7 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	}
 
 	// Restore the old value of GS.
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
+	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
 			reinterpret_cast<uintptr_t>(gs));
 }
 

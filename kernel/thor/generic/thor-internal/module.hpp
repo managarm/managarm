@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/string.hpp>
-#include <frigg/vector.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/kernel_heap.hpp>
 
@@ -31,7 +31,7 @@ struct MfsDirectory : MfsNode {
 
 	void link(frg::string<KernelAlloc> name, MfsNode *node) {
 		assert(!getTarget(name));
-		_entries.push(Link{frigg::move(name), node});
+		_entries.push(Link{std::move(name), node});
 	}
 
 	size_t numEntries() {
@@ -51,16 +51,16 @@ struct MfsDirectory : MfsNode {
 	}
 
 private:
-	frigg::Vector<Link, KernelAlloc> _entries;
+	frg::vector<Link, KernelAlloc> _entries;
 };
 
 struct MfsRegular : MfsNode {
-	MfsRegular(frigg::SharedPtr<MemoryView> memory, size_t size)
-	: MfsNode{MfsType::regular}, _memory{frigg::move(memory)}, _size{size} {
+	MfsRegular(smarter::shared_ptr<MemoryView> memory, size_t size)
+	: MfsNode{MfsType::regular}, _memory{std::move(memory)}, _size{size} {
 		assert(_size <= _memory->getLength());
 	}
 
-	frigg::SharedPtr<MemoryView> getMemory() {
+	smarter::shared_ptr<MemoryView> getMemory() {
 		return _memory;
 	}
 
@@ -69,7 +69,7 @@ struct MfsRegular : MfsNode {
 	}
 
 private:
-	frigg::SharedPtr<MemoryView> _memory;
+	smarter::shared_ptr<MemoryView> _memory;
 	size_t _size;
 };
 

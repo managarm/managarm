@@ -1,4 +1,3 @@
-#include <frigg/arch_x86/atomic_impl.hpp>
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -15,9 +14,9 @@ namespace {
 namespace {
 	constinit bool cpuFeaturesKnown = false;
 
-	void activateTss(frigg::arch_x86::Tss64 *tss) {
-		frigg::arch_x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
-				tss, sizeof(frigg::arch_x86::Tss64));
+	void activateTss(common::x86::Tss64 *tss) {
+		common::x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
+				tss, sizeof(common::x86::Tss64));
 		asm volatile ("ltr %w0" : : "r"(kSelTask) : "memory");
 	}
 }
@@ -144,11 +143,11 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->rflags = accessor._frame()->rflags;
 	executor->general()->rsp = accessor._frame()->rsp;
 	executor->general()->ss = accessor._frame()->ss;
-	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
+	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
 
 	if(getCpuData()->haveXsave){
-		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	} else {
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 	}
@@ -177,12 +176,12 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->rflags = accessor._frame()->rflags;
 	executor->general()->rsp = accessor._frame()->rsp;
 	executor->general()->ss = accessor._frame()->ss;
-	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
+	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
 
 
 	if(getCpuData()->haveXsave){
-		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	}else{
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 	}
@@ -211,17 +210,17 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->rflags = accessor._frame()->rflags;
 	executor->general()->rsp = accessor._frame()->rsp;
 	executor->general()->ss = kSelClientUserData;
-	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
+	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
 
 	if(getCpuData()->haveXsave){
-		frigg::arch_x86::xsave((uint8_t*)executor->_fxState(), ~0);
+		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	}else{
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 	}
 }
 
-void switchExecutor(frigg::UnsafePtr<Thread> thread) {
+void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
 	assert(!intsAreEnabled());
 	getCpuData()->activeExecutor = thread;
 }
@@ -263,11 +262,11 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	getCpuData()->syscallStack = executor->_syscallStack;
 
 	// TODO: use wr{fs,gs}base if it is available
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, executor->general()->clientFs);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, executor->general()->clientGs);
+	common::x86::wrmsr(common::x86::kMsrIndexFsBase, executor->general()->clientFs);
+	common::x86::wrmsr(common::x86::kMsrIndexKernelGsBase, executor->general()->clientGs);
 
 	if(getCpuData()->haveXsave){
-		frigg::arch_x86::xrstor((uint8_t*)executor->_fxState(), ~0);
+		common::x86::xrstor((uint8_t*)executor->_fxState(), ~0);
 	}else{
 		asm volatile ("fxrstorq %0" : : "m" (*executor->_fxState()));
 	}
@@ -335,8 +334,8 @@ void UserContext::deactivate() {
 
 UserContext::UserContext()
 : kernelStack{UniqueKernelStack::make()} {
-	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
-	frigg::arch_x86::initializeTss64(&tss);
+	memset(&tss, 0, sizeof(common::x86::Tss64));
+	common::x86::initializeTss64(&tss);
 	tss.rsp0 = (Word)kernelStack.base();
 }
 
@@ -351,7 +350,7 @@ void UserContext::migrate(CpuData *cpu_data) {
 	tss.ist3 = (Word)cpu_data->nmiStack.base();
 }
 
-frigg::UnsafePtr<Thread> activeExecutor() {
+smarter::borrowed_ptr<Thread> activeExecutor() {
 	return getCpuData()->activeExecutor;
 }
 
@@ -373,26 +372,26 @@ PlatformCpuData::PlatformCpuData()
 
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
-	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexNull);
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexInitialCode);
+	common::x86::makeGdtNullSegment(gdt, kGdtIndexNull);
+	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexInitialCode);
 
-	frigg::arch_x86::makeGdtTss64Descriptor(gdt, kGdtIndexTask, nullptr, 0);
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIrqCode);
+	common::x86::makeGdtTss64Descriptor(gdt, kGdtIndexTask, nullptr, 0);
+	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIrqCode);
 
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorFaultCode);
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorSyscallCode);
-	frigg::arch_x86::makeGdtFlatData32SystemSegment(gdt, kGdtIndexExecutorKernelData);
-	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexClientUserCompat);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt, kGdtIndexClientUserData);
-	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemFiberCode);
+	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorFaultCode);
+	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorSyscallCode);
+	common::x86::makeGdtFlatData32SystemSegment(gdt, kGdtIndexExecutorKernelData);
+	common::x86::makeGdtNullSegment(gdt, kGdtIndexClientUserCompat);
+	common::x86::makeGdtFlatData32UserSegment(gdt, kGdtIndexClientUserData);
+	common::x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
+	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
+	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemFiberCode);
 
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemNmiCode);
+	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemNmiCode);
 
 	// Setup the per-CPU TSS. This TSS is used by system code.
-	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
-	frigg::arch_x86::initializeTss64(&tss);
+	memset(&tss, 0, sizeof(common::x86::Tss64));
+	common::x86::initializeTss64(&tss);
 }
 
 void enableUserAccess() {
@@ -434,7 +433,7 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 // --------------------------------------------------------
 
 namespace {
-	frigg::LazyInitializer<frigg::Vector<CpuData *, KernelAlloc>> allCpuContexts;
+	frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
 }
 
 size_t getStateSize() {
@@ -470,12 +469,12 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 
 extern "C" void syscallStub();
 
-frigg::LazyInitializer<CpuData> staticBootCpuContext;
+frg::manual_box<CpuData> staticBootCpuContext;
 
 // Set up the kernel GS segment.
 void setupCpuContext(AssemblyCpuData *context) {
 	context->selfPointer = context;
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
+	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
 			reinterpret_cast<uint64_t>(context));
 }
 
@@ -499,6 +498,8 @@ static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-pr
 		initializeThisProcessor();
 	}
 };
+
+extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 void initializeThisProcessor() {
 	// FIXME: the stateSize should not be CPU specific!
@@ -529,7 +530,7 @@ void initializeThisProcessor() {
 	cpu_data->tss.ist2 = (uintptr_t)cpu_data->dfStack.base();
 	cpu_data->tss.ist3 = (uintptr_t)cpu_data->nmiStack.base();
 
-	frigg::arch_x86::Gdtr gdtr;
+	common::x86::Gdtr gdtr;
 	gdtr.limit = 14 * 8;
 	gdtr.pointer = cpu_data->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
@@ -544,10 +545,10 @@ void initializeThisProcessor() {
 
 	// setup the idt
 	for(int i = 0; i < 256; i++)
-		frigg::arch_x86::makeIdt64NullGate(cpu_data->idt, i);
+		common::x86::makeIdt64NullGate(cpu_data->idt, i);
 	setupIdt(cpu_data->idt);
 
-	frigg::arch_x86::Idtr idtr;
+	common::x86::Idtr idtr;
 	idtr.limit = 256 * 16;
 	idtr.pointer = cpu_data->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
@@ -562,8 +563,8 @@ void initializeThisProcessor() {
 
 	// Enable the wr{fs,gs}base instructions.
 	// FIXME: does not seem to work under qemu
-//	if(!(frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexStructuredExtendedFeaturesEnum)[1]
-//			& frigg::arch_x86::kCpuFlagFsGsBase))
+//	if(!(common::x86::cpuid(common::x86::kCpuIndexStructuredExtendedFeaturesEnum)[1]
+//			& common::x86::kCpuFlagFsGsBase))
 //		panicLogger() << "CPU does not support wrfsbase / wrgsbase"
 //				<< frg::endlog;
 
@@ -573,7 +574,7 @@ void initializeThisProcessor() {
 //	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
 
 	// Enable the XSAVE instruction set and child features
-	if(frigg::arch_x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
 		infoLogger() << "\e[37mthor: CPU supports XSAVE\e[39m" << frg::endlog;
 
 		uint64_t cr4;
@@ -581,20 +582,20 @@ void initializeThisProcessor() {
 		cr4 |= uint32_t(1) << 18; // Enable XSAVE and x{get, set}bv
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
-		auto xsave_cpuid = frigg::arch_x86::cpuid(0xD);
+		auto xsave_cpuid = common::x86::cpuid(0xD);
 
 		uint64_t xcr0 = 0;
 		xcr0 |= (uint64_t(1) << 0); // Enable saving of x87 feature set
 		xcr0 |= (uint64_t(1) << 1); // Enable saving of SSE feature set
 
-		if(frigg::arch_x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
+		if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
 			infoLogger() << "\e[37mthor: CPU supports AVX\e[39m" << frg::endlog;
 			xcr0 |= (uint64_t(1) << 2); // Enable saving of AVX feature set and enable it
 		}else{
 			infoLogger() << "\e[37mthor: CPU does not support AVX!\e[39m" << frg::endlog;
 		}
 
-		if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 16)) {
+		if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 16)) {
 			infoLogger() << "\e[37mthor: CPU supports AVX-512\e[39m" << frg::endlog;
 			xcr0 |= (uint64_t(1) << 5); // Enable AVX-512
 			xcr0 |= (uint64_t(1) << 6); // Enable management of ZMM{0 -> 15}
@@ -603,7 +604,7 @@ void initializeThisProcessor() {
 			infoLogger() << "\e[37mthor: CPU does not support AVX-512!\e[39m" << frg::endlog;
 		}
 
-		frigg::arch_x86::wrxcr(0, xcr0);
+		common::x86::wrxcr(0, xcr0);
 
 		cpu_data->xsaveRegionSize = xsave_cpuid[2];
 		cpu_data->haveXsave = true;
@@ -612,7 +613,7 @@ void initializeThisProcessor() {
 	}
 
 	// Enable the SMAP extension.
-	if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 20)) {
+	if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 20)) {
 		infoLogger() << "\e[37mthor: CPU supports SMAP\e[39m" << frg::endlog;
 
 		uint64_t cr4;
@@ -628,7 +629,7 @@ void initializeThisProcessor() {
 	}
 
 	// Enable the SMEP extension.
-	if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 6)) {
+	if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 6)) {
 		infoLogger() << "\e[37mthor: CPU supports SMEP\e[39m" << frg::endlog;
 
 		uint64_t cr4;
@@ -641,7 +642,7 @@ void initializeThisProcessor() {
 	}
 
 	// Enable the UMIP extension.
-	if(frigg::arch_x86::cpuid(0x07)[2] & (uint32_t(1) << 2)) {
+	if(common::x86::cpuid(0x07)[2] & (uint32_t(1) << 2)) {
 		infoLogger() << "\e[37mthor: CPU supports UMIP\e[39m" << frg::endlog;
 
 		uint64_t cr4;
@@ -654,8 +655,8 @@ void initializeThisProcessor() {
 	}
 
 	// Enable the PCID extension.
-	bool pcid_bit = frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
-	bool invpcid_bit = frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
+	bool pcid_bit = common::x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
+	bool invpcid_bit = common::x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
 	if(pcid_bit && invpcid_bit) {
 		infoLogger() << "\e[37mthor: CPU supports PCIDs\e[39m" << frg::endlog;
 
@@ -672,19 +673,19 @@ void initializeThisProcessor() {
 		infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frg::endlog;
 	}
 
-	if(frigg::arch_x86::cpuid(0x01)[2] & (1 << 24)) {
+	if(common::x86::cpuid(0x01)[2] & (1 << 24)) {
 		infoLogger() << "\e[37mthor: CPU supports TSC deadline mode\e[39m"
 				<< frg::endlog;
 		cpu_data->haveTscDeadline = true;
 	}
 
-	auto intelPmLeaf = frigg::arch_x86::cpuid(0xA)[0];
+	auto intelPmLeaf = common::x86::cpuid(0xA)[0];
 	if(intelPmLeaf & 0xFF) {
 		infoLogger() << "\e[37mthor: CPU supports Intel performance counters\e[39m"
 				<< frg::endlog;
 		cpu_data->profileFlags |= PlatformCpuData::profileIntelSupported;
 	}
-	auto amdPmLeaf = frigg::arch_x86::cpuid(0x8000'0001)[2];
+	auto amdPmLeaf = common::x86::cpuid(0x8000'0001)[2];
 	if(amdPmLeaf & (1 << 23)) {
 		infoLogger() << "\e[37mthor: CPU supports AMD performance counters\e[39m"
 				<< frg::endlog;
@@ -692,7 +693,7 @@ void initializeThisProcessor() {
 	}
 
 	//Check that both vmx and ept are supported.
-	bool vmxSupported = (frigg::arch_x86::cpuid(0x1)[2] >> 5) & 1 && frigg::arch_x86::rdmsr(0x0000048CU) * (1 << 6);
+	bool vmxSupported = (common::x86::cpuid(0x1)[2] >> 5) & 1 && common::x86::rdmsr(0x0000048CU) * (1 << 6);
 	if(!vmxSupported) {
 		infoLogger() << "vmx: vmx not supported" << frg::endlog;
 		cpu_data->haveVirtualization = false;
@@ -701,23 +702,30 @@ void initializeThisProcessor() {
 	}
 
 	// setup the syscall interface
-	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]
-			& frigg::arch_x86::kCpuFlagSyscall) == 0)
+	if((common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures)[3]
+			& common::x86::kCpuFlagSyscall) == 0)
 		panicLogger() << "CPU does not support the syscall instruction"
 				<< frg::endlog;
 
-	uint64_t efer = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrEfer);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrEfer,
-			efer | frigg::arch_x86::kMsrSyscallEnable);
+	uint64_t efer = common::x86::rdmsr(common::x86::kMsrEfer);
+	common::x86::wrmsr(common::x86::kMsrEfer,
+			efer | common::x86::kMsrSyscallEnable);
 
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLstar, (uintptr_t)&syscallStub);
+	common::x86::wrmsr(common::x86::kMsrLstar, (uintptr_t)&syscallStub);
 	// set user mode rpl bits to work around a qemu bug
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar, (uint64_t(kSelClientUserCompat) << 48)
+	common::x86::wrmsr(common::x86::kMsrStar, (uint64_t(kSelClientUserCompat) << 48)
 			| (uint64_t(kSelExecutorSyscallCode) << 32));
 	// mask interrupt and trap flag
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x300);
+	common::x86::wrmsr(common::x86::kMsrFmask, 0x300);
 
 	cpuFeaturesKnown = true;
+
+	auto wqFiber = KernelFiber::post([=] {
+		// Do nothing. Our only purpose is to run the associated work queue.
+	});
+	cpu_data->generalWorkQueue = wqFiber->associatedWorkQueue()->selfPtr.lock();
+	assert(cpu_data->generalWorkQueue);
+	earlyFibers->push(wqFiber);
 
 	initLocalApicPerCpu();
 }
@@ -768,12 +776,12 @@ void bootSecondary(unsigned int apic_id) {
 	constexpr size_t stack_size = 0x10000;
 	void *stack_ptr = kernelAlloc->allocate(stack_size);
 
-	auto context = frigg::construct<CpuData>(*kernelAlloc);
+	auto context = frg::construct<CpuData>(*kernelAlloc);
 	context->localApicId = apic_id;
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	{
-		auto irqLock = frigg::guard(&irqMutex());
+		auto irqLock = frg::guard(&irqMutex());
 
 		context->globalBinding.bind();
 	}
@@ -807,7 +815,7 @@ void bootSecondary(unsigned int apic_id) {
 
 	// Wait until the AP wakes up.
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 1) {
-		frigg::pause();
+		pause();
 	}
 	infoLogger() << "thor: AP did wake up." << frg::endlog;
 
@@ -818,7 +826,7 @@ void bootSecondary(unsigned int apic_id) {
 
 	// Wait until the AP exits the boot code.
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 2) {
-		frigg::pause();
+		pause();
 	}
 	infoLogger() << "thor: AP finished booting." << frg::endlog;
 }
@@ -827,7 +835,7 @@ Error getEntropyFromCpu(void *buffer, size_t size) {
 	using word_type = uint32_t;
 	auto p = reinterpret_cast<char *>(buffer);
 
-	if(!(frigg::arch_x86::cpuid(0x7)[1] & (uint32_t(1) << 18)))
+	if(!(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 18)))
 		return Error::noHardwareSupport;
 
 	word_type word;

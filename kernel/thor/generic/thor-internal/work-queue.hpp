@@ -5,8 +5,8 @@
 #include <async/basic.hpp>
 #include <frg/container_of.hpp>
 #include <frg/list.hpp>
-#include <frigg/atomic.hpp>
-#include <frigg/smart_ptr.hpp>
+#include <frg/spinlock.hpp>
+#include <smarter.hpp>
 
 namespace thor {
 
@@ -16,10 +16,9 @@ struct Worklet {
 	friend struct WorkQueue;
 
 	void setup(void (*run)(Worklet *), WorkQueue *wq);
-	void setup(void (*run)(Worklet *));
 
 private:
-	frigg::SharedPtr<WorkQueue> _workQueue;
+	smarter::shared_ptr<WorkQueue> _workQueue;
 	void (*_run)(Worklet *);
 	frg::default_list_hook<Worklet> _hook;
 };
@@ -41,6 +40,7 @@ private:
 };
 
 struct WorkQueue {
+	static WorkQueue *generalQueue();
 	static WorkQueue *localQueue();
 
 	static void post(Worklet *worklet);
@@ -51,6 +51,10 @@ struct WorkQueue {
 	bool check();
 
 	void run();
+
+	auto take() {
+		return selfPtr.lock();
+	}
 
 	// ----------------------------------------------------------------------------------
 	// schedule() and its boilerplate.
@@ -96,7 +100,7 @@ struct WorkQueue {
 
 	// ----------------------------------------------------------------------------------
 
-	frigg::WeakPtr<WorkQueue> selfPtr;
+	smarter::weak_ptr<WorkQueue> selfPtr;
 
 protected:
 	virtual void wakeup() = 0;
@@ -111,7 +115,7 @@ private:
 		>
 	> _pending;
 	
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	std::atomic<bool> _anyPosted;
 
@@ -126,14 +130,10 @@ private:
 };
 
 inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
-	auto swq = wq->selfPtr.grab();
+	auto swq = wq->selfPtr.lock();
 	assert(swq);
 	_run = run;
 	_workQueue = std::move(swq);
-}
-
-inline void Worklet::setup(void (*run)(Worklet *)) {
-	setup(run, WorkQueue::localQueue());
 }
 
 } // namespace thor

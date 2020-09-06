@@ -42,9 +42,9 @@ void scrubStack(Executor *executor, Continuation cont) { assert(!"Not implemente
 
 size_t getStateSize() { assert(!"Not implemented"); return 0; }
 
-void switchExecutor(frigg::UnsafePtr<Thread> executor) { assert(!"Not implemented"); }
+void switchExecutor(smarter::borrowed_ptr<Thread> executor) { assert(!"Not implemented"); }
 
-frigg::UnsafePtr<Thread> activeExecutor() { assert(!"Not implemented"); return nullptr; }
+smarter::borrowed_ptr<Thread> activeExecutor() { assert(!"Not implemented"); return nullptr; }
 
 PlatformCpuData::PlatformCpuData() { }
 

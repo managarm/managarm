@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <frigg/debug.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 #include <thor-internal/fiber.hpp>
@@ -12,14 +11,14 @@
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frigg::LazyInitializer<LaneHandle> mbusClient;
+extern frg::manual_box<LaneHandle> mbusClient;
 
 namespace pci {
 
-frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
+frg::manual_box<frg::vector<smarter::shared_ptr<PciDevice>, KernelAlloc>> allDevices;
 
 namespace {
-	coroutine<bool> handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
+	coroutine<bool> handleReq(LaneHandle lane, smarter::shared_ptr<PciDevice> device) {
 		auto [acceptError, conversation] = co_await AcceptSender{lane};
 		if(acceptError == Error::endOfLane)
 			co_return false;
@@ -66,7 +65,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -87,7 +86,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -101,7 +100,7 @@ namespace {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			assert(device->interrupt);
-			auto object = frigg::makeShared<IrqObject>(*kernelAlloc,
+			auto object = smarter::allocate_shared<IrqObject>(*kernelAlloc,
 					frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
 					+ frg::to_allocated_string(*kernelAlloc, device->bus)
 					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
@@ -112,7 +111,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -134,7 +133,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -149,7 +148,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -164,7 +163,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -187,7 +186,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -208,7 +207,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -236,7 +235,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -255,7 +254,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -271,7 +270,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -286,7 +285,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 			// TODO: improve error handling here.
@@ -300,7 +299,7 @@ namespace {
 	// mbus object creation and management.
 	// ------------------------------------------------------------------------
 
-	coroutine<LaneHandle> createObject(LaneHandle mbusLane, frigg::SharedPtr<PciDevice> device) {
+	coroutine<LaneHandle> createObject(LaneHandle mbusLane, smarter::shared_ptr<PciDevice> device) {
 		auto [offerError, conversation] = co_await OfferSender{mbusLane};
 		// TODO: improve error handling here.
 		assert(offerError == Error::success);
@@ -395,7 +394,7 @@ namespace {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		req.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 		memcpy(reqBuffer.data(), ser.data(), ser.size());
 		auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
 		// TODO: improve error handling here.
@@ -415,7 +414,7 @@ namespace {
 		co_return descriptor.get<LaneDescriptor>().handle;
 	}
 
-	coroutine<void> handleBind(LaneHandle objectLane, frigg::SharedPtr<PciDevice> device) {
+	coroutine<void> handleBind(LaneHandle objectLane, smarter::shared_ptr<PciDevice> device) {
 		auto [acceptError, conversation] = co_await AcceptSender{objectLane};
 		// TODO: improve error handling here.
 		assert(acceptError == Error::success);
@@ -432,7 +431,7 @@ namespace {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 		// TODO: improve error handling here.
@@ -445,7 +444,7 @@ namespace {
 		assert(descError == Error::success);
 
 		async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane,
-				frigg::SharedPtr<PciDevice> device) -> coroutine<void> {
+				smarter::shared_ptr<PciDevice> device) -> coroutine<void> {
 			while(true) {
 				if(!(co_await handleReq(lane, device)))
 					break;
@@ -454,9 +453,9 @@ namespace {
 	}
 }
 
-void runDevice(frigg::SharedPtr<PciDevice> device) {
+void runDevice(smarter::shared_ptr<PciDevice> device) {
 	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, [] (frigg::SharedPtr<PciDevice> device)
+		async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<PciDevice> device)
 				-> coroutine<void> {
 			auto objectLane = co_await createObject(*mbusClient, device);
 			while(true)
@@ -482,7 +481,7 @@ size_t computeBarLength(uintptr_t mask) {
 	return size_t(1) << length_bits;
 }
 
-frigg::LazyInitializer<frg::vector<PciBus *, KernelAlloc>> enumerationQueue;
+frg::manual_box<frg::vector<PciBus *, KernelAlloc>> enumerationQueue;
 
 void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	uint16_t vendor = readPciHalf(bus->busId, slot, function, kPciVendor);
@@ -535,7 +534,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		if(status & 0x08)
 			infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frg::endlog;
 
-		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus, bus->busId, slot, function,
+		auto device = smarter::allocate_shared<PciDevice>(*kernelAlloc, bus, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface, subsystem_vendor, subsystem_device);
 
 		// Find all capabilities.
@@ -586,7 +585,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 				device->bars[i].address = address;
 				device->bars[i].length = length;
 
-				device->bars[i].io = frigg::makeShared<IoSpace>(*kernelAlloc);
+				device->bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
 				for(size_t p = 0; p < length; ++p)
 					device->bars[i].io->addPort(address + p);
 				device->bars[i].offset = 0;
@@ -608,7 +607,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 				device->bars[i].length = length;
 
 				auto offset = address & (kPageSize - 1);
-				device->bars[i].memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
+				device->bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
 						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 						CachingMode::null);
@@ -636,7 +635,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 				device->bars[i].length = length;
 
 				auto offset = address & (kPageSize - 1);
-				device->bars[i].memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
+				device->bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
 						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 						CachingMode::null);

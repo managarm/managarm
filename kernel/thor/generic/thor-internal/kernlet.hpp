@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/vector.hpp>
-#include <frigg/variant.hpp>
+#include <frg/variant.hpp>
 #include <thor-internal/event.hpp>
 
 namespace thor {
@@ -38,7 +38,7 @@ private:
 };
 
 struct BoundKernlet {
-	BoundKernlet(frigg::SharedPtr<KernletObject> object);
+	BoundKernlet(smarter::shared_ptr<KernletObject> object);
 
 	KernletObject *object() {
 		return _object.get();
@@ -50,12 +50,12 @@ struct BoundKernlet {
 
 	void setupOffsetBinding(size_t index, uint32_t offset);
 	void setupMemoryViewBinding(size_t index, void *p);
-	void setupBitsetEventBinding(size_t index, frigg::SharedPtr<BitsetEvent> event);
+	void setupBitsetEventBinding(size_t index, smarter::shared_ptr<BitsetEvent> event);
 
 	int invokeIrqAutomation();
 
 private:
-	frigg::SharedPtr<KernletObject> _object;
+	smarter::shared_ptr<KernletObject> _object;
 	char *_instance;
 };
 

@@ -17,14 +17,14 @@ constinit frg::stack_buffer_logger<PanicSink> panicLogger;
 static constinit IrqSpinlock logMutex;
 
 void LogSink::operator() (const char *msg) {
-	auto lock = frigg::guard(&logMutex);
+	auto lock = frg::guard(&logMutex);
 	infoSink.print(msg);
 	infoSink.print('\n');
 }
 
 void PanicSink::operator() (const char *msg) {
 	{
-		auto lock = frigg::guard(&logMutex);
+		auto lock = frg::guard(&logMutex);
 		infoSink.print(msg);
 		infoSink.print('\n');
 	}
@@ -47,7 +47,7 @@ void copyLogMessage(size_t sequence, char *text) {
 	memcpy(text, logQueue[sequence % 1024].text, 100);
 }
 
-frigg::LazyInitializer<frg::intrusive_list<
+frg::manual_box<frg::intrusive_list<
 	LogHandler,
 	frg::locate_member<
 		LogHandler,
@@ -146,3 +146,14 @@ void OutputSink::print(const char *str) {
 }
 
 } // namespace thor
+
+extern "C" void __assert_fail(const char *assertion, const char *file,
+		unsigned int line, const char *function) {
+	thor::panicLogger() << "Assertion failed: " << assertion << "\n"
+			<< "In function " << function
+			<< " at " << file << ":" << line << frg::endlog;
+}
+
+extern "C" void __cxa_pure_virtual() {
+	thor::panicLogger() << "Pure virtual call" << frg::endlog;
+}

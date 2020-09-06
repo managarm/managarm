@@ -1,11 +1,6 @@
 #include <stdint.h>
 #include <frigg/c-support.h>
-#include <frigg/cxx-support.hpp>
-#include <frigg/traits.hpp>
-#include <frigg/support.hpp>
-#include <frigg/string.hpp>
 #include <eir/interface.hpp>
-#include <frigg/libc.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>

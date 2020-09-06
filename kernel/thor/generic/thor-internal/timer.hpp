@@ -7,7 +7,7 @@
 #include <frg/container_of.hpp>
 #include <frg/intrusive.hpp>
 #include <frg/pairing_heap.hpp>
-#include <frigg/atomic.hpp>
+#include <frg/spinlock.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/work-queue.hpp>
 
@@ -111,7 +111,7 @@ struct PrecisionTimerEngine : private AlarmSink {
 	friend struct PrecisionTimerNode;
 
 private:
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 
 public:
 	PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm);
@@ -160,7 +160,7 @@ public:
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &SleepOperation::worklet_);
 				op->receiver_.set_value();
-			});
+			}, WorkQueue::generalQueue());
 			node_.setup(s_.deadline, &worklet_);
 			s_.self->installTimer(&node_);
 		}

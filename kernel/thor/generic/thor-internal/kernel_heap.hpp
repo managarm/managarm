@@ -1,8 +1,9 @@
 #pragma once
 
+#include <frigg/c-support.h>
 #include <frg/slab.hpp>
-#include <frigg/atomic.hpp>
-#include <frigg/initializer.hpp>
+#include <frg/spinlock.hpp>
+#include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/arch/stack.hpp>
 
@@ -15,11 +16,11 @@ struct IrqSpinlock {
 	void unlock();
 
 private:
-	frigg::TicketLock _spinlock;
+	frg::ticket_spinlock _spinlock;
 };
 
 struct KernelVirtualMemory {
-	using Mutex = frigg::TicketLock;
+	using Mutex = frg::ticket_spinlock;
 public:
 	static KernelVirtualMemory &global();
 
@@ -67,16 +68,16 @@ public:
 
 using KernelAlloc = frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock>;
 
-extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+extern frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
 
-extern frigg::LazyInitializer<
+extern frg::manual_box<
 	frg::slab_pool<
 		KernelVirtualAlloc,
 		IrqSpinlock
 	>
 > kernelHeap;
 
-extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;
+extern frg::manual_box<KernelAlloc> kernelAlloc;
 
 struct Allocator {
 	void *allocate(size_t size) {

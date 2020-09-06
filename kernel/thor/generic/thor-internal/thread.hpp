@@ -35,38 +35,23 @@ private:
 	bool _done;
 };
 
-frigg::UnsafePtr<Thread> getCurrentThread();
+template <template<typename, typename> typename Ptr, typename T, typename H>
+	requires (!std::is_same_v<H, void>)
+Ptr<T, void> remove_tag_cast(const Ptr<T, H> &other) {
+	other.ctr()->holder()->increment();
+	auto ret = Ptr<T, void>{smarter::adopt_rc, other.get(), other.ctr()->holder()};
+	return ret;
+}
 
-struct Thread final : frigg::SharedCounter, ScheduleEntity {
+smarter::borrowed_ptr<Thread> getCurrentThread();
+
+struct ActiveHandle { };
+
+struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntity {
+	// Silence Clang warning about hidden overloads.
+	using smarter::crtp_counter<Thread, ActiveHandle>::dispose;
+
 private:
-	struct ObserveBase {
-		Error error;
-		uint64_t sequence;
-		Interrupt interrupt;
-
-		Worklet *triggered;
-		frg::default_list_hook<ObserveBase> hook;
-	};
-
-	template<typename F>
-	struct Observe : ObserveBase {
-		static void trigger(Worklet *base) {
-			auto self = frg::container_of(base, &Observe::_worklet);
-			self->_functor(self->error, self->sequence, self->interrupt);
-			frigg::destruct(*kernelAlloc, self);
-		}
-
-		Observe(F functor)
-		: _functor(frigg::move(functor)) {
-			_worklet.setup(&Observe::trigger);
-			triggered = &_worklet;
-		}
-
-	private:
-		Worklet _worklet;
-		F _functor;
-	};
-
 	struct AssociatedWorkQueue : WorkQueue {
 		AssociatedWorkQueue(Thread *thread)
 		: _thread{thread} { }
@@ -78,17 +63,20 @@ private:
 	};
 
 public:
-	static frigg::SharedPtr<Thread> create(frigg::SharedPtr<Universe> universe,
+	static smarter::shared_ptr<Thread, ActiveHandle> create(smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
-		auto thread = frigg::construct<Thread>(*kernelAlloc,
-				frigg::move(universe), frigg::move(address_space), abi);
-		frigg::SharedPtr<Thread> sptr{frigg::adoptShared, thread,
-				frigg::SharedControl{thread}};
-		thread->_mainWorkQueue.selfPtr = frigg::SharedPtr<WorkQueue>(sptr,
-				&thread->_mainWorkQueue);
-		thread->_pagingWorkQueue.selfPtr = frigg::SharedPtr<WorkQueue>(sptr,
-				&thread->_pagingWorkQueue);
+		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc,
+				std::move(universe), std::move(address_space), abi);
+		auto ptr = thread.get();
+		ptr->setup(smarter::adopt_rc, thread.ctr(), 1);
+		thread.release();
+		smarter::shared_ptr<Thread, ActiveHandle> sptr{smarter::adopt_rc, ptr, ptr};
+
+		ptr->_mainWorkQueue.selfPtr = remove_tag_cast(smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr,
+				&ptr->_mainWorkQueue});
+		ptr->_pagingWorkQueue.selfPtr = remove_tag_cast(smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr,
+				&ptr->_pagingWorkQueue});
 		return sptr;
 	}
 
@@ -151,9 +139,9 @@ public:
 	// State transitions that apply to arbitrary threads.
 	// TODO: interruptOther() needs an Interrupt argument.
 	static void unblockOther(ThreadBlocker *blocker);
-	static void killOther(frigg::UnsafePtr<Thread> thread);
-	static void interruptOther(frigg::UnsafePtr<Thread> thread);
-	static Error resumeOther(frigg::UnsafePtr<Thread> thread);
+	static void killOther(smarter::borrowed_ptr<Thread> thread);
+	static void interruptOther(smarter::borrowed_ptr<Thread> thread);
+	static Error resumeOther(smarter::borrowed_ptr<Thread> thread);
 
 	// These signals let the thread change its RunState.
 	// Do not confuse them with POSIX signals!
@@ -167,7 +155,7 @@ public:
 		kFlagServer = 1
 	};
 
-	Thread(frigg::SharedPtr<Universe> universe,
+	Thread(smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi);
 	~Thread();
@@ -184,7 +172,7 @@ public:
 	}
 
 	UserContext &getContext();
-	frigg::UnsafePtr<Universe> getUniverse();
+	smarter::borrowed_ptr<Universe> getUniverse();
 	smarter::borrowed_ptr<AddressSpace, BindableHandle> getAddressSpace();
 
 	LaneHandle inferiorLane() {
@@ -198,35 +186,28 @@ public:
 	// ----------------------------------------------------------------------------------
 	// observe() and its boilerplate.
 	// ----------------------------------------------------------------------------------
+private:
+	struct ObserveNode {
+		async::any_receiver<frg::tuple<Error, uint64_t, Interrupt>> receiver;
+		frg::default_list_hook<ObserveNode> hook;
+	};
 
-	template<typename F>
-	void submitObserve(uint64_t in_seq, F functor) {
-		auto observe = frigg::construct<Observe<F>>(*kernelAlloc, frigg::move(functor));
-		doSubmitObserve(in_seq, observe);
-	}
+	void observe_(uint64_t inSeq, ObserveNode *node);
 
+public:
 	template<typename Receiver>
 	struct [[nodiscard]] ObserveOperation {
 		ObserveOperation(Thread *self, uint64_t inSeq, Receiver receiver)
-		: self_{self}, inSeq_{inSeq}, receiver_{std::move(receiver)} {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &ObserveOperation::worklet_);
-				async::execution::set_value(op->receiver_, frg::make_tuple(op->node_.error,
-						op->node_.sequence, op->node_.interrupt));
-			});
-			node_.triggered = &worklet_;
-		}
+		: self_{self}, inSeq_{inSeq}, node_{.receiver = std::move(receiver)} { }
 
 		void start() {
-			self_->doSubmitObserve(inSeq_, &node_);
+			self_->observe_(inSeq_, &node_);
 		}
 
 	private:
 		Thread *self_;
 		uint64_t inSeq_;
-		Receiver receiver_;
-		ObserveBase node_;
-		Worklet worklet_;
+		ObserveNode node_;
 	};
 
 	struct [[nodiscard]] ObserveSender {
@@ -253,8 +234,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	// TODO: Do not expose these functions publically.
-	void destruct() override; // Called when shared_ptr refcount reaches zero.
-	void cleanup() override; // Called when weak_ptr refcount reaches zero.
+	void dispose(ActiveHandle); // Called when shared_ptr refcount reaches zero.
 
 	[[ noreturn ]] void invoke() override;
 
@@ -263,19 +243,18 @@ private:
 	void _kill();
 
 public:
-	void doSubmitObserve(uint64_t in_seq, ObserveBase *observe);
 	void setAffinityMask(frg::vector<uint8_t, KernelAlloc> &&mask) {
-		auto lock = frigg::guard(&_mutex);
+		auto lock = frg::guard(&_mutex);
 		_affinityMask = std::move(mask);
 	}
 
 	// TODO: Tidy this up.
-	frigg::UnsafePtr<Thread> self;
+	smarter::borrowed_ptr<Thread> self;
 
 	uint32_t flags;
 
 private:
-	typedef frigg::TicketLock Mutex;
+	typedef frg::ticket_spinlock Mutex;
 
 	enum RunState {
 		kRunNone,
@@ -301,8 +280,6 @@ private:
 		// Thread exited or was killed.
 		kRunTerminated
 	};
-
-	static void _blockLocked(frigg::LockGuard<Mutex> lock);
 
 	char _credentials[16];
 
@@ -336,18 +313,18 @@ public:
 	Executor _executor;
 
 private:
-	frigg::SharedPtr<Universe> _universe;
+	smarter::shared_ptr<Universe> _universe;
 	smarter::shared_ptr<AddressSpace, BindableHandle> _addressSpace;
 
 	LaneHandle _superiorLane;
 	LaneHandle _inferiorLane;
 
 	using ObserveQueue = frg::intrusive_list<
-		ObserveBase,
+		ObserveNode,
 		frg::locate_member<
-			ObserveBase,
-			frg::default_list_hook<ObserveBase>,
-			&ObserveBase::hook
+			ObserveNode,
+			frg::default_list_hook<ObserveNode>,
+			&ObserveNode::hook
 		>
 	>;
 

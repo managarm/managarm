@@ -65,8 +65,8 @@ KernelVirtualMemory::KernelVirtualMemory() {
 }
 
 void *KernelVirtualMemory::allocate(size_t length) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	// TODO: use a smarter implementation here.
 	int order = 0;
@@ -94,8 +94,8 @@ void *KernelVirtualMemory::allocate(size_t length) {
 }
 
 void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
-	auto irqLock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&mutex_);
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex_);
 
 	// TODO: use a smarter implementation here.
 	int order = 0;
@@ -108,7 +108,7 @@ void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
 	kernelVirtualUsage -= (size_t{1} << (kPageShift + order));
 }
 
-frigg::LazyInitializer<KernelVirtualMemory> kernelVirtualMemory;
+frg::manual_box<KernelVirtualMemory> kernelVirtualMemory;
 
 KernelVirtualMemory &KernelVirtualMemory::global() {
 	// TODO: This should be initialized at a well-defined stage in the
@@ -152,12 +152,16 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	}
 	kernelMemoryUsage -= length;
 
-	struct Closure {
+	struct Closure : ShootNode {
+		void complete() override {
+			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
+			auto physical = thisPage;
+			Closure::~Closure();
+			asm volatile ("" : : : "memory");
+			physicalAllocator->free(physical, kPageSize);
+		}
+
 		PhysicalAddr thisPage;
-		size_t address;
-		size_t length;
-		Worklet worklet;
-		ShootNode shootNode;
 	};
 	static_assert(sizeof(Closure) <= kPageSize);
 
@@ -169,24 +173,12 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	auto p = new (accessor.get()) Closure;
 	p->thisPage = physical;
 	p->address = address;
-	p->length = length;
-	p->worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(closure->address),
-				closure->length);
-		auto physical = closure->thisPage;
-		closure->~Closure();
-		asm volatile ("" : : : "memory");
-		physicalAllocator->free(physical, kPageSize);
-	});
-	p->shootNode.address = address;
-	p->shootNode.size = length;
-	p->shootNode.setup(&p->worklet);
-	if(KernelPageSpace::global().submitShootdown(&p->shootNode))
-		WorkQueue::post(&p->worklet);
+	p->size = length;
+	if(KernelPageSpace::global().submitShootdown(p))
+		p->complete();
 }
 
-frigg::LazyInitializer<LogRingBuffer> allocLog;
+frg::manual_box<LogRingBuffer> allocLog;
 
 void KernelVirtualAlloc::unpoison(void *pointer, size_t size) {
 	unpoisonKasanShadow(pointer, size);
@@ -197,11 +189,6 @@ void KernelVirtualAlloc::unpoison_expand(void *pointer, size_t size) {
 }
 
 void KernelVirtualAlloc::poison(void *pointer, size_t size) {
-	if(reinterpret_cast<uintptr_t>(pointer) == 0xffffe00000ba8000
-			&& size == 0x20e0) {
-		frigg::infoLogger() << "CRITICAL MEMORY IS FREED" << frigg::endLog;
-		panic();
-	}
 	poisonKasanShadow(pointer, size);
 }
 
@@ -212,18 +199,18 @@ void KernelVirtualAlloc::output_trace(uint8_t val) {
 	allocLog->enqueue(val);
 }
 
-frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
 
-frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
 
-frigg::LazyInitializer<
+frg::manual_box<
 	frg::slab_pool<
 		KernelVirtualAlloc,
 		IrqSpinlock
 	>
 > kernelHeap;
 
-frigg::LazyInitializer<KernelAlloc> kernelAlloc;
+frg::manual_box<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
 // CpuData
@@ -254,7 +241,7 @@ Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {
 	assert(guard.protects(&lock));
 
 	Handle handle = _nextHandle++;
-	_descriptorMap.insert(handle, frigg::move(descriptor));
+	_descriptorMap.insert(handle, std::move(descriptor));
 	return handle;
 }
 
@@ -276,7 +263,7 @@ frg::optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle han
 // Frigg glue functions
 // --------------------------------------------------------
 
-frigg::TicketLock logLock;
+frg::ticket_spinlock logLock;
 
 void friggBeginLog() {
 	thor::irqMutex().lock();

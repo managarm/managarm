@@ -1,7 +1,7 @@
 #pragma once
 
 #include <arch/mem_space.hpp>
-#include <frigg/arch_x86/machine.hpp>
+#include <x86/machine.hpp>
 #include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/timer.hpp>
@@ -25,7 +25,7 @@ struct ApicRegisterSpace {
 		auto v = static_cast<typename RT::bits_type>(value);
 		if(_x2apic) {
 			auto msr = x2apic_msr_base + (r.offset() >> 4);
-			frigg::arch_x86::wrmsr(msr, v);
+			common::x86::wrmsr(msr, v);
 		} else {
 			auto p = reinterpret_cast<typename RT::bits_type *>(_mem_base + r.offset());
 			arch::mem_ops<typename RT::bits_type>::store(p, v);
@@ -36,7 +36,7 @@ struct ApicRegisterSpace {
 	typename RT::rep_type load(RT r) const {
 		if(_x2apic) {
 			auto msr = x2apic_msr_base + (r.offset() >> 4);
-			return static_cast<typename RT::rep_type>(frigg::arch_x86::rdmsr(msr));
+			return static_cast<typename RT::rep_type>(common::x86::rdmsr(msr));
 		} else {
 			auto p = reinterpret_cast<const typename RT::bits_type *>(_mem_base + r.offset());
 			auto b = arch::mem_ops<typename RT::bits_type>::load(p);
@@ -71,7 +71,7 @@ private:
 	GlobalAlarmSlot _globalAlarmInstance;
 
 private:
-	frigg::TicketLock _mutex;
+	frg::ticket_spinlock _mutex;
 
 	uint64_t _globalDeadline;
 };

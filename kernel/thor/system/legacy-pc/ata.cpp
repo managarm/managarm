@@ -6,7 +6,7 @@
 #include <mbus.frigg_pb.hpp>
 
 namespace thor {
-	extern frigg::LazyInitializer<LaneHandle> mbusClient;
+	extern frg::manual_box<LaneHandle> mbusClient;
 }
 
 namespace thor::legacy_pc {
@@ -23,7 +23,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
@@ -65,13 +65,13 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
 				co_return respError;
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
-			auto space = frigg::makeShared<IoSpace>(*kernelAlloc);
+			auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
 			if(req.index() == 0) {
 				for(size_t p = 0; p < 8; ++p)
 					space->addPort(0x1F0 + p);
@@ -87,7 +87,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
@@ -99,7 +99,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			auto object = frigg::makeShared<IrqObject>(*kernelAlloc,
+			auto object = smarter::allocate_shared<IrqObject>(*kernelAlloc,
 					frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
 #ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(14);
@@ -108,7 +108,7 @@ namespace {
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
-			frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
@@ -141,7 +141,7 @@ namespace {
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		assert(respError == Error::success && "Unexpected mbus transaction");
@@ -175,7 +175,7 @@ coroutine<void> initializeAtaDevice() {
 
 	frg::string<KernelAlloc> ser{*kernelAlloc};
 	req.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto [offerError, lane] = co_await OfferSender{*mbusClient};
 	assert(offerError == Error::success && "Unexpected mbus transaction");

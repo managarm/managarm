@@ -1,5 +1,4 @@
 #include <arch/io_space.hpp>
-#include <frigg/debug.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
@@ -7,12 +6,11 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <clock.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
-#include <frigg/arch_x86/atomic_impl.hpp>
 
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frigg::LazyInitializer<LaneHandle> mbusClient;
+extern frg::manual_box<LaneHandle> mbusClient;
 
 namespace {
 
@@ -44,7 +42,7 @@ int64_t getCmosTime() {
 		;
 //	infoLogger() << "thor: Waiting for RTC update completion" << frg::endlog;
 	while(readCmos(rtcStatusA) & 0x80)
-		frigg::pause();
+		pause();
 
 	// Perform the actual RTC read.
 	bool status_b = readCmos(rtcStatusB);
@@ -100,7 +98,7 @@ coroutine<bool> handleReq(LaneHandle lane) {
 	
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 		// TODO: improve error handling here.
@@ -111,7 +109,7 @@ coroutine<bool> handleReq(LaneHandle lane) {
 		
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
-		frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 		memcpy(respBuffer.data(), ser.data(), ser.size());
 		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 		// TODO: improve error handling here.
@@ -142,7 +140,7 @@ coroutine<LaneHandle> createObject(LaneHandle mbusLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	req.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
 	memcpy(reqBuffer.data(), ser.data(), ser.size());
 	auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
 	// TODO: improve error handling here.
@@ -179,7 +177,7 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 	frg::string<KernelAlloc> ser(*kernelAlloc);
 	resp.SerializeToString(&ser);
-	frigg::UniqueMemory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 	memcpy(respBuffer.data(), ser.data(), ser.size());
 	auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 	// TODO: improve error handling here.

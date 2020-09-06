@@ -2,14 +2,10 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/arch.hpp>
 
-#include <frigg/cxx-support.hpp>
-#include <frigg/traits.hpp>
-#include <frigg/initializer.hpp>
-#include <frigg/array.hpp>
-#include <frigg/elf.hpp>
-#include <frigg/libc.hpp>
-#include <frigg/string.hpp>
-#include <frigg/support.hpp>
+#include <frg/utility.hpp>
+#include <frg/manual_box.hpp>
+#include <frg/array.hpp>
+#include <elf.hpp>
 #include <physical-buddy.hpp>
 
 namespace eir {
@@ -38,7 +34,7 @@ void createInitialRegion(address_t base, address_t size) {
 	auto limit = base + size;
 
 	// For now we do not touch memory that is required during boot.
-	address_t address = frigg::max(base, bootMemoryLimit);
+	address_t address = frg::max(base, bootMemoryLimit);
 
 	// Align address to 2 MiB.
 	// This ensures thor can allocate contiguous chunks of up to 2 MiB.
@@ -356,7 +352,7 @@ address_t loadKernelImage(void *image) {
 			if(pg < (uintptr_t)phdr.p_filesz)
 				memcpy(reinterpret_cast<void *>(backing),
 						reinterpret_cast<void *>((uintptr_t)image + (uintptr_t)phdr.p_offset + pg),
-						frigg::min(pageSize, (uintptr_t)phdr.p_filesz - pg));
+						frg::min(pageSize, (uintptr_t)phdr.p_filesz - pg));
 			mapSingle4kPage(phdr.p_vaddr + pg, backing, map_flags);
 			pg += pageSize;
 		}
@@ -367,7 +363,7 @@ address_t loadKernelImage(void *image) {
 	return ehdr.e_entry;
 }
 
-EirInfo *generateInfo(const char* cmdline){
+EirInfo *generateInfo(const char *cmdline){
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
@@ -410,7 +406,7 @@ EirInfo *generateInfo(const char* cmdline){
 		while(*s && *s != ' ')
 			s++;
 
-		frigg::StringView token{l, static_cast<size_t>(s - l)};
+		frg::string_view token{l, static_cast<size_t>(s - l)};
 		if(token == "serial") {
 			info_ptr->debugFlags |= eirDebugSerial;
 		}else if(token == "bochs") {

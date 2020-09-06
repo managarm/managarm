@@ -2,8 +2,9 @@
 
 #include <stdint.h>
 
+#include <frigg/c-support.h>
 #include <frg/hash_map.hpp>
-#include <frigg/smart_ptr.hpp>
+#include <smarter.hpp>
 #include <thor-internal/kernel_heap.hpp>
 
 namespace thor {
@@ -31,7 +32,7 @@ protected:
 	virtual void handleCancellation() = 0;
 
 private:
-	frigg::SharedPtr<CancelRegistry> _registry;
+	smarter::shared_ptr<CancelRegistry> _registry;
 
 	uint64_t _asyncId;
 
@@ -48,7 +49,7 @@ public:
 
 	CancelRegistry &operator= (const CancelRegistry &) = delete;
 
-	void setupSelfPtr(frigg::UnsafePtr<CancelRegistry> ptr) {
+	void setupSelfPtr(smarter::borrowed_ptr<CancelRegistry> ptr) {
 		_selfPtr = ptr;
 	}
 
@@ -62,15 +63,15 @@ private:
 	// Can be adjusted to tune the scalability of this mechanism.
 	static constexpr int lockGranularity = 4;
 
-	frigg::UnsafePtr<CancelRegistry> _selfPtr;
+	smarter::borrowed_ptr<CancelRegistry> _selfPtr;
 
 	// Protects the cancel operation.
 	// This is indexed by the asyncId of the operation.
 	// Taken *before* _mapMutex.
-	frigg::TicketLock _cancelMutex[lockGranularity];
+	frg::ticket_spinlock _cancelMutex[lockGranularity];
 
 	// Protects the _nodeMap.
-	frigg::TicketLock _mapMutex;
+	frg::ticket_spinlock _mapMutex;
 
 	frg::hash_map<
 		uint64_t,
