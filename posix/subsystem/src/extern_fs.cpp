@@ -18,8 +18,8 @@ struct Superblock final : FsSuperblock {
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular() override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
-	async::result<std::shared_ptr<FsLink>> rename(FsLink *source,
-			FsNode *directory, std::string name) override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+			rename(FsLink *source, FsNode *directory, std::string name) override;
 
 	std::shared_ptr<Node> internalizeStructural(uint64_t id, helix::UniqueLane lane);
 	std::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
@@ -810,8 +810,8 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createSocket() {
 	throw std::runtime_error("extern_fs: createSocket() is not supported");
 }
 
-async::result<std::shared_ptr<FsLink>> Superblock::rename(FsLink *source,
-		FsNode *directory, std::string name) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+		Superblock::rename(FsLink *source, FsNode *directory, std::string name) {
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::RENAME);

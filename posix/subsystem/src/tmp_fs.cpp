@@ -288,7 +288,8 @@ private:
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target) override {
-		assert(_entries.find(name) == _entries.end());
+		if(!(_entries.find(name) == _entries.end()))
+			co_return Error::alreadyExists;
 		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(target));
 		_entries.insert(link);
 		co_return link;
@@ -307,7 +308,8 @@ private:
 
 	async::result<frg::expected<Error>> unlink(std::string name) override {
 		auto it = _entries.find(name);
-		assert(it != _entries.end());
+		if(it == _entries.end())
+			co_return Error::noSuchFile;
 		_entries.erase(it);
 
 		notifyObservers(FsObserver::deleteEvent, name, 0);
@@ -315,6 +317,15 @@ private:
 	}
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name) override;
+
+	async::result<frg::expected<Error>> rmdir(std::string name) override {
+		auto result = co_await unlink(name);
+		if(!result) {
+			assert(result.error() == Error::noSuchFile);
+			co_return result.error();
+		}
+		co_return {};
+	}
 
 public:
 	DirectoryNode(Superblock *superblock);
@@ -465,14 +476,15 @@ struct Superblock final : FsSuperblock {
 		co_return std::move(node);
 	}
 
-	async::result<std::shared_ptr<FsLink>> rename(FsLink *src_fs_link,
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> rename(FsLink *src_fs_link,
 			FsNode *dest_fs_dir, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
 		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir);
 
 		auto src_dir = static_cast<DirectoryNode *>(src_link->getOwner().get());
 		auto it = src_dir->_entries.find(src_link->getName());
-		assert(it != src_dir->_entries.end() && it->get() == src_link);
+		if(it == src_dir->_entries.end() || it->get() != src_link)
+			co_return Error::alreadyExists;
 
 		// Unlink an existing link if such a link exists.
 		if(auto dest_it = dest_dir->_entries.find(dest_name);
@@ -523,8 +535,8 @@ async::result<frg::expected<Error, size_t>>
 MemoryFile::readSome(Process *, void *buffer, size_t max_length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
-	// TODO: Return end-of-file otherwise.
-	assert(_offset <= node->_fileSize);
+	if(!(_offset <= node->_fileSize))
+		co_return 0;
 	auto chunk = std::min(node->_fileSize - _offset, max_length);
 
 	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + _offset, chunk);
@@ -663,7 +675,8 @@ DirectoryNode::DirectoryNode(Superblock *superblock)
 
 async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkdir(std::string name) {
-	assert(_entries.find(name) == _entries.end());
+	if(!(_entries.find(name) == _entries.end()))
+		co_return Error::alreadyExists;
 	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
@@ -674,7 +687,8 @@ DirectoryNode::mkdir(std::string name) {
 
 async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::symlink(std::string name, std::string path) {
-	assert(_entries.find(name) == _entries.end());
+	if(!(_entries.find(name) == _entries.end()))
+		co_return Error::alreadyExists;
 	auto node = std::make_shared<SymlinkNode>(static_cast<Superblock *>(superblock()),
 			std::move(path));
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
@@ -684,7 +698,8 @@ DirectoryNode::symlink(std::string name, std::string path) {
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
-	assert(_entries.find(name) == _entries.end());
+	if(!(_entries.find(name) == _entries.end()))
+		co_return Error::alreadyExists;
 	auto node = std::make_shared<DeviceNode>(static_cast<Superblock *>(superblock()),
 			type, id);
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
@@ -694,7 +709,8 @@ DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkfifo(std::string name, mode_t mode) {
-	assert(_entries.find(name) == _entries.end());
+	if(!(_entries.find(name) == _entries.end()))
+		co_return Error::alreadyExists;
 	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
