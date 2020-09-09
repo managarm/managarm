@@ -1,7 +1,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
-#include <frigg/debug.hpp>
+#include <assert.h>
 
 namespace eir {
 

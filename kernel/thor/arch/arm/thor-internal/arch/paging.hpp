@@ -2,6 +2,7 @@
 
 #include <atomic>
 
+#include <assert.h>
 #include <frg/list.hpp>
 #include <smarter.hpp>
 #include <thor-internal/mm-rc.hpp>

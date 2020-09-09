@@ -1,5 +1,6 @@
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/debug.hpp>
+#include <assert.h>
 
 namespace thor {
 

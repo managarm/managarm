@@ -1,7 +1,6 @@
 #pragma once
 
 #include <frg/spinlock.hpp>
-#include <frigg/debug.hpp>
 
 namespace thor {
 

@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include <frigg/c-support.h>
+#include <assert.h>
 #include <eir-internal/debug.hpp>
 #include <eir/interface.hpp>
 #include <render-text.hpp>
