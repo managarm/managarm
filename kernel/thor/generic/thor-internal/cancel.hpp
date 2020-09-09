@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include <frigg/c-support.h>
+#include <assert.h>
 #include <frg/hash_map.hpp>
 #include <smarter.hpp>
 #include <thor-internal/kernel_heap.hpp>

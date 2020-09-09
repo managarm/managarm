@@ -1,7 +1,7 @@
 #pragma once
 
 #include <frg/variant.hpp>
-#include <frigg/c-support.h>
+#include <assert.h>
 #include <smarter.hpp>
 #ifdef __x86_64__
 #include <thor-internal/arch/ept.hpp>

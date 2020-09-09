@@ -5,12 +5,11 @@ eir_generic_sources = files(
 	'generic/debug.cpp')
 
 eir_includes = [include_directories(
-	'../include',
+	'../klibc',
 	'../common',
-	'../../frigg/include',
 	'generic')]
 
-eir_cpp_args = ['-std=c++2a', '-DFRIGG_NO_LIBC', '-Wall']
+eir_cpp_args = ['-std=c++2a', '-Wall']
 eir_c_args = ['-std=c11', '-Wall']
 eir_link_args = ['-nostdlib']
 eir_dependencies = [cxxshim_dep, frigg_dep, libarch_dep]

@@ -5,7 +5,7 @@
 #include <frg/utility.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/array.hpp>
-#include <elf.hpp>
+#include <elf.h>
 #include <physical-buddy.hpp>
 
 namespace eir {

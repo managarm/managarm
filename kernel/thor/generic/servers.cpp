@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <frg/hash_map.hpp>
 #include <frg/string.hpp>
-#include <elf.hpp>
+#include <elf.h>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/descriptor.hpp>

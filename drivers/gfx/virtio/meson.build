@@ -20,7 +20,6 @@ executable('gfx_virtio', ['src/main.cpp', fs_bragi],
 		libmbus_protocol_dep,
 		libsvrctl_protocol_dep,
 		proto_lite_dep],
-	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	install: true)
 
 custom_target('gfx-virtio-server',

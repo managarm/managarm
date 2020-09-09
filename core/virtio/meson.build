@@ -1,8 +1,7 @@
 
-virtio_core_inc = include_directories(['include/', '../../frigg/include',
-		'../../protocols/hw/include'])
+virtio_core_inc = include_directories('include/',
+		'../../protocols/hw/include')
 virtio_core = shared_library('virtio_core', ['src/core.cpp'],
-	cpp_args: ['-DFRIGG_HAVE_LIBC'],
 	dependencies: [
 		clang_coroutine_dep,
 		libarch_dep, lib_helix_dep,

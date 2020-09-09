@@ -1,7 +1,9 @@
 #pragma once
 
+#include <stdint.h>
+#include <stddef.h>
 #include <frg/array.hpp>
-#include <frigg/c-support.h>
+#include <assert.h>
 
 namespace common::x86 {
 

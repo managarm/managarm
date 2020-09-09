@@ -77,15 +77,13 @@ thor_sources = [files(
 )]
 
 thor_includes = [include_directories(
-	'private-include/',
 	'generic/',
 	'system/acpi/',
 	'system/framebuffer/',
 	'system/legacy-pc/',
 	'system/pci/',
-	'../include/',
+	'../klibc/',
 	'../common',
-	'../../frigg/include',
 	'../../subprojects/libarch/include',
 	'../../subprojects/libasync/include',
 	'../../tools/pb2frigg/include'
@@ -157,7 +155,6 @@ endif
 cralgo_lib = static_library('cralgo',
 	cralgo_sources,
 	include_directories: [
-		'private-include/',
 		cralgo_includes,
 	],
 	cpp_args: extra_cpp_args,
@@ -183,7 +180,6 @@ executable('thor', pb_sources, bragi_sources, thor_sources,
 		# If we decide to use them for something more complicated, we have to remove this.
 		'-fno-threadsafe-statics',
 		'-DLIBASYNC_CUSTOM_PLATFORM',
-		'-DFRIGG_NO_LIBC',
 		'-Wall',
 		'-Wno-non-virtual-dtor',
 		extra_cpp_args

@@ -3,7 +3,7 @@
 #include <atomic>
 
 #include <frg/list.hpp>
-#include <frigg/c-support.h>
+#include <assert.h>
 #include <smarter.hpp>
 #include <thor-internal/mm-rc.hpp>
 #include <thor-internal/types.hpp>

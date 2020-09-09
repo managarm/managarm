@@ -1,11 +1,8 @@
 #pragma once
 
-// TODO: To make this file more robust, we need to include some header
-//       that provides the assert() macro.
-
 #include <stddef.h>
 #include <stdint.h>
-#include <frigg/c-support.h>
+#include <assert.h>
 
 #include <frg/optional.hpp>
 

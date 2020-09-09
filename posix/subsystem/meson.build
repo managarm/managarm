@@ -29,8 +29,6 @@ gen = generator(protoc,
 			'@INPUT@'])
 kerncfg_pb = gen.process('../../protocols/kerncfg/kerncfg.proto')
 
-posix_subsystem_inc = include_directories('../../frigg/include')
-
 executable('posix-subsystem',
 		['src/clock.cpp',
 		'src/device.cpp',
@@ -73,6 +71,4 @@ executable('posix-subsystem',
 		libfs_protocol_dep,
 		bragi_dep,
 		clock_protocol_dep],
-	include_directories: [
-		posix_subsystem_inc],
 	install: true)

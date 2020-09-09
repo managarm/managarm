@@ -8,7 +8,7 @@
 #include <arch/aarch64/mem_space.hpp>
 #endif
 #include <frg/string.hpp>
-#include <elf.hpp>
+#include <elf.h>
 #include <thor-internal/descriptor.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>

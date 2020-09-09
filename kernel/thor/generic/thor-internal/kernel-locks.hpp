@@ -3,7 +3,7 @@
 #include <thor-internal/arch/ints.hpp>
 #include <atomic>
 #include <frg/mutex.hpp>
-#include <frigg/c-support.h>
+#include <assert.h>
 
 namespace thor {
 

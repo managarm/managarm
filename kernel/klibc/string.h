@@ -1,5 +1,4 @@
-#ifndef THOR_LIBC_STRING_H
-#define THOR_LIBC_STRING_H
+#pragma once
 
 #include <stddef.h>
 
@@ -37,5 +36,3 @@ size_t strlen(const char *);
 #ifdef __cplusplus
 }
 #endif
-
-#endif // THOR_LIBC_STRING_H

@@ -258,32 +258,3 @@ frg::optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle han
 }
 
 } // namespace thor
-
-// --------------------------------------------------------
-// Frigg glue functions
-// --------------------------------------------------------
-
-frg::ticket_spinlock logLock;
-
-void friggBeginLog() {
-	thor::irqMutex().lock();
-	logLock.lock();
-}
-
-void friggEndLog() {
-	logLock.unlock();
-	thor::irqMutex().unlock();
-}
-
-void friggPrintCritical(char c) {
-	thor::infoSink.print(c);
-}
-void friggPrintCritical(char const *str) {
-	thor::infoSink.print(str);
-}
-void friggPanic() {
-	thor::disableInts();
-	while(true) {
-		thor::halt();
-	}
-}
