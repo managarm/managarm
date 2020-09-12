@@ -673,4 +673,42 @@ inline auto createResultsTuple(T &&...args) {
 	return frg::tuple_cat(resultTypeTuple(std::forward<T>(args))...);
 }
 
+// --------------------------------------------------------------------
+// Results for other operations
+// --------------------------------------------------------------------
+
+struct AwaitEventResult {
+	AwaitEventResult() :valid_{false} {}
+
+	HelError error() {
+		FRG_ASSERT(valid_);
+		return error_;
+	}
+
+	uint32_t bitset() {
+		FRG_ASSERT(valid_);
+		return bitset_;
+	}
+
+	uint32_t sequence() {
+		FRG_ASSERT(valid_);
+		return sequence_;
+	}
+
+	void parse(void *&ptr, ElementHandle) {
+		auto result = reinterpret_cast<HelEventResult *>(ptr);
+		error_ = result->error;
+		bitset_ = result->bitset;
+		sequence_ = result->sequence;
+		ptr = (char *)ptr + sizeof(HelEventResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_;
+	HelError error_;
+	uint32_t bitset_;
+	uint32_t sequence_;
+};
+
 } // namespace helix_ng

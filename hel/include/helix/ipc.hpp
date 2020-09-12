@@ -1081,6 +1081,66 @@ inline WriteMemoryOperation writeMemory(helix::BorrowedDescriptor descriptor,
 	return {descriptor, address, length, buffer};
 }
 
+// --------------------------------------------------------------------
+// AwaitEvent
+// --------------------------------------------------------------------
+
+template <typename Receiver>
+struct AwaitEventOperation : private Context {
+	AwaitEventOperation(BorrowedDescriptor event, uint64_t sequence, Receiver receiver)
+	: event_{std::move(event)}, sequence_{sequence}, receiver_{std::move(receiver)} { }
+
+	void start() {
+		auto context = static_cast<Context *>(this);
+
+		HEL_CHECK(helSubmitAwaitEvent(event_.getHandle(), sequence_,
+				Dispatcher::global().acquire(),
+				reinterpret_cast<uintptr_t>(context)));
+	}
+
+private:
+	void complete(ElementHandle element) override {
+		AwaitEventResult result;
+		void *ptr = element.data();
+
+		result.parse(ptr, element);
+
+		async::execution::set_value(receiver_, std::move(result));
+	}
+
+	BorrowedDescriptor event_;
+	uint64_t sequence_;
+	Receiver receiver_;
+};
+
+struct AwaitEventSender {
+	using value_type = AwaitEventResult;
+
+	AwaitEventSender(BorrowedDescriptor event, uint64_t sequence)
+	: event_{std::move(event)}, sequence_{sequence} { }
+
+	template<typename Receiver>
+	AwaitEventOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(event_), sequence_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor event_;
+	uint64_t sequence_;
+};
+
+inline async::sender_awaiter<AwaitEventSender, AwaitEventResult>
+operator co_await (AwaitEventSender sender) {
+	return {std::move(sender)};
+}
+
+inline auto awaitEvent(BorrowedDescriptor event, uint64_t sequence) {
+	return AwaitEventSender{
+		std::move(event),
+		sequence
+	};
+}
+
 } // namespace helix_ng
 
 #endif // HELIX_HPP
