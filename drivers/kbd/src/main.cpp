@@ -167,12 +167,9 @@ void Controller::submitCommand(controller_cmd::SendBytePort2 tag) {
 async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
 	uint64_t sequence = 0;
 	while(true) {
-		helix::AwaitEvent await_irq;
-		auto &&submit = helix::submitAwaitEvent(irq, &await_irq,
-				sequence, helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_irq.error());
-		sequence = await_irq.sequence();
+		auto await = co_await helix_ng::awaitEvent(irq, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
 
 		// TODO: detect whether we want to ack/nack
 		processData(port);

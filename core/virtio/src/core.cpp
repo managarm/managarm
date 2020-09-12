@@ -222,10 +222,7 @@ async::detached LegacyPciTransport::_processIrqs() {
 
 	uint64_t sequence = 0;
 	while(true) {
-		helix::AwaitEvent await;
-		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
+		auto await = co_await helix_ng::awaitEvent(_irq, sequence);
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
@@ -489,10 +486,7 @@ async::detached StandardPciTransport::_processIrqs() {
 	//std::cout << "core-virtio " << getpid() << ": Starting IRQ loop" << std::endl;
 	uint64_t sequence = 0;
 	while(true) {
-		helix::AwaitEvent await;
-		auto &&submit = helix::submitAwaitEvent(event, &await, sequence,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
+		auto await = co_await helix_ng::awaitEvent(event, sequence);
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 

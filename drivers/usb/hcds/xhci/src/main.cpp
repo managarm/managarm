@@ -330,10 +330,7 @@ async::detached Controller::handleIrqs() {
 	uint64_t sequence = 0;
 
 	while(1) {
-		helix::AwaitEvent await;
-		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
+		auto await = co_await helix_ng::awaitEvent(_irq, sequence);
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 

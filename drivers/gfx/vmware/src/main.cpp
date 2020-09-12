@@ -184,12 +184,9 @@ async::result<void> GfxDevice::waitIrq(uint32_t irq_mask) {
 		auto irq = co_await _hwDev.accessIrq();
 
 		while (true) {
-			helix::AwaitEvent await_irq;
-			auto &&submit = helix::submitAwaitEvent(irq, &await_irq, irq_sequence,
-						helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(await_irq.error());
-			irq_sequence = await_irq.sequence();
+			auto await = co_await helix_ng::awaitEvent(irq, irq_sequence);
+			HEL_CHECK(await.error());
+			irq_sequence = await.sequence();
 
 			uint32_t irq_flags = _operational.load(ports::irq_status_port);
 			if (!(irq_flags & irq_mask)) {

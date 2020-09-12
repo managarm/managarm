@@ -98,12 +98,9 @@ async::detached handleIrqs() {
 	uint64_t sequence = 0;
 	while(true) {
 		std::cout << "uart: Awaiting IRQ." << std::endl;
-		helix::AwaitEvent await_irq;
-		auto &&submit = helix::submitAwaitEvent(irq, &await_irq, sequence,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_irq.error());
-		sequence = await_irq.sequence();
+		auto await = co_await helix_ng::awaitEvent(irq, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
 		std::cout << "uart: IRQ fired." << std::endl;
 		
 		auto reason = base.load(uart_register::irqIdentification);

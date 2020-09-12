@@ -164,12 +164,9 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 	while(true) {
 		if(logIrqs)
 			std::cout << "block/ata: Awaiting IRQ." << std::endl;
-		helix::AwaitEvent awaitIrq;
-		auto &&submit = helix::submitAwaitEvent(_irq, &awaitIrq, _irqSequence,
-				helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(awaitIrq.error());
-		_irqSequence = awaitIrq.sequence();
+		auto await = co_await helix_ng::awaitEvent(_irq, _irqSequence);
+		HEL_CHECK(await.error());
+		_irqSequence = await.sequence();
 		if(logIrqs)
 			std::cout << "block/ata: IRQ fired." << std::endl;
 

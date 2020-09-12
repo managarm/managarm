@@ -458,17 +458,14 @@ async::detached Controller::handleIrqs() {
 	while(true) {
 		if(logIrqs)
 			std::cout << "ehci: Awaiting IRQ event" << std::endl;
-		helix::AwaitEvent await_event;
-		auto &&submit = helix::submitAwaitEvent(event, &await_event,
-				sequence, helix::Dispatcher::global());
-		co_await submit.async_wait();
-		HEL_CHECK(await_event.error());
-		sequence = await_event.sequence();
+		auto await = co_await helix_ng::awaitEvent(event, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
 		if(logIrqs)
 			std::cout << "ehci: IRQ event fired (sequence: " << sequence << "), bits: "
-					<< await_event.bitset() << std::endl;
+					<< await.bitset() << std::endl;
 
-		auto bits = arch::bit_value<uint32_t>(await_event.bitset());
+		auto bits = arch::bit_value<uint32_t>(await.bitset());
 
 		// TODO: The kernlet should write the status register!
 		if(bits & usbsts::errorIrq)
