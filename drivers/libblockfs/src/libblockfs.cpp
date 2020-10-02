@@ -207,6 +207,8 @@ async::result<frg::expected<protocols::fs::Error, protocols::fs::GetLinkResult>>
 getLink(std::shared_ptr<void> object,
 		std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	assert(!name.empty() && name != "." && name != "..");
 	auto entry = FRG_CO_TRY(co_await self->findEntry(name));
 	if(!entry)
 		co_return protocols::fs::GetLinkResult{nullptr, -1,
@@ -525,6 +527,7 @@ async::detached servePartition(helix::UniqueLane lane) {
 			auto oldInode = fs->accessInode(req.inode_source());
 			auto newInode = fs->accessInode(req.inode_target());
 
+			assert(!req.old_name().empty() && req.old_name() != "." && req.old_name() != "..");
 			auto old_result = co_await oldInode->findEntry(req.old_name());
 			if(!old_result) {
 				managarm::fs::SvrResponse resp;

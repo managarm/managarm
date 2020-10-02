@@ -38,8 +38,6 @@ void Inode::setFileSize(size_t size) {
 
 async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 Inode::findEntry(std::string name) {
-	assert(!name.empty() && name != "." && name != "..");
-
 	co_await readyJump.async_wait();
 
 	if(fileType != kTypeDirectory)
