@@ -30,12 +30,10 @@ void UartLogHandler::printChar(char c) {
 	// 2. The UART is at least somewhat PL011 compatible
 	// 3. The UART is already configured by Eir to some sensible settings
 
-	asm volatile ("dsb st" ::: "memory");
 	while (space.load(reg::status) & status::tx_full)
-		asm volatile ("dsb st" ::: "memory");
+		;
 
 	space.store(reg::data, c);
-	asm volatile ("dsb st" ::: "memory");
 }
 
 } // namespace thor

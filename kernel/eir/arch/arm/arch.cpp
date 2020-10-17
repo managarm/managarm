@@ -164,7 +164,7 @@ void initProcessorEarly() {
 	uint64_t mair =
 		0b11111111 | // Normal, Write-back RW-Allocate non-transient
 		(0b00001100 << 8) | // Device, GRE
-		(0b01000100 << 16); // Device, nGnRnE
+		(0b00000000 << 16); // Device, nGnRnE
 
 	asm volatile ("msr mair_el1, %0" :: "r" (mair));
 

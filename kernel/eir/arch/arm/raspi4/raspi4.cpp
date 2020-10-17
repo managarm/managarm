@@ -43,12 +43,10 @@ namespace Gpio {
 		arch::field<uint32_t, uint8_t> pup_pdn0_p14{28, 2};
 		arch::field<uint32_t, uint8_t> pup_pdn0_p15{30, 2};
 
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 		// Alt 0
 		space.store(reg::sel1, space.load(reg::sel1) / sel1_p14(4) / sel1_p15(4));
 		// No pull up/down
 		space.store(reg::pup_pdn0, space.load(reg::pup_pdn0) / pup_pdn0_p14(0) / pup_pdn0_p15(0));
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 	}
 }
 
@@ -83,22 +81,18 @@ namespace Mbox {
 	}
 
 	void write(Channel channel, uint32_t value) {
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 		while (space.load(reg::status) & status::full)
 			;
 
 		space.store(reg::write, io::channel(channel) | io::value(value >> 4));
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 	}
 
 	uint32_t read(Channel channel) {
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 		while (space.load(reg::status) & status::empty)
 			;
 
 		auto f = space.load(reg::read);
 
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 		return (f & io::value) << 4;
 	}
 }
@@ -181,7 +175,6 @@ namespace PropertyMbox {
 		*ptr++ = 0;
 
 		*ptr++ = 0x00000000;
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 
 		auto val = reinterpret_cast<uint64_t>(stor.buffer);
 		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
@@ -221,8 +214,6 @@ namespace PropertyMbox {
 		*ptr++ = 0x00050001; // Get commandline
 		*ptr++ = MaxSize;
 
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
-
 		auto val = reinterpret_cast<uint64_t>(stor.buffer);
 		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
 		Mbox::write(Mbox::Channel::property, val);
@@ -257,7 +248,6 @@ namespace PropertyMbox {
 		*ptr++ = 0; // size
 
 		*ptr++ = 0x00000000;
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 
 		auto val = reinterpret_cast<uint64_t>(stor.buffer);
 		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
@@ -286,7 +276,6 @@ namespace PropertyMbox {
 		*ptr++ = 0;
 
 		*ptr++ = 0x00000000;
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 
 		auto val = reinterpret_cast<uint64_t>(stor.buffer);
 		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
@@ -331,7 +320,6 @@ namespace PL011 {
 	constexpr uint64_t clock = 4000000; // 4MHz
 
 	void init(uint64_t baud) {
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 		space.store(reg::control, control::uart_en(false));
 
 		Gpio::configUart0Gpio();
@@ -352,16 +340,13 @@ namespace PL011 {
 		// 8n1, fifo enabled
 		space.store(reg::line_control, line_control::word_len(3) | line_control::fifo_en(true));
 		space.store(reg::control, control::rx_en(true) | control::tx_en(true) | control::uart_en(true));
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 	}
 
 	void send(uint8_t val) {
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 		while (space.load(reg::status) & status::tx_full)
 			;
 
 		space.store(reg::data, val);
-		asm volatile ("dsb st; dmb st; isb" ::: "memory");
 	}
 }
 
