@@ -25,19 +25,19 @@ namespace {
 async::result<protocols::fs::SeekResult> seekAbs(void *object, int64_t offset) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset = offset;
-	co_return self->offset;
+	co_return static_cast<ssize_t>(self->offset);
 }
 
 async::result<protocols::fs::SeekResult> seekRel(void *object, int64_t offset) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset += offset;
-	co_return self->offset;
+	co_return static_cast<ssize_t>(self->offset);
 }
 
 async::result<protocols::fs::SeekResult> seekEof(void *object, int64_t offset) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset += offset + self->inode->fileSize();
-	co_return self->offset;
+	co_return static_cast<ssize_t>(self->offset);
 }
 
 using FlockManager = protocols::fs::FlockManager;
@@ -60,12 +60,12 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	co_await self->inode->readyJump.async_wait();
 
 	if(self->offset >= self->inode->fileSize())
-		co_return 0;
+		co_return size_t{0};
 
 	auto remaining = self->inode->fileSize() - self->offset;
 	auto chunkSize = std::min(length, remaining);
 	if(!chunkSize)
-		co_return 0; // TODO: Return an explicit end-of-file error?
+		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
 
 	auto chunk_offset = self->offset;
 	self->offset += chunkSize;
@@ -106,12 +106,12 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 	co_await self->inode->readyJump.async_wait();
 
 	if(self->offset >= self->inode->fileSize())
-		co_return 0;
+		co_return size_t{0};
 	
 	auto remaining = self->inode->fileSize() - offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
-		co_return 0; // TODO: Return an explicit end-of-file error?
+		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
 
 	auto chunk_offset = offset;
 	auto map_offset = chunk_offset & ~size_t(0xFFF);
