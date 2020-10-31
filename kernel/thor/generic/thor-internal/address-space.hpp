@@ -58,7 +58,7 @@ struct VirtualOperations {
 	};
 
 	RetireSender retire() {
-		return {};
+		return {this};
 	}
 
 	// ----------------------------------------------------------------------------------
