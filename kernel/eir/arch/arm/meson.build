@@ -4,3 +4,4 @@ eir_cpp_args += ['-mgeneral-regs-only', '-mno-unaligned-access', '-DCXXSHIM_INTE
 eir_c_args += ['-mgeneral-regs-only', '-mno-unaligned-access']
 
 subdir('raspi4/')
+subdir('virt/')
