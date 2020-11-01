@@ -565,7 +565,7 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 
 	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry,
-			0xFFFF'FE80'0001'0000, reinterpret_cast<uintptr_t>(info_ptr));
+			0xFFFF'FE80'0001'0000, 0xFFFF'FE80'0001'0000);
 
 	while(true);
 }

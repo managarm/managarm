@@ -2,6 +2,7 @@ ENTRY(eirEntry)
 
 SECTIONS {
 	. = 0x80000;
+	eirImageFloor = .;
 
 	.text : ALIGN(0x1000) {
 		*(.text.init)
