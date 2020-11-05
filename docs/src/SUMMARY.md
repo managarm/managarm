@@ -5,7 +5,7 @@
 - [Getting Started](getting-started/index.md)
     - [Trying Out](getting-started/trying-out.md)
     - [Supported Hardware and Software](getting-started/supported/index.md)
-        - [Temporary Package Index](getting-started/supported/package_index.md)
+        - [Supported Packages](getting-started/supported/package_index.md)
 
 
 - [Building](building.md)
