@@ -25,6 +25,7 @@
 
 
 - [Contributing](contributing/contributing.md)
+    - [Coding style](contributing/coding-style.md)
     - [Communication](contributing/communication.md)
     - [Direct Contributions](contributing/direct/direct.md)
         - [Fields](contributing/direct/direct.md)

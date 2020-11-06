@@ -12,7 +12,6 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 > And if you like the project, but just don't have time to contribute, that's fine. There are other easy ways to support the project and show your appreciation, which we would also be very happy about:
 > - Star the project
 > - Tweet about it
-> - Refer this project in your project's readme
 > - Mention the project at local meetups and tell your friends/colleagues
 
 <!-- omit in toc -->
@@ -25,6 +24,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
   - [Your First Code Contribution](#your-first-code-contribution)
   - [Improving The Documentation](#improving-the-documentation)
 - [Styleguides](#styleguides)
+  - [Coding Style](#coding-style)
   - [Commit Messages](#commit-messages)
 - [Join The Project Team](#join-the-project-team)
 
@@ -128,6 +128,13 @@ Updating, improving and correcting the documentation
 -->
 
 ## Styleguides
+### Coding Style
+
+> This section of the Guide is Work-In-Progress. Please come back later for more information.
+
+For the general coding style used in The Managarm Project we refer you to the [coding style](coding-style.md).
+
+
 ### Commit Messages
 
 > This section of the Guide is Work-In-Progress. Please come back later for more information.
