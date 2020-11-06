@@ -1,22 +1,24 @@
 #pragma once
 
 #include <frg/spinlock.hpp>
+#include <thor-internal/debug.hpp>
 
 namespace thor {
 
-void initializeProcessorEarly();
+void initializeIrqVectors();
 
 inline bool intsAreEnabled() {
-	// TODO
-	return false;
+	uint64_t v;
+	asm volatile ("mrs %0, daif" : "=r"(v));
+	return !v;
 }
 
 inline void enableInts() {
-	// TODO
+	asm volatile ("msr daifclr, #15");
 }
 
 inline void disableInts() {
-	// TODO
+	asm volatile ("msr daifset, #15");
 }
 
 inline void halt() {
