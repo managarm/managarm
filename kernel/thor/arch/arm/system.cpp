@@ -5,6 +5,7 @@ namespace thor {
 
 void initializeArchitecture() {
 	setupBootCpuContext();
+	initializeIrqVectors();
 }
 
 }

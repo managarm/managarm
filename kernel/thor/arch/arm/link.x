@@ -2,7 +2,6 @@
 ENTRY(thorRtEntry)
 
 SECTIONS {
-	/* This address is dictated by System V ABI's kernel code model. */
 	. = 0xFFFFFFFF80000000;
 
 	stubsPtr = .;
@@ -24,6 +23,7 @@ SECTIONS {
 		KEEP (*(.init_array .ctors))
 		PROVIDE_HIDDEN (__init_array_end = .);
 	}
+
 	.data : { *(.data) }
 	.bss : { *(.bss) }
 }
