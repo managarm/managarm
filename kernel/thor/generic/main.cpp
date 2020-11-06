@@ -34,7 +34,7 @@ static constexpr bool noScheduleOnIrq = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
 
-frg::manual_box<IrqSlot> globalIrqSlots[64];
+frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
 
 MfsDirectory *mfsRoot;
 frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;
@@ -118,7 +118,7 @@ extern "C" void thorMain() {
 			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));
 	earlyFibers.initialize(*kernelAlloc);
 
-	for(int i = 0; i < 64; i++)
+	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
 
 	basicInitEngine.run();
