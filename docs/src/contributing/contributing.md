@@ -139,6 +139,12 @@ For the general coding style used in The Managarm Project we refer you to the [c
 
 > This section of the Guide is Work-In-Progress. Please come back later for more information.
 
+For commit messages we usually write something like this:
+
+`<module>: <A sentence describing what was changed>`
+
+If needed, one can write a small explaination below it but this is usually reserved for the pull request.
+
 <!-- TODO
 
 -->
