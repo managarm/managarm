@@ -13,95 +13,33 @@
 
 namespace thor {
 
+enum class Domain : uint64_t {
+	irq = 0,
+	fault,
+	fiber,
+	user,
+	idle
+};
+
+struct Frame {
+	uint64_t x[31];
+	uint64_t sp;
+	uint64_t elr;
+	uint64_t spsr;
+	uint64_t esr;
+	uint64_t far;
+	Domain domain;
+	uint64_t unused;
+};
+static_assert(sizeof(Frame) == 304, "Invalid exception frame size");
+
 struct Executor;
 
 struct Continuation {
 	void *sp;
 };
 
-struct FaultImageAccessor {
-	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
-
-	// TODO
-	Word *ip() { return nullptr; }
-	// TODO
-	Word *sp() { return nullptr; }
-	// TODO
-	Word *rflags() { return nullptr; }
-	// TODO
-	Word *code() { return nullptr; }
-
-	bool inKernelDomain() {
-		// TODO
-		return true;
-	}
-
-	bool allowUserPages();
-
-private:
-	// TODO
-	// note: this struct is accessed from assembly.
-	// do not change the field offsets!
-	struct Frame {
-	};
-
-	Frame *_frame() {
-		return reinterpret_cast<Frame *>(_pointer);
-	}
-
-	char *_pointer;
-};
-
-struct IrqImageAccessor {
-	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
-
-	Word *ip() { return nullptr; }
-
-	// TODO: These are only exposed for debugging.
-	Word *rflags() { return nullptr; }
-
-	bool inPreemptibleDomain() {
-		// TODO
-		return true;
-	}
-
-	bool inThreadDomain() {
-		// TODO
-		assert(inPreemptibleDomain());
-		return true;
-	}
-
-	bool inManipulableDomain() {
-		// TODO
-		assert(inThreadDomain());
-		return true;
-	}
-
-	bool inFiberDomain() {
-		// TODO
-		assert(inPreemptibleDomain());
-		return true;
-	}
-
-	bool inIdleDomain() {
-		// TODO
-		assert(inPreemptibleDomain());
-		return true;
-	}
-
-private:
-	// TODO
-	// note: this struct is accessed from assembly.
-	// do not change the field offsets!
-	struct Frame {
-	};
-
-	Frame *_frame() {
-		return reinterpret_cast<Frame *>(_pointer);
-	}
-
-	char *_pointer;
-};
+struct FaultImageAccessor;
 
 struct SyscallImageAccessor {
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
@@ -134,12 +72,13 @@ struct SyscallImageAccessor {
 	// TODO
 	Word *out1() { return nullptr; }
 
+	void *frameBase() { return _pointer + sizeof(Frame); }
+
 private:
-	// TODO
-	// this struct is accessed from assembly.
-	// do not randomly change its contents.
-	struct Frame {
-	};
+	friend struct FaultImageAccessor;
+
+	SyscallImageAccessor(char *ptr)
+	: _pointer{ptr} { }
 
 	Frame *_frame() {
 		return reinterpret_cast<Frame *>(_pointer);
@@ -148,26 +87,77 @@ private:
 	char *_pointer;
 };
 
-struct NmiImageAccessor {
-	// TODO
-	void **expectedGs() {
-		return nullptr;
+struct FaultImageAccessor {
+	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
+
+	Word *ip() { return &_frame()->elr; }
+	Word *sp() { return &_frame()->sp; }
+
+	// TODO: this should have a different name
+	Word *rflags() { return &_frame()->spsr; }
+	Word *code() { return &_frame()->esr ; }
+
+	bool inKernelDomain() {
+		return (_frame()->spsr & 0b1111) != 0b0000;
 	}
 
-	// TODO
-	Word *ip() { return nullptr; }
-	// TODO
-	Word *cs() { return nullptr; }
-	// TODO
-	Word *rflags() { return nullptr; }
+	bool allowUserPages();
+
+	operator SyscallImageAccessor () {
+		return SyscallImageAccessor{_pointer};
+	}
+
+	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
-	// TODO
-	// note: this struct is accessed from assembly.
-	// do not change the field offsets!
-	struct Frame {
-	};
+	Frame *_frame() {
+		return reinterpret_cast<Frame *>(_pointer);
+	}
 
+	char *_pointer;
+};
+
+struct IrqImageAccessor {
+	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
+
+	Word *ip() { return &_frame()->elr; }
+
+	// TODO: These are only exposed for debugging.
+	// TODO: this should have a different name
+	Word *rflags() { return &_frame()->spsr; }
+
+	bool inPreemptibleDomain() {
+		return _frame()->domain == Domain::fault
+			|| _frame()->domain == Domain::fiber
+			|| _frame()->domain == Domain::idle
+			|| _frame()->domain == Domain::user;
+		return true;
+	}
+
+	bool inThreadDomain() {
+		assert(inPreemptibleDomain());
+		return _frame()->domain == Domain::fault
+			|| _frame()->domain == Domain::user;
+	}
+
+	bool inManipulableDomain() {
+		assert(inThreadDomain());
+		return _frame()->domain == Domain::user;
+	}
+
+	bool inFiberDomain() {
+		assert(inPreemptibleDomain());
+		return _frame()->domain == Domain::fiber;
+	}
+
+	bool inIdleDomain() {
+		assert(inPreemptibleDomain());
+		return _frame()->domain == Domain::idle;
+	}
+
+	void *frameBase() { return _pointer + sizeof(Frame); }
+
+private:
 	Frame *_frame() {
 		return reinterpret_cast<Frame *>(_pointer);
 	}
@@ -244,13 +234,10 @@ struct Executor {
 
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
-	// TODO
-	Word *rflags() { return nullptr; }
+	Word *rflags() { return &general()->esr; }
 
-	// TODO
-	Word *ip() { return nullptr; }
-	// TODO
-	Word *sp() { return nullptr; }
+	Word *ip() { return &general()->elr; }
+	Word *sp() { return &general()->sp; }
 	// TODO
 	Word *cs() { return nullptr; }
 	// TODO
@@ -265,16 +252,8 @@ struct Executor {
 	// TODO
 	Word *result1() { return nullptr; }
 
-private:
-	// TODO
-	// note: this struct is accessed from assembly.
-	// do not change the field offsets!
-	struct General {
-	};
-
-public:
-	General *general() {
-		return reinterpret_cast<General *>(_pointer);
+	Frame *general() {
+		return reinterpret_cast<Frame *>(_pointer);
 	}
 
 private:
@@ -323,6 +302,8 @@ struct UserAccessRegion {
 // Do not change the field offsets!
 struct AssemblyCpuData {
 	AssemblyCpuData *selfPointer;
+	uint64_t currentDomain;
+	void *exceptionStackPtr;
 	void *syscallStack;
 	UserAccessRegion *currentUar;
 };
@@ -330,12 +311,9 @@ struct AssemblyCpuData {
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
-	uint32_t idt[256 * 4];
-
 	int cpuIndex;
 
-	UniqueKernelStack irqStack;
-	UniqueKernelStack nmiStack;
+	UniqueKernelStack exceptionStack;
 	UniqueKernelStack detachedStack;
 
 	PageContext pageContext;
@@ -398,6 +376,7 @@ void forkExecutor(F functor, Executor *executor) {
 		(*fp)();
 	};
 
+	//assert(executor->general()->domain == getCpuData()->currentDomain);
 	doForkExecutor(executor, delegate, &functor);
 }
 

@@ -3,6 +3,7 @@
 #include <frg/array.hpp>
 #include <frg/list.hpp>
 #include <thor-internal/debug.hpp>
+#include <assert.h>
 
 namespace thor {
 namespace initgraph {

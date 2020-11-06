@@ -6,7 +6,10 @@ thor_sources += files(
 	'ints.cpp',
 	'pci_io.cpp',
 	'debug.cpp',
-	'entry.S'
+	'entry.S',
+	'stubs.S',
+	'timer.cpp',
+	'gic.cpp'
 )
 
 thor_includes += include_directories('/usr/local/aarch64-none-elf/include/c++/10.1.0')
@@ -18,11 +21,13 @@ extra_link_args += [
 
 extra_cpp_args += [
 	'-DCXXSHIM_INTEGRATE_GCC',
-	'-mgeneral-regs-only'
+	'-mgeneral-regs-only',
+	'-mno-red-zone'
 ]
 
 extra_c_args += [
-	'-mgeneral-regs-only'
+	'-mgeneral-regs-only',
+	'-mno-red-zone'
 ]
 
 extra_link_depends += [files('link.x')]
