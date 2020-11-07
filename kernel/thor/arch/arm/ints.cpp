@@ -14,8 +14,13 @@ void initializeIrqVectors() {
 
 void suspendSelf() { assert(!"Not implemented"); }
 
+extern frg::manual_box<GicDistributor> dist;
+
 void sendPingIpi(int id) {
-	thor::infoLogger() << "sendPingIpi is unimplemented" << frg::endlog;
+	// TODO: The GIC cpu id *may* differ from the normal cpu id,
+	// get the id from the GIC and store it in the cpu local data and
+	// use that here
+	dist->sendIpi(id, 0);
 }
 
 extern "C" void onPlatformInvalidException(FaultImageAccessor image) {
@@ -34,13 +39,20 @@ extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
 extern frg::manual_box<GicCpuInterface> cpuInterface;
 
 void handleIrq(IrqImageAccessor image, int number);
+void handlePreemption(IrqImageAccessor image);
+
+static constexpr bool logSGIs = false;
 
 extern "C" void onPlatformIrq(IrqImageAccessor image) {
 	auto [cpu, irq] = cpuInterface->get();
 
 	if (irq < 16) {
-		// TODO: handle SGIs
-		panicLogger() << "thor: onPlatformIrq: got a SGI (no. " << irq << "), don't know what to do! originated from cpu " << cpu << frg::endlog;
+		if (logSGIs)
+			infoLogger() << "thor: onPlatformIrq: got a SGI (no. " << irq << ") that originated from cpu " << cpu << frg::endlog;
+
+		cpuInterface->eoi(cpu, irq);
+		handlePreemption(image);
+		return;
 	}
 
 	if (irq > 1020) {
