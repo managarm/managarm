@@ -3,6 +3,7 @@
 #include <eir-internal/debug.hpp>
 #include <eir/interface.hpp>
 #include <render-text.hpp>
+#include <dtb.hpp>
 #include "../cpio.hpp"
 #include <frg/eternal.hpp> // for aligned_storage
 #include <frg/tuple.hpp>
@@ -77,91 +78,110 @@ void debugPrintChar(char c) {
 	PL011::send(c);
 }
 
-struct DtbHeader {
-	arch::scalar_storage<uint32_t, arch::big_endian> magic;
-	arch::scalar_storage<uint32_t, arch::big_endian> totalsize;
-	arch::scalar_storage<uint32_t, arch::big_endian> off_dt_struct;
-	arch::scalar_storage<uint32_t, arch::big_endian> off_dt_strings;
-	arch::scalar_storage<uint32_t, arch::big_endian> off_mem_rsvmap;
-	arch::scalar_storage<uint32_t, arch::big_endian> version;
-	arch::scalar_storage<uint32_t, arch::big_endian> last_comp_version;
-	arch::scalar_storage<uint32_t, arch::big_endian> boot_cpuid_phys;
-	arch::scalar_storage<uint32_t, arch::big_endian> size_dt_strings;
-	arch::scalar_storage<uint32_t, arch::big_endian> size_dt_struct;
-};
-
-struct DtbReserveEntry {
-	arch::scalar_storage<uint64_t, arch::big_endian> address;
-	arch::scalar_storage<uint64_t, arch::big_endian> size;
-};
-
-DtbHeader getDtbHeader(void *dtb) {
-	DtbHeader hdr;
-	memcpy(&hdr, dtb, sizeof(hdr));
-
-	assert(hdr.magic.load() == 0xd00dfeed);
-
-	return hdr;
-}
-
 extern "C" void eirEnterKernel(uintptr_t, uintptr_t, uint64_t, uint64_t, uintptr_t);
 
 extern "C" void eirVirtMain(uintptr_t deviceTreePtr) {
 	PL011::init(115200);
 
-	auto dtb = reinterpret_cast<void *>(deviceTreePtr);
-
 	initProcessorEarly();
 
-	bootMemoryLimit = reinterpret_cast<uintptr_t>(&eirImageCeiling);
+	DeviceTree dt{reinterpret_cast<void *>(deviceTreePtr)};
 
-	eir::infoLogger() << "DTB pointer " << dtb << frg::endlog;
+	eir::infoLogger() << "DTB pointer " << dt.data() << frg::endlog;
+	eir::infoLogger() << "DTB size: 0x" << frg::hex_fmt{dt.size()} << frg::endlog;
 
-	auto dtb_hdr = getDtbHeader(dtb);
-	auto dtb_end = reinterpret_cast<uintptr_t>(dtb) + dtb_hdr.totalsize.load();
+	DeviceTreeNode chosenNode;
+	bool hasChosenNode = false;
 
-	eir::infoLogger() << "DTB size: 0x" << frg::hex_fmt{dtb_hdr.totalsize.load()} << frg::endlog;
+	DeviceTreeNode memoryNodes[32];
+	size_t nMemoryNodes = 0;
 
-	uintptr_t dtb_rsv = reinterpret_cast<uintptr_t>(dtb) + dtb_hdr.off_mem_rsvmap.load();
+	dt.rootNode().discoverSubnodes(
+		[](DeviceTreeNode &node) {
+			return !memcmp("memory@", node.name(), 7)
+				|| !memcmp("chosen", node.name(), 7);
+		},
+		[&](DeviceTreeNode node) {
+			if (!memcmp("chosen", node.name(), 7)) {
+				assert(!hasChosenNode);
 
-	eir::infoLogger() << "Memory reservation entries:" << frg::endlog;
-	while (true) {
-		DtbReserveEntry ent;
-		memcpy(&ent, reinterpret_cast<void *>(dtb_rsv), 16);
-		dtb_rsv += 16;
+				chosenNode = node;
+				hasChosenNode = true;
+			} else {
+				assert(nMemoryNodes < 32);
 
-		if (!ent.address.load() && !ent.size.load())
-			break;
+				memoryNodes[nMemoryNodes++] = node;
+			}
+			infoLogger() << "Node \"" << node.name() << "\" discovered" << frg::endlog;
+		});
 
-		eir::infoLogger() << "At 0x" << frg::hex_fmt{ent.address.load()}
-			<< ", ends at 0x" << frg::hex_fmt{ent.address.load() + ent.size.load()}
-			<< " (0x" << frg::hex_fmt{ent.size.load()} << " bytes)" << frg::endlog;
+	uint32_t addressCells = 2, sizeCells = 1;
 
-		if (auto end = ent.address.load() + ent.size.load(); end > bootMemoryLimit)
-			bootMemoryLimit = end;
+	for (auto prop : dt.rootNode().properties()) {
+		if (!memcmp("#address-cells", prop.name(), 15)) {
+			addressCells = prop.asU32();
+		} else if (!memcmp("#size-cells", prop.name(), 12)) {
+			sizeCells = prop.asU32();
+		}
 	}
 
-	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1)) & ~address_t(pageSize - 1);
+	assert(nMemoryNodes && hasChosenNode);
 
-	// TODO: parse DTB to get memory regions instead of hardcoding 1GB of ram
-	// TODO: parse DTB to get initrd address
+	InitialRegion reservedRegions[32];
+	size_t nReservedRegions = 0;
 
-	uintptr_t initrd = 0x48000000;
-	eir::infoLogger() << "Assuming initrd is at " << (void *)initrd << frg::endlog;
+	eir::infoLogger() << "Memory reservation entries:" << frg::endlog;
+	for (auto ent : dt.memoryReservations()) {
+		eir::infoLogger() << "At 0x" << frg::hex_fmt{ent.address}
+			<< ", ends at 0x" << frg::hex_fmt{ent.address + ent.size}
+			<< " (0x" << frg::hex_fmt{ent.size} << " bytes)" << frg::endlog;
+
+		reservedRegions[nReservedRegions++] = {ent.address, ent.size};
+	}
+	eir::infoLogger() << "End of memory reservation entries" << frg::endlog;
+
+	uintptr_t eirStart = reinterpret_cast<uintptr_t>(&eirImageFloor);
+	uintptr_t eirEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
+	reservedRegions[nReservedRegions++] = {eirStart, eirEnd - eirStart};
+
+	uintptr_t initrd = 0;
+	if (auto p = chosenNode.findProperty("linux,initrd-start"); p) {
+		if (p->size() == 4)
+			initrd = p->asU32();
+		else if (p->size() == 8)
+			initrd = p->asU64();
+		else
+			assert(!"Invalid linux,initrd-start size");
+
+		eir::infoLogger() << "Initrd is at " << (void *)initrd << frg::endlog;
+	} else {
+		initrd = 0x48000000;
+		eir::infoLogger() << "Assuming initrd is at " << (void *)initrd << frg::endlog;
+	}
+
 	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
+
 	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
-	eir::infoLogger() << "Assuming initrd ends at " << (void *)initrd_end << frg::endlog;
+	eir::infoLogger() << "Initrd ends at " << (void *)initrd_end << frg::endlog;
 
-	constexpr uint64_t end_of_ram = 0x80000000;
+	reservedRegions[nReservedRegions++] = {initrd, initrd_end - initrd};
+	reservedRegions[nReservedRegions++] = {deviceTreePtr, dt.size()};
 
-	auto free_space = frg::min(initrd, deviceTreePtr) - bootMemoryLimit;
-	createInitialRegion(bootMemoryLimit, free_space & ~uintptr_t(0xFFF));
+	for (int i = 0; i < nMemoryNodes; i++) {
+		auto reg = memoryNodes[i].findProperty("reg");
+		assert(reg);
 
-	auto end_of_used = frg::max(initrd_end, dtb_end);
+		size_t j = 0;
+		while (j < reg->size()) {
+			auto base = reg->asPropArrayEntry(addressCells, j);
+			j += addressCells * 4;
 
-	free_space = end_of_ram - end_of_used;
-	createInitialRegion((end_of_used + 0xFFF)
-				& ~uintptr_t(0xFFF), free_space & ~uintptr_t(0xFFF));
+			auto size = reg->asPropArrayEntry(sizeCells, j);
+			j += sizeCells * 4;
+
+			createInitialRegions({base, size}, {reservedRegions, nReservedRegions});
+		}
+	}
 
 	setupRegionStructs();
 
