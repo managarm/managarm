@@ -75,6 +75,32 @@ void createInitialRegion(address_t base, address_t size) {
 	region->size = limit - address;
 }
 
+void createInitialRegions(InitialRegion region, frg::span<InitialRegion> reserved) {
+	if (!reserved.size()) {
+		if (region.size < 0x8000000) {
+			infoLogger() << "eir: warning: Not creating a region with size <0x8000000" << frg::endlog;
+			return;
+		}
+		createInitialRegion((region.base + 0xFFF) & ~0xFFF, region.size & ~0xFFF);
+	} else {
+		auto rsv = reserved.data()[0];
+
+		if (rsv.base > (region.base + region.size)
+				|| (rsv.base + rsv.size) < region.base) {
+			createInitialRegions(region, {reserved.data() + 1, reserved.size() - 1});
+			return;
+		}
+
+		if (rsv.base > region.base) {
+			createInitialRegions({region.base, rsv.base - region.base}, {reserved.data() + 1, reserved.size() - 1});
+		}
+
+		if (rsv.base + rsv.size < region.base + region.size) {
+			createInitialRegions({rsv.base + rsv.size, region.base + region.size - (rsv.base + rsv.size)}, {reserved.data() + 1, reserved.size() - 1});
+		}
+	}
+}
+
 address_t cutFromRegion(size_t size) {
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)

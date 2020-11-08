@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <eir-internal/arch/types.hpp>
 #include <frg/string.hpp>
+#include <frg/span.hpp>
 #include <eir/interface.hpp>
 
 namespace eir {
@@ -37,6 +38,13 @@ void allocLogRingBuffer();
 
 void setupRegionStructs();
 void createInitialRegion(address_t base, address_t size);
+
+struct InitialRegion {
+	address_t base;
+	address_t size;
+};
+
+void createInitialRegions(InitialRegion region, frg::span<InitialRegion> reserved);
 
 address_t mapBootstrapData(void *p);
 void mapKasanShadow(uint64_t address, size_t size);
