@@ -7,6 +7,7 @@ eir_generic_sources = files(
 eir_includes = [include_directories(
 	'../klibc',
 	'../common',
+	'../../subprojects/lai/include',
 	'generic')]
 
 eir_cpp_args = ['-std=c++2a', '-Wall']

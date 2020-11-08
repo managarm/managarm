@@ -4,6 +4,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
+#include <acpispec/tables.h>
 
 namespace eir {
 
@@ -92,6 +93,20 @@ struct Mb2TagCmdline {
 	char string[];
 };
 
+struct Mb2TagRSDPv1 {
+	uint32_t type;
+	uint32_t length;
+
+	struct acpi_rsdp_t rsdp;
+};
+
+struct Mb2TagRSDPv2 {
+	uint32_t type;
+	uint32_t length;
+
+	struct acpi_xsdp_t xsdp;
+};
+
 enum {
 	kMb2TagEnd = 0,
 	kMb2TagCmdline = 1,
@@ -138,6 +153,9 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	uintptr_t kernel_module_start = 0;
 	
 	frg::string_view cmdline{};
+
+	uint64_t rsdt = 0;
+	uint64_t acpiRevision = 0;
 
 	for(size_t i = 8 /* Skip size and reserved fields*/; i < mb_info->size; i += add_size){
 		Mb2Tag* tag = (Mb2Tag*)((uint8_t*)info + i);
@@ -194,6 +212,28 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 				auto *cmdline_tag = reinterpret_cast<Mb2TagCmdline*>(tag);
 
 				cmdline = {cmdline_tag->string};
+
+				break;
+			}
+
+			case kMb2TagAcpiOld: {
+				auto *rsdp_tag = reinterpret_cast<Mb2TagRSDPv1*>(tag);
+
+				if(acpiRevision)
+					eir::infoLogger() << "eir: Parsing old acpi tag but acpiRevision is alreay set?" << frg::endlog;
+				rsdt = rsdp_tag->rsdp.rsdt;
+				acpiRevision = 1;
+
+				break;
+			}
+
+			case kMb2TagAcpiNew: {
+				auto *rsdp_tag = reinterpret_cast<Mb2TagRSDPv2*>(tag);
+
+				if(acpiRevision)
+					eir::infoLogger() << "eir: Parsing new acpi tag but acpiRevision is alreay set?" << frg::endlog;
+				rsdt = rsdp_tag->xsdp.xsdt;
+				acpiRevision = 2;
 
 				break;
 			}
@@ -283,6 +323,8 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 
 	info_ptr->numModules = n_modules - 1;
 	info_ptr->moduleInfo = mapBootstrapData(modules);
+	info_ptr->acpiRevision = acpiRevision;
+	info_ptr->acpiRsdt = rsdt;
 	
 	auto framebuf = &info_ptr->frameBuffer;
 	framebuf->fbAddress = framebuffer->address;

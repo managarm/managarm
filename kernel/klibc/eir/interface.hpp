@@ -48,4 +48,7 @@ struct EirInfo {
 	EirPtr moduleInfo;
 
 	EirFramebuffer frameBuffer;
+
+	uint64_t acpiRsdt;
+	uint64_t acpiRevision;
 };
