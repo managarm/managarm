@@ -171,7 +171,7 @@ _restoreExecutorRegisters:
 	ldr x1, [x0, #288]
 	ldr x2, [x0, #248]
 	cmp x1, .L_userDomain
-	bne .L2
+	beq .L2
 	mov sp, x2
 	b .L1
 .L2:

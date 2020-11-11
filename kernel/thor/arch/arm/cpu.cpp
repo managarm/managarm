@@ -54,7 +54,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	memset(_pointer, 0, getStateSize());
 
 	general()->elr = abi.ip;
-	general()->sp = abi.sp;
+	general()->sp = (uintptr_t)context->stack.base();
 	general()->x[0] = abi.argument;
 	general()->spsr = 5;
 	general()->domain = Domain::fiber;
