@@ -225,6 +225,9 @@ extern "C" void eirVirtMain(uintptr_t deviceTreePtr) {
 	info_ptr->numModules = 1;
 	info_ptr->moduleInfo = mapBootstrapData(module);
 
+	info_ptr->dtbPtr = deviceTreePtr;
+	info_ptr->dtbSize = dt.size();
+
 	info_ptr->debugFlags |= eirDebugSerial;
 
 	mapSingle4kPage(0xFFFF'0000'0000'0000, 0x9000000,

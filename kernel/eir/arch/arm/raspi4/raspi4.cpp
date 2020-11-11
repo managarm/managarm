@@ -488,6 +488,9 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	info_ptr->numModules = 1;
 	info_ptr->moduleInfo = mapBootstrapData(module);
 
+	info_ptr->dtbPtr = deviceTreePtr;
+	info_ptr->dtbSize = dt.size();
+
 	if (have_fb) {
 		auto framebuf = &info_ptr->frameBuffer;
 		framebuf->fbAddress = fb_ptr;

@@ -47,5 +47,8 @@ struct EirInfo {
 	EirPtr regionInfo;
 	EirPtr moduleInfo;
 
+	EirPtr dtbPtr;
+	EirSize dtbSize;
+
 	EirFramebuffer frameBuffer;
 };
