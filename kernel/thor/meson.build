@@ -82,6 +82,7 @@ thor_includes = [include_directories(
 	'system/framebuffer/',
 	'system/legacy-pc/',
 	'system/pci/',
+	'system/dtb/',
 	'../klibc/',
 	'../common',
 	'../../subprojects/libarch/include',

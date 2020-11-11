@@ -9,7 +9,8 @@ thor_sources += files(
 	'entry.S',
 	'stubs.S',
 	'timer.cpp',
-	'gic.cpp'
+	'gic.cpp',
+	'../../system/dtb/dtb.cpp'
 )
 
 thor_includes += include_directories('/usr/local/aarch64-none-elf/include/c++/10.1.0')
