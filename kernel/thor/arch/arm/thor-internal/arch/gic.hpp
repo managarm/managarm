@@ -37,7 +37,7 @@ private:
 
 	uintptr_t base_;
 	arch::mem_space space_;
-	frg::vector<IrqPin *, KernelAlloc> irq_pins_;
+	frg::vector<IrqPin *, KernelAlloc> irqPins_;
 };
 
 struct GicCpuInterface {

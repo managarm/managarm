@@ -55,8 +55,8 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 		return;
 	}
 
-	if (irq > 1020) {
-		infoLogger() << "thor: spurious irq occured" << frg::endlog;
+	if (irq >= 1020) {
+		infoLogger() << "thor: spurious irq " << irq << " occured" << frg::endlog;
 		// no need to EOI spurious irqs
 		return;
 	}

@@ -9,6 +9,7 @@
 #include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/dtb/dtb.hpp>
 
 namespace thor {
 
@@ -51,11 +52,10 @@ namespace dist_sgi {
 } // namespace dist_sgi
 
 GicDistributor::GicDistributor(uintptr_t addr)
-: base_{addr}, space_{}, irq_pins_{*kernelAlloc} {
+: base_{addr}, space_{}, irqPins_{*kernelAlloc} {
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x1000);
-	// TODO: this should use a proper caching mode
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), addr,
-			page_access::write, CachingMode::null);
+			page_access::write, CachingMode::uncached);
 	space_ = arch::mem_space{register_ptr};
 }
 
@@ -69,13 +69,11 @@ void GicDistributor::init() {
 			<< noCpuIface << " CPU interfaces and "
 			<< (securityExtensions ? "supports" : "doesn't support") << " security extensions" << frg::endlog;
 
-	assert(!securityExtensions && "Security extensions are not supported");
-
 	space_.store(dist_reg::control, dist_control::enableGroup0(true) | dist_control::enableGroup1(true));
 
-	// Enable all interrupts
+	// Disable all interrupts
 	for (size_t i = 0; i < noLines / 32; i++) {
-		arch::scalar_store<uint32_t>(space_, dist_reg::irqSetEnableBase + i * 4, 0xFFFFFFFF);
+		arch::scalar_store<uint32_t>(space_, dist_reg::irqClearEnableBase + i * 4, 0xFFFFFFFF);
 	}
 
 	// All interrupts go to CPU interface 0
@@ -124,7 +122,7 @@ extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
 auto GicDistributor::setupIrq(uint32_t irq, TriggerMode trigger) -> Pin * {
 	auto pin = frg::construct<Pin>(*kernelAlloc, this, irq);
 	pin->configure({trigger, Polarity::high});
-	irq_pins_.push_back(pin);
+	irqPins_.push_back(pin);
 
 	return pin;
 }
@@ -133,6 +131,7 @@ IrqStrategy GicDistributor::Pin::program(TriggerMode mode, Polarity) {
 	parent_->configureTrigger(irq_, mode);
 	assert(globalIrqSlots[irq_]->isAvailable());
 	globalIrqSlots[irq_]->link(this);
+	unmask();
 
 	if (mode == TriggerMode::edge) {
 		return IrqStrategy::justEoi;
@@ -142,8 +141,20 @@ IrqStrategy GicDistributor::Pin::program(TriggerMode mode, Polarity) {
 	}
 }
 
-void GicDistributor::Pin::mask() { /* TODO */ }
-void GicDistributor::Pin::unmask() { /* TODO */ }
+void GicDistributor::Pin::mask() {
+	size_t regOff = (irq_ / 32) * 4;
+	size_t bitOff = irq_ & 31;
+
+	arch::scalar_store<uint32_t>(parent_->space_, dist_reg::irqClearEnableBase + regOff, (1 << bitOff));
+}
+
+void GicDistributor::Pin::unmask() {
+	size_t regOff = (irq_ / 32) * 4;
+	size_t bitOff = irq_ & 31;
+
+	arch::scalar_store<uint32_t>(parent_->space_, dist_reg::irqSetEnableBase + regOff, (1 << bitOff));
+
+}
 
 // TODO: this should be per-cpu
 frg::manual_box<GicCpuInterface> cpuInterface;
@@ -190,9 +201,8 @@ namespace cpu_ack_eoi {
 GicCpuInterface::GicCpuInterface(GicDistributor *dist, uintptr_t addr)
 : dist_{dist}, space_{} {
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x1000);
-	// TODO: this should use a proper caching mode
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), addr,
-			page_access::write, CachingMode::null);
+			page_access::write, CachingMode::uncached);
 	space_ = arch::mem_space{register_ptr};
 }
 
@@ -227,16 +237,29 @@ void GicCpuInterface::eoi(uint8_t cpuId, uint32_t irqId) {
 frg::manual_box<GicDistributor> dist;
 
 static initgraph::Task initGic{&basicInitEngine, "arm.init-gic",
+	initgraph::Requires{getDeviceTreeParsedStage()},
 	initgraph::Entails{getIrqControllerReadyStage()},
 	// Initialize the GIC.
 	[] {
-		// TODO: get these addresses from dtb
+		DeviceTreeNode *gicNode = nullptr;
+		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+			if (node->isCompatible(dtGicCompatible)) {
+				gicNode = node;
+				return true;
+			}
 
-		dist.initialize(0x08000000);
+			return false;
+		});
+
+		assert(gicNode && "Failed to find GIC");
+		infoLogger() << "thor: found the GIC at node \"" << gicNode->path() << "\"" << frg::endlog;
+		assert(gicNode->reg().size() >= 2);
+
+		dist.initialize(gicNode->reg()[0].addr);
 		dist->init();
 
 		// TODO: do this for each cpu
-		cpuInterface.initialize(dist.get(), 0x08010000);
+		cpuInterface.initialize(dist.get(), gicNode->reg()[1].addr);
 		cpuInterface->init();
 	}
 };
