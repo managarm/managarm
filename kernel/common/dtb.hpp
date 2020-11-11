@@ -50,8 +50,6 @@ struct DeviceTree {
 		DtbHeader header;
 		memcpy(&header, data, sizeof(header));
 		assert(header.magic.load() == 0xd00dfeed);
-		eir::infoLogger() << "last comp version: " << header.last_comp_version.load() << frg::endlog;
-		//assert(header.last_comp_version.load() == 16);
 
 		stringsBlock_ = data_ + header.off_dt_strings.load();
 		structureBlock_ = data_ + header.off_dt_struct.load();
@@ -159,7 +157,10 @@ struct DeviceTreeProperty {
 	: name_{nullptr}, data_{nullptr, 0} { }
 
 	DeviceTreeProperty(const char *name, frg::span<uint8_t> data)
-	: name_{name}, data_{data} { }
+	: name_{name}, data_{data.data(), data.size()} { }
+
+	DeviceTreeProperty(const char *name, frg::span<const void> data)
+	: name_{name}, data_{reinterpret_cast<const uint8_t *>(data.data()), data.size()} { }
 
 	const char *name() const {
 		return name_;
@@ -203,7 +204,7 @@ struct DeviceTreeProperty {
 
 private:
 	const char *name_;
-	frg::span<uint8_t> data_;
+	frg::span<const uint8_t> data_;
 };
 
 namespace detail {
