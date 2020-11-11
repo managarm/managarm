@@ -4,6 +4,7 @@
 #include <thor-internal/initgraph.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/arch/gic.hpp>
+#include <thor-internal/dtb/dtb.hpp>
 
 namespace thor {
 
@@ -26,6 +27,7 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "physical-generic-timer-irq"}} { }
 
 	IrqStatus raise() override {
+		disarmPreemption();
 		return IrqStatus::acked;
 	}
 
@@ -44,6 +46,7 @@ struct VirtualGenericTimer : IrqSink, AlarmTracker {
 	using AlarmTracker::fireAlarm;
 
 	IrqStatus raise() override {
+		disarm();
 		fireAlarm();
 		return IrqStatus::acked;
 	}
@@ -52,6 +55,10 @@ struct VirtualGenericTimer : IrqSink, AlarmTracker {
 		uint64_t compare = getVirtualTimestampCounter() + ticksPerSecond * nanos / 1000000000;
 
 		asm volatile ("msr cntv_cval_el0, %0" :: "r"(compare));
+	}
+
+	void disarm() {
+		asm volatile ("msr cntv_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
 	}
 };
 
@@ -82,8 +89,8 @@ extern frg::manual_box<GicDistributor> dist;
 
 static initgraph::Task initTimerIrq{&basicInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
+	initgraph::Requires{getDeviceTreeParsedStage()},
 	[] {
-		// TODO: this is a bit of a hack
 		globalPGTInstance.initialize();
 		globalClockSource = globalPGTInstance.get();
 
@@ -91,12 +98,26 @@ static initgraph::Task initTimerIrq{&basicInitEngine, "arm.init-timer-irq",
 		globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
 			globalClockSource, globalVGTInstance.get());
 
-		// TODO: discover this via the dtb
+		DeviceTreeNode *timerNode = nullptr;
+		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+			if (node->isCompatible<1>({"arm,armv8-timer"})) {
+				timerNode = node;
+				return true;
+			}
 
-		auto ppin = dist->setupIrq(30, TriggerMode::edge);
+			return false;
+		});
+
+		assert(timerNode && "Failed to find timer");
+
+		// TODO: how do we determine these indices?
+		auto irqPhys = timerNode->irqs()[1];
+		auto irqVirt = timerNode->irqs()[2];
+
+		auto ppin = dist->setupIrq(irqPhys.id, irqPhys.trigger);
 		IrqPin::attachSink(ppin, globalPGTInstance.get());
 
-		auto vpin = dist->setupIrq(27, TriggerMode::edge);
+		auto vpin = dist->setupIrq(irqVirt.id, irqVirt.trigger);
 		IrqPin::attachSink(vpin, globalVGTInstance.get());
 	}
 };
