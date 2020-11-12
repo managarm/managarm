@@ -40,7 +40,7 @@ void GlobalPageBinding::shootdown() { assert(!"Not implemented"); }
 
 void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
 	// TODO: use ASIDs (like PCIDs on x86)
-	asm volatile ("msr ttbr0_el1, %0; dsb sy; isb" :: "r" (space->_rootTable));
+	asm volatile ("msr ttbr0_el1, %0; isb; tlbi aside1, %1; dsb sy; isb" :: "r" (space->_rootTable), "r"(uint64_t{0}));
 }
 
 PageSpace::PageSpace(PhysicalAddr root_table)
