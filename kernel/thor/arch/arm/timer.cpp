@@ -9,6 +9,7 @@
 namespace thor {
 
 static uint64_t ticksPerSecond;
+static uint64_t ticksPerMilli;
 
 uint64_t getRawTimestampCounter() {
 	uint64_t cntpct;
@@ -32,7 +33,7 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 	}
 
 	uint64_t currentNanos() override {
-		return getRawTimestampCounter() * 1000000000 / ticksPerSecond;
+		return getRawTimestampCounter() * 1000000 / ticksPerMilli;
 	}
 };
 
@@ -72,6 +73,7 @@ frg::manual_box<VirtualGenericTimer> globalVGTInstance;
 
 void initializeTimers() {
 	asm volatile ("mrs %0, cntfrq_el0" : "=r"(ticksPerSecond));
+	ticksPerMilli = ticksPerSecond / 1000;
 
 	// enable and unmask generic timers
 	asm volatile ("msr cntp_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
