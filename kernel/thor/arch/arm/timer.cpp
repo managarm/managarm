@@ -17,9 +17,9 @@ uint64_t getRawTimestampCounter() {
 }
 
 uint64_t getVirtualTimestampCounter() {
-	uint64_t cntpct;
-	asm volatile ("mrs %0, cntvct_el0" : "=r"(cntpct));
-	return cntpct;
+	uint64_t cntvct;
+	asm volatile ("mrs %0, cntvct_el0" : "=r"(cntvct));
+	return cntvct;
 }
 
 struct PhysicalGenericTimer : IrqSink, ClockSource {
@@ -52,6 +52,11 @@ struct VirtualGenericTimer : IrqSink, AlarmTracker {
 	}
 
 	void arm(uint64_t nanos) override {
+		if (!nanos) {
+			disarm();
+			return;
+		}
+
 		uint64_t compare = getVirtualTimestampCounter() + ticksPerSecond * nanos / 1000000000;
 
 		asm volatile ("msr cntv_cval_el0, %0" :: "r"(compare));
