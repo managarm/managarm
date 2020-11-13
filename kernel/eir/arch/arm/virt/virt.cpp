@@ -5,83 +5,22 @@
 #include <render-text.hpp>
 #include <dtb.hpp>
 #include "../cpio.hpp"
-#include <frg/eternal.hpp> // for aligned_storage
-#include <frg/tuple.hpp>
+#include <frg/manual_box.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
-
-#include <arch/aarch64/mem_space.hpp>
-#include <arch/register.hpp>
-
-#include <arch/bit.hpp>
-#include <arch/variable.hpp>
+#include <eir-internal/arch/pl011.hpp>
 
 namespace eir {
 
-namespace PL011 {
-	namespace reg {
-		static constexpr arch::scalar_register<uint32_t> data{0x00};
-		static constexpr arch::bit_register<uint32_t> status{0x18};
-		static constexpr arch::scalar_register<uint32_t> i_baud{0x24};
-		static constexpr arch::scalar_register<uint32_t> f_baud{0x28};
-		static constexpr arch::bit_register<uint32_t> control{0x30};
-		static constexpr arch::bit_register<uint32_t> line_control{0x2c};
-		static constexpr arch::scalar_register<uint32_t> int_clear{0x44};
-	}
-
-	namespace status {
-		static constexpr arch::field<uint32_t, bool> tx_full{5, 1};
-	};
-
-	namespace control {
-		static constexpr arch::field<uint32_t, bool> rx_en{9, 1};
-		static constexpr arch::field<uint32_t, bool> tx_en{8, 1};
-		static constexpr arch::field<uint32_t, bool> uart_en{0, 1};
-	};
-
-	namespace line_control {
-		static constexpr arch::field<uint32_t, uint8_t> word_len{5, 2};
-		static constexpr arch::field<uint32_t, bool> fifo_en{4, 1};
-	}
-
-	static constexpr arch::mem_space space{0x9000000};
-	constexpr uint64_t clock = 24000000; // 24MHz
-
-	void init(uint64_t baud) {
-		space.store(reg::control, control::uart_en(false));
-
-		space.store(reg::int_clear, 0x7FF); // clear all interrupts
-
-		uint64_t int_part = clock / (16 * baud);
-
-		// 3 decimal places of precision should be enough :^)
-		uint64_t frac_part = (((clock * 1000) / (16 * baud) - (int_part * 1000))
-			* 64 + 500) / 1000;
-
-		space.store(reg::i_baud, int_part);
-		space.store(reg::f_baud, frac_part);
-
-		// 8n1, fifo enabled
-		space.store(reg::line_control, line_control::word_len(3) | line_control::fifo_en(true));
-		space.store(reg::control, control::rx_en(true) | control::tx_en(true) | control::uart_en(true));
-	}
-
-	void send(uint8_t val) {
-		while (space.load(reg::status) & status::tx_full)
-			;
-
-		space.store(reg::data, val);
-	}
-}
+frg::manual_box<PL011> debugUart;
 
 void debugPrintChar(char c) {
-	PL011::send(c);
+	debugUart->send(c);
 }
 
-extern "C" void eirEnterKernel(uintptr_t, uintptr_t, uint64_t, uint64_t, uintptr_t);
-
 extern "C" void eirVirtMain(uintptr_t deviceTreePtr) {
-	PL011::init(115200);
+	debugUart.initialize(0x9000000, 24000000);
+	debugUart->init(115200);
 
 	initProcessorEarly();
 
