@@ -258,21 +258,59 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	PropertyMbox::setClockFreq(PropertyMbox::Clock::uart, 4000000);
 	debugUart->init(115200);
 
-	// TODO: actually get display size from cmdline
-	eir::infoLogger() << "Attempting to get the display size" << frg::endlog;
-	int fb_width = 1920, fb_height = 1080;
+	char cmd_buf[1024];
+	size_t cmd_len = PropertyMbox::getCmdline<1024>(cmd_buf);
+
+	frg::string_view cmd_sv{cmd_buf, cmd_len};
+	eir::infoLogger() << "Got cmdline: " << cmd_sv << frg::endlog;
+
+	eir::infoLogger() << "Attempting to set up a framebuffer:" << frg::endlog;
+	int fb_width = 0, fb_height = 0;
+
+	// Parse the command line.
+	{
+		const char *l = cmd_buf;
+		while(true) {
+			while(*l && *l == ' ')
+				l++;
+			if(!(*l))
+				break;
+
+			const char *s = l;
+			while(*s && *s != ' ')
+				s++;
+
+			frg::string_view token{l, static_cast<size_t>(s - l)};
+
+			if (auto equals = token.find_first('='); equals != size_t(-1)) {
+				auto key = token.sub_string(0, equals);
+				auto value = token.sub_string(equals + 1, token.size() - equals - 1);
+
+				if (key == "bcm2708_fb.fbwidth") {
+					if (auto width = value.to_number<int>(); width)
+						fb_width = *width;
+				} else if (key == "bcm2708_fb.fbheight") {
+					if (auto height = value.to_number<int>(); height)
+						fb_height = *height;
+				}
+			}
+
+			l = s;
+		}
+	}
+
 	uintptr_t fb_ptr = 0;
 	size_t fb_pitch = 0;
 	bool have_fb = false;
 	if (!fb_width || !fb_height) {
-		eir::infoLogger() << "Zero fb width or height, no display attached?" << frg::endlog;
+		eir::infoLogger() << "No display attached" << frg::endlog;
 	} else {
-		eir::infoLogger() << "Attempting to set up the framebuffer" << frg::endlog;
 		auto [actualW, actualH, ptr, pitch] = PropertyMbox::setupFb(fb_width, fb_height, 32);
 
 		if (!ptr || !pitch) {
 			eir::infoLogger() << "Mode setting failed..." << frg::endlog;
 		} else {
+			eir::infoLogger() << "Success!" << frg::endlog;
 			setFbInfo(ptr, actualW, actualH, pitch);
 			fb_ptr = reinterpret_cast<uintptr_t>(ptr);
 			fb_width = actualW;
@@ -285,12 +323,6 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 			eir::infoLogger() << "Framebuffer height: " << actualH << frg::endlog;
 		}
 	}
-
-	char cmd_buf[1024];
-	size_t cmd_len = PropertyMbox::getCmdline<1024>(cmd_buf);
-
-	frg::string_view cmd_sv{cmd_buf, cmd_len};
-	eir::infoLogger() << "Got cmdline: " << cmd_sv << frg::endlog;
 
 	initProcessorEarly();
 
