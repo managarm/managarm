@@ -42,6 +42,7 @@ eirEntry:
 	msr hcr_el2, x0
 
 	// Load vector table
+	.extern eirExcVectors
 	ldr x0, =eirExcVectors
 	msr vbar_el1, x0
 
@@ -76,57 +77,3 @@ eirEntry:
 .halt:
 	wfe
 	b .halt
-
-.align 11
-eirExcVectors:
-	// EL1t
-	// Synchronous
-.align 7
-	mov x0, #0
-	b eirCommonHandler
-
-	// IRQ
-.align 7
-	mov x0, #1
-	b eirCommonHandler
-
-	// FIQ
-.align 7
-	mov x0, #2
-	b eirCommonHandler
-
-	// SError
-.align 7
-	mov x0, #3
-	b eirCommonHandler
-
-
-	// EL1h
-	// Synchronous
-.align 7
-	mov x0, #0
-	b eirCommonHandler
-
-	// IRQ
-.align 7
-	mov x0, #1
-	b eirCommonHandler
-
-	// FIQ
-.align 7
-	mov x0, #2
-	b eirCommonHandler
-
-	// SError
-.align 7
-	mov x0, #3
-	b eirCommonHandler
-
-eirCommonHandler:
-	ldr x1, =eirStackTop
-	mov sp, x1
-	mrs x1, esr_el1
-	mrs x2, elr_el1
-	mrs x3, spsr_el1
-	mrs x4, far_el1
-	b eirExceptionHandler
