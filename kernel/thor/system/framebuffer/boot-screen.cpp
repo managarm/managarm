@@ -15,6 +15,20 @@ void BootScreen::Formatter::print(const char *c) {
 			if(*c == '\x1B') {
 				_csiState = 1;
 				c++;
+			}else if(*c == '\t') {
+				constexpr const char *spaces = "        ";
+
+				int n = 8 - (_x % 8);
+				if (!n)
+					n = 8;
+
+				int m = frg::min(_screen->_width - _x, n);
+				if(m) {
+					_screen->_display->setChars(_x, _y, spaces, m, _fg, _bg);
+					_x += m;
+				}
+
+				c++;
 			}else{
 				int n = 0;
 				while(c[n] && c[n] != '\x1B')
