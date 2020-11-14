@@ -287,7 +287,7 @@ bool inStub(uintptr_t ip) {
 	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
 }
 
-void handlePageFault(FaultImageAccessor image, uintptr_t address);
+void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleIrq(IrqImageAccessor image, int number);
 void handlePreemption(IrqImageAccessor image);
@@ -347,7 +347,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handleOtherFault(image, kIntrGeneralFault);
 	} break;
 	case 14: {
-		handlePageFault(image, pfAddress);
+		handlePageFault(image, pfAddress, *image.code());
 	} break;
 	default:
 		panicLogger() << "Unexpected fault number " << number

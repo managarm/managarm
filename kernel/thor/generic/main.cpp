@@ -326,7 +326,7 @@ extern "C" void handleProtectionFault(FaultImageAccessor image) {
 			<< "    Faulting segment: " << (void *)*image.code() << frg::endlog;
 }
 
-void handlePageFault(FaultImageAccessor image, uintptr_t address) {
+void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode) {
 	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 	auto address_space = this_thread->getAddressSpace();
 
@@ -335,26 +335,26 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	const Word kPfUser = 4;
 	const Word kPfBadTable = 8;
 	const Word kPfInstruction = 16;
-	assert(!(*image.code() & kPfBadTable));
+	assert(!(errorCode & kPfBadTable));
 
 	if(logEveryPageFault) {
 		auto msg = infoLogger();
 		msg << "thor: Page fault at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
-		if(*image.code() & kPfUser) {
+		if(errorCode & kPfUser) {
 			msg << " (User)";
 		}else{
 			msg << " (Supervisor)";
 		}
-		if(*image.code() & kPfAccess) {
+		if(errorCode & kPfAccess) {
 			msg << " (Access violation)";
 		}else{
 			msg << " (Page not present)";
 		}
-		if(*image.code() & kPfWrite) {
+		if(errorCode & kPfWrite) {
 			msg << " (Write)";
-		}else if(*image.code() & kPfInstruction) {
+		}else if(errorCode & kPfInstruction) {
 			msg << " (Instruction fetch)";
 		}else{
 			msg << " (Read)";
@@ -363,9 +363,9 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	}
 
 	uint32_t flags = 0;
-	if(*image.code() & kPfWrite)
+	if(errorCode & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
-	if(*image.code() & kPfInstruction)
+	if(errorCode & kPfInstruction)
 		flags |= AddressSpace::kFaultExecute;
 
 	bool handled = false;
@@ -380,8 +380,8 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		return;
 
 	if(image.inKernelDomain()) {
-		assert(!(*image.code() & kPfUser));
-		if(handleUserAccessFault(address, *image.code() & kPfWrite, image))
+		assert(!(errorCode & kPfUser));
+		if(handleUserAccessFault(address, errorCode & kPfWrite, image))
 			return;
 	}
 
@@ -389,24 +389,24 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 
-	if(!(*image.code() & kPfUser)) {
+	if(!(errorCode & kPfUser)) {
 		auto msg = panicLogger();
 		msg << "\e[31m" "thor: Page fault in kernel, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
-		if(*image.code() & kPfUser) {
+		if(errorCode & kPfUser) {
 			msg << " (User)";
 		}else{
 			msg << " (Supervisor)";
 		}
-		if(*image.code() & kPfAccess) {
+		if(errorCode & kPfAccess) {
 			msg << " (Access violation)";
 		}else{
 			msg << " (Page not present)";
 		}
-		if(*image.code() & kPfWrite) {
+		if(errorCode & kPfWrite) {
 			msg << " (Write)";
-		}else if(*image.code() & kPfInstruction) {
+		}else if(errorCode & kPfInstruction) {
 			msg << " (Instruction fetch)";
 		}else{
 			msg << " (Read)";
@@ -417,19 +417,19 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		msg << "\e[31m" "thor: Page fault in server, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
-		if(*image.code() & kPfUser) {
+		if(errorCode & kPfUser) {
 			msg << " (User)";
 		}else{
 			msg << " (Supervisor)";
 		}
-		if(*image.code() & kPfAccess) {
+		if(errorCode & kPfAccess) {
 			msg << " (Access violation)";
 		}else{
 			msg << " (Page not present)";
 		}
-		if(*image.code() & kPfWrite) {
+		if(errorCode & kPfWrite) {
 			msg << " (Write)";
-		}else if(*image.code() & kPfInstruction) {
+		}else if(errorCode & kPfInstruction) {
 			msg << " (Instruction fetch)";
 		}else{
 			msg << " (Read)";

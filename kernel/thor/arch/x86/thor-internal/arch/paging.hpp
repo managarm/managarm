@@ -16,6 +16,12 @@ enum {
 	kPageShift = 12
 };
 
+constexpr Word kPfAccess = 1;
+constexpr Word kPfWrite = 2;
+constexpr Word kPfUser = 4;
+constexpr Word kPfBadTable = 8;
+constexpr Word kPfInstruction = 16;
+
 struct PageAccessor {
 	friend void swap(PageAccessor &a, PageAccessor &b) {
 		using std::swap;
