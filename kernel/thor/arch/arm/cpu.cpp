@@ -12,10 +12,12 @@ bool FaultImageAccessor::allowUserPages() {
 }
 
 void UserContext::deactivate() { }
-UserContext::UserContext() { }
+UserContext::UserContext()
+: kernelStack(UniqueKernelStack::make()) { }
 
 void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
+	cpu_data->exceptionStackPtr = kernelStack.base();
 }
 
 FiberContext::FiberContext(UniqueKernelStack stack)
@@ -25,6 +27,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 [[noreturn]] void restoreExecutor(Executor *executor) {
 	getCpuData()->currentDomain = static_cast<uint64_t>(executor->general()->domain);
+	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
 	_restoreExecutorRegisters(executor->general());
 }
 
@@ -34,7 +37,7 @@ size_t Executor::determineSize() {
 }
 
 Executor::Executor()
-: _pointer{nullptr}, _syscallStack{nullptr} {  }
+: _pointer{nullptr}, _exceptionStack{nullptr} {  }
 
 Executor::Executor(UserContext *context, AbiParameters abi) {
 	_pointer = static_cast<char *>(kernelAlloc->allocate(getStateSize()));
@@ -45,11 +48,11 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 	general()->spsr = 0;
 	general()->domain = Domain::user;
 
-	_syscallStack = context->kernelStack.base();
+	_exceptionStack = context->kernelStack.base();
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi)
-: _syscallStack{nullptr} {
+: _exceptionStack{nullptr} {
 	_pointer = static_cast<char *>(kernelAlloc->allocate(getStateSize()));
 	memset(_pointer, 0, getStateSize());
 
@@ -226,9 +229,10 @@ void initializeThisProcessor() {
 	cpu_data->cpuIndex = allCpuContexts->size();
 	allCpuContexts->push(cpu_data);
 
-	cpu_data->exceptionStack = UniqueKernelStack::make();
+	cpu_data->irqStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();
-	cpu_data->exceptionStackPtr = cpu_data->exceptionStack.base();
+
+	cpu_data->irqStackPtr = cpu_data->irqStack.base();
 
 	auto wqFiber = KernelFiber::post([=] {
 		// Do nothing. Our only purpose is to run the associated work queue.

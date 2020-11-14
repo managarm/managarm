@@ -36,12 +36,17 @@ thorExcVectors:
 
 .set .L_currentDomainOff, 8
 .set .L_exceptionStackOff, 16
+.set .L_irqStackOff, 24
 
-.macro MAKE_STUB name, handler, el, domain = .L_irqDomain
+.macro MAKE_STUB name, handler, el, domain, stack
 \name:
 	msr tpidrro_el0, x0
+	.if \el == 0
 	mrs x0, tpidr_el1
-	ldr x0, [x0, .L_exceptionStackOff]
+	ldr x0, [x0, \stack]
+	.else
+	mov x0, sp
+	.endif
 
 	sub x0, x0, .L_excStateSize
 
@@ -155,16 +160,16 @@ thorExcVectors:
 	eret
 .endm
 
-MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1
-MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0
+MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, .L_faultDomain, .L_exceptionStackOff
+MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0, .L_faultDomain, .L_exceptionStackOff
 
-MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, .L_faultDomain
-MAKE_STUB el1IrqStub, onPlatformIrq, 1, .L_irqDomain
-MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, .L_faultDomain
+MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, .L_faultDomain, .L_exceptionStackOff
+MAKE_STUB el1IrqStub, onPlatformIrq, 1, .L_irqDomain, .L_irqStackOff
+MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, .L_faultDomain, .L_exceptionStackOff
 
-MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, .L_faultDomain
-MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain
-MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, .L_faultDomain
+MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, .L_faultDomain, .L_exceptionStackOff
+MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain, .L_irqStackOff
+MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, .L_faultDomain, .L_exceptionStackOff
 
 .global _restoreExecutorRegisters
 _restoreExecutorRegisters:

@@ -228,10 +228,6 @@ struct Executor {
 
 	Executor &operator= (const Executor &other) = delete;
 
-	void *getSyscallStack() {
-		return _syscallStack;
-	}
-
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
 	Word *rflags() { return &general()->esr; }
@@ -258,7 +254,7 @@ struct Executor {
 
 private:
 	char *_pointer;
-	void *_syscallStack;
+	void *_exceptionStack;
 };
 
 void saveExecutor(Executor *executor, FaultImageAccessor accessor);
@@ -304,7 +300,7 @@ struct AssemblyCpuData {
 	AssemblyCpuData *selfPointer;
 	uint64_t currentDomain;
 	void *exceptionStackPtr;
-	void *syscallStack;
+	void *irqStackPtr;
 	UserAccessRegion *currentUar;
 };
 
@@ -313,7 +309,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	int cpuIndex;
 
-	UniqueKernelStack exceptionStack;
+	UniqueKernelStack irqStack;
 	UniqueKernelStack detachedStack;
 
 	PageContext pageContext;
