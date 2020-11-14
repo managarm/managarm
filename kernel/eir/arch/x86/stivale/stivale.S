@@ -6,6 +6,7 @@ stivale_header:
     .word 0
     .word 0
     .word 32
+    .quad 0
 
 .section .text
 .global eirEntry
