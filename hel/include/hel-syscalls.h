@@ -47,7 +47,7 @@ extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(
 	return helSyscall2(kHelCallCloseDescriptor, (HelWord)universeHandle, (HelWord)handle);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCreateQueue(HelQueue *head,
+extern inline __attribute__ (( always_inline )) HelError helCreateQueue(struct HelQueue *head,
 		uint32_t flags, unsigned int size_shift, size_t element_limit, HelHandle *handle) {
 	HelWord hel_handle;
 	HelError error = helSyscall4_1(kHelCallCreateQueue, (HelWord)head, (HelWord)flags,
@@ -57,7 +57,7 @@ extern inline __attribute__ (( always_inline )) HelError helCreateQueue(HelQueue
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSetupChunk(HelHandle queue,
-		int index, HelChunk *chunk, uint32_t flags) {
+		int index, struct HelChunk *chunk, uint32_t flags) {
 	return helSyscall4(kHelCallSetupChunk, (HelWord)queue, (HelWord)index,
 			(HelWord)chunk, (HelWord)flags);
 };
@@ -166,7 +166,7 @@ extern inline __attribute__ (( always_inline )) HelError helCreateVirtualizedCpu
 	return error;
 }
 
-extern inline __attribute__ (( always_inline )) HelError helRunVirtualizedCpu(HelHandle handle, void *exitInfo) {
+extern inline __attribute__ (( always_inline )) HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitReason *exitInfo) {
 	HelError error = helSyscall2(kHelCallRunVirtualizedCpu, (HelWord)handle, (HelWord)exitInfo);
 	return error;
 }
@@ -276,7 +276,7 @@ extern inline __attribute__ (( always_inline )) HelError helCreateThread(HelHand
 };
 
 extern inline __attribute__ (( always_inline )) HelError helQueryThreadStats(HelHandle handle,
-		HelThreadStats *stats) {
+		struct HelThreadStats *stats) {
 	return helSyscall2(kHelCallQueryThreadStats, (HelWord)handle, (HelWord)stats);
 };
 
@@ -348,7 +348,7 @@ extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHand
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitAsync(HelHandle handle,
-		const HelAction *actions, size_t count, HelHandle queue, uintptr_t context,
+		const struct HelAction *actions, size_t count, HelHandle queue, uintptr_t context,
 		uint32_t flags) {
 	return helSyscall6(kHelCallSubmitAsync, (HelWord)handle, (HelWord)actions, (HelWord)count,
 			(HelWord)queue, (HelWord)context, (HelWord)flags);
@@ -430,7 +430,7 @@ extern inline __attribute__ (( always_inline )) HelError helEnableFullIo() {
 };
 
 extern inline __attribute__ (( always_inline )) HelError helBindKernlet(HelHandle handle,
-		const HelKernletData *data, size_t num_data, HelHandle *bound_handle) {
+		const union HelKernletData *data, size_t num_data, HelHandle *bound_handle) {
 	HelWord handle_word;
 	HelError error = helSyscall3_1(kHelCallBindKernlet, (HelWord)handle,
 			(HelWord)data, (HelWord)num_data, &handle_word);

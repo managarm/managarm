@@ -153,9 +153,9 @@ struct HelX86VirtualizationRegs {
 	uint64_t rip;
 	uint64_t rflags;
 
-	HelX86SegmentRegister cs, ds, es, fs, gs, ss;
-	HelX86SegmentRegister tr, ldt;
-	HelX86DescriptorTable gdt, idt;
+	struct HelX86SegmentRegister cs, ds, es, fs, gs, ss;
+	struct HelX86SegmentRegister tr, ldt;
+	struct HelX86DescriptorTable gdt, idt;
 
 	uint64_t cr0, cr2, cr3, cr4, cr8;
 	uint64_t efer;
@@ -497,10 +497,10 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle ha
 //! size_shift:    Size of the indexQueue array.
 //! element_limit: Maximum size of a single element in bytes.
 //!                Does not include the per-element HelElement header.
-HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags,
+HEL_C_LINKAGE HelError helCreateQueue(struct HelQueue *head, uint32_t flags,
 		unsigned int size_shift, size_t element_limit, HelHandle *handle);
 
-HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, HelChunk *chunk, uint32_t flags);
+HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, struct HelChunk *chunk, uint32_t flags);
 
 //! Cancels an ongoing asynchronous operation.
 //! @param[in] queueHandle
@@ -754,7 +754,7 @@ HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle spaceHandle
 //!     Handle to the thread.
 //! @param[out] stats
 //!     Statistics related to the thread.
-HEL_C_LINKAGE HelError helQueryThreadStats(HelHandle handle, HelThreadStats *stats);
+HEL_C_LINKAGE HelError helQueryThreadStats(HelHandle handle, struct HelThreadStats *stats);
 
 //! Set the priority of a thread.
 //!
@@ -838,7 +838,7 @@ HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
 
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
-HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *reason);
+HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitReason *reason);
 
 HEL_C_LINKAGE HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize);
 
@@ -870,7 +870,7 @@ HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 //!     Pointer to array of message items.
 //! @param[in] count
 //!     Number of elements in @p actions.
-HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
+HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const struct HelAction *actions,
 		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
 
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
@@ -957,7 +957,7 @@ HEL_C_LINKAGE HelError helEnableFullIo();
 //! @param[out] boundHandle
 //!     Handle to the bound kernlet.
 HEL_C_LINKAGE HelError helBindKernlet(HelHandle handle,
-		const HelKernletData *data, size_t numData, HelHandle *boundHandle);
+		const union HelKernletData *data, size_t numData, HelHandle *boundHandle);
 
 //! @}
 
