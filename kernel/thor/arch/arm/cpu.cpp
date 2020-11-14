@@ -154,12 +154,34 @@ smarter::borrowed_ptr<Thread> activeExecutor() {
 
 PlatformCpuData::PlatformCpuData() { }
 
-void enableUserAccess() { assert(!"Not implemented"); }
-void disableUserAccess() { assert(!"Not implemented"); }
-bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor) { assert(!"Not implemented"); return false; }
+// TODO: support PAN?
+void enableUserAccess() { }
+void disableUserAccess() { }
 
-bool intsAreAllowed() { assert(!"Not implemented"); return false; }
-void allowInts() { assert(!"Not implemented"); }
+bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor) {
+	if(inHigherHalf(address))
+		return false;
+
+	auto uar = getCpuData()->currentUar;
+	if(!uar)
+		return false;
+
+	auto ip = *accessor.ip();
+	if(!(ip >= reinterpret_cast<uintptr_t>(uar->startIp)
+			&& ip < reinterpret_cast<uintptr_t>(uar->endIp)))
+		return false;
+
+	if(write) {
+		if(!(uar->flags & uarWrite))
+			return false;
+	}else{
+		if(!(uar->flags & uarRead))
+			return false;
+	}
+
+	*accessor.ip() = reinterpret_cast<Word>(uar->faultIp);
+	return true;
+}
 
 void doRunDetached(void (*function) (void *, void *), void *argument) {
 	assert(!intsAreEnabled());

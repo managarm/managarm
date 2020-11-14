@@ -318,9 +318,6 @@ void enableUserAccess();
 void disableUserAccess();
 bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor);
 
-bool intsAreAllowed();
-void allowInts();
-
 template<typename F, typename... Args>
 void runDetached(F functor, Args... args) {
 	struct Context {

@@ -68,6 +68,8 @@ void handleSyscall(SyscallImageAccessor image);
 extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	auto ec = *image.code() >> 26;
 
+	enableInts();
+
 	switch (ec) {
 		case 0x20: // Instruction abort, lower EL
 		case 0x21: // Instruction abort, same EL
@@ -95,6 +97,8 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 				<< "syndrome: 0x" << frg::hex_fmt(*image.code())
 				<< "saved state: 0x" << frg::hex_fmt(*image.rflags()) << frg::endlog;
 	}
+
+	disableInts();
 }
 
 extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
