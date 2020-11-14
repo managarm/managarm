@@ -44,33 +44,20 @@ struct FaultImageAccessor;
 struct SyscallImageAccessor {
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
-	// TODO
-	Word *number() { return nullptr; }
-	// TODO
-	Word *in0() { return nullptr; }
-	// TODO
-	Word *in1() { return nullptr; }
-	// TODO
-	Word *in2() { return nullptr; }
-	// TODO
-	Word *in3() { return nullptr; }
-	// TODO
-	Word *in4() { return nullptr; }
-	// TODO
-	Word *in5() { return nullptr; }
-	// TODO
-	Word *in6() { return nullptr; }
-	// TODO
-	Word *in7() { return nullptr; }
-	// TODO
-	Word *in8() { return nullptr; }
+	Word *number() { return &_frame()->x[0]; }
+	Word *in0() { return &_frame()->x[1]; }
+	Word *in1() { return &_frame()->x[2]; }
+	Word *in2() { return &_frame()->x[3]; }
+	Word *in3() { return &_frame()->x[4]; }
+	Word *in4() { return &_frame()->x[5]; }
+	Word *in5() { return &_frame()->x[6]; }
+	Word *in6() { return &_frame()->x[7]; }
+	Word *in7() { return &_frame()->x[8]; }
+	Word *in8() { return &_frame()->x[9]; }
 
-	// TODO
-	Word *error() { return nullptr; }
-	// TODO
-	Word *out0() { return nullptr; }
-	// TODO
-	Word *out1() { return nullptr; }
+	Word *error() { return &_frame()->x[0]; }
+	Word *out0() { return &_frame()->x[1]; }
+	Word *out1() { return &_frame()->x[2]; }
 
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
@@ -96,6 +83,8 @@ struct FaultImageAccessor {
 	// TODO: this should have a different name
 	Word *rflags() { return &_frame()->spsr; }
 	Word *code() { return &_frame()->esr ; }
+
+	Word *faultAddr() { return &_frame()->far; }
 
 	bool inKernelDomain() {
 		return (_frame()->spsr & 0b1111) != 0b0000;
@@ -234,19 +223,13 @@ struct Executor {
 
 	Word *ip() { return &general()->elr; }
 	Word *sp() { return &general()->sp; }
-	// TODO
 	Word *cs() { return nullptr; }
-	// TODO
 	Word *ss() { return nullptr; }
 
-	// TODO
-	Word *arg0() { return nullptr; }
-	// TODO
-	Word *arg1() { return nullptr; }
-	// TODO
-	Word *result0() { return nullptr; }
-	// TODO
-	Word *result1() { return nullptr; }
+	Word *arg0() { return &general()->x[1]; }
+	Word *arg1() { return &general()->x[2]; }
+	Word *result0() { return &general()->x[0]; }
+	Word *result1() { return &general()->x[1]; }
 
 	Frame *general() {
 		return reinterpret_cast<Frame *>(_pointer);
