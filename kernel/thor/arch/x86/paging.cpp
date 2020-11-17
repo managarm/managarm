@@ -978,6 +978,10 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	return tbl1[index1].load() & kPagePresent;
 }
 
+bool ClientPageSpace::updatePageAccess(VirtualAddr) {
+	return false;
+}
+
 ClientPageSpace::Walk::Walk(ClientPageSpace *space)
 : _space{space} {
 	irqMutex().lock();

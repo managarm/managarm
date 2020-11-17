@@ -59,11 +59,23 @@ namespace {
 
 		return errorCode;
 	}
+
+	bool updatePageAccess(FaultImageAccessor image, Word error) {
+		if ((error & kPfWrite) && (error & kPfAccess) && !inHigherHalf(*image.faultAddr())) {
+			// Check if it's just a writable page that's not dirty yet
+			smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
+			return this_thread->getAddressSpace()->updatePageAccess(*image.faultAddr() & ~(kPageSize - 1));
+		}
+
+		return false;
+	}
 } // namespace anonymous
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleSyscall(SyscallImageAccessor image);
+
+constexpr bool logUpdatePageAccess = false;
 
 extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	auto ec = *image.code() >> 26;
@@ -74,10 +86,21 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 		case 0x20: // Instruction abort, lower EL
 		case 0x21: // Instruction abort, same EL
 		case 0x24: // Data abort, lower EL
-		case 0x25: // Data abort, same EL
-			handlePageFault(image, *image.faultAddr(),
-					mmuAbortError(*image.code()));
+		case 0x25: { // Data abort, same EL
+			auto error = mmuAbortError(*image.code());
+			if (updatePageAccess(image, error)) {
+				if constexpr (logUpdatePageAccess) {
+					infoLogger() << "thor: updated page "
+						<< (void *)(*image.faultAddr() & ~(kPageSize - 1))
+						<< " status on access" << frg::endlog;
+				}
+
+				break;
+			}
+
+			handlePageFault(image, *image.faultAddr(), error);
 			break;
+		}
 		case 0x15: // Trapped SVC in AArch64
 			handleSyscall(image);
 			break;

@@ -76,6 +76,7 @@ static inline constexpr uint64_t kPageTable = (1 << 1);
 static inline constexpr uint64_t kPageL3Page = (1 << 1);
 static inline constexpr uint64_t kPageXN = (uint64_t(1) << 54);
 static inline constexpr uint64_t kPagePXN = (uint64_t(1) << 53);
+static inline constexpr uint64_t kPageShouldBeWritable = (uint64_t(1) << 55);
 static inline constexpr uint64_t kPageNotGlobal = (1 << 11);
 static inline constexpr uint64_t kPageAccess = (1 << 10);
 static inline constexpr uint64_t kPageRO = (1 << 7);
@@ -337,10 +338,10 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bo
 	}
 	tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
 
-	uint64_t new_entry = physical | kPageValid | kPageL3Page | kPageAccess;
+	uint64_t new_entry = physical | kPageValid | kPageL3Page | kPageAccess | kPageRO;
 
-	if (!(flags & page_access::write))
-		new_entry |= kPageRO;
+	if (flags & page_access::write)
+		new_entry |= kPageShouldBeWritable;
 	if (!(flags & page_access::execute))
 		new_entry |= kPageXN | kPagePXN;
 	if (user_page)
@@ -493,22 +494,89 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	accessor0 = PageAccessor{rootTable()};
 	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
 
-	if(!(tbl0[index0].load() & kPageValid))
+	if (tbl0[index0].load() & kPageValid) {
+		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
+		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+	} else {
 		return false;
-	accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
-	tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+	}
 
-	if(!(tbl1[index1].load() & kPageValid))
+	if (tbl1[index1].load() & kPageValid) {
+		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
+		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+	} else {
 		return false;
-	accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
-	tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+	}
 
-	if(!(tbl2[index2].load() & kPageValid))
+	if (tbl2[index2].load() & kPageValid) {
+		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
+		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
+	} else {
 		return false;
-	accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
-	tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+	}
 
 	return tbl3[index3].load() & kPageValid;
+}
+
+bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) {
+	assert(!(pointer & (kPageSize - 1)));
+
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	PageAccessor accessor0;
+	PageAccessor accessor1;
+	PageAccessor accessor2;
+	PageAccessor accessor3;
+
+	arch::scalar_variable<uint64_t> *tbl0;
+	arch::scalar_variable<uint64_t> *tbl1;
+	arch::scalar_variable<uint64_t> *tbl2;
+	arch::scalar_variable<uint64_t> *tbl3;
+
+	auto index0 = (int)((pointer >> 39) & 0x1FF);
+	auto index1 = (int)((pointer >> 30) & 0x1FF);
+	auto index2 = (int)((pointer >> 21) & 0x1FF);
+	auto index3 = (int)((pointer >> 12) & 0x1FF);
+
+	accessor0 = PageAccessor{rootTable()};
+	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
+
+	if (tbl0[index0].load() & kPageValid) {
+		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
+		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+	} else {
+		return false;
+	}
+
+	if (tbl1[index1].load() & kPageValid) {
+		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
+		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+	} else {
+		return false;
+	}
+
+	if (tbl2[index2].load() & kPageValid) {
+		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
+		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
+	} else {
+		return false;
+	}
+
+	auto bits = tbl3[index3].load();
+	if (!(bits & kPageValid))
+		return false;
+
+	if (!(bits & kPageRO) || !(bits & kPageShouldBeWritable))
+		return false;
+
+	bits &= ~kPageRO;
+	tbl3[index3].store(bits);
+
+	// TODO: perform proper shootdown to update mapping
+	asm volatile ("isb; tlbi vae1is, %0; dsb sy; isb" :: "r"(pointer) : "memory");
+
+	return true;
 }
 
 }

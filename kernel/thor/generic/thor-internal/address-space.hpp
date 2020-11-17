@@ -929,6 +929,10 @@ public:
 
 	Futex futexSpace;
 
+	bool updatePageAccess(VirtualAddr address) {
+		return pageSpace_.updatePageAccess(address);
+	}
+
 private:
 	Operations ops_;
 	ClientPageSpace pageSpace_;

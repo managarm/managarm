@@ -345,6 +345,7 @@ public:
 	PageStatus unmapSingle4k(VirtualAddr pointer);
 	PageStatus cleanSingle4k(VirtualAddr pointer);
 	bool isMapped(VirtualAddr pointer);
+	bool updatePageAccess(VirtualAddr pointer);
 
 private:
 	frg::ticket_spinlock _mutex;
