@@ -344,7 +344,6 @@ public:
 			uint32_t flags, CachingMode caching_mode);
 	PageStatus unmapSingle4k(VirtualAddr pointer);
 	PageStatus cleanSingle4k(VirtualAddr pointer);
-	void unmapRange(VirtualAddr pointer, size_t size, PageMode mode);
 	bool isMapped(VirtualAddr pointer);
 
 private:

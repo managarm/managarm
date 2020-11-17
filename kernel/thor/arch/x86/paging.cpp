@@ -932,61 +932,6 @@ PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
 	return status;
 }
 
-void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode) {
-	assert(!(pointer & (kPageSize - 1)));
-	assert(!(size & (kPageSize - 1)));
-
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor4;
-	PageAccessor accessor3;
-	PageAccessor accessor2;
-	PageAccessor accessor1;
-
-	arch::scalar_variable<uint64_t> *tbl4;
-	arch::scalar_variable<uint64_t> *tbl3;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl1;
-
-	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto index4 = (int)(((pointer + progress) >> 39) & 0x1FF);
-		auto index3 = (int)(((pointer + progress) >> 30) & 0x1FF);
-		auto index2 = (int)(((pointer + progress) >> 21) & 0x1FF);
-		auto index1 = (int)(((pointer + progress) >> 12) & 0x1FF);
-
-		// The PML4 is always present.
-		accessor4 = PageAccessor{rootTable()};
-		tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
-
-		// Find the PDPT.
-		if(mode == PageMode::remap && !(tbl4[index4].load() & kPagePresent))
-			continue;
-		assert(tbl4[index4].load() & kPagePresent);
-		accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
-		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-
-		// Find the PD.
-		if(mode == PageMode::remap && !(tbl3[index3].load() & kPagePresent))
-			continue;
-		assert(tbl3[index3].load() & kPagePresent);
-		accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
-		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-
-		// Find the PT.
-		if(mode == PageMode::remap && !(tbl2[index2].load() & kPagePresent))
-			continue;
-		assert(tbl2[index2].load() & kPagePresent);
-		accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
-		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-
-		if(mode == PageMode::remap && !(tbl1[index1].load() & kPagePresent))
-			continue;
-		assert(tbl1[index1].load() & kPagePresent);
-		tbl1[index1].store(0);
-	}
-}
-
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 

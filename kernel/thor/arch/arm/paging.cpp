@@ -40,7 +40,7 @@ void GlobalPageBinding::shootdown() { assert(!"Not implemented"); }
 
 void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
 	// TODO: use ASIDs (like PCIDs on x86)
-	asm volatile ("msr ttbr0_el1, %0; isb; tlbi aside1, %1; dsb sy; isb" :: "r" (space->_rootTable), "r"(uint64_t{0}));
+	asm volatile ("msr ttbr0_el1, %0; isb; tlbi aside1, %1; dsb sy; isb" :: "r" (space->_rootTable), "r"(uint64_t{0}) : "memory");
 }
 
 PageSpace::PageSpace(PhysicalAddr root_table)
@@ -354,9 +354,120 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bo
 
 	tbl3[index3].store(new_entry);
 }
-PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) { assert(!"Not implemented"); return 0;  }
-PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) { assert(!"Not implemented"); return 0;  }
-void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode) { assert(!"Not implemented"); }
+
+PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
+	assert(!(pointer & (kPageSize - 1)));
+
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	PageAccessor accessor0;
+	PageAccessor accessor1;
+	PageAccessor accessor2;
+	PageAccessor accessor3;
+
+	arch::scalar_variable<uint64_t> *tbl0;
+	arch::scalar_variable<uint64_t> *tbl1;
+	arch::scalar_variable<uint64_t> *tbl2;
+	arch::scalar_variable<uint64_t> *tbl3;
+
+	auto index0 = (int)((pointer >> 39) & 0x1FF);
+	auto index1 = (int)((pointer >> 30) & 0x1FF);
+	auto index2 = (int)((pointer >> 21) & 0x1FF);
+	auto index3 = (int)((pointer >> 12) & 0x1FF);
+
+	accessor0 = PageAccessor{rootTable()};
+	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
+
+	if (tbl0[index0].load() & kPageValid) {
+		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
+		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+	} else {
+		return 0;
+	}
+
+	if (tbl1[index1].load() & kPageValid) {
+		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
+		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+	} else {
+		return 0;
+	}
+
+	if (tbl2[index2].load() & kPageValid) {
+		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
+		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
+	} else {
+		return 0;
+	}
+
+	auto bits = tbl3[index3].atomic_exchange(0);
+	if (!(bits & kPageValid))
+		return 0;
+
+	PageStatus ps = page_status::present;
+	if ((bits & kPageShouldBeWritable) && !(bits & kPageRO))
+		ps |= page_status::dirty;
+
+	return ps;
+}
+
+PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
+	assert(!(pointer & (kPageSize - 1)));
+
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	PageAccessor accessor0;
+	PageAccessor accessor1;
+	PageAccessor accessor2;
+	PageAccessor accessor3;
+
+	arch::scalar_variable<uint64_t> *tbl0;
+	arch::scalar_variable<uint64_t> *tbl1;
+	arch::scalar_variable<uint64_t> *tbl2;
+	arch::scalar_variable<uint64_t> *tbl3;
+
+	auto index0 = (int)((pointer >> 39) & 0x1FF);
+	auto index1 = (int)((pointer >> 30) & 0x1FF);
+	auto index2 = (int)((pointer >> 21) & 0x1FF);
+	auto index3 = (int)((pointer >> 12) & 0x1FF);
+
+	accessor0 = PageAccessor{rootTable()};
+	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
+
+	if (tbl0[index0].load() & kPageValid) {
+		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
+		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+	} else {
+		return 0;
+	}
+
+	if (tbl1[index1].load() & kPageValid) {
+		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
+		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+	} else {
+		return 0;
+	}
+
+	if (tbl2[index2].load() & kPageValid) {
+		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
+		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
+	} else {
+		return 0;
+	}
+
+	auto bits = tbl3[index3].load();
+	if (!(bits & kPageValid))
+		return 0;
+
+	PageStatus ps = page_status::present;
+	if ((bits & kPageShouldBeWritable) && !(bits & kPageRO)) {
+		ps |= page_status::dirty;
+		tbl3[index3].atomic_exchange(bits & ~kPageRO);
+	}
+
+	return ps;
+}
 
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
