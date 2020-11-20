@@ -290,7 +290,7 @@ getStats(std::shared_ptr<void> object) {
 	co_await self->readyJump.async_wait();
 
 	protocols::fs::FileStats stats;
-	stats.linkCount = self->numLinks;
+	stats.linkCount = self->diskInode()->linksCount;
 	stats.fileSize = self->fileSize();
 	stats.mode = self->diskInode()->mode & 0xFFF;
 	stats.uid = self->uid;

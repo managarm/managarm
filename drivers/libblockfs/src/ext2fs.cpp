@@ -737,7 +737,6 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 		abort();
 	}
 
-	inode->numLinks = disk_inode->linksCount;
 	// TODO: support large uid / gids
 	inode->uid = disk_inode->uid;
 	inode->gid = disk_inode->gid;
