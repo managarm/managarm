@@ -6,6 +6,10 @@
 
 #include <frg/optional.hpp>
 
+namespace {
+	constexpr bool enableBuddySanityChecking = false;
+}
+
 struct BuddyAccessor {
 	using AddressType = uint64_t;
 
@@ -29,6 +33,57 @@ private:
 				freeOrder = slice[base + i];
 		}
 		return freeOrder;
+	}
+
+	int traverseForSanityCheck(int8_t *slice, int order, size_t base) {
+		assert(slice[base] >= -1);
+		assert(slice[base] <= order);
+
+		if(!order)
+			return slice[base];
+
+		if(slice[base] == -1) {
+			// All descendents are either:
+			// - marked as free (if this entry is allocated and we never descend further),
+			// - or marked as used (if they are all allocated).
+			bool allFree = true;
+			bool allUsed = true;
+			for(size_t i = 0; i < 2; ++i) {
+				int k = traverseForSanityCheck(slice + (size_t(numRoots_) << (tableOrder_ - order)),
+						order - 1, 2 * base + i);
+				if(k != order - 1)
+					allFree = false;
+				if(k != -1)
+					allUsed = false;
+			}
+
+			assert(allFree || allUsed);
+			return -1;
+		}else{
+			int freeOrder = -1;
+			bool allFree = true;
+			for(size_t i = 0; i < 2; ++i) {
+				int k = traverseForSanityCheck(slice + (size_t(numRoots_) << (tableOrder_ - order)),
+						order - 1, 2 * base + i);
+				if(k != order - 1)
+					allFree = false;
+
+				assert(slice[base] >= k);
+				if(freeOrder < k)
+					freeOrder = k;
+			}
+
+			// Either:
+			// - all descedants are completely free (and then this entry is also completely free),
+			// - or there is at least one partially free descendant.
+			if(allFree) {
+				assert(slice[base] == order);
+				return order;
+			}else{
+				assert(slice[base] == freeOrder);
+				return freeOrder;
+			}
+		}
 	}
 
 public:
@@ -73,6 +128,9 @@ public:
 		assert(order >= 0);
 		if(order > tableOrder_)
 			return illegalAddress;
+
+		if(enableBuddySanityChecking)
+			sanityCheck();
 
 		int currentOrder = tableOrder_;
 		int8_t *slice = buddyPointer_;
@@ -132,12 +190,18 @@ public:
 		AddressType physical = _baseAddress + (allocIndex << (order + _sizeShift));
 		if(addressBits < static_cast<int>(sizeof(AddressType) * 8))
 			assert(!(physical >> addressBits));
+
+		if(enableBuddySanityChecking)
+			sanityCheck();
+
 		return physical;
 	}
 
 	void free(AddressType address, int order) {
 		assert(address >= _baseAddress);
 		assert(order >= 0 && order <= tableOrder_);
+		if(enableBuddySanityChecking)
+			sanityCheck();
 
 		AddressType index = (address - _baseAddress) >> _sizeShift;
 		assert(index % (size_t(1) << order) == 0);
@@ -165,6 +229,14 @@ public:
 			slice -= size_t(numRoots_) << (tableOrder_ - currentOrder);
 			slice[updateIndex] = freeOrder;
 		}
+
+		if(enableBuddySanityChecking)
+			sanityCheck();
+	}
+
+	void sanityCheck() {
+		for(size_t i = 0; i < size_t(numRoots_); ++i)
+			traverseForSanityCheck(buddyPointer_, tableOrder_, i);
 	}
 
 private:
