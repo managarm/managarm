@@ -66,7 +66,7 @@ endif
 if get_option('build_drivers')
 	bakesvr = find_program('bakesvr')
 
-	add_project_arguments('-fcoroutines-ts', language: 'cpp')
+	add_project_arguments('-fcoroutines-ts', '-DLIBASYNC_FORCE_USE_EXPERIMENTAL', language: 'cpp')
 
 	cxxshim = subproject('cxxshim')
 	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
