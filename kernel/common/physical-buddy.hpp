@@ -98,7 +98,7 @@ public:
 	// Determines the size required for the buddy allocator in bytes.
 	static size_t determineSize(AddressType numRoots, int tableOrder) {
 		size_t size = 0;
-		for(int order = 0; order < tableOrder; order++)
+		for(int order = 0; order <= tableOrder; order++)
 			size += size_t(numRoots) << (tableOrder - order);
 		return size;
 	}
@@ -129,7 +129,7 @@ public:
 		if(order > tableOrder_)
 			return illegalAddress;
 
-		if(enableBuddySanityChecking)
+		if constexpr (enableBuddySanityChecking)
 			sanityCheck();
 
 		int currentOrder = tableOrder_;
@@ -155,7 +155,8 @@ public:
 				slice += size_t(numRoots_) << (tableOrder_ - currentOrder);
 				currentOrder--;
 			}
-			eligibleRoots = addressableRange >> (currentOrder + _sizeShift);
+			eligibleRoots = std::min(addressableRange >> (currentOrder + _sizeShift),
+					AddressType(numRoots_) << (tableOrder_ - currentOrder));
 			assert(eligibleRoots);
 		}
 
@@ -175,6 +176,8 @@ public:
 		// Here we perform the actual allocation.
 		assert(slice[allocIndex] == order);
 		slice[allocIndex] = -1;
+		if constexpr (enableBuddySanityChecking)
+			assert(slice + allocIndex < buddyPointer_ + determineSize(numRoots_, tableOrder_));
 
 		// Second phase: Ascent to the tableOrder.
 		// In this phase we fix all superior elements.
@@ -191,7 +194,7 @@ public:
 		if(addressBits < static_cast<int>(sizeof(AddressType) * 8))
 			assert(!(physical >> addressBits));
 
-		if(enableBuddySanityChecking)
+		if constexpr (enableBuddySanityChecking)
 			sanityCheck();
 
 		return physical;
@@ -200,7 +203,7 @@ public:
 	void free(AddressType address, int order) {
 		assert(address >= _baseAddress);
 		assert(order >= 0 && order <= tableOrder_);
-		if(enableBuddySanityChecking)
+		if constexpr (enableBuddySanityChecking)
 			sanityCheck();
 
 		AddressType index = (address - _baseAddress) >> _sizeShift;
@@ -230,7 +233,7 @@ public:
 			slice[updateIndex] = freeOrder;
 		}
 
-		if(enableBuddySanityChecking)
+		if constexpr (enableBuddySanityChecking)
 			sanityCheck();
 	}
 
