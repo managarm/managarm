@@ -2087,7 +2087,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto file = self->fileContext()->getFile(req->fd());
 			if(!file) {
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
 

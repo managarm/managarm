@@ -231,7 +231,6 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	FileType fileType;
 
-	int numLinks; // number of links to this file
 	int uid, gid;
 	FlockManager flockManager;
 
