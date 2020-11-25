@@ -2,6 +2,7 @@
 #include <frg/optional.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/vector.hpp>
+#include <eir/interface.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
@@ -233,6 +234,8 @@ void dumpMadt() {
 void *globalRsdtWindow;
 int globalRsdtVersion;
 
+extern "C" EirInfo *thorBootInfoPtr;
+
 initgraph::Stage *getTablesDiscoveredStage() {
 	static initgraph::Stage s{&basicInitEngine, "acpi.tables-discovered"};
 	return &s;
@@ -242,8 +245,22 @@ static initgraph::Task initTablesTask{&basicInitEngine, "acpi.init-tables",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
 		lai_rsdp_info rsdp_info;
-		if(lai_bios_detect_rsdp(&rsdp_info))
-			panicLogger() << "thor: Could not detect ACPI" << frg::endlog;
+		if(thorBootInfoPtr->acpiRsdt) {
+			if(thorBootInfoPtr->acpiRevision == 1) {
+				rsdp_info.acpi_version = 1;
+				rsdp_info.rsdt_address = thorBootInfoPtr->acpiRsdt;
+				rsdp_info.xsdt_address = 0;
+			} else if(thorBootInfoPtr->acpiRevision == 2) {
+				rsdp_info.acpi_version = 2;
+				rsdp_info.rsdt_address = 0;
+				rsdp_info.xsdt_address = thorBootInfoPtr->acpiRsdt;
+			} else {
+				panicLogger() << "thor: Got unknown acpi version from multiboot2: " << thorBootInfoPtr->acpiRevision << frg::endlog;
+			}
+		} else {
+			if(lai_bios_detect_rsdp(&rsdp_info))
+				panicLogger() << "thor: Could not detect ACPI" << frg::endlog;
+		}
 
 		assert((rsdp_info.acpi_version == 1 || rsdp_info.acpi_version == 2) && "Got unknown acpi version from lai");
 		globalRsdtVersion = rsdp_info.acpi_version;

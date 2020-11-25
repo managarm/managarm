@@ -51,4 +51,7 @@ struct EirInfo {
 	EirSize dtbSize;
 
 	EirFramebuffer frameBuffer;
+
+	uint64_t acpiRsdt;
+	uint64_t acpiRevision;
 };
