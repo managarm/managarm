@@ -13,7 +13,13 @@ void initializeIrqVectors() {
 	asm volatile ("msr vbar_el1, %0" :: "r"(&thorExcVectors));
 }
 
-void suspendSelf() { assert(!"Not implemented"); }
+extern "C" void enableIntsAndHaltForever();
+
+void suspendSelf() {
+	assert(!intsAreEnabled());
+	getCpuData()->currentDomain = static_cast<uint64_t>(Domain::idle);
+	enableIntsAndHaltForever();
+}
 
 extern frg::manual_box<GicDistributor> dist;
 

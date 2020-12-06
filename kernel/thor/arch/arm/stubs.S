@@ -230,6 +230,25 @@ doForkExecutor:
 	mov x4, sp
 	str x4, [x0, #248]
 
+	// Set new PSTATE
+	mov x4, #5
+	mrs x5, daif
+	lsl x5, x5, #6
+	orr x4, x4, x5
+	str x4, [x0, #264]
+
+	// Set new domain
+	mrs x4, tpidr_el1
+	ldr x4, [x4, #8]
+	str x4, [x0, #288]
+
 	mov x0, x2
 	blr x1
 	udf 0
+
+.global enableIntsAndHaltForever
+enableIntsAndHaltForever:
+	msr daifclr, #15
+1:
+	wfi
+	b 1b
