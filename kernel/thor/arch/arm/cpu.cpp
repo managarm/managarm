@@ -196,15 +196,15 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 			UniqueKernelStack::kSize);
 
 	asm volatile (
-			"\tmov x2, sp\n"
+			"\tmov x28, sp\n"
 			"\tmov x1, sp\n"
 			"\tmov x0, %0\n"
 			"\tmov sp, %2\n"
 			"\tblr %1\n"
-			"\tmov sp, x3\n"
+			"\tmov sp, x28\n"
 			:
 			: "r" (argument), "r" (function), "r" (stackPtr)
-			: "x2", "x1", "x0", "memory");
+			: "x30", "x28", "x1", "x0", "memory");
 }
 
 void bootSecondary(unsigned int apic_id) { assert(!"Not implemented"); }
