@@ -41,6 +41,11 @@ eirEntry:
 	orr x0, x0, #(1 << 1)
 	msr hcr_el2, x0
 
+	// Don't trap FP/SIMD to EL2
+	mov x0, #0x33FF
+	msr cptr_el2, x0
+	msr hstr_el2, xzr
+
 	// Load vector table
 	.extern eirExcVectors
 	ldr x0, =eirExcVectors

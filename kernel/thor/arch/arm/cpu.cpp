@@ -251,6 +251,9 @@ extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 void initializeThisProcessor() {
 	auto cpu_data = getCpuData();
 
+	// Enable FPU
+	asm volatile ("msr cpacr_el1, %0" :: "r"(uint64_t(0b11 << 20)));
+
 	cpu_data->cpuIndex = allCpuContexts->size();
 	allCpuContexts->push(cpu_data);
 
