@@ -22,6 +22,10 @@ constexpr Word kPfUser = 4;
 constexpr Word kPfBadTable = 8;
 constexpr Word kPfInstruction = 16;
 
+void invalidatePage(const void *address);
+void invalidateAsid(int asid);
+void invalidatePage(int pcid, const void *address);
+
 struct PageAccessor {
 	friend void swap(PageAccessor &a, PageAccessor &b) {
 		using std::swap;
@@ -114,10 +118,10 @@ struct PageContext {
 	PageContext &operator= (const PageContext &) = delete;
 
 private:
-	// Timestamp for the LRU mechansim of PCIDs.
+	// Timestamp for the LRU mechansim of ASIDs.
 	uint64_t _nextStamp;
 
-	// Current primary binding (i.e. the currently active PCID).
+	// Current primary binding (i.e. the currently active ASID).
 	PageBinding *_primaryBinding;
 };
 
@@ -130,6 +134,15 @@ struct PageBinding {
 
 	smarter::shared_ptr<PageSpace> boundSpace() {
 		return _boundSpace;
+	}
+
+	void setupAsid(int asid) {
+		assert(!_asid);
+		_asid = asid;
+	}
+
+	int getAsid() {
+		return _asid;
 	}
 
 	uint64_t primaryStamp() {
@@ -147,6 +160,8 @@ struct PageBinding {
 	void shootdown();
 
 private:
+	int _asid;
+
 	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
 	//       to the PageSpace that does *not* prevent the PageSpace from becoming
 	//       "activatable".

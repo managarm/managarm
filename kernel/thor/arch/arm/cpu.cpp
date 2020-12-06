@@ -152,7 +152,10 @@ smarter::borrowed_ptr<Thread> activeExecutor() {
 	return getCpuData()->activeExecutor;
 }
 
-PlatformCpuData::PlatformCpuData() { }
+PlatformCpuData::PlatformCpuData() {
+	for(int i = 0; i < maxAsid; i++)
+		asidBindings[i].setupAsid(i);
+}
 
 // TODO: support PAN?
 void enableUserAccess() { }

@@ -110,6 +110,10 @@ void GicDistributor::sendIpi(uint8_t cpu, uint8_t id) {
 	space_.store(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::cpuTargetList(1 << cpu) | dist_sgi::targetListFilter(0));
 }
 
+void GicDistributor::sendIpiToOthers(uint8_t id) {
+	space_.store(dist_reg::sgi, dist_sgi::sgiNo(id) | dist_sgi::targetListFilter(1));
+}
+
 frg::string<KernelAlloc> GicDistributor::buildPinName(uint32_t irq) {
 	return frg::string<KernelAlloc>{*kernelAlloc, "gic@0x"}
 			+ frg::to_allocated_string(*kernelAlloc, base_, 16)

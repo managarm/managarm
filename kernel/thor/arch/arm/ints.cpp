@@ -24,6 +24,10 @@ void sendPingIpi(int id) {
 	dist->sendIpi(id, 0);
 }
 
+void sendShootdownIpi() {
+	dist->sendIpiToOthers(1);
+}
+
 extern "C" void onPlatformInvalidException(FaultImageAccessor image) {
 	thor::panicLogger() << "thor: an invalid exception has occured" << frg::endlog;
 }
@@ -144,7 +148,16 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 			infoLogger() << "thor: onPlatformIrq: got a SGI (no. " << irq << ") that originated from cpu " << cpu << frg::endlog;
 
 		cpuInterface->eoi(cpu, irq);
-		handlePreemption(image);
+		if (irq == 0) {
+			handlePreemption(image);
+		} else {
+			assert(irq == 1);
+			assert(!irqMutex().nesting());
+			disableUserAccess();
+
+			for(int i = 0; i < maxAsid; i++)
+				getCpuData()->asidBindings[i].shootdown();
+		}
 		return;
 	}
 

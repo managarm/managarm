@@ -287,6 +287,8 @@ struct AssemblyCpuData {
 	UserAccessRegion *currentUar;
 };
 
+static inline constexpr size_t maxAsid = 256;
+
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
@@ -296,6 +298,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack detachedStack;
 
 	PageContext pageContext;
+	PageBinding asidBindings[maxAsid];
 	GlobalPageBinding globalBinding;
 
 	uint32_t profileFlags = 0;

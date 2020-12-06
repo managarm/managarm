@@ -13,6 +13,7 @@ struct GicDistributor {
 	void init();
 	void initOnThisCpu();
 	void sendIpi(uint8_t cpu, uint8_t id);
+	void sendIpiToOthers(uint8_t id);
 
 	frg::string<KernelAlloc> buildPinName(uint32_t irq);
 
