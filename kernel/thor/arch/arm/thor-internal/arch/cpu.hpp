@@ -29,7 +29,7 @@ struct Frame {
 	uint64_t esr;
 	uint64_t far;
 	Domain domain;
-	uint64_t unused;
+	uint64_t tpidr_el0;
 };
 static_assert(sizeof(Frame) == 304, "Invalid exception frame size");
 

@@ -107,11 +107,19 @@ thorExcVectors:
 	mov x1, \domain
 	str x1, [x0, #8]
 
+	// Save TPIDR_EL0
+	mrs x0, tpidr_el0
+	str x0, [sp, #296]
+
 	// Enter handler
 	mov x29, xzr
 	mov x0, sp
 
 	bl \handler
+
+	// Restore TPIDR_EL0
+	ldr x0, [sp, #296]
+	msr tpidr_el0, x0
 
 	// Restore domain
 	mrs x0, tpidr_el1
@@ -181,6 +189,10 @@ _restoreExecutorRegisters:
 	b .L1
 .L2:
 	msr sp_el0, x2
+
+	// Restore TPIDR_EL0
+	ldr x1, [x0, #296]
+	msr tpidr_el0, x1
 .L1:
 	// Restore exception state
 	ldr x1, [x0, #256]
@@ -241,6 +253,10 @@ doForkExecutor:
 	mrs x4, tpidr_el1
 	ldr x4, [x4, #8]
 	str x4, [x0, #288]
+
+	// Save TPIDR_EL0
+	mrs x4, tpidr_el0
+	str x4, [x0, #296]
 
 	mov x0, x2
 	blr x1

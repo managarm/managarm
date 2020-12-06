@@ -75,6 +75,7 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->spsr = accessor._frame()->spsr;
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
+	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 }
 
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
@@ -85,6 +86,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->spsr = accessor._frame()->spsr;
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
+	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 }
 
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
@@ -95,6 +97,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->spsr = accessor._frame()->spsr;
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
+	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 }
 
 void workOnExecutor(Executor *executor) { assert(!"Not implemented"); }
