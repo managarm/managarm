@@ -77,10 +77,6 @@ void createInitialRegion(address_t base, address_t size) {
 
 void createInitialRegions(InitialRegion region, frg::span<InitialRegion> reserved) {
 	if (!reserved.size()) {
-		if (region.size < 0x8000000) {
-			infoLogger() << "eir: warning: Not creating a region with size <0x8000000" << frg::endlog;
-			return;
-		}
 		createInitialRegion((region.base + 0xFFF) & ~0xFFF, region.size & ~0xFFF);
 	} else {
 		auto rsv = reserved.data()[0];
