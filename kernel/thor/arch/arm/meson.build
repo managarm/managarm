@@ -13,7 +13,6 @@ thor_sources += files(
 	'../../system/dtb/dtb.cpp'
 )
 
-thor_includes += include_directories('/usr/local/aarch64-none-elf/include/c++/10.1.0')
 thor_includes += include_directories('.')
 
 extra_link_args += [

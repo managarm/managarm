@@ -6,7 +6,6 @@
 #include <frg/span.hpp>
 #include <frg/optional.hpp>
 #include <type_traits>
-#include <concepts>
 
 struct DtbHeader {
 	arch::scalar_storage<uint32_t, arch::big_endian> magic;
@@ -40,8 +39,8 @@ struct DeviceTreeNode;
 
 template <typename T>
 concept DeviceTreeWalker = requires (T t, DeviceTreeNode n) {
-	{ t.push(n) } -> std::same_as<void>;
-	{ t.pop() } -> std::same_as<void>;
+	t.push(n);
+	t.pop();
 };
 
 struct DeviceTree {
