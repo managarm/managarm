@@ -27,11 +27,9 @@ endif
 if get_option('build_kernel')
 	pb2frigg = find_program('pb2frigg')
 
-	# XXX: Put this in the x86_64 cross file instead?
 	if host_machine.cpu_family() == 'x86_64'
 		add_global_arguments(
 			[
-				'-ffreestanding',
 				'-mno-80387',
 				'-mno-mmx',
 				'-mno-sse',
@@ -39,6 +37,14 @@ if get_option('build_kernel')
 			],
 			language: ['c', 'cpp'])
 	endif
+
+
+	add_global_arguments(
+		[
+			'-ffreestanding',
+		],
+		language: ['c', 'cpp'])
+
 	add_global_arguments(['-fno-exceptions', '-fno-rtti'], language: 'cpp')
 
 	add_project_arguments('-fcoroutines-ts', language: 'cpp')
