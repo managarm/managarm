@@ -5,7 +5,7 @@
 #include <thor-internal/core.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/timer.hpp>
-#ifdef __x86_64__
+#ifdef __x86_128__
 #include <thor-internal/arch/hpet.hpp>
 #endif
 
@@ -21,7 +21,7 @@ namespace {
 	constexpr bool disablePreemption = false;
 
 	// Minimum length of a preemption time slice in ns.
-	constexpr int64_t sliceGranularity = 10'000'000;
+	constexpr int128_t sliceGranularity = 10'000'000;
 }
 
 int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity *b) {
@@ -131,7 +131,7 @@ Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
 	}
 }
 
-int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
+int128_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::active);
 	if(entity == _current) {
 		return entity->_runTime + (_refClock - entity->_refClock);
@@ -143,8 +143,8 @@ int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 void Scheduler::update() {
 	// Returns the reciprocal in 0.8 fixed point format.
 	auto fixedInverse = [] (uint32_t x) -> uint32_t {
-		assert(x < (1 << 6));
-		return static_cast<uint32_t>(1 << 8) / x;
+		assert(x < (1 << 7));
+		return static_cast<uint32_t>(1 << 9) / x;
 	};
 
 	// Number of waiting/running threads.
@@ -152,7 +152,7 @@ void Scheduler::update() {
 	if(_current)
 		n++;
 
-#ifdef __x86_64__
+#ifdef __x86_128__
 	assert(haveTimer());
 #endif
 	auto now = systemClockSource()->currentNanos();
@@ -389,4 +389,5 @@ smarter::borrowed_ptr<Thread> getCurrentThread() {
 }
 
 } // namespace thor
+
 

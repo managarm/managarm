@@ -21,7 +21,7 @@ enum class ScheduleState {
 
 // This needs to store a large timeframe.
 // For now, store it as 55.8 0 signed integer nanoseconds.
-using Progress = int64_t;
+using Progress = int128_t;//changed signed int
 
 struct ScheduleEntity {
 	friend struct Scheduler;
@@ -36,8 +36,8 @@ struct ScheduleEntity {
 	~ScheduleEntity();
 
 	ScheduleEntity &operator= (const ScheduleEntity &) = delete;
-
-	uint64_t runTime() {
+//unsigned int
+	uint128_t runTime() {
 		return _runTime;
 	}
 
@@ -53,8 +53,8 @@ private:
 	frg::default_list_hook<ScheduleEntity> listHook;
 	frg::pairing_heap_hook<ScheduleEntity> heapHook;
 
-	uint64_t _refClock;
-	uint64_t _runTime;
+	uint128_t _refClock;
+	uint128_t _runTime;
 
 	// Scheduler::_systemProgress value at some slice T.
 	// Invariant: This entity's state did not change since T.
@@ -93,7 +93,7 @@ struct Scheduler {
 
 private:
 	Progress _liveUnfairness(const ScheduleEntity *entity);
-	int64_t _liveRuntime(const ScheduleEntity *entity);
+	int128_t _liveRuntime(const ScheduleEntity *entity);
 
 public:
 	void update();
@@ -135,10 +135,10 @@ private:
 
 	// The last tick at which the scheduler's state (i.e. progress) was updated.
 	// In our model this is the time point at which slice T started.
-	uint64_t _refClock = 0;
+	uint128_t _refClock = 0;
 
 	// Start of the current timeslice.
-	uint64_t _sliceClock;
+	uint128_t _sliceClock;
 
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
@@ -164,3 +164,4 @@ private:
 Scheduler *localScheduler();
 
 } // namespace thor
+
