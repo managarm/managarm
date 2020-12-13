@@ -74,7 +74,6 @@ void PageBinding::rebind() {
 
 	auto ttbr0 = (uint64_t(_asid) << 48) | _boundSpace->rootTable();
 	asm volatile ("dsb st; msr ttbr0_el1, %0; dsb sy; isb" :: "r" (ttbr0) : "memory");
-//	invalidateAsid(_asid);
 
 	_primaryStamp = context->_nextStamp++;
 	context->_primaryBinding = this;
@@ -107,7 +106,6 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 
 	auto ttbr0 = (uint64_t(_asid) << 48) | _boundSpace->rootTable();
 	asm volatile ("msr ttbr0_el1, %0; isb; dsb sy; isb" :: "r" (ttbr0) : "memory");
-//	invalidateAsid(_asid);
 
 	_primaryStamp = context->_nextStamp++;
 	context->_primaryBinding = this;
@@ -448,7 +446,34 @@ KernelPageSpace &KernelPageSpace::global() {
 KernelPageSpace::KernelPageSpace(PhysicalAddr ttbr1_ptr)
 :ttbr1_{ttbr1_ptr} { }
 
-bool KernelPageSpace::submitShootdown(ShootNode *node) { assert(!"Not implemented"); return false; }
+bool KernelPageSpace::submitShootdown(ShootNode *node) {
+	assert(!(node->address & (kPageSize - 1)));
+	assert(!(node->size & (kPageSize - 1)));
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		auto unshotBindings = _numBindings;
+
+		// Perform synchronous shootdown.
+		assert(unshotBindings);
+		for(size_t pg = 0; pg < node->size; pg += kPageSize)
+			invalidatePage(reinterpret_cast<void *>(node->address + pg));
+		unshotBindings--;
+
+		if(!unshotBindings)
+			return true;
+
+		node->_initiatorCpu = getCpuData();
+		node->_sequence = ++_shootSequence;
+		node->_bindingsToShoot = unshotBindings;
+		_shootQueue.push_back(node);
+	}
+
+	sendShootdownIpi();
+	return false;
+}
 
 static inline constexpr uint64_t kPageValid = 1;
 static inline constexpr uint64_t kPageTable = (1 << 1);
@@ -846,6 +871,8 @@ PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
 		tbl3[index3].atomic_exchange(bits & ~kPageRO);
 	}
 
+	// TODO: perform proper shootdown to update mapping (we updated the RO flag)
+	invalidatePage(reinterpret_cast<void *>(pointer));
 	return ps;
 }
 
