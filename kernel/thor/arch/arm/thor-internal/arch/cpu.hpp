@@ -30,8 +30,13 @@ struct Frame {
 	uint64_t far;
 	Domain domain;
 	uint64_t tpidr_el0;
+
+	// FP/SIMD registers
+	uint64_t v[64]; // V0-V31 are 128 bits
+	uint64_t fpcr;
+	uint64_t fpsr;
 };
-static_assert(sizeof(Frame) == 304, "Invalid exception frame size");
+static_assert(sizeof(Frame) == 832, "Invalid exception frame size");
 
 struct Executor;
 

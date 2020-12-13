@@ -7,6 +7,9 @@
 
 namespace thor {
 
+extern "C" void saveFpSimdRegisters(Frame *frame);
+extern "C" void restoreFpSimdRegisters(Frame *frame);
+
 bool FaultImageAccessor::allowUserPages() {
 	return true;
 }
@@ -28,10 +31,10 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 [[noreturn]] void restoreExecutor(Executor *executor) {
 	getCpuData()->currentDomain = static_cast<uint64_t>(executor->general()->domain);
 	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
+	restoreFpSimdRegisters(executor->general());
 	_restoreExecutorRegisters(executor->general());
 }
 
-// TODO: later on, store the FPU state as well if supported
 size_t Executor::determineSize() {
 	return sizeof(Frame);
 }
@@ -76,6 +79,8 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
+
+	saveFpSimdRegisters(executor->general());
 }
 
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
@@ -87,6 +92,8 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
+
+	saveFpSimdRegisters(executor->general());
 }
 
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
@@ -98,6 +105,8 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
+
+	saveFpSimdRegisters(executor->general());
 }
 
 void workOnExecutor(Executor *executor) { assert(!"Not implemented"); }
