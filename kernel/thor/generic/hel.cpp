@@ -1719,7 +1719,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
-#ifdef __x86_64__
+#if defined(__x86_64__)
 		uintptr_t regs[15];
 		regs[0] = thread->_executor.general()->rax;
 		regs[1] = thread->_executor.general()->rbx;
@@ -1738,17 +1738,32 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[14] = thread->_executor.general()->rbp;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15))
 			return kHelErrFault;
+#elif defined(__aarch64__)
+		uintptr_t regs[31];
+		for (int i = 0; i < 31; i++)
+			regs[i] = thread->_executor.general()->x[i];
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 31))
+			return kHelErrFault;
+#else
+		return kHelErrUnsupportedOperation;
 #endif
 	}else if(set == kHelRegsThread) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
-#ifdef __x86_64__
+#if defined(__x86_64__)
 		uintptr_t regs[2];
 		regs[0] = thread->_executor.general()->clientFs;
 		regs[1] = thread->_executor.general()->clientGs;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
+#elif defined(__aarch64__)
+		uintptr_t regs[1];
+		regs[0] = thread->_executor.general()->tpidr_el0;
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 1))
+			return kHelErrFault;
+#else
+		return kHelErrUnsupportedOperation;
 #endif
 	}else if(set == kHelRegsVirtualization) {
 		if(!vcpu.vcpu) {
@@ -1827,17 +1842,33 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread->_executor.general()->r14 = regs[12];
 		thread->_executor.general()->r15 = regs[13];
 		thread->_executor.general()->rbp = regs[14];
+#elif defined(__aarch64__)
+		uintptr_t regs[31];
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 31))
+			return kHelErrFault;
+		for (int i = 0; i < 31; i++)
+			thread->_executor.general()->x[i] = regs[i];
+#else
+		return kHelErrUnsupportedOperation;
 #endif
 	}else if(set == kHelRegsThread) {
-#ifdef __x86_64__
-		uintptr_t regs[2];
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
+#if defined(__x86_64__)
+		uintptr_t regs[2];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
 		thread->_executor.general()->clientFs = regs[0];
 		thread->_executor.general()->clientGs = regs[1];
+#elif defined(__aarch64__)
+		uintptr_t regs[1];
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 1))
+			return kHelErrFault;
+		thread->_executor.general()->tpidr_el0 = regs[0];
+#else
+		return kHelErrUnsupportedOperation;
+
 #endif
 	}else if(set == kHelRegsDebug) {
 #ifdef __x86_64__
