@@ -277,6 +277,7 @@ enum HelRegisterSets {
 	kHelRegsVirtualization = 5
 };
 
+#if defined(__x86_64__)
 enum HelRegisterIndex {
 	kHelRegRax = 0,
 	kHelRegRbx = 1,
@@ -293,10 +294,89 @@ enum HelRegisterIndex {
 	kHelRegR14 = 12,
 	kHelRegR15 = 13,
 	kHelRegRbp = 14,
-	
+
+	kHelNumGprs = 15,
+
 	kHelRegIp = 0,
 	kHelRegSp = 1
 };
+
+enum HelSyscallArgs {
+	kHelRegNumber = kHelRegRdi,
+	kHelRegError = kHelRegRdi,
+
+	kHelRegArg0 = kHelRegRsi,
+	kHelRegArg1 = kHelRegRdx,
+	kHelRegArg2 = kHelRegRax,
+	kHelRegArg3 = kHelRegR8,
+	kHelRegArg4 = kHelRegR9,
+	kHelRegArg5 = kHelRegR10,
+	kHelRegArg6 = kHelRegR12,
+	kHelRegArg7 = kHelRegR13,
+	kHelRegArg8 = kHelRegR14,
+
+	kHelRegOut0 = kHelRegRsi,
+	kHelRegOut1 = kHelRegRdx
+};
+
+#elif defined(__aarch64__)
+enum HelRegisterIndex {
+	kHelRegX0 = 0,
+	kHelRegX1,
+	kHelRegX2,
+	kHelRegX3,
+	kHelRegX4,
+	kHelRegX5,
+	kHelRegX6,
+	kHelRegX7,
+	kHelRegX8,
+	kHelRegX9,
+	kHelRegX10,
+	kHelRegX11,
+	kHelRegX12,
+	kHelRegX13,
+	kHelRegX14,
+	kHelRegX15,
+	kHelRegX16,
+	kHelRegX17,
+	kHelRegX18,
+	kHelRegX19,
+	kHelRegX20,
+	kHelRegX21,
+	kHelRegX22,
+	kHelRegX23,
+	kHelRegX24,
+	kHelRegX25,
+	kHelRegX26,
+	kHelRegX27,
+	kHelRegX28,
+	kHelRegX29,
+	kHelRegX30,
+
+	kHelNumGprs = 31,
+
+	kHelRegIp = 0,
+	kHelRegSp = 1
+};
+
+enum HelSyscallArgs {
+	kHelRegNumber = kHelRegX0,
+	kHelRegError = kHelRegX0,
+
+	kHelRegArg0 = kHelRegX1,
+	kHelRegArg1 = kHelRegX2,
+	kHelRegArg2 = kHelRegX3,
+	kHelRegArg3 = kHelRegX4,
+	kHelRegArg4 = kHelRegX5,
+	kHelRegArg5 = kHelRegX6,
+	kHelRegArg6 = kHelRegX7,
+	kHelRegArg7 = kHelRegX8,
+	kHelRegArg8 = kHelRegX9,
+
+	kHelRegOut0 = kHelRegX1,
+	kHelRegOut1 = kHelRegX2
+};
+#endif
 
 enum HelMessageFlags {
 	kHelRequest = 1,

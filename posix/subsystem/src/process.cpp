@@ -533,7 +533,7 @@ SignalItem *SignalContext::fetchSignal(uint64_t mask) {
 // This is our signal frame, similar to Linux' struct rt_sigframe.
 struct SignalFrame {
 	uint64_t returnAddress; // Address for 'ret' instruction.
-	uintptr_t gprs[15];
+	uintptr_t gprs[kHelNumGprs];
 	uintptr_t pcrs[2];
 	siginfo_t info;
 };
@@ -590,9 +590,14 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 
 	// Setup the new register image and resume.
 	// TODO: Linux sets rdx to the ucontext.
+#if defined(__x86_64__)
 	sf.gprs[kHelRegRdi] = item->signalNumber;
 	sf.gprs[kHelRegRsi] = frame + offsetof(SignalFrame, info);
 	sf.gprs[kHelRegRax] = 0; // Number of variable arguments.
+#elif defined(__aarch64__)
+	sf.gprs[kHelRegX0] = item->signalNumber;
+	sf.gprs[kHelRegX1] = frame + offsetof(SignalFrame, info);
+#endif
 
 	sf.pcrs[kHelRegIp] = handler.handlerIp;
 	sf.pcrs[kHelRegSp] = frame;
@@ -604,7 +609,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 }
 
 async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
-	uintptr_t pcrs[15];
+	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 	auto frame = pcrs[kHelRegSp] - 8;
 

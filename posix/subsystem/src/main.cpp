@@ -73,18 +73,29 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
 
-	uintptr_t gprs[15];
+	uintptr_t gprs[kHelNumGprs];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
 
 	auto ip = pcrs[0];
 	auto sp = pcrs[1];
 
+#if defined(__x86_64__)
 	printf("rax: %.16lx, rbx: %.16lx, rcx: %.16lx\n", gprs[0], gprs[1], gprs[2]);
 	printf("rdx: %.16lx, rdi: %.16lx, rsi: %.16lx\n", gprs[3], gprs[4], gprs[5]);
 	printf(" r8: %.16lx,  r9: %.16lx, r10: %.16lx\n", gprs[6], gprs[7], gprs[8]);
 	printf("r11: %.16lx, r12: %.16lx, r13: %.16lx\n", gprs[9], gprs[10], gprs[11]);
 	printf("r14: %.16lx, r15: %.16lx, rbp: %.16lx\n", gprs[12], gprs[13], gprs[14]);
 	printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
+#elif defined(__aarch64__)
+	// Registers X0-X30 have indices 0-30
+	for (int i = 0; i < 31; i += 3) {
+		if (i != 30) {
+			printf("x%02d: %.16lx, x%02d: %.16lx, x%02d: %.16lx\n", i, gprs[i], i + 1, gprs[i + 1], i + 2, gprs[i + 2]);
+		} else {
+			printf("x%d: %.16lx,  ip: %.16lx,  sp: %.16lx\n", i, gprs[i], pcrs[kHelRegIp], pcrs[kHelRegSp]);
+		}
+	}
+#endif
 
 	printf("Mappings:\n");
 	for (auto mapping : *(proc->vmContext())) {
@@ -167,9 +178,9 @@ async::detached observeThread(std::shared_ptr<Process> self,
 		sequence = observe.sequence();
 
 		if(observe.observation() == kHelObserveSuperCall + 10) {
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			size_t size = gprs[5];
+			size_t size = gprs[kHelRegArg0];
 
 			// TODO: this is a waste of memory. Use some always-zero memory instead.
 			HelHandle handle;
@@ -179,18 +190,18 @@ async::detached observeThread(std::shared_ptr<Process> self,
 					helix::UniqueDescriptor{handle}, nullptr,
 					0, size, true, kHelMapProtRead | kHelMapProtWrite);
 
-			gprs[4] = kHelErrNone;
-			gprs[5] = reinterpret_cast<uintptr_t>(address);
+			gprs[kHelRegError] = kHelErrNone;
+			gprs[kHelRegOut0] = reinterpret_cast<uintptr_t>(address);
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 11) {
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			self->vmContext()->unmapFile(reinterpret_cast<void *>(gprs[5]), gprs[3]);
+			self->vmContext()->unmapFile(reinterpret_cast<void *>(gprs[kHelRegArg0]), gprs[kHelRegArg1]);
 
-			gprs[4] = kHelErrNone;
-			gprs[5] = 0;
+			gprs[kHelRegError] = kHelErrNone;
+			gprs[kHelRegOut0] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 1) {
@@ -210,12 +221,12 @@ async::detached observeThread(std::shared_ptr<Process> self,
 
 			if(logRequests)
 				std::cout << "posix: GET_PROCESS_DATA supercall" << std::endl;
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			auto storeData = co_await helix_ng::writeMemory(thread, gprs[5],
+			auto storeData = co_await helix_ng::writeMemory(thread, gprs[kHelRegArg0],
 					sizeof(ManagarmProcessData), &data);
 			HEL_CHECK(storeData.error());
-			gprs[4] = kHelErrNone;
+			gprs[kHelRegError] = kHelErrNone;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 2) {
@@ -225,7 +236,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 
 			// Copy registers from the current thread to the new one.
 			auto new_thread = child->threadDescriptor().getHandle();
-			uintptr_t pcrs[2], gprs[15], thrs[2];
+			uintptr_t pcrs[2], gprs[kHelNumGprs], thrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsThread, &thrs));
@@ -234,11 +245,11 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsThread, &thrs));
 
 			// Setup post supercall registers in both threads and finally resume the threads.
-			gprs[4] = kHelErrNone;
-			gprs[5] = child->pid();
+			gprs[kHelRegError] = kHelErrNone;
+			gprs[kHelRegOut0] = child->pid();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			gprs[5] = 0;
+			gprs[kHelRegOut0] = 0;
 			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsGeneral, &gprs));
 
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -246,18 +257,18 @@ async::detached observeThread(std::shared_ptr<Process> self,
 		}else if(observe.observation() == kHelObserveSuperCall + 9) {
 			if(logRequests)
 				std::cout << "posix: clone supercall" << std::endl;
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			void *ip = reinterpret_cast<void *>(gprs[kHelRegRsi]);
-			void *sp = reinterpret_cast<void *>(gprs[kHelRegRdx]);
+			void *ip = reinterpret_cast<void *>(gprs[kHelRegArg0]);
+			void *sp = reinterpret_cast<void *>(gprs[kHelRegArg1]);
 
 			auto child = Process::clone(self, ip, sp);
 
 			auto new_thread = child->threadDescriptor().getHandle();
 
-			gprs[4] = kHelErrNone;
-			gprs[5] = child->pid();
+			gprs[kHelRegError] = kHelErrNone;
+			gprs[kHelRegOut0] = child->pid();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -265,25 +276,25 @@ async::detached observeThread(std::shared_ptr<Process> self,
 		}else if(observe.observation() == kHelObserveSuperCall + 3) {
 			if(logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			std::string path;
-			path.resize(gprs[3]);
+			path.resize(gprs[kHelRegArg1]);
 			auto loadPath = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
-					gprs[5], gprs[3], path.data());
+					gprs[kHelRegArg0], gprs[kHelRegArg1], path.data());
 			HEL_CHECK(loadPath.error());
 
 			std::string args_area;
-			args_area.resize(gprs[6]);
+			args_area.resize(gprs[kHelRegArg3]);
 			auto loadArgs = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
-					gprs[0], gprs[6], args_area.data());
+					gprs[kHelRegArg2], gprs[kHelRegArg3], args_area.data());
 			HEL_CHECK(loadArgs.error());
 
 			std::string env_area;
-			env_area.resize(gprs[8]);
+			env_area.resize(gprs[kHelRegArg5]);
 			auto loadEnv = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
-					gprs[7], gprs[8], env_area.data());
+					gprs[kHelRegArg4], gprs[kHelRegArg5], env_area.data());
 			HEL_CHECK(loadEnv.error());
 
 			if(logRequests || logPaths)
@@ -315,14 +326,14 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			auto error = co_await Process::exec(self,
 					path, std::move(args), std::move(env));
 			if(error == Error::noSuchFile) {
-				gprs[4] = kHelErrNone;
-				gprs[5] = ENOENT;
+				gprs[kHelRegError] = kHelErrNone;
+				gprs[kHelRegOut0] = ENOENT;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
 			}else if(error == Error::badExecutable) {
-				gprs[4] = kHelErrNone;
-				gprs[5] = ENOEXEC;
+				gprs[kHelRegError] = kHelErrNone;
+				gprs[kHelRegOut0] = ENOEXEC;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
@@ -332,19 +343,19 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
 
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			auto code = gprs[kHelRegRsi];
+			auto code = gprs[kHelRegArg0];
 
 			co_await self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
 
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			auto mode = gprs[kHelRegRsi];
-			auto mask = gprs[kHelRegRdx];
+			auto mode = gprs[kHelRegArg0];
+			auto mask = gprs[kHelRegArg1];
 
 			uint64_t former = self->signalMask();
 			if(mode == SIG_SETMASK) {
@@ -357,18 +368,18 @@ async::detached observeThread(std::shared_ptr<Process> self,
 				assert(!mode);
 			}
 
-			gprs[kHelRegRdi] = 0;
-			gprs[kHelRegRsi] = former;
+			gprs[kHelRegError] = 0;
+			gprs[kHelRegOut0] = former;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 8) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RAISE supercall" << std::endl;
 
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			gprs[kHelRegRdi] = 0;
+			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			if(!self->checkSignalRaise())
@@ -392,10 +403,10 @@ async::detached observeThread(std::shared_ptr<Process> self,
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
 
-			uintptr_t gprs[15];
+			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			auto pid = gprs[kHelRegRsi];
-			auto sn = gprs[kHelRegRdx];
+			auto pid = gprs[kHelRegArg0];
+			auto sn = gprs[kHelRegArg1];
 
 			std::shared_ptr<Process> target;
 			if(!pid) {
@@ -413,7 +424,7 @@ async::detached observeThread(std::shared_ptr<Process> self,
 
 			// Clear the error code.
 			// TODO: This should only happen is raising succeeds. Move it somewhere else?
-			gprs[kHelRegRdi] = 0;
+			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			UserSignal info;
