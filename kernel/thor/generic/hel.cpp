@@ -1879,7 +1879,6 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
-#ifdef __x86_64__
 	struct Closure final : CancelNode, PrecisionTimerNode, IpcNode {
 		static void issue(uint64_t nanos, smarter::shared_ptr<IpcQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
@@ -1947,9 +1946,6 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	Closure::issue(counter, std::move(queue), context, async_id);
 
 	return kHelErrNone;
-#else
-	return kHelErrUnsupportedOperation;
-#endif
 }
 
 HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {

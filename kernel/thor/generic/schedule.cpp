@@ -5,9 +5,6 @@
 #include <thor-internal/core.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/timer.hpp>
-#ifdef __x86_64__
-#include <thor-internal/arch/hpet.hpp>
-#endif
 
 namespace thor {
 
@@ -152,9 +149,7 @@ void Scheduler::update() {
 	if(_current)
 		n++;
 
-#ifdef __x86_64__
 	assert(haveTimer());
-#endif
 	auto now = systemClockSource()->currentNanos();
 	auto deltaTime = now - _refClock;
 	_refClock = now;

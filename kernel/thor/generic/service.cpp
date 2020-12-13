@@ -7,9 +7,6 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
-#ifdef __x86_64__
-#include <thor-internal/arch/debug.hpp>
-#endif
 
 namespace thor {
 

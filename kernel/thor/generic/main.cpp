@@ -17,9 +17,6 @@
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
-#ifdef __x86_64__
-#include <thor-internal/arch/ept.hpp>
-#endif
 
 namespace thor {
 

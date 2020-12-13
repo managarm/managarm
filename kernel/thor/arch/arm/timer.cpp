@@ -92,6 +92,7 @@ void disarmPreemption() {
 	asm volatile ("msr cntp_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
 }
 
+static bool timersFound = false;
 extern frg::manual_box<GicDistributor> dist;
 
 static initgraph::Task initTimerIrq{&basicInitEngine, "arm.init-timer-irq",
@@ -125,7 +126,13 @@ static initgraph::Task initTimerIrq{&basicInitEngine, "arm.init-timer-irq",
 
 		auto vpin = dist->setupIrq(irqVirt.id, irqVirt.trigger);
 		IrqPin::attachSink(vpin, globalVGTInstance.get());
+
+		timersFound = true;
 	}
 };
+
+bool haveTimer() {
+	return timersFound;
+}
 
 } // namespace thor

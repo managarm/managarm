@@ -211,4 +211,6 @@ inline void PrecisionTimerNode::CancelFunctor::operator() () {
 
 PrecisionTimerEngine *generalTimerEngine();
 
+bool haveTimer();
+
 } // namespace thor

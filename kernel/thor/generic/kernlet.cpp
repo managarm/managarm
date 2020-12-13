@@ -3,10 +3,8 @@
 
 #ifdef __x86_64__
 #include <arch/io_space.hpp>
-#include <arch/mem_space.hpp>
-#elif defined(__aarch64__)
-#include <arch/aarch64/mem_space.hpp>
 #endif
+#include <arch/mem_space.hpp>
 #include <frg/string.hpp>
 #include <elf.h>
 #include <thor-internal/descriptor.hpp>

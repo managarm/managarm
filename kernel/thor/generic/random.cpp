@@ -4,9 +4,6 @@
 #include <cralgo/aes.hpp>
 #include <cralgo/sha2_32.hpp>
 #include <thor-internal/arch/cpu.hpp>
-#ifdef __x86_64__
-#include <thor-internal/arch/pic.hpp>
-#endif
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/debug.hpp>
