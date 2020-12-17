@@ -128,18 +128,18 @@ void transitionBootFb() {
 	bootInfo->memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 			bootInfo->address & ~(kPageSize - 1),
 			(bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1),
-			CachingMode::writeCombine);	
+			CachingMode::writeCombine);
 
 	// Try to attached the framebuffer to a PCI device.
 	pci::PciDevice *owner = nullptr;
-	for(auto it = pci::allDevices->begin(); it != pci::allDevices->end(); ++it) {
+	for (auto dev : *pci::allDevices) {
 		auto checkBars = [&] () -> bool {
 			for(int i = 0; i < 6; i++) {
-				if((*it)->bars[i].type != pci::PciDevice::kBarMemory)
+				if(dev->bars[i].type != pci::PciDevice::kBarMemory)
 					continue;
 				// TODO: Careful about overflow here.
-				auto bar_begin = (*it)->bars[i].address;
-				auto bar_end = (*it)->bars[i].address + (*it)->bars[i].length;
+				auto bar_begin = dev->bars[i].address;
+				auto bar_end = dev->bars[i].address + dev->bars[i].length;
 				if(bootInfo->address >= bar_begin
 						&& bootInfo->address + bootInfo->height * bootInfo->pitch <= bar_end)
 					return true;
@@ -150,7 +150,7 @@ void transitionBootFb() {
 
 		if(checkBars()) {
 			assert(!owner);
-			owner = it->get();
+			owner = dev.get();
 		}
 	}
 

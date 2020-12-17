@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include <frg/vector.hpp>
+#include <frg/hash_map.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/irq.hpp>
 
@@ -59,26 +60,87 @@ struct RoutingEntry {
 
 struct PciBridge;
 struct PciBus;
+struct PciIrqRouter;
+
+struct PciIrqRouter {
+	PciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_)
+	: parent{parent_}, associatedBus{associatedBus_} { }
+
+	virtual ~PciIrqRouter() {}
+
+	IrqPin *resolveIrqRoute(uint32_t slot, IrqIndex index) {
+		if (routingModel == RoutingModel::rootTable) {
+			auto entry = std::find_if(routingTable.begin(), routingTable.end(),
+					[&] (const auto &ref) { return ref.slot == slot && ref.index == index; });
+
+			if(entry == routingTable.end())
+				return nullptr;
+
+			assert(entry->pin);
+			return entry->pin;
+		} else if(routingModel == RoutingModel::expansionBridge) {
+			return bridgeIrqs[(static_cast<int>(index) - 1 + slot) % 4];
+		} else {
+			return nullptr;
+		}
+	}
+
+	virtual PciIrqRouter *makeDownstreamRouter(PciBus *bus) = 0;
+
+	PciIrqRouter *parent;
+	PciBus *associatedBus;
+
+protected:
+	frg::vector<RoutingEntry, KernelAlloc> routingTable{*kernelAlloc};
+	RoutingModel routingModel;
+	IrqPin *bridgeIrqs[4] = {};
+};
+
+struct PciConfigIo {
+	virtual uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset) = 0;
+	virtual uint16_t readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset) = 0;
+	virtual uint32_t readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset) = 0;
+
+	virtual void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset, uint8_t value) = 0;
+	virtual void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset, uint16_t value) = 0;
+	virtual void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset, uint32_t value) = 0;
+};
 
 struct PciBus {
-	PciBus(PciBridge *associatedBridge_, uint32_t busId_)
-	: associatedBridge{associatedBridge_}, busId{busId_} { }
+	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_,
+			uint32_t segId_, uint32_t busId_)
+	: associatedBridge{associatedBridge_}, irqRouter{irqRouter_},
+		segId{segId_}, busId{busId_} { }
 
 	PciBus(const PciBus &) = delete;
 	PciBus &operator=(const PciBus &) = delete;
 
-	virtual IrqPin *resolveIrqRoute(uint32_t slot, IrqIndex index) = 0;
-	virtual PciBus *makeDownstreamBus(PciBridge *bridge, uint32_t busId) = 0;
+	PciBus *makeDownstreamBus(PciBridge *bridge, uint32_t downstreamId) {
+		auto newBus = frg::construct<PciBus>(*kernelAlloc, bridge, nullptr, segId, downstreamId);
+
+		auto router = irqRouter->makeDownstreamRouter(newBus);
+		newBus->irqRouter = router;
+
+		return newBus;
+	}
 
 	PciBridge *associatedBridge;
+	PciIrqRouter *irqRouter;
 
+	uint32_t segId;
 	uint32_t busId;
 };
 
 // Either a device or a bridge.
 struct PciEntity {
-	PciEntity(PciBus *parentBus_, uint32_t bus, uint32_t slot, uint32_t function)
-	: parentBus{parentBus_}, bus{bus}, slot{slot}, function{function} { }
+	PciEntity(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function)
+	: parentBus{parentBus_}, seg{seg}, bus{bus}, slot{slot}, function{function} { }
 
 	PciEntity(const PciEntity &) = delete;
 
@@ -87,14 +149,15 @@ struct PciEntity {
 	PciBus *parentBus;
 
 	// Location of the device on the PCI bus.
+	uint32_t seg;
 	uint32_t bus;
 	uint32_t slot;
 	uint32_t function;
 };
 
 struct PciBridge : PciEntity {
-	PciBridge(PciBus *parentBus_, uint32_t bus, uint32_t slot, uint32_t function)
-	: PciEntity{parentBus_, bus, slot, function} { }
+	PciBridge(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function)
+	: PciEntity{parentBus_, seg, bus, slot, function} { }
 };
 
 struct PciDevice : PciEntity {
@@ -111,7 +174,7 @@ struct PciDevice : PciEntity {
 		BarType type;
 		uintptr_t address;
 		size_t length;
-		
+
 		smarter::shared_ptr<MemoryView> memory;
 		smarter::shared_ptr<IoSpace> io;
 		ptrdiff_t offset;
@@ -123,15 +186,15 @@ struct PciDevice : PciEntity {
 		size_t length;
 	};
 
-	PciDevice(PciBus *parentBus_, uint32_t bus, uint32_t slot, uint32_t function,
+	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
 			uint32_t vendor, uint32_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
-	: PciEntity{parentBus_, bus, slot, function}, mbusId(0),
+	: PciEntity{parentBus_, seg, bus, slot, function}, mbusId(0),
 			vendor(vendor), deviceId(device_id), revision(revision),
 			classCode(class_code), subClass(sub_class), interface(interface), subsystemVendor(subsystem_vendor), subsystemDevice(subsystem_device),
 			interrupt(nullptr), caps(*kernelAlloc),
 			associatedFrameBuffer(nullptr), associatedScreen(nullptr) { }
-	
+
 	// mbus object ID of the device
 	int64_t mbusId;
 
@@ -149,7 +212,7 @@ struct PciDevice : PciEntity {
 	uint16_t subsystemDevice;
 
 	IrqPin *interrupt;
-	
+
 	// device configuration
 	Bar bars[6];
 
@@ -184,23 +247,42 @@ enum {
 	kPciBridgeSecondary = 0x19
 };
 
-extern frg::manual_box<frg::vector<smarter::shared_ptr<PciDevice>, KernelAlloc>> allDevices;
+extern frg::manual_box<
+	frg::vector<
+		smarter::shared_ptr<PciDevice>,
+		KernelAlloc
+	>
+> allDevices;
 
-void enumerateSystemBusses();
+extern frg::manual_box<
+	frg::hash_map<
+		uint32_t,
+		PciConfigIo *,
+		frg::hash<uint32_t>,
+		KernelAlloc
+	>
+> allConfigSpaces;
 
 void runAllDevices();
 
 void addToEnumerationQueue(PciBus *bus);
 void enumerateAll();
 
-} } // namespace thor::pci
+void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io);
 
 // read from pci configuration space
-uint32_t readPciWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset);
-uint16_t readPciHalf(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset);
-uint8_t readPciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset);
+uint32_t readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
+		uint32_t function, uint32_t offset);
+uint16_t readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
+		uint32_t function, uint32_t offset);
+uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
+		uint32_t function, uint32_t offset);
 
 // write to pci configuration space
-void writePciWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint32_t value);
-void writePciHalf(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint16_t value);
-void writePciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint8_t value);
+void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
+		uint32_t function, uint32_t offset, uint32_t value);
+void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
+		uint32_t function, uint32_t offset, uint16_t value);
+void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
+		uint32_t function, uint32_t offset, uint8_t value);
+} } // namespace thor::pci

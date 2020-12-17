@@ -4,7 +4,6 @@ thor_sources += files(
 	'paging.cpp',
 	'system.cpp',
 	'ints.cpp',
-	'pci_io.cpp',
 	'debug.cpp',
 	'entry.S',
 	'stubs.S',

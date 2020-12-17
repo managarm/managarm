@@ -163,27 +163,27 @@ uint32_t laihost_ind(uint16_t p) {
 }
 #endif
 
-void laihost_pci_writeb(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn,
+void laihost_pci_writeb(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn,
 		uint16_t offset, uint8_t v) {
-	writePciByte(bus, slot, fn, offset, v);
+	pci::writeConfigByte(seg, bus, slot, fn, offset, v);
 }
-void laihost_pci_writew(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn,
+void laihost_pci_writew(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn,
 		uint16_t offset, uint16_t v) {
-	writePciHalf(bus, slot, fn, offset, v);
+	pci::writeConfigHalf(seg, bus, slot, fn, offset, v);
 }
-void laihost_pci_writed(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn,
+void laihost_pci_writed(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn,
 		uint16_t offset, uint32_t v) {
-	writePciWord(bus, slot, fn, offset, v);
+	pci::writeConfigWord(seg, bus, slot, fn, offset, v);
 }
 
-uint8_t laihost_pci_readb(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
-	return readPciByte(bus, slot, fn, offset);
+uint8_t laihost_pci_readb(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
+	return pci::readConfigByte(seg, bus, slot, fn, offset);
 }
-uint16_t laihost_pci_readw(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
-	return readPciHalf(bus, slot, fn, offset);
+uint16_t laihost_pci_readw(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
+	return pci::readConfigHalf(seg, bus, slot, fn, offset);
 }
-uint32_t laihost_pci_readd(uint16_t, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
-	return readPciWord(bus, slot, fn, offset);
+uint32_t laihost_pci_readd(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
+	return pci::readConfigWord(seg, bus, slot, fn, offset);
 }
 
 void laihost_sleep(uint64_t) { }

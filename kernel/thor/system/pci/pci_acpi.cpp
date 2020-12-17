@@ -8,6 +8,8 @@
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/pci/pci.hpp>
+#include <thor-internal/pci/pci_legacy.hpp>
+#include <thor-internal/pci/pcie_ecam.hpp>
 #include <thor-internal/main.hpp>
 
 #include <lai/core.h>
@@ -15,44 +17,51 @@
 
 namespace thor::pci {
 
-struct AcpiPciBus : PciBus {
-	AcpiPciBus(PciBridge *associatedBridge, uint32_t busId, lai_nsnode_t *acpiHandle);
+struct AcpiPciIrqRouter : PciIrqRouter {
+	AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_, lai_nsnode_t *handle);
 
-	IrqPin *resolveIrqRoute(uint32_t slot, IrqIndex index) override;
-	PciBus *makeDownstreamBus(PciBridge *bridge, uint32_t busId) override;
-
-	lai_nsnode_t *acpiHandle_ = nullptr;
+	PciIrqRouter *makeDownstreamRouter(PciBus *bus) override;
 
 private:
-	RoutingModel _routingModel = RoutingModel::none;
-	// PRT of this bus (RoutingModel::rootTable).
-	frg::vector<RoutingEntry, KernelAlloc> _routingTable{*kernelAlloc};
-	// IRQs of the bridge (RoutingModel::expansionBridge).
-	IrqPin *_bridgeIrqs[4] = {};
-
+	lai_nsnode_t *acpiHandle = nullptr;
 };
 
-AcpiPciBus::AcpiPciBus(PciBridge *associatedBridge, uint32_t busId, lai_nsnode_t *acpiHandle)
-: PciBus{associatedBridge, busId}, acpiHandle_{acpiHandle} {
+AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
+		lai_nsnode_t *handle)
+: PciIrqRouter{parent_, associatedBus_}, acpiHandle{handle} {
 	LAI_CLEANUP_STATE lai_state_t laiState;
 	lai_init_state(&laiState);
+
+	if (!acpiHandle) {
+		for(int i = 0; i < 4; i++) {
+			bridgeIrqs[i] = parent->resolveIrqRoute(
+					associatedBus->associatedBridge->slot, static_cast<IrqIndex>(i + 1));
+			if(bridgeIrqs[i])
+				infoLogger() << "thor:     Bridge IRQ [" << i << "]: "
+						<< bridgeIrqs[i]->name() << frg::endlog;
+		}
+
+		routingModel = RoutingModel::expansionBridge;
+		return;
+	}
 
 	// Look for a PRT and evaluate it.
 	lai_nsnode_t *prtHandle = lai_resolve_path(acpiHandle, "_PRT");
 	if(!prtHandle) {
-		if(associatedBridge) {
-			infoLogger() << "thor: There is no _PRT for bus " << busId << ";"
+		if (parent) {
+			infoLogger() << "thor: There is no _PRT for bus " << associatedBus->busId << ";"
 					" assuming expansion bridge routing" << frg::endlog;
 			for(int i = 0; i < 4; i++) {
-				_bridgeIrqs[i] = associatedBridge->parentBus->resolveIrqRoute(
-						associatedBridge->slot, static_cast<IrqIndex>(i + 1));
-				if(_bridgeIrqs[i])
+				bridgeIrqs[i] = parent->resolveIrqRoute(
+						associatedBus->associatedBridge->slot, static_cast<IrqIndex>(i + 1));
+				if(bridgeIrqs[i])
 					infoLogger() << "thor:     Bridge IRQ [" << i << "]: "
-							<< _bridgeIrqs[i]->name() << frg::endlog;
+							<< bridgeIrqs[i]->name() << frg::endlog;
 			}
-			_routingModel = RoutingModel::expansionBridge;
+
+			routingModel = RoutingModel::expansionBridge;
 		}else{
-			infoLogger() << "thor: There is no _PRT for bus " << busId << ";"
+			infoLogger() << "thor: There is no _PRT for bus " << associatedBus->busId << ";"
 					" giving up IRQ routing of this bus" << frg::endlog;
 		}
 		return;
@@ -82,32 +91,19 @@ AcpiPciBus::AcpiPciBus(PciBridge *associatedBridge, uint32_t busId, lai_nsnode_t
 				iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
 				iter.active_low ? Polarity::low : Polarity::high}});
 		auto pin = getGlobalSystemIrq(iter.gsi);
-		_routingTable.push({static_cast<unsigned int>(iter.slot), index, pin});
+		routingTable.push({static_cast<unsigned int>(iter.slot), index, pin});
 	}
-	_routingModel = RoutingModel::rootTable;
+
+	routingModel = RoutingModel::rootTable;
 }
 
-IrqPin *AcpiPciBus::resolveIrqRoute(uint32_t slot, IrqIndex index) {
-	if(_routingModel == RoutingModel::rootTable) {
-		auto entry = std::find_if(_routingTable.begin(), _routingTable.end(),
-				[&] (const auto &ref) { return ref.slot == slot && ref.index == index; });
-		if(entry == _routingTable.end())
-			return nullptr;
-		assert(entry->pin);
-		return entry->pin;
-	}else if(_routingModel == RoutingModel::expansionBridge) {
-		return _bridgeIrqs[(static_cast<int>(index) - 1 + slot) % 4];
-	}else{
-		return nullptr;
-	}
-}
-
-PciBus *AcpiPciBus::makeDownstreamBus(PciBridge *bridge, uint32_t busId) {
+PciIrqRouter *AcpiPciIrqRouter::makeDownstreamRouter(PciBus *bus) {
 	lai_nsnode_t *deviceHandle = nullptr;
-	if (acpiHandle_) {
+	if (acpiHandle) {
 		LAI_CLEANUP_STATE lai_state_t laiState;
 		lai_init_state(&laiState);
-		deviceHandle = lai_pci_find_device(acpiHandle_, bridge->slot, bridge->function, &laiState);
+		deviceHandle = lai_pci_find_device(acpiHandle, bus->associatedBridge->slot,
+				bus->associatedBridge->function, &laiState);
 	}
 
 	if (deviceHandle) {
@@ -116,8 +112,60 @@ PciBus *AcpiPciBus::makeDownstreamBus(PciBridge *bridge, uint32_t busId) {
 				<< frg::endlog;
 	}
 
-	return frg::construct<AcpiPciBus>(*kernelAlloc, associatedBridge, busId, deviceHandle);
+	return frg::construct<AcpiPciIrqRouter>(*kernelAlloc, this, bus, deviceHandle);
 }
+
+static void addLegacyConfigIo() {
+	auto io = frg::construct<LegacyPciConfigIo>(*kernelAlloc);
+	for (int i = 0; i < 256; i++) {
+		addConfigSpaceIo(0, i, io);
+	}
+}
+
+struct [[gnu::packed]] McfgEntry {
+	uint64_t mmioBase;
+	uint16_t segment;
+	uint8_t busStart;
+	uint8_t busEnd;
+	uint32_t reserved;
+};
+
+static initgraph::Task discoverConfigIoSpaces{&basicInitEngine, "pci.discover-config-io",
+	[] {
+		void *mcfgWindow = laihost_scan("MCFG", 0);
+		if(!mcfgWindow) {
+			infoLogger() << "\e[31m" "thor: No MCFG table!" "\e[39m" << frg::endlog;
+			addLegacyConfigIo();
+			return;
+		}
+
+		auto mcfg = reinterpret_cast<acpi_header_t *>(mcfgWindow);
+		if(mcfg->length < sizeof(acpi_header_t) + 8 + sizeof(McfgEntry)) {
+			infoLogger() << "\e[31m" "thor: MCFG table has no entries, assuming legacy PCI!" "\e[39m"
+					<< frg::endlog;
+			addLegacyConfigIo();
+			return;
+		}
+
+		size_t nEntries = (mcfg->length - 44) / 16;
+		auto mcfgEntries = (McfgEntry *)((uintptr_t)mcfgWindow + sizeof(acpi_header_t) + 8);
+		for (size_t i = 0; i < nEntries; i++) {
+			auto &entry = mcfgEntries[i];
+			infoLogger() << "Found config space for segment " << entry.segment
+				<< ", buses " << entry.busStart << "-" << entry.busEnd
+				<< ", ECAM MMIO base at " << (void *)entry.mmioBase << frg::endlog;
+
+			auto io = frg::construct<EcamPcieConfigIo>(*kernelAlloc,
+					entry.mmioBase, entry.segment,
+					entry.busStart, entry.busEnd);
+
+			for (int j = entry.busStart; j <= entry.busEnd; j++) {
+				addConfigSpaceIo(entry.segment, j, io);
+			}
+		}
+	}
+};
+
 
 static initgraph::Task discoverAcpiRootBuses{&extendedInitEngine, "pci.discover-acpi-root-buses",
 	[] {
@@ -138,8 +186,11 @@ static initgraph::Task discoverAcpiRootBuses{&extendedInitEngine, "pci.discover-
 					&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &laiState))
 				continue;
 
+			// TODO: parse _SEG and _BUS to get the segment and bus numbers
+
 			infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
-			auto rootBus = frg::construct<AcpiPciBus>(*kernelAlloc, nullptr, 0, handle);
+			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, 0, 0);
+			rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, handle);
 			addToEnumerationQueue(rootBus);
 		}
 

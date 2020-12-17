@@ -73,7 +73,9 @@ thor_sources = [files(
 	'generic/kernel-stack.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',
-	'system/pci/pci_discover.cpp'
+	'system/pci/pci_discover.cpp',
+	'system/pci/pci_legacy.cpp',
+	'system/pci/pcie_ecam.cpp'
 )]
 
 thor_includes = [include_directories(
