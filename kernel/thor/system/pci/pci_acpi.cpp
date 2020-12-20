@@ -130,7 +130,7 @@ struct [[gnu::packed]] McfgEntry {
 	uint32_t reserved;
 };
 
-static initgraph::Task discoverConfigIoSpaces{&basicInitEngine, "pci.discover-config-io",
+static initgraph::Task discoverConfigIoSpaces{&basicInitEngine, "pci.discover-acpi-config-io",
 	[] {
 		void *mcfgWindow = laihost_scan("MCFG", 0);
 		if(!mcfgWindow) {
@@ -189,7 +189,7 @@ static initgraph::Task discoverAcpiRootBuses{&extendedInitEngine, "pci.discover-
 			// TODO: parse _SEG and _BUS to get the segment and bus numbers
 
 			infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
-			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, 0, 0);
+			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, getConfigIoFor(0, 0), 0, 0);
 			rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, handle);
 			addToEnumerationQueue(rootBus);
 		}

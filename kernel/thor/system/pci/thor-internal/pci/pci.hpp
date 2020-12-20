@@ -96,33 +96,19 @@ protected:
 	IrqPin *bridgeIrqs[4] = {};
 };
 
-struct PciConfigIo {
-	virtual uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset) = 0;
-	virtual uint16_t readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset) = 0;
-	virtual uint32_t readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset) = 0;
-
-	virtual void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset, uint8_t value) = 0;
-	virtual void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset, uint16_t value) = 0;
-	virtual void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset, uint32_t value) = 0;
-};
+struct PciConfigIo;
 
 struct PciBus {
-	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_,
+	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_, PciConfigIo *io,
 			uint32_t segId_, uint32_t busId_)
-	: associatedBridge{associatedBridge_}, irqRouter{irqRouter_},
+	: associatedBridge{associatedBridge_}, irqRouter{irqRouter_}, io{io},
 		segId{segId_}, busId{busId_} { }
 
 	PciBus(const PciBus &) = delete;
 	PciBus &operator=(const PciBus &) = delete;
 
 	PciBus *makeDownstreamBus(PciBridge *bridge, uint32_t downstreamId) {
-		auto newBus = frg::construct<PciBus>(*kernelAlloc, bridge, nullptr, segId, downstreamId);
+		auto newBus = frg::construct<PciBus>(*kernelAlloc, bridge, nullptr, io, segId, downstreamId);
 
 		auto router = irqRouter->makeDownstreamRouter(newBus);
 		newBus->irqRouter = router;
@@ -132,6 +118,7 @@ struct PciBus {
 
 	PciBridge *associatedBridge;
 	PciIrqRouter *irqRouter;
+	PciConfigIo *io;
 
 	uint32_t segId;
 	uint32_t busId;
@@ -169,7 +156,7 @@ struct PciDevice : PciEntity {
 
 	struct Bar {
 		Bar()
-		: type(kBarNone), address(0), length(0), offset(0) { }
+		: type{kBarNone}, address{0}, length{0}, offset{0} { }
 
 		BarType type;
 		uintptr_t address;
@@ -187,13 +174,14 @@ struct PciDevice : PciEntity {
 	};
 
 	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
-			uint32_t vendor, uint32_t device_id, uint8_t revision,
+			uint16_t vendor, uint16_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
-	: PciEntity{parentBus_, seg, bus, slot, function}, mbusId(0),
-			vendor(vendor), deviceId(device_id), revision(revision),
-			classCode(class_code), subClass(sub_class), interface(interface), subsystemVendor(subsystem_vendor), subsystemDevice(subsystem_device),
-			interrupt(nullptr), caps(*kernelAlloc),
-			associatedFrameBuffer(nullptr), associatedScreen(nullptr) { }
+	: PciEntity{parentBus_, seg, bus, slot, function}, mbusId{0},
+			vendor{vendor}, deviceId{device_id}, revision{revision},
+			classCode{class_code}, subClass{sub_class}, interface{interface},
+			subsystemVendor{subsystem_vendor}, subsystemDevice{subsystem_device},
+			interrupt{nullptr}, caps{*kernelAlloc},
+			associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
 
 	// mbus object ID of the device
 	int64_t mbusId;
@@ -244,7 +232,8 @@ enum {
 	kPciRegularInterruptPin = 0x3D,
 
 	// PCI-to-PCI bridge header fields
-	kPciBridgeSecondary = 0x19
+	kPciBridgeSecondary = 0x19,
+	kPciBridgeSubordinate = 0x1A
 };
 
 extern frg::manual_box<
@@ -268,11 +257,55 @@ void runAllDevices();
 void addToEnumerationQueue(PciBus *bus);
 void enumerateAll();
 
+struct PciConfigIo {
+	uint8_t readConfigByte(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset) {
+		return readConfigByte(bus->segId, bus->busId, slot, function, offset);
+	}
+
+	uint16_t readConfigHalf(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset) {
+		return readConfigHalf(bus->segId, bus->busId, slot, function, offset);
+	}
+
+	uint32_t readConfigWord(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset) {
+		return readConfigWord(bus->segId, bus->busId, slot, function, offset);
+	}
+
+	void writeConfigByte(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset, uint8_t value) {
+		writeConfigByte(bus->segId, bus->busId, slot, function, offset, value);
+	}
+
+	void writeConfigHalf(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset, uint16_t value) {
+		writeConfigHalf(bus->segId, bus->busId, slot, function, offset, value);
+	}
+
+	void writeConfigWord(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset, uint32_t value) {
+		writeConfigWord(bus->segId, bus->busId, slot, function, offset, value);
+	}
+
+	virtual uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset) = 0;
+	virtual uint16_t readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset) = 0;
+	virtual uint32_t readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset) = 0;
+
+	virtual void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset, uint8_t value) = 0;
+	virtual void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset, uint16_t value) = 0;
+	virtual void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
+			uint32_t function, uint16_t offset, uint32_t value) = 0;
+};
+
 void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io);
 
 inline bool isValidConfigAccess(int size, uint32_t offset) {
 	assert(size == 1 || size == 2 || size == 4);
 	return !(offset & (size - 1));
+}
+
+inline PciConfigIo *getConfigIoFor(uint32_t seg, uint32_t bus) {
+	return (*allConfigSpaces)[(seg << 8) | bus];
 }
 
 // read from pci configuration space

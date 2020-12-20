@@ -153,9 +153,11 @@ namespace {
 			// TODO: improve error handling here.
 			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::BUSIRQ_ENABLE) {
-			auto command = readConfigHalf(device->seg, device->bus,
+			auto io = device->parentBus->io;
+
+			auto command = io->readConfigHalf(device->parentBus,
 					device->slot, device->function, kPciCommand);
-			writeConfigHalf(device->seg, device->bus, device->slot, device->function,
+			io->writeConfigHalf(device->parentBus, device->slot, device->function,
 					kPciCommand, command & ~uint16_t{0x400});
 
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -169,9 +171,11 @@ namespace {
 			// TODO: improve error handling here.
 			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::BUSMASTER_ENABLE) {
-			auto command = readConfigHalf(device->seg, device->bus,
+			auto io = device->parentBus->io;
+
+			auto command = io->readConfigHalf(device->parentBus,
 					device->slot, device->function, kPciCommand);
-			writeConfigHalf(device->seg, device->bus, device->slot, device->function,
+			io->writeConfigHalf(device->parentBus, device->slot, device->function,
 					kPciCommand, command | 0x0004);
 
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -187,9 +191,11 @@ namespace {
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
+			auto io = device->parentBus->io;
+
 			if(req.size() == 1) {
 				if(isValidConfigAccess(1, req.offset())) {
-					auto word = readConfigByte(device->seg, device->bus,
+					auto word = io->readConfigByte(device->parentBus,
 							device->slot, device->function, req.offset());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
@@ -197,8 +203,8 @@ namespace {
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
 			}else if(req.size() == 2) {
-				if(isValidConfigAccess(1, req.offset())) {
-					auto word = readConfigHalf(device->seg, device->bus,
+				if(isValidConfigAccess(2, req.offset())) {
+					auto word = io->readConfigHalf(device->parentBus,
 							device->slot, device->function, req.offset());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
@@ -206,8 +212,8 @@ namespace {
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
 			}else if(req.size() == 4) {
-				if(isValidConfigAccess(1, req.offset())) {
-					auto word = readConfigWord(device->seg, device->bus,
+				if(isValidConfigAccess(4, req.offset())) {
+					auto word = io->readConfigWord(device->parentBus,
 							device->slot, device->function, req.offset());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
@@ -228,9 +234,11 @@ namespace {
 		}else if(req.req_type() == managarm::hw::CntReqType::STORE_PCI_SPACE) {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
+			auto io = device->parentBus->io;
+
 			if(req.size() == 1) {
 				if(isValidConfigAccess(1, req.offset())) {
-					writeConfigByte(device->seg, device->bus, device->slot, device->function,
+					io->writeConfigByte(device->parentBus, device->slot, device->function,
 							req.offset(), req.word());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 				}else{
@@ -238,7 +246,7 @@ namespace {
 				}
 			}else if(req.size() == 2) {
 				if(isValidConfigAccess(2, req.offset())) {
-					writeConfigHalf(device->seg, device->bus, device->slot, device->function,
+					io->writeConfigHalf(device->parentBus, device->slot, device->function,
 							req.offset(), req.word());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 				}else{
@@ -246,7 +254,7 @@ namespace {
 				}
 			}else if(req.size() == 4) {
 				if(isValidConfigAccess(4, req.offset())) {
-					writeConfigWord(device->seg, device->bus, device->slot, device->function,
+					io->writeConfigWord(device->parentBus, device->slot, device->function,
 							req.offset(), req.word());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 				}else{
@@ -266,10 +274,12 @@ namespace {
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_CAPABILITY) {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
+			auto io = device->parentBus->io;
+
 			if(req.index() < device->caps.size()) {
 				if(req.size() == 1) {
 					if(isValidConfigAccess(1, req.offset())) {
-						auto word = readConfigByte(device->seg, device->bus,
+						auto word = io->readConfigByte(device->parentBus,
 								device->slot, device->function,
 								device->caps[req.index()].offset + req.offset());
 						resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -279,7 +289,7 @@ namespace {
 					}
 				}else if(req.size() == 2) {
 					if(isValidConfigAccess(2, req.offset())) {
-						auto word = readConfigHalf(device->seg, device->bus,
+						auto word = io->readConfigHalf(device->parentBus,
 								device->slot, device->function,
 								device->caps[req.index()].offset + req.offset());
 						resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -289,7 +299,7 @@ namespace {
 					}
 				}else if(req.size() == 4) {
 					if(isValidConfigAccess(4, req.offset())) {
-						auto word = readConfigWord(device->seg, device->bus,
+						auto word = io->readConfigWord(device->parentBus,
 								device->slot, device->function,
 								device->caps[req.index()].offset + req.offset());
 						resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -555,17 +565,20 @@ size_t computeBarLength(uintptr_t mask) {
 frg::manual_box<frg::vector<PciBus *, KernelAlloc>> enumerationQueue;
 
 void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
-	uint16_t vendor = readConfigHalf(bus->segId, bus->busId, slot, function, kPciVendor);
+	auto io = bus->io;
+
+	uint16_t vendor = io->readConfigHalf(bus, slot, function, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
 
 	auto log = infoLogger();
 
-	uint8_t header_type = readConfigByte(bus->segId, bus->busId, slot, function, kPciHeaderType);
+	uint8_t header_type = io->readConfigByte(bus, slot, function, kPciHeaderType);
 	if((header_type & 0x7F) == 0) {
 		log << "        Function " << function << ": Device";
 	}else if((header_type & 0x7F) == 1) {
-		uint8_t downstreamId = readConfigByte(bus->segId, bus->busId, slot, function, kPciBridgeSecondary);
+		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
+
 		log << "        Function " << function
 				<< ": PCI-to-PCI bridge to bus " << (int)downstreamId;
 	}else{
@@ -573,7 +586,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 				<< ": Unexpected PCI header type " << (header_type & 0x7F);
 	}
 
-	auto command = readConfigHalf(bus->segId, bus->busId, slot, function, kPciCommand);
+	auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
 	if(command & 0x01)
 		log << " (Decodes IO)";
 	if(command & 0x02)
@@ -583,13 +596,13 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	if(command & 0x400)
 		log << " (IRQs masked)";
 	log << frg::endlog;
-	writeConfigHalf(bus->segId, bus->busId, slot, function, kPciCommand, command | 0x400);
+	io->writeConfigHalf(bus, slot, function, kPciCommand, command | 0x400);
 
-	auto device_id = readConfigHalf(bus->segId, bus->busId, slot, function, kPciDevice);
-	auto revision = readConfigByte(bus->segId, bus->busId, slot, function, kPciRevision);
-	auto class_code = readConfigByte(bus->segId, bus->busId, slot, function, kPciClassCode);
-	auto sub_class = readConfigByte(bus->segId, bus->busId, slot, function, kPciSubClass);
-	auto interface = readConfigByte(bus->segId, bus->busId, slot, function, kPciInterface);
+	auto device_id = io->readConfigHalf(bus, slot, function, kPciDevice);
+	auto revision = io->readConfigByte(bus, slot, function, kPciRevision);
+	auto class_code = io->readConfigByte(bus, slot, function, kPciClassCode);
+	auto sub_class = io->readConfigByte(bus, slot, function, kPciSubClass);
+	auto interface = io->readConfigByte(bus, slot, function, kPciInterface);
 	infoLogger() << "            Vendor/device: " << frg::hex_fmt(vendor)
 			<< "." << frg::hex_fmt(device_id) << "." << frg::hex_fmt(revision)
 			<< ", class: " << frg::hex_fmt(class_code)
@@ -597,12 +610,12 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 			<< "." << frg::hex_fmt(interface) << frg::endlog;
 
 	if((header_type & 0x7F) == 0) {
-		uint16_t subsystem_vendor = readConfigHalf(bus->segId, bus->busId, slot, function, kPciRegularSubsystemVendor);
-		uint16_t subsystem_device = readConfigHalf(bus->segId, bus->busId, slot, function, kPciRegularSubsystemDevice);
+		uint16_t subsystem_vendor = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemVendor);
+		uint16_t subsystem_device = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemDevice);
 //		infoLogger() << "        Subsystem vendor: 0x" << frg::hex_fmt(subsystem_vendor)
 //				<< ", device: 0x" << frg::hex_fmt(subsystem_device) << frg::endlog;
 
-		auto status = readConfigHalf(bus->segId, bus->busId, slot, function, kPciStatus);
+		auto status = io->readConfigHalf(bus, slot, function, kPciStatus);
 
 		if(status & 0x08)
 			infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frg::endlog;
@@ -613,9 +626,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		// Find all capabilities.
 		if(status & 0x10) {
 			// The bottom two bits of each capability offset must be masked!
-			uint8_t offset = readConfigByte(bus->segId, bus->busId, slot, function, kPciRegularCapabilities) & 0xFC;
+			uint8_t offset = io->readConfigByte(bus, slot, function, kPciRegularCapabilities) & 0xFC;
 			while(offset != 0) {
-				auto type = readConfigByte(bus->segId, bus->busId, slot, function, offset);
+				auto type = io->readConfigByte(bus, slot, function, offset);
 
 				auto name = nameOfCapability(type);
 				if(name) {
@@ -629,11 +642,11 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 				// TODO: 
 				size_t size = -1;
 				if(type == 0x09)
-					size = readConfigByte(bus->segId, bus->busId, slot, function, offset + 2);
+					size = io->readConfigByte(bus, slot, function, offset + 2);
 
 				device->caps.push({type, offset, size});
 
-				uint8_t successor = readConfigByte(bus->segId, bus->busId, slot, function, offset + 1);
+				uint8_t successor = io->readConfigByte(bus, slot, function, offset + 1);
 				offset = successor & 0xFC;
 			}
 		}
@@ -641,7 +654,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		// Determine the BARs
 		for(int i = 0; i < 6; i++) {
 			uint32_t offset = kPciRegularBar0 + i * 4;
-			uint32_t bar = readConfigWord(bus->segId, bus->busId, slot, function, offset);
+			uint32_t bar = io->readConfigWord(bus, slot, function, offset);
 			if(bar == 0)
 				continue;
 
@@ -649,9 +662,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 				uintptr_t address = bar & 0xFFFFFFFC;
 
 				// write all 1s to the BAR and read it back to determine this its length.
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset, 0xFFFFFFFF);
-				uint32_t mask = readConfigWord(bus->segId, bus->busId, slot, function, offset) & 0xFFFFFFFC;
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset, bar);
+				io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFFC;
+				io->writeConfigWord(bus, slot, function, offset, bar);
 				auto length = computeBarLength(mask);
 
 				device->bars[i].type = PciDevice::kBarIo;
@@ -670,9 +683,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 				uint32_t address = bar & 0xFFFFFFF0;
 
 				// Write all 1s to the BAR and read it back to determine this its length.
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset, 0xFFFFFFFF);
-				uint32_t mask = readConfigWord(bus->segId, bus->busId, slot, function, offset) & 0xFFFFFFF0;
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset, bar);
+				io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0;
+				io->writeConfigWord(bus, slot, function, offset, bar);
 				auto length = computeBarLength(mask);
 
 				device->bars[i].type = PciDevice::kBarMemory;
@@ -691,16 +704,16 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 						<< ", length: " << length << " bytes" << frg::endlog;
 			}else if(((bar >> 1) & 3) == 2) {
 				assert(i < 5); // Otherwise there is no next bar.
-				auto high = readConfigWord(bus->segId, bus->busId, slot, function, offset + 4);;
+				auto high = io->readConfigWord(bus, slot, function, offset + 4);;
 				auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
 
 				// Write all 1s to the BAR and read it back to determine this its length.
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset, 0xFFFFFFFF);
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset + 4, 0xFFFFFFFF);
-				uint32_t mask = (uint64_t{readConfigWord(bus->segId, bus->busId, slot, function, offset + 4)} << 32)
-						| (readConfigWord(bus->segId, bus->busId, slot, function, offset) & 0xFFFFFFF0);
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset, bar);
-				writeConfigWord(bus->segId, bus->busId, slot, function, offset + 4, high);
+				io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
+				io->writeConfigWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
+				uint32_t mask = (uint64_t{io->readConfigWord(bus, slot, function, offset + 4)} << 32)
+						| (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
+				io->writeConfigWord(bus, slot, function, offset, bar);
+				io->writeConfigWord(bus, slot, function, offset + 4, high);
 				auto length = computeBarLength(mask);
 
 				device->bars[i].type = PciDevice::kBarMemory;
@@ -723,7 +736,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 			}
 		}
 
-		auto irq_index = static_cast<IrqIndex>(readConfigByte(bus->segId, bus->busId, slot, function,
+		auto irq_index = static_cast<IrqIndex>(io->readConfigByte(bus, slot, function,
 				kPciRegularInterruptPin));
 		if(irq_index != IrqIndex::null) {
 			assert(bus->irqRouter);
@@ -743,7 +756,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	}else if((header_type & 0x7F) == 1) {
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function);
 
-		uint8_t downstreamId = readConfigByte(bus->segId, bus->busId, slot, function, kPciBridgeSecondary);
+		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
 		auto downstreamBus = bus->makeDownstreamBus(bridge, downstreamId);
 		enumerationQueue->push_back(std::move(downstreamBus)); // FIXME: move should be unnecessary.
 	}
@@ -752,18 +765,20 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	if(class_code == 0x0C && sub_class == 0x03 && interface == 0x00) {
 		infoLogger() << "            \e[32mDisabling UHCI SMI generation!\e[39m"
 				<< frg::endlog;
-		writeConfigHalf(bus->segId, bus->busId, slot, function, 0xC0, 0x2000);
+		io->writeConfigHalf(bus, slot, function, 0xC0, 0x2000);
 	}
 }
 
 void checkPciDevice(PciBus *bus, uint32_t slot) {
-	uint16_t vendor = readConfigHalf(bus->segId, bus->busId, slot, 0, kPciVendor);
+	auto io = bus->io;
+
+	uint16_t vendor = io->readConfigHalf(bus, slot, 0, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
 
-	infoLogger() << "    Bus: " << bus->busId << ", slot " << slot << frg::endlog;
+	infoLogger() << "    Segment: " << bus->segId << ", bus: " << bus->busId << ", slot " << slot << frg::endlog;
 
-	uint8_t header_type = readConfigByte(bus->segId, bus->busId, slot, 0, kPciHeaderType);
+	uint8_t header_type = io->readConfigByte(bus, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {
 		for(uint32_t function = 0; function < 8; function++)
 			checkPciFunction(bus, slot, function);
