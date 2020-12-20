@@ -245,7 +245,6 @@ doForkExecutor:
 	// Set new PSTATE
 	mov x4, #5
 	mrs x5, daif
-	lsl x5, x5, #6
 	orr x4, x4, x5
 	str x4, [x0, #264]
 
