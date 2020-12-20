@@ -37,9 +37,9 @@ void IrqSpinlock::unlock() {
 // --------------------------------------------------------
 
 KernelVirtualMemory::KernelVirtualMemory() {
-	// The size is chosen arbitrarily here; 1 GiB of kernel heap is sufficient for now.
+	// The size is chosen arbitrarily here; 64 GiB of kernel heap is sufficient for now.
 	uintptr_t vmBase = 0xFFFF'E000'0000'0000;
-	size_t desiredSize = 0x4000'0000;
+	size_t desiredSize = 0x10'0000'0000;
 
 	// Setup a buddy allocator.
 	auto tableOrder = BuddyAccessor::suitableOrder(desiredSize >> kPageShift);

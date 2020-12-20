@@ -22,7 +22,7 @@ FFFF'D000'0000'0000
 	Referenced in Eir, Thor and kernel/thor/meson.build
 
 FFFF'E000'0000'0000
-	Length: 1 GiB
+	Length: 64 GiB
 	Kernel heap
 	Referenced in thor/src/core.cpp
 
