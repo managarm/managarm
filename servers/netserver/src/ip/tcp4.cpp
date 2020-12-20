@@ -379,12 +379,35 @@ struct Tcp4Socket {
 		};
 	}
 
+	static async::result<void> setFileFlags(void *object, int flags) {
+		auto self = static_cast<Tcp4Socket *>(object);
+		std::cout << "posix: setFileFlags on tcp socket only supports O_NONBLOCK" << std::endl;
+		if(flags & ~O_NONBLOCK) {
+			std::cout << "posix: setFileFlags on tcp socket called with unknown flags" << std::endl;
+			co_return;
+		}
+		if(flags & O_NONBLOCK)
+			self->nonBlock_ = true;
+		else
+			self->nonBlock_ = false;
+		co_return;
+	}
+
+	static async::result<int> getFileFlags(void *object) {
+		auto self = static_cast<Tcp4Socket *>(object);
+		if(self->nonBlock_)
+			co_return O_NONBLOCK;
+		co_return 0;
+	}
+
 	constexpr static protocols::fs::FileOperations ops {
 		.read = &read,
 		.write = &write,
 		.poll = &poll,
 		.bind = &bind,
 		.connect = &connect,
+		.getFileFlags = &getFileFlags,
+		.setFileFlags = &setFileFlags,
 		.recvMsg = &recvMsg,
 		.sendMsg = &sendMsg,
 	};
