@@ -789,7 +789,7 @@ void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
-	io->writeConfigWord(seg, bus, slot, function, offset, value);
+	io->writeConfigHalf(seg, bus, slot, function, offset, value);
 }
 
 void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
@@ -797,7 +797,7 @@ void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
-	io->writeConfigWord(seg, bus, slot, function, offset, value);
+	io->writeConfigByte(seg, bus, slot, function, offset, value);
 }
 
 } } // namespace thor::pci
