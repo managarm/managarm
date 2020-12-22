@@ -185,20 +185,38 @@ namespace {
 			// TODO: improve error handling here.
 			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
-			// TODO: Perform some sanity checks on the offset.
-			uint32_t word;
-			if(req.size() == 1) {
-				word = readConfigByte(device->seg, device->bus, device->slot, device->function, req.offset());
-			}else if(req.size() == 2) {
-				word = readConfigHalf(device->seg, device->bus, device->slot, device->function, req.offset());
-			}else{
-				assert(req.size() == 4);
-				word = readConfigWord(device->seg, device->bus, device->slot, device->function, req.offset());
-			}
-
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-			resp.set_word(word);
+
+			if(req.size() == 1) {
+				if(isValidConfigAccess(1, req.offset())) {
+					auto word = readConfigByte(device->seg, device->bus,
+							device->slot, device->function, req.offset());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+					resp.set_word(word);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else if(req.size() == 2) {
+				if(isValidConfigAccess(1, req.offset())) {
+					auto word = readConfigHalf(device->seg, device->bus,
+							device->slot, device->function, req.offset());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+					resp.set_word(word);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else if(req.size() == 4) {
+				if(isValidConfigAccess(1, req.offset())) {
+					auto word = readConfigWord(device->seg, device->bus,
+							device->slot, device->function, req.offset());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+					resp.set_word(word);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
@@ -208,18 +226,35 @@ namespace {
 			// TODO: improve error handling here.
 			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::STORE_PCI_SPACE) {
-			// TODO: Perform some sanity checks on the offset.
-			if(req.size() == 1) {
-				writeConfigByte(device->seg, device->bus, device->slot, device->function, req.offset(), req.word());
-			}else if(req.size() == 2) {
-				writeConfigHalf(device->seg, device->bus, device->slot, device->function, req.offset(), req.word());
-			}else{
-				assert(req.size() == 4);
-				writeConfigWord(device->seg, device->bus, device->slot, device->function, req.offset(), req.word());
-			}
-
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			if(req.size() == 1) {
+				if(isValidConfigAccess(1, req.offset())) {
+					writeConfigByte(device->seg, device->bus, device->slot, device->function,
+							req.offset(), req.word());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else if(req.size() == 2) {
+				if(isValidConfigAccess(2, req.offset())) {
+					writeConfigHalf(device->seg, device->bus, device->slot, device->function,
+							req.offset(), req.word());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else if(req.size() == 4) {
+				if(isValidConfigAccess(4, req.offset())) {
+					writeConfigWord(device->seg, device->bus, device->slot, device->function,
+							req.offset(), req.word());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
@@ -229,25 +264,45 @@ namespace {
 			// TODO: improve error handling here.
 			assert(respError == Error::success);
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_CAPABILITY) {
-			assert(req.index() < device->caps.size());
-
-			// TODO: Perform some sanity checks on the offset.
-			uint32_t word;
-			if(req.size() == 1) {
-				word = readConfigByte(device->seg, device->bus, device->slot, device->function,
-						device->caps[req.index()].offset + req.offset());
-			}else if(req.size() == 2) {
-				word = readConfigHalf(device->seg, device->bus, device->slot, device->function,
-						device->caps[req.index()].offset + req.offset());
-			}else{
-				assert(req.size() == 4);
-				word = readConfigWord(device->seg, device->bus, device->slot, device->function,
-						device->caps[req.index()].offset + req.offset());
-			}
-
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-			resp.set_word(word);
+
+			if(req.index() < device->caps.size()) {
+				if(req.size() == 1) {
+					if(isValidConfigAccess(1, req.offset())) {
+						auto word = readConfigByte(device->seg, device->bus,
+								device->slot, device->function,
+								device->caps[req.index()].offset + req.offset());
+						resp.set_error(managarm::hw::Errors::SUCCESS);
+						resp.set_word(word);
+					}else{
+						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+					}
+				}else if(req.size() == 2) {
+					if(isValidConfigAccess(2, req.offset())) {
+						auto word = readConfigHalf(device->seg, device->bus,
+								device->slot, device->function,
+								device->caps[req.index()].offset + req.offset());
+						resp.set_error(managarm::hw::Errors::SUCCESS);
+						resp.set_word(word);
+					}else{
+						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+					}
+				}else if(req.size() == 4) {
+					if(isValidConfigAccess(4, req.offset())) {
+						auto word = readConfigWord(device->seg, device->bus,
+								device->slot, device->function,
+								device->caps[req.index()].offset + req.offset());
+						resp.set_error(managarm::hw::Errors::SUCCESS);
+						resp.set_word(word);
+					}else{
+						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+					}
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);

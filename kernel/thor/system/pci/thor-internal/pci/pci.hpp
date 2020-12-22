@@ -270,6 +270,11 @@ void enumerateAll();
 
 void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io);
 
+inline bool isValidConfigAccess(int size, uint32_t offset) {
+	assert(size == 1 || size == 2 || size == 4);
+	return !(offset & (size - 1));
+}
+
 // read from pci configuration space
 uint32_t readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
 		uint32_t function, uint32_t offset);

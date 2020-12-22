@@ -7,6 +7,7 @@ enum Errors {
 	SUCCESS = 0;
 	ILLEGAL_REQUEST = 1;
 	OUT_OF_BOUNDS = 2;
+	ILLEGAL_ARGUMENTS = 3;
 }
 
 enum IoType {
