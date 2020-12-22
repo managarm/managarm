@@ -2147,7 +2147,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						break;
 					auto anchor = dir.first->getAnchor();
 					assert(anchor); // Non-root mounts must have anchors in their parents.
-					traversed = ViewPath{dir.first->getParent(), dir.second};
+					traversed = ViewPath{dir.first->getParent(), anchor};
 				}else{
 					traversed = dir;
 				}
