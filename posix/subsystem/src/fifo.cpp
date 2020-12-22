@@ -56,8 +56,8 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
-	ReaderFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("fifo.read"), mount, link, File::defaultPipeLikeSeek} { }
+	ReaderFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool nonBlock = false)
+	: File{StructName::get("fifo.read"), mount, link, File::defaultPipeLikeSeek}, nonBlock_{nonBlock} { }
 
 	void connectChannel(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
@@ -80,8 +80,14 @@ public:
 		if(!maxLength)
 			co_return 0;
 
-		while(_channel->packetQueue.empty() && _channel->writerCount)
+		while(_channel->packetQueue.empty() && _channel->writerCount) {
+			if(nonBlock_) {
+				if(logFifos)
+					std::cout << "posix: FIFO pipe would block" << std::endl;
+				co_return Error::wouldBlock;
+			}
 			co_await _channel->statusBell.async_wait();
+		}
 
 		if(_channel->packetQueue.empty()) {
 			assert(!_channel->writerCount);
@@ -129,10 +135,31 @@ public:
 		return _passthrough;
 	}
 
+	async::result<void> setFileFlags(int flags) override {
+		std::cout << "posix: setFileFlags on fifo \e[1;34m" << structName() << "\e[0m only supports O_NONBLOCK" << std::endl;
+		if(flags & ~O_NONBLOCK) {
+			std::cout << "posix: setFileFlags on socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+			co_return;
+		}
+		if(flags & O_NONBLOCK)
+			nonBlock_ = true;
+		else
+			nonBlock_ = false;
+		co_return;
+	}
+
+	async::result<int> getFileFlags() override {
+		if(nonBlock_)
+			co_return O_NONBLOCK;
+		co_return 0;
+	}
+
 private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
+
+	bool nonBlock_;
 };
 
 struct WriterFile : File {
