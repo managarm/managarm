@@ -542,7 +542,10 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	auto thread = process->threadDescriptor();
 
 	SignalHandler handler = _handlers[item->signalNumber];
-	assert(!(handler.flags & signalOnce));
+
+	// Implement SA_RESETHAND by resetting the signal disposition to default.
+	if(handler.flags & signalOnce)
+		_handlers[item->signalNumber].disposition = SignalDisposition::none;
 
 	if(handler.disposition == SignalDisposition::none) {
 		if(item->signalNumber == SIGCHLD) { // TODO: Handle default actions generically.
