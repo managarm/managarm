@@ -8,6 +8,7 @@
 #include <deque>
 #include <iomanip>
 #include <random>
+#include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
