@@ -268,7 +268,8 @@ public:
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
 
-	async::result<void> raiseContext(SignalItem *item, Process *process);
+	async::result<void> raiseContext(SignalItem *item, Process *process,
+			bool &killed);
 
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread);
 
