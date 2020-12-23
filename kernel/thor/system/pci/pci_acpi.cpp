@@ -191,7 +191,7 @@ static initgraph::Task discoverAcpiRootBuses{&extendedInitEngine, "pci.discover-
 			infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
 			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, getConfigIoFor(0, 0), 0, 0);
 			rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, handle);
-			addToEnumerationQueue(rootBus);
+			addRootBus(rootBus);
 		}
 
 		infoLogger() << "thor: Discovering PCI devices" << frg::endlog;

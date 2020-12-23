@@ -58,6 +58,7 @@ struct RoutingEntry {
 	IrqPin *pin;
 };
 
+struct PciDevice;
 struct PciBridge;
 struct PciBus;
 struct PciIrqRouter;
@@ -102,6 +103,7 @@ struct PciBus {
 	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_, PciConfigIo *io,
 			uint32_t segId_, uint32_t busId_)
 	: associatedBridge{associatedBridge_}, irqRouter{irqRouter_}, io{io},
+		childDevices{*kernelAlloc}, childBridges{*kernelAlloc},
 		segId{segId_}, busId{busId_} { }
 
 	PciBus(const PciBus &) = delete;
@@ -119,9 +121,31 @@ struct PciBus {
 	PciBridge *associatedBridge;
 	PciIrqRouter *irqRouter;
 	PciConfigIo *io;
+	frg::vector<PciDevice *, KernelAlloc> childDevices;
+	frg::vector<PciBridge *, KernelAlloc> childBridges;
 
 	uint32_t segId;
 	uint32_t busId;
+};
+
+struct PciBar {
+	enum BarType {
+		kBarNone = 0,
+		kBarIo = 1,
+		kBarMemory = 2
+	};
+
+	PciBar()
+	: type{kBarNone}, address{0}, length{0}, offset{0} { }
+
+	BarType type;
+	uintptr_t address;
+	size_t length;
+
+	bool allocated;
+	smarter::shared_ptr<MemoryView> memory;
+	smarter::shared_ptr<IoSpace> io;
+	ptrdiff_t offset;
 };
 
 // Either a device or a bridge.
@@ -135,6 +159,8 @@ struct PciEntity {
 
 	PciBus *parentBus;
 
+	virtual PciBar *getBars() = 0;
+
 	// Location of the device on the PCI bus.
 	uint32_t seg;
 	uint32_t bus;
@@ -143,30 +169,23 @@ struct PciEntity {
 };
 
 struct PciBridge : PciEntity {
-	PciBridge(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function)
-	: PciEntity{parentBus_, seg, bus, slot, function} { }
+	PciBridge(PciBus *parentBus_, uint32_t seg, uint32_t bus,
+			uint32_t slot, uint32_t function)
+	: PciEntity{parentBus_, seg, bus, slot, function}, associatedBus{nullptr},
+			downstreamId{0}, subordinateId{0} { }
+
+	PciBar bars[2];
+
+	PciBar *getBars() override {
+		return bars;
+	}
+
+	PciBus *associatedBus;
+	uint32_t downstreamId;
+	uint32_t subordinateId;
 };
 
 struct PciDevice : PciEntity {
-	enum BarType {
-		kBarNone = 0,
-		kBarIo = 1,
-		kBarMemory = 2
-	};
-
-	struct Bar {
-		Bar()
-		: type{kBarNone}, address{0}, length{0}, offset{0} { }
-
-		BarType type;
-		uintptr_t address;
-		size_t length;
-
-		smarter::shared_ptr<MemoryView> memory;
-		smarter::shared_ptr<IoSpace> io;
-		ptrdiff_t offset;
-	};
-
 	struct Capability {
 		unsigned int type;
 		ptrdiff_t offset;
@@ -202,7 +221,11 @@ struct PciDevice : PciEntity {
 	IrqPin *interrupt;
 
 	// device configuration
-	Bar bars[6];
+	PciBar bars[6];
+
+	PciBar *getBars() override {
+		return bars;
+	}
 
 	frg::vector<Capability, KernelAlloc> caps;
 
@@ -244,6 +267,13 @@ extern frg::manual_box<
 > allDevices;
 
 extern frg::manual_box<
+	frg::vector<
+		PciBus *,
+		KernelAlloc
+	>
+> allRootBuses;
+
+extern frg::manual_box<
 	frg::hash_map<
 		uint32_t,
 		PciConfigIo *,
@@ -255,6 +285,7 @@ extern frg::manual_box<
 void runAllDevices();
 
 void addToEnumerationQueue(PciBus *bus);
+void addRootBus(PciBus *bus);
 void enumerateAll();
 
 struct PciConfigIo {

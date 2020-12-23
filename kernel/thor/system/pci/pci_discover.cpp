@@ -23,6 +23,13 @@ frg::manual_box<
 > allDevices;
 
 frg::manual_box<
+	frg::vector<
+		PciBus *,
+		KernelAlloc
+	>
+> allRootBuses;
+
+frg::manual_box<
 	frg::hash_map<
 		uint32_t,
 		PciConfigIo *,
@@ -60,18 +67,18 @@ namespace {
 
 			for(size_t k = 0; k < 6; k++) {
 				managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
-				if(device->bars[k].type == PciDevice::kBarIo) {
+				if(device->bars[k].type == PciBar::kBarIo) {
 					assert(device->bars[k].offset == 0);
 					msg.set_io_type(managarm::hw::IoType::PORT);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
-				}else if(device->bars[k].type == PciDevice::kBarMemory) {
+				}else if(device->bars[k].type == PciBar::kBarMemory) {
 					msg.set_io_type(managarm::hw::IoType::MEMORY);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
 					msg.set_offset(device->bars[k].offset);
 				}else{
-					assert(device->bars[k].type == PciDevice::kBarNone);
+					assert(device->bars[k].type == PciBar::kBarNone);
 					msg.set_io_type(managarm::hw::IoType::NO_BAR);
 				}
 				resp.add_bars(std::move(msg));
@@ -88,10 +95,10 @@ namespace {
 			auto index = req.index();
 
 			AnyDescriptor descriptor;
-			if(device->bars[index].type == PciDevice::kBarIo) {
+			if(device->bars[index].type == PciBar::kBarIo) {
 				descriptor = IoDescriptor{device->bars[index].io};
 			}else{
-				assert(device->bars[index].type == PciDevice::kBarMemory);
+				assert(device->bars[index].type == PciBar::kBarMemory);
 				descriptor = MemoryViewDescriptor{device->bars[index].memory};
 			}
 
@@ -564,7 +571,137 @@ size_t computeBarLength(uintptr_t mask) {
 
 frg::manual_box<frg::vector<PciBus *, KernelAlloc>> enumerationQueue;
 
-void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
+void readEntityBars(PciEntity *entity, int nBars) {
+	auto bars = entity->getBars();
+	auto bus = entity->parentBus;
+	auto io = bus->io;
+
+	auto slot = entity->slot;
+	auto function = entity->function;
+
+	// Determine the BARs
+	for(int i = 0; i < nBars; i++) {
+		uint32_t offset = kPciRegularBar0 + i * 4;
+		uint32_t bar = io->readConfigWord(bus, slot, function, offset);
+
+		if((bar & 1) != 0) {
+			uintptr_t address = bar & 0xFFFFFFFC;
+
+			// write all 1s to the BAR and read it back to determine this its length.
+			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
+			uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFFC;
+			io->writeConfigWord(bus, slot, function, offset, bar);
+
+			// Device doesn't decode any address bits from this BAR
+			if (!mask)
+				continue;
+
+			auto length = computeBarLength(mask);
+
+			bars[i].type = PciBar::kBarIo;
+			bars[i].address = address;
+			bars[i].length = length;
+
+			if (!address) {
+				infoLogger() << "            unallocated I/O space BAR #" << i
+						<< ", length: " << length << " ports" << frg::endlog;
+			} else {
+				bars[i].allocated = true;
+				bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+				for(size_t p = 0; p < length; ++p)
+					bars[i].io->addPort(address + p);
+				bars[i].offset = 0;
+
+				infoLogger() << "            I/O space BAR #" << i
+						<< " at 0x" << frg::hex_fmt(address)
+						<< ", length: " << length << " ports" << frg::endlog;
+			}
+		}else if(((bar >> 1) & 3) == 0) {
+			uint32_t address = bar & 0xFFFFFFF0;
+
+			// Write all 1s to the BAR and read it back to determine this its length.
+			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
+			uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0;
+			io->writeConfigWord(bus, slot, function, offset, bar);
+
+			// Device doesn't decode any address bits from this BAR
+			if (!mask)
+				continue;
+
+			auto length = computeBarLength(mask);
+
+			bars[i].type = PciBar::kBarMemory;
+			bars[i].address = address;
+			bars[i].length = length;
+
+			if (!address) {
+				infoLogger() << "            unallocated 32-bit memory BAR #" << i
+						<< ", length: " << length << " bytes" << frg::endlog;
+			} else {
+				bars[i].allocated = true;
+				auto offset = address & (kPageSize - 1);
+				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+						address & ~(kPageSize - 1),
+						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+						CachingMode::null);
+				bars[i].offset = offset;
+
+				infoLogger() << "            32-bit memory BAR #" << i
+						<< " at 0x" << frg::hex_fmt(address)
+						<< ", length: " << length << " bytes" << frg::endlog;
+			}
+		}else if(((bar >> 1) & 3) == 2) {
+			assert(i < (nBars - 1)); // Otherwise there is no next bar.
+			auto high = io->readConfigWord(bus, slot, function, offset + 4);;
+			auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
+
+			// Write all 1s to the BAR and read it back to determine this its length.
+			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
+			io->writeConfigWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
+			uint32_t mask = (uint64_t{io->readConfigWord(bus, slot, function, offset + 4)} << 32)
+					| (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
+			io->writeConfigWord(bus, slot, function, offset, bar);
+			io->writeConfigWord(bus, slot, function, offset + 4, high);
+
+			// Device doesn't decode any address bits from this BAR
+			if (!mask) {
+				i++;
+				continue;
+			}
+
+			auto length = computeBarLength(mask);
+
+			bars[i].type = PciBar::kBarMemory;
+			bars[i].address = address;
+			bars[i].length = length;
+
+			if (!address) {
+				infoLogger() << "            unallocated 64-bit memory BAR #" << i
+						<< ", length: " << length << " bytes" << frg::endlog;
+			} else {
+				bars[i].allocated = true;
+				auto offset = address & (kPageSize - 1);
+				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+						address & ~(kPageSize - 1),
+						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+						CachingMode::null);
+				bars[i].offset = offset;
+
+				infoLogger() << "            64-bit memory BAR #" << i
+						<< " at 0x" << frg::hex_fmt(address)
+						<< ", length: " << length << " bytes" << frg::endlog;
+			}
+
+			i++;
+		}else{
+			assert(!"Unexpected BAR type");
+		}
+	}
+}
+
+template <typename EnumFunc>
+void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
+		EnumFunc &&enumerateDownstream) {
 	auto io = bus->io;
 
 	uint16_t vendor = io->readConfigHalf(bus, slot, function, kPciVendor);
@@ -574,14 +711,19 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	auto log = infoLogger();
 
 	uint8_t header_type = io->readConfigByte(bus, slot, function, kPciHeaderType);
-	if((header_type & 0x7F) == 0) {
+	if ((header_type & 0x7F) == 0) {
 		log << "        Function " << function << ": Device";
-	}else if((header_type & 0x7F) == 1) {
+	} else if ((header_type & 0x7F) == 1) {
 		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
 
-		log << "        Function " << function
-				<< ": PCI-to-PCI bridge to bus " << (int)downstreamId;
-	}else{
+		if (!downstreamId) {
+			log << "        Function " << function
+					<< ": unconfigured PCI-to-PCI bridge";
+		} else {
+			log << "        Function " << function
+					<< ": PCI-to-PCI bridge to bus " << (int)downstreamId;
+		}
+	} else {
 		log << "        Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F);
 	}
@@ -603,13 +745,14 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	auto class_code = io->readConfigByte(bus, slot, function, kPciClassCode);
 	auto sub_class = io->readConfigByte(bus, slot, function, kPciSubClass);
 	auto interface = io->readConfigByte(bus, slot, function, kPciInterface);
+
 	infoLogger() << "            Vendor/device: " << frg::hex_fmt(vendor)
 			<< "." << frg::hex_fmt(device_id) << "." << frg::hex_fmt(revision)
 			<< ", class: " << frg::hex_fmt(class_code)
 			<< "." << frg::hex_fmt(sub_class)
 			<< "." << frg::hex_fmt(interface) << frg::endlog;
 
-	if((header_type & 0x7F) == 0) {
+	if ((header_type & 0x7F) == 0) {
 		uint16_t subsystem_vendor = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemVendor);
 		uint16_t subsystem_device = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemDevice);
 //		infoLogger() << "        Subsystem vendor: 0x" << frg::hex_fmt(subsystem_vendor)
@@ -651,90 +794,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 			}
 		}
 
-		// Determine the BARs
-		for(int i = 0; i < 6; i++) {
-			uint32_t offset = kPciRegularBar0 + i * 4;
-			uint32_t bar = io->readConfigWord(bus, slot, function, offset);
-			if(bar == 0)
-				continue;
-
-			if((bar & 1) != 0) {
-				uintptr_t address = bar & 0xFFFFFFFC;
-
-				// write all 1s to the BAR and read it back to determine this its length.
-				io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
-				uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFFC;
-				io->writeConfigWord(bus, slot, function, offset, bar);
-				auto length = computeBarLength(mask);
-
-				device->bars[i].type = PciDevice::kBarIo;
-				device->bars[i].address = address;
-				device->bars[i].length = length;
-
-				device->bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
-				for(size_t p = 0; p < length; ++p)
-					device->bars[i].io->addPort(address + p);
-				device->bars[i].offset = 0;
-
-				infoLogger() << "            I/O space BAR #" << i
-						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " ports" << frg::endlog;
-			}else if(((bar >> 1) & 3) == 0) {
-				uint32_t address = bar & 0xFFFFFFF0;
-
-				// Write all 1s to the BAR and read it back to determine this its length.
-				io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
-				uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0;
-				io->writeConfigWord(bus, slot, function, offset, bar);
-				auto length = computeBarLength(mask);
-
-				device->bars[i].type = PciDevice::kBarMemory;
-				device->bars[i].address = address;
-				device->bars[i].length = length;
-
-				auto offset = address & (kPageSize - 1);
-				device->bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-						address & ~(kPageSize - 1),
-						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::null);
-				device->bars[i].offset = offset;
-
-				infoLogger() << "            32-bit memory BAR #" << i
-						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " bytes" << frg::endlog;
-			}else if(((bar >> 1) & 3) == 2) {
-				assert(i < 5); // Otherwise there is no next bar.
-				auto high = io->readConfigWord(bus, slot, function, offset + 4);;
-				auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
-
-				// Write all 1s to the BAR and read it back to determine this its length.
-				io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
-				io->writeConfigWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
-				uint32_t mask = (uint64_t{io->readConfigWord(bus, slot, function, offset + 4)} << 32)
-						| (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
-				io->writeConfigWord(bus, slot, function, offset, bar);
-				io->writeConfigWord(bus, slot, function, offset + 4, high);
-				auto length = computeBarLength(mask);
-
-				device->bars[i].type = PciDevice::kBarMemory;
-				device->bars[i].address = address;
-				device->bars[i].length = length;
-
-				auto offset = address & (kPageSize - 1);
-				device->bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-						address & ~(kPageSize - 1),
-						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::null);
-				device->bars[i].offset = offset;
-
-				infoLogger() << "            64-bit memory BAR #" << i
-						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " bytes" << frg::endlog;
-				i++;
-			}else{
-				assert(!"Unexpected BAR type");
-			}
-		}
+		readEntityBars(device.get(), 6);
 
 		auto irq_index = static_cast<IrqIndex>(io->readConfigByte(bus, slot, function,
 				kPciRegularInterruptPin));
@@ -753,12 +813,24 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 		}
 
 		allDevices->push_back(device);
-	}else if((header_type & 0x7F) == 1) {
+	} else if ((header_type & 0x7F) == 1) {
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function);
+		bus->childBridges.push_back(bridge);
+
+		readEntityBars(bridge, 2);
 
 		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
-		auto downstreamBus = bus->makeDownstreamBus(bridge, downstreamId);
-		enumerationQueue->push_back(std::move(downstreamBus)); // FIXME: move should be unnecessary.
+
+		if (downstreamId) {
+			bridge->downstreamId = downstreamId;
+			bridge->subordinateId = io->readConfigByte(bus, slot, function, kPciBridgeSubordinate);
+
+			auto downstreamBus = bus->makeDownstreamBus(bridge, downstreamId);
+			bridge->associatedBus = downstreamBus;
+			enumerateDownstream(downstreamBus);
+		} else {
+			infoLogger() << "            Deferring enumeration until bridge is configured" << frg::endlog;
+		}
 	}
 
 	// TODO: This should probably be moved somewhere else.
@@ -769,7 +841,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function) {
 	}
 }
 
-void checkPciDevice(PciBus *bus, uint32_t slot) {
+template <typename EnumFunc>
+void checkPciDevice(PciBus *bus, uint32_t slot, EnumFunc &&enumerateDownstream) {
 	auto io = bus->io;
 
 	uint16_t vendor = io->readConfigHalf(bus, slot, 0, kPciVendor);
@@ -781,15 +854,16 @@ void checkPciDevice(PciBus *bus, uint32_t slot) {
 	uint8_t header_type = io->readConfigByte(bus, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {
 		for(uint32_t function = 0; function < 8; function++)
-			checkPciFunction(bus, slot, function);
+			checkPciFunction(bus, slot, function, enumerateDownstream);
 	}else{
-		checkPciFunction(bus, slot, 0);
+		checkPciFunction(bus, slot, 0, enumerateDownstream);
 	}
 }
 
-void checkPciBus(PciBus *bus) {
+template <typename EnumFunc>
+void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
 	for(uint32_t slot = 0; slot < 32; slot++)
-		checkPciDevice(bus, slot);
+		checkPciDevice(bus, slot, enumerateDownstream);
 }
 
 void runAllDevices() {
@@ -804,13 +878,114 @@ void addToEnumerationQueue(PciBus *bus) {
 	enumerationQueue->push_back(bus);
 }
 
+void addRootBus(PciBus *bus) {
+	if (!allRootBuses)
+		allRootBuses.initialize(*kernelAlloc);
+
+	allRootBuses->push_back(bus);
+
+	// This assumes we discover all root buses before enumeration
+	addToEnumerationQueue(bus);
+}
+
+void configureBridges(PciBus *root, PciBus *bus, int &highestId) {
+	for (size_t i = 0; i < bus->childBridges.size(); i++) {
+		auto bridge = bus->childBridges[i];
+		if (!bridge->downstreamId) {
+			auto parent = bridge->parentBus->associatedBridge;
+
+			auto b = parent;
+			while (b) {
+				infoLogger() << "thor: Bumping bridge "
+					<< frg::hex_fmt{b->seg} << ":"
+					<< frg::hex_fmt{b->bus} << ":"
+					<< frg::hex_fmt{b->slot} << "."
+					<< frg::hex_fmt{b->function}
+					<< " from subordinate id " << b->subordinateId
+					<< " to subordinate id " << (b->subordinateId + 1) << frg::endlog;
+
+				b->subordinateId++;
+				root->io->writeConfigByte(b->parentBus, b->slot, b->function, kPciBridgeSubordinate, b->subordinateId);
+				b = b->parentBus->associatedBridge;
+			}
+
+			if (parent) {
+				assert(highestId < parent->subordinateId);
+				highestId = parent->subordinateId;
+
+				bridge->downstreamId = parent->subordinateId;
+				bridge->subordinateId = parent->subordinateId;
+			} else {
+				// We're directly on the root bus
+				// TODO: this ID may be in use by a bridge on a different root bus
+				highestId++;
+
+				bridge->downstreamId = highestId;
+				bridge->subordinateId = highestId;
+			}
+
+			root->io->writeConfigByte(bridge->parentBus, bridge->slot, bridge->function,
+					kPciBridgeSecondary, bridge->downstreamId);
+			root->io->writeConfigByte(bridge->parentBus, bridge->slot, bridge->function,
+					kPciBridgeSubordinate, bridge->subordinateId);
+
+			infoLogger() << "thor: Found unconfigured bridge "
+				<< frg::hex_fmt{bridge->seg} << ":"
+				<< frg::hex_fmt{bridge->bus} << ":"
+				<< frg::hex_fmt{bridge->slot} << "."
+				<< frg::hex_fmt{bridge->function}
+				<< ", now configured to downstream " << bridge->downstreamId
+				<< ", subordinate " << bridge->subordinateId << frg::endlog;
+
+			auto downstreamBus = bus->makeDownstreamBus(bridge, bridge->downstreamId);
+			bridge->associatedBus = downstreamBus;
+			checkPciBus(downstreamBus,
+				[](PciBus *bus) {
+					auto br = bus->associatedBridge;
+					panicLogger() << "thor: error: found already configured bridge "
+						<< frg::hex_fmt{br->seg} << ":"
+						<< frg::hex_fmt{br->bus} << ":"
+						<< frg::hex_fmt{br->slot} << "."
+						<< frg::hex_fmt{br->function}
+						<< " under an unconfigured bridge" << frg::endlog;
+				}
+			);
+		}
+
+		assert(bridge->associatedBus && "Bridge has no associated bus");
+		configureBridges(root, bridge->associatedBus, highestId);
+	}
+}
+
+uint32_t findHighestId(PciBus *bus) {
+	uint32_t id = bus->busId;
+
+	for (auto bridge : bus->childBridges) {
+		if (!bridge->subordinateId)
+			continue;
+
+		if (id < bridge->subordinateId)
+			id = bridge->subordinateId;
+	}
+
+	return id;
+}
+
 void enumerateAll() {
 	if (!allDevices)
 		allDevices.initialize(*kernelAlloc);
 
 	for(size_t i = 0; i < enumerationQueue->size(); i++) {
 		auto bus = (*enumerationQueue)[i];
-		checkPciBus(bus);
+		checkPciBus(bus, addToEnumerationQueue);
+	}
+
+	// Configure unconfigured bridges
+	infoLogger() << "thor: Looking for unconfigured PCI bridges" << frg::endlog;
+
+	for (auto rootBus : *allRootBuses) {
+		int i = findHighestId(rootBus);
+		configureBridges(rootBus, rootBus, i);
 	}
 }
 

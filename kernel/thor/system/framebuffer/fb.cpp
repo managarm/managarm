@@ -135,7 +135,7 @@ void transitionBootFb() {
 	for (auto dev : *pci::allDevices) {
 		auto checkBars = [&] () -> bool {
 			for(int i = 0; i < 6; i++) {
-				if(dev->bars[i].type != pci::PciDevice::kBarMemory)
+				if(dev->bars[i].type != pci::PciBar::kBarMemory)
 					continue;
 				// TODO: Careful about overflow here.
 				auto bar_begin = dev->bars[i].address;
