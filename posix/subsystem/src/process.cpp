@@ -11,7 +11,7 @@
 static bool logFileAttach = false;
 static bool logCleanup = false;
 
-void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation);
+async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation);
 
 // ----------------------------------------------------------------------------
 // VmContext.
@@ -781,7 +781,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
 	helResume(process->_threadDescriptor.getHandle());
-	serve(process, std::move(generation));
+	async::detach(serve(process, std::move(generation)));
 
 	co_return process;
 }
@@ -839,7 +839,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
-	serve(process, std::move(generation));
+	async::detach(serve(process, std::move(generation)));
 
 	return process;
 }
@@ -893,7 +893,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
-	serve(process, std::move(generation));
+	async::detach(serve(process, std::move(generation)));
 
 	return process;
 }
@@ -969,7 +969,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
 	helResume(process->_threadDescriptor.getHandle());
-	serve(process, std::move(generation));
+	async::detach(serve(process, std::move(generation)));
 
 	co_return Error::success;
 }

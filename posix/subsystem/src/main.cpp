@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <iostream>
 
+#include <async/algorithm.hpp>
 #include <async/jump.hpp>
 #include <protocols/mbus/client.hpp>
 #include <helix/timer.hpp>
@@ -154,7 +155,7 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 	}
 }
 
-async::detached observeThread(std::shared_ptr<Process> self,
+async::result<void> observeThread(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
 
@@ -520,11 +521,16 @@ async::detached observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			co_await self->signalContext()->raiseContext(item, self.get());
+			if(auto e = helResume(thread.getHandle()); e) {
+				if(e == kHelErrThreadTerminated)
+					continue;
+				HEL_CHECK(e);
+			}
 		}
 	}
 }
 
-async::detached serveSignals(std::shared_ptr<Process> self,
+async::result<void> serveSignals(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
 	async::cancellation_token cancellation = generation->cancelServe;
@@ -2957,7 +2963,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 	generation->requestsDone.raise();
 }
 
-void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {
+async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
 
 	std::array<char, 16> creds;
@@ -2965,9 +2971,11 @@ void serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation
 	auto res = globalCredentialsMap.insert({creds, self});
 	assert(res.second);
 
-	observeThread(self, generation);
-	serveSignals(self, generation);
-	async::detach(serveRequests(self, generation));
+	co_await async::when_all(
+		observeThread(self, generation),
+		serveSignals(self, generation),
+		serveRequests(self, generation)
+	);
 }
 
 // --------------------------------------------------------
