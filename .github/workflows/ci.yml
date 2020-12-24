@@ -16,6 +16,7 @@ jobs:
             uses: actions/checkout@v2
             with:
                 path: src/managarm/
+                fetch-depth: 0
           - name: Build container
             run: docker build -t managarm-build --target base src/docker
           - name: Prepare src/ and worker/
@@ -51,6 +52,7 @@ jobs:
             uses: actions/checkout@v2
             with:
                 path: src/managarm/
+                fetch-depth: 0
           - name: Build container
             run: docker build -t managarm-build --target base src/docker
           - name: Prepare src/ and worker/
