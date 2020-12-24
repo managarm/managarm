@@ -37,7 +37,7 @@ jobs:
                     --mount type=bind,source=$GITHUB_WORKSPACE,target=/builder \
                     -w /builder/worker \
                     managarm-build \
-                    bash -c 'xbstrap init ../src && xbstrap download mlibc mlibc-headers && xbstrap pack managarm-kernel'
+                    bash -c 'xbstrap init ../src && xbstrap pull-pack mlibc mlibc-headers && xbstrap pack managarm-kernel'
     build-system:
         name: Build managarm-system
         runs-on: ubuntu-20.04
@@ -72,4 +72,4 @@ jobs:
                     --mount type=bind,source=$GITHUB_WORKSPACE,target=/builder \
                     -w /builder/worker \
                     managarm-build \
-                    bash -c 'xbstrap init ../src && xbstrap download boost eudev mlibc mlibc-headers protobuf && xbstrap pack managarm-system'
+                    bash -c 'xbstrap init ../src && xbstrap pull-pack boost eudev mlibc mlibc-headers protobuf && xbstrap pack managarm-system'
