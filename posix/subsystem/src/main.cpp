@@ -2246,7 +2246,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			if (!target_link) {
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
-				continue;
 			} else {
 				auto owner = target_link->getOwner();
 				if(!owner) {
@@ -2255,12 +2254,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 				auto result = co_await owner->unlink(target_link->getName());
 				if(!result) {
-					std::cout << "posix: Unexpected failure from unlink()" << std::endl;
-					co_return;
+					if(result.error() == Error::noSuchFile) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					}else{
+						std::cout << "posix: Unexpected failure from unlink()" << std::endl;
+						co_return;
+					}
 				}
 
 				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
-				continue;
 			}
 		}else if(preamble.id() == managarm::posix::RmdirRequest::message_id) {
 			std::vector<std::byte> tail(preamble.tail_size());
