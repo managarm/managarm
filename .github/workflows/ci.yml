@@ -27,7 +27,7 @@ jobs:
                 echo '{"pkg_management": {"format": "xbps"}}' > worker/bootstrap-site.yml
                 cd worker/tools/
                 for t in cross-binutils host-llvm-toolchain host-managarm-tools host-protoc kernel-gcc system-gcc; do
-                    curl -o $t.tar.gz https://pkgs.managarm.org/tools/$t.tar.gz
+                    curl -o $t.tar.gz https://ci.managarm.org/repos/tools/managarm/rolling/$t.tar.gz
                     mkdir $t
                     tar -C $t -xzf $t.tar.gz
                 done
@@ -63,7 +63,7 @@ jobs:
                 echo '{"pkg_management": {"format": "xbps"}}' > worker/bootstrap-site.yml
                 cd worker/tools/
                 for t in cross-binutils host-autoconf-v2.69 host-automake-v1.11 host-automake-v1.15 host-libtool host-llvm-toolchain host-managarm-tools host-pkg-config host-protoc host-xorg-macros system-gcc; do
-                    curl -o $t.tar.gz https://pkgs.managarm.org/tools/$t.tar.gz
+                    curl -o $t.tar.gz https://ci.managarm.org/repos/tools/managarm/rolling/$t.tar.gz
                     mkdir $t
                     tar -C $t -xzf $t.tar.gz
                 done
