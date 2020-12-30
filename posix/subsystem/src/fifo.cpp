@@ -291,10 +291,10 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 	}
 }
 
-std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair() {
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair(bool nonBlock) {
 	auto link = SpecialLink::makeSpecialLink(VfsType::fifo, 0777);
 	auto channel = std::make_shared<Channel>();
-	auto r_file = smarter::make_shared<ReaderFile>(nullptr, link);
+	auto r_file = smarter::make_shared<ReaderFile>(nullptr, link, nonBlock);
 	auto w_file = smarter::make_shared<WriterFile>(nullptr, link);
 	r_file->setupWeakFile(r_file);
 	w_file->setupWeakFile(w_file);
