@@ -2441,13 +2441,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			assert(!(req.flags() & ~(O_CLOEXEC | O_NONBLOCK)));
 
+			bool nonBlock = false;
+
 			if(req.flags() & O_NONBLOCK)
-				std::cout << "\e[31mposix: pipe2(O_NONBLOCK)"
-						" is not implemented correctly\e[39m" << std::endl;
+				nonBlock = true;
 
 			helix::SendBuffer send_resp;
 
-			auto pair = fifo::createPair();
+			auto pair = fifo::createPair(nonBlock);
 			auto r_fd = self->fileContext()->attachFile(std::get<0>(pair),
 					req.flags() & O_CLOEXEC);
 			auto w_fd = self->fileContext()->attachFile(std::get<1>(pair),
