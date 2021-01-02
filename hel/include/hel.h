@@ -963,8 +963,8 @@ HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 //! @param[in] pointer
 //!     Pointer that identifies the futex.
 //! @param[in] expected
-//!     Expected value of the futex. This function does nothing when the
-//!     futex pointed to by @pointer matches this value.
+//!     Expected value of the futex. This function does nothing unless
+//!     the futex pointed to by @pointer matches this value.
 //! @param[in] deadline
 //!     Timeout (in absolute monotone time, see ::helGetClock).
 HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected, int64_t deadline);
