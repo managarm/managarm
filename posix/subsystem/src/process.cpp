@@ -454,9 +454,9 @@ void SignalContext::issueSignal(int sn, SignalInfo info) {
 	item->signalNumber = sn;
 	item->info = info;
 
-	_slots[sn].raiseSeq = ++_currentSeq;
-	_slots[sn].asyncQueue.push_back(*item);
-	_activeSet |= (UINT64_C(1) << sn);
+	_slots[sn - 1].raiseSeq = ++_currentSeq;
+	_slots[sn - 1].asyncQueue.push_back(*item);
+	_activeSet |= (UINT64_C(1) << (sn - 1));
 	_signalBell.ring();
 }
 
@@ -485,38 +485,38 @@ SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 	}
 
 	uint64_t edges = 0;
-	for(int sn = 0; sn < 64; sn++)
-		if(_slots[sn].raiseSeq > in_seq)
-			edges |= UINT64_C(1) << sn;
+	for(int sn = 1; sn <= 64; sn++)
+		if(_slots[sn - 1].raiseSeq > in_seq)
+			edges |= UINT64_C(1) << (sn - 1);
 
 	co_return PollSignalResult{_currentSeq, edges, _activeSet};
 }
 
 PollSignalResult SignalContext::checkSignal(uint64_t mask) {
 	uint64_t edges = 0;
-	for(int sn = 0; sn < 64; sn++)
-		if(_slots[sn].raiseSeq > 0)
-			edges |= UINT64_C(1) << sn;
+	for(int sn = 1; sn <= 64; sn++)
+		if(_slots[sn - 1].raiseSeq > 0)
+			edges |= UINT64_C(1) << (sn - 1);
 
 	return PollSignalResult(_currentSeq, edges, _activeSet);
 }
 
 SignalItem *SignalContext::fetchSignal(uint64_t mask) {
 	int sn;
-	for(sn = 0; sn < 64; sn++) {
-		if(!(mask & (UINT64_C(1) << sn)))
+	for(sn = 1; sn <= 64; sn++) {
+		if(!(mask & (UINT64_C(1) << (sn - 1))))
 			continue;
-		if(!_slots[sn].asyncQueue.empty())
+		if(!_slots[sn - 1].asyncQueue.empty())
 			break;
 	}
-	if(sn == 64)
+	if(sn - 1 == 64)
 		return nullptr;
 
-	assert(!_slots[sn].asyncQueue.empty());
-	auto item = &_slots[sn].asyncQueue.front();
-	_slots[sn].asyncQueue.pop_front();
-	if(_slots[sn].asyncQueue.empty())
-		_activeSet &= ~(UINT64_C(1) << sn);
+	assert(!_slots[sn - 1].asyncQueue.empty());
+	auto item = &_slots[sn - 1].asyncQueue.front();
+	_slots[sn - 1].asyncQueue.pop_front();
+	if(_slots[sn - 1].asyncQueue.empty())
+		_activeSet &= ~(UINT64_C(1) << (sn - 1));
 
 	return item;
 }
@@ -554,7 +554,8 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			killed = false;
 			co_return;
 		}else{
-			std::cout << "posix: Thread killed as the result of a signal" << std::endl;
+			std::cout << "posix: Thread killed as the result of signal "
+							<< item->signalNumber << std::endl;
 			killed = true;
 			co_await process->terminate(TerminationBySignal{item->signalNumber});
 			co_return;
