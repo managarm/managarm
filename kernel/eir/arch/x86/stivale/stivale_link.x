@@ -3,14 +3,14 @@ ENTRY(eirEntry)
 SECTIONS {
 	. = 0x100000;
 
-	.stivalehdr : ALIGN(0x1000) {
-		*(.stivalehdr)
+	.stivale2hdr : ALIGN(0x1000) {
+		*(.stivale2hdr)
 	}
 
-	.text : ALIGN(0x1000) {		
+	.text : ALIGN(0x1000) {
 		*(.text*)
 	}
-	
+
 	.trampoline : ALIGN(0x1000) {
 		trampolineStart = .;
 		*(.trampoline)
