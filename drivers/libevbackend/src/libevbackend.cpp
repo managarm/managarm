@@ -132,10 +132,6 @@ File::read(void *object, const char *, void *buffer, size_t max_size) {
 	}
 }
 
-async::result<void> File::write(void *, const char *, const void *, size_t) {
-	throw std::runtime_error("write not yet implemented");
-}
-
 async::result<protocols::fs::PollResult>
 File::poll(void *object, uint64_t past_seq, async::cancellation_token cancellation) {
 	auto self = static_cast<File *>(object);
@@ -253,7 +249,6 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withRead(&File::read)
-	.withWrite(&File::write)
 	.withPoll(&File::poll)
 	.withIoctl(&File::ioctl);
 
