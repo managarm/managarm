@@ -100,6 +100,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
+		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extract_creds.error());
+
 		if(!file_ops->read) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -112,11 +118,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials()
-		);
-		HEL_CHECK(extract_creds.error());
 
 		std::string data;
 		data.resize(req.size());
@@ -157,6 +158,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_data.error());
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
+		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extract_creds.error());
+
 		if(!file_ops->pread) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -169,11 +176,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials()
-		);
-		HEL_CHECK(extract_creds.error());
 
 		std::string data;
 		data.resize(req.size());
@@ -214,6 +216,17 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_data.error());
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+		std::vector<uint8_t> buffer;
+		buffer.resize(req.size());
+
+		auto [extract_creds, recv_buffer] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials(),
+			helix_ng::recvBuffer(buffer.data(), buffer.size())
+		);
+		HEL_CHECK(extract_creds.error());
+		HEL_CHECK(recv_buffer.error());
+
 		if(!file_ops->write) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -226,16 +239,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		std::vector<uint8_t> buffer;
-		buffer.resize(req.size());
-
-		auto [extract_creds, recv_buffer] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials(),
-			helix_ng::recvBuffer(buffer.data(), buffer.size())
-		);
-		HEL_CHECK(extract_creds.error());
-		HEL_CHECK(recv_buffer.error());
 
 		co_await file_ops->write(file.get(), extract_creds.credentials(),
 				buffer.data(), recv_buffer.actualLength());
@@ -320,6 +323,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
+
 		auto memory = co_await file_ops->accessMemory(file.get());
 
 		managarm::fs::SvrResponse resp;
@@ -394,6 +398,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
+
 		co_await file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
 		if(!file_ops->getOption) {
@@ -445,6 +450,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
+		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::pullDescriptor()
+		);
+		HEL_CHECK(pull_cancel.error());
+
 		if(!file_ops->poll) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -457,11 +468,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::pullDescriptor()
-		);
-		HEL_CHECK(pull_cancel.error());
 
 		auto result = co_await file_ops->poll(file.get(), req.sequence(),
 				async::cancellation_token{});
@@ -479,6 +485,14 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
+		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials(),
+			helix_ng::recvInline()
+		);
+		HEL_CHECK(extract_creds.error());
+		HEL_CHECK(recv_addr.error());
+
 		if(!file_ops->bind) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -491,13 +505,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials(),
-			helix_ng::recvInline()
-		);
-		HEL_CHECK(extract_creds.error());
-		HEL_CHECK(recv_addr.error());
 
 		auto error = co_await file_ops->bind(file.get(),
 			extract_creds.credentials(),
@@ -513,6 +520,14 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
+		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials(),
+			helix_ng::recvInline()
+		);
+		HEL_CHECK(extract_creds.error());
+		HEL_CHECK(recv_addr.error());
+
 		if(!file_ops->connect) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -525,13 +540,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials(),
-			helix_ng::recvInline()
-		);
-		HEL_CHECK(extract_creds.error());
-		HEL_CHECK(recv_addr.error());
 
 		auto error = co_await file_ops->connect(file.get(),
 			extract_creds.credentials(),
@@ -559,6 +567,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
+
 		std::vector<char> addr;
 		addr.resize(req.size());
 		auto actual_length = co_await file_ops->sockname(file.get(),
@@ -578,8 +587,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PEERNAME) {
-		std::vector<char> addr;
-		addr.resize(req.size());
 		if(!file_ops->peername) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -592,6 +599,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
+
+		std::vector<char> addr;
+		addr.resize(req.size());
 		auto result = co_await file_ops->peername(file.get(), addr.data(), req.size());
 
 		if (!result) {
@@ -637,6 +647,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
+
 		auto flags = co_await file_ops->getFileFlags(file.get());
 
 		managarm::fs::SvrResponse resp;
@@ -662,6 +673,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
+
 		co_await file_ops->setFileFlags(file.get(), req.flags());
 
 		managarm::fs::SvrResponse resp;
@@ -686,6 +698,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
+
 		co_await file_ops->listen(file.get());
 
 		managarm::fs::SvrResponse resp;
@@ -698,6 +711,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
+		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extract_creds.error());
+
 		if(!file_ops->recvMsg) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -710,11 +729,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::extractCredentials()
-		);
-		HEL_CHECK(extract_creds.error());
 
 		std::vector<char> buffer;
 		buffer.resize(req.size());
@@ -758,18 +772,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_data.error());
 		HEL_CHECK(send_ctrl.error());
 	} else if (req.req_type() == managarm::fs::CntReqType::PT_SENDMSG) {
-		if(!file_ops->sendMsg) {
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			co_return;
-		}
 		std::vector<uint8_t> buffer;
 		buffer.resize(req.size());
 
@@ -782,6 +784,19 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(recv_data.error());
 		HEL_CHECK(extract_creds.error());
 		HEL_CHECK(recv_addr.error());
+
+		if(!file_ops->sendMsg) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
 
 		std::vector<uint32_t> files(req.fds().cbegin(), req.fds().cend());
 
