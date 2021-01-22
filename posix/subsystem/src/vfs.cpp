@@ -202,7 +202,7 @@ void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string) {
 	}
 }
 
-async::result<void> PathResolver::resolve(ResolveFlags flags) {
+async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(ResolveFlags flags) {
 	auto sn = StructName::get("path-resolve");
 	if(debugResolve) {
 		std::cout << "posix " << sn << ": Path resolution for '";
@@ -258,9 +258,14 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 					assert(result.error() == Error::illegalOperationTarget
 							|| result.error() == Error::noSuchFile
 							|| result.error() == Error::notDirectory);
-					// TODO: Return an error code.
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					if(result.error() == Error::illegalOperationTarget) {
+						co_return protocols::fs::Error::illegalOperationTarget;
+					} else if(result.error() == Error::noSuchFile) {
+						co_return protocols::fs::Error::fileNotFound;
+					} else if(result.error() == Error::notDirectory) {
+						co_return protocols::fs::Error::notDirectory;
+					}
 				}
 
 				auto [child, nLinks] = result.value();
@@ -275,9 +280,8 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 					_components.pop_front();
 
 				if(!child) {
-					// TODO: Return an error code.
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					co_return protocols::fs::Error::fileNotFound;
 				}
 
 				// Next, we might need to traverse mount boundaries.
@@ -321,14 +325,17 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 					assert(childResult.error() == Error::notDirectory
 							|| childResult.error() == Error::illegalOperationTarget);
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					if(childResult.error() == Error::notDirectory) {
+						co_return protocols::fs::Error::notDirectory;
+					} else if(childResult.error() == Error::illegalOperationTarget) {
+						co_return protocols::fs::Error::illegalOperationTarget;
+					}
 				}
 				auto child = childResult.value();
 
 				if(!child) {
-					// TODO: Return an error code.
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					co_return protocols::fs::Error::fileNotFound;
 				}
 
 				// Next, we might need to traverse mount boundaries.
@@ -367,6 +374,7 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 			}
 		}
 	}
+	co_return {};
 }
 
 ViewPath rootPath() {

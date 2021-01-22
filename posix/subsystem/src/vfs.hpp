@@ -66,7 +66,7 @@ using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
 struct PathResolver {
 	void setup(ViewPath root, ViewPath workdir, std::string string);
 
-	async::result<void> resolve(ResolveFlags flags = 0);
+	async::result<frg::expected<protocols::fs::Error, void>> resolve(ResolveFlags flags = 0);
 
 	std::string nextComponent() {
 		assert(!_components.empty());
