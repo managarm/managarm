@@ -385,7 +385,8 @@ FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
 		std::string name, ResolveFlags flags) {
 	PathResolver resolver;
 	resolver.setup(std::move(root), std::move(workdir), std::move(name));
-	co_await resolver.resolve(flags);
+	auto result = co_await resolver.resolve(flags);
+	(void)result;
 	co_return ViewPath(resolver.currentView(), resolver.currentLink());
 }
 
