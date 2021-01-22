@@ -1258,8 +1258,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req.path());
-			co_await resolver.resolve(resolvePrefix);
-			assert(resolver.currentLink());
+			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			if(!resolveResult) {
+				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				co_return;
+			}
+			if (!resolver.currentLink()) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
 
 			auto parent = resolver.currentLink()->getTarget();
 			auto existsResult = co_await parent->getLink(resolver.nextComponent());
@@ -1339,7 +1346,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
-			co_await resolver.resolve(resolvePrefix);
+			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			if(!resolveResult) {
+				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				co_return;
+			}
 
 			if (!resolver.currentLink()) {
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1404,7 +1415,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
-			co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve();
+			if(!resolveResult) {
+				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				co_return;
+			}
 			if(!resolver.currentLink()) {
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
@@ -1426,8 +1441,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->target_path());
-			co_await new_resolver.resolve(resolvePrefix);
-			assert(new_resolver.currentLink());
+			auto new_resolveResult = co_await new_resolver.resolve(resolvePrefix);
+			if(!new_resolveResult) {
+				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				co_return;
+			}
+			if(!new_resolver.currentLink()) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
 
 			auto target = resolver.currentLink()->getTarget();
 			auto directory = new_resolver.currentLink()->getTarget();
@@ -1480,8 +1502,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relativeTo, req->path());
-			co_await resolver.resolve(resolvePrefix);
-			assert(resolver.currentLink());
+			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			if(!resolveResult) {
+				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				co_return;
+			}
+			if(!resolver.currentLink()) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
 
 			auto parent = resolver.currentLink()->getTarget();
 			auto result = co_await parent->symlink(resolver.nextComponent(), req->target_path());
@@ -1537,7 +1566,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
-			co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve();
+			if(!resolveResult) {
+				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+			}
 			if(!resolver.currentLink()) {
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
@@ -1559,8 +1603,26 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->target_path());
-			co_await new_resolver.resolve(resolvePrefix);
-			assert(new_resolver.currentLink());
+			auto new_resolveResult = co_await new_resolver.resolve(resolvePrefix);
+			if(!new_resolveResult) {
+				if(new_resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+					continue;
+				} else if(new_resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				} else if(new_resolveResult.error() == protocols::fs::Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+			}
+			if(!new_resolver.currentLink()) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
 
 			auto superblock = resolver.currentLink()->getTarget()->superblock();
 			auto directory = new_resolver.currentLink()->getTarget();
@@ -1616,10 +1678,41 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resolver.setup(self->fsContext()->getRoot(),
 						relative_to, req->path());
 
-				if (req->flags() & AT_SYMLINK_NOFOLLOW)
-					co_await resolver.resolve(resolveDontFollow);
-				else
-					co_await resolver.resolve();
+				if (req->flags() & AT_SYMLINK_NOFOLLOW) {
+					auto resolveResult = co_await resolver.resolve(resolveDontFollow);
+					if(!resolveResult) {
+						if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+						co_return;
+					}
+					}
+				} else {
+					auto resolveResult = co_await resolver.resolve();
+					if(!resolveResult) {
+						if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+						co_return;
+					}
+					}
+				}
 
 				target_link = resolver.currentLink();
 			}
@@ -1739,7 +1832,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
 
-				co_await resolver.resolve();
+				auto resolveResult = co_await resolver.resolve();
+
+				if(!resolveResult) {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
 
 				target_link = resolver.currentLink();
 			}
@@ -1801,8 +1899,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
 						relativeTo, req->path());
-				co_await resolver.resolve(resolvePrefix);
-				assert(resolver.currentLink());
+				auto resolveResult = co_await resolver.resolve(resolvePrefix);
+				if(!resolveResult) {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+				if(!resolver.currentLink()) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				}
 
 				target = resolver.currentLink()->getTarget();
 			}
@@ -1919,7 +2024,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
 			if(req->flags() & managarm::posix::OpenFlags::OF_CREATE) {
-				co_await resolver.resolve(resolvePrefix);
+				auto resolveResult = co_await resolver.resolve(resolvePrefix);
+				if(!resolveResult) {
+					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+						co_return;
+					}
+				}
 				if(!resolver.currentLink()) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
@@ -1960,7 +2080,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					assert(file);
 				}
 			}else{
-				co_await resolver.resolve();
+				auto resolveResult = co_await resolver.resolve();
+				if(!resolveResult) {
+					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+						co_return;
+					}
+				}
 
 				if(resolver.currentLink()) {
 					auto target = resolver.currentLink()->getTarget();
@@ -2240,7 +2375,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
 
-			co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve();
+			if(!resolveResult) {
+				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+			}
 
 			target_link = resolver.currentLink();
 
@@ -2290,7 +2440,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
 					req->path());
 
-			co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve();
+			if(!resolveResult) {
+				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				co_return;
+			}
 
 			target_link = resolver.currentLink();
 
@@ -2908,7 +3062,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req->path());
-			co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve();
+			if(!resolveResult) {
+				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+				co_return;
+			}
 			if(!resolver.currentLink()) {
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
