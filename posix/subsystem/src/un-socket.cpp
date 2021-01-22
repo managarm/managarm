@@ -334,7 +334,11 @@ public:
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
 					process->fsContext()->getWorkingDirectory(), std::move(path));
-			co_await resolver.resolve(resolvePrefix);
+			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			if(!resolveResult) {
+				co_return resolveResult.error();
+			}
+			assert(resolveResult);
 			if(!resolver.currentLink())
 				co_return protocols::fs::Error::fileNotFound;
 
@@ -389,8 +393,13 @@ public:
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
 					process->fsContext()->getWorkingDirectory(), std::move(path));
-			co_await resolver.resolve();
-			assert(resolver.currentLink());
+			auto resolveResult = co_await resolver.resolve();
+			if(!resolveResult) {
+				co_return resolveResult.error();
+			}
+			assert(resolveResult);
+			if(!resolver.currentLink())
+				co_return protocols::fs::Error::fileNotFound;
 
 			assert(!_ownerPid);
 			_ownerPid = process->pid();
