@@ -93,7 +93,7 @@ async::result<void> populateRootView();
 ViewPath rootPath();
 
 // TODO: Switch to PathResolver instead of using this function.
-FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
+async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath root, ViewPath workdir,
 		std::string name, ResolveFlags flags = 0);
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,

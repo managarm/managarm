@@ -381,20 +381,32 @@ ViewPath rootPath() {
 	return ViewPath{rootView, rootView->getOrigin()};
 }
 
-FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
+async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath root, ViewPath workdir,
 		std::string name, ResolveFlags flags) {
 	PathResolver resolver;
 	resolver.setup(std::move(root), std::move(workdir), std::move(name));
 	auto result = co_await resolver.resolve(flags);
-	(void)result;
+	if (!result) {
+		assert(result.error() == protocols::fs::Error::illegalOperationTarget
+				|| result.error() == protocols::fs::Error::fileNotFound
+				|| result.error() == protocols::fs::Error::notDirectory);
+		if(result.error() == protocols::fs::Error::illegalOperationTarget) {
+			co_return protocols::fs::Error::illegalOperationTarget;
+		} else if(result.error() == protocols::fs::Error::fileNotFound) {
+			co_return protocols::fs::Error::fileNotFound;
+		} else if(result.error() == protocols::fs::Error::notDirectory) {
+			co_return protocols::fs::Error::notDirectory;
+		}
+	}
 	co_return ViewPath(resolver.currentView(), resolver.currentLink());
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
 		ViewPath workdir, std::string name, ResolveFlags resolve_flags,
 		SemanticFlags semantic_flags) {
-	ViewPath current = co_await resolve(std::move(root), std::move(workdir),
+	auto resolveResult = co_await resolve(std::move(root), std::move(workdir),
 			std::move(name), resolve_flags);
+	ViewPath current = resolveResult.value();
 	if(!current.second)
 		co_return nullptr; // TODO: Return an error code.
 
