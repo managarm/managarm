@@ -406,9 +406,19 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
 		SemanticFlags semantic_flags) {
 	auto resolveResult = co_await resolve(std::move(root), std::move(workdir),
 			std::move(name), resolve_flags);
+	if (!resolveResult) {
+		assert(resolveResult.error() == protocols::fs::Error::illegalOperationTarget
+				|| resolveResult.error() == protocols::fs::Error::fileNotFound
+				|| resolveResult.error() == protocols::fs::Error::notDirectory);
+		if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+			co_return Error::illegalOperationTarget;
+		} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+			co_return Error::noSuchFile;
+		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+			co_return Error::notDirectory;
+		}
+	}
 	ViewPath current = resolveResult.value();
-	if(!current.second)
-		co_return nullptr; // TODO: Return an error code.
 
 	auto file = co_await current.second->getTarget()->open(current.first, current.second,
 			semantic_flags);
