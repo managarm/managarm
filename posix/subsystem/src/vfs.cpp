@@ -202,7 +202,7 @@ void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string) {
 	}
 }
 
-async::result<void> PathResolver::resolve(ResolveFlags flags) {
+async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(ResolveFlags flags) {
 	auto sn = StructName::get("path-resolve");
 	if(debugResolve) {
 		std::cout << "posix " << sn << ": Path resolution for '";
@@ -258,9 +258,14 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 					assert(result.error() == Error::illegalOperationTarget
 							|| result.error() == Error::noSuchFile
 							|| result.error() == Error::notDirectory);
-					// TODO: Return an error code.
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					if(result.error() == Error::illegalOperationTarget) {
+						co_return protocols::fs::Error::illegalOperationTarget;
+					} else if(result.error() == Error::noSuchFile) {
+						co_return protocols::fs::Error::fileNotFound;
+					} else if(result.error() == Error::notDirectory) {
+						co_return protocols::fs::Error::notDirectory;
+					}
 				}
 
 				auto [child, nLinks] = result.value();
@@ -275,9 +280,8 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 					_components.pop_front();
 
 				if(!child) {
-					// TODO: Return an error code.
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					co_return protocols::fs::Error::fileNotFound;
 				}
 
 				// Next, we might need to traverse mount boundaries.
@@ -321,14 +325,17 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 					assert(childResult.error() == Error::notDirectory
 							|| childResult.error() == Error::illegalOperationTarget);
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					if(childResult.error() == Error::notDirectory) {
+						co_return protocols::fs::Error::notDirectory;
+					} else if(childResult.error() == Error::illegalOperationTarget) {
+						co_return protocols::fs::Error::illegalOperationTarget;
+					}
 				}
 				auto child = childResult.value();
 
 				if(!child) {
-					// TODO: Return an error code.
 					_currentPath = ViewPath{_currentPath.first, nullptr};
-					co_return;
+					co_return protocols::fs::Error::fileNotFound;
 				}
 
 				// Next, we might need to traverse mount boundaries.
@@ -367,27 +374,51 @@ async::result<void> PathResolver::resolve(ResolveFlags flags) {
 			}
 		}
 	}
+	co_return {};
 }
 
 ViewPath rootPath() {
 	return ViewPath{rootView, rootView->getOrigin()};
 }
 
-FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
+async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath root, ViewPath workdir,
 		std::string name, ResolveFlags flags) {
 	PathResolver resolver;
 	resolver.setup(std::move(root), std::move(workdir), std::move(name));
-	co_await resolver.resolve(flags);
+	auto result = co_await resolver.resolve(flags);
+	if (!result) {
+		assert(result.error() == protocols::fs::Error::illegalOperationTarget
+				|| result.error() == protocols::fs::Error::fileNotFound
+				|| result.error() == protocols::fs::Error::notDirectory);
+		if(result.error() == protocols::fs::Error::illegalOperationTarget) {
+			co_return protocols::fs::Error::illegalOperationTarget;
+		} else if(result.error() == protocols::fs::Error::fileNotFound) {
+			co_return protocols::fs::Error::fileNotFound;
+		} else if(result.error() == protocols::fs::Error::notDirectory) {
+			co_return protocols::fs::Error::notDirectory;
+		}
+	}
 	co_return ViewPath(resolver.currentView(), resolver.currentLink());
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
 		ViewPath workdir, std::string name, ResolveFlags resolve_flags,
 		SemanticFlags semantic_flags) {
-	ViewPath current = co_await resolve(std::move(root), std::move(workdir),
+	auto resolveResult = co_await resolve(std::move(root), std::move(workdir),
 			std::move(name), resolve_flags);
-	if(!current.second)
-		co_return nullptr; // TODO: Return an error code.
+	if (!resolveResult) {
+		assert(resolveResult.error() == protocols::fs::Error::illegalOperationTarget
+				|| resolveResult.error() == protocols::fs::Error::fileNotFound
+				|| resolveResult.error() == protocols::fs::Error::notDirectory);
+		if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+			co_return Error::illegalOperationTarget;
+		} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+			co_return Error::noSuchFile;
+		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+			co_return Error::notDirectory;
+		}
+	}
+	ViewPath current = resolveResult.value();
 
 	auto file = co_await current.second->getTarget()->open(current.first, current.second,
 			semantic_flags);
