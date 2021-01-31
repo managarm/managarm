@@ -343,10 +343,20 @@ FutureMaybe<helix::UniqueDescriptor> File::accessMemory() {
 }
 
 async::result<void> File::ioctl(Process *, managarm::fs::CntRequest,
-		helix::UniqueLane) {
+		helix::UniqueLane conversation) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement ioctl()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::ioctl()");
+	managarm::fs::SvrResponse resp;
+
+	resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+	auto ser = resp.SerializeAsString();
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(
+		conversation,
+		helix_ng::sendBuffer(ser.data(), ser.size())
+	);
+	HEL_CHECK(send_resp.error());
+	co_return;
 }
 
 async::result<int> File::getFileFlags() {
