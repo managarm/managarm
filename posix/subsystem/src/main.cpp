@@ -2618,6 +2618,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(!"Flags not implemented");
 			}
 
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+
+			if(req.sig_number() <= 0 || req.sig_number() > 64) {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				co_await transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			SignalHandler saved_handler;
 			if(req.mode()) {
 				SignalHandler handler;
@@ -2660,9 +2674,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(saved_handler.flags & signalReentrant)
 				saved_flags |= SA_NODEFER;
 
-			helix::SendBuffer send_resp;
-
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_flags(saved_flags);
 			resp.set_sig_mask(saved_handler.mask);

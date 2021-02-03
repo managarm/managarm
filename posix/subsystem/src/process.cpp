@@ -417,8 +417,8 @@ std::shared_ptr<SignalContext> SignalContext::create() {
 	auto context = std::make_shared<SignalContext>();
 
 	// All signals use their default disposition.
-	for(int sn = 0; sn < 64; sn++)
-		context->_handlers[sn].disposition = SignalDisposition::none;
+	for(int sn = 1; sn <= 64; sn++)
+		context->_handlers[sn - 1].disposition = SignalDisposition::none;
 
 	return context;
 }
@@ -427,29 +427,29 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 	auto context = std::make_shared<SignalContext>();
 
 	// Copy the current signal handler table.
-	for(int sn = 0; sn < 64; sn++)
-		context->_handlers[sn] = original->_handlers[sn];
+	for(int sn = 1; sn <= 64; sn++)
+		context->_handlers[sn - 1] = original->_handlers[sn];
 
 	return context;
 }
 
 void SignalContext::resetHandlers() {
-	for(int sn = 0; sn < 64; sn++)
-		if(_handlers[sn].disposition == SignalDisposition::handle)
-			_handlers[sn].disposition = SignalDisposition::none;
+	for(int sn = 1; sn <= 64; sn++)
+		if(_handlers[sn - 1].disposition == SignalDisposition::handle)
+			_handlers[sn - 1].disposition = SignalDisposition::none;
 }
 
 SignalHandler SignalContext::getHandler(int sn) {
-	return _handlers[sn];
+	return _handlers[sn - 1];
 }
 
 SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
-	assert(sn < 64);
-	return std::exchange(_handlers[sn], handler);
+	assert(sn - 1 < 64);
+	return std::exchange(_handlers[sn - 1], handler);
 }
 
 void SignalContext::issueSignal(int sn, SignalInfo info) {
-	assert(sn < 64);
+	assert(sn - 1 < 64);
 	auto item = new SignalItem;
 	item->signalNumber = sn;
 	item->info = info;
