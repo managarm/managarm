@@ -5,6 +5,14 @@ import shutil
 import subprocess
 import tempfile
 import sys
+import argparse
+
+parser = argparse.ArgumentParser(description = 'Generate a managarm initrd')
+parser.add_argument('-t', '--triple', dest = 'arch',
+		choices = ['x86_64-managarm', 'aarch64-managarm'], default = 'x86_64-managarm',
+		help = 'Target system triple (default: x86_64-managarm)')
+
+args = parser.parse_args()
 
 class Entry:
 	__slots__ = ('is_dir', 'source', 'strip')
@@ -51,8 +59,8 @@ add_file('system-root/usr/lib', 'lib', 'libkernlet_protocol.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libmbus.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libsvrctl_protocol.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libusb_protocol.so', strip=True)
-add_file('tools/system-gcc/x86_64-managarm/lib64/', 'lib', 'libgcc_s.so.1', strip=True)
-add_file('tools/system-gcc/x86_64-managarm/lib64/', 'lib', 'libstdc++.so.6', strip=True)
+add_file(f'tools/system-gcc/{args.arch}/lib64/', 'lib', 'libgcc_s.so.1', strip=True)
+add_file(f'tools/system-gcc/{args.arch}/lib64/', 'lib', 'libstdc++.so.6', strip=True)
 
 # User-space core components.
 add_file('system-root/usr/bin', 'sbin', 'mbus', strip=True)
@@ -92,7 +100,7 @@ for rel_path in file_list:
 	if entry.is_dir:
 		os.mkdir(dest_path)
 	elif entry.strip:
-		subprocess.check_call(['strip', '-o', dest_path, entry.source])
+		subprocess.check_call([f'{args.arch}-strip', '-o', dest_path, entry.source])
 	else:
 		os.link(entry.source, dest_path)
 
