@@ -16,7 +16,8 @@ enum Errors {
 	NOT_SUPPORTED = 12,
 	RESOURCE_IN_USE = 13,
 	ILLEGAL_OPERATION_TARGET = 14,
-	NOT_A_DIRECTORY = 15
+	NOT_A_DIRECTORY = 15,
+	SPECIAL_DEVICE = 16
 }
 
 consts CntReqType uint32 {
@@ -101,7 +102,8 @@ consts OpenFlags uint32 {
 	OF_RDONLY = 8,
 	OF_WRONLY = 16,
 	OF_RDWR = 32,
-	OF_TRUNC = 64
+	OF_TRUNC = 64,
+	OF_PATH = 128
 }
 
 message CntRequest 1 {
@@ -444,4 +446,13 @@ tail:
 
 message GetPpidRequest 79 {
 head(128):
+}
+
+message MknodAtRequest 80 {
+head(128):
+	int32 dirfd;
+	int32 mode;
+	int32 device;
+tail:
+	string path;
 }

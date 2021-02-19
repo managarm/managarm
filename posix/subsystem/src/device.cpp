@@ -41,7 +41,8 @@ void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
 
 std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 	auto it = _devices.find(id);
-	assert(it != _devices.end());
+	if(it == _devices.end())
+		return nullptr;
 	return *it;
 }
 
@@ -50,11 +51,15 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> openD
 		SemanticFlags semantic_flags) {
 	if(type == VfsType::charDevice) {
 		auto device = charRegistry.get(id);
+		if(device == nullptr)
+			co_return Error::specialDevice;
 		co_return co_await device->open(std::move(mount), std::move(link),
 				semantic_flags);
 	}else{
 		assert(type == VfsType::blockDevice);
 		auto device = blockRegistry.get(id);
+		if(device == nullptr)
+			co_return Error::specialDevice;
 		co_return co_await device->open(std::move(mount), std::move(link),
 				semantic_flags);
 	}

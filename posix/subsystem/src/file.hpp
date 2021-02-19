@@ -50,7 +50,10 @@ enum class Error {
 
 	notConnected,
 
-	alreadyExists
+	alreadyExists,
+
+	// Corresponds with ENXIO
+	specialDevice
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -323,6 +326,29 @@ private:
 	DefaultOps _defaultOps;
 
 	bool _isOpen;
+};
+
+struct DummyFile final : File {
+public:
+	static void serve(smarter::shared_ptr<DummyFile> file) {
+//TODO:		assert(!file->_passthrough);
+
+		helix::UniqueLane lane;
+		std::tie(lane, file->_passthrough) = helix::createStream();
+		async::detach(protocols::fs::servePassthrough(std::move(lane),
+				file, &fileOperations, file->_cancelServe));
+	}
+
+	DummyFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
+	: File{StructName::get("DummyFile"), std::move(mount), std::move(link)} { }
+
+	helix::BorrowedDescriptor getPassthroughLane() override {
+		return _passthrough;
+	}
+
+private:
+	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
 };
 
 #endif // POSIX_SUBSYSTEM_FILE_HPP
