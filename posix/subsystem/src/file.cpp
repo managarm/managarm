@@ -88,7 +88,7 @@ async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
 	return self->readEntries();
 }
 
-async::result<void> File::ptTruncate(void *object, size_t size) {
+async::result<frg::expected<protocols::fs::Error>> File::ptTruncate(void *object, size_t size) {
 	auto self = static_cast<File *>(object);
 	return self->truncate(size);
 }
@@ -265,8 +265,10 @@ File::sendMsg(Process *, uint32_t,
 	throw std::runtime_error("posix: Object has no File::sendMsg()");
 }
 
-async::result<void> File::truncate(size_t) {
-	throw std::runtime_error("posix: Object has no File::truncate()");
+async::result<frg::expected<protocols::fs::Error>> File::truncate(size_t) {
+	std::cout << "\e[35mposix \e[1;34m" << structName()
+			<< "\e[0m\e[35m: File does not support truncate()\e[39m" << std::endl;
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
 async::result<void> File::allocate(int64_t, size_t) {

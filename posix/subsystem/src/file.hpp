@@ -53,7 +53,7 @@ enum class Error {
 	alreadyExists,
 
 	// Corresponds with ENXIO
-	specialDevice
+	noBackingDevice
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -111,7 +111,7 @@ public:
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(void *object);
 
-	static async::result<void>
+	static async::result<frg::expected<protocols::fs::Error>>
 	ptTruncate(void *object, size_t size);
 
 	static async::result<void>
@@ -275,7 +275,7 @@ public:
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files);
 
-	virtual async::result<void> truncate(size_t size);
+	virtual async::result<frg::expected<protocols::fs::Error>> truncate(size_t size);
 
 	virtual async::result<void> allocate(int64_t offset, size_t size);
 
@@ -340,7 +340,7 @@ public:
 	}
 
 	DummyFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
-	: File{StructName::get("DummyFile"), std::move(mount), std::move(link)} { }
+	: File{StructName::get("dummy-file"), std::move(mount), std::move(link)} { }
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;

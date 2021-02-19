@@ -204,7 +204,7 @@ public:
 		_control = helix::UniqueLane{};
 	}
 
-	async::result<void> truncate(size_t size) override {
+	async::result<frg::expected<protocols::fs::Error>> truncate(size_t size) override {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::PT_TRUNCATE);
 		req.set_size(size);
@@ -224,7 +224,7 @@ public:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		co_return;
+		co_return {};
 	}
 
 private:

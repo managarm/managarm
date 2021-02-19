@@ -32,6 +32,7 @@
 #include "extern_fs.hpp"
 #include "extern_socket.hpp"
 #include "devices/helout.hpp"
+#include "devices/null.hpp"
 #include "fifo.hpp"
 #include "inotify.hpp"
 #include "procfs.hpp"
@@ -2194,13 +2195,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto target = resolver.currentLink()->getTarget();
 
 				if(req->flags() & managarm::posix::OpenFlags::OF_PATH) {
-					auto fileTemp = smarter::make_shared<DummyFile>(resolver.currentView(), resolver.currentLink());
-					DummyFile::serve(fileTemp);
-					file = File::constructHandle(std::move(fileTemp));
+					auto dummyFile = smarter::make_shared<DummyFile>(resolver.currentView(), resolver.currentLink());
+					DummyFile::serve(dummyFile);
+					file = File::constructHandle(std::move(dummyFile));
 				} else {
 					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(), semantic_flags);
 					if(!fileResult) {
-						if(fileResult.error() == Error::specialDevice) {
+						if(fileResult.error() == Error::noBackingDevice) {
 							co_await sendErrorResponse(managarm::posix::Errors::SPECIAL_DEVICE);
 							continue;
 						} else {
@@ -2220,8 +2221,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC)
-				co_await file->truncate(0);
+			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC) {
+				auto result = co_await file->truncate(0);
+				assert(result);
+			}
 			int fd = self->fileContext()->attachFile(file,
 					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
@@ -3476,6 +3479,7 @@ int main() {
 
 		charRegistry.install(createHeloutDevice());
 		charRegistry.install(pts::createMasterDevice());
+		charRegistry.install(createNullDevice());
 		block_subsystem::run();
 		drm_subsystem::run();
 		input_subsystem::run();

@@ -52,14 +52,14 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> openD
 	if(type == VfsType::charDevice) {
 		auto device = charRegistry.get(id);
 		if(device == nullptr)
-			co_return Error::specialDevice;
+			co_return Error::noBackingDevice;
 		co_return co_await device->open(std::move(mount), std::move(link),
 				semantic_flags);
 	}else{
 		assert(type == VfsType::blockDevice);
 		auto device = blockRegistry.get(id);
 		if(device == nullptr)
-			co_return Error::specialDevice;
+			co_return Error::noBackingDevice;
 		co_return co_await device->open(std::move(mount), std::move(link),
 				semantic_flags);
 	}

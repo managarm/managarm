@@ -85,7 +85,7 @@ struct FileOperations {
 		accessMemory = f;
 		return *this;
 	}
-	constexpr FileOperations &withTruncate(async::result<void> (*f)(void *object,
+	constexpr FileOperations &withTruncate(async::result<frg::expected<protocols::fs::Error>> (*f)(void *object,
 			size_t size)) {
 		truncate = f;
 		return *this;
@@ -157,7 +157,7 @@ struct FileOperations {
 			const void *buffer, size_t length);
 	async::result<ReadEntriesResult> (*readEntries)(void *object);
 	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object);
-	async::result<void> (*truncate)(void *object, size_t size);
+	async::result<frg::expected<protocols::fs::Error>> (*truncate)(void *object, size_t size);
 	async::result<void> (*fallocate)(void *object, int64_t offset, size_t size);
 	async::result<void> (*ioctl)(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);

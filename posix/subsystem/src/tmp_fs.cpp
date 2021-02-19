@@ -385,7 +385,7 @@ public:
 	async::result<frg::expected<Error>>
 	writeAll(Process *, const void *buffer, size_t length) override;
 
-	FutureMaybe<void> truncate(size_t size) override;
+	async::result<frg::expected<protocols::fs::Error>> truncate(size_t size) override;
 
 	FutureMaybe<void> allocate(int64_t offset, size_t size) override;
 
@@ -557,12 +557,12 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	co_return {};
 }
 
-async::result<void>
+async::result<frg::expected<protocols::fs::Error>>
 MemoryFile::truncate(size_t size) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	node->_resizeFile(size);
-	co_return;
+	co_return {};
 }
 
 async::result<void>

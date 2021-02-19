@@ -155,10 +155,11 @@ readEntries(void *object) {
 	co_return co_await self->readEntries();
 }
 
-async::result<void>
+async::result<frg::expected<protocols::fs::Error>>
 truncate(void *object, size_t size) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_return co_await self->inode->fs.truncate(self->inode.get(), size);
+	co_await self->inode->fs.truncate(self->inode.get(), size);
+	co_return {};
 }
 
 async::result<int> getFileFlags(void *) {

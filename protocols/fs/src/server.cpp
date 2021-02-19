@@ -350,10 +350,14 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		co_await file_ops->truncate(file.get(), req.size());
+		auto result = co_await file_ops->truncate(file.get(), req.size());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		if(result) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}else{
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
