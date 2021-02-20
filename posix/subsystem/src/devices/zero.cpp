@@ -1,17 +1,18 @@
 #include <string.h>
 
 #include "../common.hpp"
-#include "null.hpp"
+#include "zero.hpp"
 
 #include <experimental/coroutine>
 
 namespace {
 
-struct NullFile final : File {
+struct ZeroFile final : File {
 private:
 	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *, size_t) override {
-		co_return 0;
+	readSome(Process *, void *data, size_t length) override {
+		memset(data, 0, length);
+		co_return length;
 	}
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t length) override {
@@ -30,39 +31,39 @@ private:
 	async::cancellation_event _cancelServe;
 
 public:
-	static void serve(smarter::shared_ptr<NullFile> file) {
+	static void serve(smarter::shared_ptr<ZeroFile> file) {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	NullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("null-file"), std::move(mount), std::move(link)} { }
+	ZeroFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{StructName::get("zero-file"), std::move(mount), std::move(link)} { }
 };
 
-struct NullDevice final : UnixDevice {
-	NullDevice()
+struct ZeroDevice final : UnixDevice {
+	ZeroDevice()
 	: UnixDevice(VfsType::charDevice) {
-		assignId({1, 3});
+		assignId({1, 5});
 	}
 	
 	std::string nodePath() override {
-		return "null";
+		return "zero";
 	}
 	
 	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
-		auto file = smarter::make_shared<NullFile>(std::move(mount), std::move(link));
+		auto file = smarter::make_shared<ZeroFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
-		NullFile::serve(file);
+		ZeroFile::serve(file);
 		co_return File::constructHandle(std::move(file));
 	}
 };
 
 } // anonymous namespace
 
-std::shared_ptr<UnixDevice> createNullDevice() {
-	return std::make_shared<NullDevice>();
+std::shared_ptr<UnixDevice> createZeroDevice() {
+	return std::make_shared<ZeroDevice>();
 }

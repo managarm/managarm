@@ -31,8 +31,10 @@
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "extern_socket.hpp"
+#include "devices/full.hpp"
 #include "devices/helout.hpp"
 #include "devices/null.hpp"
+#include "devices/zero.hpp"
 #include "fifo.hpp"
 #include "inotify.hpp"
 #include "procfs.hpp"
@@ -3480,6 +3482,8 @@ int main() {
 		charRegistry.install(createHeloutDevice());
 		charRegistry.install(pts::createMasterDevice());
 		charRegistry.install(createNullDevice());
+		charRegistry.install(createFullDevice());
+		charRegistry.install(createZeroDevice());
 		block_subsystem::run();
 		drm_subsystem::run();
 		input_subsystem::run();

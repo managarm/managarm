@@ -53,7 +53,10 @@ enum class Error {
 	alreadyExists,
 
 	// Corresponds with ENXIO
-	noBackingDevice
+	noBackingDevice,
+
+	// Corresponds with ENOSPC
+	noSpaceLeft
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -105,7 +108,7 @@ public:
 	static async::result<protocols::fs::ReadResult>
 	ptRead(void *object, const char *credentials, void *buffer, size_t length);
 
-	static async::result<void>
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
 	ptWrite(void *object, const char *credentials, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::ReadEntriesResult>
@@ -259,7 +262,7 @@ public:
 	virtual async::result<frg::expected<Error, size_t>>
 	readSome(Process *process, void *data, size_t max_length);
 
-	virtual async::result<frg::expected<Error>>
+	virtual async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length);
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
@@ -331,8 +334,6 @@ private:
 struct DummyFile final : File {
 public:
 	static void serve(smarter::shared_ptr<DummyFile> file) {
-//TODO:		assert(!file->_passthrough);
-
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),

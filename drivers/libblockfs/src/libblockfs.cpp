@@ -133,13 +133,14 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 	co_return chunk_size;
 }
 
-async::result<void> write(void *object, const char *,
+async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *,
 		const void *buffer, size_t length) {
 	assert(length);
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	co_await self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
 	self->offset += length;
+	co_return length;
 }
 
 async::result<helix::BorrowedDescriptor>

@@ -1,21 +1,22 @@
 #include <string.h>
 
 #include "../common.hpp"
-#include "null.hpp"
+#include "full.hpp"
 
 #include <experimental/coroutine>
 
 namespace {
 
-struct NullFile final : File {
+struct FullFile final : File {
 private:
 	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *, size_t) override {
-		co_return 0;
+	readSome(Process *, void *data, size_t length) override {
+		memset(data, 0, length);
+		co_return length;
 	}
 
-	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t length) override {
-		co_return length;
+	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t) override {
+		co_return Error::noSpaceLeft;
 	}
 
 	async::result<frg::expected<Error, off_t>> seek(off_t, VfsSeek) override {
@@ -30,39 +31,39 @@ private:
 	async::cancellation_event _cancelServe;
 
 public:
-	static void serve(smarter::shared_ptr<NullFile> file) {
+	static void serve(smarter::shared_ptr<FullFile> file) {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	NullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("null-file"), std::move(mount), std::move(link)} { }
+	FullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{StructName::get("full-file"), std::move(mount), std::move(link)} { }
 };
 
-struct NullDevice final : UnixDevice {
-	NullDevice()
+struct FullDevice final : UnixDevice {
+	FullDevice()
 	: UnixDevice(VfsType::charDevice) {
-		assignId({1, 3});
+		assignId({1, 7});
 	}
 	
 	std::string nodePath() override {
-		return "null";
+		return "full";
 	}
 	
 	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
-		auto file = smarter::make_shared<NullFile>(std::move(mount), std::move(link));
+		auto file = smarter::make_shared<FullFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
-		NullFile::serve(file);
+		FullFile::serve(file);
 		co_return File::constructHandle(std::move(file));
 	}
 };
 
 } // anonymous namespace
 
-std::shared_ptr<UnixDevice> createNullDevice() {
-	return std::make_shared<NullDevice>();
+std::shared_ptr<UnixDevice> createFullDevice() {
+	return std::make_shared<FullDevice>();
 }

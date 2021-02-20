@@ -81,7 +81,7 @@ public:
 		co_return size;
 	}
 	
-	async::result<frg::expected<Error>>
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override {
 		throw std::runtime_error("posix: Fix netlink send()");
 /*

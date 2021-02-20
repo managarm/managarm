@@ -274,9 +274,10 @@ struct Tcp4Socket {
 		co_return std::get<protocols::fs::RecvData>(result).dataLength;
 	}
 
-	static async::result<void> write(void *object, const char *creds,
+	static async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *creds,
 			const void *data, size_t size) {
 		co_await sendMsg(object, creds, 0, const_cast<void *>(data), size, nullptr, 0, {});
+		co_return size;
 	}
 
 	static async::result<protocols::fs::RecvResult> recvMsg(void *object,

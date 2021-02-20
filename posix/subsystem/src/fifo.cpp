@@ -192,7 +192,7 @@ public:
 		_channel = nullptr;
 	}
 
-	async::result<frg::expected<Error>>
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t maxLength) override {
 		Packet packet;
 		packet.buffer.resize(maxLength);
@@ -202,7 +202,7 @@ public:
 		_channel->packetQueue.push_back(std::move(packet));
 		_channel->inSeq = ++_channel->currentSeq;
 		_channel->statusBell.ring();
-		co_return {};
+		co_return maxLength;
 	}
 
 	expected<PollResult> poll(Process *, uint64_t pastSeq,

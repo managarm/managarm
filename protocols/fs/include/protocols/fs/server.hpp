@@ -72,7 +72,7 @@ struct FileOperations {
 		read = f;
 		return *this;
 	}
-	constexpr FileOperations &withWrite(async::result<void> (*f)(void *object,
+	constexpr FileOperations &withWrite(async::result<frg::expected<protocols::fs::Error, size_t>> (*f)(void *object,
 			const char *, const void *buffer, size_t length)) {
 		write = f;
 		return *this;
@@ -153,7 +153,7 @@ struct FileOperations {
 			void *buffer, size_t length);
 	async::result<ReadResult> (*pread)(void *object, int64_t offset, const char *credentials,
 			void *buffer, size_t length);
-	async::result<void> (*write)(void *object, const char *credentials,
+	async::result<frg::expected<protocols::fs::Error, size_t>> (*write)(void *object, const char *credentials,
 			const void *buffer, size_t length);
 	async::result<ReadEntriesResult> (*readEntries)(void *object);
 	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object);
