@@ -3336,21 +3336,50 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			} else if(S_ISSOCK(req->mode())) {
 				type = VfsType::socket;
 			} else {
-				// TODO: Add error handling for this case
 				type = VfsType::null;
 			}
-			dev.first = major(req->device());
-			dev.second = minor(req->device());
 
-			auto result = co_await parent->mkdev(resolver.nextComponent(), type, dev);
-			if(!result) {
-				if(result.error() == Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else {
-					std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
-					co_return;
+			if(type == VfsType::charDevice || type == VfsType::blockDevice) {
+				dev.first = major(req->device());
+				dev.second = minor(req->device());
+
+				auto result = co_await parent->mkdev(resolver.nextComponent(), type, dev);
+				if(!result) {
+					if(result.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from mkdev()" << std::endl;
+						co_return;
+					}
 				}
+			} else if(type == VfsType::fifo) {
+				auto result = co_await parent->mkfifo(resolver.nextComponent(), req->mode());
+				if(!result) {
+					if(result.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
+						co_return;
+					}
+				}
+			} else if(type == VfsType::socket) {
+				auto result = co_await parent->mksocket(resolver.nextComponent());
+				if(!result) {
+					if(result.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from mksocket()" << std::endl;
+						co_return;
+					}
+				}
+			} else {
+				// TODO: Handle regular files.
+				std::cout << "\e[31mposix: Creating regular files with mknod is not supported.\e[39m" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
 			}
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
