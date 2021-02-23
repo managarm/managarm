@@ -560,6 +560,10 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			co_await process->terminate(TerminationBySignal{item->signalNumber});
 			co_return;
 		}
+	} else if(handler.disposition == SignalDisposition::ignore) {
+		// Ignore the signal.
+		killed = false;
+		co_return;
 	}
 
 	assert(handler.disposition == SignalDisposition::handle);
