@@ -482,6 +482,7 @@ public:
 	std::shared_ptr<VmContext> vmContext() { return _vmContext; }
 	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
 	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
+	std::shared_ptr<ProcessGroup> pgPointer() { return _pgPointer; }
 	SignalContext *signalContext() { return _signalContext.get(); }
 
 	void setSignalMask(uint64_t mask) {
@@ -590,6 +591,10 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 	void dropProcess(Process *process);
 
 	void issueSignalToGroup(int sn, SignalInfo info);
+
+	PidHull *getHull() {
+		return hull_.get();
+	}
 
 private:
 	std::shared_ptr<PidHull> hull_;

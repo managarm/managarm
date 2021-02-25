@@ -17,7 +17,8 @@ enum Errors {
 	RESOURCE_IN_USE = 13,
 	ILLEGAL_OPERATION_TARGET = 14,
 	NOT_A_DIRECTORY = 15,
-	NO_BACKING_DEVICE = 16
+	NO_BACKING_DEVICE = 16,
+	NO_SUCH_RESOURCE = 17
 }
 
 consts CntReqType uint32 {
@@ -455,4 +456,9 @@ head(128):
 	int32 device;
 tail:
 	string path;
+}
+
+message GetPgidRequest 81 {
+head(128):
+	int64 pid;
 }

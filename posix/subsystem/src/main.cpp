@@ -3408,6 +3408,37 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::GetPgidRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::GetPgidRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: GET_PGID" << std::endl;
+
+			std::shared_ptr<Process> target;
+			if(req->pid() != 0 && req->pid() != self->pid()) {
+				target = Process::findProcess(req->pid());
+				if(!target) {
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					continue;
+				}
+			} else {
+				target = self;
+			}
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(target->pgPointer()->getHull()->getPid());
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;
