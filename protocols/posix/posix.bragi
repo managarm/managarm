@@ -18,7 +18,8 @@ enum Errors {
 	ILLEGAL_OPERATION_TARGET = 14,
 	NOT_A_DIRECTORY = 15,
 	NO_BACKING_DEVICE = 16,
-	NO_SUCH_RESOURCE = 17
+	NO_SUCH_RESOURCE = 17,
+	INSUFFICIENT_PERMISSION = 18
 }
 
 consts CntReqType uint32 {
@@ -461,4 +462,10 @@ tail:
 message GetPgidRequest 81 {
 head(128):
 	int64 pid;
+}
+
+message SetPgidRequest 81 {
+head(128):
+	uint64 pid;
+	uint64 pgid;
 }

@@ -781,6 +781,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 
 	process->_threadDescriptor = std::move(threadResult.value());
 	process->_posixLane = std::move(server_lane);
+	process->_didExecute = true;
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
@@ -833,6 +834,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_egid = original->_egid;
 	original->_children.push_back(process);
 	process->_hull->initializeProcess(process.get());
+	process->_didExecute = false;
 
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
@@ -887,6 +889,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_egid = original->_egid;
 	original->_children.push_back(process);
 	process->_hull->initializeProcess(process.get());
+	process->_didExecute = false;
 
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
@@ -969,6 +972,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
+	process->_didExecute = true;
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
@@ -1104,6 +1108,14 @@ std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(Process *groupL
 	groups_.push_back(*group);
 	group->hull_->initializeProcessGroup(group.get());
 	return group;
+}
+
+std::shared_ptr<ProcessGroup> TerminalSession::getProcessGroupById(pid_t id) {
+	for(auto &i : groups_) {
+		if(i.getHull()->getPid() == id)
+			return i.getHull()->getProcessGroup()->shared_from_this();
+	}
+	return nullptr;
 }
 
 void TerminalSession::dropGroup(ProcessGroup *group) {

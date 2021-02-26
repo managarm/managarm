@@ -465,6 +465,10 @@ public:
 		return _egid;
 	}
 
+	bool didExecute() {
+		return _didExecute;
+	}
+
 	std::string path() {
 		return _path;
 	}
@@ -526,6 +530,7 @@ private:
 	int _euid;
 	int _gid;
 	int _egid;
+	bool _didExecute;
 	std::string _path;
 	helix::UniqueLane _posixLane;
 	helix::UniqueDescriptor _threadDescriptor;
@@ -596,6 +601,8 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 		return hull_.get();
 	}
 
+	TerminalSession *getSession() { return sessionPointer_.get(); }
+
 private:
 	std::shared_ptr<PidHull> hull_;
 
@@ -624,6 +631,8 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 	static std::shared_ptr<TerminalSession> initializeNewSession(Process *sessionLeader);
 
 	std::shared_ptr<ProcessGroup> spawnProcessGroup(Process *groupLeader);
+
+	std::shared_ptr<ProcessGroup> getProcessGroupById(pid_t id);
 
 	void dropGroup(ProcessGroup *group);
 
