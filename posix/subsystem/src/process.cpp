@@ -1127,6 +1127,13 @@ void TerminalSession::dropGroup(ProcessGroup *group) {
 	group->sessionPointer_ = nullptr;
 }
 
+Error TerminalSession::setForegroundGroup(ProcessGroup *group) {
+	assert(group);
+	if(group->sessionPointer_.get() != this)
+		return Error::insufficientPermissions;
+	foregroundGroup_ = group;
+}
+
 Error ControllingTerminalState::assignSessionOf(Process *process) {
 	auto group = process->_pgPointer.get();
 	auto session = group->sessionPointer_.get();

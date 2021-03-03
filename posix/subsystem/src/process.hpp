@@ -634,7 +634,13 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 
 	std::shared_ptr<ProcessGroup> getProcessGroupById(pid_t id);
 
+	ProcessGroup *getForegroundGroup() { return foregroundGroup_; }
+
+	ControllingTerminalState *getControllingTerminal() { return ctsPointer_; }
+
 	void dropGroup(ProcessGroup *group);
+
+	void setForegroundGroup(ProcessGroup *group);
 
 private:
 	std::shared_ptr<PidHull> hull_;
@@ -659,6 +665,8 @@ struct ControllingTerminalState {
 	void dropSession(TerminalSession *session);
 
 	void issueSignalToForegroundGroup(int sn, SignalInfo info);
+
+	TerminalSession *getSession() { return associatedSession_; }
 
 private:
 	TerminalSession *associatedSession_ = nullptr;

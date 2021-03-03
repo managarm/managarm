@@ -10,8 +10,6 @@ enum Errors {
 	SEEK_ON_PIPE = 6,
 	BROKEN_PIPE = 7,
 	ACCESS_DENIED = 8,
-	NOT_DIRECTORY = 20,
-
 	AF_NOT_SUPPORTED = 9,
 	DESTINATION_ADDRESS_REQUIRED = 10,
 	NETWORK_UNREACHABLE = 11,
@@ -23,7 +21,9 @@ enum Errors {
 	NOT_CONNECTED = 17,
 	ALREADY_EXISTS = 18,
 	ILLEGAL_OPERATION_TARGET = 19,
-	NO_SPACE_LEFT = 20
+	NOT_DIRECTORY = 20,
+	NO_SPACE_LEFT = 21,
+	NOT_A_TERMINAL = 22
 }
 
 consts FileType int64 {
@@ -243,6 +243,9 @@ head(128):
 
 		// used by NODE_TRAVERSE_LINKS
 		tag(68) string[] path_segments;
+
+		// used by PT_IOCTL for TIOCSPGRP
+		tag(69) int64 pgid;
 	}
 }
 
