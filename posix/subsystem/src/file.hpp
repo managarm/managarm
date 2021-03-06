@@ -50,7 +50,13 @@ enum class Error {
 
 	notConnected,
 
-	alreadyExists
+	alreadyExists,
+
+	// Corresponds with ENXIO
+	noBackingDevice,
+
+	// Corresponds with ENOSPC
+	noSpaceLeft
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -102,13 +108,13 @@ public:
 	static async::result<protocols::fs::ReadResult>
 	ptRead(void *object, const char *credentials, void *buffer, size_t length);
 
-	static async::result<void>
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
 	ptWrite(void *object, const char *credentials, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(void *object);
 
-	static async::result<void>
+	static async::result<frg::expected<protocols::fs::Error>>
 	ptTruncate(void *object, size_t size);
 
 	static async::result<void>
@@ -256,7 +262,7 @@ public:
 	virtual async::result<frg::expected<Error, size_t>>
 	readSome(Process *process, void *data, size_t max_length);
 
-	virtual async::result<frg::expected<Error>>
+	virtual async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length);
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
@@ -272,7 +278,7 @@ public:
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files);
 
-	virtual async::result<void> truncate(size_t size);
+	virtual async::result<frg::expected<protocols::fs::Error>> truncate(size_t size);
 
 	virtual async::result<void> allocate(int64_t offset, size_t size);
 
@@ -323,6 +329,27 @@ private:
 	DefaultOps _defaultOps;
 
 	bool _isOpen;
+};
+
+struct DummyFile final : File {
+public:
+	static void serve(smarter::shared_ptr<DummyFile> file) {
+		helix::UniqueLane lane;
+		std::tie(lane, file->_passthrough) = helix::createStream();
+		async::detach(protocols::fs::servePassthrough(std::move(lane),
+				file, &fileOperations, file->_cancelServe));
+	}
+
+	DummyFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
+	: File{StructName::get("dummy-file"), std::move(mount), std::move(link)} { }
+
+	helix::BorrowedDescriptor getPassthroughLane() override {
+		return _passthrough;
+	}
+
+private:
+	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
 };
 
 #endif // POSIX_SUBSYSTEM_FILE_HPP

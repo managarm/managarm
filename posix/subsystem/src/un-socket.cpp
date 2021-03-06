@@ -127,7 +127,7 @@ public:
 		co_return size;
 	}
 
-	async::result<frg::expected<Error>>
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length) override {
 		assert(process);
 		if(_currentState != State::connected)
@@ -144,7 +144,7 @@ public:
 		_remote->_recvQueue.push_back(std::move(packet));
 		_remote->_inSeq = ++_remote->_currentSeq;
 		_remote->_statusBell.ring();
-		co_return {};
+		co_return length;
 	}
 
 	async::result<protocols::fs::RecvResult>

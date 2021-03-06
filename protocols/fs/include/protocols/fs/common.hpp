@@ -31,6 +31,7 @@ enum class Error {
 	notConnected = 17,
 	alreadyExists = 18,
 	illegalOperationTarget = 19,
+	noSpaceLeft = 20,
 };
 
 using ReadResult = std::variant<Error, size_t>;

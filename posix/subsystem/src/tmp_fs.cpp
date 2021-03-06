@@ -382,10 +382,10 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *buffer, size_t max_length) override;
 
-	async::result<frg::expected<Error>>
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *buffer, size_t length) override;
 
-	FutureMaybe<void> truncate(size_t size) override;
+	async::result<frg::expected<protocols::fs::Error>> truncate(size_t size) override;
 
 	FutureMaybe<void> allocate(int64_t offset, size_t size) override;
 
@@ -545,7 +545,7 @@ MemoryFile::readSome(Process *, void *buffer, size_t max_length) {
 	co_return chunk;
 }
 
-async::result<frg::expected<Error>>
+async::result<frg::expected<Error, size_t>>
 MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
@@ -554,15 +554,15 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 
 	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
 	_offset += length;
-	co_return {};
+	co_return length;
 }
 
-async::result<void>
+async::result<frg::expected<protocols::fs::Error>>
 MemoryFile::truncate(size_t size) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	node->_resizeFile(size);
-	co_return;
+	co_return {};
 }
 
 async::result<void>

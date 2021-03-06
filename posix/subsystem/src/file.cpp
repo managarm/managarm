@@ -75,12 +75,21 @@ File::ptRead(void *object, const char *credentials,
 	}
 }
 
-async::result<void> File::ptWrite(void *object, const char *credentials,
+async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *object, const char *credentials,
 		const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
 	auto result = co_await self->writeAll(process.get(), buffer, length);
-	assert(result || "Unexpected error from writeAll()");
+	if(!result) {
+		switch(result.error()) {
+		case Error::noSpaceLeft:
+			co_return protocols::fs::Error::noSpaceLeft;
+		default:
+			assert(!"Unexpected error from writeAll()");
+			__builtin_unreachable();
+		}
+	}
+	co_return result.value();
 }
 
 async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
@@ -88,7 +97,7 @@ async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
 	return self->readEntries();
 }
 
-async::result<void> File::ptTruncate(void *object, size_t size) {
+async::result<frg::expected<protocols::fs::Error>> File::ptTruncate(void *object, size_t size) {
 	auto self = static_cast<File *>(object);
 	return self->truncate(size);
 }
@@ -239,7 +248,7 @@ void File::handleClose() {
 			<< "\e[0m: Object does not implement handleClose()" << std::endl;
 }
 
-async::result<frg::expected<Error>> File::writeAll(Process *, const void *, size_t) {
+async::result<frg::expected<Error, size_t>> File::writeAll(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement writeAll()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::writeAll()");
@@ -265,8 +274,10 @@ File::sendMsg(Process *, uint32_t,
 	throw std::runtime_error("posix: Object has no File::sendMsg()");
 }
 
-async::result<void> File::truncate(size_t) {
-	throw std::runtime_error("posix: Object has no File::truncate()");
+async::result<frg::expected<protocols::fs::Error>> File::truncate(size_t) {
+	std::cout << "\e[35mposix \e[1;34m" << structName()
+			<< "\e[0m\e[35m: File does not support truncate()\e[39m" << std::endl;
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
 async::result<void> File::allocate(int64_t, size_t) {

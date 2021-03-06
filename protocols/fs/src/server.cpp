@@ -240,18 +240,34 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
-		co_await file_ops->write(file.get(), extract_creds.credentials(),
+		auto res = co_await file_ops->write(file.get(), extract_creds.credentials(),
 				buffer.data(), recv_buffer.actualLength());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		if(!res) {
+			if(res.error() == Error::noSpaceLeft) {
+				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
 
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			} else {
+				std::cout << "Unknown error from write()" << std::endl;
+				co_return;
+			}
+		}else{
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
 	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
 		if(!file_ops->flock) {
 			managarm::fs::SvrResponse resp;
@@ -350,10 +366,14 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		co_await file_ops->truncate(file.get(), req.size());
+		auto result = co_await file_ops->truncate(file.get(), req.size());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		if(result) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}else{
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(

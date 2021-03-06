@@ -81,14 +81,14 @@ AttributeFile::readSome(Process *, void *data, size_t max_length) {
 	co_return chunk;
 }
 
-async::result<frg::expected<Error>>
+async::result<frg::expected<Error, size_t>>
 AttributeFile::writeAll(Process *, const void *data, size_t length)  {
 	assert(length > 0);
 
 	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
 	co_await node->_attr->store(node->_object,
 			std::string{reinterpret_cast<const char *>(data), length});
-	co_return {};
+	co_return length;
 }
 
 helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {

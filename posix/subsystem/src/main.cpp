@@ -10,6 +10,7 @@
 #include <sys/sysmacros.h>
 #include <sys/timerfd.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <iomanip>
 #include <iostream>
 
@@ -30,7 +31,10 @@
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "extern_socket.hpp"
+#include "devices/full.hpp"
 #include "devices/helout.hpp"
+#include "devices/null.hpp"
+#include "devices/zero.hpp"
 #include "fifo.hpp"
 #include "inotify.hpp"
 #include "procfs.hpp"
@@ -2082,7 +2086,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_TRUNC
 					| managarm::posix::OpenFlags::OF_RDONLY
 					| managarm::posix::OpenFlags::OF_WRONLY
-					| managarm::posix::OpenFlags::OF_RDWR))) {
+					| managarm::posix::OpenFlags::OF_RDWR
+					| managarm::posix::OpenFlags::OF_PATH))) {
 				std::cout << "posix: OPENAT flags not recognized: " << req->flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
@@ -2190,10 +2195,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 
 				auto target = resolver.currentLink()->getTarget();
-				auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(),
-									semantic_flags);
-				assert(fileResult);
-				file = fileResult.value();
+
+				if(req->flags() & managarm::posix::OpenFlags::OF_PATH) {
+					auto dummyFile = smarter::make_shared<DummyFile>(resolver.currentView(), resolver.currentLink());
+					DummyFile::serve(dummyFile);
+					file = File::constructHandle(std::move(dummyFile));
+				} else {
+					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(), semantic_flags);
+					if(!fileResult) {
+						if(fileResult.error() == Error::noBackingDevice) {
+							co_await sendErrorResponse(managarm::posix::Errors::SPECIAL_DEVICE);
+							continue;
+						} else {
+							std::cout << "posix: Unexpected failure from open()" << std::endl;
+							co_return;
+						}
+					}
+					assert(fileResult);
+					file = fileResult.value();
+				}
 			}
 
 			if(!file) {
@@ -2203,8 +2223,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC)
-				co_await file->truncate(0);
+			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC) {
+				auto result = co_await file->truncate(0);
+				assert(result);
+			}
 			int fd = self->fileContext()->attachFile(file,
 					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
@@ -3227,6 +3249,146 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::MknodAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::MknodAtRequest>(recv_head, tail);
+
+			if(!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests || logPaths)
+				std::cout << "posix: MKNODAT for path " << req->path() << " with mode " << req->mode() << " and device " << req->device() << std::endl;
+
+			managarm::posix::SvrResponse resp;
+
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+
+			if(!req->path().size()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			if(req->dirfd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req->dirfd());
+
+				if(!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(),
+					relative_to, req->path());
+			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			if(!resolveResult) {
+				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+			}
+
+			auto parent = resolver.currentLink()->getTarget();
+			auto existsResult = co_await parent->getLink(resolver.nextComponent());
+			assert(existsResult);
+			auto exists = existsResult.value();
+			if(exists) {
+				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+				continue;
+			}
+
+			VfsType type;
+			DeviceId dev;
+			if(S_ISDIR(req->mode())) {
+				type = VfsType::directory;
+			} else if(S_ISCHR(req->mode())) {
+				type = VfsType::charDevice;
+			} else if(S_ISBLK(req->mode())) {
+				type = VfsType::blockDevice;
+			} else if(S_ISREG(req->mode())) {
+				type = VfsType::regular;
+			} else if(S_ISFIFO(req->mode())) {
+				type = VfsType::fifo;
+			} else if(S_ISLNK(req->mode())) {
+				type = VfsType::symlink;
+			} else if(S_ISSOCK(req->mode())) {
+				type = VfsType::socket;
+			} else {
+				type = VfsType::null;
+			}
+
+			if(type == VfsType::charDevice || type == VfsType::blockDevice) {
+				dev.first = major(req->device());
+				dev.second = minor(req->device());
+
+				auto result = co_await parent->mkdev(resolver.nextComponent(), type, dev);
+				if(!result) {
+					if(result.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from mkdev()" << std::endl;
+						co_return;
+					}
+				}
+			} else if(type == VfsType::fifo) {
+				auto result = co_await parent->mkfifo(resolver.nextComponent(), req->mode());
+				if(!result) {
+					if(result.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
+						co_return;
+					}
+				}
+			} else if(type == VfsType::socket) {
+				auto result = co_await parent->mksocket(resolver.nextComponent());
+				if(!result) {
+					if(result.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from mksocket()" << std::endl;
+						co_return;
+					}
+				}
+			} else {
+				// TODO: Handle regular files.
+				std::cout << "\e[31mposix: Creating regular files with mknod is not supported.\e[39m" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;
@@ -3348,6 +3510,9 @@ int main() {
 
 		charRegistry.install(createHeloutDevice());
 		charRegistry.install(pts::createMasterDevice());
+		charRegistry.install(createNullDevice());
+		charRegistry.install(createFullDevice());
+		charRegistry.install(createZeroDevice());
 		block_subsystem::run();
 		drm_subsystem::run();
 		input_subsystem::run();

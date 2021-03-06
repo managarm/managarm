@@ -134,13 +134,14 @@ read(void *, const char *, void *buffer, size_t length) {
 	co_return co_await std::move(future);
 }
 
-async::result<void> write(void *, const char *, const void *buffer, size_t length) {
+async::result<frg::expected<protocols::fs::Error, size_t>> write(void *, const char *, const void *buffer, size_t length) {
 	auto req = new WriteRequest(buffer, length);
 	sendRequests.push_back(*req);
 	auto value = req->promise.async_get();
 	if(base.load(uart_register::lineStatus) & line_status::txReady)
 		sendBurst();
-	return value;
+	co_await std::move(value);
+	co_return length;
 }
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}

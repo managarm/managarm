@@ -50,7 +50,7 @@ struct OpenFile : File {
 		}
 	}
 
-	async::result<frg::expected<Error>>
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length) override {
 		assert(length >= 8); // TODO: return Error::illegalArguments to user instead
 
@@ -70,7 +70,7 @@ struct OpenFile : File {
 
 		_readableSeq = ++_currentSeq;
 		_doorbell.ring();
-		co_return {};
+		co_return length;
 	}
 
 	expected<PollResult> poll(Process *, uint64_t sequence,

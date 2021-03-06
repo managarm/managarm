@@ -132,7 +132,7 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override;
 
-	async::result<frg::expected<Error>>
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
 	expected<PollResult>
@@ -170,7 +170,7 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override;
 
-	async::result<frg::expected<Error>>
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
 	expected<PollResult>
@@ -354,7 +354,7 @@ MasterFile::readSome(Process *, void *data, size_t maxLength) {
 	co_return chunk;
 }
 
-async::result<frg::expected<Error>>
+async::result<frg::expected<Error, size_t>>
 MasterFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
 		std::cout << "posix: Write to tty " << structName() << std::endl;
@@ -383,7 +383,7 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 		_channel->slaveInSeq = ++_channel->currentSeq;
 		_channel->statusBell.ring();
 	}
-	co_return {};
+	co_return length;
 }
 
 expected<PollResult> MasterFile::poll(Process *, uint64_t past_seq,
@@ -495,7 +495,7 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 }
 
 
-async::result<frg::expected<Error>>
+async::result<frg::expected<Error, size_t>>
 SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
 		std::cout << "posix: Write to tty " << structName() << std::endl;
@@ -528,7 +528,7 @@ SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	_channel->masterQueue.push_back(std::move(packet));
 	_channel->masterInSeq = ++_channel->currentSeq;
 	_channel->statusBell.ring();
-	co_return {};
+	co_return length;
 }
 
 expected<PollResult> SlaveFile::poll(Process *, uint64_t past_seq,
