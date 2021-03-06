@@ -2204,7 +2204,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(), semantic_flags);
 					if(!fileResult) {
 						if(fileResult.error() == Error::noBackingDevice) {
-							co_await sendErrorResponse(managarm::posix::Errors::SPECIAL_DEVICE);
+							co_await sendErrorResponse(managarm::posix::Errors::NO_BACKING_DEVICE);
 							continue;
 						} else {
 							std::cout << "posix: Unexpected failure from open()" << std::endl;
