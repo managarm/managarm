@@ -410,8 +410,6 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			std::shared_ptr<Process> target;
 			if(!pid) {
-				std::cout << "\e[31mposix: SIG_KILL(0) should target "
-						"the whole process group\e[39m" << std::endl;
 				if(logSignals)
 					std::cout << "posix: SIG_KILL on PID " << self->pid() << std::endl;
 				target = self;
@@ -430,7 +428,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			UserSignal info;
 			info.pid = self->pid();
 			info.uid = 0;
-			target->signalContext()->issueSignal(sn, info);
+			if(!pid)
+				target->pgPointer()->issueSignalToGroup(sn, info);
+			else
+				target->signalContext()->issueSignal(sn, info);
 
 			// If the process signalled itself, we should process the signal before resuming.
 			bool killed = false;
