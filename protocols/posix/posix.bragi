@@ -469,3 +469,8 @@ head(128):
 	uint64 pid;
 	uint64 pgid;
 }
+
+message GetSidRequest 82 {
+head(128):
+	int64 pid;
+}
