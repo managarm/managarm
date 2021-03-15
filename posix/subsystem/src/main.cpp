@@ -390,11 +390,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
-			bool killed = false;
+			ProcessStatus status = ProcessStatus::resume;
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
-				co_await self->signalContext()->raiseContext(active, self.get(), killed);
-			if(killed)
+				co_await self->signalContext()->raiseContext(active, self.get(), status);
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 6) {
@@ -414,8 +414,6 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			std::shared_ptr<Process> target;
 			if(!pid) {
-				std::cout << "\e[31mposix: SIG_KILL(0) should target "
-						"the whole process group\e[39m" << std::endl;
 				if(logSignals)
 					std::cout << "posix: SIG_KILL on PID " << self->pid() << std::endl;
 				target = self;
@@ -434,27 +432,30 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			UserSignal info;
 			info.pid = self->pid();
 			info.uid = 0;
-			target->signalContext()->issueSignal(sn, info);
+			if(!pid)
+				target->pgPointer()->issueSignalToGroup(sn, info);
+			else
+				target->signalContext()->issueSignal(sn, info);
 
 			// If the process signalled itself, we should process the signal before resuming.
-			bool killed = false;
+			ProcessStatus status = ProcessStatus::resume;
 			if(self->checkOrRequestSignalRaise()) {
 				auto active = self->signalContext()->fetchSignal(~self->signalMask());
 				if(active)
-					co_await self->signalContext()->raiseContext(active, self.get(), killed);
+					co_await self->signalContext()->raiseContext(active, self.get(), status);
 			}
-			if(killed)
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
-			bool killed = false;
+			ProcessStatus status = ProcessStatus::resume;
 			if(self->checkOrRequestSignalRaise()) {
 				auto active = self->signalContext()->fetchSignal(~self->signalMask());
 				if(active)
-					co_await self->signalContext()->raiseContext(active, self.get(), killed);
+					co_await self->signalContext()->raiseContext(active, self.get(), status);
 			}
-			if(killed)
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
@@ -468,9 +469,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous user space panic" "\e[39m" << std::endl;
-			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			ProcessStatus status = ProcessStatus::resume;
+			co_await self->signalContext()->raiseContext(item, self.get(), status);
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveBreakpoint) {
@@ -489,9 +490,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
-			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			ProcessStatus status = ProcessStatus::resume;
+			co_await self->signalContext()->raiseContext(item, self.get(), status);
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveGeneralFault) {
@@ -505,9 +506,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
-			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			ProcessStatus status = ProcessStatus::resume;
+			co_await self->signalContext()->raiseContext(item, self.get(), status);
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveIllegalInstruction) {
@@ -521,9 +522,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
-			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			ProcessStatus status = ProcessStatus::resume;
+			co_await self->signalContext()->raiseContext(item, self.get(), status);
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else{
@@ -537,9 +538,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
-			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			ProcessStatus status = ProcessStatus::resume;
+			co_await self->signalContext()->raiseContext(item, self.get(), status);
+			if(status == ProcessStatus::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}

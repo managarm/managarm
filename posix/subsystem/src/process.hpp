@@ -228,6 +228,12 @@ struct SignalItem {
 	boost::intrusive::list_member_hook<> queueHook;
 };
 
+enum ProcessStatus {
+	killed,
+	resume,
+	stop
+};
+
 using PollSignalResult = std::tuple<uint64_t, uint64_t, uint64_t>;
 
 struct SignalContext {
@@ -269,7 +275,7 @@ public:
 	// ------------------------------------------------------------------------
 
 	async::result<void> raiseContext(SignalItem *item, Process *process,
-			bool &killed);
+			ProcessStatus &status);
 
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread);
 

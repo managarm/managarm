@@ -539,7 +539,7 @@ struct SignalFrame {
 };
 
 async::result<void> SignalContext::raiseContext(SignalItem *item, Process *process,
-		bool &killed) {
+		ProcessStatus &status) {
 	auto thread = process->threadDescriptor();
 
 	SignalHandler handler = _handlers[item->signalNumber];
@@ -551,23 +551,23 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	if(handler.disposition == SignalDisposition::none) {
 		if(item->signalNumber == SIGCHLD) { // TODO: Handle default actions generically.
 			// Ignore the signal.
-			killed = false;
+			status = ProcessStatus::resume;
 			co_return;
 		}else{
 			std::cout << "posix: Thread killed as the result of signal "
 							<< item->signalNumber << std::endl;
-			killed = true;
+			status = ProcessStatus::killed;
 			co_await process->terminate(TerminationBySignal{item->signalNumber});
 			co_return;
 		}
 	} else if(handler.disposition == SignalDisposition::ignore) {
 		// Ignore the signal.
-		killed = false;
+		status = ProcessStatus::resume;
 		co_return;
 	}
 
 	assert(handler.disposition == SignalDisposition::handle);
-	killed = false;
+	status = ProcessStatus::resume;
 
 	SignalFrame sf;
 	memset(&sf, 0, sizeof(SignalFrame));
