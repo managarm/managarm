@@ -1311,7 +1311,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req.path());
-			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveIgnoreEmptyTrail);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
@@ -1328,18 +1328,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
+			if(!resolver.hasComponent()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+				continue;
+			}
+
 			auto parent = resolver.currentLink()->getTarget();
 			auto existsResult = co_await parent->getLink(resolver.nextComponent());
 			assert(existsResult);
 			auto exists = existsResult.value();
 			if(exists) {
-				resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 				continue;
 			}
 

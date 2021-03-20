@@ -149,13 +149,8 @@ struct Path {
 		std::vector<std::string> components;
 		while(it != string.end()) {
 			auto start = std::exchange(it, std::find(it, string.end(), '/'));
-
 			auto component = string.substr(start - string.begin(), it - start);
-			// Note: Due to the way .. interacts with symlins, do not resolve it here!
-			// However, we discard multiple slashes and single-dots.
-			if(!component.empty() && component != ".") {
-				components.push_back(std::move(component));
-			}
+			components.push_back(std::move(component));
 
 			// finally we need to skip the slash we found.
 			if(it != string.end())
@@ -214,15 +209,26 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 		std::cout << "'" << std::endl;
 	}
 
-	while(!_components.empty()
-			&& (!(flags & resolvePrefix) || _components.size() > 1)) {
+	while(true) {
+		// Strip trailing empty components if necessary.
+		if(flags & resolveIgnoreEmptyTrail) {
+			while(!_components.empty() && _components.back().empty())
+				_components.pop_back();
+		}
+
+		if(_components.empty()
+				|| ((flags & resolvePrefix) && _components.size() == 1))
+			break;
+
 		auto name = _components.front();
 		_components.pop_front();
 		if(debugResolve)
 			std::cout << "posix " << sn << ":     Resolving '" << name << "'" << std::endl;
 
 		// Resolve the link into the directory.
-		if(name == "..") {
+		if(name.empty() || name == ".") {
+			// Ignore the component.
+		}else if(name == "..") {
 			if(_currentPath == _rootPath) {
 				// We are at the root -- do not modify _currentPath at all.
 			}else if(_currentPath.second == _currentPath.first->getOrigin()) {

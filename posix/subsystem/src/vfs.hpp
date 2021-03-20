@@ -16,6 +16,9 @@
 using ResolveFlags = uint32_t;
 inline constexpr ResolveFlags resolvePrefix = (1 << 4);
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
+// Ignore empty trailing components.
+// Useful for operations that work on non-existant directories (mkdir).
+inline constexpr ResolveFlags resolveIgnoreEmptyTrail = (1 << 2);
 
 //! Represents a virtual view of the file system.
 //! We handle all mount point related logic in this class.
@@ -67,6 +70,10 @@ struct PathResolver {
 	void setup(ViewPath root, ViewPath workdir, std::string string);
 
 	async::result<frg::expected<protocols::fs::Error, void>> resolve(ResolveFlags flags = 0);
+
+	bool hasComponent() {
+		return !_components.empty();
+	}
 
 	std::string nextComponent() {
 		assert(!_components.empty());
