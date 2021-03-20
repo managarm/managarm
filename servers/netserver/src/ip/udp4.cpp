@@ -384,7 +384,7 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 
 	std::cout << "received udp datagram to port " << udp.header.dst << std::endl;
 
-	auto i = binds.lower_bound({ 0, packet });
+	auto i = binds.lower_bound({ 0, udp.header.dst });
 	for (; i != binds.end() && i->first.port == udp.header.dst; i++) {
 		auto ep = i->first;
 		if (ep.addr == udp.packet->header.destination

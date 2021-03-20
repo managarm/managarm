@@ -701,7 +701,7 @@ void Tcp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 		std::cout << "netserver: Received TCP packet at port " << tcp.header.destPort.load()
 				<< " (" << tcp.payload().size() << " bytes)" << std::endl;
 
-	auto it = binds.lower_bound({ 0, packet });
+	auto it = binds.lower_bound({ 0, tcp.header.destPort.load() });
 	for (; it != binds.end() && it->first.port == tcp.header.destPort.load(); it++) {
 		auto existingEp = it->first;
 		if (existingEp.ipAddress == tcp.packet->header.destination
