@@ -73,8 +73,10 @@ struct OpenFile : File {
 		co_return length;
 	}
 
-	expected<PollResult> poll(Process *, uint64_t sequence,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t sequence, int mask,
 			async::cancellation_token cancellation) override {
+		(void)mask; // TODO: utilize mask.
 
 		assert(sequence <= _currentSeq);
 		while (_currentSeq == sequence &&
@@ -87,13 +89,18 @@ struct OpenFile : File {
 		if (_writeableSeq > sequence)
 			edges |= EPOLLOUT;
 
+		co_return PollWaitResult(_currentSeq, edges);
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
 		int events = 0;
 		if (_counter > 0)
 			events |= EPOLLIN;
 		if (_counter < 0xFFFFFFFFFFFFFFFF)
 			events |= EPOLLOUT;
 
-		co_return PollResult(_currentSeq, edges, events);
+		co_return PollStatusResult(_currentSeq, events);
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
