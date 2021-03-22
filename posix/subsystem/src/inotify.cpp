@@ -81,7 +81,10 @@ public:
 		co_return sizeof(inotify_event) + packet.name.size() + 1;
 	}
 
-	expected<PollResult> poll(Process *, uint64_t sequence, async::cancellation_token cancellation) override {
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t sequence, int mask,
+	async::cancellation_token cancellation) override {
+		(void)mask; // TODO: utilize mask.
 		// TODO: Return Error::fileClosed as appropriate.
 
 		assert(sequence <= _currentSeq);
@@ -93,11 +96,16 @@ public:
 		if(_inSeq > sequence)
 			edges |= EPOLLIN;
 
+		co_return PollWaitResult(_currentSeq, edges);
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
 		int events = 0;
 		if(!_queue.empty())
 			events |= EPOLLIN;
 
-		co_return PollResult(_currentSeq, edges, events);
+		co_return PollStatusResult(_currentSeq, events);
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
