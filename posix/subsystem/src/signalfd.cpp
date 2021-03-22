@@ -31,7 +31,10 @@ public:
 		assert(max_length >= sizeof(struct signalfd_siginfo));
 
 		auto active = process->signalContext()->fetchSignal(_mask);
-		assert(active); // TODO: Implement blocking for signals.
+		// TODO: Implement blocking for signals.
+		//       Make fetchSignal() block until the signal arrives, with a cancellation
+		//       token to implement non-blocking behavior.
+		assert(active);
 
 		struct signalfd_siginfo si = {};
 		si.ssi_signo = active->signalNumber;
@@ -52,9 +55,9 @@ public:
 
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *process) override {
-		auto result = process->signalContext()->checkSignal(_mask);
+		auto result = process->signalContext()->checkSignal();
 		co_return PollStatusResult{std::get<0>(result),
-				(std::get<2>(result) & _mask) ? EPOLLIN : 0};
+				(std::get<1>(result) & _mask) ? EPOLLIN : 0};
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {

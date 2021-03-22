@@ -489,16 +489,11 @@ SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 		if(_slots[sn - 1].raiseSeq > in_seq)
 			edges |= UINT64_C(1) << (sn - 1);
 
-	co_return PollSignalResult{_currentSeq, edges, _activeSet};
+	co_return PollSignalResult{_currentSeq, edges};
 }
 
-PollSignalResult SignalContext::checkSignal(uint64_t mask) {
-	uint64_t edges = 0;
-	for(int sn = 1; sn <= 64; sn++)
-		if(_slots[sn - 1].raiseSeq > 0)
-			edges |= UINT64_C(1) << (sn - 1);
-
-	return PollSignalResult(_currentSeq, edges, _activeSet);
+CheckSignalResult SignalContext::checkSignal() {
+	return CheckSignalResult(_currentSeq, _activeSet);
 }
 
 SignalItem *SignalContext::fetchSignal(uint64_t mask) {
