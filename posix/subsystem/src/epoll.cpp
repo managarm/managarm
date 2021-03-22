@@ -82,7 +82,7 @@ private:
 						<< "\e[0m becomes pending" << std::endl;
 
 			// Note that we stop watching once an item becomes pending.
-			// We do this as we have to poll() again anyway before we report the item.
+			// We do this as we have to pollStatus() again anyway before we report the item.
 			item->state &= ~statePolling;
 			if(!(item->state & statePending)) {
 				item->state |= statePending;
@@ -97,7 +97,7 @@ private:
 			if(logEpoll)
 				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
 						<< ": Item \e[1;34m" << item->file->structName()
-						<< "\e[0m still not pending after poll()."
+						<< "\e[0m still not pending after pollWait()."
 						<< " Mask is " << item->eventMask << ", while edges are "
 						<< std::get<1>(result) << std::endl;
 			item->cancelPoll.reset();
@@ -322,8 +322,10 @@ public:
 		_cancelServe.cancel();
 	}
 
-	expected<PollResult> poll(Process *, uint64_t past_seq,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t past_seq, int mask,
 			async::cancellation_token cancellation) override {
+		(void)mask; // TODO: utilize mask.
 		assert(past_seq <= _currentSeq);
 		while(_currentSeq == past_seq && !cancellation.is_cancellation_requested()) {
 			assert(isOpen()); // TODO: Return a poll error here.
@@ -332,7 +334,12 @@ public:
 		if(cancellation.is_cancellation_requested())
 			std::cout << "\e[33mposix: epoll::poll() cancellation is untested\e[39m" << std::endl;
 
-		co_return PollResult{_currentSeq, EPOLLIN, _pendingQueue.empty() ? 0 : EPOLLIN};
+		co_return PollWaitResult{_currentSeq, _currentSeq ? EPOLLIN : 0};
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
+		co_return PollStatusResult{_currentSeq, _pendingQueue.empty() ? 0 : EPOLLIN};
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -350,7 +357,7 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("epoll"), File::defaultPipeLikeSeek}, _currentSeq{1} { }
+	: File{StructName::get("epoll"), File::defaultPipeLikeSeek}, _currentSeq{0} { }
 
 private:
 	helix::UniqueLane _passthrough;
