@@ -87,7 +87,7 @@ public:
 
 	OpenFile(bool non_block)
 	: File{StructName::get("timerfd")}, _nonBlock{non_block},
-			_activeTimer{nullptr}, _expirations{0}, _theSeq{1} {
+			_activeTimer{nullptr}, _expirations{0}, _theSeq{0} {
 		(void)_nonBlock;
 	}
 
@@ -110,10 +110,12 @@ public:
 		co_return sizeof(uint64_t);
 	}
 	
-	expected<PollResult> poll(Process *, uint64_t in_seq, 
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t in_seq, int mask,
 			async::cancellation_token cancellation) override {
+		(void)mask; // TODO: utilize mask.
 		if(logTimerfd)
-			std::cout << "posix: timerfd::poll(" << in_seq << ")" << std::endl;
+			std::cout << "posix: timerfd::pollWait(" << in_seq << ")" << std::endl;
 		assert(in_seq <= _theSeq);
 		while(in_seq == _theSeq && !cancellation.is_cancellation_requested()) {
 			if(!isOpen())
@@ -122,7 +124,12 @@ public:
 			co_await _seqBell.async_wait(cancellation);
 		}
 
-		co_return PollResult(_theSeq, EPOLLIN, _expirations ? EPOLLIN : 0);
+		co_return PollWaitResult(_theSeq, _theSeq ? EPOLLIN : 0);
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
+		co_return PollStatusResult(_theSeq, _expirations ? EPOLLIN : 0);
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
