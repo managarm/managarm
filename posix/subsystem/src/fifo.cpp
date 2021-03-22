@@ -105,8 +105,10 @@ public:
 		co_return chunk;
 	}
 
-	expected<PollResult> poll(Process *, uint64_t pastSeq,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t pastSeq, int mask,
 			async::cancellation_token cancellation) override {
+		(void)mask; // TODO: utilize mask.
 		// TODO: Return Error::fileClosed as appropriate.
 		assert(pastSeq <= _channel->currentSeq);
 		while(pastSeq == _channel->currentSeq
@@ -114,7 +116,7 @@ public:
 			co_await _channel->statusBell.async_wait(cancellation);
 
 		if(cancellation.is_cancellation_requested())
-			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
+			std::cout << "\e[33mposix: fifo::pollWait() cancellation is untested\e[39m" << std::endl;
 
 		int edges = 0;
 		if(_channel->noWriterSeq > pastSeq)
@@ -122,13 +124,18 @@ public:
 		if(_channel->inSeq > pastSeq)
 			edges |= EPOLLIN;
 
+		co_return PollWaitResult(_channel->currentSeq, edges);
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
 		int events = 0;
 		if(!_channel->writerCount)
 			events |= EPOLLHUP;
 		if(!_channel->packetQueue.empty())
 			events |= EPOLLIN;
 
-		co_return PollResult(_channel->currentSeq, edges, events);
+		co_return PollStatusResult(_channel->currentSeq, events);
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -205,7 +212,8 @@ public:
 		co_return maxLength;
 	}
 
-	expected<PollResult> poll(Process *, uint64_t pastSeq,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t pastSeq, int mask,
 			async::cancellation_token cancellation) override {
 		// TODO: Return Error::fileClosed as appropriate.
 		assert(pastSeq <= _channel->currentSeq);
@@ -220,11 +228,16 @@ public:
 		if(_channel->noReaderSeq > pastSeq)
 			edges |= EPOLLERR;
 
+		co_return PollWaitResult(_channel->currentSeq, edges);
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
 		int events = EPOLLOUT;
 		if(!_channel->readerCount)
 			events |= EPOLLERR;
 
-		co_return PollResult(_channel->currentSeq, edges, events);
+		co_return PollStatusResult(_channel->currentSeq, events);
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
