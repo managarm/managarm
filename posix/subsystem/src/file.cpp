@@ -302,8 +302,32 @@ expected<PollResult> File::poll(Process *, uint64_t, async::cancellation_token) 
 	throw std::runtime_error("posix: Object has no File::poll()");
 }
 
-expected<PollResult> File::checkStatus(Process *process) {
-	return poll(process, 0, async::cancellation_token{});
+async::result<frg::expected<Error, PollWaitResult>> File::pollWait(Process *process,
+		uint64_t sequence, int mask,
+		async::cancellation_token cancellation) {
+	while(true) {
+		auto resultOrError = co_await poll(process, sequence, cancellation);
+
+		if(auto error = std::get_if<Error>(&resultOrError); error)
+			co_return *error;
+
+		auto result = std::get<PollResult>(resultOrError);
+		if((std::get<1>(result) & mask) || cancellation.is_cancellation_requested())
+			co_return PollWaitResult{std::get<0>(result), std::get<1>(result)};
+
+		// Mask was not satisfied.
+		sequence = std::get<0>(result);
+	}
+}
+
+async::result<frg::expected<Error, PollStatusResult>> File::pollStatus(Process *process) {
+	auto resultOrError = co_await poll(process, 0);
+
+	if(auto error = std::get_if<Error>(&resultOrError); error)
+		co_return *error;
+
+	auto result = std::get<PollResult>(resultOrError);
+	co_return PollStatusResult{std::get<0>(result), std::get<2>(result)};
 }
 
 async::result<int> File::getOption(int) {

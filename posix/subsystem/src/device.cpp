@@ -128,11 +128,11 @@ private:
 		co_return result;
 	}
 	
-	expected<PollResult> checkStatus(Process *) override {
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *process) override {
 		if(!_statusMapping) {
-			std::cout << "posix: No file status page. DeviceFile::checkStatus()"
+			std::cout << "posix: No file status page. DeviceFile::pollStatus()"
 					" falls back to slower poll()" << std::endl;
-			return poll(nullptr, 0);
+			return File::pollStatus(process);
 		}
 
 		auto page = reinterpret_cast<protocols::fs::StatusPage *>(_statusMapping.get());
@@ -143,7 +143,7 @@ private:
 			if(logStatusSeqlock)
 				std::cout << "posix: Status page update in progess."
 						" Fallback to poll(0)." << std::endl;
-			return poll(nullptr, 0);
+			return File::pollStatus(process);
 		}
 
 		// Perform the actual loads.
@@ -156,12 +156,12 @@ private:
 			if(logStatusSeqlock)
 				std::cout << "posix: Stale data from status page."
 						" Fallback to poll(0)." << std::endl;
-			return poll(nullptr, 0);
+			return File::pollStatus(process);
 		}
 
 		// TODO: Return a full edge mask or edges since sequence zero.
-		async::promise<std::variant<Error, PollResult>> promise;
-		promise.set_value(PollResult{sequence, status, status});
+		async::promise<frg::expected<Error, PollStatusResult>> promise;
+		promise.set_value(PollStatusResult{sequence, status});
 		return promise.async_get();
 	}
 

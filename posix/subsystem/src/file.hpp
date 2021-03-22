@@ -77,6 +77,8 @@ using expected = async::result<std::variant<Error, T>>;
 using ReadEntriesResult = std::optional<std::string>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
+using PollWaitResult = std::tuple<uint64_t, int>;
+using PollStatusResult = std::tuple<uint64_t, int>;
 
 using AcceptResult = smarter::shared_ptr<File, FileHandle>;
 
@@ -290,8 +292,15 @@ public:
 	virtual expected<PollResult> poll(Process *, uint64_t sequence,
 			async::cancellation_token cancellation = {});
 
-	// Like poll, but only checks the current state. Does not return edges.
-	virtual expected<PollResult> checkStatus(Process *);
+	// Waits until the poll sequence changes *and* one of the events in the mask receivs an edge.
+	// Returns (current-sequence, edges since in-sequence).
+	virtual async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
+			uint64_t sequence, int mask,
+			async::cancellation_token cancellation = {});
+
+	// Returns immediately.
+	// Returns (current-sequence, active events).
+	virtual async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *);
 
 	virtual async::result<int> getOption(int option);
 	virtual async::result<void> setOption(int option, int value);

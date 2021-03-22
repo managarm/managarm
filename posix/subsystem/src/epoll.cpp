@@ -42,7 +42,7 @@ private:
 		uint64_t cookie;
 
 		async::cancellation_event cancelPoll;
-		expected<PollResult> pollFuture;
+		async::result<frg::expected<Error, PollWaitResult>> pollFuture;
 	};
 
 	static void _awaitPoll(Item *item) {
@@ -52,7 +52,7 @@ private:
 		// Release the future to free up memory.
 		assert(item->pollFuture.ready());
 		auto result_or_error = std::move(item->pollFuture.value());
-		item->pollFuture = expected<PollResult>{};
+		item->pollFuture = async::result<frg::expected<Error, PollWaitResult>>{};
 
 		// Discard non-active and closed items.
 		if(!(item->state & stateActive)) {
@@ -63,9 +63,8 @@ private:
 			return;
 		}
 
-		auto error = std::get_if<Error>(&result_or_error);
-		if(error) {
-			assert(*error == Error::fileClosed);
+		if(!result_or_error) {
+			assert(result_or_error.error() == Error::fileClosed);
 			item->state &= ~statePolling;
 			if(!item->state)
 				delete item;
@@ -75,7 +74,7 @@ private:
 		// Note that items only become pending if there is an edge.
 		// This is the correct behavior for edge-triggered items.
 		// Level-triggered items stay pending until the event disappears.
-		auto result = std::get<PollResult>(result_or_error);
+		auto result = result_or_error.value();
 		if(std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP)) {
 			if(logEpoll)
 				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
@@ -102,8 +101,8 @@ private:
 						<< " Mask is " << item->eventMask << ", while edges are "
 						<< std::get<1>(result) << std::endl;
 			item->cancelPoll.reset();
-			item->pollFuture = item->file->poll(item->process, std::get<0>(result),
-					item->cancelPoll);
+			item->pollFuture = item->file->pollWait(item->process, std::get<0>(result),
+					item->eventMask | EPOLLERR | EPOLLHUP, item->cancelPoll);
 			item->pollFuture.then([item] {
 				_awaitPoll(item);
 			});
@@ -209,12 +208,11 @@ public:
 				if(logEpoll)
 					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Checking item "
 							<< "\e[1;34m" << item->file->structName() << "\e[0m" << std::endl;
-				auto result_or_error = co_await item->file->checkStatus(item->process);
+				auto result_or_error = co_await item->file->pollStatus(item->process);
 
 				// Discard closed items.
-				auto error = std::get_if<Error>(&result_or_error);
-				if(error) {
-					assert(*error == Error::fileClosed);
+				if(!result_or_error) {
+					assert(result_or_error.error() == Error::fileClosed);
 					if(logEpoll)
 						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
 								" closed item \e[1;34m" << item->file->structName() << "\e[0m"
@@ -225,15 +223,15 @@ public:
 					continue;
 				}
 
-				auto result = std::get<PollResult>(result_or_error);
+				auto result = result_or_error.value();
 				if(logEpoll)
 					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m:"
 							" Item \e[1;34m" << item->file->structName() << "\e[0m"
-							" mask is " << item->eventMask << ", while " << std::get<2>(result)
+							" mask is " << item->eventMask << ", while " << std::get<1>(result)
 							<< " is active" << std::endl;
 
 				// Abort early (i.e before requeuing) if the item is not pending.
-				auto status = std::get<2>(result) & (item->eventMask | EPOLLERR | EPOLLHUP);
+				auto status = std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP);
 				if(!status) {
 					item->state &= ~statePending;
 					if(!(item->state & statePolling)) {
@@ -241,8 +239,8 @@ public:
 
 						// Once an item is not pending anymore, we continue watching it.
 						item->cancelPoll.reset();
-						item->pollFuture = item->file->poll(item->process, std::get<0>(result),
-								item->cancelPoll);
+						item->pollFuture = item->file->pollWait(item->process, std::get<0>(result),
+								item->eventMask | EPOLLERR | EPOLLHUP, item->cancelPoll);
 						item->pollFuture.then([item] {
 							_awaitPoll(item);
 						});
