@@ -40,17 +40,21 @@ public:
 		co_return sizeof(struct signalfd_siginfo);
 	}
 	
-	expected<PollResult> poll(Process *process, uint64_t in_seq,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *process, uint64_t inSeq, int pollMask,
 			async::cancellation_token cancellation) override {
-		auto result = co_await process->signalContext()->pollSignal(in_seq,
+		(void)pollMask; // TODO: utilize mask.
+		auto result = co_await process->signalContext()->pollSignal(inSeq,
 				_mask, cancellation);
-		co_return PollResult(std::get<0>(result), EPOLLIN, EPOLLIN);
+		co_return PollWaitResult{std::get<0>(result),
+				(std::get<1>(result) & _mask) ? EPOLLIN : 0};
 	}
 
-	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *process) override {
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *process) override {
 		auto result = process->signalContext()->checkSignal(_mask);
 		co_return PollStatusResult{std::get<0>(result),
-					(std::get<2>(result) & _mask) ? EPOLLIN : 0};
+				(std::get<2>(result) & _mask) ? EPOLLIN : 0};
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
