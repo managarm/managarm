@@ -272,8 +272,10 @@ public:
 		co_return File::constructHandle(std::move(local));
 	}
 
-	expected<PollResult> poll(Process *, uint64_t past_seq,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t past_seq, int mask,
 			async::cancellation_token cancellation) override {
+		(void)mask; // TODO: utilize mask.
 		if(_currentState == State::closed)
 			co_return Error::fileClosed;
 
@@ -291,17 +293,22 @@ public:
 		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
 
+//		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
+//				<< " returns (" << _currentSeq
+//				<< ", " << edges << ")" << std::endl;
+
+		co_return PollWaitResult{_currentSeq, edges};
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
 		int events = EPOLLOUT;
 		if(_currentState == State::remoteShutDown)
 			events |= EPOLLHUP;
 		if(!_acceptQueue.empty() || !_recvQueue.empty())
 			events |= EPOLLIN;
 
-//		std::cout << "posix: poll(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
-//				<< " returns (" << _currentSeq
-//				<< ", " << edges << ", " << events << ")" << std::endl;
-
-		co_return PollResult{_currentSeq, edges, events};
+		co_return PollStatusResult{_currentSeq, events};
 	}
 
 	async::result<protocols::fs::Error>
