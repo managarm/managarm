@@ -1,5 +1,5 @@
-
 #include <string.h>
+#include <sys/epoll.h>
 
 #include "../common.hpp"
 #include "helout.hpp"
@@ -20,16 +20,22 @@ private:
 		__builtin_unreachable();
 	}
 	
-	expected<PollResult> poll(Process *, uint64_t sequence, async::cancellation_token) override {
-		// TODO: Signal that we are ready to accept output.
-		std::cout << "posix: poll() on helout" << std::endl;
-		if(!sequence) {
-			PollResult result{1, 0, 0};
-			co_return result;
-		}
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t sequence, int mask,
+			async::cancellation_token cancellation) override {
+		(void)mask;
 
-		co_await std::experimental::suspend_always{};
-		__builtin_unreachable();
+		if(sequence > 1)
+			co_return Error::illegalArguments;
+
+		if(sequence)
+			co_await async::suspend_indefinitely(cancellation);
+		co_return PollWaitResult{1, EPOLLOUT};
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
+		co_return PollStatusResult{1, EPOLLOUT};
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
