@@ -135,8 +135,12 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
-	expected<PollResult>
-	poll(Process *, uint64_t sequence, async::cancellation_token cancellation) override;
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t sequence, int mask,
+			async::cancellation_token cancellation) override;
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override;
 
 	async::result<void>
 	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override;
@@ -173,8 +177,12 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
-	expected<PollResult>
-	poll(Process *, uint64_t sequence, async::cancellation_token cancellation) override;
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t sequence, int mask,
+			async::cancellation_token cancellation) override;
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override;
 
 	async::result<void>
 	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override;
@@ -386,8 +394,10 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 	co_return length;
 }
 
-expected<PollResult> MasterFile::poll(Process *, uint64_t past_seq,
+async::result<frg::expected<Error, PollWaitResult>>
+MasterFile::pollWait(Process *, uint64_t past_seq, int mask,
 		async::cancellation_token cancellation) {
+	(void)mask; // TODO: utilize mask.
 	assert(past_seq <= _channel->currentSeq);
 
 	while(past_seq == _channel->currentSeq
@@ -399,11 +409,17 @@ expected<PollResult> MasterFile::poll(Process *, uint64_t past_seq,
 	if(_channel->masterInSeq > past_seq)
 		edges |= EPOLLIN;
 
+	co_return PollWaitResult{_channel->currentSeq, edges};
+}
+
+async::result<frg::expected<Error, PollStatusResult>>
+MasterFile::pollStatus(Process *) {
+	// For now making pts files always writable is sufficient.
 	int events = EPOLLOUT;
 	if(!_channel->masterQueue.empty())
 		events |= EPOLLIN;
 
-	co_return PollResult{_channel->currentSeq, edges, events};
+	co_return PollStatusResult{_channel->currentSeq, events};
 }
 
 async::result<void> MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
@@ -531,8 +547,10 @@ SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	co_return length;
 }
 
-expected<PollResult> SlaveFile::poll(Process *, uint64_t past_seq,
+async::result<frg::expected<Error, PollWaitResult>>
+SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 		async::cancellation_token cancellation) {
+	(void)mask; // TODO: utilize mask.
 	assert(past_seq <= _channel->currentSeq);
 	while(past_seq == _channel->currentSeq
 			&& !cancellation.is_cancellation_requested())
@@ -543,11 +561,17 @@ expected<PollResult> SlaveFile::poll(Process *, uint64_t past_seq,
 	if(_channel->slaveInSeq > past_seq)
 		edges |= EPOLLIN;
 
+	co_return PollWaitResult{_channel->currentSeq, edges};
+}
+
+async::result<frg::expected<Error, PollStatusResult>>
+SlaveFile::pollStatus(Process *) {
+	// For now making pts files always writable is sufficient.
 	int events = EPOLLOUT;
 	if(!_channel->slaveQueue.empty())
 		events |= EPOLLIN;
 
-	co_return PollResult{_channel->currentSeq, edges, events};
+	co_return PollStatusResult{_channel->currentSeq, events};
 }
 
 async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest req,
