@@ -1,5 +1,8 @@
 // vim: ft=arm64asm
 
+// Emit debugging information + unwind tables.
+.cfi_sections .eh_frame, .debug_frame
+
 .macro MAKE_EXC_ENTRY name
 .align 7
 b \name
@@ -28,7 +31,7 @@ thorExcVectors:
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 fiq
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 error
 
-.set .L_excStateSize, 304
+.set .L_excStateSize, 832
 
 .set .L_irqDomain, 0
 .set .L_faultDomain, 1
@@ -40,6 +43,9 @@ thorExcVectors:
 
 .macro MAKE_STUB name, handler, el, domain, stack
 \name:
+	.cfi_startproc simple
+	.cfi_signal_frame
+
 	msr tpidrro_el0, x0
 	.if \el == 0
 	mrs x0, tpidr_el1
@@ -49,24 +55,55 @@ thorExcVectors:
 	.endif
 
 	sub x0, x0, .L_excStateSize
+	.cfi_def_cfa x0, 0
 
 	// Save x1-x30
 	str x1, [x0, #8]
+	.cfi_offset x1, 8
 	stp x2, x3, [x0, #16]
+	.cfi_offset x2, 16
+	.cfi_offset x3, 24
 	stp x4, x5, [x0, #32]
+	.cfi_offset x4, 32
+	.cfi_offset x5, 40
 	stp x6, x7, [x0, #48]
+	.cfi_offset x6, 48
+	.cfi_offset x7, 56
 	stp x8, x9, [x0, #64]
+	.cfi_offset x8, 64
+	.cfi_offset x9, 72
 	stp x10, x11, [x0, #80]
+	.cfi_offset x10, 80
+	.cfi_offset x11, 88
 	stp x12, x13, [x0, #96]
+	.cfi_offset x12, 96
+	.cfi_offset x13, 104
 	stp x14, x15, [x0, #112]
+	.cfi_offset x14, 112
+	.cfi_offset x15, 120
 	stp x16, x17, [x0, #128]
+	.cfi_offset x16, 128
+	.cfi_offset x17, 136
 	stp x18, x19, [x0, #144]
+	.cfi_offset x18, 144
+	.cfi_offset x19, 152
 	stp x20, x21, [x0, #160]
+	.cfi_offset x20, 160
+	.cfi_offset x21, 168
 	stp x22, x23, [x0, #176]
+	.cfi_offset x22, 176
+	.cfi_offset x23, 184
 	stp x24, x25, [x0, #192]
+	.cfi_offset x24, 192
+	.cfi_offset x25, 200
 	stp x26, x27, [x0, #208]
+	.cfi_offset x26, 208
+	.cfi_offset x27, 216
 	stp x28, x29, [x0, #224]
+	.cfi_offset x28, 224
+	.cfi_offset x29, 232
 	str x30, [x0, #240]
+	.cfi_offset x30, 240
 
 	// Save old sp
 	.if \el == 0
@@ -76,13 +113,16 @@ thorExcVectors:
 	.endif
 
 	str x1, [x0, #248]
+	.cfi_offset sp, 248
 
 	// Set new stack
 	mov sp, x0
+	.cfi_def_cfa_register sp
 
 	// Save x0
 	mrs x0, tpidrro_el0
 	str x0, [sp, #0]
+	.cfi_offset x0, 0
 
 	// Avoid leaking x0 contents to other threads
 	mov x0, xzr
@@ -91,8 +131,10 @@ thorExcVectors:
 	// Save exception state
 	mrs x0, elr_el1
 	str x0, [sp, #256]
+	.cfi_offset ip, 256
 	mrs x0, spsr_el1
 	str x0, [sp, #264]
+	.cfi_offset pstate, 264
 	mrs x0, esr_el1
 	str x0, [sp, #272]
 	mrs x0, far_el1
@@ -110,6 +152,7 @@ thorExcVectors:
 	// Save TPIDR_EL0
 	mrs x0, tpidr_el0
 	str x0, [sp, #296]
+	.cfi_offset tpidr_el0, 296
 
 	// Enter handler
 	mov x29, xzr
@@ -120,6 +163,7 @@ thorExcVectors:
 	// Restore TPIDR_EL0
 	ldr x0, [sp, #296]
 	msr tpidr_el0, x0
+	.cfi_restore tpidr_el0, 296
 
 	// Restore domain
 	mrs x0, tpidr_el1
@@ -140,22 +184,52 @@ thorExcVectors:
 
 	// Restore x2-x30
 	ldp x2, x3, [sp, #16]
+	.cfi_restore x2
+	.cfi_restore x3
 	ldp x4, x5, [sp, #32]
+	.cfi_restore x4
+	.cfi_restore x5
 	ldp x6, x7, [sp, #48]
+	.cfi_restore x6
+	.cfi_restore x7
 	ldp x8, x9, [sp, #64]
+	.cfi_restore x8
+	.cfi_restore x9
 	ldp x10, x11, [sp, #80]
+	.cfi_restore x10
+	.cfi_restore x11
 	ldp x12, x13, [sp, #96]
+	.cfi_restore x12
+	.cfi_restore x13
 	ldp x14, x15, [sp, #112]
+	.cfi_restore x14
+	.cfi_restore x15
 	ldp x16, x17, [sp, #128]
+	.cfi_restore x16
+	.cfi_restore x17
 	ldp x18, x19, [sp, #144]
+	.cfi_restore x18
+	.cfi_restore x19
 	ldp x20, x21, [sp, #160]
+	.cfi_restore x20
+	.cfi_restore x21
 	ldp x22, x23, [sp, #176]
+	.cfi_restore x22
+	.cfi_restore x23
 	ldp x24, x25, [sp, #192]
+	.cfi_restore x24
+	.cfi_restore x25
 	ldp x26, x27, [sp, #208]
+	.cfi_restore x26
+	.cfi_restore x27
 	ldp x28, x29, [sp, #224]
+	.cfi_restore x28
+	.cfi_restore x29
 	ldr x30, [sp, #240]
+	.cfi_restore x30
 
 	mov x0, sp
+	.cfi_def_cfa_register x0
 
 	// Restore old stack (EL1)
 	.if \el == 1
@@ -163,9 +237,14 @@ thorExcVectors:
 	mov sp, x1
 	.endif
 
+	.cfi_restore sp
+
 	ldp x0, x1, [x0, #0]
+	.cfi_restore x0
+	.cfi_restore x1
 
 	eret
+	.cfi_endproc
 .endm
 
 MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, .L_faultDomain, .L_exceptionStackOff
