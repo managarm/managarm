@@ -16,10 +16,11 @@ doCopyFromUser:
 	ldr x3, =1b
 	mrs x4, tpidr_el1
 	str x3, [x4, .L_currentUarOff]
+	cbz x2, 3f
 2:
 	ldrb w8, [x1], #1
-	subs x2, x2, #1
 	strb w8, [x0], #1
+	subs x2, x2, #1
 	b.ne 2b
 3:
 	mov x0, xzr
@@ -45,6 +46,7 @@ doCopyToUser:
 	ldr x3, =1b
 	mrs x4, tpidr_el1
 	str x3, [x4, .L_currentUarOff]
+	cbz x2, 3f
 2:
 	ldrb w8, [x1], #1
 	subs x2, x2, #1
