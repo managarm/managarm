@@ -114,6 +114,11 @@ void initializeBootFb(uint64_t address, uint64_t pitch, uint64_t width,
 }
 
 void transitionBootFb() {
+	if(!bootInfo->address) {
+		infoLogger() << "thor: No boot framebuffer" << frg::endlog;
+		return;
+	}
+
 	auto window_size = (bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1);
 	assert(window_size <= 0x1'000'000);
 	auto window = KernelVirtualMemory::global().allocate(0x1'000'000);
@@ -123,7 +128,7 @@ void transitionBootFb() {
 
 	// Transition to the kernel mapping window.
 	bootDisplay->setWindow(window);
-	
+
 	assert(!(bootInfo->address & (kPageSize - 1)));
 	bootInfo->memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 			bootInfo->address & ~(kPageSize - 1),
