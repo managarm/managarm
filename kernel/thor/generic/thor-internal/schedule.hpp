@@ -97,6 +97,7 @@ private:
 
 public:
 	void update();
+	void forcePreemptionUpdate();
 	bool wantReschedule();
 	void reschedule();
 	void commit();

@@ -190,6 +190,10 @@ void Scheduler::update() {
 	}
 }
 
+void Scheduler::forcePreemptionUpdate() {
+	_needPreemptionUpdate = true;
+}
+
 // Note: this function only returns true if there is a *strictly better* entity
 //       that we can schedule. In particular, if there are no waiters,
 //       this function returns false, *even if* no entity is currently running.
