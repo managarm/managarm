@@ -70,6 +70,8 @@ private:
 // LegacyPciTransport
 // --------------------------------------------------------
 
+#ifdef __x86_64__
+
 namespace {
 
 struct LegacyPciQueue;
@@ -256,6 +258,8 @@ void LegacyPciQueue::notifyTransport() {
 }
 
 } // anonymous namespace
+
+#endif
 
 // --------------------------------------------------------
 // StandardPciTransport
@@ -590,6 +594,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 	}
 
 	if(mode == DiscoverMode::legacyOnly || mode == DiscoverMode::transitional) {
+#ifdef __x86_64__
 		if(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort) {
 			auto bar = co_await hw_device.accessBar(0);
 			HEL_CHECK(helEnableIo(bar.getHandle()));
@@ -610,6 +615,9 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			co_return std::make_unique<LegacyPciTransport>(std::move(hw_device),
 					legacy_space, std::move(irq));
 		}
+#else
+		throw std::runtime_error("Legacy transports are unsupported on this architecture");
+#endif
 	}
 
 	throw std::runtime_error("Cannot construct a suitable virtio::Transport");

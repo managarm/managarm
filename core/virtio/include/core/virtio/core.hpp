@@ -6,7 +6,9 @@
 #include <vector>
 
 #include <arch/dma_structs.hpp>
+#ifdef __x86_64__
 #include <arch/io_space.hpp>
+#endif
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
