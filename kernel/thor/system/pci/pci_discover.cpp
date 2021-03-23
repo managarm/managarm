@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <frg/algorithm.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 #include <thor-internal/fiber.hpp>
@@ -968,6 +969,307 @@ void configureBridges(PciBus *root, PciBus *bus, int &highestId) {
 	}
 }
 
+struct SpaceRequirement {
+	uintptr_t size;
+	uint32_t flags;
+
+	// For devices (or bridge BARs)
+	int index = 0;
+	PciEntity *associatedEntity = nullptr;
+
+	// For devices behind this bridge
+	PciBridge *associatedBridge = nullptr;
+};
+
+frg::vector<SpaceRequirement, KernelAlloc> getRequiredSpaceForBus(PciBus *bus) {
+	frg::vector<SpaceRequirement, KernelAlloc> required{*kernelAlloc};
+
+	auto processBar = [&required] (PciEntity *entity, int i) {
+		auto &bar = entity->getBars()[i];
+
+		if (bar.allocated)
+			return;
+
+		uint32_t flags = 0;
+
+		switch (bar.type) {
+			case PciBar::kBarNone:
+				break;
+			case PciBar::kBarIo:
+				flags = PciBusResource::io;
+				break;
+			case PciBar::kBarMemory:
+				flags = PciBusResource::memory;
+
+				if (bar.prefetchable)
+					flags = PciBusResource::prefMemory;
+				break;
+			default:
+				break;
+				panicLogger() << "thor: Invalid BAR type" << frg::endlog;
+		}
+
+		if (flags)
+			required.push_back({bar.length, flags, i, entity});
+	};
+
+	for (auto dev : bus->childDevices) {
+		for (int i = 0; i < 6; i++) {
+			processBar(dev, i);
+		}
+	}
+
+	for (auto bridge : bus->childBridges) {
+		for (int i = 0; i < 2; i++) {
+			processBar(bridge, i);
+		}
+
+		// Check requirements below bridge
+		assert(bridge->associatedBus);
+		auto bridgeReq = getRequiredSpaceForBus(bridge->associatedBus);
+
+		size_t requiredIo = 0, requiredMem = 0, requiredPrefMemory = 0;
+
+		for (auto req : bridgeReq) {
+			if (req.flags == PciBusResource::io) {
+				requiredIo += req.size;
+			} else if (req.flags == PciBusResource::prefMemory) {
+				requiredPrefMemory += req.size;
+			} else {
+				assert(req.flags == PciBusResource::memory);
+				requiredMem += req.size;
+			}
+		}
+
+		if (requiredIo) {
+			// IO decoded by bridge has 256 byte granularity,
+			// but the spec requires it to be 4K aligned
+			required.push_back({(requiredIo + 0xFFF) & ~0xFFF,
+					PciBusResource::io,
+					0, nullptr, bridge});
+		}
+
+		// Memory decoded by bridge has 1 MiB granularity
+
+		if (requiredMem) {
+			required.push_back({(requiredMem + 0xFFFFF) & ~0xFFFFF,
+					PciBusResource::memory,
+					0, nullptr, bridge});
+		}
+
+		if (requiredPrefMemory) {
+			required.push_back({(requiredPrefMemory + 0xFFFFF) & ~0xFFFFF,
+					PciBusResource::prefMemory,
+					0, nullptr, bridge});
+		}
+	}
+
+	// We group the same requirement types and sort them by size in descending
+	// order to guarantee best fit allocations for requirements of the same type.
+	frg::insertion_sort(required.begin(), required.end(), [] (auto a, auto b) {
+		if (a.flags == b.flags)
+			return a.size < b.size;
+		return a.flags > b.flags;
+	});
+
+	return required;
+}
+
+frg::tuple<PciBusResource *, uint64_t, uint32_t> allocateBar(PciBus *bus, size_t size, uint32_t reqFlags) {
+	PciBusResource *best = nullptr;
+
+	auto isAddressable = [] (uint32_t flags, uint64_t addr) {
+		if (flags == PciBusResource::io)
+			return true;
+
+		if (flags != PciBusResource::prefMemory)
+			return addr < 0x100000000;
+
+		return true;
+	};
+
+	auto isPreferred = [] (PciBusResource *oldRes, PciBusResource *newRes) {
+		if (!oldRes)
+			return true;
+
+		if (newRes->base() > oldRes->base())
+			return true;
+
+		return newRes->remaining() < oldRes->remaining();
+	};
+
+	for (auto &res : bus->resources) {
+		if ((reqFlags == PciBusResource::prefMemory
+					|| reqFlags == PciBusResource::memory)
+				&& res.flags() == PciBusResource::io)
+			continue;
+
+		if ((res.flags() == PciBusResource::prefMemory
+					|| res.flags() == PciBusResource::memory)
+				&& reqFlags == PciBusResource::io)
+			continue;
+
+		if (reqFlags == res.flags() && res.canFit(size)
+				&& isAddressable(reqFlags, res.base())) {
+			best = &res;
+			break;
+		}
+
+		if ((reqFlags == PciBusResource::prefMemory)
+				&& res.flags() != PciBusResource::prefMemory
+				&& res.canFit(size)
+				&& isPreferred(best, &res)) {
+			best = &res;
+		}
+	}
+
+	if (!best) {
+		return {nullptr, 0, 0};
+	}
+
+	auto v = best->allocate(size);
+	assert(v);
+
+	return {best, *v, best->flags()};
+}
+
+void allocateBars(PciBus *bus) {
+	auto required = getRequiredSpaceForBus(bus);
+
+	infoLogger() << "thor: Allocating space for entities on bus "
+		<< frg::hex_fmt{bus->segId} << ":"
+		<< frg::hex_fmt{bus->busId}
+		<< ":" << frg::endlog;
+
+	for (auto req : required) {
+		auto [resource, off, flags] = allocateBar(bus, req.size, req.flags);
+
+		auto flagsToStr = [] (uint32_t flags) -> const char * {
+			if (flags == PciBusResource::io) return "I/O";
+			if (flags == PciBusResource::prefMemory) return "pref memory";
+			assert(flags == PciBusResource::memory);
+			return "memory";
+		};
+
+		if (!flags) {
+			PciEntity *entity = nullptr;
+
+			auto log = infoLogger();
+			log << "thor: Failed to allocate ";
+
+			if (req.associatedBridge) {
+				entity = req.associatedBridge;
+				log << flagsToStr(req.flags) << " window of bridge ";
+			} else {
+				entity = req.associatedEntity;
+				log << flagsToStr(req.flags) << " BAR #" << req.index << " of entity ";
+			}
+
+			log << frg::hex_fmt{entity->seg} << ":"
+				<< frg::hex_fmt{entity->bus} << ":"
+				<< frg::hex_fmt{entity->slot} << "."
+				<< frg::hex_fmt{entity->function}
+				<< frg::endlog;
+
+			continue;
+		}
+
+		auto childBase = off + resource->base();
+		auto hostBase = off + resource->hostBase();
+
+		PciEntity *entity = req.associatedEntity ?: req.associatedBridge;
+		auto io = entity->parentBus->io;
+
+		auto log = infoLogger();
+		log << "thor: " << flagsToStr(flags) << " ";
+
+		if (req.associatedBridge) {
+			log << "window of bridge ";
+
+			switch (req.flags) {
+				case PciBusResource::io:
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgeIoBase, childBase >> 8);
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgeIoLimit, (childBase + req.size - 0x100) >> 8);
+					break;
+				case PciBusResource::memory:
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgeMemBase, childBase >> 16);
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgeMemLimit, (childBase + req.size - 0x100000) >> 16);
+					break;
+				case PciBusResource::prefMemory:
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgePrefetchMemBase, childBase >> 16);
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgePrefetchMemLimit, (childBase + req.size - 0x100000) >> 16);
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgePrefetchMemBaseUpper, childBase >> 32);
+					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+							kPciBridgePrefetchMemLimitUpper, (childBase + req.size) >> 32);
+					break;
+			}
+
+			req.associatedBridge->associatedBus->resources.push_back(
+					{childBase, req.size, hostBase, req.flags});
+		} else {
+			log << "BAR #" << req.index << " of entity ";
+
+			auto barVal = io->readConfigWord(entity->parentBus,
+					entity->slot, entity->function,
+					kPciRegularBar0 + req.index * 4);
+
+			// Write BAR address
+			io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					kPciRegularBar0 + req.index * 4, childBase);
+
+			if (((barVal >> 1) & 3) == 2) {
+				io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					kPciRegularBar0 + (req.index + 1) * 4, childBase >> 32);
+			}
+
+			auto &bar = entity->getBars()[req.index];
+
+			// Update our associated BAR object
+			bar.allocated = true;
+			auto offset = hostBase & (kPageSize - 1);
+			bar.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+					hostBase & ~(kPageSize - 1),
+					(req.size + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+					CachingMode::uncached);
+			bar.offset = offset;
+
+			// Enable address decoding
+			auto cmd = io->readConfigHalf(entity->parentBus,
+					entity->slot, entity->function, kPciCommand);
+
+			if (flags == PciBusResource::io)
+				cmd |= 0x01;
+			else
+				cmd |= 0x02;
+
+			io->writeConfigHalf(entity->parentBus, entity->slot,
+					entity->function, kPciCommand, cmd);
+		}
+
+		log << frg::hex_fmt{entity->seg} << ":"
+			<< frg::hex_fmt{entity->bus} << ":"
+			<< frg::hex_fmt{entity->slot} << "."
+			<< frg::hex_fmt{entity->function}
+			<< " allocated to " << (void *)childBase;
+
+		if (childBase != hostBase)
+			log << " (host " << (void *)hostBase << ")";
+
+		log << ", size " << req.size << " bytes"
+			<< frg::endlog;
+	}
+
+	for (auto bridge : bus->childBridges)
+		allocateBars(bridge->associatedBus);
+}
+
 uint32_t findHighestId(PciBus *bus) {
 	uint32_t id = bus->busId;
 
@@ -997,6 +1299,7 @@ void enumerateAll() {
 	for (auto rootBus : *allRootBuses) {
 		int i = findHighestId(rootBus);
 		configureBridges(rootBus, rootBus, i);
+		allocateBars(rootBus);
 	}
 }
 
