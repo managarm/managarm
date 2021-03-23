@@ -46,6 +46,10 @@ struct IrqSlot {
 	// The kernel calls this function when an IRQ is raised.
 	void raise();
 
+	IrqPin *pin() {
+		return _pin;
+	}
+
 private:
 	IrqPin *_pin = nullptr;
 };
