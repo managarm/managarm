@@ -93,6 +93,9 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	enableInts();
 
 	switch (ec) {
+		case 0x00: // Invalid
+			handleOtherFault(image, kIntrIllegalInstruction);
+			break;
 		case 0x20: // Instruction abort, lower EL
 		case 0x21: // Instruction abort, same EL
 		case 0x24: // Data abort, lower EL
@@ -102,7 +105,7 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 				if constexpr (logUpdatePageAccess) {
 					infoLogger() << "thor: updated page "
 						<< (void *)(*image.faultAddr() & ~(kPageSize - 1))
-						<< " status on access" << frg::endlog;
+						<< " status on access from " << (void *)*image.ip() << frg::endlog;
 				}
 
 				break;
@@ -123,11 +126,14 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 		case 0x26: // SP alignment fault
 			handleOtherFault(image, kIntrGeneralFault);
 			break;
+		case 0x3C: // BRK instruction
+			handleOtherFault(image, kIntrBreakpoint);
+			break;
 		default:
 			panicLogger() << "Unexpected fault " << ec
 				<< " from ip: " << (void *)*image.ip() << "\n"
-				<< "sp: " << (void *)*image.sp()
-				<< "syndrome: 0x" << frg::hex_fmt(*image.code())
+				<< "sp: " << (void *)*image.sp() << " "
+				<< "syndrome: 0x" << frg::hex_fmt(*image.code()) << " "
 				<< "saved state: 0x" << frg::hex_fmt(*image.rflags()) << frg::endlog;
 	}
 
