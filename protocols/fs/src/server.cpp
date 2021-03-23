@@ -260,6 +260,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			}
 		}else{
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_size(res.value());
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
