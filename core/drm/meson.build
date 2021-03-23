@@ -6,12 +6,22 @@ gen = generator(bragi, arguments: [
 	],
 	output: '@BASENAME@.bragi.hpp')
 
+arch_srcs = []
+
+if host_machine.cpu_family() == 'x86_64'
+	arch_srcs += ['x86_64-src/copy-sse.S']
+elif host_machine.cpu_family() == 'aarch64'
+	arch_srcs += ['aarch64-src/copy-fp.S']
+else
+	error('Unknown architecture')
+endif
+
 fs_bragi = gen.process('../../protocols/fs/fs.bragi')
 drm_core_inc = include_directories('include/')
 drm_core = shared_library('drm_core', [
 		'src/core.cpp',
 		fs_bragi,
-		'x86_64-src/copy-sse.S',
+		arch_srcs,
 	],
 	dependencies: [
 		clang_coroutine_dep,
