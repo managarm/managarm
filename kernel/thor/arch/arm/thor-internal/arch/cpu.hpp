@@ -224,7 +224,7 @@ struct Executor {
 
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
-	Word *rflags() { return &general()->esr; }
+	Word *rflags() { return &general()->spsr; }
 
 	Word *ip() { return &general()->elr; }
 	Word *sp() { return &general()->sp; }
