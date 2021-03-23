@@ -105,6 +105,7 @@ static std::mt19937 globalPrng;
 } // namespace
 
 struct TcpHeader {
+	static constexpr arch::field<uint16_t, bool> finFlag{0, 1};
 	static constexpr arch::field<uint16_t, bool> synFlag{1, 1};
 	static constexpr arch::field<uint16_t, bool> ackFlag{4, 1};
 	static constexpr arch::field<uint16_t, unsigned int> headerWords{12, 4};
@@ -367,12 +368,16 @@ struct Tcp4Socket {
 			edges |= EPOLLIN;
 		if(self->outSeq_ > pastSeq)
 			edges |= EPOLLOUT;
+		if(self->hupSeq_ > pastSeq)
+			edges |= EPOLLHUP;
 
 		int active = 0;
 		if(self->recvRing_.availableToDequeue())
 			active |= EPOLLIN;
 		if(self->sendRing_.spaceForEnqueue())
 			active |= EPOLLOUT;
+		if(self->remoteClosed_)
+			active |= EPOLLHUP;
 
 		co_return protocols::fs::PollResult{
 			self->currentSeq_,
@@ -451,6 +456,7 @@ private:
 	smarter::weak_ptr<Tcp4Socket> holder_;
 
 	ConnectState connectState_ = ConnectState::none;
+	bool remoteClosed_ = false;
 
 	// Out-SN corresponding to the front of sendRing_.
 	uint32_t localSettledSn_ = 0;
@@ -477,6 +483,7 @@ private:
 	uint64_t currentSeq_ = 1;
 	uint64_t inSeq_ = 1;
 	uint64_t outSeq_ = 0;
+	uint64_t hupSeq_ = 1;
 	async::doorbell pollEvent_;
 };
 
@@ -649,23 +656,38 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		++localSettledSn_;
 		localWindowSn_ = localSettledSn_ + packet.header.window.load();
 		remoteAckedSn_ = packet.header.seqNumber.load();
-		remoteKnownSn_ = packet.header.seqNumber.load() + 1;
+		remoteKnownSn_ = packet.header.seqNumber.load() + 1; // SYN counts as one byte.
 		connectState_ = ConnectState::connected;
 		flushEvent_.ring();
 		settleEvent_.ring();
 	}else if(connectState_ == ConnectState::connected) {
 		if(packet.header.seqNumber.load() == remoteKnownSn_) {
+			bool gotUpdate = false;
+
 			auto payload = packet.payload();
 			size_t chunk = std::min(payload.size(), recvRing_.spaceForEnqueue());
 			if(chunk) {
 				recvRing_.enqueue(payload.data(), chunk);
-				inSeq_ = ++currentSeq_;
 				remoteKnownSn_ += chunk;
 				if(announcedWindow_ < chunk) {
 					announcedWindow_ = 0;
 				}else{
 					announcedWindow_ -= chunk;
 				}
+
+				inSeq_ = ++currentSeq_;
+				gotUpdate = true;
+			}
+
+			if(packet.header.flags.load() & TcpHeader::finFlag) {
+				++remoteKnownSn_; // FIN counts as one byte.
+				remoteClosed_ = true;
+
+				hupSeq_ = ++currentSeq_;
+				gotUpdate = true;
+			}
+
+			if(gotUpdate) {
 				inEvent_.ring();
 				flushEvent_.ring();
 				pollEvent_.ring();
