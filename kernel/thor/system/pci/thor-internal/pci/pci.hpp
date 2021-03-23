@@ -136,11 +136,12 @@ struct PciBar {
 	};
 
 	PciBar()
-	: type{kBarNone}, address{0}, length{0}, offset{0} { }
+	: type{kBarNone}, address{0}, length{0}, prefetchable{false}, allocated{false}, offset{0} { }
 
 	BarType type;
 	uintptr_t address;
 	size_t length;
+	bool prefetchable;
 
 	bool allocated;
 	smarter::shared_ptr<MemoryView> memory;

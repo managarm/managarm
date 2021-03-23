@@ -633,10 +633,13 @@ void readEntityBars(PciEntity *entity, int nBars) {
 			bars[i].type = PciBar::kBarMemory;
 			bars[i].address = address;
 			bars[i].length = length;
+			bars[i].prefetchable = bar & (1 << 3);
 
 			if (!address) {
 				infoLogger() << "            unallocated 32-bit memory BAR #" << i
-						<< ", length: " << length << " bytes" << frg::endlog;
+						<< ", length: " << length << " bytes"
+						<< (bar & (1 << 3) ? " (prefetchable)" : "")
+						<< frg::endlog;
 			} else {
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
@@ -648,7 +651,9 @@ void readEntityBars(PciEntity *entity, int nBars) {
 
 				infoLogger() << "            32-bit memory BAR #" << i
 						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " bytes" << frg::endlog;
+						<< ", length: " << length << " bytes"
+						<< (bar & (1 << 3) ? " (prefetchable)" : "")
+						<< frg::endlog;
 			}
 		}else if(((bar >> 1) & 3) == 2) {
 			assert(i < (nBars - 1)); // Otherwise there is no next bar.
@@ -674,10 +679,13 @@ void readEntityBars(PciEntity *entity, int nBars) {
 			bars[i].type = PciBar::kBarMemory;
 			bars[i].address = address;
 			bars[i].length = length;
+			bars[i].prefetchable = bar & (1 << 3);
 
 			if (!address) {
 				infoLogger() << "            unallocated 64-bit memory BAR #" << i
-						<< ", length: " << length << " bytes" << frg::endlog;
+						<< ", length: " << length << " bytes"
+						<< (bar & (1 << 3) ? " (prefetchable)" : "")
+						<< frg::endlog;
 			} else {
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
@@ -689,7 +697,9 @@ void readEntityBars(PciEntity *entity, int nBars) {
 
 				infoLogger() << "            64-bit memory BAR #" << i
 						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " bytes" << frg::endlog;
+						<< ", length: " << length << " bytes"
+						<< (bar & (1 << 3) ? " (prefetchable)" : "")
+						<< frg::endlog;
 			}
 
 			i++;
@@ -813,6 +823,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		}
 
 		allDevices->push_back(device);
+		bus->childDevices.push_back(device.get());
 	} else if ((header_type & 0x7F) == 1) {
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function);
 		bus->childBridges.push_back(bridge);
