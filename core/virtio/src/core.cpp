@@ -529,6 +529,7 @@ async::result<std::unique_ptr<Transport>>
 discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 	auto info = co_await hw_device.getPciInfo();
 	auto irq = co_await hw_device.accessIrq();
+	co_await hw_device.enableBusmaster();
 
 	if(mode == DiscoverMode::transitional || mode == DiscoverMode::modernOnly) {
 		std::optional<Mapping> common_mapping;
