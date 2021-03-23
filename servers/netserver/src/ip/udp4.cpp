@@ -314,7 +314,7 @@ struct Udp4Socket {
 			<< std::setw(8) << header.src << std::endl
 			<< std::setw(8) << header.dst << std::endl
 			<< std::setw(8) << header.len << std::endl
-			<< std::setw(8) << header.chk << std::endl;
+			<< std::setw(8) << header.chk << std::endl << std::dec;
 
 		if (header.chk == 0) {
 			header.chk = ~header.chk;
