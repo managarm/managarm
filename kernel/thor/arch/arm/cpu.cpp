@@ -109,7 +109,29 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	saveFpSimdRegisters(executor->general());
 }
 
-void workOnExecutor(Executor *executor) { assert(!"Not implemented"); }
+extern "C" void workStub();
+
+void workOnExecutor(Executor *executor) {
+	auto sp = reinterpret_cast<uint64_t *>(executor->getExceptionStack());
+	auto push = [&] (uint64_t v) {
+		sp -= 2;
+		memcpy(sp, &v, 8);
+	};
+
+	assert(executor->general()->domain == Domain::user);
+	assert(getCpuData()->currentDomain != static_cast<uint64_t>(Domain::user));
+
+	push(static_cast<uint64_t>(executor->general()->domain));
+	push(executor->general()->sp);
+	push(executor->general()->elr);
+	push(executor->general()->spsr);
+
+	void *stub = reinterpret_cast<void *>(&workStub);
+	executor->general()->domain = Domain::fault;
+	executor->general()->elr = reinterpret_cast<uintptr_t>(stub);
+	executor->general()->sp = reinterpret_cast<uintptr_t>(sp);
+	executor->general()->spsr = 0x3c5;
+}
 
 void scrubStack(FaultImageAccessor accessor, Continuation cont) {
 	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());

@@ -240,6 +240,10 @@ struct Executor {
 		return reinterpret_cast<Frame *>(_pointer);
 	}
 
+	void *getExceptionStack() {
+		return _exceptionStack;
+	}
+
 private:
 	char *_pointer;
 	void *_exceptionStack;

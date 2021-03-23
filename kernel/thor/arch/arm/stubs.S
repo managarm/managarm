@@ -179,21 +179,72 @@ MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, .L_faultDomain, .L_exceptionStack
 MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain, .L_irqStackOff
 MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, .L_faultDomain, .L_exceptionStackOff
 
+.global workStub
+workStub:
+	stp x0, x1, [sp, #-16]!
+	stp x2, x3, [sp, #-16]!
+	stp x4, x5, [sp, #-16]!
+	stp x6, x7, [sp, #-16]!
+	stp x8, x9, [sp, #-16]!
+	stp x10, x11, [sp, #-16]!
+	stp x12, x13, [sp, #-16]!
+	stp x14, x15, [sp, #-16]!
+	stp x16, x17, [sp, #-16]!
+	stp x18, x19, [sp, #-16]!
+	stp x20, x21, [sp, #-16]!
+	stp x22, x23, [sp, #-16]!
+	stp x24, x25, [sp, #-16]!
+	stp x26, x27, [sp, #-16]!
+	stp x28, x29, [sp, #-16]!
+	str x30, [sp, #-16]!
+
+	mov x29, xzr
+	bl onPlatformWork
+
+	ldr x0, [sp, #256] // #256
+	msr spsr_el1, x0
+	ldr x0, [sp, #272] // #272
+	msr elr_el1, x0
+	ldr x0, [sp, #288] // #288
+	msr sp_el0, x0
+	ldr x0, [sp, #304] // #304
+	mrs x1, tpidr_el1
+	str x0, [x1, #8]
+
+	ldr x30, [sp], #16
+	ldp x28, x29, [sp], #16
+	ldp x26, x27, [sp], #16
+	ldp x24, x25, [sp], #16
+	ldp x22, x23, [sp], #16
+	ldp x20, x21, [sp], #16
+	ldp x18, x19, [sp], #16
+	ldp x16, x17, [sp], #16
+	ldp x14, x15, [sp], #16
+	ldp x12, x13, [sp], #16
+	ldp x10, x11, [sp], #16
+	ldp x8, x9, [sp], #16
+	ldp x6, x7, [sp], #16
+	ldp x4, x5, [sp], #16
+	ldp x2, x3, [sp], #16
+	ldp x0, x1, [sp], #16
+
+	eret
+
 .global _restoreExecutorRegisters
 _restoreExecutorRegisters:
 	ldr x1, [x0, #288]
 	ldr x2, [x0, #248]
 	cmp x1, .L_userDomain
-	beq .L2
+	b.eq .L2
 	mov sp, x2
 	b .L1
 .L2:
 	msr sp_el0, x2
-
+.L1:
 	// Restore TPIDR_EL0
 	ldr x1, [x0, #296]
 	msr tpidr_el0, x1
-.L1:
+
 	// Restore exception state
 	ldr x1, [x0, #256]
 	msr elr_el1, x1
