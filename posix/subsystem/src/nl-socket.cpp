@@ -140,7 +140,7 @@ public:
 		co_return RecvResult { RecvData { size, sizeof(struct sockaddr_nl), ctrl.buffer() } };
 	}
 	
-	async::result<protocols::fs::SendResult>
+	async::result<frg::expected<protocols::fs::Error, size_t>>
 	sendMsg(Process *process, uint32_t flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
@@ -231,7 +231,7 @@ private:
 // ----------------------------------------------------------------------------
 
 
-async::result<protocols::fs::SendResult>
+async::result<frg::expected<protocols::fs::Error, size_t>>
 OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 		const void *addr_ptr, size_t addr_length,
 		std::vector<smarter::shared_ptr<File, FileHandle>> files) {

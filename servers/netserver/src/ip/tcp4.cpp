@@ -277,8 +277,7 @@ struct Tcp4Socket {
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *creds,
 			const void *data, size_t size) {
-		co_await sendMsg(object, creds, 0, const_cast<void *>(data), size, nullptr, 0, {});
-		co_return size;
+		co_return co_await sendMsg(object, creds, 0, const_cast<void *>(data), size, nullptr, 0, {});
 	}
 
 	static async::result<protocols::fs::RecvResult> recvMsg(void *object,
@@ -321,7 +320,7 @@ struct Tcp4Socket {
 		co_return protocols::fs::RecvData{progress, sizeof(struct sockaddr_in), {}};
 	}
 
-	static async::result<protocols::fs::SendResult> sendMsg(void *object,
+	static async::result<frg::expected<protocols::fs::Error, size_t>> sendMsg(void *object,
 			const char *creds, uint32_t flags,
 			void *data, size_t size,
 			void *addrPtr, size_t addrSize,

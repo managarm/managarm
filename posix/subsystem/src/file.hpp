@@ -153,7 +153,7 @@ public:
 			void *addr, size_t addr_len,
 			size_t max_ctrl_len);
 
-	static async::result<protocols::fs::SendResult>
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
 	ptSendMsg(void *object, const char *creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr, size_t addr_len,
@@ -272,7 +272,7 @@ public:
 			void *data, size_t max_length,
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length);
 
-	virtual async::result<protocols::fs::SendResult>
+	virtual async::result<frg::expected<protocols::fs::Error, size_t>>
 		sendMsg(Process *process, uint32_t flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,

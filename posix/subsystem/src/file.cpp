@@ -177,7 +177,7 @@ File::ptRecvMsg(void *object, const char *creds, uint32_t flags,
 			max_ctrl_len);
 }
 
-async::result<protocols::fs::SendResult>
+async::result<frg::expected<protocols::fs::Error, size_t>>
 File::ptSendMsg(void *object, const char *creds, uint32_t flags,
 		void *data, size_t len,
 		void *addr, size_t addr_len,
@@ -264,7 +264,7 @@ File::recvMsg(Process *, uint32_t, void *, size_t,
 	throw std::runtime_error("posix: Object has no File::recvMsg()");
 }
 
-async::result<protocols::fs::SendResult>
+async::result<frg::expected<protocols::fs::Error, size_t>>
 File::sendMsg(Process *, uint32_t,
 		const void *, size_t,
 		const void *, size_t,

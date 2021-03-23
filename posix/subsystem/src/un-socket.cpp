@@ -205,14 +205,14 @@ public:
 		co_return protocols::fs::RecvResult { protocols::fs::RecvData { chunk, 0, ctrl.buffer() } };
 	}
 
-	async::result<protocols::fs::SendResult>
+	async::result<frg::expected<protocols::fs::Error, size_t>>
 	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override {
 		assert(!(flags & ~(MSG_DONTWAIT)));
 
 		if(_currentState == State::remoteShutDown)
-			co_return protocols::fs::SendResult { protocols::fs::Error::brokenPipe };
+			co_return protocols::fs::Error::brokenPipe;
 
 		if(_currentState != State::connected)
 			co_return protocols::fs::Error::notConnected;
@@ -232,7 +232,7 @@ public:
 		_remote->_inSeq = ++_remote->_currentSeq;
 		_remote->_statusBell.ring();
 
-		co_return protocols::fs::SendResult { max_length };
+		co_return max_length;
 	}
 
 	async::result<int> getOption(int option) override {
