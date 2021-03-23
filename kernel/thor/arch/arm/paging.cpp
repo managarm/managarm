@@ -752,6 +752,9 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bo
 		new_entry |= kPageUser;
 	if (caching_mode == CachingMode::writeCombine)
 		new_entry |= kPageGRE | kPageOuterSh;
+	else if (caching_mode == CachingMode::uncached)
+		// This is not really uncached...
+		new_entry |= kPagenGnRnE | kPageOuterSh;
 	else {
 		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
 		new_entry |= kPageWb | kPageInnerSh;
