@@ -10,6 +10,7 @@
 
 // forward decl of types from kernel/common/dtb.hpp
 struct DeviceTreeNode;
+struct DeviceTreeProperty;
 
 namespace thor {
 
@@ -18,8 +19,9 @@ struct DeviceTreeNode {
 	: parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
 	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{2}, sizeCells_{1},
 	interruptCells_{}, reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
-	irqs_{*kernelAlloc}, interruptController_{false}, interruptParentId_{0},
-	interruptParent_{} { }
+	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
+	interruptMapRaw_{nullptr, 0}, interruptController_{false},
+	interruptParentId_{0}, interruptParent_{} { }
 
 	void initializeWith(::DeviceTreeNode dtNode);
 	void finalizeInit();
@@ -66,6 +68,11 @@ struct DeviceTreeNode {
 		size_t size;
 	};
 
+	struct BusRange {
+		uint32_t from;
+		uint32_t to;
+	};
+
 	struct AddrTranslateRange {
 		uint32_t childAddrHi;
 		uint64_t childAddr;
@@ -82,6 +89,19 @@ struct DeviceTreeNode {
 
 		// GIC-specific
 		uint8_t ppiCpuMask;
+	};
+
+	struct InterruptMapEntry {
+		uint32_t childAddrHi;
+		uint64_t childAddr;
+		uint32_t childIrq;
+
+		DeviceTreeNode *interruptController;
+
+		uint64_t parentAddr;
+		DeviceIrq parentIrq;
+
+		bool childAddrHiValid;
 	};
 
 	frg::string_view path() const {
@@ -106,6 +126,18 @@ struct DeviceTreeNode {
 		return irqs_;
 	}
 
+	const auto &busRange() const {
+		return busRange_;
+	}
+
+	const auto &interruptMap() const {
+		return interruptMap_;
+	}
+
+	const auto &interruptMapMask() const {
+		return interruptMapMask_;
+	}
+
 	template <typename F>
 	bool forEach(F &&func) {
 		for (auto [_, child] : children_) {
@@ -119,6 +151,7 @@ struct DeviceTreeNode {
 	}
 
 private:
+	DeviceIrq parseIrq_(::DeviceTreeProperty *prop, size_t i);
 	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const void> prop);
 	void generatePath_();
 
@@ -146,11 +179,16 @@ private:
 
 	frg::span<const void> irqData_;
 	frg::vector<DeviceIrq, KernelAlloc> irqs_;
+	frg::vector<InterruptMapEntry, KernelAlloc> interruptMap_;
+	frg::vector<uint32_t, KernelAlloc> interruptMapMask_;
+	frg::span<const void> interruptMapRaw_;
 
 	bool interruptController_;
 
 	uint32_t interruptParentId_;
 	DeviceTreeNode *interruptParent_;
+
+	BusRange busRange_;
 };
 
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path);

@@ -98,6 +98,8 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 		} else if (pn == "interrupts") {
 			// This is parsed by the interrupt controller node
 			irqData_ = {prop.data(), prop.size()};
+		} else if (pn == "interrupt-map") {
+			interruptMapRaw_ = {prop.data(), prop.size()};
 		}
 	}
 
@@ -134,6 +136,11 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 				j += sizeCells * 4;
 
 				ranges_.push_back(reg);
+			}
+		} else if (pn == "interrupt-map-mask") {
+			size_t size = interruptCells_ + addressCells_;
+			for (size_t i = 0; i < size; i++) {
+				interruptMapMask_.push_back(prop.asU32(i * 4));
 			}
 		}
 	}
@@ -177,6 +184,50 @@ void DeviceTreeNode::finalizeInit() {
 
 		for (auto &r : ranges_) {
 			r.parentAddr = parent_->translateAddress(r.parentAddr);
+		}
+	}
+
+	// parse interrupt-map
+	if (interruptMapRaw_.data()) {
+		auto parentAddrCells = parent_->addressCells_;
+		auto childAddrCells = addressCells_;
+		auto nexusInterruptCells = interruptCells_;
+		auto parentInterruptCells = interruptParent_->interruptCells_;
+
+		::DeviceTreeProperty prop{"", interruptMapRaw_};
+
+		size_t j = 0;
+		while (j < prop.size()) {
+			InterruptMapEntry entry;
+			// PCI(e) buses have a 3 cell long child addresses
+			if (childAddrCells == 3) {
+				entry.childAddrHi = prop.asPropArrayEntry(1, j);
+				j += 4;
+				entry.childAddr = prop.asPropArrayEntry(2, j);
+				j += 8;
+				entry.childAddrHiValid = true;
+			} else {
+				assert(childAddrCells < 3);
+				entry.childAddr = prop.asPropArrayEntry(childAddrCells, j);
+				j += childAddrCells * 4;
+			}
+
+			entry.childIrq = prop.asPropArrayEntry(nexusInterruptCells, j);
+			j += nexusInterruptCells * 4;
+
+			auto phandle = prop.asPropArrayEntry(1, j);
+			j += 4;
+
+			entry.interruptController = (*phandles)[phandle];
+
+			assert(parentAddrCells < 3);
+			entry.parentAddr = prop.asPropArrayEntry(parentAddrCells, j);
+			j += parentAddrCells * 4;
+
+			entry.parentIrq = interruptParent_->parseIrq_(&prop, j);
+			j += parentInterruptCells * 4;
+
+			interruptMap_.push_back(entry);
 		}
 	}
 
@@ -239,11 +290,65 @@ void DeviceTreeNode::finalizeInit() {
 			}
 		}
 
+		if (interruptMap_.size()) {
+			constexpr const char *pciPins[] = {"null", "#INTA", "#INTB", "#INTC", "#INTD"};
+
+			infoLogger() << "\t- interrupt mappings:" << frg::endlog;
+			for (auto ent : interruptMap_) {
+				if (ent.childAddrHiValid && isCompatible(dtPciCompatible)) {
+					infoLogger() << "\t\t- " << pciPins[ent.childIrq] << " of "
+						<< frg::hex_fmt{ent.childAddrHi} << " to " << ent.parentIrq.id << " of "
+						<< ent.interruptController->path() << frg::endlog;
+				}
+			}
+		}
 	}
 
 	// Recurse into children
 	for (auto &[_, child] : children_)
 		child->finalizeInit();
+}
+
+auto DeviceTreeNode::parseIrq_(::DeviceTreeProperty *prop, size_t i) -> DeviceIrq {
+	DeviceIrq irq{};
+
+	bool isPPI = prop->asU32(i);
+	uint32_t rawId = prop->asU32(i + 4);
+	uint32_t flags = prop->asU32(i + 8);
+
+	if (isPPI)
+		irq.id = rawId + 16;
+	else
+		irq.id = rawId + 32;
+
+	switch (flags & 0xF) {
+		case 1:
+			irq.polarity = Polarity::high;
+			irq.trigger = TriggerMode::edge;
+			break;
+		case 2:
+			irq.polarity = Polarity::low;
+			irq.trigger = TriggerMode::edge;
+			break;
+		case 4:
+			irq.polarity = Polarity::high;
+			irq.trigger = TriggerMode::level;
+			break;
+		case 8:
+			irq.polarity = Polarity::low;
+			irq.trigger = TriggerMode::level;
+			break;
+		default:
+			infoLogger() << "thor: Illegal IRQ flags " << (flags & 0xF)
+				<< " found when parsing IRQ property"
+				<< frg::endlog;
+			irq.polarity = Polarity::null;
+			irq.trigger = TriggerMode::null;
+	}
+
+	irq.ppiCpuMask = isPPI ? ((flags >> 8) & 0xFF) : 0;
+
+	return irq;
 }
 
 auto DeviceTreeNode::parseIrqs_(frg::span<const void> data) -> frg::vector<DeviceIrq, KernelAlloc> {
@@ -257,40 +362,8 @@ auto DeviceTreeNode::parseIrqs_(frg::span<const void> data) -> frg::vector<Devic
 
 	size_t j = 0;
 	while (j < prop.size()) {
-		DeviceIrq irq{};
-
-		bool isPPI = prop.asU32(j);
-		uint32_t rawId = prop.asU32(j + 4);
-		uint32_t flags = prop.asU32(j + 8);
+		ret.push_back(parseIrq_(&prop, j));
 		j += interruptCells_ * 4;
-
-		if (isPPI)
-			irq.id = rawId + 16;
-		else
-			irq.id = rawId + 32;
-
-		switch (flags & 0xF) {
-			case 1:
-				irq.polarity = Polarity::high;
-				irq.trigger = TriggerMode::edge;
-				break;
-			case 2:
-				irq.polarity = Polarity::low;
-				irq.trigger = TriggerMode::edge;
-				break;
-			case 4:
-				irq.polarity = Polarity::high;
-				irq.trigger = TriggerMode::level;
-				break;
-			case 8:
-				irq.polarity = Polarity::low;
-				irq.trigger = TriggerMode::level;
-				break;
-		}
-
-		irq.ppiCpuMask = isPPI ? ((flags >> 8) & 0xFF) : 0;
-
-		ret.push_back(irq);
 	}
 
 	return ret;
