@@ -29,54 +29,6 @@ namespace {
 	constexpr bool logCommits = false;
 }
 
-constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withRead(&drm_core::File::read)
-	.withAccessMemory(&drm_core::File::accessMemory)
-	.withIoctl(&drm_core::File::ioctl)
-	.withPoll(&drm_core::File::poll);
-
-async::detached serveDevice(std::shared_ptr<drm_core::Device> device, helix::UniqueLane lane) {
-	std::cout << "unix device: Connection" << std::endl;
-
-	while(true) {
-		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-		
-		auto conversation = accept.descriptor();
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
-			assert(!req.flags());
-
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			auto file = smarter::make_shared<drm_core::File>(device);
-			async::detach(protocols::fs::servePassthrough(
-					std::move(local_lane), file, &fileOperations));
-
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane),
-				helix_ng::pushDescriptor(file->statusPageMemory())
-			);
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_pt.error());
-			HEL_CHECK(push_page.error());
-		}else{
-			throw std::runtime_error("Invalid request in serveDevice()");
-		}
-	}
-}
-
 // ----------------------------------------------------------------
 // GfxDevice.
 // ----------------------------------------------------------------
@@ -464,7 +416,7 @@ async::detached bindController(mbus::Entity entity) {
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveDevice(gfx_device, std::move(local_lane));
+		drm_core::serveDrmDevice(gfx_device, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));

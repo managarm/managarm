@@ -182,8 +182,12 @@ struct File {
 	static async::result<void>
 	ioctl(void *object, managarm::fs::CntRequest req, helix::UniqueLane conversation);
 
-	static async::result<protocols::fs::PollResult>
-	poll(void *object, uint64_t sequence, async::cancellation_token cancellation);
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+	pollWait(void *object, uint64_t sequence, int mask,
+			async::cancellation_token cancellation);
+
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+	pollStatus(void *object);
 
 	void setBlocking(bool blocking);
 

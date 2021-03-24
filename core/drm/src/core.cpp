@@ -1028,23 +1028,31 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}
 }
 
-async::result<protocols::fs::PollResult>
-drm_core::File::poll(void *object, uint64_t sequence, async::cancellation_token cancellation) {
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+drm_core::File::pollWait(void *object, uint64_t sequence, int mask,
+		async::cancellation_token cancellation) {
 	auto self = static_cast<drm_core::File *>(object);
 
 	if(sequence > self->_eventSequence)
-		throw std::runtime_error("drm_core: Illegal poll() sequence");
+		co_return protocols::fs::Error::illegalArguments;
 
 	// Wait until we surpass the input sequence.
 	while(sequence == self->_eventSequence)
 		co_await self->_eventBell.async_wait();
 
+	co_return protocols::fs::PollWaitResult{self->_eventSequence,
+			self->_eventSequence > 0 ? EPOLLIN : 0};
+}
+
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+drm_core::File::pollStatus(void *object) {
+	auto self = static_cast<drm_core::File *>(object);
+
 	int s = 0;
 	if(!self->_pendingEvents.empty())
 		s |= EPOLLIN;
-	
-	protocols::fs::PollResult result{self->_eventSequence, EPOLLIN, s};
-	co_return result;
+
+	co_return protocols::fs::PollStatusResult{self->_eventSequence, s};
 }
 
 async::detached
@@ -1059,11 +1067,13 @@ drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
 
 namespace drm_core {
 
-static constexpr auto defaultFileOperations = protocols::fs::FileOperations{}
-	.withRead(&File::read)
-	.withAccessMemory(&File::accessMemory)
-	.withIoctl(&File::ioctl)
-	.withPoll(&File::poll);
+static constexpr auto defaultFileOperations = protocols::fs::FileOperations{
+	.read = &File::read,
+	.accessMemory = &File::accessMemory,
+	.ioctl = &File::ioctl,
+	.pollWait = &File::pollWait,
+	.pollStatus = &File::pollStatus
+};
 
 async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 		helix::UniqueLane lane) {
