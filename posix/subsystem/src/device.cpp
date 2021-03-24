@@ -122,17 +122,38 @@ private:
 		co_return length;
 	}
 	
-	expected<PollResult> poll(Process *, uint64_t sequence,
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
+			uint64_t sequence, int mask,
 			async::cancellation_token cancellation = {}) override {
-		auto result = co_await _file.poll(sequence, cancellation);
-		co_return result;
+		auto resultOrError = co_await _file.pollWait(sequence, mask, cancellation);
+		if(!resultOrError) {
+			assert(resultOrError.error() == protocols::fs::Error::illegalOperationTarget);
+			// Transitional fallback for devices that use the old poll() API.
+			auto fallbackResult = co_await _file.poll(sequence, cancellation);
+			co_return PollWaitResult{std::get<0>(fallbackResult),
+					std::get<1>(fallbackResult)};
+		}
+		co_return resultOrError.value();
 	}
 	
-	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *process) override {
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override {
+		auto pollOverIpc = [this] ()
+				-> async::result<frg::expected<Error, PollStatusResult>> {
+			auto resultOrError = co_await _file.pollStatus();
+			if(!resultOrError) {
+				assert(resultOrError.error() == protocols::fs::Error::illegalOperationTarget);
+				// Transitional fallback for devices that use the old poll() API.
+				auto fallbackResult = co_await _file.poll(0);
+				co_return PollStatusResult{std::get<0>(fallbackResult),
+						std::get<2>(fallbackResult)};
+			}
+			co_return resultOrError.value();
+		};
+
 		if(!_statusMapping) {
 			std::cout << "posix: No file status page. DeviceFile::pollStatus()"
-					" falls back to slower poll()" << std::endl;
-			return File::pollStatus(process);
+					" falls back to slower IPC request" << std::endl;
+			return pollOverIpc();
 		}
 
 		auto page = reinterpret_cast<protocols::fs::StatusPage *>(_statusMapping.get());
@@ -141,9 +162,9 @@ private:
 		auto seqlock = __atomic_load_n(&page->seqlock, __ATOMIC_ACQUIRE);
 		if(seqlock & 1) {
 			if(logStatusSeqlock)
-				std::cout << "posix: Status page update in progess."
-						" Fallback to poll(0)." << std::endl;
-			return File::pollStatus(process);
+				std::cout << "posix: Status page update in progess;"
+						" falling back to IPC request." << std::endl;
+			return pollOverIpc();
 		}
 
 		// Perform the actual loads.
@@ -154,9 +175,9 @@ private:
 		__atomic_thread_fence(__ATOMIC_ACQUIRE);
 		if(__atomic_load_n(&page->seqlock, __ATOMIC_RELAXED) != seqlock) {
 			if(logStatusSeqlock)
-				std::cout << "posix: Stale data from status page."
-						" Fallback to poll(0)." << std::endl;
-			return File::pollStatus(process);
+				std::cout << "posix: Stale data from status page;"
+						" falling back to IPC request." << std::endl;
+			return pollOverIpc();
 		}
 
 		// TODO: Return a full edge mask or edges since sequence zero.
