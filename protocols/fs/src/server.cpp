@@ -247,26 +247,18 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		if(!res) {
 			if(res.error() == Error::noSpaceLeft) {
 				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else if(res.error() == Error::wouldBlock) {
 				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else {
 				std::cout << "Unknown error from write()" << std::endl;
 				co_return;
-			}
+			}	
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		}else{
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_size(res.value());
