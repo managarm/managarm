@@ -504,6 +504,102 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_WAIT) {
+		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::pullDescriptor()
+		);
+		HEL_CHECK(pull_cancel.error());
+
+		if(!file_ops->pollWait) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto resultOrError = co_await file_ops->pollWait(file.get(),
+				req.sequence(), req.event_mask(),
+				async::cancellation_token{});
+		if(!resultOrError) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(static_cast<managarm::fs::Errors>(resultOrError.error()));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto result = resultOrError.value();
+
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_sequence(std::get<0>(result));
+		resp.set_edges(std::get<1>(result));
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_STATUS) {
+		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::pullDescriptor()
+		);
+		HEL_CHECK(pull_cancel.error());
+
+		if(!file_ops->pollStatus) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto resultOrError = co_await file_ops->pollStatus(file.get());
+		if(!resultOrError) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(static_cast<managarm::fs::Errors>(resultOrError.error()));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto result = resultOrError.value();
+
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_sequence(std::get<0>(result));
+		resp.set_status(std::get<1>(result));
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
 		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 			conversation,

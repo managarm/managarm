@@ -39,6 +39,8 @@ using ReadResult = std::variant<Error, size_t>;
 using ReadEntriesResult = std::optional<std::string>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
+using PollWaitResult = std::tuple<uint64_t, int>;
+using PollStatusResult = std::tuple<uint64_t, int>;
 
 struct RecvData {
 	size_t dataLength;

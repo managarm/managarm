@@ -166,6 +166,11 @@ struct FileOperations {
 	async::result<void> (*setOption)(void *object, int option, int value);
 	async::result<PollResult> (*poll)(void *object, uint64_t sequence,
 			async::cancellation_token cancellation);
+	async::result<frg::expected<Error, PollWaitResult>>
+	(*pollWait)(void *object, uint64_t sequence, int mask,
+			async::cancellation_token cancellation);
+	async::result<frg::expected<Error, PollStatusResult>>
+	(*pollStatus)(void *object);
 	async::result<Error> (*bind)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<Error> (*listen)(void *object);

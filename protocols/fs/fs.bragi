@@ -76,6 +76,8 @@ enum CntReqType {
 
 	// Primary file API.
 	FILE_POLL = 18,
+	FILE_POLL_WAIT = 45,
+	FILE_POLL_STATUS = 46,
 
 	// File passthrough API.
 	// TODO: Add a PT_ prefix to those requests.
@@ -182,8 +184,9 @@ head(128):
 		// used by PT_SET_OPTION.
 		tag(42) int32 value;
 
-		// Sequence number for FILE_POLL.
+		// Sequence number for FILE_POLL_WAIT / FILE_POLL_STATUS.
 		tag(38) uint64 sequence;
+		tag(48) uint32 event_mask;
 
 		// PTS and TTY ioctls.
 		tag(43) int32 pts_width;
@@ -293,10 +296,10 @@ head(128):
 		// returned by PT_IOCTL
 		tag(20) uint64 result;
 
-		// Sequence number for FILE_POLL.
+		// Sequence number for FILE_POLL_WAIT / FILE_POLL_STATUS.
 		tag(60) uint64 sequence;
 
-		// Event edges and current events for FILE_POLL.
+		// Event edges / current events for FILE_POLL_WAIT / FILE_POLL_STATUS.
 		tag(61) int32 edges;
 		tag(62) int32 status;
 
