@@ -150,7 +150,7 @@ async::result<frg::expected<Error, PollWaitResult>> File::pollWait(uint64_t sequ
 
 	if(resp.error() != managarm::fs::Errors::SUCCESS)
 		co_return static_cast<Error>(resp.error());
-	co_return PollWaitResult(resp.sequence(), resp.status());
+	co_return PollWaitResult(resp.sequence(), resp.edges());
 }
 
 async::result<frg::expected<Error, PollStatusResult>> File::pollStatus() {
