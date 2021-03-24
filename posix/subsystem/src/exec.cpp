@@ -280,6 +280,8 @@ execute(ViewPath root, ViewPath workdir,
 		static_cast<uintptr_t>(mbusHandle),
 		AT_EXECFN,
 		execfn,
+		AT_SECURE,
+		0,
 		AT_NULL,
 		0
 	});
