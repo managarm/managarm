@@ -132,17 +132,28 @@ File::read(void *object, const char *, void *buffer, size_t max_size) {
 	}
 }
 
-async::result<protocols::fs::PollResult>
-File::poll(void *object, uint64_t past_seq, async::cancellation_token cancellation) {
+
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+File::pollWait(void *object, uint64_t past_seq, int mask,
+		async::cancellation_token cancellation) {
 	auto self = static_cast<File *>(object);
 
 	assert(past_seq <= self->_currentSeq);
 	while(self->_currentSeq == past_seq)
 		co_await self->_statusBell.async_wait();
 
-	co_return protocols::fs::PollResult{
+	co_return protocols::fs::PollWaitResult{
 		self->_currentSeq,
-		EPOLLIN,
+		self->_currentSeq > 0 ? EPOLLIN : 0
+	};
+}
+
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+File::pollStatus(void *object) {
+	auto self = static_cast<File *>(object);
+
+	co_return protocols::fs::PollStatusResult{
+		self->_currentSeq,
 		self->_pending.empty() ? 0 : EPOLLIN
 	};
 }
@@ -247,10 +258,12 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 }
 
 
-constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withRead(&File::read)
-	.withPoll(&File::poll)
-	.withIoctl(&File::ioctl);
+constexpr auto fileOperations = protocols::fs::FileOperations{
+	.read = &File::read,
+	.ioctl = &File::ioctl,
+	.pollWait = &File::pollWait,
+	.pollStatus = &File::pollStatus
+};
 
 helix::UniqueLane File::serve(smarter::shared_ptr<File> file) {
 	helix::UniqueLane local_lane, remote_lane;
