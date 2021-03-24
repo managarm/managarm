@@ -136,12 +136,14 @@ public:
 		return Error::success;
 	}
 
-	void modifyItem(File *file, int mask, uint64_t cookie) {
+	Error modifyItem(File *file, int mask, uint64_t cookie) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
 					<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
 		auto it = _fileMap.find(file);
-		assert(it != _fileMap.end());
+		if(it == _fileMap.end()) {
+			return Error::noSuchFile;
+		}
 		auto item = it->second;
 		assert(item->state & stateActive);
 
@@ -159,12 +161,14 @@ public:
 		}
 	}
 
-	void deleteItem(File *file) {
+	Error deleteItem(File *file) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Deleting item \e[1;34m"
 					<< file->structName() << "\e[0m" << std::endl;
 		auto it = _fileMap.find(file);
-		assert(it != _fileMap.end());
+		if(it == _fileMap.end()) {
+			return Error::noSuchFile;
+		}
 		auto item = it->second;
 		assert(item->state & stateActive);
 
