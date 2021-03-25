@@ -2897,6 +2897,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 					continue;
 				}
+				assert(ret == Error::success);
 			}
 
 			struct epoll_event events[16];
@@ -2973,6 +2974,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 				continue;
 			}
+			assert(ret == Error::success);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2998,6 +3000,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
+			assert(ret == Error::success);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -3026,6 +3029,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
+			assert(ret == Error::success);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
