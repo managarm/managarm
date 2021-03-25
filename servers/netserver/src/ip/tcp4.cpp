@@ -183,7 +183,7 @@ protocols::fs::Error checkAddress(const void *addrPtr, size_t addrLength, TcpEnd
 
 struct Tcp4Socket {
 	Tcp4Socket(Tcp4 *parent, bool nonBlock)
-	: parent_(parent), nonBlock_{nonBlock}, recvRing_{4}, sendRing_{4} {}
+	: parent_(parent), nonBlock_{nonBlock}, recvRing_{14}, sendRing_{14} {}
 
 	~Tcp4Socket() {
 		parent_->unbind(localEp_);
@@ -590,7 +590,7 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				.destPort = remoteEp_.port,
 				.seqNumber = localFlushedSn_,
 				.ackNumber = remoteKnownSn_,
-				.window = recvRing_.spaceForEnqueue(),
+				.window = std::min(recvRing_.spaceForEnqueue(), size_t{0xFFFF}),
 				.checksum = 0,
 				.urgentPointer = 0
 			};
