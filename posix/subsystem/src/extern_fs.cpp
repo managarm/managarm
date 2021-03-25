@@ -1,9 +1,10 @@
+#include <sys/epoll.h>
+#include <map>
 
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
 #include "extern_fs.hpp"
 #include "fs.bragi.hpp"
-#include <map>
 
 namespace extern_fs {
 
@@ -172,12 +173,22 @@ private:
 		co_return length;
 	}
 
-	// TODO: For extern_fs, we can simply return POLLIN | POLLOUT here.
-	// Move device code out of this file.
-	expected<PollResult> poll(Process *, uint64_t sequence,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t sequence, int mask,
 			async::cancellation_token cancellation) override {
-		auto result = co_await _file.poll(sequence, cancellation);
-		co_return result;
+		(void)mask;
+
+		if(sequence > 1)
+			co_return Error::illegalArguments;
+
+		if(sequence)
+			co_await async::suspend_indefinitely(cancellation);
+		co_return PollWaitResult{1, EPOLLIN | EPOLLOUT};
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
+		co_return PollStatusResult{1, EPOLLIN | EPOLLOUT};
 	}
 
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override {

@@ -173,22 +173,6 @@ async::result<void> setFileFlags(void *, int) {
     co_return;
 }
 
-async::result<protocols::fs::PollResult>
-poll(void *, uint64_t pastSeq, async::cancellation_token cancellation) {
-	if(pastSeq)
-		co_await async::suspend_indefinitely(cancellation);
-
-	int edges = 0;
-	if(!pastSeq)
-		edges = EPOLLIN | EPOLLOUT;
-
-	co_return protocols::fs::PollResult{
-		1,
-		edges,
-		EPOLLIN | EPOLLOUT
-	};
-}
-
 constexpr protocols::fs::FileOperations fileOperations {
 	.seekAbs      = &seekAbs,
 	.seekRel      = &seekRel,
@@ -200,7 +184,6 @@ constexpr protocols::fs::FileOperations fileOperations {
 	.accessMemory = &accessMemory,
 	.truncate     = &truncate,
 	.flock        = &flock,
-	.poll         = &poll,
 	.getFileFlags = &getFileFlags,
 	.setFileFlags = &setFileFlags,
 };
