@@ -70,6 +70,8 @@ private:
 // LegacyPciTransport
 // --------------------------------------------------------
 
+#ifdef __x86_64__
+
 namespace {
 
 struct LegacyPciQueue;
@@ -257,6 +259,8 @@ void LegacyPciQueue::notifyTransport() {
 
 } // anonymous namespace
 
+#endif
+
 // --------------------------------------------------------
 // StandardPciTransport
 // --------------------------------------------------------
@@ -435,6 +439,7 @@ void StandardPciTransport::runDevice() {
 }
 
 async::detached StandardPciTransport::_processIrqs() {
+#ifdef __x86_64__ // TODO: implement kernlet compilation for aarch64
 	co_await connectKernletCompiler();
 
 	std::vector<uint8_t> kernlet_program;
@@ -506,6 +511,40 @@ async::detached StandardPciTransport::_processIrqs() {
 			for(auto &queue : _queues)
 				queue->processInterrupt();
 	}
+#else
+	co_await _hwDevice.enableBusIrq();
+
+	// TODO: The kick here should not be required.
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
+
+	uint64_t sequence = 0;
+	while(true) {
+		auto await = co_await helix_ng::awaitEvent(_irq, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
+
+		auto isr = _isrSpace().load(PCI_ISR);
+
+		if(!(isr & 3)) {
+			std::cout << "core-virtio: IRQ #" << await.sequence()
+					<< " reports non-relevant flags " << await.bitset() << std::endl;
+			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
+			continue;
+		}
+
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
+
+		if(isr & 2) {
+			std::cout << "core-virtio: Configuration change" << std::endl;
+			auto status = _commonSpace().load(PCI_DEVICE_STATUS);
+			assert(!(status & DEVICE_NEEDS_RESET));
+		}
+
+		if(isr & 1)
+			for(auto &queue : _queues)
+				queue->processInterrupt();
+	}
+#endif
 }
 
 StandardPciQueue::StandardPciQueue(StandardPciTransport *transport,
@@ -529,6 +568,7 @@ async::result<std::unique_ptr<Transport>>
 discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 	auto info = co_await hw_device.getPciInfo();
 	auto irq = co_await hw_device.accessIrq();
+	co_await hw_device.enableBusmaster();
 
 	if(mode == DiscoverMode::transitional || mode == DiscoverMode::modernOnly) {
 		std::optional<Mapping> common_mapping;
@@ -589,6 +629,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 	}
 
 	if(mode == DiscoverMode::legacyOnly || mode == DiscoverMode::transitional) {
+#ifdef __x86_64__
 		if(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort) {
 			auto bar = co_await hw_device.accessBar(0);
 			HEL_CHECK(helEnableIo(bar.getHandle()));
@@ -609,6 +650,9 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			co_return std::make_unique<LegacyPciTransport>(std::move(hw_device),
 					legacy_space, std::move(irq));
 		}
+#else
+		throw std::runtime_error("Legacy transports are unsupported on this architecture");
+#endif
 	}
 
 	throw std::runtime_error("Cannot construct a suitable virtio::Transport");

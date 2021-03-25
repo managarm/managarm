@@ -1329,6 +1329,7 @@ async::detached bindController(mbus::Entity entity) {
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = co_await device.accessBar(0);
 	auto irq = co_await device.accessIrq();
+	co_await device.enableBusmaster();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 

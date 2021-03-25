@@ -1,5 +1,5 @@
 raspi4_sources = files('raspi4.S', 'raspi4.cpp')
-objcopy = find_program('aarch64-none-elf-objcopy')
+objcopy = find_program('aarch64-managarm-objcopy')
 
 exe = executable('eir-raspi4', eir_sources, raspi4_sources,
 	include_directories: eir_includes,

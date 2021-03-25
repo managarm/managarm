@@ -9,7 +9,8 @@ thor_sources += files(
 	'stubs.S',
 	'timer.cpp',
 	'gic.cpp',
-	'../../system/dtb/dtb.cpp'
+	'../../system/dtb/dtb.cpp',
+	'../../system/pci/pci_dtb.cpp'
 )
 
 thor_includes += include_directories('.')

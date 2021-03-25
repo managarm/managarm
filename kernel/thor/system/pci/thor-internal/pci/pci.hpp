@@ -99,11 +99,66 @@ protected:
 
 struct PciConfigIo;
 
+struct PciBusResource {
+	static constexpr uint32_t io = 1;
+	static constexpr uint32_t memory = 2;
+	static constexpr uint32_t prefMemory = 3;
+
+	PciBusResource(uint64_t base, size_t size, uint64_t hostBase, uint32_t flags)
+	: base_{base}, size_{size}, hostBase_{hostBase}, flags_{flags}, allocOffset_{} { }
+
+	uint64_t base() const { return base_; }
+	size_t size() const { return size_; }
+	size_t remaining() const { return size_ - allocOffset_; }
+	uint64_t hostBase() const { return hostBase_; }
+	uint32_t flags() const { return flags_; }
+
+	// Returns offset from base on success
+	frg::optional<uint64_t> allocate(size_t size) {
+		// Size must be a power of 2
+		assert(!(size & (size - 1)));
+
+		auto tmp = allocOffset_;
+		tmp = (tmp + size - 1) & ~(size - 1);
+
+		if ((tmp + size) > size_)
+			return frg::null_opt;
+
+		allocOffset_ = tmp + size;
+
+		return tmp;
+	}
+
+	bool canFit(size_t size) {
+		// Size must be a power of 2
+		assert(!(size & (size - 1)));
+
+		auto tmp = allocOffset_;
+		tmp = (tmp + size - 1) & ~(size - 1);
+
+		if ((tmp + size) > size_)
+			return false;
+
+		return true;
+	}
+
+private:
+	uint64_t base_;
+	size_t size_;
+
+	uint64_t hostBase_;
+
+	uint32_t flags_;
+
+	uint64_t allocOffset_;
+};
+
 struct PciBus {
 	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_, PciConfigIo *io,
 			uint32_t segId_, uint32_t busId_)
 	: associatedBridge{associatedBridge_}, irqRouter{irqRouter_}, io{io},
 		childDevices{*kernelAlloc}, childBridges{*kernelAlloc},
+		resources{*kernelAlloc},
 		segId{segId_}, busId{busId_} { }
 
 	PciBus(const PciBus &) = delete;
@@ -124,6 +179,8 @@ struct PciBus {
 	frg::vector<PciDevice *, KernelAlloc> childDevices;
 	frg::vector<PciBridge *, KernelAlloc> childBridges;
 
+	frg::vector<PciBusResource, KernelAlloc> resources;
+
 	uint32_t segId;
 	uint32_t busId;
 };
@@ -136,11 +193,12 @@ struct PciBar {
 	};
 
 	PciBar()
-	: type{kBarNone}, address{0}, length{0}, offset{0} { }
+	: type{kBarNone}, address{0}, length{0}, prefetchable{false}, allocated{false}, offset{0} { }
 
 	BarType type;
 	uintptr_t address;
 	size_t length;
+	bool prefetchable;
 
 	bool allocated;
 	smarter::shared_ptr<MemoryView> memory;
@@ -255,6 +313,14 @@ enum {
 	kPciRegularInterruptPin = 0x3D,
 
 	// PCI-to-PCI bridge header fields
+	kPciBridgeIoBase = 0x1C,
+	kPciBridgeIoLimit = 0x1D,
+	kPciBridgeMemBase = 0x20,
+	kPciBridgeMemLimit = 0x22,
+	kPciBridgePrefetchMemBase = 0x24,
+	kPciBridgePrefetchMemLimit = 0x26,
+	kPciBridgePrefetchMemBaseUpper = 0x28,
+	kPciBridgePrefetchMemLimitUpper = 0x2C,
 	kPciBridgeSecondary = 0x19,
 	kPciBridgeSubordinate = 0x1A
 };

@@ -1,6 +1,7 @@
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/timer.hpp>
+#include <thor-internal/schedule.hpp>
 #include <thor-internal/initgraph.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/arch/gic.hpp>
@@ -28,6 +29,7 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "physical-generic-timer-irq"}} { }
 
 	IrqStatus raise() override {
+		localScheduler()->forcePreemptionUpdate();
 		disarmPreemption();
 		return IrqStatus::acked;
 	}
@@ -52,13 +54,20 @@ struct VirtualGenericTimer : IrqSink, AlarmTracker {
 		return IrqStatus::acked;
 	}
 
-	void arm(uint64_t nanos) override {
-		if (!nanos) {
+	void arm(uint64_t deadline) override {
+		if (!deadline) {
 			disarm();
 			return;
 		}
 
-		uint64_t compare = getVirtualTimestampCounter() + ticksPerSecond * nanos / 1000000000;
+		auto now = systemClockSource()->currentNanos();
+		auto diff = deadline - now;
+
+		if (deadline < now) {
+			diff = 0;
+		}
+
+		uint64_t compare = getVirtualTimestampCounter() + ticksPerSecond * diff / 1000000000;
 
 		asm volatile ("msr cntv_cval_el0, %0" :: "r"(compare));
 	}

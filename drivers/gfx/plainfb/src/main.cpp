@@ -1,6 +1,5 @@
 
 #include <assert.h>
-#include <immintrin.h>
 #include <stdio.h>
 #include <deque>
 #include <experimental/optional>
@@ -9,9 +8,6 @@
 #include <memory>
 #include <numeric>
 
-#include <arch/bits.hpp>
-#include <arch/register.hpp>
-#include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>

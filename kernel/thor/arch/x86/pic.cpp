@@ -32,6 +32,7 @@ inline constexpr arch::scalar_register<uint32_t> lApicCurCount(0x0390);
 
 // lApicId registers
 inline constexpr arch::field<uint32_t, uint8_t> apicId(24, 8);
+inline constexpr arch::field<uint32_t, uint8_t> x2ApicId(0, 8);
 
 // lApicSpurious registers
 inline constexpr arch::field<uint32_t, uint8_t> apicSpuriousVector(0, 8);
@@ -302,7 +303,11 @@ void initLocalApicPerCpu() {
 }
 
 uint32_t getLocalApicId() {
-	return picBase.load(lApicId) & apicId;
+	if (picBase.isUsingX2apic()) {
+		return picBase.load(lApicId) & x2ApicId;
+	} else {
+		return picBase.load(lApicId) & apicId;
+	}
 }
 
 uint64_t localTicks() {

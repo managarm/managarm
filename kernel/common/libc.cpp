@@ -137,6 +137,11 @@ void *memcpy(void *dest, const void *src, size_t n) {
 void *memset(void *dest, int val, size_t n) {
 	auto curDest = reinterpret_cast<unsigned char *>(dest);
 
+	size_t misalignment = reinterpret_cast<uintptr_t>(dest) & 7;
+	for(size_t i = 0; i < misalignment; i++)
+		*curDest++ = (unsigned char)val;
+	n -= misalignment;
+
 	unsigned char byte = val;
 	auto pattern64 = static_cast<word<uint64_t>>(
 			static_cast<uint64_t>(byte)

@@ -36,8 +36,8 @@ void Device::runDevice() {
 	_transport->runDevice();
 
 	// perform device specific setup
-	virtRequestBuffer = (VirtRequest *)malloc(_requestQueue->numDescriptors() * sizeof(VirtRequest));
-	statusBuffer = (uint8_t *)malloc(_requestQueue->numDescriptors());
+	virtRequestBuffer = new VirtRequest[_requestQueue->numDescriptors()];
+	statusBuffer = new uint8_t[_requestQueue->numDescriptors()];
 
 	// natural alignment makes sure that request headers do not cross page boundaries
 	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
