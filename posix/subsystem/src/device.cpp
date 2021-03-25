@@ -126,13 +126,7 @@ private:
 			uint64_t sequence, int mask,
 			async::cancellation_token cancellation = {}) override {
 		auto resultOrError = co_await _file.pollWait(sequence, mask, cancellation);
-		if(!resultOrError) {
-			assert(resultOrError.error() == protocols::fs::Error::illegalOperationTarget);
-			// Transitional fallback for devices that use the old poll() API.
-			auto fallbackResult = co_await _file.poll(sequence, cancellation);
-			co_return PollWaitResult{std::get<0>(fallbackResult),
-					std::get<1>(fallbackResult)};
-		}
+		assert(resultOrError);
 		co_return resultOrError.value();
 	}
 	
@@ -140,13 +134,7 @@ private:
 		auto pollOverIpc = [this] ()
 				-> async::result<frg::expected<Error, PollStatusResult>> {
 			auto resultOrError = co_await _file.pollStatus();
-			if(!resultOrError) {
-				assert(resultOrError.error() == protocols::fs::Error::illegalOperationTarget);
-				// Transitional fallback for devices that use the old poll() API.
-				auto fallbackResult = co_await _file.poll(0);
-				co_return PollStatusResult{std::get<0>(fallbackResult),
-						std::get<2>(fallbackResult)};
-			}
+			assert(resultOrError);
 			co_return resultOrError.value();
 		};
 
