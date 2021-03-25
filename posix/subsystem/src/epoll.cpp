@@ -114,12 +114,15 @@ public:
 		// Nothing to do here.
 	}
 
-	void addItem(Process *process, smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
+	Error addItem(Process *process, smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Adding item \e[1;34m"
 					<< file->structName() << "\e[0m. Mask is " << mask << std::endl;
 		// TODO: Fix the memory-leak.
-		assert(_fileMap.find(file.get()) == _fileMap.end());
+		if(_fileMap.find(file.get()) != _fileMap.end()) {
+			return Error::alreadyExists;
+		}
+
 		auto item = new Item{smarter::static_pointer_cast<OpenFile>(weakFile().lock()),
 				process, std::move(file), mask, cookie};
 		item->state |= statePending;
@@ -129,14 +132,17 @@ public:
 		_pendingQueue.push_back(*item);
 		_currentSeq++;
 		_statusBell.ring();
+		return Error::success;
 	}
 
-	void modifyItem(File *file, int mask, uint64_t cookie) {
+	Error modifyItem(File *file, int mask, uint64_t cookie) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
 					<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
 		auto it = _fileMap.find(file);
-		assert(it != _fileMap.end());
+		if(it == _fileMap.end()) {
+			return Error::noSuchFile;
+		}
 		auto item = it->second;
 		assert(item->state & stateActive);
 
@@ -152,14 +158,17 @@ public:
 			_currentSeq++;
 			_statusBell.ring();
 		}
+		return Error::success;
 	}
 
-	void deleteItem(File *file) {
+	Error deleteItem(File *file) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Deleting item \e[1;34m"
 					<< file->structName() << "\e[0m" << std::endl;
 		auto it = _fileMap.find(file);
-		assert(it != _fileMap.end());
+		if(it == _fileMap.end()) {
+			return Error::noSuchFile;
+		}
 		auto item = it->second;
 		assert(item->state & stateActive);
 
@@ -169,6 +178,7 @@ public:
 		item->state &= ~stateActive;
 		if(!item->state)
 			delete item;
+		return Error::success;
 	}
 
 	async::result<size_t>
@@ -382,21 +392,21 @@ smarter::shared_ptr<File, FileHandle> createFile() {
 	return File::constructHandle(std::move(file));
 }
 
-void addItem(File *epfile, Process *process, smarter::shared_ptr<File> file,
+Error addItem(File *epfile, Process *process, smarter::shared_ptr<File> file,
 		int flags, uint64_t cookie) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	epoll->addItem(process, std::move(file), flags, cookie);
+	return epoll->addItem(process, std::move(file), flags, cookie);
 }
 
-void modifyItem(File *epfile, File *file, int flags, uint64_t cookie) {
+Error modifyItem(File *epfile, File *file, int flags, uint64_t cookie) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	epoll->modifyItem(file, flags, cookie);
+	return epoll->modifyItem(file, flags, cookie);
 }
 
-void deleteItem(File *epfile, File *file, int flags) {
+Error deleteItem(File *epfile, File *file, int flags) {
 	assert(!flags);
 	auto epoll = static_cast<OpenFile *>(epfile);
-	epoll->deleteItem(file);
+	return epoll->deleteItem(file);
 }
 
 async::result<size_t> wait(File *epfile, struct epoll_event *events,

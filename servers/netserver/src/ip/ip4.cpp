@@ -126,7 +126,7 @@ struct Ip4Socket {
 		co_return RecvData { copy_size, sizeof(addr), {} };
 	}
 
-	static async::result<SendResult> sendmsg(void *obj,
+	static async::result<frg::expected<protocols::fs::Error, size_t>> sendmsg(void *obj,
 			const char *creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
@@ -163,7 +163,7 @@ private:
 	async::doorbell bell;
 };
 
-async::result<SendResult> Ip4Socket::sendmsg(void *obj,
+async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(void *obj,
 		const char *creds, uint32_t flags,
 		void *data, size_t len,
 		void *addr_ptr, size_t addr_size,

@@ -247,19 +247,21 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		if(!res) {
 			if(res.error() == Error::noSpaceLeft) {
 				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
+			} else if(res.error() == Error::wouldBlock) {
+				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
 			} else {
 				std::cout << "Unknown error from write()" << std::endl;
 				co_return;
-			}
+			}	
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		}else{
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_size(res.value());
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -916,7 +918,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		std::vector<uint32_t> files(req.fds().cbegin(), req.fds().cend());
 
-		auto result_or_error = co_await file_ops->sendMsg(file.get(),
+		auto res = co_await file_ops->sendMsg(file.get(),
 				extract_creds.credentials(), req.flags(),
 				buffer.data(), recv_data.actualLength(),
 				recv_addr.data(), recv_addr.length(),
@@ -924,21 +926,24 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		managarm::fs::SvrResponse resp;
 
-		auto error = std::get_if<Error>(&result_or_error);
-		if(error) {
-			resp.set_error(static_cast<managarm::fs::Errors>(*error));
+		if(!res) {
+			if(res.error() == Error::wouldBlock) {
+				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			co_return;
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			} else {
+				std::cout << "Unknown error from sendMsg()" << std::endl;
+				co_return;
+			}
 		}
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_size(std::get<size_t>(result_or_error));
+		resp.set_size(res.value());
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(

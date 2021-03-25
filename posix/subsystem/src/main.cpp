@@ -2891,8 +2891,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(file && "Illegal FD for EPOLL_ADD item");
 				auto locked = file->weakFile().lock();
 				assert(locked);
-				epoll::addItem(epfile.get(), self.get(), std::move(locked),
+				Error ret = epoll::addItem(epfile.get(), self.get(), std::move(locked),
 						req.events(i), i);
+				if(ret == Error::alreadyExists) {
+					co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+					continue;
+				}
+				assert(ret == Error::success);
 			}
 
 			struct epoll_event events[16];
@@ -2963,8 +2968,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto locked = file->weakFile().lock();
 			assert(locked);
-			epoll::addItem(epfile.get(), self.get(), std::move(locked),
+			Error ret = epoll::addItem(epfile.get(), self.get(), std::move(locked),
 					req.flags(), req.cookie());
+			if(ret == Error::alreadyExists) {
+				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+				continue;
+			}
+			assert(ret == Error::success);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2985,7 +2995,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(epfile && "Illegal FD for EPOLL_MODIFY");
 			assert(file && "Illegal FD for EPOLL_MODIFY item");
 
-			epoll::modifyItem(epfile.get(), file.get(), req.flags(), req.cookie());
+			Error ret = epoll::modifyItem(epfile.get(), file.get(), req.flags(), req.cookie());
+			if(ret == Error::noSuchFile) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
+			assert(ret == Error::success);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -3009,7 +3024,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			epoll::deleteItem(epfile.get(), file.get(), req.flags());
+			Error ret = epoll::deleteItem(epfile.get(), file.get(), req.flags());
+			if(ret == Error::noSuchFile) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
+			assert(ret == Error::success);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

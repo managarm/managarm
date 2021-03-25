@@ -182,7 +182,7 @@ struct FileOperations {
 	async::result<RecvResult> (*recvMsg)(void *object, const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len);
-	async::result<SendResult> (*sendMsg)(void *object, const char *creds,
+	async::result<frg::expected<protocols::fs::Error, size_t>> (*sendMsg)(void *object, const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size,
 			std::vector<uint32_t> fds);

@@ -238,7 +238,7 @@ struct Udp4Socket {
 		co_return RecvData { copy_size, sizeof(addr), {} };
 	}
 
-	static async::result<SendResult> sendmsg(void *obj,
+	static async::result<frg::expected<protocols::fs::Error, size_t>> sendmsg(void *obj,
 			const char *creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
@@ -314,7 +314,7 @@ struct Udp4Socket {
 			<< std::setw(8) << header.src << std::endl
 			<< std::setw(8) << header.dst << std::endl
 			<< std::setw(8) << header.len << std::endl
-			<< std::setw(8) << header.chk << std::endl;
+			<< std::setw(8) << header.chk << std::endl << std::dec;
 
 		if (header.chk == 0) {
 			header.chk = ~header.chk;
@@ -384,7 +384,7 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 
 	std::cout << "received udp datagram to port " << udp.header.dst << std::endl;
 
-	auto i = binds.lower_bound({ 0, packet });
+	auto i = binds.lower_bound({ 0, udp.header.dst });
 	for (; i != binds.end() && i->first.port == udp.header.dst; i++) {
 		auto ep = i->first;
 		if (ep.addr == udp.packet->header.destination
