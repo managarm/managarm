@@ -31,9 +31,6 @@ struct File {
 
 	async::result<size_t> readSome(void *data, size_t max_length);
 
-	async::result<PollResult> poll(uint64_t sequence,
-			async::cancellation_token cancellation = {});
-
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(uint64_t sequence, int mask, async::cancellation_token cancellation = {});
 

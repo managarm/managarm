@@ -471,41 +471,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
-		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::pullDescriptor()
-		);
-		HEL_CHECK(pull_cancel.error());
-
-		if(!file_ops->poll) {
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			co_return;
-		}
-
-		auto result = co_await file_ops->poll(file.get(), req.sequence(),
-				async::cancellation_token{});
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_sequence(std::get<0>(result));
-		resp.set_edges(std::get<1>(result));
-		resp.set_status(std::get<2>(result));
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_WAIT) {
 		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
 			conversation,

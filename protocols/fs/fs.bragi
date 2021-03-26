@@ -75,7 +75,6 @@ enum CntReqType {
 	NODE_TRAVERSE_LINKS = 44,
 
 	// Primary file API.
-	FILE_POLL = 18,
 	FILE_POLL_WAIT = 45,
 	FILE_POLL_STATUS = 46,
 
