@@ -9,10 +9,19 @@ struct Socket : File {
 	: File{StructName::get("extern-socket")},
 		_file{std::move(sockLane)} { }
 
-	expected<PollResult> poll(Process *, uint64_t sequence,
+	async::result<frg::expected<Error, PollWaitResult>>
+	pollWait(Process *, uint64_t sequence, int mask,
 			async::cancellation_token cancellation) override {
-		auto result = co_await _file.poll(sequence, cancellation);
-		co_return result;
+		auto resultOrError = co_await _file.pollWait(sequence, mask, cancellation);
+		assert(resultOrError);
+		co_return resultOrError.value();
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>>
+	pollStatus(Process *) override {
+		auto resultOrError = co_await _file.pollStatus();
+		assert(resultOrError);
+		co_return resultOrError.value();
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {

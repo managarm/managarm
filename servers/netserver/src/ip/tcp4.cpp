@@ -349,8 +349,9 @@ struct Tcp4Socket {
 		co_return progress;
 	}
 
-	static async::result<protocols::fs::PollResult>
-	poll(void *object, uint64_t pastSeq, async::cancellation_token cancellation) {
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+	pollWait(void *object, uint64_t pastSeq, int mask, async::cancellation_token cancellation) {
+		(void)mask; // TODO: utilize mask.
 		auto self = static_cast<Tcp4Socket *>(object);
 
 		// TODO: Return an error in this case.
@@ -370,6 +371,13 @@ struct Tcp4Socket {
 		if(self->hupSeq_ > pastSeq)
 			edges |= EPOLLHUP;
 
+		co_return protocols::fs::PollWaitResult{self->currentSeq_, edges};
+	}
+
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+	pollStatus(void *object) {
+		auto self = static_cast<Tcp4Socket *>(object);
+
 		int active = 0;
 		if(self->recvRing_.availableToDequeue())
 			active |= EPOLLIN;
@@ -378,11 +386,7 @@ struct Tcp4Socket {
 		if(self->remoteClosed_)
 			active |= EPOLLHUP;
 
-		co_return protocols::fs::PollResult{
-			self->currentSeq_,
-			edges,
-			active
-		};
+		co_return protocols::fs::PollStatusResult{self->currentSeq_, active};
 	}
 
 	static async::result<void> setFileFlags(void *object, int flags) {
@@ -409,7 +413,8 @@ struct Tcp4Socket {
 	constexpr static protocols::fs::FileOperations ops {
 		.read = &read,
 		.write = &write,
-		.poll = &poll,
+		.pollWait = &pollWait,
+		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.connect = &connect,
 		.getFileFlags = &getFileFlags,
