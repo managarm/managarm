@@ -43,6 +43,11 @@ int main() {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/block-ata", nullptr);
 	}else assert(block_ata != -1);
 
+	auto block_ahci = fork();
+	if(!block_ahci) {
+		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/block-ahci", nullptr);
+	}else assert(block_ahci != -1);
+
 	auto block_usb = fork();
 	if(!block_usb) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/storage", nullptr);
