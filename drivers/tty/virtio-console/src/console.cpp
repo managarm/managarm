@@ -110,6 +110,7 @@ async::detached Device::runDevice() {
 
 	async::detach(dumpKerncfgRing("heap-trace", 1024 * 1024));
 	async::detach(dumpKerncfgRing("kernel-profile", 1024));
+	async::detach(dumpKerncfgRing("os-trace", 1024));
 	co_return;
 }
 
