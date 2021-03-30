@@ -138,6 +138,10 @@ if get_option('build_drivers')
 endif
 
 if get_option('build_tools')
+	frigg = subproject('frigg')
+	frigg_dep = frigg.get_variable('frigg_dep')
+
+	subdir('tools/ostrace')
 	subdir('tools/bakesvr')
 	subdir('tools/pb2frigg')
 endif
