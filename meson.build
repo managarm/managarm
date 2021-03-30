@@ -94,6 +94,7 @@ if get_option('build_drivers')
 	subdir('protocols/usb/')
 	subdir('protocols/svrctl/')
 	subdir('protocols/kernlet/') # Depends on mbus.
+	subdir('protocols/ostrace/')
 	subdir('core/drm/')
 	subdir('core/virtio/')
 	subdir('mbus/')
@@ -137,6 +138,10 @@ if get_option('build_drivers')
 endif
 
 if get_option('build_tools')
+	frigg = subproject('frigg')
+	frigg_dep = frigg.get_variable('frigg_dep')
+
+	subdir('tools/ostrace')
 	subdir('tools/bakesvr')
 	subdir('tools/pb2frigg')
 endif

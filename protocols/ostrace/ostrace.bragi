@@ -1,0 +1,64 @@
+namespace "managarm::ostrace";
+
+// Records stored in the output file.
+
+struct CounterItem {
+	uint64 id;
+	int64 value;
+}
+
+message EventRecord 1 {
+head(8):
+tail:
+	uint64 ts; // Timestamp in nanoseconds.
+	uint64 id;
+	CounterItem[] ctrs;
+}
+
+message AnnounceEventRecord 2 {
+head(8):
+tail:
+	uint64 id;
+	string name;
+}
+
+message AnnounceItemRecord 3 {
+head(8):
+tail:
+	uint64 id;
+	string name;
+}
+
+// Messages of the IPC protocol.
+
+enum Error {
+	SUCCESS = 0,
+	ILLEGAL_REQUEST = 1,
+	OSTRACE_GLOBALLY_DISABLED = 2
+}
+
+message NegotiateReq 1 {
+head(128):
+}
+
+message EmitEventReq 2 {
+head(128):
+	uint64 id;
+	CounterItem[] ctrs;
+}
+
+message AnnounceEventReq 3 {
+head(128):
+	string name;
+}
+
+message AnnounceItemReq 4 {
+head(128):
+	string name;
+}
+
+message Response 1 {
+head(32):
+	Error error;
+	uint64 id;
+}

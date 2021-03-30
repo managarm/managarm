@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -8,6 +7,7 @@
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
+#include <protocols/ostrace/ostrace.hpp>
 
 #include <blockfs.hpp>
 #include "gpt.hpp"
@@ -19,6 +19,11 @@ namespace blockfs {
 // TODO: Support more than one table.
 gpt::Table *table;
 ext2fs::FileSystem *fs;
+
+protocols::ostrace::Context ostContext;
+protocols::ostrace::EventId ostReadEvent;
+protocols::ostrace::ItemId ostByteCounter;
+protocols::ostrace::ItemId ostTimeCounter;
 
 namespace {
 
@@ -55,6 +60,9 @@ async::result<protocols::fs::Error> flock(void *object, int flags) {
 async::result<protocols::fs::ReadResult> read(void *object, const char *,
 		void *buffer, size_t length) {
 	assert(length);
+
+	uint64_t start;
+	HEL_CHECK(helGetClock(&start));
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	co_await self->inode->readyJump.async_wait();
@@ -95,6 +103,15 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 			helix::BorrowedDescriptor(self->inode->frontalMemory),
 			chunk_offset, chunkSize, buffer);
 	HEL_CHECK(readMemory.error());
+
+	uint64_t end;
+	HEL_CHECK(helGetClock(&end));
+
+	protocols::ostrace::Event ostEvent{&ostContext, ostReadEvent};
+	ostEvent.withCounter(ostByteCounter, static_cast<int64_t>(length));
+	ostEvent.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
+	co_await ostEvent.emit();
+
 	co_return chunkSize;
 }
 
@@ -569,6 +586,11 @@ async::detached servePartition(helix::UniqueLane lane) {
 }
 
 async::detached runDevice(BlockDevice *device) {
+	ostContext = co_await protocols::ostrace::createContext();
+	ostReadEvent = co_await ostContext.announceEvent("libblockfs.read");
+	ostByteCounter = co_await ostContext.announceItem("numBytes");
+	ostTimeCounter = co_await ostContext.announceItem("time");
+
 	table = new gpt::Table(device);
 	co_await table->parse();
 
