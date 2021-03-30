@@ -4,6 +4,7 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
+#include <thor-internal/ostrace.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/timer.hpp>
 
@@ -294,6 +295,9 @@ void initializeKerncfg() {
 		if(wantKernelProfile)
 			async::detach_with_allocator(*kernelAlloc,
 					createByteRingObject(getGlobalProfileRing(), *mbusClient, "kernel-profile"));
+		if(wantOsTrace)
+			async::detach_with_allocator(*kernelAlloc,
+					createByteRingObject(getGlobalOsTraceRing(), *mbusClient, "os-trace"));
 	});
 }
 

@@ -36,8 +36,9 @@ pb_sources = [
 ]
 
 bragi_sources = [
-	bragi_gen.process('../../protocols/posix/posix.bragi'),
 	bragi_gen.process('../../protocols/fs/fs.bragi'),
+	bragi_gen.process('../../protocols/ostrace/ostrace.bragi'),
+	bragi_gen.process('../../protocols/posix/posix.bragi'),
 ]
 
 thor_sources = [files(
@@ -65,6 +66,7 @@ thor_sources = [files(
 	'generic/io.cpp',
 	'generic/kerncfg.cpp',
 	'generic/kernlet.cpp',
+	'generic/ostrace.cpp',
 	'generic/profile.cpp',
 	'generic/random.cpp',
 	'generic/servers.cpp',
