@@ -94,6 +94,7 @@ if get_option('build_drivers')
 	subdir('protocols/usb/')
 	subdir('protocols/svrctl/')
 	subdir('protocols/kernlet/') # Depends on mbus.
+	subdir('protocols/ostrace/')
 	subdir('core/drm/')
 	subdir('core/virtio/')
 	subdir('mbus/')
