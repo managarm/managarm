@@ -521,12 +521,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_STATUS) {
-		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::pullDescriptor()
-		);
-		HEL_CHECK(pull_cancel.error());
-
 		if(!file_ops->pollStatus) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
