@@ -5,6 +5,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/ostrace.hpp>
+#include <thor-internal/timer.hpp>
 #include <mbus.frigg_pb.hpp>
 #include <ostrace.frigg_bragi.hpp>
 
