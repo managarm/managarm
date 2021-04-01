@@ -41,6 +41,9 @@ add_dir('lib')
 add_dir('managarm')
 add_dir('managarm/server')
 
+# The kernel
+add_file('system-root/usr/managarm/bin', '', 'thor', strip=True)
+
 # Runtime libraries.
 add_file('system-root/usr/lib', 'lib', 'libhelix.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libc.so', strip=True)
