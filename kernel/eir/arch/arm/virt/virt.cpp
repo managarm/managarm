@@ -150,7 +150,12 @@ extern "C" void eirVirtMain(uintptr_t deviceTreePtr) {
 	uint64_t kernel_entry = 0;
 	initProcessorPaging(kernel_image.data(), kernel_entry);
 
-	auto info_ptr = generateInfo("");
+	const char *cmdline = "";
+	if (auto p = chosenNode.findProperty("bootargs"); p) {
+		cmdline = static_cast<const char *>(p->data());
+	}
+
+	auto info_ptr = generateInfo(cmdline);
 
 	auto module = bootAlloc<EirModule>();
 	module->physicalBase = initrd;
