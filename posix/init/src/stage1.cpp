@@ -17,10 +17,12 @@ int main() {
 
 	std::cout <<"init: Entering first stage" << std::endl;
 
+#if defined (__x86_64__)
 	auto uart = fork();
 	if(!uart) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/uart", nullptr);
 	}else assert(uart != -1);
+#endif
 
 	// Start essential bus and storage drivers.
 	auto ehci = fork();
@@ -38,10 +40,12 @@ int main() {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
 	}else assert(virtio != -1);
 
+#if defined (__x86_64__)
 	auto block_ata = fork();
 	if(!block_ata) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/block-ata", nullptr);
 	}else assert(block_ata != -1);
+#endif
 
 	auto block_ahci = fork();
 	if(!block_ahci) {
@@ -60,11 +64,13 @@ int main() {
 		sleep(1);
 	}
 
+#if defined (__x86_64__)
 	// Hack: Start UHCI only after EHCI devices are ready.
 	auto uhci = fork();
 	if(!uhci) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/uhci", nullptr);
 	}else assert(uhci != -1);
+#endif
 
 	std::cout << "init: Mounting /dev/sda0" << std::endl;
 	if(mount("/dev/sda0", "/realfs", "ext2", 0, ""))

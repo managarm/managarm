@@ -46,11 +46,13 @@ int main() {
 	}
 
 	// Start some drivers that are not integrated into udev rules yet.
+#if defined (__x86_64__)
 	auto input_ps2 = fork();
 	if(!input_ps2) {
 		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
 				"/usr/lib/managarm/server/input-atkbd.bin", nullptr);
 	}else assert(input_ps2 != -1);
+#endif
 
 	auto input_hid = fork();
 	if(!input_hid) {

@@ -1,3 +1,6 @@
+if host_machine.cpu_family() != 'x86_64'
+	subdir_done()
+endif
 
 executable('block-ata', ['src/main.cpp'],
 	dependencies: [
