@@ -2762,7 +2762,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 				continue;
 			}
-			
+
 			auto session = TerminalSession::initializeNewSession(self.get());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -3436,13 +3436,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: GET_PGID" << std::endl;
 
 			std::shared_ptr<Process> target;
-			if(req->pid() && req->pid() != self->pid()) {
+			if(req->pid()) {
 				target = Process::findProcess(req->pid());
 				if(!target) {
 					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
 					continue;
 				}
+			} else {
+				target = self;
 			}
+
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(target->pgPointer()->getHull()->getPid());
@@ -3465,7 +3468,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: SET_PGID" << std::endl;
 
 			std::shared_ptr<Process> target;
-			if(req->pid() && req->pid() != self->pid()) {
+			if(req->pid()) {
 				target = Process::findProcess(req->pid());
 				if(!target) {
 					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
@@ -3536,7 +3539,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: GET_SID on pid " << req->pid() << std::endl;
 
 			std::shared_ptr<Process> target;
-			if(req->pid() && req->pid() != self->pid()) {
+			if(req->pid()) {
 				target = Process::findProcess(req->pid());
 				if(!target) {
 					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
