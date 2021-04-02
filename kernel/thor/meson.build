@@ -54,6 +54,7 @@ thor_sources = [files(
 	'generic/core.cpp',
 	'generic/debug.cpp',
 	'generic/fiber.cpp',
+	'generic/gdbserver.cpp',
 	'generic/ipc-queue.cpp',
 	'generic/kasan.cpp',
 	'generic/schedule.cpp',
