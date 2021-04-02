@@ -2756,9 +2756,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SETSID" << std::endl;
 
+			managarm::posix::SvrResponse resp;
+
+			if(self->pgPointer()->getSession()->getSessionId() == self->pid()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
+				continue;
+			}
+			
 			auto session = TerminalSession::initializeNewSession(self.get());
 
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_sid(session->getSessionId());
 
