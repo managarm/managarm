@@ -840,7 +840,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: WAIT" << std::endl;
 
-			assert(!(req.flags() & ~WNOHANG));
+			if(req.flags() & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
+				std::cout << "posix: WAIT invalid flags: " << req.flags() << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			if(req.flags() & WUNTRACED)
+				std::cout << "\e[31mposix: WAIT flag WUNTRACED is silently ignored\e[39m" << std::endl;
+
+			if(req.flags() & WCONTINUED)
+				std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
 
 			TerminationState state;
 			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state);
