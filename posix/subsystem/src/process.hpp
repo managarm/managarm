@@ -640,7 +640,7 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 
 	void dropGroup(ProcessGroup *group);
 
-	void setForegroundGroup(ProcessGroup *group);
+	Error setForegroundGroup(ProcessGroup *group);
 
 private:
 	std::shared_ptr<PidHull> hull_;

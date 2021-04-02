@@ -741,7 +741,7 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			}
 		}
-
+		
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
 			conversation,

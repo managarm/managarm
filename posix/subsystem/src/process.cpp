@@ -1132,6 +1132,7 @@ Error TerminalSession::setForegroundGroup(ProcessGroup *group) {
 	if(group->sessionPointer_.get() != this)
 		return Error::insufficientPermissions;
 	foregroundGroup_ = group;
+	return Error::success;
 }
 
 Error ControllingTerminalState::assignSessionOf(Process *process) {
