@@ -134,7 +134,10 @@ int main() {
 //		putenv("MESA_DEBUG=1");
 
 		if(launch == "kmscon") {
-			execl("/usr/bin/kmscon", "kmscon", nullptr);
+			// TODO: kmscon should invoke a login program which sets these environment vars.
+			// Force kmscon to not reset the environment
+			execl("/usr/bin/kmscon", "kmscon", "--no-reset-env", nullptr);
+			//execl("/usr/bin/kmscon", "kmscon", nullptr);
 			//execl("/usr/bin/kmscon", "kmscon", "--debug", "--verbose", nullptr);
 		}else if(launch == "weston") {
 			// Hack: This should move to proper location
