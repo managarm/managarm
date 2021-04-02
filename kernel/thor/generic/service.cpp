@@ -6,6 +6,7 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/gdbserver.hpp>
 #include <thor-internal/module.hpp>
 
 namespace thor {
@@ -627,12 +628,14 @@ namespace posix {
 				// TODO: Make sure the server is destructed here.
 				infoLogger() << "\e[31m" "thor: Panic in server "
 						<< name().data() << "\e[39m" << frg::endlog;
+				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
 				break;
 			}else if(interrupt == kIntrPageFault) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				infoLogger() << "\e[31m" "thor: Fault in server "
 						<< name().data() << "\e[39m" << frg::endlog;
+				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
 				break;
 			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
