@@ -79,6 +79,7 @@ add_file('system-root/usr/bin', 'sbin', 'block-ata', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'storage', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'virtio-block', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'virtio-console', strip=True)
+add_file('system-root/usr/bin', 'sbin', 'uart', strip=True)
 
 # Essential utilities.
 add_file('system-root/usr/bin', 'bin', 'runsvr', strip=True)

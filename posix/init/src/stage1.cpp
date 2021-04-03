@@ -17,6 +17,11 @@ int main() {
 
 	std::cout <<"init: Entering first stage" << std::endl;
 
+	auto uart = fork();
+	if(!uart) {
+		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/uart", nullptr);
+	}else assert(uart != -1);
+
 	// Start essential bus and storage drivers.
 	auto ehci = fork();
 	if(!ehci) {
