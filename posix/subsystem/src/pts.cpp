@@ -484,6 +484,30 @@ async::result<void> MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(sendResp.error());
+	}else if(req.command() == TIOCGPGRP) {
+		managarm::fs::SvrResponse resp;
+
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
+
+		auto process = findProcessWithCredentials(extractCreds.credentials());
+
+		if(&_channel->cts != process->pgPointer()->getSession()->getControllingTerminal()) {
+			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+		} else {
+			resp.set_pid(_channel->cts.getSession()->getForegroundGroup()->getHull()->getPid());
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
 	}else{
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req.command()
 				<< "\e[39m" << std::endl;
