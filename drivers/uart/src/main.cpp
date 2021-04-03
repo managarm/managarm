@@ -239,9 +239,11 @@ int main() {
 			| irq_enable::txEmpty(IrqCtrl::enable)
 			| irq_enable::lineStatus(IrqCtrl::enable));
 
-	runTerminal();
-
-	handleIrqs();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		runTerminal();
+		handleIrqs();
+	}
 
 	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
 	
