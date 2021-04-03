@@ -52,7 +52,6 @@ void processRecv() {
 
 		req->promise.set_value(read_size);
 		recvRequests.pop_front();
-		delete req;
 	}
 }
 
@@ -90,7 +89,6 @@ void sendBurst() {
 	if(req->progress >= req->length) {
 		req->promise.set_value();
 		sendRequests.pop_front();
-		delete req;
 	}
 }
 
@@ -127,20 +125,19 @@ async::detached handleIrqs() {
 	
 async::result<protocols::fs::ReadResult>
 read(void *, const char *, void *buffer, size_t length) {
-	auto req = new ReadRequest(buffer, length);
-	recvRequests.push_back(*req);
-	auto future = req->promise.async_get();
+	ReadRequest req{buffer, length};
+	recvRequests.push_back(req);
 	processRecv();
-	co_return co_await std::move(future);
+	co_return co_await req.promise.async_get();
 }
 
-async::result<frg::expected<protocols::fs::Error, size_t>> write(void *, const char *, const void *buffer, size_t length) {
-	auto req = new WriteRequest(buffer, length);
-	sendRequests.push_back(*req);
-	auto value = req->promise.async_get();
+async::result<frg::expected<protocols::fs::Error, size_t>>
+write(void *, const char *, const void *buffer, size_t length) {
+	WriteRequest req{buffer, length};
+	sendRequests.push_back(req);
 	if(base.load(uart_register::lineStatus) & line_status::txReady)
 		sendBurst();
-	co_await std::move(value);
+	co_await req.promise.async_get();
 	co_return length;
 }
 
