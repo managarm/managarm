@@ -163,7 +163,12 @@ void IrqPin::raise() {
 	}
 
 	// If the IRQ is already masked, we're encountering a hardware race.
-	assert(!_maskState);
+	if(_maskState) {
+		infoLogger() << "\e[31mthor: Ignoring masked IRQ " << _name
+				<< " (hardware race?).\e[39m" << frg::endlog;
+		sendEoi();
+		return;
+	}
 
 	auto already_in_service = _inService;
 	_raiseSequence++;
