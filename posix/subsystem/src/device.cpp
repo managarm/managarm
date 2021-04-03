@@ -121,6 +121,18 @@ private:
 		size_t length = co_await _file.readSome(data, max_length);
 		co_return length;
 	}
+
+	async::result<frg::expected<Error, size_t>>
+	writeAll(Process *, const void *data, size_t length) override {
+		size_t progress = 0;
+		while(progress < length) {
+			size_t chunk = co_await _file.writeSome(
+					reinterpret_cast<const char *>(data) + progress,
+					length - progress);
+			progress += chunk;
+		}
+		co_return length;
+	}
 	
 	async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
 			uint64_t sequence, int mask,
