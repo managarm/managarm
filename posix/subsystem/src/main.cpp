@@ -36,6 +36,7 @@
 #include "devices/null.hpp"
 #include "devices/zero.hpp"
 #include "fifo.hpp"
+#include "gdbserver.hpp"
 #include "inotify.hpp"
 #include "procfs.hpp"
 #include "pts.hpp"
@@ -59,6 +60,8 @@ namespace {
 	constexpr bool logPaths = false;
 	constexpr bool logSignals = false;
 	constexpr bool logCleanup = false;
+
+	constexpr bool debugFaults = false;
 }
 
 std::map<
@@ -463,6 +466,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			printf("\e[39m");
 			fflush(stdout);
 
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
+
 			auto item = new SignalItem;
 			item->signalNumber = SIGABRT;
 			if(!self->checkSignalRaise())
@@ -478,11 +486,21 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
+
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
 		}else if(observe.observation() == kHelObservePageFault) {
 			printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
+
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGSEGV;
@@ -500,6 +518,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			printf("\e[39m");
 			fflush(stdout);
 
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
+
 			auto item = new SignalItem;
 			item->signalNumber = SIGSEGV;
 			if(!self->checkSignalRaise())
@@ -515,6 +538,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
+
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGILL;
