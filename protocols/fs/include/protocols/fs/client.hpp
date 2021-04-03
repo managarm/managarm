@@ -30,6 +30,7 @@ struct File {
 	async::result<void> seekAbsolute(int64_t offset);
 
 	async::result<size_t> readSome(void *data, size_t max_length);
+	async::result<size_t> writeSome(const void *data, size_t max_length);
 
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(uint64_t sequence, int mask, async::cancellation_token cancellation = {});

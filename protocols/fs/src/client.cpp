@@ -70,6 +70,38 @@ async::result<size_t> File::readSome(void *data, size_t max_length) {
 	co_return recv_data.actualLength();
 }
 
+async::result<size_t> File::writeSome(const void *data, size_t maxLength) {
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::WRITE);
+	req.set_size(maxLength);
+
+	auto ser = req.SerializeAsString();
+
+	auto [offer, sendReq, imbueCreds, sendData, recvResp] =
+		co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::imbueCredentials(),
+				helix_ng::sendBuffer(data, maxLength),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(imbueCreds.error());
+	HEL_CHECK(sendData.error());
+	HEL_CHECK(recvResp.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recvResp.data(), recvResp.length());
+	if(resp.error() == managarm::fs::Errors::END_OF_FILE)
+		co_return 0;
+	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	co_return resp.size();
+}
+
 async::result<frg::expected<Error, PollWaitResult>> File::pollWait(uint64_t sequence, int mask,
 		async::cancellation_token cancellation) {
 	HelHandle cancel_handle;
