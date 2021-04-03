@@ -18,6 +18,9 @@
 #include "spec.hpp"
 #include "fs.bragi.hpp"
 
+static constexpr bool logIrqs = false;
+static constexpr bool logTx = false;
+
 arch::io_space base;
 helix::UniqueIrq irq;
 
@@ -27,9 +30,11 @@ struct ReadRequest {
 
 	void *buffer;
 	size_t maxLength;
-	async::promise<size_t> promise;
+	size_t progress = 0;
+	async::promise<void> promise;
 	boost::intrusive::list_member_hook<> hook;
 };
+
 boost::intrusive::list<
 	ReadRequest,
 	boost::intrusive::member_hook<
@@ -38,20 +43,45 @@ boost::intrusive::list<
 		&ReadRequest::hook
 	>
 > recvRequests;
+
 std::deque<uint8_t> recvBuffer;
 
-void processRecv() {
+void completeRecvs() {
+	assert(!recvRequests.empty());
+	assert(!recvBuffer.empty());
+
+	boost::intrusive::list<
+		ReadRequest,
+		boost::intrusive::member_hook<
+			ReadRequest,
+			boost::intrusive::list_member_hook<>,
+			&ReadRequest::hook
+		>
+	> pending;
+
 	while(!recvRequests.empty() && !recvBuffer.empty()) {
 		auto req = &recvRequests.front();
 	
-		size_t read_size = std::min(req->maxLength, recvBuffer.size());
-		for(size_t i = 0; i < read_size; i++) {
-			reinterpret_cast<uint8_t*>(req->buffer)[i] = recvBuffer[0];
+		size_t chunk = std::min(req->maxLength, recvBuffer.size());
+		assert(chunk);
+		for(size_t i = 0; i < chunk; i++) {
+			auto p = reinterpret_cast<std::byte *>(req->buffer);
+			p[i] = static_cast<std::byte>(recvBuffer.front());
 			recvBuffer.pop_front();
 		}
 
-		req->promise.set_value(read_size);
+		req->progress = chunk;
+
+		// We always complete the request here,
+		// even if we did not read req->maxLength bytes yet.
 		recvRequests.pop_front();
+		pending.push_back(*req);
+	}
+
+	while(!pending.empty()) {
+		auto req = &pending.front();
+		pending.pop_front();
+		req->promise.set_value();
 	}
 }
 
@@ -65,6 +95,7 @@ struct WriteRequest {
 	async::promise<void> promise;
 	boost::intrusive::list_member_hook<> hook;
 };
+
 boost::intrusive::list<
 	WriteRequest,
 	boost::intrusive::member_hook<
@@ -74,70 +105,154 @@ boost::intrusive::list<
 	>
 > sendRequests;
 
-void sendBurst() {
-	if(sendRequests.empty())
-		return;
-	
-	auto req = &sendRequests.front();
-	size_t send_size = std::min(req->length - req->progress, (size_t)16);
-	for(size_t i = 0; i < send_size; i++) {
-		base.store(uart_register::data, reinterpret_cast<const char *>(req->buffer)
-				[req->progress + i]);
+// Size of the device's TX FIFO in bytes.
+constexpr size_t txFifoSize = 16;
+
+bool txInFlight = false;
+
+void flushSends() {
+	assert(!sendRequests.empty());
+	assert(!txInFlight);
+
+	if(logTx)
+		std::cout << "uart: Flushing TX" << std::endl;
+
+	boost::intrusive::list<
+		WriteRequest,
+		boost::intrusive::member_hook<
+			WriteRequest,
+			boost::intrusive::list_member_hook<>,
+			&WriteRequest::hook
+		>
+	> pending;
+
+	size_t fifoAvailable = txFifoSize;
+	while(!sendRequests.empty() && fifoAvailable) {
+		auto req = &sendRequests.front();
+		assert(req->progress < req->length);
+
+		size_t chunk = std::min(req->length - req->progress, fifoAvailable);
+		assert(chunk);
+		for(size_t i = 0; i < chunk; i++) {
+			auto p = reinterpret_cast<const std::byte *>(req->buffer);
+			base.store(uart_register::data, static_cast<uint8_t>(p[req->progress + i]));
+		}
+		req->progress += chunk;
+		fifoAvailable -= chunk;
+
+		// We only complete writes once we have written all bytes;
+		// this avoids unnecessary round trips between the UART driver and the application.
+		if(req->progress == req->length) {
+			sendRequests.pop_front();
+			pending.push_back(*req);
+		}else{
+			assert(!fifoAvailable); // In other words: we will exit the loop.
+		}
 	}
-	req->progress += send_size;
-	
-	if(req->progress >= req->length) {
+
+	if(logTx)
+		std::cout << "uart: TX now in-flight" << std::endl;
+	txInFlight = true;
+
+	// Make sure that we set txInFlight before continuing asynchronous code.
+	while(!pending.empty()) {
+		auto req = &pending.front();
+		pending.pop_front();
 		req->promise.set_value();
-		sendRequests.pop_front();
 	}
 }
 
 async::detached handleIrqs() {
 	uint64_t sequence = 0;
 	while(true) {
-		std::cout << "uart: Awaiting IRQ." << std::endl;
 		auto await = co_await helix_ng::awaitEvent(irq, sequence);
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
-		std::cout << "uart: IRQ fired." << std::endl;
+		if(logIrqs)
+			std::cout << "uart: IRQ fired." << std::endl;
 		
-		auto reason = base.load(uart_register::irqIdentification);
-		if(reason & irq_ident_register::ignore)
-			continue;
-		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), 0, sequence));
+		// The 8250's status register always reports the reason for one IRQ at a time.
+		// Drain IRQs until the IRQ status register does not report any IRQs anymore.
+		while(true) {
+			auto reason = base.load(uart_register::irqIdentification);
 
-		if((reason & irq_ident_register::id) == IrqIds::lineStatus) {
-			printf("Overrun, Parity, Framing or Break Error!\n");
-		}else if((reason & irq_ident_register::id) == IrqIds::dataAvailable
-				|| (reason & irq_ident_register::id) == IrqIds::charTimeout) {
-			while(base.load(uart_register::lineStatus) & line_status::dataReady) {
-				auto c = base.load(uart_register::data);
-				recvBuffer.push_back(c);
+			// Strangely, there is *no* pending IRQ from this device if the bit is *set*.
+			if(reason & irq_ident_register::ignore)
+				break;
+
+			if((reason & irq_ident_register::id) == IrqIds::lineStatus) {
+				std::cout << "uart: Overrun, Parity, Framing or Break Error!" << std::endl;
+			}else if((reason & irq_ident_register::id) == IrqIds::dataAvailable
+					|| (reason & irq_ident_register::id) == IrqIds::charTimeout) {
+				if(logIrqs)
+					std::cout << "uart: IRQ caused by: RX available" << std::endl;
+
+				while(base.load(uart_register::lineStatus) & line_status::dataReady) {
+					auto c = base.load(uart_register::data);
+					recvBuffer.push_back(c);
+				}
+				if(!recvRequests.empty())
+					completeRecvs();
+			}else if((reason & irq_ident_register::id) == IrqIds::txEmpty) {
+				if(logIrqs)
+					std::cout << "uart: IRQ caused by: TX empty" << std::endl;
+
+				if(txInFlight) {
+					txInFlight = false;
+					if(logTx)
+						std::cout << "uart: TX not in-flight anymore" << std::endl;
+
+					if(!sendRequests.empty())
+						flushSends();
+				}
+			}else if((reason & irq_ident_register::id) == IrqIds::modem) {
+				std::cout << "uart: Modem detected!" << std::endl;
 			}
-			processRecv();
-		}else if((reason & irq_ident_register::id) == IrqIds::txEmpty) {
-			sendBurst();
-		}else if((reason & irq_ident_register::id) == IrqIds::modem) {
-			printf("Modem detected!\n");
 		}
+
+		// The 8250's interrupt model is broken, for example:
+		// * RX available IRQs are cleared by reading the RX data register,
+		// * TX empty IRQs are cleared by writing to the TX data register.
+		// Hence, if we UART reports no pending IRQ, it might have happened that
+		// we cleared the TX empty IRQ by writing additional bytes (similar for RX).
+		// To be safe, we always acknowledge IRQs here.
+		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, sequence));
 	}
 }
 	
 async::result<protocols::fs::ReadResult>
 read(void *, const char *, void *buffer, size_t length) {
+	if(!length)
+		co_return 0;
+
 	ReadRequest req{buffer, length};
 	recvRequests.push_back(req);
-	processRecv();
-	co_return co_await req.promise.async_get();
+
+	if(!recvBuffer.empty())
+		completeRecvs();
+
+	co_await req.promise.async_get();
+	co_return req.progress;
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
 write(void *, const char *, const void *buffer, size_t length) {
+	if(!length)
+		co_return 0;
+
+	if(logTx)
+		std::cout << "uart: New TX request" << std::endl;
+
 	WriteRequest req{buffer, length};
 	sendRequests.push_back(req);
-	if(base.load(uart_register::lineStatus) & line_status::txReady)
-		sendBurst();
+
+	if(!txInFlight)
+		flushSends();
+
 	co_await req.promise.async_get();
+
+	if(logTx)
+		std::cout << "uart: TX request done" << std::endl;
 	co_return length;
 }
 
@@ -206,7 +321,7 @@ async::detached runTerminal() {
 }
 
 int main() {
-	printf("Starting UART driver\n");
+	std::cout << "uart: Starting driver" << std::endl;
 
 	HelHandle irq_handle;
 	HEL_CHECK(helAccessIrq(4, &irq_handle));
@@ -219,22 +334,32 @@ int main() {
 	HEL_CHECK(helEnableIo(handle));
 	
 	base = arch::global_io.subspace(COM1);
+
+	// Perform general initialization.
+	base.store(uart_register::fifoControl,
+			fifo_control::fifoEnable(FifoCtrl::enable)
+			| fifo_control::fifoIrqLvl(FifoCtrl::triggerLvl14));
 	
+	// Wait for the FIFO to become empty.
+	while(!(base.load(uart_register::lineStatus) & line_status::txReady))
+		; // Busy spin for now.
+
+	// Enable IRQs.
+	base.store(uart_register::irqEnable,
+			irq_enable::dataAvailable(IrqCtrl::enable)
+			| irq_enable::txEmpty(IrqCtrl::enable)
+			| irq_enable::lineStatus(IrqCtrl::enable));
+
 	// Set the baud rate.
 	base.store(uart_register::lineControl, line_control::dlab(true));
 	base.store(uart_register::baudLow, BaudRate::low9600);
 	base.store(uart_register::baudHigh, BaudRate::high9600);
 
-	base.store(uart_register::lineControl, line_control::dataBits(DataBits::charLen8) 
-			| line_control::stopBit(StopBits::one) | line_control::parityBits(Parity::none)
+	base.store(uart_register::lineControl,
+			line_control::dataBits(DataBits::charLen8)
+			| line_control::stopBit(StopBits::one)
+			| line_control::parityBits(Parity::none)
 			| line_control::dlab(false));
-	
-	base.store(uart_register::fifoControl, fifo_control::fifoEnable(FifoCtrl::enable)
-			| fifo_control::fifoIrqLvl(FifoCtrl::triggerLvl14));
-	
-	base.store(uart_register::irqEnable, irq_enable::dataAvailable(IrqCtrl::enable)
-			| irq_enable::txEmpty(IrqCtrl::enable)
-			| irq_enable::lineStatus(IrqCtrl::enable));
 
 	{
 		async::queue_scope scope{helix::globalQueue()};
