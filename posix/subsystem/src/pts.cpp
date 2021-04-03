@@ -508,6 +508,36 @@ async::result<void> MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCSPGRP) {
+		std::cout << "\e[31mposix: PTS master TIOCSPGRP\e[39m" << std::endl;
+		managarm::fs::SvrResponse resp;
+
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
+
+		auto process = findProcessWithCredentials(extractCreds.credentials());
+		auto group = process->pgPointer()->getSession()->getProcessGroupById(req.pgid());
+		if(!group) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			Error ret = _channel->cts.getSession()->setForegroundGroup(group.get());
+			if(ret == Error::insufficientPermissions) {
+				resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
+			} else {
+				assert(ret == Error::success);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			}
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
 	}else{
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req.command()
 				<< "\e[39m" << std::endl;
