@@ -394,7 +394,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
 			bool killed = false;
-			auto active = self->signalContext()->fetchSignal(~self->signalMask());
+			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
 			if(active)
 				co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			if(killed)
@@ -442,7 +442,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			// If the process signalled itself, we should process the signal before resuming.
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
-				auto active = self->signalContext()->fetchSignal(~self->signalMask());
+				auto active = co_await self->signalContext()->fetchSignal(
+						~self->signalMask(), true);
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
@@ -453,7 +454,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
-				auto active = self->signalContext()->fetchSignal(~self->signalMask());
+				auto active = co_await self->signalContext()->fetchSignal(
+						~self->signalMask(), true);
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
@@ -3179,9 +3181,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
+			if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC
+					| managarm::posix::OpenFlags::OF_NONBLOCK)) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
-			auto file = createSignalFile(req.sigset());
+			auto file = createSignalFile(req.sigset(),
+					req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
 			auto fd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 

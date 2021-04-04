@@ -22,19 +22,17 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
-	OpenFile(uint64_t mask)
-	: File{StructName::get("signalfd")}, _mask{mask} { }
+	OpenFile(uint64_t mask, bool nonBlock)
+	: File{StructName::get("signalfd")}, _mask{mask}, _nonBlock{nonBlock} { }
 
 	async::result<frg::expected<Error, size_t>>
-	readSome(Process *process, void *data, size_t max_length) override {
-		// TODO: Return an error otherwise.
-		assert(max_length >= sizeof(struct signalfd_siginfo));
+	readSome(Process *process, void *data, size_t maxLength) override {
+		if(maxLength < sizeof(struct signalfd_siginfo))
+			co_return Error::illegalArguments;
 
-		auto active = process->signalContext()->fetchSignal(_mask);
-		// TODO: Implement blocking for signals.
-		//       Make fetchSignal() block until the signal arrives, with a cancellation
-		//       token to implement non-blocking behavior.
-		assert(active);
+		auto active = co_await process->signalContext()->fetchSignal(_mask, _nonBlock);
+		if(!active)
+			co_return Error::wouldBlock;
 
 		struct signalfd_siginfo si = {};
 		si.ssi_signo = active->signalNumber;
@@ -67,12 +65,13 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 	uint64_t _mask;
+	bool _nonBlock;
 };
 
 } // anonymous namespace
 
-smarter::shared_ptr<File, FileHandle> createSignalFile(uint64_t mask) {
-	auto file = smarter::make_shared<OpenFile>(mask);
+smarter::shared_ptr<File, FileHandle> createSignalFile(uint64_t mask, bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(mask, nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));

@@ -496,16 +496,21 @@ CheckSignalResult SignalContext::checkSignal() {
 	return CheckSignalResult(_currentSeq, _activeSet);
 }
 
-SignalItem *SignalContext::fetchSignal(uint64_t mask) {
+async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBlock) {
 	int sn;
-	for(sn = 1; sn <= 64; sn++) {
-		if(!(mask & (UINT64_C(1) << (sn - 1))))
-			continue;
-		if(!_slots[sn - 1].asyncQueue.empty())
+	while(true) {
+		for(sn = 1; sn <= 64; sn++) {
+			if(!(mask & (UINT64_C(1) << (sn - 1))))
+				continue;
+			if(!_slots[sn - 1].asyncQueue.empty())
+				break;
+		}
+		if(sn - 1 != 64)
 			break;
+		if(nonBlock)
+			co_return nullptr;
+		co_await _signalBell.async_wait();
 	}
-	if(sn - 1 == 64)
-		return nullptr;
 
 	assert(!_slots[sn - 1].asyncQueue.empty());
 	auto item = &_slots[sn - 1].asyncQueue.front();
@@ -513,7 +518,7 @@ SignalItem *SignalContext::fetchSignal(uint64_t mask) {
 	if(_slots[sn - 1].asyncQueue.empty())
 		_activeSet &= ~(UINT64_C(1) << (sn - 1));
 
-	return item;
+	co_return item;
 }
 
 // We follow a similar model as Linux. The linux layout is a follows:
