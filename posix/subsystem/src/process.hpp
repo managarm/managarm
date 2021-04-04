@@ -465,6 +465,10 @@ public:
 		return _egid;
 	}
 
+	bool didExecute() {
+		return _didExecute;
+	}
+
 	std::string path() {
 		return _path;
 	}
@@ -482,6 +486,7 @@ public:
 	std::shared_ptr<VmContext> vmContext() { return _vmContext; }
 	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
 	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
+	std::shared_ptr<ProcessGroup> pgPointer() { return _pgPointer; }
 	SignalContext *signalContext() { return _signalContext.get(); }
 
 	void setSignalMask(uint64_t mask) {
@@ -525,6 +530,7 @@ private:
 	int _euid;
 	int _gid;
 	int _egid;
+	bool _didExecute;
 	std::string _path;
 	helix::UniqueLane _posixLane;
 	helix::UniqueDescriptor _threadDescriptor;
@@ -591,6 +597,12 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 
 	void issueSignalToGroup(int sn, SignalInfo info);
 
+	PidHull *getHull() {
+		return hull_.get();
+	}
+
+	TerminalSession *getSession() { return sessionPointer_.get(); }
+
 private:
 	std::shared_ptr<PidHull> hull_;
 
@@ -620,7 +632,15 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 
 	std::shared_ptr<ProcessGroup> spawnProcessGroup(Process *groupLeader);
 
+	std::shared_ptr<ProcessGroup> getProcessGroupById(pid_t id);
+
+	ProcessGroup *getForegroundGroup() { return foregroundGroup_; }
+
+	ControllingTerminalState *getControllingTerminal() { return ctsPointer_; }
+
 	void dropGroup(ProcessGroup *group);
+
+	Error setForegroundGroup(ProcessGroup *group);
 
 private:
 	std::shared_ptr<PidHull> hull_;
@@ -645,6 +665,8 @@ struct ControllingTerminalState {
 	void dropSession(TerminalSession *session);
 
 	void issueSignalToForegroundGroup(int sn, SignalInfo info);
+
+	TerminalSession *getSession() { return associatedSession_; }
 
 private:
 	TerminalSession *associatedSession_ = nullptr;

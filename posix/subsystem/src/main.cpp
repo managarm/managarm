@@ -868,7 +868,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: WAIT" << std::endl;
 
-			assert(!(req.flags() & ~WNOHANG));
+			if(req.flags() & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
+				std::cout << "posix: WAIT invalid flags: " << req.flags() << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			if(req.flags() & WUNTRACED)
+				std::cout << "\e[31mposix: WAIT flag WUNTRACED is silently ignored\e[39m" << std::endl;
+
+			if(req.flags() & WCONTINUED)
+				std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
 
 			TerminationState state;
 			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state);
@@ -2774,9 +2784,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SETSID" << std::endl;
 
+			managarm::posix::SvrResponse resp;
+
+			if(self->pgPointer()->getSession()->getSessionId() == self->pid()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
+				continue;
+			}
+
 			auto session = TerminalSession::initializeNewSession(self.get());
 
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_sid(session->getSessionId());
 
@@ -3429,6 +3445,140 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::GetPgidRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::GetPgidRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: GET_PGID" << std::endl;
+
+			std::shared_ptr<Process> target;
+			if(req->pid()) {
+				target = Process::findProcess(req->pid());
+				if(!target) {
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					continue;
+				}
+			} else {
+				target = self;
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(target->pgPointer()->getHull()->getPid());
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::SetPgidRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::SetPgidRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: SET_PGID" << std::endl;
+
+			std::shared_ptr<Process> target;
+			if(req->pid()) {
+				target = Process::findProcess(req->pid());
+				if(!target) {
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					continue;
+				}
+			} else {
+				target = self;
+			}
+
+			if(target->pgPointer()->getSession() != self->pgPointer()->getSession()) {
+				co_await sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+				continue;
+			}
+
+			// We can't change the process group ID of the session leader
+			if(target->pid() == target->pgPointer()->getSession()->getSessionId()) {
+				co_await sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+				continue;
+			}
+
+			if(target->getParent()->pid() == self->pid()) {
+				if(target->didExecute()) {
+					co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
+					continue;
+				}
+			}
+
+			std::shared_ptr<ProcessGroup> group;
+			// If pgid is 0, we're going to set it to the calling process's pid, use the target group.
+			if(req->pgid()) {
+				group = target->pgPointer()->getSession()->getProcessGroupById(req->pgid());
+			} else {
+				group = target->pgPointer();
+			}
+
+			if(group) {
+				// Found, do permission checking and join
+				group->reassociateProcess(target.get());
+			} else {
+				// Not found, making it if pgid and pid match, or if pgid is 0, indicating that we should make one
+				if(target->pid() == req->pgid() || !req->pgid()) {
+					target->pgPointer()->getSession()->spawnProcessGroup(target.get());
+				} else {
+					// Doesn't exists, and not requesting a make?
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					continue;
+				}
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::GetSidRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::GetSidRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: GET_SID on pid " << req->pid() << std::endl;
+
+			std::shared_ptr<Process> target;
+			if(req->pid()) {
+				target = Process::findProcess(req->pid());
+				if(!target) {
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					continue;
+				}
+			} else {
+				target = self;
+			}
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(target->pgPointer()->getSession()->getSessionId());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
