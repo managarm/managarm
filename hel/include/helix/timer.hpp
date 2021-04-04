@@ -74,6 +74,17 @@ private:
 	TimeoutCallback<Functor> _tb;
 };
 
+async::result<void> sleepFor(uint64_t duration) {
+	uint64_t tick;
+	HEL_CHECK(helGetClock(&tick));
+
+	helix::AwaitClock await;
+	auto &&submit = helix::submitAwaitClock(&await, tick + duration,
+			helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(await.error());
+}
+
 }
 
 #endif // HELIX_TIMEOUT_HPP

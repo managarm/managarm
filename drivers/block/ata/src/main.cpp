@@ -9,6 +9,7 @@
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
 #include <helix/ipc.hpp>
+#include <helix/timer.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -43,6 +44,7 @@ class Controller : public blockfs::BlockDevice {
 	enum class IoResult {
 		none,
 		timeout,
+		notReady,
 		noData,
 		withData
 	};
@@ -125,8 +127,10 @@ async::detached Controller::run() {
 	// TODO: if the driver restarts, we would need to get the current IRQ sequence from the kernel.
 	_irqSequence = 0;
 
-	if (!(co_await _detectDevice()))
+	if (!(co_await _detectDevice())) {
+		std::cout << "block/ata: Could not detect drive" << std::endl;
 		co_return;
+	}
 
 	_doRequestLoop();
 
@@ -153,7 +157,8 @@ auto Controller::_pollForBsy() -> async::result<IoResult> {
 		if(altStatus & kStatusBsy)
 			continue; // TODO: sleep some time before continuing.
 		// TODO: Report those errors to the caller.
-		assert(altStatus & kStatusRdy); // Device was disconnected?
+		if(!(altStatus & kStatusRdy)) // Device was disconnected?
+			co_return IoResult::notReady;
 		assert(!(altStatus & kStatusErr));
 		assert(!(altStatus & kStatusDf));
 		co_return ((altStatus & kStatusDrq) ? IoResult::withData : IoResult::noData);
@@ -192,9 +197,10 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, _irqSequence));
 		// When BSY is still set, all other bits are meaningless.
 		if(status & kStatusBsy)
-			co_return IoResult::timeout;
+			co_return IoResult::timeout; // TODO: properly implement the timeout!
 		// TODO: Report those errors to the caller.
-		assert(status & kStatusRdy); // Device was disconnected?
+		if(!(status & kStatusRdy)) // Device was disconnected?
+			co_return IoResult::notReady;
 		assert(!(status & kStatusErr));
 		assert(!(status & kStatusDf));
 		co_return ((status & kStatusDrq) ? IoResult::withData : IoResult::noData);
@@ -235,6 +241,33 @@ async::result<bool> Controller::_detectDevice() {
 	_ioSpace.store(regs::outDevice, kDeviceLba);
 	// TODO: delay
 
+	// TODO: Detect ATAPI drives.
+	// For ATAPI drives, we do not need to wait until RDY is set.
+
+	// Try to detect non-ATAPI drives now.
+	// Virtually all non-ATAPI commands (inclduing IDENTIY) require RDY to be set
+	// (this is documented on a per-command basis in the ATA specification). 
+	// The RDY bit is set in <= 30s after the drive spins up.
+
+	// First, wait until RDY becomes set, then send IDENTITY.
+	// In principle, we would have to wait for 30s.
+	// Let us hope that 5s are enough on real hardware.
+	bool isRdy = false;
+	for(int i = 0; i < 5; ++i) {
+		auto altStatus = _altSpace.load(alt_regs::inStatus);
+		// We cannot trust RDY is BSY is set.
+		if(altStatus & kStatusBsy)
+			continue;
+		if(altStatus & kStatusRdy) {
+			isRdy = true;
+			break;
+		}
+		co_await helix::sleepFor(1'000'000'000);
+	}
+
+	if(!isRdy)
+		co_return false;
+
 	_ioSpace.store(regs::outCommand, kCommandIdentify);
 
 	auto ioRes = co_await _waitForBsyIrq();
@@ -270,8 +303,6 @@ async::result<void> Controller::_performRequest(Request *request) {
 
 	assert(!(request->sector & ~((size_t(1) << 48) - 1)));
 	assert(request->numSectors <= 255);
-
-	// TODO: Make sure RDY is set here.
 
 	_ioSpace.store(regs::outDevice, kDeviceLba);
 	// TODO: There should be a 400ns delay after drive selection.
