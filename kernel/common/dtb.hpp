@@ -6,6 +6,7 @@
 #include <frg/span.hpp>
 #include <frg/optional.hpp>
 #include <type_traits>
+#include <cstddef>
 
 struct DtbHeader {
 	arch::scalar_storage<uint32_t, arch::big_endian> magic;
@@ -45,7 +46,7 @@ concept DeviceTreeWalker = requires (T t, DeviceTreeNode n) {
 
 struct DeviceTree {
 	DeviceTree(void *data)
-	: data_{reinterpret_cast<uint8_t *>(data)}, memoryReservations_{nullptr} {
+	: data_{reinterpret_cast<std::byte *>(data)}, memoryReservations_{nullptr} {
 		DtbHeader header;
 		memcpy(&header, data, sizeof(header));
 		assert(header.magic.load() == 0xd00dfeed);
@@ -68,7 +69,7 @@ struct DeviceTree {
 
 	DeviceTreeNode rootNode();
 
-	const uint8_t *stringsBlock() const {
+	const std::byte *stringsBlock() const {
 		return stringsBlock_;
 	}
 
@@ -76,7 +77,7 @@ struct DeviceTree {
 	void walkTree(T &&walker);
 
 	struct MemoryReservationRange {
-		MemoryReservationRange(uint8_t *begin)
+		MemoryReservationRange(std::byte *begin)
 		: begin_{begin}, end_{nullptr} {
 			if (begin) {
 				Iterator it{begin};
@@ -90,7 +91,7 @@ struct DeviceTree {
 		struct Iterator {
 			friend MemoryReservationRange;
 
-			Iterator(uint8_t *ptr)
+			Iterator(std::byte *ptr)
 			: ptr_{ptr} { }
 
 			bool operator==(const Iterator &other) const = default;
@@ -120,7 +121,7 @@ struct DeviceTree {
 				ptr_ += 16;
 			}
 
-			uint8_t *ptr_;
+			std::byte *ptr_;
 		};
 
 		Iterator begin() const {
@@ -141,10 +142,10 @@ struct DeviceTree {
 	}
 
 private:
-	uint8_t *data_;
+	std::byte *data_;
 
-	uint8_t *stringsBlock_;
-	uint8_t *structureBlock_;
+	std::byte *stringsBlock_;
+	std::byte *structureBlock_;
 
 	uint32_t totalSize_;
 
@@ -155,11 +156,11 @@ struct DeviceTreeProperty {
 	DeviceTreeProperty()
 	: name_{nullptr}, data_{nullptr, 0} { }
 
-	DeviceTreeProperty(const char *name, frg::span<uint8_t> data)
+	DeviceTreeProperty(const char *name, frg::span<std::byte> data)
 	: name_{name}, data_{data.data(), data.size()} { }
 
-	DeviceTreeProperty(const char *name, frg::span<const void> data)
-	: name_{name}, data_{reinterpret_cast<const uint8_t *>(data.data()), data.size()} { }
+	DeviceTreeProperty(const char *name, frg::span<const std::byte> data)
+	: name_{name}, data_{data} { }
 
 	const char *name() const {
 		return name_;
@@ -203,11 +204,11 @@ struct DeviceTreeProperty {
 
 private:
 	const char *name_;
-	frg::span<const uint8_t> data_;
+	frg::span<const std::byte> data_;
 };
 
 namespace detail {
-	inline Tag readTag(uint8_t *&ptr) {
+	inline Tag readTag(std::byte *&ptr) {
 		Tag t;
 		do {
 			arch::scalar_storage<uint32_t, arch::big_endian> tag;
@@ -221,14 +222,14 @@ namespace detail {
 		return t;
 	}
 
-	inline const char *readStringInline(uint8_t *&ptr) {
+	inline const char *readStringInline(std::byte *&ptr) {
 		auto str = reinterpret_cast<char *>(ptr);
 		ptr += (strlen(str) + 4) & ~3;
 
 		return str;
 	}
 
-	inline const char *readString(DeviceTree *tree, uint8_t *&ptr) {
+	inline const char *readString(DeviceTree *tree, std::byte *&ptr) {
 		arch::scalar_storage<uint32_t, arch::big_endian> strOff;
 		memcpy(&strOff, ptr, 4);
 		ptr += 4;
@@ -236,7 +237,7 @@ namespace detail {
 		return reinterpret_cast<const char *>(tree->stringsBlock()) + strOff.load();
 	}
 
-	inline uint32_t readLength(uint8_t *&ptr) {
+	inline uint32_t readLength(std::byte *&ptr) {
 		arch::scalar_storage<uint32_t, arch::big_endian> len;
 		memcpy(&len, ptr, 4);
 		ptr += 4;
@@ -244,14 +245,14 @@ namespace detail {
 		return len.load();
 	}
 
-	inline frg::span<uint8_t> readPropData(uint8_t *&ptr, uint32_t len) {
+	inline frg::span<std::byte> readPropData(std::byte *&ptr, uint32_t len) {
 		auto dataPtr = ptr;
 		ptr += (len + 3) & ~3;
 
 		return {dataPtr, len};
 	}
 
-	inline void skipProp(uint8_t *&ptr) {
+	inline void skipProp(std::byte *&ptr) {
 		auto len = readLength(ptr);
 		ptr += 4; // skip name
 		ptr += (len + 3) & ~3; // skip data
@@ -263,10 +264,10 @@ struct DeviceTreeNode {
 	: tree_{}, base_{}, nodeOff_{}, propOff_{}, name_{},
 			properties_{nullptr, nullptr, nullptr} { }
 
-	DeviceTreeNode(DeviceTree *tree, uint8_t *base)
+	DeviceTreeNode(DeviceTree *tree, std::byte *base)
 	: tree_{tree}, base_{base}, nodeOff_{}, propOff_{}, name_{},
 			properties_{nullptr, nullptr, nullptr} {
-		uint8_t *tmp = base;
+		std::byte *tmp = base;
 
 		auto tag = detail::readTag(tmp);
 		assert(tag == Tag::beginNode);
@@ -284,7 +285,7 @@ struct DeviceTreeNode {
 
 	template <DeviceTreeWalker T>
 	void walkChildren(T &&walker) {
-		uint8_t *ptr = nodeOff_;
+		std::byte *ptr = nodeOff_;
 		int depth = 0;
 
 		while (true) {
@@ -359,11 +360,11 @@ struct DeviceTreeNode {
 	}
 
 	struct PropertyRange {
-		PropertyRange(DeviceTree *tree, uint8_t *begin, uint8_t *end)
+		PropertyRange(DeviceTree *tree, std::byte *begin, std::byte *end)
 		: begin_{tree, begin}, end_{tree, end} { }
 
 		struct Iterator {
-			Iterator(DeviceTree *tree, uint8_t *ptr)
+			Iterator(DeviceTree *tree, std::byte *ptr)
 			: tree_{tree}, ptr_{ptr} { }
 
 			bool operator==(const Iterator &other) const = default;
@@ -398,7 +399,7 @@ struct DeviceTreeNode {
 			}
 
 			DeviceTree *tree_;
-			uint8_t *ptr_;
+			std::byte *ptr_;
 		};
 
 		Iterator begin() const {
@@ -419,8 +420,8 @@ struct DeviceTreeNode {
 	}
 
 private:
-	uint8_t *findNodeOff_() {
-		uint8_t *ptr = propOff_;
+	std::byte *findNodeOff_() {
+		std::byte *ptr = propOff_;
 
 		Tag tag;
 		while (true) {
@@ -436,10 +437,10 @@ private:
 	}
 
 	DeviceTree *tree_;
-	uint8_t *base_;
+	std::byte *base_;
 
-	uint8_t *nodeOff_;
-	uint8_t *propOff_;
+	std::byte *nodeOff_;
+	std::byte *propOff_;
 	const char *name_;
 
 	PropertyRange properties_;

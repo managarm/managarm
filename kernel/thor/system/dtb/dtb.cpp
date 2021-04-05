@@ -97,9 +97,9 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 			}
 		} else if (pn == "interrupts") {
 			// This is parsed by the interrupt controller node
-			irqData_ = {prop.data(), prop.size()};
+			irqData_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
 		} else if (pn == "interrupt-map") {
-			interruptMapRaw_ = {prop.data(), prop.size()};
+			interruptMapRaw_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
 		}
 	}
 
@@ -351,7 +351,7 @@ auto DeviceTreeNode::parseIrq_(::DeviceTreeProperty *prop, size_t i) -> DeviceIr
 	return irq;
 }
 
-auto DeviceTreeNode::parseIrqs_(frg::span<const void> data) -> frg::vector<DeviceIrq, KernelAlloc> {
+auto DeviceTreeNode::parseIrqs_(frg::span<const std::byte> data) -> frg::vector<DeviceIrq, KernelAlloc> {
 	frg::vector<DeviceIrq, KernelAlloc> ret{*kernelAlloc};
 
 	::DeviceTreeProperty prop{"", data};
