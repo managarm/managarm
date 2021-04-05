@@ -101,18 +101,26 @@ namespace {
 			for(size_t k = 0; k < 6; k++) {
 				managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
 				if(device->bars[k].type == PciBar::kBarIo) {
-					assert(device->bars[k].offset == 0);
 					msg.set_io_type(managarm::hw::IoType::PORT);
-					msg.set_address(device->bars[k].address);
-					msg.set_length(device->bars[k].length);
 				}else if(device->bars[k].type == PciBar::kBarMemory) {
 					msg.set_io_type(managarm::hw::IoType::MEMORY);
+				}else{
+					assert(device->bars[k].type == PciBar::kBarNone);
+					msg.set_io_type(managarm::hw::IoType::NO_BAR);
+				}
+
+				if(device->bars[k].hostType == PciBar::kBarIo) {
+					msg.set_host_type(managarm::hw::IoType::PORT);
+					msg.set_address(device->bars[k].address);
+					msg.set_length(device->bars[k].length);
+				}else if(device->bars[k].hostType == PciBar::kBarMemory) {
+					msg.set_host_type(managarm::hw::IoType::MEMORY);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
 					msg.set_offset(device->bars[k].offset);
 				}else{
-					assert(device->bars[k].type == PciBar::kBarNone);
-					msg.set_io_type(managarm::hw::IoType::NO_BAR);
+					assert(device->bars[k].hostType == PciBar::kBarNone);
+					msg.set_host_type(managarm::hw::IoType::NO_BAR);
 				}
 				resp.add_bars(std::move(msg));
 			}
@@ -688,15 +696,46 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				infoLogger() << "            unallocated I/O space BAR #" << i
 						<< ", length: " << length << " ports" << frg::endlog;
 			} else {
-				bars[i].allocated = true;
-				bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
-				for(size_t p = 0; p < length; ++p)
-					bars[i].io->addPort(address + p);
-				bars[i].offset = 0;
+				// Check all parent resources to see if this BAR is actually memory mapped
+				bool isMemoryMapped = false;
+				PciBusResource *resource = nullptr;
+
+				for (auto &res : entity->parentBus->resources) {
+					if (res.flags() == PciBusResource::io
+							&& address >= res.base()
+							&& (address + length) <= (res.base() + res.size())) {
+						resource = &res;
+						isMemoryMapped = res.isHostMmio();
+						break;
+					}
+				}
+
+				if (isMemoryMapped) {
+					uintptr_t hostAddress = resource->hostBase()
+						+ (address - resource->base());
+
+					auto offset = hostAddress & (kPageSize - 1);
+
+					bars[i].hostType = PciBar::kBarMemory;
+					bars[i].allocated = true;
+					bars[i].offset = offset;
+					bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+							hostAddress & ~(kPageSize - 1),
+							(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+							CachingMode::uncached);
+				} else {
+					bars[i].hostType = PciBar::kBarIo;
+					bars[i].allocated = true;
+					bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+					for(size_t p = 0; p < length; ++p)
+						bars[i].io->addPort(address + p);
+					bars[i].offset = 0;
+				}
 
 				infoLogger() << "            I/O space BAR #" << i
 						<< " at 0x" << frg::hex_fmt(address)
 						<< ", length: " << length << " ports" << frg::endlog;
+
 			}
 		}else if(((bar >> 1) & 3) == 0) {
 			uint32_t address = bar & 0xFFFFFFF0;
@@ -723,6 +762,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 						<< (bar & (1 << 3) ? " (prefetchable)" : "")
 						<< frg::endlog;
 			} else {
+				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
 				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
@@ -769,6 +809,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 						<< (bar & (1 << 3) ? " (prefetchable)" : "")
 						<< frg::endlog;
 			} else {
+				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
 				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
@@ -1293,7 +1334,7 @@ void allocateBars(PciBus *bus) {
 			}
 
 			req.associatedBridge->associatedBus->resources.push_back(
-					{childBase, req.size, hostBase, req.flags});
+					{childBase, req.size, hostBase, req.flags, resource->isHostMmio()});
 		} else {
 			log << "BAR #" << req.index << " of entity ";
 
@@ -1314,6 +1355,8 @@ void allocateBars(PciBus *bus) {
 
 			// Update our associated BAR object
 			bar.allocated = true;
+			bar.address = childBase;
+			bar.hostType = PciBar::kBarMemory;
 			auto offset = hostBase & (kPageSize - 1);
 			bar.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 					hostBase & ~(kPageSize - 1),

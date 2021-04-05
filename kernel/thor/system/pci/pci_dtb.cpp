@@ -151,7 +151,7 @@ void initPciNode(DeviceTreeNode *node) {
 		infoLogger() << "thor: Adding resource " << (void *)r.childAddr << " with flags " << resFlags << frg::endlog;
 
 		rootBus->resources.push_back({r.childAddr, r.size,
-				r.parentAddr, resFlags});
+				r.parentAddr, resFlags, true});
 	}
 
 	addRootBus(rootBus);

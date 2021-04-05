@@ -61,7 +61,17 @@ async::result<PciInfo> Device::getPciInfo() {
 		}else if(resp.bars(i).io_type() == managarm::hw::IoType::MEMORY) {
 			info.barInfo[i].ioType = IoType::kIoTypeMemory;
 		}else{
-			throw std::runtime_error("Illegal IoType!\n");
+			throw std::runtime_error("Illegal IoType for io_type!\n");
+		}
+
+		if(resp.bars(i).host_type() == managarm::hw::IoType::NO_BAR) {
+			info.barInfo[i].hostType = IoType::kIoTypeNone;
+		}else if(resp.bars(i).host_type() == managarm::hw::IoType::PORT) {
+			info.barInfo[i].hostType = IoType::kIoTypePort;
+		}else if(resp.bars(i).host_type() == managarm::hw::IoType::MEMORY) {
+			info.barInfo[i].hostType = IoType::kIoTypeMemory;
+		}else{
+			throw std::runtime_error("Illegal IoType for host_type!\n");
 		}
 		info.barInfo[i].address = resp.bars(i).address();
 		info.barInfo[i].length = resp.bars(i).length();
