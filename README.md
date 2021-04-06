@@ -21,7 +21,8 @@ that allow efficient implementations of common user space functionality (like PO
 While the managarm user space API supports many Linux APIs (e.g. epoll, timerfd, signalfd or tmpfs),
 managarm does not share any source code (or binaries) with the Linux kernel.
 
-**Official Discord server:** https://discord.gg/7WB6Ur3
+**Official Discord server:** https://discord.gg/7WB6Ur3. This is our primary real-time communication channel.
+**Official IRC channel:** `#managarm` on `irc.freenode.net`
 
 ## Features
 
