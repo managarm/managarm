@@ -42,8 +42,6 @@ extern "C" void frg_panic(const char *cstring) {
 	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
 }
 
-frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
-
 extern "C" EirInfo *thorBootInfoPtr;
 
 using InitializerPtr = void (*)();
@@ -113,7 +111,6 @@ initgraph::Stage *getTaskingAvailableStage() {
 extern "C" void thorMain() {
 	kernelCommandLine.initialize(*kernelAlloc,
 			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));
-	earlyFibers.initialize(*kernelAlloc);
 
 	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
@@ -125,9 +122,6 @@ extern "C" void thorMain() {
 	if(logInitialization)
 		infoLogger() << "thor: Bootstrap processor initialized successfully."
 				<< frg::endlog;
-
-	for(auto it = earlyFibers->begin(); it != earlyFibers->end(); ++it)
-		Scheduler::resume(*it);
 
 	// This has to be done after the scheduler is available.
 	if(thorBootInfoPtr->debugFlags & eirDebugKernelProfile)
