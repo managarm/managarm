@@ -59,6 +59,7 @@ struct CpuData : public PlatformCpuData {
 
 	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;
+	KernelFiber *wqFiber = nullptr;
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
 

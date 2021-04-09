@@ -276,6 +276,8 @@ extern "C" void thorMain() {
 		KernelFiber::asyncBlockCurrent(runServer("sbin/virtio-console"));
 	});
 
+	Scheduler::resume(getCpuData()->wqFiber);
+
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	localScheduler()->update();
 	localScheduler()->reschedule();

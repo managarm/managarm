@@ -280,8 +280,6 @@ static initgraph::Task initBootProcessorTask{&basicInitEngine, "arm.init-boot-pr
 	}
 };
 
-extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
-
 void initializeThisProcessor() {
 	auto cpu_data = getCpuData();
 
@@ -296,12 +294,11 @@ void initializeThisProcessor() {
 
 	cpu_data->irqStackPtr = cpu_data->irqStack.base();
 
-	auto wqFiber = KernelFiber::post([=] {
+	cpu_data->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.
 	});
-	cpu_data->generalWorkQueue = wqFiber->associatedWorkQueue()->selfPtr.lock();
+	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue()->selfPtr.lock();
 	assert(cpu_data->generalWorkQueue);
-	earlyFibers->push(wqFiber);
 }
 
 } // namespace thor

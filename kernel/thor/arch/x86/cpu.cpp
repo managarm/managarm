@@ -499,8 +499,6 @@ static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-pr
 	}
 };
 
-extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
-
 void initializeThisProcessor() {
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
@@ -720,12 +718,11 @@ void initializeThisProcessor() {
 
 	cpuFeaturesKnown = true;
 
-	auto wqFiber = KernelFiber::post([=] {
+	cpu_data->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.
 	});
-	cpu_data->generalWorkQueue = wqFiber->associatedWorkQueue()->selfPtr.lock();
+	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue()->selfPtr.lock();
 	assert(cpu_data->generalWorkQueue);
-	earlyFibers->push(wqFiber);
 
 	initLocalApicPerCpu();
 }
@@ -741,17 +738,22 @@ struct StatusBlock {
 	unsigned int pml4;
 	uintptr_t stack;
 	void (*main)(StatusBlock *);
-	AssemblyCpuData *cpuContext;
+	CpuData *cpuContext;
 };
 
 static_assert(sizeof(StatusBlock) == 48, "Bad sizeof(StatusBlock)");
 
 void secondaryMain(StatusBlock *statusBlock) {
-	setupCpuContext(statusBlock->cpuContext);
+	auto cpuContext = statusBlock->cpuContext;
+
+	setupCpuContext(cpuContext);
 	initializeThisProcessor();
 	__atomic_store_n(&statusBlock->targetStage, 2, __ATOMIC_RELEASE);
 
 	infoLogger() << "Hello world from CPU #" << getLocalApicId() << frg::endlog;
+
+	Scheduler::resume(cpuContext->wqFiber);
+
 	localScheduler()->update();
 	localScheduler()->reschedule();
 	localScheduler()->commit();
