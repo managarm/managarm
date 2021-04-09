@@ -200,12 +200,26 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 
 		// TODO: Update RSS, handle dirty pages, etc.
 		auto pageOffset = self->address + offset;
-		self->owner->_ops->unmapSingle4k(pageOffset & ~(kPageSize - 1));
-		self->owner->_ops->mapSingle4k(pageOffset & ~(kPageSize - 1),
-				range.get<0>() & ~(kPageSize - 1),
-				self->compilePageFlags(), range.get<2>());
-		self->owner->_residuentSize += kPageSize;
-		logRss(self->owner.get());
+
+		// Do not call into markDirty() with a lock held.
+		PageStatus status;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&self->pagingMutex);
+
+			status = self->owner->_ops->unmapSingle4k(pageOffset & ~(kPageSize - 1));
+			self->owner->_ops->mapSingle4k(pageOffset & ~(kPageSize - 1),
+					range.get<0>() & ~(kPageSize - 1),
+					self->compilePageFlags(), range.get<2>());
+		}
+
+		if(status & page_status::present) {
+			if(status & page_status::dirty)
+				self->view->markDirty(self->viewOffset + offset, kPageSize);
+		}else{
+			self->owner->_residuentSize += kPageSize;
+			logRss(self->owner.get());
+		}
 
 		self->view->unlockRange((self->viewOffset + offset) & ~(kPageSize - 1), kPageSize);
 
@@ -237,23 +251,23 @@ coroutine<void> Mapping::runEvictionLoop() {
 		assert(!(shootOffset & (kPageSize - 1)));
 		assert(!(shootSize & (kPageSize - 1)));
 
-		// Wait until we are allowed to evict existing pages.
-		// TODO: invent a more specialized synchronization mechanism for this.
-		{
-			auto irq_lock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&evictMutex);
-		}
-
-		// TODO: Perform proper locking here!
-
 		// Unmap the memory range.
 		for(size_t pg = 0; pg < shootSize; pg += kPageSize) {
-			auto status = owner->_ops->unmapSingle4k(address + shootOffset + pg);
+			// Do not call into markDirty() with a lock held.
+			PageStatus status;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&pagingMutex);
+
+				status = owner->_ops->unmapSingle4k(address + shootOffset + pg);
+			}
+
 			if(!(status & page_status::present))
 				continue;
 			if(status & page_status::dirty)
 				view->markDirty(viewOffset + shootOffset + pg, kPageSize);
 			owner->_residuentSize -= kPageSize;
+			logRss(owner.get());
 		}
 
 		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
@@ -318,12 +332,22 @@ void VirtualSpace::retire() {
 
 		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 			VirtualAddr vaddr = mapping->address + progress;
-			auto status = _ops->unmapSingle4k(vaddr);
+
+			// Do not call into markDirty() with a lock held.
+			PageStatus status;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&mapping->pagingMutex);
+
+				status = _ops->unmapSingle4k(vaddr);
+			}
+
 			if(!(status & page_status::present))
 				continue;
 			if(status & page_status::dirty)
 				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
 			_residuentSize -= kPageSize;
+			logRss(this);
 		}
 
 		mapping = MappingTree::successor(mapping);
@@ -441,22 +465,19 @@ bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		// TODO: Allow inaccessible mappings.
 		assert((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-		{
-			// Synchronize with the eviction loop.
+		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
+			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
+
 			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&mapping->evictMutex);
+			auto lock = frg::guard(&mapping->pagingMutex);
 
-			for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
-				auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
-
-				VirtualAddr vaddr = mapping->address + progress;
-				assert(!_ops->isMapped(vaddr));
-				if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-					_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
-							pageFlags, physicalRange.get<1>());
-					_residuentSize += kPageSize;
-					logRss(this);
-				}
+			VirtualAddr vaddr = mapping->address + progress;
+			assert(!_ops->isMapped(vaddr));
+			if(physicalRange.get<0>() != PhysicalAddr(-1)) {
+				_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
+						pageFlags, physicalRange.get<1>());
+				_residuentSize += kPageSize;
+				logRss(this);
 			}
 		}
 
@@ -514,27 +535,33 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 	// TODO: Allow inaccessible mappings.
 	assert((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-	{
-		// Synchronize with the eviction loop.
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mapping->evictMutex);
+	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
+		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
 
-		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
-			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
+		VirtualAddr vaddr = mapping->address + progress;
 
-			VirtualAddr vaddr = mapping->address + progress;
-			auto status = _ops->unmapSingle4k(vaddr);
-			if(!(status & page_status::present))
-				continue;
-			if(status & page_status::dirty)
-				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
-			if(physicalRange.get<0>() != PhysicalAddr(-1)) {
+		// Do not call into markDirty() with a lock held.
+		PageStatus status;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mapping->pagingMutex);
+
+			status = _ops->unmapSingle4k(vaddr);
+			if(physicalRange.get<0>() != PhysicalAddr(-1))
 				_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
 						pageFlags, physicalRange.get<1>());
-			}else{
-				_residuentSize -= kPageSize;
-			}
 		}
+
+		if(status & page_status::present) {
+			if(status & page_status::dirty)
+				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
+			if(physicalRange.get<0>() == PhysicalAddr(-1))
+				_residuentSize -= kPageSize;
+		}else{
+			if(physicalRange.get<0>() != PhysicalAddr(-1))
+				_residuentSize += kPageSize;
+		}
+		logRss(this);
 	}
 
 	async::detach_with_allocator(*kernelAlloc,
@@ -565,12 +592,22 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 	// Mark pages as dirty and unmap without holding a lock.
 	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
 		VirtualAddr vaddr = mapping->address + progress;
-		auto status = _ops->unmapSingle4k(vaddr);
+
+		// Do not call into markDirty() with a lock held.
+		PageStatus status;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&mapping->pagingMutex);
+
+			status = _ops->unmapSingle4k(vaddr);
+		}
+
 		if(!(status & page_status::present))
 			continue;
 		if(status & page_status::dirty)
 			mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
 		_residuentSize -= kPageSize;
+		logRss(this);
 	}
 
 	static constexpr auto deleteMapping = [] (VirtualSpace *space, Mapping *mapping) {
@@ -688,22 +725,24 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode
 			assert(mapping->state == MappingState::active);
 			assert(mappingOffset + mappingChunk <= mapping->length);
 
-			// Synchronize with the eviction loop.
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&mapping->evictMutex);
+			for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
+					chunkProgress += kPageSize) {
+				VirtualAddr vaddr = mapping->address + mappingOffset + chunkProgress;
 
-				for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
-						chunkProgress += kPageSize) {
-					VirtualAddr vaddr = mapping->address + mappingOffset + chunkProgress;
-					auto status = self->_ops->cleanSingle4k(vaddr);
-					if(!(status & page_status::present))
-						continue;
-					if(status & page_status::dirty)
-						mapping->view->markDirty(mapping->viewOffset + chunkProgress, kPageSize);
+				// Do not call into markDirty() with a lock held.
+				PageStatus status;
+				{
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&mapping->pagingMutex);
+
+					status = self->_ops->cleanSingle4k(vaddr);
 				}
-			}
 
+				if(!(status & page_status::present))
+					continue;
+				if(status & page_status::dirty)
+					mapping->view->markDirty(mapping->viewOffset + chunkProgress, kPageSize);
+			}
 			overallProgress += mappingChunk;
 		}
 		co_await self->_ops->shootdown(alignedAddress, alignedSize);

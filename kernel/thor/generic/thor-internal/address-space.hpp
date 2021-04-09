@@ -406,7 +406,10 @@ public:
 	smarter::shared_ptr<MemoryView> view;
 	size_t viewOffset;
 
-	frg::ticket_spinlock evictMutex;
+	// This mutex is held whenever we modify parts of the page space that belong
+	// to this mapping (using VirtualOperation::mapSingle4k and similar). This is
+	// necessary since we sometimes need to read pages before writing them.
+	frg::ticket_spinlock pagingMutex;
 };
 
 struct HoleLess {
