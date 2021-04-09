@@ -45,7 +45,6 @@ int main() {
 
 	auto block_ahci = fork();
 	if(!block_ahci) {
-		/* execl("/bin/runsvr", "/bin/runsvr", "run", "/lib/managarm/server/block-ahci.bin", nullptr); */
 		execl("/bin/runsvr", "/bin/runsvr", "run", "/lib/block-ahci.bin", nullptr);
 	}else assert(block_ahci != -1);
 
