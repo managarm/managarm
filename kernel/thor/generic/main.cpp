@@ -115,7 +115,7 @@ extern "C" void thorMain() {
 	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
 
-	basicInitEngine.run();
+	basicInitEngine.run(getTaskingAvailableStage());
 
 	initializeRandom();
 
@@ -129,6 +129,8 @@ extern "C" void thorMain() {
 	initializeProfile();
 
 	KernelFiber::run([=] () mutable {
+		basicInitEngine.run();
+
 		// Complete the system initialization.
 		initializeMbusStream();
 		extendedInitEngine.run();

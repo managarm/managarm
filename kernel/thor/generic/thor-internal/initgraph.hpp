@@ -85,6 +85,7 @@ private:
 	frg::default_list_hook<Node> queueHook_;
 
 	bool done_ = false;
+	bool wanted_ = false;
 
 	unsigned int nUnsatisfied = 0;
 };
@@ -94,20 +95,55 @@ struct Engine {
 
 	constexpr Engine() = default;
 
-	void run() {
-		// First, count the number of in-edges.
-		for(auto node : nodes_) {
-			for(auto edge : node->inList_) {
-				(void)edge;
-				++node->nUnsatisfied;
+	void run(Node *goal = nullptr) {
+		frg::intrusive_list<
+			Node,
+			frg::locate_member<
+				Node,
+				frg::default_list_hook<Node>,
+				&Node::queueHook_
+			>
+		> q;
+
+		// First, identify all nodes that we want to run.
+		if(goal) {
+			if(!goal->wanted_) {
+				q.push_back(goal);
+				goal->wanted_ = true;
 			}
 
-			if(!node->nUnsatisfied)
-				queue_.push_back(node);
+			while(!q.empty())  {
+				auto node = q.pop_front();
+
+				// We also want the dependencies of the current node.
+				for(auto edge : node->inList_) {
+					if(!edge->source_->wanted_) {
+						q.push_back(edge->source_);
+						edge->source_->wanted_ = true;
+					}
+				}
+			}
+		}else{
+			// If no goal is defined, we pick all nodes.
+			for(auto node : nodes_)
+				node->wanted_ = true;
 		}
 
-		while(!queue_.empty()) {
-			auto current = queue_.pop_front();
+		for(auto node : nodes_) {
+			if(!node->wanted_)
+				continue;
+			// Skip nodes that ran in a previous call to run().
+			if(node->done_)
+				continue;
+
+			if(!node->nUnsatisfied)
+				pending_.push_back(node);
+		}
+
+		// Now, run pending nodes until no such nodes remain.
+		while(!pending_.empty()) {
+			auto current = pending_.pop_front();
+			assert(current->wanted_);
 			assert(!current->done_);
 
 			if(current->type_ == NodeType::task)
@@ -126,13 +162,15 @@ struct Engine {
 
 				assert(successor->nUnsatisfied);
 				--successor->nUnsatisfied;
-				if(!successor->nUnsatisfied)
-					queue_.push_back(successor);
+				if(successor->wanted_ && !successor->done_ && !successor->nUnsatisfied)
+					pending_.push_back(successor);
 			}
 		}
 
 		unsigned int nUnreached = 0;
 		for(auto node : nodes_) {
+			if(!node->wanted_)
+				continue;
 			if(node->done_)
 				continue;
 			if(node->type_ == NodeType::stage)
@@ -163,7 +201,7 @@ private:
 			frg::default_list_hook<Node>,
 			&Node::queueHook_
 		>
-	> queue_;
+	> pending_;
 };
 
 inline void realizeNode(Node *node) {
@@ -181,6 +219,7 @@ inline void realizeNode(Node *node) {
 inline void realizeEdge(Edge *edge) {
 	edge->source_->outList_.push_back(edge);
 	edge->target_->inList_.push_back(edge);
+	++edge->target_->nUnsatisfied;
 }
 
 struct Stage : Node {
