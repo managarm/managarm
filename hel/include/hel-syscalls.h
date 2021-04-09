@@ -211,7 +211,7 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitSynchronizeSpa
 			(HelWord)queue, (HelWord)context);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(void *pointer, 
+extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(const void *pointer, 
 		uintptr_t *physical) {
 	HelWord handle_word;
 	HelError error = helSyscall1_1(kHelCallPointerPhysical, (HelWord)pointer, &handle_word);

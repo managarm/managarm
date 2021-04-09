@@ -4,7 +4,6 @@
 #include <protocols/hw/client.hpp>
 
 #include "controller.hpp"
-#include "spec.hpp"
 
 std::vector<std::unique_ptr<Controller>> globalControllers;
 

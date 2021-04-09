@@ -1,7 +1,8 @@
 #include <inttypes.h>
 
+#include <helix/timer.hpp>
+
 #include "controller.hpp"
-#include "util.hpp"
 
 namespace regs {
 	constexpr arch::scalar_register<uint32_t> cap{0x0};
@@ -59,16 +60,16 @@ async::detached Controller::run() {
 		regs_.store(regs::biosHandoff, biosHandoff | flags::bohc::osOwnership);
 
 		// Spec is slightly unclear what to do here: first, wait on BOS = 0 for 25ms.
-		auto timedOut = co_await kindaBusyWait(25'000'000,
+		auto success = co_await helix::kindaBusyWait(25'000'000,
 				[&]{ return !(regs_.load(regs::biosHandoff) & flags::bohc::biosOwnership); });
 
-		if (timedOut) {
+		if (!success) {
 			// If BB is now set, we wait on BOS = 0 for 2 seconds.
 			if (regs_.load(regs::biosHandoff) & flags::bohc::biosBusy) {
 				std::cout << "block/ahci: BIOS handoff timed out once, retrying...\n";
-				timedOut = co_await kindaBusyWait(2'000'000'000,
+				success = co_await helix::kindaBusyWait(2'000'000'000,
 					[&]{ return !(regs_.load(regs::biosHandoff) & flags::bohc::biosOwnership); });
-				assert(!timedOut && "block/ahci: BIOS handoff timed out twice");
+				assert(success && "block/ahci: BIOS handoff timed out twice");
 			} else {
 				std::cout << "block/ahci: BIOS handoff timed out once, assuming control\n";
 			}
@@ -80,9 +81,9 @@ async::detached Controller::run() {
 	regs_.store(regs::ghc, ghc | flags::ghc::hbaReset);
 
 	// Wait until the reset is complete (HR = 0), with a timeout of 1s
-	auto timedOut = co_await kindaBusyWait(1'000'000'000,
+	auto success = co_await helix::kindaBusyWait(1'000'000'000,
 		[&]{ return !(regs_.load(regs::ghc) & flags::ghc::hbaReset); });
-	assert(!timedOut && "block/ahci: HBA timed out after reset");
+	assert(success && "block/ahci: HBA timed out after reset");
 
 	ghc = regs_.load(regs::ghc);
 	regs_.store(regs::ghc, ghc | flags::ghc::ahciEnable);

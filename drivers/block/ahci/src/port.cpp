@@ -1,9 +1,9 @@
-#include <helix/memory.hpp>
-
 #include <inttypes.h>
 
+#include <helix/memory.hpp>
+#include <helix/timer.hpp>
+
 #include "port.hpp"
-#include "util.hpp"
 
 namespace regs {
 	constexpr arch::scalar_register<uint32_t> clBase{0x0}; 
@@ -69,29 +69,29 @@ async::result<bool> Port::init() {
 	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::start);
 
 	// Wait until PxCMD.CR = 0 with 500ms timeout
-	auto timedOut = co_await kindaBusyWait(500'000'000, [&](){
+	auto success = co_await helix::kindaBusyWait(500'000'000, [&](){
 		return !(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning); });
-	assert(!timedOut);
+	assert(success);
 	
 	// Clear PxCMD.FRE (must be done before rebase)
 	cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::fisReceiveEnable);
 
 	// Wait until PxCMD.FR = 0 with 500ms timeout
-	timedOut = co_await kindaBusyWait(500'000'000, [&](){
+	success = co_await helix::kindaBusyWait(500'000'000, [&](){
 			return !(regs_.load(regs::commandAndStatus) & flags::cmd::fisReceiveRunning); });
-	assert(!timedOut);
+	assert(success);
 
 	// Allocate memory for command list, received FIS, and command tables
-	// Note: the combination of libarch DMA types and helPointerPhysical ensures that
+	// Note: the combination of libarch DMA types and ptrToPhysical ensures that
 	// these buffers will remain present in the page tables at all times.
 	commandList_ = arch::dma_object<commandList>{nullptr};
 	commandTables_ = arch::dma_array<commandTable>{nullptr, numCommandSlots_};
 	receivedFis_ = arch::dma_object<receivedFis>{nullptr};
 
-	uintptr_t clPhys = virtToPhys(commandList_.data()),
-			  ctPhys = virtToPhys(&commandTables_[0]),
-			  rfPhys = virtToPhys(receivedFis_.data());
+	uintptr_t clPhys = helix::ptrToPhysical(commandList_.data()),
+			  ctPhys = helix::ptrToPhysical(&commandTables_[0]),
+			  rfPhys = helix::ptrToPhysical(receivedFis_.data());
 	assert((clPhys & 0x3FF) == 0 && clPhys < std::numeric_limits<uint32_t>::max());
 	assert((ctPhys & 0x7F) == 0 && ctPhys < std::numeric_limits<uint32_t>::max());
 	assert((rfPhys & 0xFF) == 0 && rfPhys < std::numeric_limits<uint32_t>::max());
@@ -125,9 +125,9 @@ async::detached Port::run() {
 	regs_.store(regs::commandIssue, 1 << slot);
 
 	// Just poll for completion for simplicity
-	auto timedOut = co_await kindaBusyWait(500'000'000,
+	auto success = co_await helix::kindaBusyWait(500'000'000,
 			[&](){ return !(regs_.load(regs::commandIssue) & (1 << slot)); });
-	assert(!timedOut);
+	assert(success);
 
 	assert(identify->supportsLba48());
 	auto sectorCount = identify->maxLBA48;

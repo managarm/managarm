@@ -752,7 +752,7 @@ HEL_C_LINKAGE HelError helSubmitSynchronizeSpace(HelHandle spaceHandle,
 //!    	Must be aligned to the system's page size.
 HEL_C_LINKAGE HelError helUnmapMemory(HelHandle spaceHandle, void *pointer, size_t size);
 
-HEL_C_LINKAGE HelError helPointerPhysical(void *pointer, uintptr_t *physical);
+HEL_C_LINKAGE HelError helPointerPhysical(const void *pointer, uintptr_t *physical);
 
 //! Load memory (i.e., bytes) from a descriptor.
 //!

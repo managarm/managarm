@@ -3,8 +3,9 @@
 #include <inttypes.h>
 #include <unistd.h>
 
+#include <helix/memory.hpp>
+
 #include "command.hpp"
-#include "util.hpp"
 
 namespace {
 	constexpr bool logCommands = false;
@@ -33,7 +34,7 @@ void Command::notifyCompletion() {
 }
 
 void Command::prepare(commandTable& table, commandHeader& header) {
-	auto tablePhys = virtToPhys(&table);
+	auto tablePhys = helix::ptrToPhysical(&table);
 	assert(tablePhys < std::numeric_limits<uint32_t>::max() &&
 			numSectors_ < std::numeric_limits<uint16_t>::max());
 
@@ -57,7 +58,7 @@ void Command::prepare(commandTable& table, commandHeader& header) {
 	header.configBytes[1] = 0;
 	header.prdtLength = numEntries;
 	header.prdByteCount = 0;
-	header.ctBase = static_cast<uint32_t>(virtToPhys(&table));
+	header.ctBase = static_cast<uint32_t>(helix::ptrToPhysical(&table));
 	header.ctBaseUpper = 0;
 
 	switch (type_) {
@@ -114,14 +115,14 @@ size_t Command::writeScatterGather_(commandTable& table) {
 		auto nextAlignedAddr = (virtStart + pageSize) / pageSize * pageSize;
 		auto bytesUntilAligned = nextAlignedAddr - virtStart;
 		auto bytesToWrite = std::min(numBytes_, bytesUntilAligned);
-		addEntry(virtToPhys(virtStart), bytesToWrite);
+		addEntry(helix::addressToPhysical(virtStart), bytesToWrite);
 
 		virtStart = nextAlignedAddr;
 	}
 
 	// Insert every page in the buffer into the scatter-gather list.
 	for (uintptr_t virt = virtStart; virt < virtEnd; virt += pageSize) {
-		uintptr_t phys = virtToPhys(virt);
+		uintptr_t phys = helix::addressToPhysical(virt);
 		
 		// TODO: As a small optimisation, we could accumulate into the previous entry if they
 		// happen to be physically contiguous.
