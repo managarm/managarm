@@ -15,3 +15,9 @@ executable('block-ahci',
 		proto_lite_dep],
 	install: true)
 
+custom_target('block-ahci-server',
+	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output: 'block-ahci.bin',
+	input: 'block-ahci.yml',
+	install: true,
+	install_dir: get_option('libdir') / 'managarm/server')
