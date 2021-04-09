@@ -15,29 +15,29 @@ namespace regs {
 
 namespace flags {
 	namespace ghc {
-		constexpr int AHCI_ENABLE	   = 1 << 31;
-		constexpr int INTERRUPT_ENABLE = 1 << 1;
-		constexpr int HBA_RESET		   = 1;
+		constexpr int ahciEnable      = 1 << 31;
+		constexpr int interruptEnable = 1 << 1;
+		constexpr int hbaReset        = 1;
 	}
 
 	namespace bohc {
-		constexpr int BIOS_BUSY		 = 1 << 4;
-		constexpr int OS_OWNERSHIP	 = 1 << 1;
-		constexpr int BIOS_OWNERSHIP = 1;
+		constexpr int biosBusy       = 1 << 4;
+		constexpr int osOwnership    = 1 << 1;
+		constexpr int biosOwnership  = 1;
 	}
 
 	namespace cap {
-		constexpr int SUPPORTS_64BIT   = 1 << 31;
-		constexpr int STAGGERED_SPINUP = 1 << 27;
+		constexpr int supports64Bit   = 1 << 31;
+		constexpr int staggeredSpinup = 1 << 27;
 	}
 
 	namespace cap2 {
-		constexpr int SUPPORTS_HANDOFF = 1;
+		constexpr int supportsHandoff = 1;
 	}
 }
 
 namespace {
-	constexpr bool LOG_COMMANDS = false;
+	constexpr bool logCommands = false;
 }
 
 Controller::Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
@@ -49,25 +49,25 @@ Controller::Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
 async::detached Controller::run() {
 	// Enable AHCI
 	auto ghc = regs_.load(regs::ghc);
-	regs_.store(regs::ghc, ghc | flags::ghc::AHCI_ENABLE);
+	regs_.store(regs::ghc, ghc | flags::ghc::ahciEnable);
 
 	// Perform BIOS -> OS handoff (10.6.3)
 	auto version = regs_.load(regs::version);
 	auto cap2 = regs_.load(regs::cap2);
-	if (version >= 0x10200 && (cap2 & flags::cap2::SUPPORTS_HANDOFF)) {
+	if (version >= 0x10200 && (cap2 & flags::cap2::supportsHandoff)) {
 		auto biosHandoff = regs_.load(regs::biosHandoff);
-		regs_.store(regs::biosHandoff, biosHandoff | flags::bohc::OS_OWNERSHIP);
+		regs_.store(regs::biosHandoff, biosHandoff | flags::bohc::osOwnership);
 
 		// Spec is slightly unclear what to do here: first, wait on BOS = 0 for 25ms.
 		auto timedOut = co_await kindaBusyWait(25'000'000,
-				[&]{ return !(regs_.load(regs::biosHandoff) & flags::bohc::BIOS_OWNERSHIP); });
+				[&]{ return !(regs_.load(regs::biosHandoff) & flags::bohc::biosOwnership); });
 
 		if (timedOut) {
 			// If BB is now set, we wait on BOS = 0 for 2 seconds.
-			if (regs_.load(regs::biosHandoff) & flags::bohc::BIOS_BUSY) {
+			if (regs_.load(regs::biosHandoff) & flags::bohc::biosBusy) {
 				std::cout << "block/ahci: BIOS handoff timed out once, retrying...\n";
 				timedOut = co_await kindaBusyWait(2'000'000'000,
-					[&]{ return !(regs_.load(regs::biosHandoff) & flags::bohc::BIOS_OWNERSHIP); });
+					[&]{ return !(regs_.load(regs::biosHandoff) & flags::bohc::biosOwnership); });
 				assert(!timedOut && "block/ahci: BIOS handoff timed out twice");
 			} else {
 				std::cout << "block/ahci: BIOS handoff timed out once, assuming control\n";
@@ -77,15 +77,15 @@ async::detached Controller::run() {
 
 	// Reset the controller (10.4.3)
 	ghc = regs_.load(regs::ghc);
-	regs_.store(regs::ghc, ghc | flags::ghc::HBA_RESET);
+	regs_.store(regs::ghc, ghc | flags::ghc::hbaReset);
 
 	// Wait until the reset is complete (HR = 0), with a timeout of 1s
 	auto timedOut = co_await kindaBusyWait(1'000'000'000,
-		[&]{ return !(regs_.load(regs::ghc) & flags::ghc::HBA_RESET); });
+		[&]{ return !(regs_.load(regs::ghc) & flags::ghc::hbaReset); });
 	assert(!timedOut && "block/ahci: HBA timed out after reset");
 
 	ghc = regs_.load(regs::ghc);
-	regs_.store(regs::ghc, ghc | flags::ghc::AHCI_ENABLE);
+	regs_.store(regs::ghc, ghc | flags::ghc::ahciEnable);
 
 	auto cap = regs_.load(regs::cap);
 	maxPorts_ = (cap & 0xF) + 1;
@@ -96,8 +96,8 @@ async::detached Controller::run() {
 
 	auto numCommandSlots = ((cap >> 8) & 0x1F) + 1;
 	auto iss = (cap >> 20) & 0xF;
-	bool ss = cap & flags::cap::STAGGERED_SPINUP;
-	bool s64a = cap & flags::cap::SUPPORTS_64BIT;
+	bool ss = cap & flags::cap::staggeredSpinup;
+	bool s64a = cap & flags::cap::supports64Bit;
 	assert(s64a); // TODO: We aren't allowed to read some fields if no 64-bit support
 
 	printf("block/ahci: Initialised controller: version %x, %d active ports, "
@@ -112,7 +112,7 @@ async::detached Controller::run() {
 	// Enable interrupts
 	co_await hwDevice_.enableBusIrq();
 	ghc = regs_.load(regs::ghc);
-	regs_.store(regs::ghc, ghc | flags::ghc::INTERRUPT_ENABLE);
+	regs_.store(regs::ghc, ghc | flags::ghc::interruptEnable);
 
 	handleIrqs_();
 
@@ -125,7 +125,7 @@ async::detached Controller::handleIrqs_() {
 	irqSequence_ = 0;
 
 	while (true) {
-		if (LOG_COMMANDS) {
+		if (logCommands) {
 			printf("block/ahci: Awaiting IRQ, seq %" PRIu64 ", status %x\n",
 				irqSequence_, regs_.load(regs::interruptStatus));
 		}
@@ -134,7 +134,7 @@ async::detached Controller::handleIrqs_() {
 		HEL_CHECK(await.error());
 		irqSequence_ = await.sequence();
 
-		if (LOG_COMMANDS) {
+		if (logCommands) {
 			printf("block/ahci: Received IRQ, seq %" PRIu64 ", status %x\n",
 				irqSequence_, regs_.load(regs::interruptStatus));
 		}

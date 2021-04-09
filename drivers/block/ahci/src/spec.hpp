@@ -4,11 +4,11 @@
 #include <cstdint>
 
 namespace limits {
-	constexpr size_t MAX_CMD_SLOTS = 32;
-	constexpr size_t MAX_PORTS	   = 32;
+	constexpr size_t maxCmdSlots = 32;
+	constexpr size_t maxPorts    = 32;
 }
 
-struct received_fis {
+struct receivedFis {
 	uint8_t dmaFis[0x1C];
 	uint8_t _reservedA[4];
 	uint8_t pioFis[0x14];
@@ -19,9 +19,9 @@ struct received_fis {
 	uint8_t unkFis[0x40];
 	uint8_t _reservedD[0x60];
 };
-static_assert(sizeof(received_fis) == 256);
+static_assert(sizeof(receivedFis) == 256);
 
-struct command_header {
+struct commandHeader {
 	uint8_t configBytes[2];
 	uint16_t prdtLength;
 	uint32_t prdByteCount;
@@ -29,22 +29,22 @@ struct command_header {
 	uint32_t ctBaseUpper;
 	uint32_t _reserved[4];
 };
-static_assert(sizeof(command_header) == 32);
+static_assert(sizeof(commandHeader) == 32);
 
-struct command_list {
-	command_header slots[32];
+struct commandList {
+	commandHeader slots[32];
 };
-static_assert(sizeof(command_list) == 32 * 32);
+static_assert(sizeof(commandList) == 32 * 32);
 
-struct prdt_entry {
+struct prdtEntry {
 	uint32_t dataBase;
 	uint32_t dataBaseUpper;
 	uint32_t _reserved;
 	uint32_t info;
 };
-static_assert(sizeof(prdt_entry) == 16);
+static_assert(sizeof(prdtEntry) == 16);
 
-struct fis_h2d {
+struct fisH2D {
 	uint8_t fisType;
 	uint8_t info;
 	uint8_t command;
@@ -66,23 +66,22 @@ struct fis_h2d {
 
 	uint32_t _reservedB;
 };
-static_assert(sizeof(fis_h2d) == 20);
+static_assert(sizeof(fisH2D) == 20);
 
-struct command_table {
-	/* uint8_t commandFis[0x40]; */
-	fis_h2d commandFis;
+struct commandTable {
+	fisH2D commandFis;
 	uint8_t commandFisPad[0x40 - 20];
 
 	uint8_t atapiCommand[0x10];
 	uint8_t _reserved[0x30];
 
 	// Allows us to read 64kb into a buffer (16 * 512), plus one to deal with unaligned buffers.
-	static constexpr std::size_t PRDT_ENTRIES = 16 + 1;
-	prdt_entry prdts[PRDT_ENTRIES];
+	static constexpr std::size_t prdtEntries = 16 + 1;
+	prdtEntry prdts[prdtEntries];
 };
-static_assert(sizeof(command_table) == 128 + 16 * command_table::PRDT_ENTRIES);
+static_assert(sizeof(commandTable) == 128 + 16 * commandTable::prdtEntries);
 
-struct identify_device {
+struct identifyDevice {
 	uint16_t _junkA[27];
 	uint16_t model[20];
 	uint16_t _junkB[36];
@@ -116,4 +115,4 @@ struct identify_device {
 		return capabilities & (1 << 10);
 	}
 };
-static_assert(sizeof(identify_device) == 512);
+static_assert(sizeof(identifyDevice) == 512);

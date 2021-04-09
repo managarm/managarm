@@ -17,12 +17,12 @@ public:
 	Command(Command&) = delete;
 	Command& operator=(Command &) = delete;
 
-	Command(identify_device *buffer, CommandType type)
-		: Command(0, 0, sizeof(identify_device), reinterpret_cast<void *>(buffer), type) {
+	Command(identifyDevice *buffer, CommandType type)
+		: Command(0, 0, sizeof(identifyDevice), reinterpret_cast<void *>(buffer), type) {
 		assert(type == CommandType::identify);
 	}
 
-	void prepare(command_table& table, command_header& header);
+	void prepare(commandTable& table, commandHeader& header);
 	void notifyCompletion(); 
 
 	async::result<void> getFuture() {
@@ -30,7 +30,7 @@ public:
 	}
 
 private:
-	size_t writeScatterGather_(command_table& table);
+	size_t writeScatterGather_(commandTable& table);
 
 private:
 	uint64_t sector_;

@@ -21,31 +21,31 @@ namespace regs {
 
 namespace flags {
 	namespace cmd {
-		constexpr int CMD_LIST_RUNNING	  = 1 << 15;
-		constexpr int FIS_RECEIVE_RUNNING = 1 << 14;
-		constexpr int FIS_RECEIVE_ENABLE  = 1 << 4;
-		constexpr int SPIN_UP_DEVICE	  = 1 << 1;
-		constexpr int START				  = 1;
+		constexpr int cmdListRunning    = 1 << 15;
+		constexpr int fisReceiveRunning = 1 << 14;
+		constexpr int fisReceiveEnable  = 1 << 4;
+		constexpr int spinUpDevice      = 1 << 1;
+		constexpr int start             = 1;
 	}
 
 	namespace is {
-		constexpr int TASK_FILE_ERROR	= 1 << 30;
-		constexpr int HOST_FATAL_ERROR	= 1 << 29;
-		constexpr int HOST_DATA_ERROR	= 1 << 28;
-		constexpr int IF_FATAL_ERROR	= 1 << 27;
-		constexpr int IF_NONFATAL_ERROR = 1 << 26;
-		constexpr int D2H_FIS			= 1;
+		constexpr int taskFileError   = 1 << 30;
+		constexpr int hostFatalError  = 1 << 29;
+		constexpr int hostDataError   = 1 << 28;
+		constexpr int ifFatalError    = 1 << 27;
+		constexpr int ifNonFatalError = 1 << 26;
+		constexpr int d2hFis          = 1;
 	}
 }
 
 namespace {
-	constexpr size_t SECTOR_SIZE = 512;
-	constexpr bool LOG_COMMANDS  = false;
+	constexpr size_t sectorSize = 512;
+	constexpr bool logCommands  = false;
 }
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
 Port::Port(int portIndex, size_t numCommandSlots, arch::mem_space regs)
-	: BlockDevice{SECTOR_SIZE},  regs_{regs}, numCommandSlots_{numCommandSlots},
+	: BlockDevice{::sectorSize},  regs_{regs}, numCommandSlots_{numCommandSlots},
 	commandsInFlight_{0}, portIndex_{portIndex} {
 
 }
@@ -53,7 +53,7 @@ Port::Port(int portIndex, size_t numCommandSlots, arch::mem_space regs)
 async::result<bool> Port::init() {
 	// Spin up device
 	auto cas = regs_.load(regs::commandAndStatus);
-	regs_.store(regs::commandAndStatus, cas | flags::cmd::SPIN_UP_DEVICE);
+	regs_.store(regs::commandAndStatus, cas | flags::cmd::spinUpDevice);
 
 	// If PxSSTS.DET != 3, PxSSTS.IPM != 1, then ignore the device for now
 	// TODO: We should poll a bit (how long?), and check for BSY/DRQ bits (10.3.1)
@@ -66,28 +66,28 @@ async::result<bool> Port::init() {
 	// 10.1.2, part 3:
 	// Clear PxCMD.ST
 	cas = regs_.load(regs::commandAndStatus);
-	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::START);
+	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::start);
 
 	// Wait until PxCMD.CR = 0 with 500ms timeout
 	auto timedOut = co_await kindaBusyWait(500'000'000, [&](){
-		return !(regs_.load(regs::commandAndStatus) & flags::cmd::CMD_LIST_RUNNING); });
+		return !(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning); });
 	assert(!timedOut);
 	
 	// Clear PxCMD.FRE (must be done before rebase)
 	cas = regs_.load(regs::commandAndStatus);
-	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::FIS_RECEIVE_ENABLE);
+	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::fisReceiveEnable);
 
 	// Wait until PxCMD.FR = 0 with 500ms timeout
 	timedOut = co_await kindaBusyWait(500'000'000, [&](){
-			return !(regs_.load(regs::commandAndStatus) & flags::cmd::FIS_RECEIVE_RUNNING); });
+			return !(regs_.load(regs::commandAndStatus) & flags::cmd::fisReceiveRunning); });
 	assert(!timedOut);
 
 	// Allocate memory for command list, received FIS, and command tables
 	// Note: the combination of libarch DMA types and helPointerPhysical ensures that
 	// these buffers will remain present in the page tables at all times.
-	commandList_ = arch::dma_object<command_list>{nullptr};
-	commandTables_ = arch::dma_array<command_table>{nullptr, numCommandSlots_};
-	receivedFis_ = arch::dma_object<received_fis>{nullptr};
+	commandList_ = arch::dma_object<commandList>{nullptr};
+	commandTables_ = arch::dma_array<commandTable>{nullptr, numCommandSlots_};
+	receivedFis_ = arch::dma_object<receivedFis>{nullptr};
 
 	uintptr_t clPhys = virtToPhys(commandList_.data()),
 			  ctPhys = virtToPhys(&commandTables_[0]),
@@ -109,16 +109,16 @@ async::result<bool> Port::init() {
 async::detached Port::run() {
 	// Enable FIS receive
 	auto cas = regs_.load(regs::commandAndStatus);
-	regs_.store(regs::commandAndStatus, cas | flags::cmd::FIS_RECEIVE_ENABLE);
+	regs_.store(regs::commandAndStatus, cas | flags::cmd::fisReceiveEnable);
 
 	// Start port (10.3.1)
-	assert(!(regs_.load(regs::commandAndStatus) & flags::cmd::CMD_LIST_RUNNING));
+	assert(!(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning));
 	cas = regs_.load(regs::commandAndStatus);
-	regs_.store(regs::commandAndStatus, cas | flags::cmd::START);
+	regs_.store(regs::commandAndStatus, cas | flags::cmd::start);
 
 	size_t slot = co_await findFreeSlot_();
 
-	arch::dma_object<identify_device> identify{nullptr};
+	arch::dma_object<identifyDevice> identify{nullptr};
 	Command cmd = Command(identify.data(), CommandType::identify);
 	cmd.prepare(commandTables_[slot], commandList_->slots[slot]);
 
@@ -143,12 +143,12 @@ async::detached Port::run() {
 	regs_.store(regs::interruptStatus, is);
 	auto ie = regs_.load(regs::interruptEnable);
 	regs_.store(regs::interruptEnable, ie
-			| flags::is::D2H_FIS
-			| flags::is::TASK_FILE_ERROR
-			| flags::is::HOST_DATA_ERROR
-			| flags::is::HOST_FATAL_ERROR
-			| flags::is::IF_FATAL_ERROR
-			| flags::is::IF_NONFATAL_ERROR);
+			| flags::is::d2hFis
+			| flags::is::taskFileError
+			| flags::is::hostDataError
+			| flags::is::hostFatalError
+			| flags::is::ifFatalError
+			| flags::is::ifNonFatalError);
 
 	submitPendingLoop_();
 
@@ -158,7 +158,7 @@ async::detached Port::run() {
 
 async::result<size_t> Port::findFreeSlot_() {
 	while (commandsInFlight_ >= numCommandSlots_) {
-		if (LOG_COMMANDS) {
+		if (logCommands) {
 			printf("block/ahci: submission queue full, waiting...\n");
 		}
 
@@ -183,13 +183,13 @@ void Port::handleIrq() {
 
 	// Check errors
 	// TODO: Make this more robust (log non-fatal errors, try to recover, print more state etc.)
-	if (is & (flags::is::HOST_FATAL_ERROR | flags::is::IF_FATAL_ERROR)) {
+	if (is & (flags::is::hostFatalError | flags::is::ifFatalError)) {
 		printf("\e[31mblock/ahci: Port %d encountered fatal error, PxIS = %u, PxSERR = %u\e[39m\n",
 				portIndex_, is, regs_.load(regs::sErr));
 		abort();
 	}
 
-	if (LOG_COMMANDS) {
+	if (logCommands) {
 		printf("block/ahci: Port %d handling IRQ: PxIS %x, PxIE %x, TFD %x, CI %x, CAS %x\n",
 				portIndex_, is, regs_.load(regs::interruptEnable), regs_.load(regs::tfd),
 				regs_.load(regs::commandIssue), regs_.load(regs::commandAndStatus));
@@ -244,7 +244,7 @@ async::result<void> Port::submitCommand_(std::unique_ptr<Command> cmd) {
 }
 
 async::result<void> Port::readSectors(uint64_t sector, void *buffer, size_t numSectors) {
-	auto cmd = std::make_unique<Command>(sector, numSectors, numSectors * SECTOR_SIZE,
+	auto cmd = std::make_unique<Command>(sector, numSectors, numSectors * sectorSize,
 			buffer, CommandType::read);
 	auto future = cmd->getFuture();
 
@@ -253,7 +253,7 @@ async::result<void> Port::readSectors(uint64_t sector, void *buffer, size_t numS
 }
 
 async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
-	auto cmd = std::make_unique<Command>(sector, numSectors, numSectors * SECTOR_SIZE,
+	auto cmd = std::make_unique<Command>(sector, numSectors, numSectors * sectorSize,
 			const_cast<void *>(buffer), CommandType::write);
 	auto future = cmd->getFuture();
 

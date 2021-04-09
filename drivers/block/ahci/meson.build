@@ -1,9 +1,9 @@
 executable('block-ahci',
     [
-        'src/main.cpp',
-        'src/controller.cpp',
-        'src/port.cpp',
-        'src/command.cpp'
+		'src/main.cpp',
+		'src/controller.cpp',
+		'src/port.cpp',
+		'src/command.cpp'
     ],
 	dependencies: [
 		clang_coroutine_dep,

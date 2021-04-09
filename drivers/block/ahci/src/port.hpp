@@ -38,9 +38,9 @@ private:
 	// Mapping is owned by Controller
 	arch::mem_space regs_;
 
-	arch::dma_object<command_list> commandList_;
-	arch::dma_array<command_table> commandTables_;
-	arch::dma_object<received_fis> receivedFis_;
+	arch::dma_object<commandList> commandList_;
+	arch::dma_array<commandTable> commandTables_;
+	arch::dma_object<receivedFis> receivedFis_;
 
 	// TODO: Move this to libasync
 	struct stl_allocator {
@@ -54,7 +54,7 @@ private:
 	};
 	async::queue<std::unique_ptr<Command>, stl_allocator> pendingCmdQueue_;
 
-	std::array<std::unique_ptr<Command>, limits::MAX_CMD_SLOTS> submittedCmds_;
+	std::array<std::unique_ptr<Command>, limits::maxCmdSlots> submittedCmds_;
 	async::doorbell freeSlotDoorbell_;
 
 	size_t numCommandSlots_;

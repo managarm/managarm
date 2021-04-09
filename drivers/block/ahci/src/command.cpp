@@ -7,7 +7,7 @@
 #include "util.hpp"
 
 namespace {
-	constexpr bool LOG_COMMANDS = false;
+	constexpr bool logCommands = false;
 }
 
 Command::Command(uint64_t sector, size_t numSectors, size_t numBytes, void *buffer,
@@ -17,7 +17,7 @@ Command::Command(uint64_t sector, size_t numSectors, size_t numBytes, void *buff
 	// TODO: Requests larger than 64k need to be split
 	assert(numBytes < 65536);
 
-	if (LOG_COMMANDS) {
+	if (logCommands) {
 		printf("block/ahci: queueing %zu byte %s to %p at sector %" PRIu64 "\n",
 			numBytes, cmdTypeToString(type_),
 			reinterpret_cast<void *>(buffer), sector);
@@ -25,21 +25,21 @@ Command::Command(uint64_t sector, size_t numSectors, size_t numBytes, void *buff
 }
 
 void Command::notifyCompletion() {
-	if (LOG_COMMANDS) {
+	if (logCommands) {
 		printf("block/ahci: completed %s to %p", cmdTypeToString(type_), buffer_);
 	}
 
 	return promise_.set_value();
 }
 
-void Command::prepare(command_table& table, command_header& header) {
+void Command::prepare(commandTable& table, commandHeader& header) {
 	auto tablePhys = virtToPhys(&table);
 	assert(tablePhys < std::numeric_limits<uint32_t>::max() &&
 			numSectors_ < std::numeric_limits<uint16_t>::max());
 
-	memset(&table, 0, sizeof(command_table));
-	table.commandFis.fisType = 0x27;
-	table.commandFis.info = (1 << 7);
+	memset(&table, 0, sizeof(commandTable));
+	table.commandFis.fisType = 0x27; // Host to Device FIS
+	table.commandFis.info = 1 << 7; // Use command register, not control register
 	table.commandFis.command = 0; // Set below
 	table.commandFis.devHead = 1 << 6; // LBA bit
 	table.commandFis.lba0 = sector_ & 0xFF;
@@ -52,8 +52,8 @@ void Command::prepare(command_table& table, command_header& header) {
 
 	auto numEntries = writeScatterGather_(table);
 
-	memset(&header, 0, sizeof(command_header));
-	header.configBytes[0] = 20/4;
+	memset(&header, 0, sizeof(commandHeader));
+	header.configBytes[0] = sizeof(fisH2D) / 4; // Supply length in words
 	header.configBytes[1] = 0;
 	header.prdtLength = numEntries;
 	header.prdByteCount = 0;
@@ -62,20 +62,20 @@ void Command::prepare(command_table& table, command_header& header) {
 
 	switch (type_) {
 		case CommandType::read:
-			table.commandFis.command = 0x25;
+			table.commandFis.command = 0x25; // READ DMA EXT
 			break;
 		case CommandType::write:
-			table.commandFis.command = 0x35;
-			header.configBytes[0] |= 1 << 6;
+			table.commandFis.command = 0x35; // WRITE DMA EXT
+			header.configBytes[0] |= 1 << 6; // Indicates we are writing
 			break;
 		case CommandType::identify:
-			table.commandFis.command = 0xEC;
+			table.commandFis.command = 0xEC; // IDENTIFY DEVICE
 			break;
 		default:
 			assert(!"unknown command type");
 	}
 
-	if (LOG_COMMANDS) {
+	if (logCommands) {
 		printf("block/ahci: submitting %zu byte %s to %p at sector %" PRIu64 "\n",
 				numBytes_, cmdTypeToString(type_), buffer_, sector_);
 	}
@@ -87,16 +87,16 @@ void Command::prepare(command_table& table, command_header& header) {
  * and calling helPointerPhysical ensures that the pages are allocated and present
  * in the page tables. Hence, we know the buffer remains in memory during the DMA.
  */
-size_t Command::writeScatterGather_(command_table& table) {
+size_t Command::writeScatterGather_(commandTable& table) {
 	// TODO: Grab the page size for each individual address
 	size_t pageSize = getpagesize();
 
 	size_t prdtIndex = 0;
 	auto addEntry = [&](uintptr_t phys, size_t bytesToWrite) {
-		assert(prdtIndex < command_table::PRDT_ENTRIES &&
+		assert(prdtIndex < commandTable::prdtEntries &&
 				phys < std::numeric_limits<uint32_t>::max() && !(phys & 1));
 
-		table.prdts[prdtIndex++] = prdt_entry {
+		table.prdts[prdtIndex++] = prdtEntry {
 			static_cast<uint32_t>(phys),
 			0,
 			0,
