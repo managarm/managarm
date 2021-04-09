@@ -15,8 +15,6 @@ namespace {
 	constexpr bool debugTimer = false;
 }
 
-extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
-
 inline constexpr arch::bit_register<uint32_t> lApicId(0x0020);
 inline constexpr arch::scalar_register<uint32_t> lApicEoi(0x00B0);
 inline constexpr arch::bit_register<uint32_t> lApicSpurious(0x00F0);
@@ -662,14 +660,14 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 		globalSystemIrqs[gsi_base + i] = pin;
 	}
 
-	earlyFibers->push(KernelFiber::post([=] {
+	KernelFiber::run([=] {
 		while(true) {
 			for(size_t i = 0; i < apic->pinCount(); ++i)
 				apic->accessPin(i)->warnIfPending();
 
 			KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(500'000'000));
 		}
-	}));
+	});
 }
 
 // --------------------------------------------------------
