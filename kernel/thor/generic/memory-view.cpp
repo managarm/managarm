@@ -1,5 +1,6 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/memory-view.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/timer.hpp>
@@ -18,8 +19,6 @@ namespace {
 // --------------------------------------------------------
 // Reclaim implementation.
 // --------------------------------------------------------
-
-extern frg::manual_box<frg::vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 struct MemoryReclaimer {
 	void addPage(CachePage *page) {
@@ -73,7 +72,7 @@ struct MemoryReclaimer {
 			page->bundle->retirePage(page);
 	}
 
-	KernelFiber *createReclaimFiber() {
+	void runReclaimFiber() {
 		auto checkReclaim = [this] () -> bool {
 			if(disableUncaching)
 				return false;
@@ -135,7 +134,7 @@ struct MemoryReclaimer {
 			return true;
 		};
 
-		return KernelFiber::post([=] {
+		KernelFiber::run([=] {
 			while(true) {
 				if(logUncaching) {
 					auto irq_lock = frg::guard(&irqMutex());
@@ -166,12 +165,14 @@ private:
 	size_t _cachedSize = 0;
 };
 
-frg::manual_box<MemoryReclaimer> globalReclaimer;
+static frg::manual_box<MemoryReclaimer> globalReclaimer;
 
-void initializeReclaim() {
-	globalReclaimer.initialize();
-	earlyFibers->push(globalReclaimer->createReclaimFiber());
-}
+initgraph::Task initOsTraceMbus{&extendedInitEngine, "generic.init-reclaim",
+	[] {
+		globalReclaimer.initialize();
+		globalReclaimer->runReclaimFiber();
+	}
+};
 
 // --------------------------------------------------------
 // MemoryView.

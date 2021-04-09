@@ -121,7 +121,6 @@ extern "C" void thorMain() {
 	basicInitEngine.run();
 
 	initializeRandom();
-	initializeReclaim();
 
 	if(logInitialization)
 		infoLogger() << "thor: Bootstrap processor initialized successfully."
