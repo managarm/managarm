@@ -105,7 +105,7 @@ async::detached Controller::run() {
 			"%d slots, Gen %d, SS %s, 64-bit %s\n", version, std::popcount(portsImpl_),
 			numCommandSlots, iss, ss ? "yes" : "no", s64a ? "yes" : "no");
 
-	if (!(co_await initPorts_(numCommandSlots))) {
+	if (!(co_await initPorts_(numCommandSlots, ss))) {
 		std::cout << "\e[31mblock/ahci: No ports found, exiting\e[39m\n";
 		co_return;
 	}
@@ -156,11 +156,11 @@ async::detached Controller::handleIrqs_() {
 	}
 }
 
-async::result<bool> Controller::initPorts_(size_t numCommandSlots) {
+async::result<bool> Controller::initPorts_(size_t numCommandSlots, bool ss) {
 	for (int i = 0; i < maxPorts_; i++) {
 		if (portsImpl_ & (1 << i)) {
 			auto offset = 0x100 + i * 0x80;
-			auto port = std::make_unique<Port>(i, numCommandSlots, regs_.subspace(offset));
+			auto port = std::make_unique<Port>(i, numCommandSlots, ss, regs_.subspace(offset));
 
 			if (co_await port->init())
 				activePorts_.push_back(std::move(port));

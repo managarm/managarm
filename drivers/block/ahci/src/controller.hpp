@@ -16,7 +16,7 @@ public:
 	async::detached run();
 
 private:
-	async::result<bool> initPorts_(size_t numCommandSlots);
+	async::result<bool> initPorts_(size_t numCommandSlots, bool staggeredSpinUp);
 	async::detached handleIrqs_();
 
 private:

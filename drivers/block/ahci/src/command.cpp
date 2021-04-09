@@ -112,7 +112,7 @@ size_t Command::writeScatterGather_(commandTable& table) {
 	// As virtStart may not be aligned to pageSize, we split off the initial
 	// unaligned part, then work with pageSize aligned chunks.
 	if (virtStart % pageSize > 0) {
-		auto nextAlignedAddr = (virtStart + pageSize) / pageSize * pageSize;
+		auto nextAlignedAddr = (virtStart + pageSize) & ~(pageSize - 1);
 		auto bytesUntilAligned = nextAlignedAddr - virtStart;
 		auto bytesToWrite = std::min(numBytes_, bytesUntilAligned);
 		addEntry(helix::addressToPhysical(virtStart), bytesToWrite);

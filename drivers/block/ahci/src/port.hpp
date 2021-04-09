@@ -15,7 +15,7 @@
 
 class Port : public blockfs::BlockDevice {
 public:
-	Port(int index, size_t numCommandSlots, arch::mem_space regs);
+	Port(int index, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs);
 
 public:
 	async::result<bool> init();
@@ -60,4 +60,5 @@ private:
 	size_t numCommandSlots_;
 	size_t commandsInFlight_;
 	int portIndex_;
+	bool staggeredSpinUp_;
 };

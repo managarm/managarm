@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
+#include <string>
 
 namespace limits {
 	constexpr size_t maxCmdSlots = 32;
@@ -88,7 +90,11 @@ struct identifyDevice {
 	uint16_t capabilities;
 	uint16_t _junkC[16];
 	uint64_t maxLBA48;
-	uint16_t _junkD[152];
+	uint16_t _junkD[2];
+	uint16_t sectorSizeInfo;
+	uint16_t _junkE[9];
+	uint16_t logicalSectorSize;
+	uint16_t _junkF[139];
 
 	std::string getModel() const {
 		char modelNative[41];
@@ -109,6 +115,25 @@ struct identifyDevice {
 		}
 
 		return out;
+	}
+
+	// Returns logical and physical sector sizes
+	std::pair<size_t, size_t> getSectorSize() const {
+		if (sectorSizeInfo & (1 << 14) && !(sectorSizeInfo & (1 << 15))) {
+			auto logical = 512;
+			if (sectorSizeInfo & (1 << 12)) {
+				// Logical sector size is greater than 512 bytes
+				logical = logicalSectorSize;
+				assert(logical > 512);
+			}
+
+			auto physical = (1 << (sectorSizeInfo & 0xF)) * logical;
+			assert(physical <= 4096);
+			return { logical, physical };
+		} else {
+			// Word is invalid, just assume 512 / 512
+			return { 512, 512 };
+		}
 	}
 
 	bool supportsLba48() const {

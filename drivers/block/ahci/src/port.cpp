@@ -21,6 +21,7 @@ namespace regs {
 
 namespace flags {
 	namespace cmd {
+		constexpr int iccActive         = 1 << 28;
 		constexpr int cmdListRunning    = 1 << 15;
 		constexpr int fisReceiveRunning = 1 << 14;
 		constexpr int fisReceiveEnable  = 1 << 4;
@@ -36,6 +37,11 @@ namespace flags {
 		constexpr int ifNonFatalError = 1 << 26;
 		constexpr int d2hFis          = 1;
 	}
+
+	namespace tfd {
+		constexpr int bsy = 1 << 7;
+		constexpr int drq = 1 << 3;
+	}
 }
 
 namespace {
@@ -44,19 +50,35 @@ namespace {
 }
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
-Port::Port(int portIndex, size_t numCommandSlots, arch::mem_space regs)
+Port::Port(int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
 	: BlockDevice{::sectorSize},  regs_{regs}, numCommandSlots_{numCommandSlots},
-	commandsInFlight_{0}, portIndex_{portIndex} {
+	commandsInFlight_{0}, portIndex_{portIndex}, staggeredSpinUp_{staggeredSpinUp} {
 
 }
 
 async::result<bool> Port::init() {
-	// Spin up device
-	auto cas = regs_.load(regs::commandAndStatus);
-	regs_.store(regs::commandAndStatus, cas | flags::cmd::spinUpDevice);
+	if (staggeredSpinUp_) {
+		// Spin up device
+		auto cas = regs_.load(regs::commandAndStatus);
+		regs_.store(regs::commandAndStatus, cas | flags::cmd::spinUpDevice);
 
-	// If PxSSTS.DET != 3, PxSSTS.IPM != 1, then ignore the device for now
-	// TODO: We should poll a bit (how long?), and check for BSY/DRQ bits (10.3.1)
+		// Wait up to 10ms for PxSSTS.DET = 1 or 3 (AHCI spec: 10.1.1, SATA 3.2 spec: 17.7.2)
+		auto success = co_await helix::kindaBusyWait(10'000'000, [&]() {
+			auto det = regs_.load(regs::status) & 0xF;
+			return det == 1 || det == 3;
+		});
+		if (!success) {
+			printf("block/ahci: Couldn't spin up port %d\n", portIndex_);
+			co_return false;
+		}
+	}
+
+	// Set link to active
+	auto cas = regs_.load(regs::commandAndStatus);
+	cas &= ~(0xF << 28); // Clear ICC
+	regs_.store(regs::commandAndStatus, cas | flags::cmd::iccActive);
+
+	// If PxSSTS.DET != 3, PxSSTS.IPM != 1 at this point, then ignore the device for now
 	auto status = regs_.load(regs::status);
 	auto ipm = (status >> 8) & 0xF;
 	auto det = status & 0xF;
@@ -111,6 +133,13 @@ async::detached Port::run() {
 	auto cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas | flags::cmd::fisReceiveEnable);
 
+	// Check that the BSY and DRQ bits are clear (necessary as per 10.3.1)
+	auto tfd = regs_.load(regs::tfd);
+	if ((tfd & flags::tfd::bsy) || (tfd & flags::tfd::drq)) {
+		printf("block/ahci: Failed to start busy port %d\n", portIndex_);
+		co_return;
+	}
+
 	// Start port (10.3.1)
 	assert(!(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning));
 	cas = regs_.load(regs::commandAndStatus);
@@ -130,10 +159,14 @@ async::detached Port::run() {
 	assert(success);
 
 	assert(identify->supportsLba48());
+	auto [logicalSize, physicalSize] = identify->getSectorSize();
 	auto sectorCount = identify->maxLBA48;
+	auto model = identify->getModel();
 
-	printf("block/ahci: Started port %d, sector count %" PRIu64 ", model %s\n",
-			portIndex_, sectorCount, identify->getModel().c_str());
+	printf("block/ahci: Started port %d, model %s, logical sector size %zu, "
+			"physical sector size %zu, sector count %" PRIu64 "\n",
+			portIndex_, model.c_str(), logicalSize, physicalSize, sectorCount);
+	assert(logicalSize == 512 && "block/ahci: logical sector size > 512 is not supported");
 
 	// Clear errors
 	regs_.store(regs::sErr, ~0);
