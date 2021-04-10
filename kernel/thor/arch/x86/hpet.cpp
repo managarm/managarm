@@ -222,6 +222,7 @@ struct HpetEntry {
 static initgraph::Task initHpetTask{&basicInitEngine, "x86.init-hpet",
 	initgraph::Requires{getApicDiscoveryStage(), // For APIC calibration.
 			acpi::getTablesDiscoveredStage()},
+	initgraph::Entails{getTaskingAvailableStage()},
 	// Initialize the HPET.
 	[] {
 		void *hpetWindow = laihost_scan("HPET", 0);
