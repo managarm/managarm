@@ -542,7 +542,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 		bool &killed) {
 	auto thread = process->threadDescriptor();
 
-	SignalHandler handler = _handlers[item->signalNumber];
+	SignalHandler handler = _handlers[item->signalNumber - 1];
 
 	// Implement SA_RESETHAND by resetting the signal disposition to default.
 	if(handler.flags & signalOnce)
