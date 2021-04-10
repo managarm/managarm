@@ -286,6 +286,16 @@ void initializeThisProcessor() {
 	// Enable FPU
 	asm volatile ("msr cpacr_el1, %0" :: "r"(uint64_t(0b11 << 20)));
 
+	// Enable access to cache info register and cache maintenance instructions
+	uint64_t sctlr;
+	asm volatile ("mrs %0, sctlr_el1" : "=r"(sctlr));
+
+	sctlr |= (uint64_t(1) << 14);
+	sctlr |= (uint64_t(1) << 15);
+	sctlr |= (uint64_t(1) << 26);
+
+	asm volatile ("msr sctlr_el1, %0" :: "r"(sctlr));
+
 	cpu_data->cpuIndex = allCpuContexts->size();
 	allCpuContexts->push(cpu_data);
 
