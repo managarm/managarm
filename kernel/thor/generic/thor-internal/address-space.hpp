@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/basic.hpp>
+#include <async/mutex.hpp>
 #include <async/oneshot-event.hpp>
 #include <frg/container_of.hpp>
 #include <frg/expected.hpp>
@@ -400,6 +401,12 @@ public:
 
 	MappingState state = MappingState::null;
 	MemoryObserver observer;
+
+	// This (asynchronous) mutex can be used to temporarily disable eviction.
+	// By disabling eviction, we can safely map pages returned from peekRange()
+	// before they can be evicted.
+	async::mutex evictionMutex;
+
 	async::cancellation_event cancelEviction;
 	async::oneshot_event evictionDoneEvent;
 	smarter::shared_ptr<MemorySlice> slice;
