@@ -7,8 +7,8 @@
 
 namespace thor {
 
-extern "C" void saveFpSimdRegisters(Frame *frame);
-extern "C" void restoreFpSimdRegisters(Frame *frame);
+extern "C" void saveFpSimdRegisters(FpRegisters *frame);
+extern "C" void restoreFpSimdRegisters(FpRegisters *frame);
 
 bool FaultImageAccessor::allowUserPages() {
 	return true;
@@ -31,7 +31,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 [[noreturn]] void restoreExecutor(Executor *executor) {
 	getCpuData()->currentDomain = static_cast<uint64_t>(executor->general()->domain);
 	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
-	restoreFpSimdRegisters(executor->general());
+	restoreFpSimdRegisters(&executor->general()->fp);
 	_restoreExecutorRegisters(executor->general());
 }
 
@@ -80,7 +80,7 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 
-	saveFpSimdRegisters(executor->general());
+	saveFpSimdRegisters(&executor->general()->fp);
 }
 
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
@@ -93,7 +93,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 
-	saveFpSimdRegisters(executor->general());
+	saveFpSimdRegisters(&executor->general()->fp);
 }
 
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
@@ -106,7 +106,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 
-	saveFpSimdRegisters(executor->general());
+	saveFpSimdRegisters(&executor->general()->fp);
 }
 
 extern "C" void workStub();
