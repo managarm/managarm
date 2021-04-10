@@ -168,7 +168,7 @@ private:
 static frg::manual_box<MemoryReclaimer> globalReclaimer;
 
 static initgraph::Task initReclaim{&globalInitEngine, "generic.init-reclaim",
-	initgraph::Requires{getTaskingAvailableStage()},
+	initgraph::Requires{getFibersAvailableStage()},
 	[] {
 		globalReclaimer.initialize();
 		globalReclaimer->runReclaimFiber();

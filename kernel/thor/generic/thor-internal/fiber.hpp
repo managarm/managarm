@@ -7,6 +7,10 @@
 
 namespace thor {
 
+// Once this stage is reached, the kernel can launch fibers.
+// (Even though they do not necessarily start yet.)
+initgraph::Stage *getFibersAvailableStage();
+
 struct KernelFiber;
 
 KernelFiber *thisFiber();

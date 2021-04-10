@@ -131,6 +131,7 @@ struct [[gnu::packed]] McfgEntry {
 };
 
 static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-acpi-config-io",
+	initgraph::Requires{acpi::getTablesDiscoveredStage()},
 	initgraph::Entails{getBus0AvailableStage()},
 	[] {
 		void *mcfgWindow = laihost_scan("MCFG", 0);
@@ -169,7 +170,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 
 
 static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-acpi-root-buses",
-	initgraph::Requires{getTaskingAvailableStage()},
+	initgraph::Requires{getTaskingAvailableStage(), acpi::getNsAvailableStage()},
 	[] {
 		LAI_CLEANUP_STATE lai_state_t laiState;
 		lai_init_state(&laiState);

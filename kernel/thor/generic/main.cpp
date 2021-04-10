@@ -107,6 +107,12 @@ initgraph::Stage *getTaskingAvailableStage() {
 	return &s;
 }
 
+// Since we boot on a fiber, fibers must be available before we enter tasking mode.
+initgraph::Edge fibersTaskingEdge{
+	getFibersAvailableStage(),
+	getTaskingAvailableStage()
+};
+
 extern "C" void thorMain() {
 	kernelCommandLine.initialize(*kernelAlloc,
 			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));

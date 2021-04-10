@@ -1,7 +1,12 @@
-
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/main.hpp>
 
 namespace thor {
+
+initgraph::Stage *getFibersAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.fibers-available"};
+	return &s;
+}
 
 void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 	auto this_fiber = thisFiber();

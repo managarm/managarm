@@ -22,5 +22,6 @@ namespace thor {
 namespace acpi {
 
 initgraph::Stage *getTablesDiscoveredStage();
+initgraph::Stage *getNsAvailableStage();
 
 } } // namespace thor::acpi

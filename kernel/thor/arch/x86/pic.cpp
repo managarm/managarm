@@ -675,6 +675,7 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 // --------------------------------------------------------
 
 static initgraph::Task setupPicTask{&globalInitEngine, "x86.setup-legacy-pic",
+	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
 		// TODO: managarm crashes on bochs if we do not remap the legacy PIC.
 		// we need to debug that and find the cause of this problem.

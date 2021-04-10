@@ -198,7 +198,7 @@ coroutine<void> initializeAtaDevice() {
 }
 
 static initgraph::Task initAtaTask{&globalInitEngine, "legacy_pc.init-ata",
-	initgraph::Requires{getTaskingAvailableStage()},
+	initgraph::Requires{getFibersAvailableStage()},
 	[] {
 		// For now, we only need the kernel fiber to make sure mbusClient is already initialized.
 		KernelFiber::run([=] {

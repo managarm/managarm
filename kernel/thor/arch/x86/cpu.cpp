@@ -485,7 +485,10 @@ void setupBootCpuContext() {
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
 	initgraph::Requires{getApicDiscoveryStage()},
-	initgraph::Entails{getTaskingAvailableStage()},
+	// TODO: initializeThisProcessor() does a lot of initialization that should be global instead;
+	//       for example: discovering whether we use syscall, VMX, etc.
+	//       Move this to another task that entails the fibers-available stage.
+	initgraph::Entails{getFibersAvailableStage()},
 	[] {
 		allCpuContexts.initialize(*kernelAlloc);
 

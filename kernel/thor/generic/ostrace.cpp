@@ -299,7 +299,8 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 }
 
 initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-mbus",
-	initgraph::Requires{getTaskingAvailableStage()},
+	initgraph::Requires{&initOsTraceCore,
+		getFibersAvailableStage()},
 	[] {
 		// Create a fiber to manage requests to the ostrace mbus object.
 		KernelFiber::run([=] {

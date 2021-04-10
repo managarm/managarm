@@ -4,6 +4,7 @@
 #include <frg/vector.hpp>
 #include <eir/interface.hpp>
 #include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/acpi/acpi.hpp>
@@ -242,6 +243,11 @@ initgraph::Stage *getTablesDiscoveredStage() {
 	return &s;
 }
 
+initgraph::Stage *getNsAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "acpi.ns-available"};
+	return &s;
+}
+
 static initgraph::Task initTablesTask{&globalInitEngine, "acpi.init-tables",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
@@ -280,7 +286,8 @@ static initgraph::Task initTablesTask{&globalInitEngine, "acpi.init-tables",
 };
 
 static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioapics",
-	initgraph::Requires{getTablesDiscoveredStage()},
+	initgraph::Requires{getTablesDiscoveredStage(),
+		getFibersAvailableStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
 		dumpMadt();
@@ -362,6 +369,7 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 static initgraph::Task enterAcpiModeTask{&globalInitEngine, "acpi.enter-acpi-mode",
 	initgraph::Requires{getTaskingAvailableStage(),
 		pci::getBus0AvailableStage()},
+	initgraph::Entails{getNsAvailableStage()},
 	[] {
 		// Configure the ISA IRQs.
 		// TODO: This is a hack. We assume that HPET will use legacy replacement.
@@ -388,11 +396,21 @@ static initgraph::Task enterAcpiModeTask{&globalInitEngine, "acpi.enter-acpi-mod
 		// Enable ACPI.
 		infoLogger() << "thor: Entering ACPI mode." << frg::endlog;
 		lai_enable_acpi(1);
-
-		bootOtherProcessors();
-		initializePmInterface();
-
 		infoLogger() << "thor: ACPI configuration complete." << frg::endlog;
+	}
+};
+
+static initgraph::Task bootApsTask{&globalInitEngine, "acpi.boot-aps",
+	initgraph::Requires{&enterAcpiModeTask},
+	[] {
+		bootOtherProcessors();
+	}
+};
+
+static initgraph::Task initPmInterfaceTask{&globalInitEngine, "acpi.init-pm-interface",
+	initgraph::Requires{&enterAcpiModeTask},
+	[] {
+		initializePmInterface();
 	}
 };
 
