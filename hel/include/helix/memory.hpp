@@ -69,6 +69,19 @@ private:
 	size_t _size;
 };
 
+template<typename T>
+uintptr_t ptrToPhysical(const T *p) {
+	uintptr_t phys;
+	HEL_CHECK(helPointerPhysical(reinterpret_cast<const void *>(p), &phys));
+	return phys;
+}
+
+inline uintptr_t addressToPhysical(uintptr_t p) {
+	uintptr_t phys;
+	HEL_CHECK(helPointerPhysical(reinterpret_cast<const void *>(p), &phys));
+	return phys;
+}
+
 } // namespace helix
 
 #endif // HEL_MEMORY_HPP

@@ -74,7 +74,7 @@ private:
 	TimeoutCallback<Functor> _tb;
 };
 
-async::result<void> sleepFor(uint64_t duration) {
+inline async::result<void> sleepFor(uint64_t duration) {
 	uint64_t tick;
 	HEL_CHECK(helGetClock(&tick));
 
@@ -83,6 +83,25 @@ async::result<void> sleepFor(uint64_t duration) {
 			helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(await.error());
+}
+
+// Returns true if the operation succeeded, or false if it timed out
+template<typename F> requires (std::is_invocable_r_v<bool, F>)
+async::result<bool> kindaBusyWait(uint64_t timeoutNs, F cond) {
+	uint64_t startNs, currNs;
+	HEL_CHECK(helGetClock(&startNs));
+
+	do {
+		if (std::invoke(cond))
+			co_return true;
+
+		// Sleep for 5ms (TODO: make adaptive?)
+		co_await sleepFor(5'000'000);
+
+		HEL_CHECK(helGetClock(&currNs));
+	} while (currNs < startNs + timeoutNs);
+
+	co_return std::invoke(cond);
 }
 
 }
