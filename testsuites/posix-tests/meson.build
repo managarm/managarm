@@ -9,5 +9,6 @@ executable('posix-tests',
 		'src/signalfd.cpp',
 		'src/stat.cpp',
 		'src/unixnames.cpp',
+		'src/signal.cpp',
 	],
 	install: true)
