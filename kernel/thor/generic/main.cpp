@@ -100,11 +100,10 @@ extern "C" void thorRunConstructors() {
 			(*p)();
 }
 
-constinit initgraph::Engine basicInitEngine;
-constinit initgraph::Engine extendedInitEngine;
+constinit initgraph::Engine globalInitEngine;
 
 initgraph::Stage *getTaskingAvailableStage() {
-	static initgraph::Stage s{&basicInitEngine, "tasking-available"};
+	static initgraph::Stage s{&globalInitEngine, "tasking-available"};
 	return &s;
 }
 
@@ -115,7 +114,8 @@ extern "C" void thorMain() {
 	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
 
-	basicInitEngine.run(getTaskingAvailableStage());
+	// Run the initgraph tasks that we need for tasking.
+	globalInitEngine.run(getTaskingAvailableStage());
 
 	initializeRandom();
 
@@ -129,11 +129,11 @@ extern "C" void thorMain() {
 	initializeProfile();
 
 	KernelFiber::run([=] () mutable {
-		basicInitEngine.run();
-
 		// Complete the system initialization.
 		initializeMbusStream();
-		extendedInitEngine.run();
+
+		// Run all other initgraph tasks.
+		globalInitEngine.run();
 
 		transitionBootFb();
 

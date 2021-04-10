@@ -12,7 +12,7 @@ namespace thor {
 static inline constexpr bool logNodeInfo = true;
 
 initgraph::Stage *getDeviceTreeParsedStage() {
-	static initgraph::Stage s{&basicInitEngine, "dtb.tree-parsed"};
+	static initgraph::Stage s{&globalInitEngine, "dtb.tree-parsed"};
 	return &s;
 }
 
@@ -437,7 +437,7 @@ DeviceTreeNode *getDeviceTreeRoot() {
 	return treeRoot;
 }
 
-static initgraph::Task initTablesTask{&basicInitEngine, "dtb.parse-dtb",
+static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 	initgraph::Entails{getDeviceTreeParsedStage()},
 	[] {
 		size_t dtbPageOff = thorBootInfoPtr->dtbPtr & (kPageSize - 1);

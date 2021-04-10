@@ -197,7 +197,8 @@ coroutine<void> initializeAtaDevice() {
 		co_await handleBind(objectLane);
 }
 
-static initgraph::Task initAtaTask{&extendedInitEngine, "legacy_pc.init-ata",
+static initgraph::Task initAtaTask{&globalInitEngine, "legacy_pc.init-ata",
+	initgraph::Requires{getTaskingAvailableStage()},
 	[] {
 		// For now, we only need the kernel fiber to make sure mbusClient is already initialized.
 		KernelFiber::run([=] {

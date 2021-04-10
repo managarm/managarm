@@ -227,11 +227,11 @@ void disarmPreemption() {
 // --------------------------------------------------------
 
 initgraph::Stage *getApicDiscoveryStage() {
-	static initgraph::Stage s{&basicInitEngine, "x86.apic-discovered"};
+	static initgraph::Stage s{&globalInitEngine, "x86.apic-discovered"};
 	return &s;
 }
 
-static initgraph::Task discoverApicTask{&basicInitEngine, "x86.discover-apic",
+static initgraph::Task discoverApicTask{&globalInitEngine, "x86.discover-apic",
 	initgraph::Entails{getApicDiscoveryStage()},
 	[] {
 		uint64_t msr = common::x86::rdmsr(common::x86::kMsrLocalApicBase);
@@ -674,7 +674,7 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 // Legacy PIC management
 // --------------------------------------------------------
 
-static initgraph::Task setupPicTask{&basicInitEngine, "x86.setup-legacy-pic",
+static initgraph::Task setupPicTask{&globalInitEngine, "x86.setup-legacy-pic",
 	[] {
 		// TODO: managarm crashes on bochs if we do not remap the legacy PIC.
 		// we need to debug that and find the cause of this problem.

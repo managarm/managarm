@@ -5,6 +5,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/framebuffer/boot-screen.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -38,6 +39,11 @@ frg::manual_box<
 		KernelAlloc
 	>
 > allConfigSpaces;
+
+initgraph::Stage *getBus0AvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "pci.bus0-available"};
+	return &s;
+}
 
 namespace {
 	coroutine<bool> handleReq(LaneHandle lane, smarter::shared_ptr<PciDevice> device) {

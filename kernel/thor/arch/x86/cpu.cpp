@@ -483,7 +483,7 @@ void setupBootCpuContext() {
 	setupCpuContext(staticBootCpuContext.get());
 }
 
-static initgraph::Task initBootProcessorTask{&basicInitEngine, "x86.init-boot-processor",
+static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
 	initgraph::Requires{getApicDiscoveryStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {

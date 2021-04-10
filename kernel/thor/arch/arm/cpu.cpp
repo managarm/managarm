@@ -269,7 +269,7 @@ void setupBootCpuContext() {
 	setupCpuContext(staticBootCpuContext.get());
 }
 
-static initgraph::Task initBootProcessorTask{&basicInitEngine, "arm.init-boot-processor",
+static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
 		allCpuContexts.initialize(*kernelAlloc);

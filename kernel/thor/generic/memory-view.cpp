@@ -167,7 +167,8 @@ private:
 
 static frg::manual_box<MemoryReclaimer> globalReclaimer;
 
-initgraph::Task initOsTraceMbus{&extendedInitEngine, "generic.init-reclaim",
+initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-reclaim",
+	initgraph::Requires{getTaskingAvailableStage()},
 	[] {
 		globalReclaimer.initialize();
 		globalReclaimer->runReclaimFiber();

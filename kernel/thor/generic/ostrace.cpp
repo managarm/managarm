@@ -24,7 +24,7 @@ constinit bool osTraceInUse = false;
 std::atomic<uint64_t> nextId{1};
 frg::manual_box<LogRingBuffer> globalOsTraceRing;
 
-initgraph::Task initOsTraceCore{&basicInitEngine, "generic.init-ostrace-core",
+initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 	[] {
 		if(!wantOsTrace)
 			return;
@@ -298,7 +298,8 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 	co_return Error::success;
 }
 
-initgraph::Task initOsTraceMbus{&extendedInitEngine, "generic.init-ostrace-mbus",
+initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-mbus",
+	initgraph::Requires{getTaskingAvailableStage()},
 	[] {
 		// Create a fiber to manage requests to the ostrace mbus object.
 		KernelFiber::run([=] {

@@ -6,6 +6,7 @@
 #include <frg/vector.hpp>
 #include <frg/hash_map.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
+#include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
 
 namespace thor {
@@ -16,6 +17,8 @@ struct IoSpace;
 struct BootScreen;
 
 namespace pci {
+
+initgraph::Stage *getBus0AvailableStage();
 
 enum class IrqIndex {
 	null, inta, intb, intc, intd
@@ -420,4 +423,5 @@ void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
 		uint32_t function, uint32_t offset, uint16_t value);
 void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
 		uint32_t function, uint32_t offset, uint8_t value);
+
 } } // namespace thor::pci

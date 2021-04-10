@@ -199,7 +199,8 @@ coroutine<void> handleBind(LaneHandle objectLane) {
 
 } // anonymous namespace
 
-static initgraph::Task initRtcTask{&extendedInitEngine, "x86.init-rtc",
+static initgraph::Task initRtcTask{&globalInitEngine, "x86.init-rtc",
+	initgraph::Requires{getTaskingAvailableStage()},
 	[] {
 		// Create a fiber to manage requests to the RTC mbus object.
 		KernelFiber::run([=] {

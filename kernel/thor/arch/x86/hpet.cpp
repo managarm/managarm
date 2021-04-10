@@ -219,7 +219,7 @@ struct HpetEntry {
 	uint8_t pageProtection;
 } __attribute__ (( packed ));
 
-static initgraph::Task initHpetTask{&basicInitEngine, "x86.init-hpet",
+static initgraph::Task initHpetTask{&globalInitEngine, "x86.init-hpet",
 	initgraph::Requires{getApicDiscoveryStage(), // For APIC calibration.
 			acpi::getTablesDiscoveredStage()},
 	initgraph::Entails{getTaskingAvailableStage()},

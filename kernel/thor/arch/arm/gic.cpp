@@ -240,7 +240,7 @@ void GicCpuInterface::eoi(uint8_t cpuId, uint32_t irqId) {
 
 frg::manual_box<GicDistributor> dist;
 
-static initgraph::Task initGic{&basicInitEngine, "arm.init-gic",
+static initgraph::Task initGic{&globalInitEngine, "arm.init-gic",
 	initgraph::Requires{getDeviceTreeParsedStage()},
 	initgraph::Entails{getIrqControllerReadyStage()},
 	// Initialize the GIC.
@@ -269,7 +269,7 @@ static initgraph::Task initGic{&basicInitEngine, "arm.init-gic",
 };
 
 initgraph::Stage *getIrqControllerReadyStage() {
-	static initgraph::Stage s{&basicInitEngine, "arm.irq-controller-ready"};
+	static initgraph::Stage s{&globalInitEngine, "arm.irq-controller-ready"};
 	return &s;
 }
 

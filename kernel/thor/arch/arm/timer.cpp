@@ -104,7 +104,7 @@ void disarmPreemption() {
 static bool timersFound = false;
 extern frg::manual_box<GicDistributor> dist;
 
-static initgraph::Task initTimerIrq{&basicInitEngine, "arm.init-timer-irq",
+static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
 	[] {
 		globalPGTInstance.initialize();

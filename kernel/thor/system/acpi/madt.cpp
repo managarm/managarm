@@ -8,6 +8,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
+#include <thor-internal/pci/pci.hpp>
 
 #include <lai/core.h>
 #include <lai/helpers/pc-bios.h>
@@ -237,11 +238,11 @@ int globalRsdtVersion;
 extern "C" EirInfo *thorBootInfoPtr;
 
 initgraph::Stage *getTablesDiscoveredStage() {
-	static initgraph::Stage s{&basicInitEngine, "acpi.tables-discovered"};
+	static initgraph::Stage s{&globalInitEngine, "acpi.tables-discovered"};
 	return &s;
 }
 
-static initgraph::Task initTablesTask{&basicInitEngine, "acpi.init-tables",
+static initgraph::Task initTablesTask{&globalInitEngine, "acpi.init-tables",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
 		lai_rsdp_info rsdp_info;
@@ -278,8 +279,9 @@ static initgraph::Task initTablesTask{&basicInitEngine, "acpi.init-tables",
 	}
 };
 
-static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioapics",
-	initgraph::Requires{getTaskingAvailableStage(), getTablesDiscoveredStage()},
+static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioapics",
+	initgraph::Requires{getTablesDiscoveredStage()},
+	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
 		dumpMadt();
 
@@ -357,7 +359,9 @@ static initgraph::Task discoverIoApicsTask{&basicInitEngine, "acpi.discover-ioap
 	}
 };
 
-static initgraph::Task enterAcpiModeTask{&extendedInitEngine, "acpi.enter-acpi-mode",
+static initgraph::Task enterAcpiModeTask{&globalInitEngine, "acpi.enter-acpi-mode",
+	initgraph::Requires{getTaskingAvailableStage(),
+		pci::getBus0AvailableStage()},
 	[] {
 		// Configure the ISA IRQs.
 		// TODO: This is a hack. We assume that HPET will use legacy replacement.
