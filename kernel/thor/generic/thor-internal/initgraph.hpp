@@ -8,6 +8,8 @@
 namespace thor {
 namespace initgraph {
 
+inline constexpr bool printDotAnnotations = false;
+
 struct Node;
 struct Edge;
 struct Engine;
@@ -214,12 +216,26 @@ inline void realizeNode(Node *node) {
 	}
 
 	node->engine_->nodes_.push_back(node);
+
+	if(printDotAnnotations) {
+		if(node->type_ == NodeType::stage) {
+			infoLogger() << "thor, initgraph.dot: n" << node
+					<< " [label=\"" << node->displayName_ << "\", shape=box];" << frg::endlog;
+		}else if(node->type_ == NodeType::task) {
+			infoLogger() << "thor, initgraph.dot: n" << node
+					<< " [label=\"" << node->displayName_ << "\"];" << frg::endlog;
+		}
+	}
 }
 
 inline void realizeEdge(Edge *edge) {
 	edge->source_->outList_.push_back(edge);
 	edge->target_->inList_.push_back(edge);
 	++edge->target_->nUnsatisfied;
+
+	if(printDotAnnotations)
+		infoLogger() << "thor, initgraph.dot: n" << edge->source_
+				<< " -> n" << edge->target_ << ";" << frg::endlog;
 }
 
 struct Stage : Node {
