@@ -2902,3 +2902,55 @@ HelError helSetAffinity(HelHandle thread, uint8_t *mask, size_t size) {
 	return kHelErrNone;
 }
 
+HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
+	HelRegisterInfo outInfo;
+
+	switch (set) {
+		case kHelRegsProgram:
+			outInfo.setSize = 2 * sizeof(uintptr_t);
+			break;
+
+		case kHelRegsGeneral:
+#if defined (__x86_64__)
+			outInfo.setSize = 15 * sizeof(uintptr_t);
+#elif defined (__aarch64__)
+			outInfo.setSize = 31 * sizeof(uintptr_t);
+#else
+#			error Unknown architecture
+#endif
+
+		case kHelRegsThread:
+#if defined (__x86_64__)
+			outInfo.setSize = 2 * sizeof(uintptr_t);
+#elif defined (__aarch64__)
+			outInfo.setSize = 1 * sizeof(uintptr_t);
+#else
+#			error Unknown architecture
+#endif
+
+#if defined (__x86_64__)
+		case kHelRegsVirtualization:
+			outInfo.setSize = sizeof(HelX86VirtualizationRegs);
+			break;
+#endif
+
+		case kHelRegsSimd:
+#if defined (__x86_64__)
+			outInfo.setSize = Executor::determineSimdSize();
+#elif defined (__aarch64__)
+			outInfo.setSize = sizeof(FpRegisters);
+#else
+#			error Unknown architecture
+#endif
+			break;
+
+		default:
+			return kHelErrIllegalArgs;
+	}
+
+	if (!writeUserObject(info, outInfo))
+		return kHelErrFault;
+
+	return kHelErrNone;
+}
+

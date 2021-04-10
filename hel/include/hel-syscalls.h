@@ -444,5 +444,10 @@ extern inline __attribute__ (( always_inline )) HelError helSetAffinity(HelHandl
 			(HelWord)mask, (HelWord)size);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helQueryRegisterInfo(int set,
+		struct HelRegisterInfo *info) {
+	return helSyscall2(kHelCallQueryRegisterInfo, (HelWord)set, (HelWord)info);
+};
+
 #endif // HEL_SYSCALLS_H
 
