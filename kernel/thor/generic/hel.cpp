@@ -1784,6 +1784,14 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 #endif
+	}else if(set == kHelRegsSimd) {
+#if defined(__x86_64__)
+		if(!writeUserMemory(image, thread->_executor._fxState(), Executor::determineSimdSize()))
+			return kHelErrFault;
+#elif defined(__aarch64__)
+		if(!writeUserMemory(image, &thread->_executor.general()->fp, sizeof(FpRegisters)))
+			return kHelErrFault;
+#endif
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1894,6 +1902,14 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 		vcpu.vcpu->storeRegs(&regs);
+#endif
+	}else if(set == kHelRegsSimd) {
+#if defined(__x86_64__)
+		if(!readUserMemory(thread->_executor._fxState(), image, Executor::determineSimdSize()))
+			return kHelErrFault;
+#elif defined(__aarch64__)
+		if(!readUserMemory(&thread->_executor.general()->fp, image, sizeof(FpRegisters)))
+			return kHelErrFault;
 #endif
 	}else{
 		return kHelErrIllegalArgs;
