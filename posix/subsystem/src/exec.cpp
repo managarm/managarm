@@ -24,7 +24,7 @@ struct ImageInfo {
 
 async::result<frg::expected<Error, ImageInfo>>
 load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
-	assert(!(base & (kPageSize - 1)));
+	assert(!(base & (kPageSize - 1))); // Callers need to ensure this.
 	ImageInfo info;
 
 	// Get a handle to the file's memory.
@@ -58,7 +58,8 @@ load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
 
 		if(phdr->p_type == PT_LOAD) {
-			assert(phdr->p_memsz > 0);
+			if(!phdr->p_memsz) // Skip empty segments.
+				continue;
 
 			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
 			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
@@ -66,8 +67,18 @@ load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 
 			// Check if we can share the segment.
 			if(!(phdr->p_flags & PF_W)) {
-				assert(!misalign);
-				assert(!(phdr->p_offset & (kPageSize - 1)));
+				if(misalign) {
+					std::cout << "posix: ELF file with misaligned segments."
+							<< std::endl;
+					co_return Error::badExecutable;
+				}
+				if((phdr->p_offset & (kPageSize - 1))) {
+					// TODO: We could handle the case where p_offset and p_vaddr are
+					//       "equally misaligned".
+					std::cout << "posix: ELF file with misaligned p_offset."
+							<< std::endl;
+					co_return Error::badExecutable;
+				}
 
 				// Map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
@@ -78,10 +89,11 @@ load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 							phdr->p_offset, mapLength, true,
 							kHelMapProtRead | kHelMapProtExecute);
 				}else{
-					throw std::runtime_error("Illegal combination of segment permissions");
+					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
+					co_return Error::badExecutable;
 				}
 			}else{
-				// map the segment with write permission into this address space.
+				// Map the segment with write permission into this address space.
 				HelHandle segmentHandle;
 				HEL_CHECK(helAllocateMemory(mapLength, 0, nullptr, &segmentHandle));
 
@@ -89,17 +101,18 @@ load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 				HEL_CHECK(helMapMemory(segmentHandle, kHelNullHandle, nullptr,
 						0, mapLength, kHelMapProtRead | kHelMapProtWrite, &window));
 
-				// map the segment with correct permissions into the process.
+				// Map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 					co_await vmContext->mapFile(mapAddress,
 							helix::UniqueDescriptor{segmentHandle}, file,
 							0, mapLength, true,
 							kHelMapProtRead | kHelMapProtWrite);
 				}else{
-					throw std::runtime_error("Illegal combination of segment permissions");
+					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
+					co_return Error::badExecutable;
 				}
 
-				// read the segment contents from the file.
+				// Read the segment contents from the file.
 				memset(window, 0, mapLength);
 				FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
 				FRG_CO_TRY(co_await file->readExactly(nullptr,
@@ -112,9 +125,10 @@ load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 				|| phdr->p_type == PT_TLS
 				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
 				|| phdr->p_type == PT_GNU_RELRO) {
-			// ignore this PHDR here.
+			// Ignore this PHDR here.
 		}else{
-			throw std::runtime_error("Unexpected PHDR type");
+			std::cout << "posix: Unexpected PHDR type" << std::endl;
+			co_return Error::badExecutable;
 		}
 	}
 
