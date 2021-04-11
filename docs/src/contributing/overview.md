@@ -2,6 +2,18 @@
 
 This section of the Managarm documentation helps you on contributing to Managarm.
 
+## Communication
+
+### Discord
+Most of our communication happens on our Discord at [https://discord.gg/7WB6Ur3](https://discord.gg/7WB6Ur3).
+
+### GitHub
+Some of our communication takes place on GitHub at [https://github.com/managarm/managarm](https://github.com/managarm/managarm).
+
+### IRC
+We also have an IRC channel `#managarm` on `chat.freenode.net`
+
+
 <!-- omit in toc -->
 # Contributing to The Managarm Project
 
@@ -26,7 +38,6 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 - [Styleguides](#styleguides)
   - [Coding Style](#coding-style)
   - [Commit Messages](#commit-messages)
-- [Join The Project Team](#join-the-project-team)
 
 
 
@@ -81,14 +92,10 @@ Updating, improving and correcting the documentation
 ## Styleguides
 ### Coding Style
 
-> This section of the Guide is Work-In-Progress. Please come back later for more information.
-
 For the general coding style used in The Managarm Project we refer you to the [coding style](coding-style.md).
 
 
 ### Commit Messages
-
-> This section of the Guide is Work-In-Progress. Please come back later for more information.
 
 For commit messages we usually write something like this:
 
@@ -101,12 +108,6 @@ If the intent or implementation are not immediately obvious, the commit should i
 <!-- TODO
 
 -->
-
-## Join The Project Team
-
-> This section of the Guide is Work-In-Progress. Please come back later for more information.
-
-Most of our communication happens over at our [Discord](https://discord.gg/7WB6Ur3).
 
 <!-- omit in toc -->
 ## Attribution

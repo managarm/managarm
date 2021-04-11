@@ -24,7 +24,6 @@
         - [libblockfs](design/drivers/libblockfs/index.md)
 
 
-- [Contributing](contributing/contributing.md)
-    - [Communication](contributing/communication.md)
-    - [Guidelines](contributing/contributing.md)
+- [Contributing](contributing/overview.md)
+    - [Overview](contributing/overview.md)
     - [Coding style](contributing/coding-style.md)
