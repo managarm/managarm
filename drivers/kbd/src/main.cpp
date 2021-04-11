@@ -311,6 +311,34 @@ async::result<void> Controller::Device::kbdInit() {
 	_evDev->enableEvent(EV_KEY, KEY_RIGHTSHIFT);
 	_evDev->enableEvent(EV_KEY, KEY_RIGHTALT);
 	_evDev->enableEvent(EV_KEY, KEY_RIGHTMETA);
+	_evDev->enableEvent(EV_KEY, KEY_F1);
+	_evDev->enableEvent(EV_KEY, KEY_F2);
+	_evDev->enableEvent(EV_KEY, KEY_F3);
+	_evDev->enableEvent(EV_KEY, KEY_F4);
+	_evDev->enableEvent(EV_KEY, KEY_F5);
+	_evDev->enableEvent(EV_KEY, KEY_F6);
+	_evDev->enableEvent(EV_KEY, KEY_F7);
+	_evDev->enableEvent(EV_KEY, KEY_F8);
+	_evDev->enableEvent(EV_KEY, KEY_F9);
+	_evDev->enableEvent(EV_KEY, KEY_F10);
+	_evDev->enableEvent(EV_KEY, KEY_F11);
+	_evDev->enableEvent(EV_KEY, KEY_F12);
+	_evDev->enableEvent(EV_KEY, KEY_KP1);
+	_evDev->enableEvent(EV_KEY, KEY_KP2);
+	_evDev->enableEvent(EV_KEY, KEY_KP3);
+	_evDev->enableEvent(EV_KEY, KEY_KP4);
+	_evDev->enableEvent(EV_KEY, KEY_KP5);
+	_evDev->enableEvent(EV_KEY, KEY_KP6);
+	_evDev->enableEvent(EV_KEY, KEY_KP7);
+	_evDev->enableEvent(EV_KEY, KEY_KP8);
+	_evDev->enableEvent(EV_KEY, KEY_KP9);
+	_evDev->enableEvent(EV_KEY, KEY_KP0);
+	_evDev->enableEvent(EV_KEY, KEY_KPMINUS);
+	_evDev->enableEvent(EV_KEY, KEY_KPPLUS);
+	_evDev->enableEvent(EV_KEY, KEY_KPDOT);
+	_evDev->enableEvent(EV_KEY, KEY_KPASTERISK);
+	_evDev->enableEvent(EV_KEY, KEY_KPSLASH);
+	_evDev->enableEvent(EV_KEY, KEY_KPENTER);
 
 	// Create an mbus object for the partition.
 	auto root = co_await mbus::Instance::global().getRoot();
