@@ -43,8 +43,6 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 
 ## I Have a Question
 
-> If you want to ask a question, we assume that you have read the available [Documentation](https://docs.managarm.org).
-
 Our primary way of communication is our [Discord server](https://discord.gg/7WB6Ur3), please don't hesitate to ask a question there, we are more then willing to help. We also use GitHub [Issues](https://github.com/managarm/managarm/issues). You can search here to see if a question has already been answered before.
 
 ## How do I contribute?
@@ -97,13 +95,7 @@ For the general coding style used in The Managarm Project we refer you to the [c
 
 ### Commit Messages
 
-For commit messages we usually write something like this:
-
-`<module>: <A sentence describing what was changed>`
-
-Where module can be something like `posix` if there was work done on the posix subsystem, `docs` if it is updating documentation or `thor` when working on the kernel. If you only touch a specific subfolder within one module, one can specify that as well, so `thor/x86` is perfectly valid when working on x86 specific kernel code.
-
-If the intent or implementation are not immediately obvious, the commit should include an explanations of what is done. Of course, we expect to see this in any pull request too.
+For the general commit message style used in The Managarm Project we refer you to the [commit message](commit-messages.md) style.
 
 <!-- TODO
 
