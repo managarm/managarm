@@ -395,7 +395,32 @@ namespace posix {
 			auto preamble = bragi::read_preamble(reqBuffer);
 			assert(!preamble.error());
 
-			if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
+			if(preamble.id() == bragi::message_id<managarm::posix::CntRequest>) {
+				// This case is only really needed to return an error from SIG_ACTION,
+				// since mlibc tries to install a signal handler to support cancellation.
+
+				auto req = bragi::parse_head_only<managarm::posix::CntRequest>(
+						reqBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION)
+					infoLogger() << "thor: Unexpected legacy POSIX request "
+							<< req->request_type() << frg::endlog;
+
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
+			}else if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
