@@ -2,7 +2,6 @@ if get_option('build_drivers')
 	helix = shared_library('helix', 'src/globals.cpp',
 		dependencies: [clang_coroutine_dep, bragi_dep],
 		include_directories: [include_directories('include/')],
-		cpp_args: ['-Wall'],
 		install: true)
 
 	install_headers(
@@ -24,7 +23,7 @@ doxyfile = configure_file(
 	input: 'Doxyfile.in',
 	output: 'Doxyfile',
 	configuration: {
-		'ROOTDIR': meson.source_root() / 'hel'
+		'ROOTDIR': meson.current_source_dir()
 	}
 )
 

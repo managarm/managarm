@@ -186,7 +186,6 @@ executable('thor', pb_sources, bragi_sources, thor_sources,
 		# If we decide to use them for something more complicated, we have to remove this.
 		'-fno-threadsafe-statics',
 		'-DLIBASYNC_CUSTOM_PLATFORM',
-		'-Wall',
 		'-Wno-non-virtual-dtor',
 		extra_cpp_args
 	],

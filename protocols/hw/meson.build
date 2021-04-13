@@ -1,10 +1,10 @@
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/hw/', 
+	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@', 
 			'@INPUT@']) 
 
-hw_pb = gen.process('../../protocols/hw/hw.proto')
+hw_pb = gen.process('hw.proto')
 hw_proto_inc = include_directories('include/')
 libhw_protocol = shared_library('hw_protocol', ['src/client.cpp', hw_pb],
 	dependencies: [

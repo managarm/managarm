@@ -6,7 +6,7 @@ gen = generator(bragi, arguments: [
 	],
 	output: '@BASENAME@.bragi.hpp')
 
-fs_bragi = gen.process('../../protocols/fs/fs.bragi')
+fs_bragi = gen.process('fs.bragi')
 fs_proto_inc = include_directories('include/')
 libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_bragi],
 	dependencies: [

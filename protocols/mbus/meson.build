@@ -1,9 +1,9 @@
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/mbus/', 
+	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@', 
 			'@INPUT@']) 
 
-mbus_pb = gen.process('../../protocols/mbus/mbus.proto')
+mbus_pb = gen.process('mbus.proto')
 mbus_proto_inc = include_directories('include/')
 libmbus_protocol = shared_library('mbus', ['src/client.cpp', mbus_pb],
 	dependencies: [

@@ -1,27 +1,23 @@
-project('managarm')
+project('managarm', ['c', 'cpp'],
+	license : 'MIT',
+	meson_version : '>=0.57.0',
+	default_options : [
+		'cpp_std=c++20',
+		'c_std=c11',
+		'warning_level=3'
+	]
+)
 
-build_code = get_option('build_kernel') \
-	or get_option('build_drivers') \
-	or get_option('build_tools')
+c_compiler = meson.get_compiler('cpp')
+cpp_compiler = meson.get_compiler('cpp')
 
-if build_code
-	add_languages('c', 'cpp')
-	c_compiler = meson.get_compiler('cpp')
-	cpp_compiler = meson.get_compiler('cpp')
+protoc = find_program('protoc')
+bragi = find_program('bragi')
+bragi_dep = declare_dependency(include_directories: 'subprojects/bragi/include')
 
-	protoc = find_program('protoc')
-	bragi = find_program('bragi')
-
-	add_project_arguments('--std=c++2a', language: 'cpp')
-
-	# clang needs an additional flag to enable sized allocation/deallocation.
-	if cpp_compiler.get_id() == 'clang'
-		add_project_arguments('-fsized-deallocation', language: 'cpp')
-	endif
-
-	bragi_dep = declare_dependency(
-		include_directories: include_directories('subprojects/bragi/include')
-	)
+# clang needs an additional flag to enable sized allocation/deallocation.
+if cpp_compiler.get_id() == 'clang'
+	add_project_arguments('-fsized-deallocation', language: 'cpp')
 endif
 
 if get_option('build_kernel')
@@ -45,9 +41,7 @@ if get_option('build_kernel')
 		],
 		language: ['c', 'cpp'])
 
-	add_global_arguments(['-fno-exceptions', '-fno-rtti'], language: 'cpp')
-
-	add_project_arguments('-fcoroutines-ts', language: 'cpp')
+	add_global_arguments(['-fno-rtti', '-fno-exceptions'], language : 'cpp')
 
 	cralgo = subproject('cralgo')
 	cxxshim = subproject('cxxshim')
@@ -72,7 +66,7 @@ endif
 if get_option('build_drivers')
 	bakesvr = find_program('bakesvr')
 
-	add_project_arguments('-fcoroutines-ts', '-DLIBASYNC_FORCE_USE_EXPERIMENTAL', language: 'cpp')
+	add_project_arguments('-DLIBASYNC_FORCE_USE_EXPERIMENTAL', language: 'cpp')
 
 	cxxshim = subproject('cxxshim')
 	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
@@ -87,10 +81,65 @@ endif
 subdir('hel')
 
 if get_option('build_drivers')
-	subdir('protocols/clock/')
-	subdir('protocols/fs/')
-	subdir('protocols/hw/')
-	subdir('protocols/mbus/')
+'''
+	# kernlet depends on mbus, so must appear laster on this list
+	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kernlet', 'ostrace' ]
+	core = [ 'core/drm', 'core/virtio', 'mbus' ]
+	posix = [ 'subsystem', 'init' ]
+	drivers = [ 
+		# libraries
+		'libblockfs', 'libevbackend', 
+		# storage
+		'block/ata', 'block/virtio-blk', 'block/ahci', 
+		# gfx
+		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware',
+		# io
+		'kbd', 'tty/virtio-console', 'uart',
+		# usb
+		'usb/hcds/uhci', 'usb/hcds/ehci', 'usb/hcds/xhci',
+		'usb/devices/hid', 'usb/devices/storage',
+		# misc
+		'kernletcc'
+	]
+	utils = [ 'runsvr', 'lsmbus' ]
+	testsuites = [ 'kernel-tests', 'posix-torture', 'posix-tests' ]
+	
+	# delay these dirs until last as they require other libs
+	# to already be built
+	delay = [ 'drivers/nic/virtio', 'servers/netserver', 'drivers/clocktracker' ]
+
+	foreach dir : protocols
+		subdir('protocols'/dir)
+	endforeach
+
+	foreach dir : core
+		subdir(dir)
+	endforeach
+
+	foreach dir : posix
+		subdir('posix'/dir)
+	endforeach
+
+	foreach dir : drivers
+		subdir('drivers'/dir)
+	endforeach
+
+	foreach dir : utils
+		subdir('utils'/dir)
+	endforeach
+
+	foreach dir : testsuites
+		subdir('testsuites'/dir)
+	endforeach
+
+	foreach dir : delay
+		subdir(dir)
+	endforeach
+'''
+	subdir('protocols/clock')
+	subdir('protocols/fs')
+	subdir('protocols/hw')
+	subdir('protocols/mbus')
 	subdir('protocols/usb/')
 	subdir('protocols/svrctl/')
 	subdir('protocols/kernlet/') # Depends on mbus.
@@ -142,9 +191,9 @@ if get_option('build_tools')
 	frigg = subproject('frigg')
 	frigg_dep = frigg.get_variable('frigg_dep')
 
-	subdir('tools/ostrace')
-	subdir('tools/bakesvr')
-	subdir('tools/pb2frigg')
+	foreach tool : [ 'ostrace', 'basesvr', 'pb2frigg' ]
+		subdir('tools'/tool)
+	endforeach
 endif
 
 subdir('docs')
