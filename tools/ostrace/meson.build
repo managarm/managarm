@@ -13,6 +13,6 @@ executable('extract-ostrace',
 	override_options: ['cpp_std=c++20'],
 	dependencies: [
 		bragi_dep,
-		frigg_dep,
+		frigg,
 	],
 	install: true)

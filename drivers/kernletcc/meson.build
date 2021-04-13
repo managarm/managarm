@@ -1,5 +1,4 @@
-
-lewis_dep = cpp_compiler.find_library('lewis')
+lewis_dep = cxx.find_library('lewis')
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
@@ -11,7 +10,7 @@ kernlet_pb = gen.process('../../protocols/kernlet/kernlet.proto')
 
 executable('kernletcc', ['src/main.cpp', 'src/fafnir.cpp', kernlet_pb],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lewis_dep,
 		lib_helix_dep,
 		proto_lite_dep,

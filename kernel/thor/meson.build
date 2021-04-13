@@ -132,12 +132,10 @@ if get_option('kernel_log_allocations')
 	extra_cpp_args = ['-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS']
 endif
 
-if host_machine.cpu_family() == 'aarch64'
+if arch == 'aarch64'
 	subdir('arch/arm')
-elif host_machine.cpu_family() == 'x86_64'
+elif arch == 'x86_64'
 	subdir('arch/x86')
-else
-	error('Unknown architecture')
 endif
 
 if want_acpi
@@ -175,9 +173,9 @@ executable('thor', pb_sources, bragi_sources, thor_sources,
 		extra_includes
 	],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		cxxshim_dep,
-		frigg_dep,
+		frigg,
 		libsmarter_dep,
 		bragi_dep
 	],

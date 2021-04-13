@@ -6,7 +6,7 @@ executable('block-ahci',
 		'src/command.cpp'
     ],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		libarch_dep,
 		lib_helix_dep,
 		hw_protocol_dep,

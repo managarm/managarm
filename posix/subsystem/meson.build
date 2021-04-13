@@ -12,15 +12,7 @@ bragi_gen = generator(bragi, arguments: [
 	],
 	output: '@BASENAME@.bragi.hpp')
 
-fs_bragi = bragi_gen.process('../../protocols/fs/fs.bragi')
 posix_bragi = bragi_gen.process('../../protocols/posix/posix.bragi')
-
-gen = generator(protoc,
-		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@',
-			'--proto_path=@CURRENT_SOURCE_DIR@../../protocols/clock',
-			'@INPUT@'])
-clock_pb = gen.process('../../protocols/clock/clock.proto')
 
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
@@ -68,7 +60,7 @@ executable('posix-subsystem',
 		kerncfg_pb,
 		posix_bragi],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep,
 		proto_lite_dep,
 		libmbus_protocol_dep,

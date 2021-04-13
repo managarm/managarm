@@ -1,14 +1,14 @@
 
 gen = generator(protoc,
 	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/usb/', 
+	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@', 
 			'@INPUT@']) 
 
-libusb_pb = gen.process('../../protocols/usb/usb.proto')
-libusb_proto_inc = include_directories('include/')
+libusb_pb = gen.process('usb.proto')
+libusb_proto_inc = 'include'
 libusb_protocol = shared_library('usb_protocol', ['src/api.cpp', 'src/client.cpp', 'src/server.cpp', libusb_pb],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		libarch_dep, lib_helix_dep, proto_lite_dep],
 	include_directories: libusb_proto_inc,
 	install: true)

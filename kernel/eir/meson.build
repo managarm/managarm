@@ -13,7 +13,7 @@ eir_includes = [include_directories(
 eir_cpp_args = []
 eir_c_args = []
 eir_link_args = ['-nostdlib']
-eir_dependencies = [cxxshim_dep, frigg_dep, libarch_dep]
+eir_dependencies = [cxxshim_dep, frigg, libarch_dep]
 
 if get_option('kernel_kasan')
 	eir_c_args += [
@@ -27,10 +27,8 @@ if get_option('kernel_log_allocations')
 	eir_cpp_args += '-DKERNEL_LOG_ALLOCATIONS'
 endif
 
-if host_machine.cpu_family() == 'aarch64'
+if arch == 'aarch64'
 	subdir('arch/arm/')
-elif host_machine.cpu_family() == 'x86_64'
+elif arch == 'x86_64'
 	subdir('arch/x86/')
-else
-	error('Unknown architecture')
 endif

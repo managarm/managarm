@@ -1,13 +1,3 @@
-gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'--protobuf',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
-
-fs_bragi = gen.process('../../protocols/fs/fs.bragi')
-
 executable('netserver',
 	[
 		'src/main.cpp',
@@ -21,7 +11,7 @@ executable('netserver',
 	],
 	dependencies: [
 		libarch_dep,
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep,
 		hw_protocol_dep,
 		libfs_protocol_dep,
@@ -30,10 +20,7 @@ executable('netserver',
 		proto_lite_dep,
 		nic_virtio_dep,
 	],
-	include_directories: [
-		include_directories('include'),
-		nic_virtio_inc,
-	],
+	include_directories: [ 'include', nic_virtio_inc ],
 	install: true)
 
 custom_target('netserver-server',

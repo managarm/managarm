@@ -1,6 +1,6 @@
 if get_option('build_drivers')
 	helix = shared_library('helix', 'src/globals.cpp',
-		dependencies: [clang_coroutine_dep, bragi_dep],
+		dependencies: [coroutines, bragi_dep],
 		include_directories: [include_directories('include/')],
 		install: true)
 

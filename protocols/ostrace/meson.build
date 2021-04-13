@@ -11,7 +11,7 @@ libostrace_protocol = shared_library('ostrace_protocol',
 		bragi_gen.process('ostrace.bragi')
 	],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep,
 		libmbus_protocol_dep,
 		proto_lite_dep],

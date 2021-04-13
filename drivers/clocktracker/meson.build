@@ -8,7 +8,7 @@ clock_pb = gen.process('../../protocols/clock/clock.proto')
 
 executable('clocktracker', ['src/main.cpp', clock_pb],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep,
 		proto_lite_dep,
 		libmbus_protocol_dep,

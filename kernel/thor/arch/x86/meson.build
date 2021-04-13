@@ -21,7 +21,7 @@ thor_sources += files(
 )
 
 trampoline = custom_target('trampoline',
-	command: c_compiler.cmd_array() + ['-o', '@OUTPUT@',
+	command: c.cmd_array() + ['-o', '@OUTPUT@',
 		'-nostdlib', '-Wl,-Ttext,0', '-Wl,--oformat,binary',
 		'@INPUT@'] + get_option('cpp_args'),
 	input: 'trampoline.S',

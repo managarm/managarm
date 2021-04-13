@@ -1,6 +1,6 @@
 executable('lsmbus', 'src/main.cpp',
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep,
 		libmbus_protocol_dep
 	],

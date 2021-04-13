@@ -14,7 +14,7 @@ libsvrctl_protocol = shared_library(
 		svrctl_pb
 	],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep, proto_lite_dep],
 	include_directories: svrctl_proto_includes,
 	install: true)

@@ -10,7 +10,7 @@ fs_bragi = gen.process('fs.bragi')
 fs_proto_inc = include_directories('include/')
 libfs_protocol = shared_library('fs_protocol', ['src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_bragi],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep, proto_lite_dep],
 	include_directories: fs_proto_inc,
 	install: true)

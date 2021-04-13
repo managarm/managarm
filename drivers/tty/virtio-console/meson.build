@@ -12,7 +12,7 @@ executable('virtio-console',
 		kerncfg_pb
 	],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep,
 		hw_protocol_dep,
 		libmbus_protocol_dep,

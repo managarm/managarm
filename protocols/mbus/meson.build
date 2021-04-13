@@ -7,7 +7,7 @@ mbus_pb = gen.process('mbus.proto')
 mbus_proto_inc = include_directories('include/')
 libmbus_protocol = shared_library('mbus', ['src/client.cpp', mbus_pb],
 	dependencies: [
-		clang_coroutine_dep,
+		coroutines,
 		lib_helix_dep, proto_lite_dep],
 	include_directories: mbus_proto_inc,
 	install: true)
