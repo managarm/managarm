@@ -1,10 +1,10 @@
-
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
 #include <sys/mman.h>
+#include <sys/poll.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/sysmacros.h>
@@ -2930,48 +2930,94 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
+			// Since file descriptors may appear multiple times in a poll() call,
+			// we need to de-duplicate them here.
+			std::unordered_map<int, unsigned int> fdsToEvents;
+
 			auto epfile = epoll::createFile();
 			assert(req.fds_size() == req.events_size());
+
+			bool errorOut = false;
 			for(int i = 0; i < req.fds_size(); i++) {
+				auto [mapIt, inserted] = fdsToEvents.insert({req.fds(i), 0});
+				if(!inserted)
+					continue;
+
 				auto file = self->fileContext()->getFile(req.fds(i));
-				assert(file && "Illegal FD for EPOLL_ADD item");
-				auto locked = file->weakFile().lock();
-				assert(locked);
-				Error ret = epoll::addItem(epfile.get(), self.get(), std::move(locked),
-						req.events(i), i);
-				if(ret == Error::alreadyExists) {
-					co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+				if(!file) {
+					// poll() is supposed to fail on a per-FD basis.
+					mapIt->second = POLLNVAL;
 					continue;
 				}
+				auto locked = file->weakFile().lock();
+				assert(locked);
+
+				// Translate POLL events to EPOLL events.
+				if(req.events(i) & ~(POLLIN | POLLPRI | POLLOUT | POLLRDHUP | POLLERR | POLLHUP
+						| POLLNVAL)) {
+					std::cout << "\e[31mposix: Unexpected events for poll()\e[39m" << std::endl;
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					errorOut = true;
+					break;
+				}
+
+				unsigned int mask = 0;
+				if(req.events(i) & POLLIN) mask |= EPOLLIN;
+				if(req.events(i) & POLLOUT) mask |= EPOLLOUT;
+				if(req.events(i) & POLLPRI) mask |= EPOLLPRI;
+				if(req.events(i) & POLLRDHUP) mask |= EPOLLRDHUP;
+				if(req.events(i) & POLLERR) mask |= EPOLLERR;
+				if(req.events(i) & POLLHUP) mask |= EPOLLHUP;
+
+				// addItem() can fail with EEXIST but we check for duplicate FDs above
+				// so that cannot happen here.
+				Error ret = epoll::addItem(epfile.get(), self.get(),
+						std::move(locked), req.fds(i), mask, req.fds(i));
 				assert(ret == Error::success);
 			}
+			if(errorOut)
+				continue;
 
 			struct epoll_event events[16];
 			size_t k;
-			if(req.timeout() == -1) {
+			if(req.timeout() < 0) {
 				k = co_await epoll::wait(epfile.get(), events, 16);
 			}else if(!req.timeout()) {
 				// Do not bother to set up a timer for zero timeouts.
 				async::cancellation_event cancel_wait;
 				cancel_wait.cancel();
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
-			}else if(req.timeout() > 0) {
+			}else{
+				assert(req.timeout() > 0);
 				async::cancellation_event cancel_wait;
 				helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 				co_await timer.retire();
-			}else{
-				assert(!"posix: Illegal timeout for EPOLL_CALL");
-				__builtin_unreachable();
+			}
+
+			// Assigned the returned events to each FD.
+			for(size_t j = 0; j < k; ++j) {
+				auto it = fdsToEvents.find(events[j].data.fd);
+				assert(it != fdsToEvents.end());
+
+				// Translate EPOLL events back to POLL events.
+				assert(!it->second);
+				if(events[j].events & EPOLLIN) it->second |= POLLIN;
+				if(events[j].events & EPOLLOUT) it->second |= POLLOUT;
+				if(events[j].events & EPOLLPRI) it->second |= POLLPRI;
+				if(events[j].events & EPOLLRDHUP) it->second |= POLLRDHUP;
+				if(events[j].events & EPOLLERR) it->second |= POLLERR;
+				if(events[j].events & EPOLLHUP) it->second |= POLLHUP;
 			}
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			for(int i = 0; i < req.fds_size(); i++)
-				resp.add_events(0);
-			for(size_t m = 0; m < k; m++)
-				resp.set_events(events[m].data.u32, events[m].events);
+			for(int i = 0; i < req.fds_size(); ++i) {
+				auto it = fdsToEvents.find(req.fds(i));
+				assert(it != fdsToEvents.end());
+				resp.add_events(it->second);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -3014,8 +3060,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto locked = file->weakFile().lock();
 			assert(locked);
-			Error ret = epoll::addItem(epfile.get(), self.get(), std::move(locked),
-					req.flags(), req.cookie());
+			Error ret = epoll::addItem(epfile.get(), self.get(),
+					std::move(locked), req.newfd(), req.flags(), req.cookie());
 			if(ret == Error::alreadyExists) {
 				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 				continue;
@@ -3041,7 +3087,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(epfile && "Illegal FD for EPOLL_MODIFY");
 			assert(file && "Illegal FD for EPOLL_MODIFY item");
 
-			Error ret = epoll::modifyItem(epfile.get(), file.get(), req.flags(), req.cookie());
+			Error ret = epoll::modifyItem(epfile.get(), file.get(), req.newfd(),
+					req.flags(), req.cookie());
 			if(ret == Error::noSuchFile) {
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
@@ -3070,7 +3117,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			Error ret = epoll::deleteItem(epfile.get(), file.get(), req.flags());
+			Error ret = epoll::deleteItem(epfile.get(), file.get(), req.newfd(), req.flags());
 			if(ret == Error::noSuchFile) {
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
@@ -3104,7 +3151,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			struct epoll_event events[16];
 			size_t k;
-			if(req.timeout() == -1) {
+			if(req.timeout() < 0) {
 				k = co_await epoll::wait(epfile.get(), events,
 						std::min(req.size(), uint32_t(16)));
 			}else if(!req.timeout()) {
@@ -3113,14 +3160,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				cancel_wait.cancel();
 				k = co_await epoll::wait(epfile.get(), events,
 						std::min(req.size(), uint32_t(16)), cancel_wait);
-			}else if(req.timeout() > 0) {
+			}else{
+				assert(req.timeout() > 0);
 				async::cancellation_event cancel_wait;
 				helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 				co_await timer.retire();
-			}else{
-				assert(!"posix: Illegal timeout for EPOLL_WAIT");
-				__builtin_unreachable();
 			}
 			if(req.sigmask_needed()) {
 				self->setSignalMask(former);
