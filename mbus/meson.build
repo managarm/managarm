@@ -1,5 +1,4 @@
-executable('mbus', ['src/main.cpp', mbus_pb],
-	dependencies: [
-		coroutines,
-		lib_helix_dep, proto_lite_dep],
-	install: true)
+executable('mbus', [ 'src/main.cpp' ],
+	dependencies: [ mbus_dep ],
+	install: true
+)

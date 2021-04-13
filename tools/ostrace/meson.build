@@ -1,6 +1,4 @@
-src = [ 'extract-ostrace.cpp', ostrace_bragi ]
-
-executable('extract-ostrace', src,
-	dependencies: [ bragi_dep, frigg ],
+executable('extract-ostrace', 'extract-ostrace.cpp',
+	dependencies: [ bragi_dep, ostrace_dep, frigg ],
 	install: true
 )

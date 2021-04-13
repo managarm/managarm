@@ -1,20 +1,25 @@
-hw_pb = protoc.process('hw.proto', 
-	extra_args : [ '--proto_path=@CURRENT_SOURCE_DIR@']
+here = meson.current_source_dir()
+hw_pb = protocxx.process(here/'hw.proto', 
+	extra_args : [ '-I' + here ]
 )
 
-hw_proto_inc = include_directories('include/')
-libhw_protocol = shared_library('hw_protocol', ['src/client.cpp', hw_pb],
-	dependencies: [
-		coroutines,
-		lib_helix_dep, proto_lite_dep],
-	include_directories: hw_proto_inc,
-	install: true)
+incs = [ 'include' ]
+deps = [ helix_dep, proto_lite_dep ]
+src = [ 'src/client.cpp', hw_pb ]
 
-hw_protocol_dep = declare_dependency(
-	link_with: libhw_protocol,
-	include_directories: hw_proto_inc)
+libhw = shared_library('hw_protocol', src,
+	dependencies: deps,
+	include_directories: incs,
+	install: true
+)
 
-install_headers(
-	'include/protocols/hw/client.hpp',
-	subdir: 'protocols/hw/')
+hw_dep = declare_dependency(
+	link_with : libhw,
+	dependencies : deps,
+	sources : hw_pb,
+	include_directories : incs
+)
 
+install_headers('include/protocols/hw/client.hpp',
+	subdir: 'protocols/hw'
+)

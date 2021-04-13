@@ -1,30 +1,30 @@
-arch_srcs = []
+src = [ 'src/core.cpp' ]
 
 if arch == 'x86_64'
-	arch_srcs += ['x86_64-src/copy-sse.S']
+	src += ['x86_64-src/copy-sse.S']
 elif arch == 'aarch64'
-	arch_srcs += ['aarch64-src/copy-fp.S']
+	src += ['aarch64-src/copy-fp.S']
 endif
 
-drm_core_inc = include_directories('include/')
-drm_core = shared_library('drm_core', [
-		'src/core.cpp',
-		fs_bragi,
-		arch_srcs,
-	],
-	dependencies: [
-		coroutines,
-		libarch_dep, lib_helix_dep, libfs_protocol_dep,
-		hw_protocol_dep, libmbus_protocol_dep, proto_lite_dep],
-	include_directories: drm_core_inc,
-	install: true)
+deps = [ libarch, fs_dep, hw_dep, mbus_dep ]
+inc = [ 'include' ]
+
+headers = [
+	'include/core/drm/range-allocator.hpp',
+	'include/core/drm/id-allocator.hpp',
+	'include/core/drm/core.hpp'
+]
+
+drm_core = shared_library('drm_core', src,
+	dependencies: deps,
+	include_directories: inc,
+	install: true
+)
 
 drm_core_dep = declare_dependency(
 	link_with: drm_core,
-	include_directories: drm_core_inc)
+	dependencies : deps,
+	include_directories: inc
+)
 
-install_headers(
-		'include/core/drm/range-allocator.hpp',
-		'include/core/drm/id-allocator.hpp',
-		'include/core/drm/core.hpp',
-		subdir: 'core/drm/')
+install_headers(headers, subdir: 'core/drm')

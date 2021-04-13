@@ -19,20 +19,31 @@ if arch != 'aarch64' and arch != 'x86_64'
 	error('unknown architecture ' + arch)
 endif
 
+proto = find_program('protoc')
+pb2frigg = find_program('pb2frigg')
+bragi = find_program('bragi')
+
 # declare generators that subdirs are going to use
-protoc = generator(find_program('protoc'),
+protocxx = generator(proto,
 	output : [ '@BASENAME@.pb.h', '@BASENAME@.pb.cc' ],
 	arguments : [ '--cpp_out=@BUILD_DIR@', '@EXTRA_ARGS@', '@INPUT@' ]
 )
 
-bragi = find_program('bragi')
+protofrg = generator(proto,
+	output : '@BASENAME@.frigg_pb.hpp',
+	arguments : [ 
+		'--plugin=protoc-gen-frigg=' + pb2frigg.full_path(),
+		'--frigg_out=@BUILD_DIR@',
+		'@EXTRA_ARGS@', '@INPUT@'
+	]
+)
 
 cxxbragi = generator(bragi,
 	output : '@BASENAME@.bragi.hpp',
 	arguments : [ '-l', 'stdc++', '--protobuf', '@INPUT@', '@OUTPUT@' ]
 )
 
-friggbragi = generator(bragi,
+frgbragi = generator(bragi,
 	output : '@BASENAME@.frigg_bragi.hpp',
 	arguments : [ '-l', 'frigg', '--protobuf', '@INPUT@', '@OUTPUT@' ]
 )
@@ -45,17 +56,10 @@ coroutines = cxxshim.get_variable('clang_coroutine_dep')
 
 frigg = subproject('frigg').get_variable('frigg_dep')
 
-# clang needs an additional flag to enable sized allocation/deallocation.
-if cxx.get_id() == 'clang'
-	add_project_arguments('-fsized-deallocation', language: 'cpp')
-endif
+libarch = subproject('libarch').get_variable('libarch_dep')
 
 if get_option('build_kernel')
-	pb2frigg = find_program('pb2frigg')
-
 	cralgo = subproject('cralgo')
-	libarch = subproject('libarch', default_options: ['install_headers=false', 'header_only=true'])
-	libarch_dep = libarch.get_variable('libarch_dep')
 	lai = subproject('lai')
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
@@ -74,16 +78,12 @@ if get_option('build_drivers')
 
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
-
-	libarch = subproject('libarch', default_options: 'install_headers=true')
-	libarch_dep = libarch.get_variable('libarch_dep')
 endif
 
 subdir('hel')
 
 if get_option('build_drivers')
-	# kernlet depends on mbus, so must appear laster on this list
-	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kernlet', 'ostrace' ]
+	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
 	core = [ 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [ 
@@ -136,10 +136,9 @@ if get_option('build_drivers')
 		subdir(dir)
 	endforeach
 
-	install_data(
-		[ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules' ],
-		install_dir: 'lib/udev/rules.d'
-	)
+	rules = [ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules' ]
+
+	install_data(rules, install_dir: 'lib/udev/rules.d')
 endif
 
 # when building these tools make sure they stay below everything else

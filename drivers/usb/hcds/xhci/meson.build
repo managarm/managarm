@@ -1,7 +1,12 @@
-executable('xhci', ['src/main.cpp'],
-	dependencies: [
-		coroutines,
-		libarch_dep, lib_helix_dep, hw_protocol_dep,
-		libmbus_protocol_dep, libusb_protocol_dep, libkernlet_protocol_dep, proto_lite_dep],
-	install: true)
+deps = [ 
+	libarch, 
+	hw_dep, mbus_dep, usb_dep, 
+	kernlet_dep
+]
+src = [ 'src/main.cpp' ]
+
+executable('xhci', src,
+	dependencies: deps,
+	install: true
+)
 

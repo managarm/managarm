@@ -1,20 +1,24 @@
-kernlet_pb = protoc.process('kernlet.proto', 
-	extra_args : [ '--proto_path=@CURRENT_SOURCE_DIR@']
+here = meson.current_source_dir()
+kernlet_pb = protocxx.process(here/'kernlet.proto', 
+	extra_args : [ '-I' + here ]
 )
 
-kernlet_proto_inc = include_directories('include/')
-libkernlet_protocol = shared_library('kernlet_protocol', ['src/compiler.cpp', kernlet_pb],
-	dependencies: [
-		coroutines,
-		lib_helix_dep, proto_lite_dep, libmbus_protocol_dep],
-	include_directories: kernlet_proto_inc,
-	install: true)
+deps = [ mbus_dep ]
+src = [ 'src/compiler.cpp', kernlet_pb ]
+inc = [ 'include' ]
 
-libkernlet_protocol_dep = declare_dependency(
-	link_with: libkernlet_protocol,
-	include_directories: kernlet_proto_inc)
+libkernlet = shared_library('kernlet_protocol', src,
+	dependencies: deps,
+	include_directories: inc,
+	install: true
+)
 
-install_headers(
-	'include/protocols/kernlet/compiler.hpp',
-	subdir: 'protocols/kernlet/')
+kernlet_dep = declare_dependency(
+	link_with: libkernlet,
+	dependencies : deps,
+	include_directories: inc
+)
 
+install_headers('include/protocols/kernlet/compiler.hpp',
+	subdir: 'protocols/kernlet'
+)

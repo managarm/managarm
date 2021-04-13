@@ -13,7 +13,7 @@ eir_includes = [include_directories(
 eir_cpp_args = []
 eir_c_args = []
 eir_link_args = ['-nostdlib']
-eir_dependencies = [cxxshim_dep, frigg, libarch_dep]
+eir_dependencies = [cxxshim_dep, frigg, libarch]
 
 if get_option('kernel_kasan')
 	eir_c_args += [
@@ -28,7 +28,7 @@ if get_option('kernel_log_allocations')
 endif
 
 if arch == 'aarch64'
-	subdir('arch/arm/')
+	subdir('arch/arm')
 elif arch == 'x86_64'
-	subdir('arch/x86/')
+	subdir('arch/x86')
 endif

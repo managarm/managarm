@@ -1,26 +1,24 @@
-svrctl_pb = protoc.process('svrctl.proto', 
-	extra_args : [ '--proto_path=@CURRENT_SOURCE_DIR@']
+here = meson.current_source_dir()
+svrctl_pb = protocxx.process(here/'svrctl.proto', 
+	extra_args : [ '-I' + here ]
 )
 
-svrctl_proto_includes = include_directories('include/')
+src = [ 'src/server.cpp', svrctl_pb ]
+inc = [ 'include' ]
+deps = [ helix_dep, proto_lite_dep ]
 
-libsvrctl_protocol = shared_library(
-	'svrctl_protocol',
-	[
-		'src/server.cpp',
-		svrctl_pb
-	],
-	dependencies: [
-		coroutines,
-		lib_helix_dep, proto_lite_dep],
-	include_directories: svrctl_proto_includes,
-	install: true)
+libsvrctl = shared_library('svrctl_protocol', src,
+	dependencies: deps,
+	include_directories: inc,
+	install: true
+)
 
-libsvrctl_protocol_dep = declare_dependency(
-	link_with: libsvrctl_protocol,
-	include_directories: svrctl_proto_includes)
+svrctl_dep = declare_dependency(
+	link_with: libsvrctl,
+	dependencies : deps,
+	include_directories: inc
+)
 
-install_headers(
-	'include/protocols/svrctl/server.hpp',
-	subdir: 'protocols/svrctl/')
-
+install_headers('include/protocols/svrctl/server.hpp',
+	subdir: 'protocols/svrctl'
+)

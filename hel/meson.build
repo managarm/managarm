@@ -1,22 +1,28 @@
+headers = [
+	'include/hel.h',
+	'include/hel-stubs.h',
+	'include/hel-syscalls.h',
+	'include/helix/ipc.hpp',
+	'include/helix/memory.hpp'
+]
+
+deps = [ coroutines, bragi_dep ]
+inc = [ 'include' ]
+
 if get_option('build_drivers')
 	helix = shared_library('helix', 'src/globals.cpp',
-		dependencies: [coroutines, bragi_dep],
-		include_directories: [include_directories('include/')],
-		install: true)
+		dependencies: deps,
+		include_directories: inc,
+		install: true
+	)
 
-	install_headers(
-		'include/hel.h',
-		'include/hel-stubs.h',
-		'include/hel-syscalls.h')
+	helix_dep = declare_dependency(
+		link_with : helix,
+		dependencies : deps,
+		include_directories : inc
+	)
 
-	install_headers(
-		'include/helix/ipc.hpp',
-		'include/helix/memory.hpp')
-
-	lib_helix_dep = declare_dependency(
-		dependencies: [bragi_dep],
-		include_directories: [include_directories('include/')],
-		link_with: helix)
+	install_headers(headers)
 endif
 
 doxyfile = configure_file(

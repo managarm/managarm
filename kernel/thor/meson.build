@@ -1,33 +1,25 @@
-gen = generator(protoc, arguments: [
-		'--plugin=protoc-gen-frigg=' + pb2frigg.path(),
-		'--frigg_out=@BUILD_DIR@',
-		'@EXTRA_ARGS@',
-		'@INPUT@'
-	],
-	output: '@BASENAME@.frigg_pb.hpp')
-
 pb_sources = [
-	gen.process(
-			meson.current_source_dir() + '/../../protocols/mbus/mbus.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/mbus']),
-	gen.process(
-			meson.current_source_dir() + '/../../protocols/clock/clock.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/clock']),
-	gen.process(
-			meson.current_source_dir() + '/../../protocols/hw/hw.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/hw']),
-	gen.process(
-			meson.current_source_dir() + '/../../protocols/kerncfg/kerncfg.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kerncfg']),
-	gen.process(
-			meson.current_source_dir() + '/../../protocols/kernlet/kernlet.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kernlet']),
-	gen.process(
-			meson.current_source_dir() + '/../../protocols/svrctl/svrctl.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/svrctl']),
+	protofrg.process(protos/'mbus/mbus.proto', extra_args : [ 
+		'-I' + protos/'mbus'
+	]),
+	protofrg.process(protos/'clock/clock.proto', extra_args : [ 
+		'-I' + protos/'clock'
+	]),
+	protofrg.process(protos/'hw/hw.proto', extra_args : [ 
+		'-I' + protos/'hw'
+	]),
+	protofrg.process(protos/'kerncfg/kerncfg.proto', extra_args : [ 
+		'-I' + protos/'kerncfg'
+	]),
+	protofrg.process(protos/'kernlet/kernlet.proto', extra_args : [ 
+		'-I' + protos/'kernlet'
+	]),
+	protofrg.process(protos/'svrctl/svrctl.proto', extra_args : [ 
+		'-I' + protos/'svrctl'
+	])
 ]
 
-bragi_sources = friggbragi.process([ 
+bragi_sources = frgbragi.process([ 
 	protos/'fs/fs.bragi', 
 	protos/'ostrace/ostrace.bragi',
 	protos/'posix/posix.bragi'
@@ -178,7 +170,6 @@ executable('thor', pb_sources, bragi_sources, thor_sources,
 		# If we decide to use them for something more complicated, we have to remove this.
 		'-fno-threadsafe-statics',
 		'-DLIBASYNC_CUSTOM_PLATFORM',
-		'-Wno-non-virtual-dtor',
 		extra_cpp_args
 	],
 	link_with: [

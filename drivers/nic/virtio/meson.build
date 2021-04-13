@@ -1,20 +1,16 @@
-nic_virtio_inc = [ 'include' ]
+deps = [ virtio_core_dep ]
+inc = [ 'include' ]
+
 nic_virtio_lib = static_library('nic-virtio', 'src/virtio.cpp',
 	include_directories: [
-		'../../../servers/netserver/include',
-		nic_virtio_inc
+		'../../../servers/netserver/include', inc
 	],
-	dependencies: [
-		virtio_core_dep,
-		libarch_dep,
-		lib_helix_dep,
-		coroutines,
-	],
-	install: true)
+	dependencies: deps,
+	install: true
+)
 
 nic_virtio_dep = declare_dependency(
-	include_directories: nic_virtio_inc,
-	dependencies: [
-		virtio_core_dep,
-	],
-	link_with: nic_virtio_lib)
+	include_directories: inc,
+	dependencies: deps,
+	link_with: nic_virtio_lib
+)
