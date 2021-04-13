@@ -1,9 +1,7 @@
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@/../../protocols/svrctl/', 
-			'@INPUT@']) 
-
-svrctl_pb = gen.process('../../protocols/svrctl/svrctl.proto')
+svrctl_pb = protoc.process(
+	protos/'svrctl/svrctl.proto', 
+	extra_args : [ '--proto_path=' + protos/'svrctl']
+)
 
 executable('runsvr', ['src/main.cpp', svrctl_pb],
 	dependencies: [

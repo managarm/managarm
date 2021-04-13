@@ -1,12 +1,9 @@
 lewis_dep = cxx.find_library('lewis')
 
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@',
-			'--proto_path=@CURRENT_SOURCE_DIR@/../../protocols/kernlet/',
-			'@INPUT@'])
-
-kernlet_pb = gen.process('../../protocols/kernlet/kernlet.proto')
+kernlet_pb = protoc.process(
+	protos/'kernlet/kernlet.proto', 
+	extra_args : [ '--proto_path=' + protos/'kernlet']
+)
 
 executable('kernletcc', ['src/main.cpp', 'src/fafnir.cpp', kernlet_pb],
 	dependencies: [
@@ -17,5 +14,5 @@ executable('kernletcc', ['src/main.cpp', 'src/fafnir.cpp', kernlet_pb],
 		libmbus_protocol_dep,
 		libkernlet_protocol_dep
 	],
-	install: true)
-
+	install: true
+)

@@ -1,25 +1,9 @@
-gen = generator(protoc,
-		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@',
-			'@EXTRA_ARGS@',
-			'@INPUT@'])
+posix_bragi = cxxbragi.process(protos/'posix/posix.bragi')
 
-bragi_gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'--protobuf',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
-
-posix_bragi = bragi_gen.process(meson.project_source_root()/'protocols/posix/posix.bragi')
-
-gen = generator(protoc,
-		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@',
-			'--proto_path=' + meson.project_source_root()/'protocols/kerncfg',
-			'@INPUT@'])
-kerncfg_pb = gen.process(meson.project_source_root()/'protocols/kerncfg/kerncfg.proto')
+kerncfg_pb = protoc.process(
+	protos/'kerncfg/kerncfg.proto', 
+	extra_args : [ '--proto_path=' + protos/'kerncfg']
+)
 
 executable('posix-subsystem',
 		['src/clock.cpp',

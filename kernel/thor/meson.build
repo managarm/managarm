@@ -6,14 +6,6 @@ gen = generator(protoc, arguments: [
 	],
 	output: '@BASENAME@.frigg_pb.hpp')
 
-bragi_gen = generator(bragi, arguments: [
-		'-l', 'frigg',
-		'--protobuf',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.frigg_bragi.hpp')
-
 pb_sources = [
 	gen.process(
 			meson.current_source_dir() + '/../../protocols/mbus/mbus.proto',
@@ -35,11 +27,11 @@ pb_sources = [
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/svrctl']),
 ]
 
-bragi_sources = [
-	bragi_gen.process('../../protocols/fs/fs.bragi'),
-	bragi_gen.process('../../protocols/ostrace/ostrace.bragi'),
-	bragi_gen.process('../../protocols/posix/posix.bragi'),
-]
+bragi_sources = friggbragi.process([ 
+	protos/'fs/fs.bragi', 
+	protos/'ostrace/ostrace.bragi',
+	protos/'posix/posix.bragi'
+])
 
 thor_sources = [files(
 	'../common/libc.cpp',
@@ -166,6 +158,8 @@ cralgo_lib = static_library('cralgo',
 	pic: false
 )
 
+libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
+
 executable('thor', pb_sources, bragi_sources, thor_sources,
 	include_directories: [
 		thor_includes,
@@ -176,7 +170,7 @@ executable('thor', pb_sources, bragi_sources, thor_sources,
 		coroutines,
 		cxxshim_dep,
 		frigg,
-		libsmarter_dep,
+		libsmarter,
 		bragi_dep
 	],
 	cpp_args: [

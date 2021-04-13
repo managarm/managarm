@@ -1,9 +1,7 @@
-gen = generator(protoc,
-		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-		arguments: ['--cpp_out=@BUILD_DIR@',
-			'--proto_path=@CURRENT_SOURCE_DIR@/../../../protocols/kerncfg',
-			'@INPUT@'])
-kerncfg_pb = gen.process('../../../protocols/kerncfg/kerncfg.proto')
+kerncfg_pb = protoc.process(
+	protos/'kerncfg/kerncfg.proto', 
+	extra_args : [ '--proto_path=' + protos/'kerncfg']
+)
 
 executable('virtio-console',
 	[

@@ -1,18 +1,6 @@
-bragi_gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
+src = [ 'extract-ostrace.cpp', ostrace_bragi ]
 
-executable('extract-ostrace',
-	[
-		'extract-ostrace.cpp',
-		bragi_gen.process('../../protocols/ostrace/ostrace.bragi'),
-	],
-	override_options: ['cpp_std=c++20'],
-	dependencies: [
-		bragi_dep,
-		frigg,
-	],
-	install: true)
+executable('extract-ostrace', src,
+	dependencies: [ bragi_dep, frigg ],
+	install: true
+)

@@ -1,10 +1,7 @@
+kernlet_pb = protoc.process('kernlet.proto', 
+	extra_args : [ '--proto_path=@CURRENT_SOURCE_DIR@']
+)
 
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@',
-			'@INPUT@'])
-
-kernlet_pb = gen.process('kernlet.proto')
 kernlet_proto_inc = include_directories('include/')
 libkernlet_protocol = shared_library('kernlet_protocol', ['src/compiler.cpp', kernlet_pb],
 	dependencies: [

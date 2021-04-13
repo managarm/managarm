@@ -1,10 +1,7 @@
+svrctl_pb = protoc.process('svrctl.proto', 
+	extra_args : [ '--proto_path=@CURRENT_SOURCE_DIR@']
+)
 
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@',
-			'@INPUT@'])
-
-svrctl_pb = gen.process('svrctl.proto')
 svrctl_proto_includes = include_directories('include/')
 
 libsvrctl_protocol = shared_library(

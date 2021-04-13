@@ -28,4 +28,5 @@ custom_target('netserver-server',
 	output: 'netserver.bin',
 	input: 'netserver.yml',
 	install: true,
-	install_dir: get_option('libdir') / 'managarm/server')
+	install_dir: get_option('libdir') / 'managarm/server'
+)

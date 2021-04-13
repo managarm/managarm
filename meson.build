@@ -8,18 +8,36 @@ project('managarm', ['c', 'cpp'],
 	]
 )
 
-message(get_option('cpp_args'))
-
+# declare constants that subdirs are going to use
 c = meson.get_compiler('cpp')
 cxx = meson.get_compiler('cpp')
 arch = host_machine.cpu_family()
+root = meson.project_source_root()
+protos = root/'protocols'
 
 if arch != 'aarch64' and arch != 'x86_64'
 	error('unknown architecture ' + arch)
 endif
 
-protoc = find_program('protoc')
+# declare generators that subdirs are going to use
+protoc = generator(find_program('protoc'),
+	output : [ '@BASENAME@.pb.h', '@BASENAME@.pb.cc' ],
+	arguments : [ '--cpp_out=@BUILD_DIR@', '@EXTRA_ARGS@', '@INPUT@' ]
+)
+
 bragi = find_program('bragi')
+
+cxxbragi = generator(bragi,
+	output : '@BASENAME@.bragi.hpp',
+	arguments : [ '-l', 'stdc++', '--protobuf', '@INPUT@', '@OUTPUT@' ]
+)
+
+friggbragi = generator(bragi,
+	output : '@BASENAME@.frigg_bragi.hpp',
+	arguments : [ '-l', 'frigg', '--protobuf', '@INPUT@', '@OUTPUT@' ]
+)
+
+# declare dependencies that subdirs are going to use
 bragi_dep = declare_dependency(include_directories: 'subprojects/bragi/include')
 
 cxxshim = subproject('cxxshim')
@@ -39,13 +57,11 @@ if get_option('build_kernel')
 	libarch = subproject('libarch', default_options: ['install_headers=false', 'header_only=true'])
 	libarch_dep = libarch.get_variable('libarch_dep')
 	lai = subproject('lai')
-	libsmarter = subproject('libsmarter')
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
 	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	lai_sources = lai.get_variable('sources')
 	lai_includes = lai.get_variable('includes')
-	libsmarter_dep = libsmarter.get_variable('libsmarter_dep')
 
 	subdir('kernel/eir')
 	subdir('kernel/thor')
@@ -119,58 +135,15 @@ if get_option('build_drivers')
 	foreach dir : delay
 		subdir(dir)
 	endforeach
-'''
-	subdir('protocols/clock')
-	subdir('protocols/fs')
-	subdir('protocols/hw')
-	subdir('protocols/mbus')
-	subdir('protocols/usb')
-	subdir('protocols/svrctl')
-	subdir('protocols/kernlet') # Depends on mbus.
-	subdir('protocols/ostrace')
-	subdir('core/drm') # depends on fs
-	subdir('core/virtio')
-	subdir('mbus')
-	subdir('posix/subsystem')
-	subdir('posix/init')
-	subdir('drivers/libblockfs')
-	subdir('drivers/libevbackend')
-	subdir('drivers/block/ata')
-	subdir('drivers/block/virtio-blk')
-	subdir('drivers/block/ahci')
-	subdir('drivers/gfx/bochs')
-	subdir('drivers/gfx/intel')
-	subdir('drivers/gfx/virtio')
-	subdir('drivers/gfx/plainfb')
-	subdir('drivers/gfx/vmware')
-	subdir('drivers/kbd')
-	subdir('drivers/tty/virtio-console')
-	subdir('drivers/uart')
-	subdir('drivers/usb/hcds/uhci')
-	subdir('drivers/usb/hcds/ehci')
-	subdir('drivers/usb/hcds/xhci')
-	subdir('drivers/usb/devices/hid')
-	subdir('drivers/usb/devices/storage')
-	subdir('drivers/kernletcc')
-	subdir('utils/runsvr')
-	subdir('utils/lsmbus')
-	subdir('testsuites/kernel-tests')
-	subdir('testsuites/posix-torture')
-	subdir('testsuites/posix-tests')
 
-	subdir('drivers/nic/virtio')
-	subdir('servers/netserver')
-
-	subdir('drivers/clocktracker')
-'''
 	install_data(
-		[
-			'drivers/gfx/90-managarm-vga.rules',
-			'drivers/nic/90-managarm-nic.rules',
-		],
-		install_dir: 'lib/udev/rules.d')
+		[ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules' ],
+		install_dir: 'lib/udev/rules.d'
+	)
 endif
 
+# when building these tools make sure they stay below everything else
+# as they depend on parts above
 if get_option('build_tools')
 	foreach tool : [ 'ostrace', 'basesvr', 'pb2frigg' ]
 		subdir('tools'/tool)

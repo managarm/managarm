@@ -1,6 +1,5 @@
 
-virtio_core_inc = include_directories('include',
-		'../../protocols/hw/include')
+virtio_core_inc = [ 'include', protos/'hw/include' ]
 virtio_core = shared_library('virtio_core', ['src/core.cpp'],
 	dependencies: [
 		coroutines,

@@ -1,9 +1,3 @@
-
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@', 
-			'@INPUT@']) 
-
 clock_pb = custom_target('clock_pb',
 	command: [protoc, '--cpp_out=@OUTDIR@',
 		'-I@CURRENT_SOURCE_DIR@', '@INPUT@'],
@@ -12,7 +6,10 @@ clock_pb = custom_target('clock_pb',
 	install: true,
 	install_dir: ['include/protocols/clock', false])
 
-#clock_pb = gen.process('../../protocols/clock/clock.proto')
+clock_pb = protoc.process('clock.proto', 
+	extra_args : [ '--proto_path=@CURRENT_SOURCE_DIR@']
+)
+
 clock_proto_inc = include_directories('include/')
 #libclock_protocol = shared_library('clock_protocol', [clock_pb],
 #	dependencies: [lib_helix_dep, proto_lite_dep],

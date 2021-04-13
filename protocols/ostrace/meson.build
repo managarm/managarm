@@ -1,22 +1,14 @@
-bragi_gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
+ostrace_bragi = cxxbragi.process('ostrace.bragi')
 
-libostrace_protocol = shared_library('ostrace_protocol',
-	[
-		'src/ostrace.cpp',
-		bragi_gen.process('ostrace.bragi')
-	],
+libostrace_protocol = shared_library('ostrace_protocol', [ 'src/ostrace.cpp', ostrace_bragi ],
 	dependencies: [
 		coroutines,
 		lib_helix_dep,
 		libmbus_protocol_dep,
 		proto_lite_dep],
-	include_directories: include_directories('include/'),
-	install: true)
+	include_directories: 'include',
+	install: true
+)
 
 install_headers(
 	'include/protocols/ostrace/ostrace.hpp',
@@ -24,4 +16,5 @@ install_headers(
 
 libostrace_protocol_dep = declare_dependency(
 	link_with: libostrace_protocol,
-	include_directories: include_directories('include/'))
+	include_directories: 'include'
+)

@@ -1,10 +1,3 @@
-bragi_gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
-
 libblockfs_driver_inc = include_directories('include/')
 libblockfs_driver = shared_library('blockfs',
 	[
@@ -12,7 +5,7 @@ libblockfs_driver = shared_library('blockfs',
 		'src/gpt.cpp',
 		'src/ext2fs.cpp',
 		fs_bragi,
-		bragi_gen.process('../../protocols/ostrace/ostrace.bragi')
+		ostrace_bragi
 	],
 	dependencies: [
 		coroutines,
@@ -22,7 +15,8 @@ libblockfs_driver = shared_library('blockfs',
 		libostrace_protocol_dep,
 		proto_lite_dep],
 	include_directories: libblockfs_driver_inc,
-	install: true)
+	install: true
+)
 
 libblockfs_dep = declare_dependency(
 	link_with: libblockfs_driver,
