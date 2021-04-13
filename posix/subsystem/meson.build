@@ -12,14 +12,14 @@ bragi_gen = generator(bragi, arguments: [
 	],
 	output: '@BASENAME@.bragi.hpp')
 
-posix_bragi = bragi_gen.process('../../protocols/posix/posix.bragi')
+posix_bragi = bragi_gen.process(meson.project_source_root()/'protocols/posix/posix.bragi')
 
 gen = generator(protoc,
 		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
 		arguments: ['--cpp_out=@BUILD_DIR@',
-			'--proto_path=@CURRENT_SOURCE_DIR@../../protocols/kerncfg',
+			'--proto_path=' + meson.project_source_root()/'protocols/kerncfg',
 			'@INPUT@'])
-kerncfg_pb = gen.process('../../protocols/kerncfg/kerncfg.proto')
+kerncfg_pb = gen.process(meson.project_source_root()/'protocols/kerncfg/kerncfg.proto')
 
 executable('posix-subsystem',
 		['src/clock.cpp',

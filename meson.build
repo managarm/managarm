@@ -8,6 +8,8 @@ project('managarm', ['c', 'cpp'],
 	]
 )
 
+message(get_option('cpp_args'))
+
 c = meson.get_compiler('cpp')
 cxx = meson.get_compiler('cpp')
 arch = host_machine.cpu_family()
@@ -32,8 +34,6 @@ endif
 
 if get_option('build_kernel')
 	pb2frigg = find_program('pb2frigg')
-
-	add_global_arguments(['-fno-rtti', '-fno-exceptions'], language : 'cpp')
 
 	cralgo = subproject('cralgo')
 	libarch = subproject('libarch', default_options: ['install_headers=false', 'header_only=true'])
