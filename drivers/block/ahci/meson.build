@@ -6,14 +6,14 @@ src = [
 ]
 
 executable('block-ahci', src,
-	dependencies: [ libarch, hw_dep, mbus_dep, libblockfs_dep ],
-	install: true
+	dependencies : [ libarch, hw_dep, mbus_dep, libblockfs_dep ],
+	install : true
 )
 
 custom_target('block-ahci-server',
-	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
-	output: 'block-ahci.bin',
-	input: 'block-ahci.yml',
-	install: true,
-	install_dir: get_option('libdir') / 'managarm/server'
+	command : [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output : 'block-ahci.bin',
+	input : 'block-ahci.yml',
+	install : true,
+	install_dir : server
 )

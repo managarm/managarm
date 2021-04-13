@@ -2,17 +2,17 @@ inc = [ 'include' ]
 deps = [ libarch, helix_dep, hw_dep, kernlet_dep ]
 
 virtio_core = shared_library('virtio_core', 'src/core.cpp',
-	dependencies: deps,
-	include_directories: inc,
-	install: true
+	dependencies : deps,
+	include_directories : inc,
+	install : true
 )
 
 virtio_core_dep = declare_dependency(
-	link_with: virtio_core,
-	dependencies: deps,
-	include_directories: inc
+	link_with : virtio_core,
+	dependencies : deps,
+	include_directories : inc
 )
 
 install_headers('include/core/virtio/core.hpp',
-	subdir: 'core/virtio'
+	subdir : 'core/virtio'
 )

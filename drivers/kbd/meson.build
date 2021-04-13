@@ -8,5 +8,5 @@ custom_target('input-atkbd-server',
 	output: 'input-atkbd.bin',
 	input: 'input-atkbd.yml',
 	install: true,
-	install_dir: get_option('libdir') / 'managarm/server'
+	install_dir: server
 )

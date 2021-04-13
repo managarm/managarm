@@ -1,31 +1,31 @@
-pb_sources = [
-	protofrg.process(protos/'mbus/mbus.proto', extra_args : [ 
-		'-I' + protos/'mbus'
-	]),
-	protofrg.process(protos/'clock/clock.proto', extra_args : [ 
-		'-I' + protos/'clock'
-	]),
-	protofrg.process(protos/'hw/hw.proto', extra_args : [ 
-		'-I' + protos/'hw'
-	]),
-	protofrg.process(protos/'kerncfg/kerncfg.proto', extra_args : [ 
-		'-I' + protos/'kerncfg'
-	]),
-	protofrg.process(protos/'kernlet/kernlet.proto', extra_args : [ 
-		'-I' + protos/'kernlet'
-	]),
-	protofrg.process(protos/'svrctl/svrctl.proto', extra_args : [ 
-		'-I' + protos/'svrctl'
-	])
+libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
+link_args = [ '-nostdlib' ]
+
+args = [ '-DCXXSHIM_INTEGRATE_GCC', '-DLIBASYNC_CUSTOM_PLATFORM', '-fno-threadsafe-statics' ]
+c_args = [ ]
+cpp_args = [ ]
+
+link_depends = []
+inc = [ cralgo_includes ]
+link_with = []
+want_acpi = false
+
+src = [
+	protofrg.process(protos/'mbus/mbus.proto', extra_args : [ '-I' + protos/'mbus' ]),
+	protofrg.process(protos/'clock/clock.proto', extra_args : [ '-I' + protos/'clock' ]),
+	protofrg.process(protos/'hw/hw.proto', extra_args : [ '-I' + protos/'hw' ]),
+	protofrg.process(protos/'kerncfg/kerncfg.proto', extra_args : [ '-I' + protos/'kerncfg' ]),
+	protofrg.process(protos/'kernlet/kernlet.proto', extra_args : [ '-I' + protos/'kernlet' ]),
+	protofrg.process(protos/'svrctl/svrctl.proto', extra_args : [ '-I' + protos/'svrctl' ])
 ]
 
-bragi_sources = frgbragi.process([ 
+src += frgbragi.process([ 
 	protos/'fs/fs.bragi', 
 	protos/'ostrace/ostrace.bragi',
 	protos/'posix/posix.bragi'
 ])
 
-thor_sources = [files(
+src += files(
 	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
 	'generic/address-space.cpp',
@@ -63,9 +63,9 @@ thor_sources = [files(
 	'system/pci/pci_discover.cpp',
 	'system/pci/pci_legacy.cpp',
 	'system/pci/pcie_ecam.cpp'
-)]
+)
 
-thor_includes = [include_directories(
+inc += include_directories(
 	'generic/',
 	'system/acpi/',
 	'system/framebuffer/',
@@ -77,43 +77,32 @@ thor_includes = [include_directories(
 	'../../subprojects/libarch/include',
 	'../../subprojects/libasync/include',
 	'../../tools/pb2frigg/include'
-)]
+)
 
-extra_c_args = []
-extra_cpp_args = ['-DCXXSHIM_INTEGRATE_GCC']
-extra_link_args = []
-extra_link_depends = []
-extra_includes = []
-extra_link_with = []
-want_acpi = false
+# For now, we only use static initializers for initgraph stages.
+# If we decide to use them for something more complicated, we have to remove this.
 
-if get_option('kernel_ubsan')
+if ubsan
 	# -fsanitize=function requires RTTI.
-	extra_c_args += ['-fsanitize=undefined', '-fno-sanitize=function']
-	extra_cpp_args += ['-fsanitize=undefined', '-fno-sanitize=function']
+	args += [ '-fsanitize=undefined', '-fno-sanitize=function' ]
 endif
-if get_option('kernel_kasan')
+
+if kasan
 	# The shadow memory offset is calculated as:
 	#     ShadowMemoryBase - (StartOfHigherHalf/ShadowScale).
 	# This ensures that the first shadow byte of the higher half ends up at SharedMemoryBase.
 	# Lower half addresses become non-canonical by design
 	# (and KASAN should not instrument lower-half access anyway).
-	extra_c_args += [
-		'-DTHOR_KASAN',
-		'-fsanitize=kernel-address',
-		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000',
-		'-mllvm', '-asan-globals=false',
-	]
-	extra_cpp_args += [
+	args += [
 		'-DTHOR_KASAN',
 		'-fsanitize=kernel-address',
 		'-mllvm', '-asan-mapping-offset=0xdfffe00000000000',
 		'-mllvm', '-asan-globals=false',
 	]
 endif
-if get_option('kernel_log_allocations')
-	extra_c_args = ['-fno-omit-frame-pointer']
-	extra_cpp_args = ['-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS']
+
+if log_alloc
+	args = [ '-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS' ]
 endif
 
 if arch == 'aarch64'
@@ -123,7 +112,7 @@ elif arch == 'x86_64'
 endif
 
 if want_acpi
-	thor_sources += files(
+	src += files(
 		'system/acpi/glue.cpp',
 		'system/acpi/madt.cpp',
 		'system/acpi/pm-interface.cpp',
@@ -131,55 +120,30 @@ if want_acpi
 	)
 
 	lai_lib = static_library('lai', lai_sources,
-		include_directories: lai_includes,
-		c_args: extra_c_args,
-		pic: false
+		include_directories : lai_includes,
+		c_args : c_args + args,
+		pic : false
 	)
 
-	extra_includes += lai_includes
-	extra_link_with += lai_lib
+	inc += lai_includes
+	link_with += lai_lib
 endif
 
-cralgo_lib = static_library('cralgo',
-	cralgo_sources,
-	include_directories: [
-		cralgo_includes,
-	],
-	cpp_args: extra_cpp_args,
-	dependencies: cxxshim_dep,
-	pic: false
+link_with += static_library('cralgo', cralgo_sources,
+	include_directories : cralgo_includes,
+	cpp_args : cpp_args + args,
+	dependencies : cxxshim_dep,
+	pic : false
 )
 
-libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
+deps = [ coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep ]
 
-executable('thor', pb_sources, bragi_sources, thor_sources,
-	include_directories: [
-		thor_includes,
-		cralgo_includes,
-		extra_includes
-	],
-	dependencies: [
-		coroutines,
-		cxxshim_dep,
-		frigg,
-		libsmarter,
-		bragi_dep
-	],
-	cpp_args: [
-		# For now, we only use static initializers for initgraph stages.
-		# If we decide to use them for something more complicated, we have to remove this.
-		'-fno-threadsafe-statics',
-		'-DLIBASYNC_CUSTOM_PLATFORM',
-		extra_cpp_args
-	],
-	link_with: [
-		cralgo_lib,
-		extra_link_with
-	],
-	link_args: [
-		'-nostdlib',
-		extra_link_args
-	],
-	link_depends: extra_link_depends,
-	install: true
+executable('thor', src,
+	include_directories : inc,
+	dependencies : deps,
+	cpp_args : cpp_args + args,
+	link_with : link_with,
+	link_args : link_args,
+	link_depends : link_depends,
+	install : true
 )

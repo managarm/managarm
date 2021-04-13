@@ -12,8 +12,11 @@ project('managarm', ['c', 'cpp'],
 c = meson.get_compiler('cpp')
 cxx = meson.get_compiler('cpp')
 arch = host_machine.cpu_family()
-root = meson.project_source_root()
-protos = root/'protocols'
+protos = meson.project_source_root()/'protocols'
+server = get_option('libdir')/'managarm/server'
+kasan = get_option('kernel_kasan')
+ubsan = get_option('kernel_ubsan')
+log_alloc = get_option('kernel_log_allocations')
 
 if arch != 'aarch64' and arch != 'x86_64'
 	error('unknown architecture ' + arch)
@@ -49,7 +52,7 @@ frgbragi = generator(bragi,
 )
 
 # declare dependencies that subdirs are going to use
-bragi_dep = declare_dependency(include_directories: 'subprojects/bragi/include')
+bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include')
 
 cxxshim = subproject('cxxshim')
 coroutines = cxxshim.get_variable('clang_coroutine_dep')
@@ -74,7 +77,7 @@ endif
 if get_option('build_drivers')
 	bakesvr = find_program('bakesvr')
 
-	add_project_arguments('-DLIBASYNC_FORCE_USE_EXPERIMENTAL', language: 'cpp')
+	add_project_arguments('-DLIBASYNC_FORCE_USE_EXPERIMENTAL', language : 'cpp')
 
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
@@ -138,7 +141,7 @@ if get_option('build_drivers')
 
 	rules = [ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules' ]
 
-	install_data(rules, install_dir: 'lib/udev/rules.d')
+	install_data(rules, install_dir : 'lib/udev/rules.d')
 endif
 
 # when building these tools make sure they stay below everything else

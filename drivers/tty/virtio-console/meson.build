@@ -8,5 +8,5 @@ custom_target('tty-virtio-console',
 	output: 'tty-virtio-console.bin',
 	input: 'tty-virtio-console.yml',
 	install: true,
-	install_dir: get_option('libdir') / 'managarm/server'
+	install_dir: server
 )

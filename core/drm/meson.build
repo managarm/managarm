@@ -16,15 +16,15 @@ headers = [
 ]
 
 drm_core = shared_library('drm_core', src,
-	dependencies: deps,
-	include_directories: inc,
-	install: true
+	dependencies : deps,
+	include_directories : inc,
+	install : true
 )
 
 drm_core_dep = declare_dependency(
-	link_with: drm_core,
+	link_with : drm_core,
 	dependencies : deps,
-	include_directories: inc
+	include_directories : inc
 )
 
-install_headers(headers, subdir: 'core/drm')
+install_headers(headers, subdir : 'core/drm')

@@ -14,5 +14,5 @@ custom_target('gfx-virtio-server',
 	output: 'gfx-virtio.bin',
 	input: 'gfx-virtio.yml',
 	install: true,
-	install_dir: get_option('libdir') / 'managarm/server'
+	install_dir: server
 )

@@ -14,5 +14,5 @@ custom_target('gfx-vmware-server',
 	output: 'gfx-vmware.bin',
 	input: 'gfx-vmware.yml',
 	install: true,
-	install_dir: get_option('libdir') / 'managarm/server'
+	install_dir: server
 )

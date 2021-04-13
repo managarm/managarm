@@ -8,5 +8,5 @@ custom_target('input-usbhid-server',
 	output: 'input-usbhid.bin',
 	input: 'input-usbhid.yml',
 	install: true,
-	install_dir: get_option('libdir') / 'managarm/server'
+	install_dir: server
 )

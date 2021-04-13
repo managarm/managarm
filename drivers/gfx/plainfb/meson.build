@@ -8,5 +8,5 @@ custom_target('gfx-plainfb-server',
 	output: 'gfx-plainfb.bin',
 	input: 'gfx-plainfb.yml',
 	install: true,
-	install_dir: get_option('libdir') / 'managarm/server'
+	install_dir: server
 )
