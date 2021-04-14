@@ -8,6 +8,31 @@ project('managarm', ['c', 'cpp'],
 	]
 )
 
+# build documentation
+if get_option('only_docs')
+	subdir('docs')
+	
+	doxyfile = configure_file(
+		input : 'hel/Doxyfile.in',
+		output : 'Doxyfile',
+		configuration : {
+			'ROOTDIR': meson.current_source_dir()
+		}
+	)
+
+	doxygen = find_program('doxygen', required : false)
+	if doxygen.found()
+		custom_target('hel-doxygen',
+			input : doxyfile,
+			output : 'doc',
+			depend_files : 'hel/include/hel.h',
+			command : [ doxygen, doxyfile ]
+		)
+	endif
+
+	subdir_done()
+endif
+
 # declare constants that subdirs are going to use
 c = meson.get_compiler('cpp')
 cxx = meson.get_compiler('cpp')
@@ -79,11 +104,11 @@ if get_option('build_drivers')
 
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
-endif
 
-subdir('hel')
+	# this produces the helix dependency which
+	# all protocols depend on
+	subdir('hel')
 
-if get_option('build_drivers')
 	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
 	core = [ 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
@@ -149,5 +174,3 @@ if get_option('build_tools')
 		subdir('tools'/tool)
 	endforeach
 endif
-
-subdir('docs')
