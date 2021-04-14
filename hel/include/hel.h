@@ -113,6 +113,7 @@ enum {
 	kHelErrTransmissionMismatch = 13,
 	kHelErrLaneShutdown = 8,
 	kHelErrEndOfLane = 9,
+	kHelErrDismissed = 20,
 	kHelErrBufferTooSmall = 1,
 	kHelErrFault = 10,
 	kHelErrNoHardwareSupport = 16,
@@ -187,6 +188,7 @@ enum {
 };
 
 enum {
+	kHelActionDismiss = 11,
 	kHelActionOffer = 5,
 	kHelActionAccept = 6,
 	kHelActionImbueCredentials = 8,
@@ -1063,6 +1065,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Lane shutdown";
 	case kHelErrEndOfLane:
 		return "End of lane";
+	case kHelErrDismissed:
+		return "IPC item dismissed by remote";
 	case kHelErrBufferTooSmall:
 		return "Buffer too small";
 	case kHelErrQueueTooSmall:

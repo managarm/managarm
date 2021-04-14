@@ -87,6 +87,7 @@ HelError translateError(Error error) {
 	case Error::transmissionMismatch: return kHelErrTransmissionMismatch;
 	case Error::laneShutdown: return kHelErrLaneShutdown;
 	case Error::endOfLane: return kHelErrEndOfLane;
+	case Error::dismissed: return kHelErrDismissed;
 	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::fault: return kHelErrFault;
 	default:
@@ -2040,6 +2041,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		readUserObject(actions + i, action);
 
 		switch(action.type) {
+		case kHelActionDismiss:
+			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
 		case kHelActionOffer:
 			node_size += ipcSourceSize(sizeof(HelSimpleResult));
 			break;
@@ -2106,7 +2110,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			for(size_t i = 0; i < closure->count; i++) {
 				auto item = &closure->items[i];
-				if(item->transmit.tag() == kTagOffer) {
+				if(item->transmit.tag() == kTagDismiss) {
+					item->helSimpleResult = {translateError(item->transmit.error()), 0};
+					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagOffer) {
 					item->helSimpleResult = {translateError(item->transmit.error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
@@ -2225,6 +2233,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		assert(!ancillary_stack.empty() && "expected end of chain");
 
 		switch(action.type) {
+		case kHelActionDismiss: {
+			closure->items[i].transmit.setup(kTagDismiss, closure);
+		} break;
 		case kHelActionOffer: {
 			closure->items[i].transmit.setup(kTagOffer, closure);
 		} break;

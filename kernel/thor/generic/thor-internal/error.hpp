@@ -14,6 +14,7 @@ enum class Error {
 	transmissionMismatch,
 	laneShutdown,
 	endOfLane,
+	dismissed,
 	fault,
 	noMemory,
 	noHardwareSupport,

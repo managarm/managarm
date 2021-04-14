@@ -33,6 +33,7 @@ private:
 
 enum {
 	kTagNull,
+	kTagDismiss,
 	kTagOffer,
 	kTagAccept,
 	kTagImbueCredentials,
