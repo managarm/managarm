@@ -30,7 +30,7 @@ jobs:
             run: ninja mdbook
             working-directory: build/
           - name: Build hel reference
-            run: ninja hel/doc
+            run: ninja hel-api
             working-directory: build/
           - name: Upload handbook artifact
             uses: actions/upload-artifact@v2
@@ -41,7 +41,7 @@ jobs:
             uses: actions/upload-artifact@v2
             with:
                 name: hel-reference
-                path: build/hel/doc/html/
+                path: build/hel-api/html/
           - name: Upload handbook to docs.managarm.org
             if: github.ref == 'refs/heads/master'
             env:
@@ -53,4 +53,4 @@ jobs:
             env:
                 RSYNC_PASSWORD: ${{ secrets.RSYNC_DOCUMENTATION_PASSWD }}
             run:
-                rsync-ssl -a --delete build/hel/doc/html/ docs@docs.managarm.org::docs/hel-api
+                rsync-ssl -a --delete build/hel-api/html/ docs@docs.managarm.org::docs/hel-api

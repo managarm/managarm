@@ -16,7 +16,7 @@ if get_option('only_docs')
 		input : 'hel/Doxyfile.in',
 		output : 'Doxyfile',
 		configuration : {
-			'ROOTDIR': meson.current_source_dir()
+			'ROOTDIR': meson.current_source_dir()/'hel'
 		}
 	)
 
@@ -24,7 +24,7 @@ if get_option('only_docs')
 	if doxygen.found()
 		custom_target('hel-doxygen',
 			input : doxyfile,
-			output : 'doc',
+			output : 'hel-api',
 			depend_files : 'hel/include/hel.h',
 			command : [ doxygen, doxyfile ]
 		)
