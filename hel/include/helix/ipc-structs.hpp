@@ -103,6 +103,26 @@ namespace helix_ng {
 
 using namespace helix;
 
+struct DismissResult {
+	DismissResult() :_valid{false} {}
+
+	HelError error() {
+		FRG_ASSERT(_valid);
+		return _error;
+	}
+
+	void parse(void *&ptr, ElementHandle) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		_error = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		_valid = true;
+	}
+
+private:
+	bool _valid;
+	HelError _error;
+};
+
 struct OfferResult {
 	OfferResult() :_valid{false} {}
 
@@ -350,6 +370,8 @@ private:
 // Items
 // --------------------------------------------------------------------
 
+struct Dismiss { };
+
 template <typename ...T>
 struct Offer {
 	frg::tuple<T...> nested_actions;
@@ -413,6 +435,10 @@ struct SendBragiHeadOnly {
 // --------------------------------------------------------------------
 // Construction functions
 // --------------------------------------------------------------------
+
+inline auto dismiss() {
+	return Dismiss{};
+}
 
 template <typename ...T>
 inline auto offer(T &&...args) {
@@ -496,6 +522,14 @@ struct {
 		return frg::array<HelAction, 0>{};
 	}
 } chainActionArrays;
+
+inline auto createActionsArrayFor(bool chain, const Dismiss &) {
+	HelAction action{};
+	action.type = kHelActionDismiss;
+	action.flags = chain ? kHelItemChain : 0;
+
+	return frg::array<HelAction, 1>{action};
+}
 
 template <typename ...T>
 inline auto createActionsArrayFor(bool chain, const Offer<T...> &o) {
@@ -619,6 +653,10 @@ inline auto createActionsArrayFor(bool chain, const SendBragiHeadOnly<Allocator>
 // Offer/Accept helper
 template <typename Type, typename ...T>
 using HelperResultTypeTuple = decltype(frg::tuple_cat(frg::tuple<Type>{}, resultTypeTuple(std::declval<T>())...));
+
+inline auto resultTypeTuple(const Dismiss &) {
+	return HelperResultTypeTuple<DismissResult>{};
+}
 
 template <typename ...T>
 inline auto resultTypeTuple(const Offer<T...> &arg) {
