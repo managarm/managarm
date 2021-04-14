@@ -2,7 +2,6 @@ namespace "managarm::fs";
 
 enum Errors {
 	SUCCESS = 0,
-	ILLEGAL_REQUEST = 3,
 	FILE_NOT_FOUND = 1,
 	END_OF_FILE = 2,
 	ILLEGAL_ARGUMENT = 4,

@@ -229,6 +229,49 @@ frg::tuple<LaneHandle, LaneHandle> createStream();
 // Those are only used internally; not by the hel API.
 //---------------------------------------------------------------------------------------
 
+struct DismissSender {
+	LaneHandle lane;
+};
+
+template<typename R>
+struct DismissOperation : private StreamPacket, private StreamNode {
+	void start() {
+		StreamPacket::setup(1);
+		StreamNode::setup(kTagDismiss, this);
+
+		StreamList list;
+		list.push_back(this);
+		Stream::transmit(s_.lane, list);
+	}
+
+	DismissOperation(DismissSender s, R receiver)
+	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+
+	DismissOperation(const DismissOperation &) = delete;
+
+	DismissOperation &operator= (const DismissOperation &) = delete;
+
+private:
+	void completePacket() override {
+		async::execution::set_value(receiver_, error());
+	}
+
+	DismissSender s_;
+	R receiver_;
+};
+
+template<typename R>
+inline DismissOperation<R> connect(DismissSender s, R receiver) {
+	return {std::move(s), std::move(receiver)};
+}
+
+inline async::sender_awaiter<DismissSender, Error>
+operator co_await(DismissSender s) {
+	return {std::move(s)};
+}
+
+//---------------------------------------------------------------------------------------
+
 struct OfferSender {
 	LaneHandle lane;
 };

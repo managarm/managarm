@@ -10,7 +10,6 @@ namespace fs {
 
 enum class Error {
 	none = 0,
-	illegalRequest = 3,
 	fileNotFound = 1,
 	endOfFile = 2,
 	illegalArguments = 4,

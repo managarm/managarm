@@ -138,7 +138,11 @@ async::detached serve(helix::UniqueLane lane) {
 		} else {
 			std::cout << "netserver: received unknown request type: "
 				<< (int32_t)req.req_type() << std::endl;
-			co_await sendError(managarm::fs::Errors::ILLEGAL_REQUEST);
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::dismiss()
+			);
+			HEL_CHECK(dismiss.error());
 		}
 	}
 }
