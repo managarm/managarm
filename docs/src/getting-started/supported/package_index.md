@@ -1,97 +1,18 @@
-# Temporary package index
+# Supported packages
 
-> This part of the handbook is Work-In-Progress.
+For an always up-to-date package list please look [here](https://ci.managarm.org/project/managarm/packages).
 
-Currently, the following packages are available by default in Managarm:
+Managarm uses `xbps` for it's package management, users can use this to fetch packages from within managarm.
 
-- bash
-- binutils
-- bzip2
-- cairo
-- coreutils
-- dejavu fonts
-- desktop-file-utils
-- diffutils
-- eudev
-- fafnir
-- file
-- fontconfig
-- freetype
-- gawk
-- gcc
-- glew
-- glib
-- glu
-- gmp
-- grep
-- gzip
-- iana-etc
-- kmscon
-- lewis
-- less
-- libarchive
-- libasync
-- libdrm
-- libevdev
-- libepoxy
-- libexpat
-- libffi
-- libfontenc
-- libinput
-- libpng
-- libressl
-- libtsm
-- libX11
-- libXau
-- libxcb
-- libXcursor
-- libXdamage
-- libXdmcp
-- libXext
-- libXfixes
-- libXfont2
-- libxkbcommon
-- libxkbfile
-- libXi
-- libxml
-- libXrandr
-- libXrender
-- libxshmfence
-- libxtrans
-- libXtst
-- libxxf86vm
-- llvm
-- lua
-- mednafen
-- mesa
-- mesa-progs
-- mini-lspci
-- mpc
-- mpfr
-- nano
-- nasm
-- nettle
-- ncurses
-- pixman
-- pcre
-- protobuf
-- python
-- readline
-- sdl2
-- sed
-- tar
-- tyr-quake
-- wayland
-- wayland-protocols
-- weston
-- which
-- xcb-proto
-- xdpyinfo
-- xkbcomp
-- xkeyboard-config
-- xorg-font-util
-- xorg-proto
-- xorg-server (XWayland only)
-- xorg-util-macros
-- vim
-- zlib
+Some of the available packages include:
+
+- Unix tools: `grep`, `sed`, `findutils`, `coreutils`, `gawk`, `file`, `man-db`, `tar`, `which`, `groff`, `less`, `bzip2`, `gzip`, `xz-utils`, `lz4`, `zstd`
+- Development: `yasm`, `nasm`, `diffutils`, `patch`, `make`, `m4`, `gcc`, `cmake`, `binutils`, `bc`
+- Scripting: `perl` (only basic functionality), `python` (only basic functionality), `lua`
+- Games: `ace`, `mednafen`, `tyr-quake`, `gtklife`, `nyancat`
+- Networking: `wget`, `curl`, `socat`, `rsync`
+- Editors: `nano`, `vim`
+- Shells: `bash`
+- Graphical: `weston`, `mesa-demos`, `gtk+2`, `xclock`, `xkill`, `xwininfo`
+- Databases: `sqlite`, `gdbm`
+- Bootloaders: `limine`
