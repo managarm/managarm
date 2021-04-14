@@ -114,12 +114,13 @@ public:
 		// Nothing to do here.
 	}
 
-	Error addItem(Process *process, smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
+	Error addItem(Process *process, smarter::shared_ptr<File> file, int fd,
+			int mask, uint64_t cookie) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Adding item \e[1;34m"
 					<< file->structName() << "\e[0m. Mask is " << mask << std::endl;
 		// TODO: Fix the memory-leak.
-		if(_fileMap.find(file.get()) != _fileMap.end()) {
+		if(_fileMap.find({file.get(), fd}) != _fileMap.end()) {
 			return Error::alreadyExists;
 		}
 
@@ -127,7 +128,7 @@ public:
 				process, std::move(file), mask, cookie};
 		item->state |= statePending;
 
-		_fileMap.insert({item->file.get(), item});
+		_fileMap.insert({{item->file.get(), fd}, item});
 
 		_pendingQueue.push_back(*item);
 		_currentSeq++;
@@ -135,11 +136,11 @@ public:
 		return Error::success;
 	}
 
-	Error modifyItem(File *file, int mask, uint64_t cookie) {
+	Error modifyItem(File *file, int fd, int mask, uint64_t cookie) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
 					<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
-		auto it = _fileMap.find(file);
+		auto it = _fileMap.find({file, fd});
 		if(it == _fileMap.end()) {
 			return Error::noSuchFile;
 		}
@@ -161,11 +162,11 @@ public:
 		return Error::success;
 	}
 
-	Error deleteItem(File *file) {
+	Error deleteItem(File *file, int fd) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Deleting item \e[1;34m"
 					<< file->structName() << "\e[0m" << std::endl;
-		auto it = _fileMap.find(file);
+		auto it = _fileMap.find({file, fd});
 		if(it == _fileMap.end()) {
 			return Error::noSuchFile;
 		}
@@ -373,8 +374,18 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
-	// FIXME: This really has to map std::weak_ptrs or std::shared_ptrs.
-	std::unordered_map<File *, Item *> _fileMap;
+	// Since Item stores a strong pointer to each File,
+	// it is sufficient if Key stores a plain (= non-owning) pointer.
+	using Key = std::pair<File *, int>;
+
+	struct KeyHash {
+		size_t operator() (const Key &k) const {
+			return 13 * reinterpret_cast<uintptr_t>(k.first)
+					+ static_cast<size_t>(k.second);
+		}
+	};
+
+	std::unordered_map<Key, Item *, KeyHash> _fileMap;
 
 	boost::intrusive::list<Item> _pendingQueue;
 	async::doorbell _statusBell;
@@ -392,21 +403,21 @@ smarter::shared_ptr<File, FileHandle> createFile() {
 	return File::constructHandle(std::move(file));
 }
 
-Error addItem(File *epfile, Process *process, smarter::shared_ptr<File> file,
+Error addItem(File *epfile, Process *process, smarter::shared_ptr<File> file, int fd,
 		int flags, uint64_t cookie) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	return epoll->addItem(process, std::move(file), flags, cookie);
+	return epoll->addItem(process, std::move(file), fd, flags, cookie);
 }
 
-Error modifyItem(File *epfile, File *file, int flags, uint64_t cookie) {
+Error modifyItem(File *epfile, File *file, int fd, int flags, uint64_t cookie) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	return epoll->modifyItem(file, flags, cookie);
+	return epoll->modifyItem(file, fd, flags, cookie);
 }
 
-Error deleteItem(File *epfile, File *file, int flags) {
+Error deleteItem(File *epfile, File *file, int fd, int flags) {
 	assert(!flags);
 	auto epoll = static_cast<OpenFile *>(epfile);
-	return epoll->deleteItem(file);
+	return epoll->deleteItem(file, fd);
 }
 
 async::result<size_t> wait(File *epfile, struct epoll_event *events,
