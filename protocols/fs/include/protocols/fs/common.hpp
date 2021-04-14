@@ -32,6 +32,7 @@ enum class Error {
 	alreadyExists = 18,
 	illegalOperationTarget = 19,
 	noSpaceLeft = 20,
+	noBackingDevice = 23,
 };
 
 using ReadResult = std::variant<Error, size_t>;
