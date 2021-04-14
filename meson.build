@@ -77,8 +77,6 @@ endif
 if get_option('build_drivers')
 	bakesvr = find_program('bakesvr')
 
-	add_project_arguments('-DLIBASYNC_FORCE_USE_EXPERIMENTAL', language : 'cpp')
-
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
 endif

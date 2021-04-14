@@ -8,17 +8,17 @@ inc = [ 'include' ]
 deps = [ helix_dep, proto_lite_dep ]
 
 libsvrctl = shared_library('svrctl_protocol', src,
-	dependencies: deps,
-	include_directories: inc,
-	install: true
+	dependencies : deps,
+	include_directories : inc,
+	install : true
 )
 
 svrctl_dep = declare_dependency(
-	link_with: libsvrctl,
+	link_with : libsvrctl,
 	dependencies : deps,
-	include_directories: inc
+	include_directories : inc
 )
 
 install_headers('include/protocols/svrctl/server.hpp',
-	subdir: 'protocols/svrctl'
+	subdir : 'protocols/svrctl'
 )

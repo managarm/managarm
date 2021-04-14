@@ -8,17 +8,17 @@ src = [ 'src/compiler.cpp', kernlet_pb ]
 inc = [ 'include' ]
 
 libkernlet = shared_library('kernlet_protocol', src,
-	dependencies: deps,
-	include_directories: inc,
-	install: true
+	dependencies : deps,
+	include_directories : inc,
+	install : true
 )
 
 kernlet_dep = declare_dependency(
-	link_with: libkernlet,
+	link_with : libkernlet,
 	dependencies : deps,
-	include_directories: inc
+	include_directories : inc
 )
 
 install_headers('include/protocols/kernlet/compiler.hpp',
-	subdir: 'protocols/kernlet'
+	subdir : 'protocols/kernlet'
 )

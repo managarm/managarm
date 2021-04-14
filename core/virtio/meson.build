@@ -1,5 +1,5 @@
 inc = [ 'include' ]
-deps = [ libarch, helix_dep, hw_dep, kernlet_dep ]
+deps = [ libarch, hw_dep, kernlet_dep ]
 
 virtio_core = shared_library('virtio_core', 'src/core.cpp',
 	dependencies : deps,

@@ -5,9 +5,9 @@ clock_pb = protocxx.process(here/'clock.proto',
 
 clock_dep = declare_dependency(
 	sources : clock_pb,
-	include_directories: 'include'
+	include_directories : 'include'
 )
 
 install_headers('include/protocols/clock/defs.hpp',
-	subdir: 'protocols/clock'
+	subdir : 'protocols/clock'
 )

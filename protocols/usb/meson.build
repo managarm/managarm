@@ -14,15 +14,15 @@ headers = [
 ]
 
 libusb = shared_library('usb_protocol', src,
-	dependencies: deps,
-	include_directories: inc,
-	install: true
+	dependencies : deps,
+	include_directories : inc,
+	install : true
 )
 
 usb_dep = declare_dependency(
-	link_with: libusb,
+	link_with : libusb,
 	dependencies : deps,
-	include_directories: inc
+	include_directories : inc
 )
 
-install_headers(headers, subdir: 'protocols/usb')
+install_headers(headers, subdir : 'protocols/usb')

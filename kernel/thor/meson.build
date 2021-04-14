@@ -1,7 +1,12 @@
 libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
 link_args = [ '-nostdlib' ]
 
-args = [ '-DCXXSHIM_INTEGRATE_GCC', '-DLIBASYNC_CUSTOM_PLATFORM', '-fno-threadsafe-statics' ]
+args = [ 
+	'-DCXXSHIM_INTEGRATE_GCC', 
+	'-DLIBASYNC_CUSTOM_PLATFORM', 
+	'-DLIBASYNC_FORCE_USE_EXPERIMENTAL',
+	'-fno-threadsafe-statics' 
+]
 c_args = [ ]
 cpp_args = [ ]
 
@@ -66,13 +71,13 @@ src += files(
 )
 
 inc += include_directories(
-	'generic/',
-	'system/acpi/',
-	'system/framebuffer/',
-	'system/legacy-pc/',
-	'system/pci/',
-	'system/dtb/',
-	'../klibc/',
+	'generic',
+	'system/acpi',
+	'system/framebuffer',
+	'system/legacy-pc',
+	'system/pci',
+	'system/dtb',
+	'../klibc',
 	'../common',
 	'../../subprojects/libarch/include',
 	'../../subprojects/libasync/include',

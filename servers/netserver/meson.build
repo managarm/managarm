@@ -15,9 +15,9 @@ executable('netserver', src,
 )
 
 custom_target('netserver-server',
-	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
-	output: 'netserver.bin',
-	input: 'netserver.yml',
-	install: true,
-	install_dir: server
+	command : [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output : 'netserver.bin',
+	input : 'netserver.yml',
+	install : true,
+	install_dir : server
 )

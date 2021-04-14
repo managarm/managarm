@@ -1,10 +1,4 @@
-deps = [
-	libarch, 
-	hw_dep, kernlet_dep, 
-	mbus_dep, usb_dep
-]
-
-executable('uhci', ['src/main.cpp'],
-	dependencies: deps,
-	install: true
+executable('uhci', 'src/main.cpp',
+	dependencies : [ libarch, hw_dep, kernlet_dep, mbus_dep, usb_dep ],
+	install : true
 )

@@ -1,9 +1,9 @@
 src = [ 'src/core.cpp' ]
 
 if arch == 'x86_64'
-	src += ['x86_64-src/copy-sse.S']
+	src += 'x86_64-src/copy-sse.S'
 elif arch == 'aarch64'
-	src += ['aarch64-src/copy-fp.S']
+	src += 'aarch64-src/copy-fp.S'
 endif
 
 deps = [ libarch, fs_dep, hw_dep, mbus_dep ]

@@ -1,5 +1,5 @@
 executable('gfx_bochs', 'src/main.cpp',
-	dependencies : [ libarch, drm_core_dep, fs_dep, hw_dep, mbus_dep ],
+	dependencies : drm_core_dep,
 	install : true
 )
 

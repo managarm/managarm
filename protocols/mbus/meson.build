@@ -14,11 +14,11 @@ libmbus = shared_library('mbus', src,
 )
 
 mbus_dep = declare_dependency(
-	link_with: libmbus,
+	link_with : libmbus,
 	dependencies : deps,
-	include_directories: inc
+	include_directories : inc
 )
 
 install_headers('include/protocols/mbus/client.hpp',
-	subdir: 'protocols/mbus'
+	subdir : 'protocols/mbus'
 )
