@@ -13,18 +13,18 @@ If the intent or implementation are not immediately obvious, the commit should i
 ## Modules
 
 We use modules to describe where in the system the change is made. For the Managarm repo, we use the following modules:
-- `thor`, optionally followed by a subsystem or arch, like `thor/pci` or `thor/x86`. This is used for changes to the main kernel of Managarm, [thor](design/thoreir/index.md).
-- `eir`, optionally followed by a architecture, like `eir/x86`. This is used for changes to Managarm's prekernel, [eir](design/thoreir/index.md).
-- `posix`, used for everyting in the [posix emulation layer](design/posix/index.md).
+- `thor`, optionally followed by a subsystem or arch, like `thor/pci` or `thor/x86`. This is used for changes to the main kernel of Managarm, [thor](../design/thoreir/index.md).
+- `eir`, optionally followed by a architecture, like `eir/x86`. This is used for changes to Managarm's prekernel, [eir](../design/thoreir/index.md).
+- `posix`, used for everyting in the [posix emulation layer](../design/posix/index.md).
 - `docs`, used when updating the documentation, like the one you are reading now!
 - `core/<submodule>`, submodule can be either `drm` or `virtio` at the time of writing. This is used for everything related to the core of the DRM interface or virtio handling.
-- `drivers/<drivername>`, where the driver name is the driver being worked on, like `drivers/libblockfs` for example. This is used for everything [driver](design/drivers/index.md) related.
-- `hel`, used for everything related to the [hel](design/hel/index.md) and helix syscall api.
-- `mbus`, used for everything related to [mbus](design/mbus/index.md).
+- `drivers/<drivername>`, where the driver name is the driver being worked on, like `drivers/libblockfs` for example. This is used for everything [driver](../design/drivers/index.md) related.
+- `hel`, used for everything related to the [hel](../design/hel/index.md) and helix syscall api.
+- `mbus`, used for everything related to [mbus](../design/mbus/index.md).
 - `protocols/<protocol>`, where protocol is the protocol that is being changed. This is used for every protocol change made.
 - `netserver`, used for every change to the network server.
 - `tests`, used when working on the testsuites.
-- `tools/<toolname>`, used when working on the tools that the Managarm repo has, currently `analyze-profile`, `gen-initrd`, `bakesvr`m `ostrace` and `pb2frigg`.
+- `tools/<toolname>`, used when working on the tools that the Managarm repo has, currently `analyze-profile`, `gen-initrd`, `bakesvr`, `ostrace` and `pb2frigg`.
 - `utils/<utilname>`, used when updating various utilities that reside in this repo, currently `lsmbus` and `runsvr`.
 - `build`, used when editing the meson.build file.
 - `meta`, used for meta changes, for example a readme update.
