@@ -333,9 +333,17 @@ async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	co_await self->readyJump.async_wait();
 
-	assert(self->fileSize() <= 60);
-	co_return std::string{self->diskInode()->data.embedded,
+	if(self->fileSize() <= 60) {
+		co_return std::string{self->diskInode()->data.embedded,
 			self->diskInode()->data.embedded + self->fileSize()};
+	} else {
+		std::string result;
+		result.resize(self->fileSize());
+		co_await helix_ng::readMemory(
+			helix::BorrowedDescriptor(self->frontalMemory),
+			0, self->fileSize(), result.data());
+		co_return result;
+	}
 }
 
 async::result<protocols::fs::MkdirResult>
