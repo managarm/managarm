@@ -204,6 +204,7 @@ enum {
 enum {
 	kHelItemChain = 1,
 	kHelItemAncillary = 2,
+	kHelItemWantLane = (1 << 16),
 };
 
 struct HelSgItem {
