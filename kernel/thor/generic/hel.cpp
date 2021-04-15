@@ -1000,18 +1000,22 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			auto lockHandle = AddressSpaceLockHandle{std::move(space),
-					(void *)address, length};
-			co_await lockHandle.acquire(submitThread->mainWorkQueue()->take());
-
-			// Enter the submitter's work-queue so that we can access memory directly.
-			co_await submitThread->mainWorkQueue()->schedule();
-
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{128});
-				lockHandle.load(progress, temp, chunk);
+
+				auto outcome = co_await readVirtualSpace(space.get(),
+						address + progress, temp, chunk,
+						submitThread->mainWorkQueue()->take());
+				if(!outcome) {
+					error = Error::fault;
+					break;
+				}
+
+				// Enter the submitter's work-queue so that we can access memory directly.
+				co_await submitThread->mainWorkQueue()->schedule();
+
 				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
 					error = Error::fault;
 					break;
@@ -1148,23 +1152,26 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			auto lockHandle = AddressSpaceLockHandle{std::move(space),
-					(void *)address, length};
-			co_await lockHandle.acquire(submitThread->mainWorkQueue()->take());
-
-			// Enter the submitter's work-queue so that we can access memory directly.
-			co_await submitThread->mainWorkQueue()->schedule();
-
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{128});
+
+				// Enter the submitter's work-queue so that we can access memory directly.
+				co_await submitThread->mainWorkQueue()->schedule();
 				if(!readUserMemory(temp,
 						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
 					error = Error::fault;
 					break;
 				}
-				lockHandle.write(progress, temp, chunk);
+
+				auto outcome = co_await writeVirtualSpace(space.get(),
+						address + progress, temp, chunk,
+						submitThread->mainWorkQueue()->take());
+				if(!outcome) {
+					error = Error::fault;
+					break;
+				}
 				progress += chunk;
 			}
 		}
