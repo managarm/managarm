@@ -1,10 +1,13 @@
 
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/hw/', 
-			'@INPUT@']) 
+gen = generator(bragi, arguments: [
+		'-l', 'stdc++',
+		'--protobuf',
+		'@INPUT@',
+		'@OUTPUT@'
+	],
+	output: '@BASENAME@.bragi.hpp')
 
-hw_pb = gen.process('../../protocols/hw/hw.proto')
+hw_pb = gen.process('../../protocols/hw/hw.bragi')
 hw_proto_inc = include_directories('include/')
 libhw_protocol = shared_library('hw_protocol', ['src/client.cpp', hw_pb],
 	dependencies: [
