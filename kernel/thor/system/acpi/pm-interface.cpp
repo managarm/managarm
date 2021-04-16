@@ -7,8 +7,11 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
-#include <hw.frigg_pb.hpp>
+#include <hw.frigg_bragi.hpp>
 #include <mbus.frigg_pb.hpp>
+
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-frigg.hpp>
 
 #include <lai/helpers/pm.h>
 
@@ -44,10 +47,17 @@ coroutine<bool> handleReq(LaneHandle lane) {
 	// TODO: improve error handling here.
 	assert(reqError == Error::success);
 
-	managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+	auto preamble = bragi::read_preamble(reqBuffer);
+	assert(!preamble.error());
 
-	if(req.req_type() == managarm::hw::CntReqType::PM_RESET) {
+	if(preamble.id() == bragi::message_id<managarm::hw::PmResetRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::PmResetRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return true;
+		}
+
 		if(lai_acpi_reset())
 			infoLogger() << "thor: ACPI reset failed" << frg::endlog;
 
@@ -57,16 +67,8 @@ coroutine<bool> handleReq(LaneHandle lane) {
 #endif
 		panicLogger() << "thor: We do not know how to reset" << frg::endlog;
 	}else{
-		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-		// TODO: improve error handling here.
-		assert(respError == Error::success);
+		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
+		co_await DismissSender{conversation};
 	}
 
 	co_return true;

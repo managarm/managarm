@@ -14,8 +14,12 @@
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 
+#include <frg/std_compat.hpp>
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-std.hpp>
+
 #include "fs.bragi.hpp"
-#include "hw.pb.h"
+#include "hw.bragi.hpp"
 #include "libevbackend.hpp"
 
 namespace libevbackend {
@@ -45,23 +49,34 @@ async::detached issueReset() {
 	co_await root.linkObserver(std::move(filter), std::move(handler));
 	co_await pmFound.async_wait();
 
-	// Send the actual request.
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::PM_RESET);
+	managarm::hw::PmResetRequest req;
 
-	auto ser = req.SerializeAsString();
-	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-		pmLane,
-		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::recvInline())
-	);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			pmLane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	throw std::runtime_error("Return from PM_RESET request");
 }

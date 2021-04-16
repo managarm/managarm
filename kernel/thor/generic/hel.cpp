@@ -2052,7 +2052,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			node_size += ipcSourceSize(sizeof(HelSimpleResult));
 			break;
 		case kHelActionOffer:
-			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			node_size += ipcSourceSize(sizeof(HelHandleResult));
 			break;
 		case kHelActionAccept:
 			node_size += ipcSourceSize(sizeof(HelHandleResult));
@@ -2097,6 +2097,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		frg::unique_memory<KernelAlloc> buffer;
 		QueueSource mainSource;
 		QueueSource dataSource;
+		int flags;
 		union {
 			HelSimpleResult helSimpleResult;
 			HelHandleResult helHandleResult;
@@ -2122,8 +2123,21 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
 				}else if(item->transmit.tag() == kTagOffer) {
-					item->helSimpleResult = {translateError(item->transmit.error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+					HelHandle handle = kHelNullHandle;
+
+					if(item->transmit.error() == Error::success && (item->flags & kHelItemWantLane)) {
+						auto universe = closure->weakUniverse.lock();
+						assert(universe);
+
+						auto irq_lock = frg::guard(&irqMutex());
+						Universe::Guard lock(universe->lock);
+
+						handle = universe->attachDescriptor(lock,
+								LaneDescriptor{item->transmit.lane()});
+					}
+
+					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
+					item->mainSource.setup(&item->helSimpleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
 				}else if(item->transmit.tag() == kTagAccept) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
@@ -2238,6 +2252,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 		// TODO: Turn this into an error return.
 		assert(!ancillary_stack.empty() && "expected end of chain");
+
+		closure->items[i].flags = action.flags;
 
 		switch(action.type) {
 		case kHelActionDismiss: {

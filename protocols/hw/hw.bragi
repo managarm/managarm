@@ -1,0 +1,102 @@
+namespace "managarm::hw";
+
+enum Errors {
+	SUCCESS = 0,
+	OUT_OF_BOUNDS,
+	ILLEGAL_ARGUMENTS
+}
+
+enum IoType {
+	NO_BAR = 0,
+	PORT,
+	MEMORY
+}
+
+struct PciBar {
+	IoType io_type;
+	IoType host_type;
+	uint64 address;
+	uint64 length;
+	uint32 offset;
+}
+
+struct PciCapability {
+	uint32 type;
+	uint64 offset;
+	uint64 length;
+}
+
+message GetPciInfoRequest 1 {
+head(128):
+}
+
+message AccessBarRequest 2 {
+head(128):
+	int32 index;
+}
+
+message AccessIrqRequest 3 {
+head(128):
+}
+
+message ClaimDeviceRequest 4 {
+head(128):
+}
+
+message EnableBusIrqRequest 5 {
+head(128):
+}
+
+message EnableBusmasterRequest 6 {
+head(128):
+}
+
+message LoadPciSpaceRequest 7 {
+head(128):
+	uint32 offset;
+	uint32 size;
+}
+
+message StorePciSpaceRequest 8 {
+head(128):
+	uint32 offset;
+	uint32 size;
+	uint32 word;
+}
+
+message LoadPciCapabilityRequest 9 {
+head(128):
+	int32 index;
+	uint32 offset;
+	uint32 size;
+}
+
+message GetFbInfoRequest 10 {
+head(128):
+}
+
+message AccessFbMemoryRequest 11 {
+head(128):
+}
+
+message PmResetRequest 12 {
+head(128):
+}
+
+message SvrResponse 13 {
+head(128):
+	Errors error;
+tail:
+	tags {
+		tag(1) PciBar[] bars;
+		tag(2) PciCapability[] capabilities;
+
+		tag(3) uint32 word;
+
+		tag(4) uint32 fb_pitch;
+		tag(5) uint32 fb_width;
+		tag(6) uint32 fb_height;
+		tag(7) uint32 fb_bpp;
+		tag(8) uint32 fb_type;
+	}
+}

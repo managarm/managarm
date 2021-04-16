@@ -131,16 +131,24 @@ struct OfferResult {
 		return _error;
 	}
 
+	UniqueDescriptor descriptor() {
+		FRG_ASSERT(_valid);
+		HEL_CHECK(error());
+		return std::move(_descriptor);
+	}
+
 	void parse(void *&ptr, ElementHandle) {
-		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		auto result = reinterpret_cast<HelHandleResult *>(ptr);
 		_error = result->error;
-		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		_descriptor = UniqueDescriptor{result->handle};
+		ptr = (char *)ptr + sizeof(HelHandleResult);
 		_valid = true;
 	}
 
 private:
 	bool _valid;
 	HelError _error;
+	UniqueDescriptor _descriptor;
 };
 
 struct AcceptResult {
@@ -375,6 +383,7 @@ struct Dismiss { };
 template <typename ...T>
 struct Offer {
 	frg::tuple<T...> nested_actions;
+	bool wants_lane;
 };
 
 template <typename ...T>
@@ -442,7 +451,15 @@ inline auto dismiss() {
 
 template <typename ...T>
 inline auto offer(T &&...args) {
-	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...)};
+	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...), false};
+}
+
+struct want_lane_t {};
+constexpr inline want_lane_t want_lane;
+
+template <typename ...T>
+inline auto offer(want_lane_t, T &&...args) {
+	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...), true};
 }
 
 template <typename ...T>
@@ -536,7 +553,8 @@ inline auto createActionsArrayFor(bool chain, const Offer<T...> &o) {
 	HelAction action{};
 	action.type = kHelActionOffer;
 	action.flags = (chain ? kHelItemChain : 0)
-			| (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0);
+			| (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0)
+			| (o.wants_lane ? kHelItemWantLane : 0);
 
 	return frg::array_concat<HelAction>(
 		frg::array<HelAction, 1>{action},

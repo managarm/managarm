@@ -22,9 +22,6 @@ pb_sources = [
 			meson.current_source_dir() + '/../../protocols/clock/clock.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/clock']),
 	gen.process(
-			meson.current_source_dir() + '/../../protocols/hw/hw.proto',
-		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/hw']),
-	gen.process(
 			meson.current_source_dir() + '/../../protocols/kerncfg/kerncfg.proto',
 		extra_args: ['--proto_path=' + meson.current_source_dir() + '/../../protocols/kerncfg']),
 	gen.process(
@@ -39,6 +36,7 @@ bragi_sources = [
 	bragi_gen.process('../../protocols/fs/fs.bragi'),
 	bragi_gen.process('../../protocols/ostrace/ostrace.bragi'),
 	bragi_gen.process('../../protocols/posix/posix.bragi'),
+	bragi_gen.process('../../protocols/hw/hw.bragi'),
 ]
 
 thor_sources = [files(
