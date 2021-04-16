@@ -31,7 +31,7 @@ option('kernel_log_allocations',
     description : 'enable memory allocation logging in kernel'
 )
 
-option('only_docs', 
+option('build_docs', 
     type : 'boolean', 
     value : false,
     description : 'build only the mdbook and doxygen docs'
