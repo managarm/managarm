@@ -2668,6 +2668,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::IOCLEX) {
+			if(logRequests)
+				std::cout << "posix: FIOCLEX" << std::endl;
+
+			if(self->fileContext()->setDescriptor(req.fd(), true) != Error::success) {
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
+				continue;
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
 			if(logRequests)
 				std::cout << "posix: SIG_ACTION" << std::endl;
