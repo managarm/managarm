@@ -1,23 +1,24 @@
 src += files(
 	'../../system/legacy-pc/ata.cpp',
 	'early_stubs.S',
+	'entry.S',
 	'stubs.S',
 	'user-access.S',
 	'vmx_stubs.S',
+
 	'cpu.cpp',
-	'entry.S',
+	'debug.cpp',
+	'ept.cpp',
+	'hpet.cpp',
 	'ints.cpp',
 	'pic.cpp',
-	'system.cpp',
 	'paging.cpp',
-	'hpet.cpp',
-	'rtc.cpp',
-	'ept.cpp',
 	'pmc-amd.cpp',
 	'pmc-intel.cpp',
-	'vmx.cpp',
-	'debug.cpp',
-	'pci_io.cpp'
+	'pci_io.cpp',
+	'rtc.cpp',
+	'system.cpp',
+	'vmx.cpp'
 )
 
 trampoline = custom_target('trampoline',
