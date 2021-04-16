@@ -41,6 +41,9 @@ add_dir('lib')
 add_dir('managarm')
 add_dir('managarm/server')
 
+# The kernel
+add_file('system-root/usr/managarm/bin', '', 'thor', strip=True)
+
 # Runtime libraries.
 add_file('system-root/usr/lib', 'lib', 'libhelix.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libc.so', strip=True)
@@ -72,16 +75,18 @@ add_file('system-root/usr/bin', 'sbin', 'posix-init', strip=True)
 
 # Essential drivers.
 add_file('system-root/usr/lib', 'lib', 'libblockfs.so', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'uhci', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'ehci', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'xhci', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'block-ata', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'block-ahci', strip=True)
 add_file('system-root/usr/lib/managarm/server', 'lib', 'block-ahci.bin')
 add_file('system-root/usr/bin', 'sbin', 'storage', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'virtio-block', strip=True)
 add_file('system-root/usr/bin', 'sbin', 'virtio-console', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'uart', strip=True)
+
+if args.arch == 'x86_64-managarm':
+	add_file('system-root/usr/bin', 'sbin', 'uhci', strip=True)
+	add_file('system-root/usr/bin', 'sbin', 'block-ata', strip=True)
+	add_file('system-root/usr/bin', 'sbin', 'uart', strip=True)
 
 # Essential utilities.
 add_file('system-root/usr/bin', 'bin', 'runsvr', strip=True)

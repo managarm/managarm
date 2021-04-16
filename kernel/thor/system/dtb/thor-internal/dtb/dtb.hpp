@@ -7,6 +7,7 @@
 #include <frg/vector.hpp>
 #include <frg/array.hpp>
 #include <frg/span.hpp>
+#include <cstddef>
 
 // forward decl of types from kernel/common/dtb.hpp
 struct DeviceTreeNode;
@@ -152,7 +153,7 @@ struct DeviceTreeNode {
 
 private:
 	DeviceIrq parseIrq_(::DeviceTreeProperty *prop, size_t i);
-	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const void> prop);
+	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const std::byte> prop);
 	void generatePath_();
 
 	DeviceTreeNode *parent_;
@@ -177,11 +178,11 @@ private:
 	frg::vector<RegRange, KernelAlloc> reg_;
 	frg::vector<AddrTranslateRange, KernelAlloc> ranges_;
 
-	frg::span<const void> irqData_;
+	frg::span<const std::byte> irqData_;
 	frg::vector<DeviceIrq, KernelAlloc> irqs_;
 	frg::vector<InterruptMapEntry, KernelAlloc> interruptMap_;
 	frg::vector<uint32_t, KernelAlloc> interruptMapMask_;
-	frg::span<const void> interruptMapRaw_;
+	frg::span<const std::byte> interruptMapRaw_;
 
 	bool interruptController_;
 

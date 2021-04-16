@@ -17,6 +17,7 @@ enum IoType {
 
 struct BarInfo {
 	IoType ioType;
+	IoType hostType;
 	uintptr_t address;
 	size_t length;
 	ptrdiff_t offset;

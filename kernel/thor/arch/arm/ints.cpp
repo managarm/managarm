@@ -94,6 +94,7 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 
 	switch (ec) {
 		case 0x00: // Invalid
+		case 0x18: // Trapped MSR, MRS, or System instruction
 			handleOtherFault(image, kIntrIllegalInstruction);
 			break;
 		case 0x20: // Instruction abort, lower EL

@@ -561,6 +561,7 @@ async::detached GfxDevice::BufferObject::_initHw() {
 
 async::result<void> doBind(mbus::Entity base_entity) {
 	protocols::hw::Device hw_device(co_await base_entity.bind());
+	co_await hw_device.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hw_device),
 			virtio_core::DiscoverMode::modernOnly);
 

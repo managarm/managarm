@@ -107,14 +107,15 @@ struct PciBusResource {
 	static constexpr uint32_t memory = 2;
 	static constexpr uint32_t prefMemory = 3;
 
-	PciBusResource(uint64_t base, size_t size, uint64_t hostBase, uint32_t flags)
-	: base_{base}, size_{size}, hostBase_{hostBase}, flags_{flags}, allocOffset_{} { }
+	PciBusResource(uint64_t base, size_t size, uint64_t hostBase, uint32_t flags, bool isHostMmio)
+	: base_{base}, size_{size}, hostBase_{hostBase}, flags_{flags}, allocOffset_{}, isHostMmio_{isHostMmio} { }
 
 	uint64_t base() const { return base_; }
 	size_t size() const { return size_; }
 	size_t remaining() const { return size_ - allocOffset_; }
 	uint64_t hostBase() const { return hostBase_; }
 	uint32_t flags() const { return flags_; }
+	bool isHostMmio() const { return isHostMmio_; }
 
 	// Returns offset from base on success
 	frg::optional<uint64_t> allocate(size_t size) {
@@ -154,6 +155,7 @@ private:
 	uint32_t flags_;
 
 	uint64_t allocOffset_;
+	bool isHostMmio_;
 };
 
 struct PciBus {
@@ -196,7 +198,7 @@ struct PciBar {
 	};
 
 	PciBar()
-	: type{kBarNone}, address{0}, length{0}, prefetchable{false}, allocated{false}, offset{0} { }
+	: type{kBarNone}, address{0}, length{0}, prefetchable{false}, allocated{false}, offset{0}, hostType{kBarNone} { }
 
 	BarType type;
 	uintptr_t address;
@@ -207,6 +209,7 @@ struct PciBar {
 	smarter::shared_ptr<MemoryView> memory;
 	smarter::shared_ptr<IoSpace> io;
 	ptrdiff_t offset;
+	BarType hostType;
 };
 
 // Either a device or a bridge.

@@ -106,6 +106,7 @@ extern frg::manual_box<GicDistributor> dist;
 
 static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
+	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
 		globalPGTInstance.initialize();
 		globalClockSource = globalPGTInstance.get();

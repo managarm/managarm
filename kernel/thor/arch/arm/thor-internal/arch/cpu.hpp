@@ -21,6 +21,12 @@ enum class Domain : uint64_t {
 	idle
 };
 
+struct FpRegisters {
+	uint64_t v[64]; // V0-V31 are 128 bits
+	uint64_t fpcr;
+	uint64_t fpsr;
+};
+
 struct Frame {
 	uint64_t x[31];
 	uint64_t sp;
@@ -31,10 +37,7 @@ struct Frame {
 	Domain domain;
 	uint64_t tpidr_el0;
 
-	// FP/SIMD registers
-	uint64_t v[64]; // V0-V31 are 128 bits
-	uint64_t fpcr;
-	uint64_t fpsr;
+	FpRegisters fp;
 };
 static_assert(sizeof(Frame) == 832, "Invalid exception frame size");
 
@@ -357,12 +360,16 @@ void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);
 
+extern "C" void saveFpSimdRegisters(FpRegisters *frame);
+
 template<typename F>
 void forkExecutor(F functor, Executor *executor) {
 	auto delegate = [] (void *p) {
 		auto fp = static_cast<F *>(p);
 		(*fp)();
 	};
+
+	saveFpSimdRegisters(&executor->general()->fp);
 
 	//assert(executor->general()->domain == getCpuData()->currentDomain);
 	doForkExecutor(executor, delegate, &functor);

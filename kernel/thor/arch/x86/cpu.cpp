@@ -36,16 +36,20 @@ bool FaultImageAccessor::allowUserPages() {
 // Executor
 // --------------------------------------------------------
 
-size_t Executor::determineSize() {
+size_t Executor::determineSimdSize() {
 	assert(cpuFeaturesKnown);
 	auto *cpuData = getCpuData();
 
-	// fxState is offset from General by 0x10 bytes to make it 64byte aligned for xsave
 	if(cpuData->haveXsave){
-		return sizeof(General) + 0x10 + cpuData->xsaveRegionSize;
+		return cpuData->xsaveRegionSize;
 	}else{
-		return sizeof(General) + 0x10 + sizeof(FxState);
+		return sizeof(FxState);
 	}
+}
+
+size_t Executor::determineSize() {
+	// fxState is offset from General by 0x10 bytes to make it 64byte aligned for xsave
+	return sizeof(General) + 0x10 + determineSimdSize();
 }
 
 Executor::Executor()

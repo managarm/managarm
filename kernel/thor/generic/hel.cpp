@@ -1784,6 +1784,14 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 #endif
+	}else if(set == kHelRegsSimd) {
+#if defined(__x86_64__)
+		if(!writeUserMemory(image, thread->_executor._fxState(), Executor::determineSimdSize()))
+			return kHelErrFault;
+#elif defined(__aarch64__)
+		if(!writeUserMemory(image, &thread->_executor.general()->fp, sizeof(FpRegisters)))
+			return kHelErrFault;
+#endif
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1894,6 +1902,14 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 		vcpu.vcpu->storeRegs(&regs);
+#endif
+	}else if(set == kHelRegsSimd) {
+#if defined(__x86_64__)
+		if(!readUserMemory(thread->_executor._fxState(), image, Executor::determineSimdSize()))
+			return kHelErrFault;
+#elif defined(__aarch64__)
+		if(!readUserMemory(&thread->_executor.general()->fp, image, sizeof(FpRegisters)))
+			return kHelErrFault;
 #endif
 	}else{
 		return kHelErrIllegalArgs;
@@ -2898,6 +2914,58 @@ HelError helSetAffinity(HelHandle thread, uint8_t *mask, size_t size) {
 
 	this_thread->setAffinityMask(std::move(buf));
 	Thread::migrateCurrent();
+
+	return kHelErrNone;
+}
+
+HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
+	HelRegisterInfo outInfo;
+
+	switch (set) {
+		case kHelRegsProgram:
+			outInfo.setSize = 2 * sizeof(uintptr_t);
+			break;
+
+		case kHelRegsGeneral:
+#if defined (__x86_64__)
+			outInfo.setSize = 15 * sizeof(uintptr_t);
+#elif defined (__aarch64__)
+			outInfo.setSize = 31 * sizeof(uintptr_t);
+#else
+#			error Unknown architecture
+#endif
+
+		case kHelRegsThread:
+#if defined (__x86_64__)
+			outInfo.setSize = 2 * sizeof(uintptr_t);
+#elif defined (__aarch64__)
+			outInfo.setSize = 1 * sizeof(uintptr_t);
+#else
+#			error Unknown architecture
+#endif
+
+#if defined (__x86_64__)
+		case kHelRegsVirtualization:
+			outInfo.setSize = sizeof(HelX86VirtualizationRegs);
+			break;
+#endif
+
+		case kHelRegsSimd:
+#if defined (__x86_64__)
+			outInfo.setSize = Executor::determineSimdSize();
+#elif defined (__aarch64__)
+			outInfo.setSize = sizeof(FpRegisters);
+#else
+#			error Unknown architecture
+#endif
+			break;
+
+		default:
+			return kHelErrIllegalArgs;
+	}
+
+	if (!writeUserObject(info, outInfo))
+		return kHelErrFault;
 
 	return kHelErrNone;
 }

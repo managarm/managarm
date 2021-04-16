@@ -16,7 +16,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 102,
+	kHelNumCalls = 103,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -65,6 +65,7 @@ enum {
 	kHelCallResume = 61,
 	kHelCallLoadRegisters = 75,
 	kHelCallStoreRegisters = 76,
+	kHelCallQueryRegisterInfo = 102,
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
 	kHelCallSubmitAwaitClock = 80,
@@ -277,7 +278,14 @@ enum HelRegisterSets {
 	kHelRegsGeneral = 2,
 	kHelRegsThread = 3,
 	kHelRegsDebug = 4,
-	kHelRegsVirtualization = 5
+	kHelRegsVirtualization = 5,
+	kHelRegsSimd = 6
+};
+
+//! Register-related information returned by helQueryRegisterInfo
+struct HelRegisterInfo {
+	//! Size of the selected register set
+	int setSize;
 };
 
 #if defined(__x86_64__)
@@ -900,6 +908,13 @@ HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image);
 //! @param[in] image
 //!     Copy of the register image.
 HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);
+
+//! Query register-related information.
+//! @param[in] set
+//      Register set to query information for.
+//! @param[out] info
+//!     Returned information.
+HEL_C_LINKAGE HelError helQueryRegisterInfo(int set, struct HelRegisterInfo *info);
 
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 
