@@ -9,7 +9,7 @@ project('managarm', ['c', 'cpp'],
 )
 
 # build documentation
-if get_option('only_docs')
+if get_option('build_docs')
 	subdir('docs')
 	
 	doxyfile = configure_file(
@@ -168,7 +168,7 @@ endif
 # when building these tools make sure they stay below everything else
 # as they depend on parts above
 if get_option('build_tools')
-	foreach tool : [ 'ostrace', 'basesvr', 'pb2frigg' ]
+	foreach tool : [ 'ostrace', 'bakesvr', 'pb2frigg' ]
 		subdir('tools'/tool)
 	endforeach
 endif

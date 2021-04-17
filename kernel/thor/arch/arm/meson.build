@@ -1,14 +1,15 @@
 src += files(
-	'cpu.cpp',
-	'user-access.S',
-	'paging.cpp',
-	'system.cpp',
-	'ints.cpp',
-	'debug.cpp',
 	'entry.S',
 	'stubs.S',
-	'timer.cpp',
+	'user-access.S',
+
+	'cpu.cpp',
+	'debug.cpp',
 	'gic.cpp',
+	'ints.cpp',
+	'paging.cpp',
+	'system.cpp',
+	'timer.cpp',
 	'../../system/dtb/dtb.cpp',
 	'../../system/pci/pci_dtb.cpp'
 )

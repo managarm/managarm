@@ -25,7 +25,7 @@ jobs:
             with:
               path: src/
           - name: Configure
-            run: meson build/ src/ -Donly_docs=true
+            run: meson build/ src/ -Dbuild_docs=true
           - name: Build handbook
             run: ninja mdbook
             working-directory: build/
