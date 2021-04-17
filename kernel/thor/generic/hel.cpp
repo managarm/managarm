@@ -910,7 +910,7 @@ HelError helPointerPhysical(const void *pointer, uintptr_t *physical) {
 
 	// FIXME: The physical page can change after we destruct the accessor!
 	// We need a better hel API to properly handle that case.
-	Thread::asyncBlockCurrent(accessor.acquire(WorkQueue::localQueue()->take()));
+	Thread::asyncBlockCurrent(accessor.acquire(this_thread->mainWorkQueue()->take()));
 
 	auto page_physical = accessor.getPhysical(0);
 
@@ -1398,7 +1398,7 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 			co_await queue->submit(&ipcSource, context);
 	}(
 		std::move(this_universe), std::move(memory), std::move(queue),
-		offset, size, context, WorkQueue::localQueue()->take()
+		offset, size, context, this_thread->mainWorkQueue()->take()
 	));
 
 	return kHelErrNone;
@@ -2330,7 +2330,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto space = this_thread->getAddressSpace().lock();
 			auto accessor = AddressSpaceLockHandle{std::move(space),
 					action.buffer, action.length};
-			Thread::asyncBlockCurrent(accessor.acquire(WorkQueue::localQueue()->take()));
+			Thread::asyncBlockCurrent(accessor.acquire(this_thread->mainWorkQueue()->take()));
 
 			closure->items[i].transmit.setup(kTagRecvToBuffer, closure);
 			closure->items[i].transmit._inAccessor = std::move(accessor);

@@ -3,29 +3,10 @@
 
 namespace thor {
 
-WorkScope::WorkScope(WorkQueue *queue)
-: _scopedQueue{queue}, _outerQueue{nullptr} {
-	auto context = localExecutorContext();
-	_outerQueue = context->associatedWorkQueue;
-	context->associatedWorkQueue = _scopedQueue;
-}
-
-WorkScope::~WorkScope() {
-	auto context = localExecutorContext();
-	assert(context->associatedWorkQueue == _scopedQueue);
-	context->associatedWorkQueue = _outerQueue;
-}
-
 WorkQueue *WorkQueue::generalQueue() {
 	auto cpuData = getCpuData();
 	assert(cpuData->generalWorkQueue);
 	return cpuData->generalWorkQueue.get();
-}
-
-WorkQueue *WorkQueue::localQueue() {
-	auto context = localExecutorContext();
-	assert(context);
-	return context->associatedWorkQueue;
 }
 
 // TODO: Optimize for the case where we are on the correct thread.

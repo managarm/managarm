@@ -394,8 +394,6 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 	memset(_credentials, 0, 16);
 	memcpy(_credentials + 8, &id, sizeof(uint64_t));
 
-	_executorContext.associatedWorkQueue = &_mainWorkQueue;
-
 	auto stream = createStream();
 	_superiorLane = std::move(stream.get<0>());
 	_inferiorLane = std::move(stream.get<1>());

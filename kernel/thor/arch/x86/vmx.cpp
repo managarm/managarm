@@ -360,7 +360,7 @@ namespace thor::vmx {
 					flags |= AddressSpace::kFaultExecute;
 
 				bool handled = Thread::asyncBlockCurrent(space->handleFault(address, flags,
-						WorkQueue::localQueue()->take()));
+						getCurrentThread()->mainWorkQueue()->take()));
 				if(!handled) {
 					exitInfo.exitReason = khelVmexitTranslationFault;
 					exitInfo.address = address;

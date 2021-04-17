@@ -34,8 +34,6 @@ struct ExecutorContext {
 	ExecutorContext(const ExecutorContext &) = delete;
 
 	ExecutorContext &operator= (const ExecutorContext &) = delete;
-
-	WorkQueue *associatedWorkQueue;
 };
 
 enum class ProfileMechanism {
