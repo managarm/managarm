@@ -23,17 +23,6 @@ enum Interrupt {
 };
 
 struct Thread;
-struct ThreadBlocker;
-
-struct ThreadBlocker {
-	friend struct Thread;
-
-	void setup();
-
-private:
-	Thread *_thread;
-	bool _done;
-};
 
 template <template<typename, typename> typename Ptr, typename T, typename H>
 	requires (!std::is_same_v<H, void>)
@@ -73,60 +62,101 @@ public:
 		thread.release();
 		smarter::shared_ptr<Thread, ActiveHandle> sptr{smarter::adopt_rc, ptr, ptr};
 
-		ptr->_mainWorkQueue.selfPtr = remove_tag_cast(smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr,
-				&ptr->_mainWorkQueue});
-		ptr->_pagingWorkQueue.selfPtr = remove_tag_cast(smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr,
-				&ptr->_pagingWorkQueue});
+		ptr->_mainWorkQueue.selfPtr = remove_tag_cast(
+				smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_mainWorkQueue});
+		ptr->_pagingWorkQueue.selfPtr = remove_tag_cast(
+				smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_pagingWorkQueue});
 		return sptr;
 	}
 
 	template<typename Sender>
+	static auto asyncBlockCurrent(Sender s) {
+		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue);
+	}
+
+	template<typename Sender>
 	requires std::is_same_v<typename Sender::value_type, void>
-	static void asyncBlockCurrent(Sender s) {
-		struct Closure {
-			ThreadBlocker blocker;
-		} closure;
+	static void asyncBlockCurrent(Sender s, WorkQueue *wq) {
+		auto thisThread = getCurrentThread();
+
+		struct BlockingState {
+			// We need a shared_ptr since the thread might continue (and thus could be killed)
+			// immediately after we set the done flag.
+			smarter::shared_ptr<Thread> thread;
+			// Acquire-release semantics to publish the result of the async operation.
+			std::atomic<bool> done{false};
+		} bls {.thread = thisThread.lock()};
 
 		struct Receiver {
 			void set_value() {
-				Thread::unblockOther(&closure->blocker);
+				// The blsp pointer may become invalid as soon as we set blsp->done.
+				auto thread = std::move(blsp->thread);
+				blsp->done.store(true, std::memory_order_release);
+				Thread::unblockOther(thread);
 			}
 
-			Closure *closure;
+			BlockingState *blsp;
 		};
 
-		closure.blocker.setup();
-		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
+		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
 		async::execution::start(operation);
-		Thread::blockCurrent(&closure.blocker);
+		while(true) {
+			if(bls.done.load(std::memory_order_acquire))
+				break;
+			if(wq->check()) {
+				wq->run();
+				// Re-check the done flag since nested blocking (triggered by the WQ)
+				// might have consumed the unblock latch.
+				continue;
+			}
+			Thread::blockCurrent();
+		}
 	}
 
 	template<typename Sender>
 	requires (!std::is_same_v<typename Sender::value_type, void>)
-	static typename Sender::value_type asyncBlockCurrent(Sender s) {
-		struct Closure {
+	static typename Sender::value_type asyncBlockCurrent(Sender s, WorkQueue *wq) {
+		auto thisThread = getCurrentThread();
+
+		struct BlockingState {
+			// We need a shared_ptr since the thread might continue (and thus could be killed)
+			// immediately after we set the done flag.
+			smarter::shared_ptr<Thread> thread;
+			// Acquire-release semantics to publish the result of the async operation.
+			std::atomic<bool> done{false};
 			frg::optional<typename Sender::value_type> value;
-			ThreadBlocker blocker;
-		} closure;
+		} bls{.thread = thisThread.lock()};
 
 		struct Receiver {
 			void set_value(typename Sender::value_type value) {
-				closure->value.emplace(std::move(value));
-				Thread::unblockOther(&closure->blocker);
+				// The blsp pointer may become invalid as soon as we set blsp->done.
+				auto thread = std::move(blsp->thread);
+				blsp->value.emplace(std::move(value));
+				blsp->done.store(true, std::memory_order_release);
+				Thread::unblockOther(thread);
 			}
 
-			Closure *closure;
+			BlockingState *blsp;
 		};
 
-		closure.blocker.setup();
-		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
+		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
 		async::execution::start(operation);
-		Thread::blockCurrent(&closure.blocker);
-		return std::move(*closure.value);
+		while(true) {
+			if(bls.done.load(std::memory_order_acquire))
+				break;
+			if(wq->check()) {
+				wq->run();
+				// Re-check the done flag since nested blocking (triggered by the WQ)
+				// might have consumed the unblock latch.
+				continue;
+			}
+			Thread::blockCurrent();
+		}
+		return std::move(*bls.value);
 	}
 
 	// State transitions that apply to the current thread only.
-	static void blockCurrent(ThreadBlocker *blocker);
+	static void blockCurrent();
 	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
@@ -138,7 +168,7 @@ public:
 
 	// State transitions that apply to arbitrary threads.
 	// TODO: interruptOther() needs an Interrupt argument.
-	static void unblockOther(ThreadBlocker *blocker);
+	static void unblockOther(smarter::borrowed_ptr<Thread> thread);
 	static void killOther(smarter::borrowed_ptr<Thread> thread);
 	static void interruptOther(smarter::borrowed_ptr<Thread> thread);
 	static Error resumeOther(smarter::borrowed_ptr<Thread> thread);
@@ -289,6 +319,14 @@ private:
 	Mutex _mutex;
 
 	RunState _runState;
+
+	// If this flag is set, blockCurrent() returns immediately.
+	// In blockCurrent(), the flag is checked within _mutex.
+	// On 0-1 transitions, we take _mutex and try to unblock the thread.
+	// Since _mutex enforces a total order, this guarantees correctness
+	// (i.e., that we never block when we should not).
+	std::atomic<bool> _unblockLatch{false};
+
 	Interrupt _lastInterrupt;
 	uint64_t _stateSeq;
 

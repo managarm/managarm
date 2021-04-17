@@ -372,8 +372,10 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
 	}else{
-		handled = Thread::asyncBlockCurrent(address_space->handleFault(address, flags,
-				WorkQueue::localQueue()->take()));
+		auto wq = this_thread->pagingWorkQueue();
+		handled = Thread::asyncBlockCurrent(
+				address_space->handleFault(address, flags, wq->take()),
+				wq);
 	}
 
 	if(handled)

@@ -1,4 +1,3 @@
-
 #include <stddef.h>
 #include <string.h>
 
@@ -62,41 +61,41 @@ void Thread::migrateCurrent() {
 	}, &this_thread->_executor);
 }
 
-void Thread::blockCurrent(ThreadBlocker *blocker) {
-	auto this_thread = getCurrentThread();
-	while(true) {
-		// Run the WQ outside of the locks.
-		WorkQueue::localQueue()->run();
+void Thread::blockCurrent() {
+	auto thisThread = getCurrentThread();
 
-		StatelessIrqLock irq_lock;
-		auto lock = frg::guard(&this_thread->_mutex);
+	// Optimistically clear the unblock latch before entering the mutex.
+	// We need acquire semantics to synchronize with unblockOther().
+	if(thisThread->_unblockLatch.exchange(false, std::memory_order_acquire))
+		return;
 
-		// Those are the important tests; they are protected by the thread's mutex.
-		if(blocker->_done)
-			break;
-		if(WorkQueue::localQueue()->check())
-			continue;
-		
-		if(logRunStates)
-			infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " is blocked" << frg::endlog;
+	StatelessIrqLock irqLock;
+	auto lock = frg::guard(&thisThread->_mutex);
 
-		assert(this_thread->_runState == kRunActive);
-		this_thread->_runState = kRunBlocked;
-		getCpuData()->scheduler.update();
-		Scheduler::suspendCurrent();
-		getCpuData()->scheduler.reschedule();
-		this_thread->_uninvoke();
+	// We do not need any memory barrier here: no matter how our aquisition of _mutex
+	// is ordered to the aquisition in unblockOther(), we are still correct.
+	if(thisThread->_unblockLatch.load(std::memory_order_relaxed))
+		return;
 
-		forkExecutor([&] {
-			runDetached([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
-				scrubStack(executor, cont);
-				lock.unlock();
-				localScheduler()->commit();
-				localScheduler()->invoke();
-			}, &this_thread->_executor, std::move(lock));
-		}, &this_thread->_executor);
-	}
+	if(logRunStates)
+		infoLogger() << "thor: " << (void *)thisThread.get()
+				<< " is blocked" << frg::endlog;
+
+	assert(thisThread->_runState == kRunActive);
+	thisThread->_runState = kRunBlocked;
+	getCpuData()->scheduler.update();
+	Scheduler::suspendCurrent();
+	getCpuData()->scheduler.reschedule();
+	thisThread->_uninvoke();
+
+	forkExecutor([&] {
+		runDetached([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
+			scrubStack(executor, cont);
+			lock.unlock();
+			localScheduler()->commit();
+			localScheduler()->invoke();
+		}, &thisThread->_executor, std::move(lock));
+	}, &thisThread->_executor);
 }
 
 // FIXME: This function does not save the state! It needs to be given a ImageAccessor parameter!
@@ -327,23 +326,26 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	}
 }
 
-void Thread::unblockOther(ThreadBlocker *blocker) {
-	auto thread = blocker->_thread;
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&thread->_mutex);
+void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
+	// Release semantics ensure that we synchronize with the thread when it flips the flag
+	// back to false. Acquire semantics are needed to synchronize with other threads
+	// that already set the flag to true in the meantime.
+	auto ul = thread->_unblockLatch.exchange(true, std::memory_order_acq_rel);
+	if(ul)
+		return;
 
-	assert(!blocker->_done);
-	blocker->_done = true;
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&thread->_mutex);
 
 	if(thread->_runState != kRunBlocked)
 		return;
 	
 	if(logRunStates)
-		infoLogger() << "thor: " << (void *)thread
+		infoLogger() << "thor: " << (void *)thread.get()
 				<< " is deferred (via unblock)" << frg::endlog;
 
 	thread->_runState = kRunDeferred;
-	Scheduler::resume(thread);
+	Scheduler::resume(thread.get());
 }
 
 void Thread::killOther(smarter::borrowed_ptr<Thread> thread) {
@@ -523,24 +525,7 @@ void Thread::_kill() {
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_thread->_mutex);
-
-	if(_thread->_runState != kRunBlocked)
-		return;
-	
-	if(logRunStates)
-		infoLogger() << "thor: " << (void *)_thread
-				<< " is deferred (via wq wakeup)" << frg::endlog;
-
-	_thread->_runState = kRunDeferred;
-	Scheduler::resume(_thread);
-}
-
-void ThreadBlocker::setup() {
-	_thread = getCurrentThread().get();
-	_done = false;
+	unblockOther(_thread->self);
 }
 
 } // namespace thor
-
