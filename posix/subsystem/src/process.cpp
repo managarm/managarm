@@ -531,18 +531,45 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 // FPU state is store at a higher (undefined) position on the stack.
 
 // This is our signal frame, similar to Linux' struct rt_sigframe.
+#if defined(__x86_64__)
 struct SignalFrame {
 	uint64_t returnAddress; // Address for 'ret' instruction.
 	uintptr_t gprs[kHelNumGprs];
 	uintptr_t pcrs[2];
 	siginfo_t info;
 };
+#else
+// Return address for 'ret' is stored in X30 and not on the stack
+struct SignalFrame {
+	uintptr_t gprs[kHelNumGprs];
+	uintptr_t pcrs[2];
+	siginfo_t info;
+};
+#endif
+
+#if defined(__x86_64__)
+constexpr size_t redZoneSize = 128;
+// Calls misalign the stack by 8 bytes
+// We later offset the stack by this amount because the ABI expects
+// (rsp + 8) % 16 == 0 at function entry
+constexpr size_t stackCallMisalign = 8;
+#else
+// The AAPCS64 ABI has no red zone
+constexpr size_t redZoneSize = 0;
+constexpr size_t stackCallMisalign = 0;
+#endif
+
+static const auto simdStateSize = [] () -> size_t {
+	HelRegisterInfo regInfo;
+	HEL_CHECK(helQueryRegisterInfo(kHelRegsSimd, &regInfo));
+	return regInfo.setSize;
+}();
 
 async::result<void> SignalContext::raiseContext(SignalItem *item, Process *process,
 		bool &killed) {
 	auto thread = process->threadDescriptor();
 
-	SignalHandler handler = _handlers[item->signalNumber];
+	SignalHandler handler = _handlers[item->signalNumber - 1];
 
 	// Implement SA_RESETHAND by resetting the signal disposition to default.
 	if(handler.flags & signalOnce)
@@ -574,7 +601,12 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
+#if defined (__x86_64__)
 	sf.returnAddress = handler.restorerIp;
+#endif
+
+	std::vector<std::byte> simdState(simdStateSize);
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
 
 	// Once compile siginfo_t if that is neccessary (matches Linux behavior).
 	if(handler.flags & signalInfo) {
@@ -583,19 +615,24 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	}
 
 	// Setup the stack frame.
-	uintptr_t nsp = sf.pcrs[kHelRegSp] - 128;
+	uintptr_t nsp = sf.pcrs[kHelRegSp] - redZoneSize;
 
 	auto alignFrame = [&] (size_t size) -> uintptr_t {
-		nsp = ((nsp - size) & ~uintptr_t(15)) - 8;
+		nsp = ((nsp - size) & ~uintptr_t(15)) - stackCallMisalign;
 		return nsp;
 	};
 
+	size_t totalFrameSize = simdStateSize + sizeof(SignalFrame);
+
 	// Store the current register stack on the stack.
 	assert(alignof(SignalFrame) == 8);
-	auto frame = alignFrame(sizeof(SignalFrame));
+	auto frame = alignFrame(totalFrameSize);
 	auto storeFrame = co_await helix_ng::writeMemory(thread, frame,
 			sizeof(SignalFrame), &sf);
+	auto storeSimd = co_await helix_ng::writeMemory(thread, frame + sizeof(SignalFrame),
+			simdStateSize, simdState.data());
 	HEL_CHECK(storeFrame.error());
+	HEL_CHECK(storeSimd.error());
 
 	std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
 	std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
@@ -609,6 +646,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #elif defined(__aarch64__)
 	sf.gprs[kHelRegX0] = item->signalNumber;
 	sf.gprs[kHelRegX1] = frame + offsetof(SignalFrame, info);
+
+	// Return address for the 'ret' instruction
+	sf.gprs[kHelRegX30] = handler.restorerIp;
 #endif
 
 	sf.pcrs[kHelRegIp] = handler.handlerIp;
@@ -623,17 +663,23 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
-	auto frame = pcrs[kHelRegSp] - 8;
+	auto frame = pcrs[kHelRegSp] - stackCallMisalign;
 
 	std::cout << "posix: Restoring post-signal stack from " << (void *)frame << std::endl;
+
+	std::vector<std::byte> simdState(simdStateSize);
 
 	SignalFrame sf;
 	auto loadFrame = co_await helix_ng::readMemory(thread, frame,
 			sizeof(SignalFrame), &sf);
+	auto loadSimd = co_await helix_ng::readMemory(thread, frame + sizeof(SignalFrame),
+			simdStateSize, simdState.data());
 	HEL_CHECK(loadFrame.error());
+	HEL_CHECK(loadSimd.error());
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
 }
 
 // ----------------------------------------------------------------------------

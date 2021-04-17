@@ -2,8 +2,11 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
-#include <hw.frigg_pb.hpp>
+#include <hw.frigg_bragi.hpp>
 #include <mbus.frigg_pb.hpp>
+
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-frigg.hpp>
 
 namespace thor {
 	extern frg::manual_box<LaneHandle> mbusClient;
@@ -16,19 +19,20 @@ namespace {
 	//       Print a log message on protocol errors.
 
 	coroutine<Error> handleRequest(LaneHandle boundLane) {
-		auto respondWithError = [] (LaneHandle lane, uint32_t protoError)
-				-> coroutine<Error> {
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(protoError);
+		auto sendResponse = [] (LaneHandle &conversation,
+				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::tuple<Error, Error>> {
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+				resp.head_size};
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
-			co_return Error::success;
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+				resp.size_of_tail()};
+
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+
+			co_return {respHeadError, respTailError};
 		};
 
 		auto [acceptError, lane] = co_await AcceptSender{boundLane};
@@ -38,64 +42,86 @@ namespace {
 		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
 		if(reqError != Error::success)
 			co_return reqError;
-		managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-		if(req.req_type() == managarm::hw::CntReqType::GET_PCI_INFO) {
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+		auto preamble = bragi::read_preamble(reqBuffer);
+		assert(!preamble.error());
+
+		if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			managarm::hw::PciBar<KernelAlloc> mainBar(*kernelAlloc);
+
+			managarm::hw::PciBar<KernelAlloc> mainBar{*kernelAlloc};
 			mainBar.set_io_type(managarm::hw::IoType::PORT);
 			mainBar.set_address(0x1F0);
 			mainBar.set_length(8);
 			resp.add_bars(std::move(mainBar));
 
-			managarm::hw::PciBar<KernelAlloc> altBar(*kernelAlloc);
+			managarm::hw::PciBar<KernelAlloc> altBar{*kernelAlloc};
 			altBar.set_io_type(managarm::hw::IoType::PORT);
 			altBar.set_address(0x3F6);
 			altBar.set_length(1);
 			resp.add_bars(std::move(altBar));
 
 			for(size_t k = 2; k < 6; k++) {
-				managarm::hw::PciBar<KernelAlloc> noBar(*kernelAlloc);
+				managarm::hw::PciBar<KernelAlloc> noBar{*kernelAlloc};
 				noBar.set_io_type(managarm::hw::IoType::NO_BAR);
 				resp.add_bars(std::move(noBar));
 			}
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
-		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
-			auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
-			if(req.index() == 0) {
-				for(size_t p = 0; p < 8; ++p)
-					space->addPort(0x1F0 + p);
-			}else if(req.index() == 1) {
-				space->addPort(0x3F6);
-			}else{
-				co_return co_await respondWithError(std::move(lane),
-						managarm::hw::Errors::OUT_OF_BOUNDS);
+			auto [headError, tailError] = co_await sendResponse(lane, std::move(resp));
+
+			if(headError != Error::success)
+				co_return headError;
+			if(tailError != Error::success)
+				co_return tailError;
+		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
 			}
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
+			auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+			if(req->index() == 0) {
+				for(size_t p = 0; p < 8; ++p)
+					space->addPort(0x1F0 + p);
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			}else if(req->index() == 1) {
+				space->addPort(0x3F6);
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			}else{
+				resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);
+			}
+
+			auto [headError, tailError] = co_await sendResponse(lane, std::move(resp));
+
+			if(headError != Error::success)
+				co_return headError;
+			if(tailError != Error::success)
+				co_return tailError;
+
 			auto ioError = co_await PushDescriptorSender{lane, IoDescriptor{space}};
 			if(ioError != Error::success)
 				co_return ioError;
-		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_IRQ) {
+		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
@@ -106,19 +132,20 @@ namespace {
 			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
 #endif
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
+			auto [headError, tailError] = co_await sendResponse(lane, std::move(resp));
+
+			if(headError != Error::success)
+				co_return headError;
+			if(tailError != Error::success)
+				co_return tailError;
+
 			auto irqError = co_await PushDescriptorSender{lane, IrqDescriptor{object}};
 			if(irqError != Error::success)
 				co_return irqError;
 		}else{
-			co_return co_await respondWithError(std::move(lane),
-					managarm::hw::Errors::ILLEGAL_REQUEST);
+			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
+			co_await DismissSender{lane};
+			co_return Error::protocolViolation;
 		}
 
 		co_return Error::success;

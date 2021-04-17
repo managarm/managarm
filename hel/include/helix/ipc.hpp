@@ -435,15 +435,24 @@ struct Offer : Operation {
 		return result()->error;
 	}
 
+	UniqueDescriptor descriptor() {
+		HEL_CHECK(error());
+		return std::move(_descriptor);
+	}
+
 	void parse(void *&ptr) override {
 		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		ptr = (char *)ptr + sizeof(HelHandleResult);
+		if(!error())
+			_descriptor = UniqueDescriptor{result()->handle};
 	}
 
 private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	HelHandleResult *result() {
+		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
 	}
+
+	UniqueDescriptor _descriptor;
 };
 
 struct Accept : Operation {

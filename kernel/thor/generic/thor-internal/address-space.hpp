@@ -873,6 +873,13 @@ private:
 	int64_t _residuentSize = 0;
 };
 
+coroutine<frg::expected<Error>> readVirtualSpace(VirtualSpace *space,
+		uintptr_t address, void *buffer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq);
+coroutine<frg::expected<Error>> writeVirtualSpace(VirtualSpace *space,
+		uintptr_t address, const void *buffer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq);
+
 struct AddressSpace : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {
 	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;

@@ -5,7 +5,7 @@
 - [Getting Started](getting-started/index.md)
     - [Trying Out](getting-started/trying-out.md)
     - [Supported Hardware and Software](getting-started/supported/index.md)
-        - [Temporary Package Index](getting-started/supported/package_index.md)
+        - [Supported Packages](getting-started/supported/package_index.md)
 
 
 - [Building](building.md)
@@ -24,10 +24,7 @@
         - [libblockfs](design/drivers/libblockfs/index.md)
 
 
-- [Contributing](contributing/contributing.md)
-    - [Communication](contributing/communication.md)
-    - [Direct Contributions](contributing/direct/direct.md)
-        - [Fields](contributing/direct/direct.md)
-        - [Issues](contributing/direct/direct.md)
-        - [Pull Requests](contributing/direct/direct.md)
-    - [Guidelines](contributing/contributing.md)
+- [Contributing](contributing/overview.md)
+    - [Overview](contributing/overview.md)
+    - [Commit messages](contributing/commit-messages.md)
+    - [Coding style](contributing/coding-style.md)

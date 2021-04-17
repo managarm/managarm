@@ -92,7 +92,6 @@ KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
 : _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} {
 	_associatedWorkQueue = smarter::allocate_shared<AssociatedWorkQueue>(*kernelAlloc, this);
 	_associatedWorkQueue->selfPtr = smarter::shared_ptr<WorkQueue>{_associatedWorkQueue};
-	_executorContext.associatedWorkQueue = _associatedWorkQueue.get();
 }
 
 void KernelFiber::invoke() {

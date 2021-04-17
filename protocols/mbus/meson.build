@@ -16,6 +16,7 @@ libmbus = shared_library('mbus', src,
 mbus_dep = declare_dependency(
 	link_with : libmbus,
 	dependencies : deps,
+	sources : mbus_pb,
 	include_directories : inc
 )
 

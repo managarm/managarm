@@ -2,37 +2,51 @@
 #include <memory>
 #include <iostream>
 
+#include <vector>
+
 #include <string.h>
 
+#include <frg/std_compat.hpp>
+
 #include <helix/ipc.hpp>
-#include "hw.pb.h"
+#include <hw.bragi.hpp>
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-std.hpp>
 #include "protocols/hw/client.hpp"
 
 namespace protocols {
 namespace hw {
 
 async::result<PciInfo> Device::getPciInfo() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
+	managarm::hw::GetPciInfoRequest req;
 
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::GET_PCI_INFO);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
-	assert(resp.bars_size() == 6);
 
 	PciInfo info;
 
@@ -47,7 +61,17 @@ async::result<PciInfo> Device::getPciInfo() {
 		}else if(resp.bars(i).io_type() == managarm::hw::IoType::MEMORY) {
 			info.barInfo[i].ioType = IoType::kIoTypeMemory;
 		}else{
-			throw std::runtime_error("Illegal IoType!\n");
+			throw std::runtime_error("Illegal IoType for io_type!\n");
+		}
+
+		if(resp.bars(i).host_type() == managarm::hw::IoType::NO_BAR) {
+			info.barInfo[i].hostType = IoType::kIoTypeNone;
+		}else if(resp.bars(i).host_type() == managarm::hw::IoType::PORT) {
+			info.barInfo[i].hostType = IoType::kIoTypePort;
+		}else if(resp.bars(i).host_type() == managarm::hw::IoType::MEMORY) {
+			info.barInfo[i].hostType = IoType::kIoTypeMemory;
+		}else{
+			throw std::runtime_error("Illegal IoType for host_type!\n");
 		}
 		info.barInfo[i].address = resp.bars(i).address();
 		info.barInfo[i].length = resp.bars(i).length();
@@ -58,29 +82,37 @@ async::result<PciInfo> Device::getPciInfo() {
 }
 
 async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_bar;
-
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::ACCESS_BAR);
+	managarm::hw::AccessBarRequest req;
 	req.set_index(index);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_bar));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
 	HEL_CHECK(pull_bar.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
 	auto bar = pull_bar.descriptor();
@@ -88,201 +120,274 @@ async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
 }
 
 async::result<helix::UniqueDescriptor> Device::accessIrq() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_irq;
+	managarm::hw::AccessIrqRequest req;
 
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::ACCESS_IRQ);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_irq));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
 	HEL_CHECK(pull_irq.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
 	co_return pull_irq.descriptor();
 }
 
 async::result<void> Device::claimDevice() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
+	managarm::hw::ClaimDeviceRequest req;
 
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::CLAIM_DEVICE);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
 
 async::result<void> Device::enableBusIrq() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
+	managarm::hw::EnableBusIrqRequest req;
 
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::BUSIRQ_ENABLE);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
 
 async::result<void> Device::enableBusmaster() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
+	managarm::hw::EnableBusmasterRequest req;
 
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::BUSMASTER_ENABLE);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
 
 async::result<uint32_t> Device::loadPciSpace(size_t offset, unsigned int size) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::LOAD_PCI_SPACE);
+	managarm::hw::LoadPciSpaceRequest req;
 	req.set_offset(offset);
 	req.set_size(size);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
 	co_return resp.word();
 }
 
 async::result<void> Device::storePciSpace(size_t offset, unsigned int size, uint32_t word) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::STORE_PCI_SPACE);
+	managarm::hw::StorePciSpaceRequest req;
 	req.set_offset(offset);
 	req.set_size(size);
 	req.set_word(word);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
 
 async::result<uint32_t> Device::loadPciCapability(unsigned int index, size_t offset, unsigned int size) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::LOAD_PCI_CAPABILITY);
+	managarm::hw::LoadPciCapabilityRequest req;
 	req.set_index(index);
 	req.set_offset(offset);
 	req.set_size(size);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
 	co_return resp.word();
 }
 
 async::result<FbInfo> Device::getFbInfo() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
+	managarm::hw::GetFbInfoRequest req;
 
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::GET_FB_INFO);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
 	FbInfo info;
@@ -297,28 +402,36 @@ async::result<FbInfo> Device::getFbInfo() {
 }
 
 async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_bar;
+	managarm::hw::AccessFbMemoryRequest req;
 
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::ACCESS_FB_MEMORY);
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_bar));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
 	HEL_CHECK(pull_bar.error());
 
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
 	auto bar = pull_bar.descriptor();

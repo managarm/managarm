@@ -16,7 +16,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 102,
+	kHelNumCalls = 103,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -65,6 +65,7 @@ enum {
 	kHelCallResume = 61,
 	kHelCallLoadRegisters = 75,
 	kHelCallStoreRegisters = 76,
+	kHelCallQueryRegisterInfo = 102,
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
 	kHelCallSubmitAwaitClock = 80,
@@ -113,6 +114,7 @@ enum {
 	kHelErrTransmissionMismatch = 13,
 	kHelErrLaneShutdown = 8,
 	kHelErrEndOfLane = 9,
+	kHelErrDismissed = 20,
 	kHelErrBufferTooSmall = 1,
 	kHelErrFault = 10,
 	kHelErrNoHardwareSupport = 16,
@@ -187,6 +189,7 @@ enum {
 };
 
 enum {
+	kHelActionDismiss = 11,
 	kHelActionOffer = 5,
 	kHelActionAccept = 6,
 	kHelActionImbueCredentials = 8,
@@ -202,6 +205,7 @@ enum {
 enum {
 	kHelItemChain = 1,
 	kHelItemAncillary = 2,
+	kHelItemWantLane = (1 << 16),
 };
 
 struct HelSgItem {
@@ -274,7 +278,14 @@ enum HelRegisterSets {
 	kHelRegsGeneral = 2,
 	kHelRegsThread = 3,
 	kHelRegsDebug = 4,
-	kHelRegsVirtualization = 5
+	kHelRegsVirtualization = 5,
+	kHelRegsSimd = 6
+};
+
+//! Register-related information returned by helQueryRegisterInfo
+struct HelRegisterInfo {
+	//! Size of the selected register set
+	int setSize;
 };
 
 #if defined(__x86_64__)
@@ -898,6 +909,13 @@ HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image);
 //!     Copy of the register image.
 HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);
 
+//! Query register-related information.
+//! @param[in] set
+//      Register set to query information for.
+//! @param[out] info
+//!     Returned information.
+HEL_C_LINKAGE HelError helQueryRegisterInfo(int set, struct HelRegisterInfo *info);
+
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 
 //! Read the system-wide monotone clock.
@@ -1063,6 +1081,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Lane shutdown";
 	case kHelErrEndOfLane:
 		return "End of lane";
+	case kHelErrDismissed:
+		return "IPC item dismissed by remote";
 	case kHelErrBufferTooSmall:
 		return "Buffer too small";
 	case kHelErrQueueTooSmall:

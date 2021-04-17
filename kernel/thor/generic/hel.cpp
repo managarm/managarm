@@ -87,6 +87,7 @@ HelError translateError(Error error) {
 	case Error::transmissionMismatch: return kHelErrTransmissionMismatch;
 	case Error::laneShutdown: return kHelErrLaneShutdown;
 	case Error::endOfLane: return kHelErrEndOfLane;
+	case Error::dismissed: return kHelErrDismissed;
 	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::fault: return kHelErrFault;
 	default:
@@ -909,7 +910,7 @@ HelError helPointerPhysical(const void *pointer, uintptr_t *physical) {
 
 	// FIXME: The physical page can change after we destruct the accessor!
 	// We need a better hel API to properly handle that case.
-	Thread::asyncBlockCurrent(accessor.acquire(WorkQueue::localQueue()->take()));
+	Thread::asyncBlockCurrent(accessor.acquire(this_thread->mainWorkQueue()->take()));
 
 	auto page_physical = accessor.getPhysical(0);
 
@@ -999,18 +1000,22 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			auto lockHandle = AddressSpaceLockHandle{std::move(space),
-					(void *)address, length};
-			co_await lockHandle.acquire(submitThread->mainWorkQueue()->take());
-
-			// Enter the submitter's work-queue so that we can access memory directly.
-			co_await submitThread->mainWorkQueue()->schedule();
-
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{128});
-				lockHandle.load(progress, temp, chunk);
+
+				auto outcome = co_await readVirtualSpace(space.get(),
+						address + progress, temp, chunk,
+						submitThread->mainWorkQueue()->take());
+				if(!outcome) {
+					error = Error::fault;
+					break;
+				}
+
+				// Enter the submitter's work-queue so that we can access memory directly.
+				co_await submitThread->mainWorkQueue()->schedule();
+
 				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
 					error = Error::fault;
 					break;
@@ -1147,23 +1152,26 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			auto lockHandle = AddressSpaceLockHandle{std::move(space),
-					(void *)address, length};
-			co_await lockHandle.acquire(submitThread->mainWorkQueue()->take());
-
-			// Enter the submitter's work-queue so that we can access memory directly.
-			co_await submitThread->mainWorkQueue()->schedule();
-
 			char temp[128];
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{128});
+
+				// Enter the submitter's work-queue so that we can access memory directly.
+				co_await submitThread->mainWorkQueue()->schedule();
 				if(!readUserMemory(temp,
 						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
 					error = Error::fault;
 					break;
 				}
-				lockHandle.write(progress, temp, chunk);
+
+				auto outcome = co_await writeVirtualSpace(space.get(),
+						address + progress, temp, chunk,
+						submitThread->mainWorkQueue()->take());
+				if(!outcome) {
+					error = Error::fault;
+					break;
+				}
 				progress += chunk;
 			}
 		}
@@ -1390,7 +1398,7 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 			co_await queue->submit(&ipcSource, context);
 	}(
 		std::move(this_universe), std::move(memory), std::move(queue),
-		offset, size, context, WorkQueue::localQueue()->take()
+		offset, size, context, this_thread->mainWorkQueue()->take()
 	));
 
 	return kHelErrNone;
@@ -1776,6 +1784,14 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 #endif
+	}else if(set == kHelRegsSimd) {
+#if defined(__x86_64__)
+		if(!writeUserMemory(image, thread->_executor._fxState(), Executor::determineSimdSize()))
+			return kHelErrFault;
+#elif defined(__aarch64__)
+		if(!writeUserMemory(image, &thread->_executor.general()->fp, sizeof(FpRegisters)))
+			return kHelErrFault;
+#endif
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1886,6 +1902,14 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 		vcpu.vcpu->storeRegs(&regs);
+#endif
+	}else if(set == kHelRegsSimd) {
+#if defined(__x86_64__)
+		if(!readUserMemory(thread->_executor._fxState(), image, Executor::determineSimdSize()))
+			return kHelErrFault;
+#elif defined(__aarch64__)
+		if(!readUserMemory(&thread->_executor.general()->fp, image, sizeof(FpRegisters)))
+			return kHelErrFault;
 #endif
 	}else{
 		return kHelErrIllegalArgs;
@@ -2040,8 +2064,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		readUserObject(actions + i, action);
 
 		switch(action.type) {
-		case kHelActionOffer:
+		case kHelActionDismiss:
 			node_size += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionOffer:
+			node_size += ipcSourceSize(sizeof(HelHandleResult));
 			break;
 		case kHelActionAccept:
 			node_size += ipcSourceSize(sizeof(HelHandleResult));
@@ -2086,6 +2113,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		frg::unique_memory<KernelAlloc> buffer;
 		QueueSource mainSource;
 		QueueSource dataSource;
+		int flags;
 		union {
 			HelSimpleResult helSimpleResult;
 			HelHandleResult helHandleResult;
@@ -2106,9 +2134,26 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			for(size_t i = 0; i < closure->count; i++) {
 				auto item = &closure->items[i];
-				if(item->transmit.tag() == kTagOffer) {
+				if(item->transmit.tag() == kTagDismiss) {
 					item->helSimpleResult = {translateError(item->transmit.error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagOffer) {
+					HelHandle handle = kHelNullHandle;
+
+					if(item->transmit.error() == Error::success && (item->flags & kHelItemWantLane)) {
+						auto universe = closure->weakUniverse.lock();
+						assert(universe);
+
+						auto irq_lock = frg::guard(&irqMutex());
+						Universe::Guard lock(universe->lock);
+
+						handle = universe->attachDescriptor(lock,
+								LaneDescriptor{item->transmit.lane()});
+					}
+
+					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
+					item->mainSource.setup(&item->helSimpleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
 				}else if(item->transmit.tag() == kTagAccept) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
@@ -2224,7 +2269,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		// TODO: Turn this into an error return.
 		assert(!ancillary_stack.empty() && "expected end of chain");
 
+		closure->items[i].flags = action.flags;
+
 		switch(action.type) {
+		case kHelActionDismiss: {
+			closure->items[i].transmit.setup(kTagDismiss, closure);
+		} break;
 		case kHelActionOffer: {
 			closure->items[i].transmit.setup(kTagOffer, closure);
 		} break;
@@ -2280,7 +2330,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto space = this_thread->getAddressSpace().lock();
 			auto accessor = AddressSpaceLockHandle{std::move(space),
 					action.buffer, action.length};
-			Thread::asyncBlockCurrent(accessor.acquire(WorkQueue::localQueue()->take()));
+			Thread::asyncBlockCurrent(accessor.acquire(this_thread->mainWorkQueue()->take()));
 
 			closure->items[i].transmit.setup(kTagRecvToBuffer, closure);
 			closure->items[i].transmit._inAccessor = std::move(accessor);
@@ -2864,6 +2914,58 @@ HelError helSetAffinity(HelHandle thread, uint8_t *mask, size_t size) {
 
 	this_thread->setAffinityMask(std::move(buf));
 	Thread::migrateCurrent();
+
+	return kHelErrNone;
+}
+
+HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
+	HelRegisterInfo outInfo;
+
+	switch (set) {
+		case kHelRegsProgram:
+			outInfo.setSize = 2 * sizeof(uintptr_t);
+			break;
+
+		case kHelRegsGeneral:
+#if defined (__x86_64__)
+			outInfo.setSize = 15 * sizeof(uintptr_t);
+#elif defined (__aarch64__)
+			outInfo.setSize = 31 * sizeof(uintptr_t);
+#else
+#			error Unknown architecture
+#endif
+
+		case kHelRegsThread:
+#if defined (__x86_64__)
+			outInfo.setSize = 2 * sizeof(uintptr_t);
+#elif defined (__aarch64__)
+			outInfo.setSize = 1 * sizeof(uintptr_t);
+#else
+#			error Unknown architecture
+#endif
+
+#if defined (__x86_64__)
+		case kHelRegsVirtualization:
+			outInfo.setSize = sizeof(HelX86VirtualizationRegs);
+			break;
+#endif
+
+		case kHelRegsSimd:
+#if defined (__x86_64__)
+			outInfo.setSize = Executor::determineSimdSize();
+#elif defined (__aarch64__)
+			outInfo.setSize = sizeof(FpRegisters);
+#else
+#			error Unknown architecture
+#endif
+			break;
+
+		default:
+			return kHelErrIllegalArgs;
+	}
+
+	if (!writeUserObject(info, outInfo))
+		return kHelErrFault;
 
 	return kHelErrNone;
 }

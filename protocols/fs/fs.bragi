@@ -2,7 +2,6 @@ namespace "managarm::fs";
 
 enum Errors {
 	SUCCESS = 0,
-	ILLEGAL_REQUEST = 3,
 	FILE_NOT_FOUND = 1,
 	END_OF_FILE = 2,
 	ILLEGAL_ARGUMENT = 4,
@@ -23,7 +22,8 @@ enum Errors {
 	ILLEGAL_OPERATION_TARGET = 19,
 	NOT_DIRECTORY = 20,
 	NO_SPACE_LEFT = 21,
-	NOT_A_TERMINAL = 22
+	NOT_A_TERMINAL = 22,
+	NO_BACKING_DEVICE = 23
 }
 
 consts FileType int64 {

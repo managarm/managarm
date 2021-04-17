@@ -23,25 +23,8 @@ private:
 	frg::default_list_hook<Worklet> _hook;
 };
 
-struct WorkScope {
-	WorkScope(WorkQueue *queue);
-
-	WorkScope() = delete;
-	
-	WorkScope(const WorkScope &) = delete;
-
-	~WorkScope();
-
-	WorkScope &operator= (const WorkScope &) = delete;
-
-private:
-	WorkQueue *_scopedQueue;
-	WorkQueue *_outerQueue;
-};
-
 struct WorkQueue {
 	static WorkQueue *generalQueue();
-	static WorkQueue *localQueue();
 
 	static void post(Worklet *worklet);
 
@@ -117,6 +100,11 @@ private:
 	
 	frg::ticket_spinlock _mutex;
 
+	// Writes to this flag are totally ordered since they only happen within _mutex.
+	// Each 0-1 transition of this flag causes wakeup() to be called.
+	// wakeup() is responsible to ensure that (i) check() (and eventually run()) will be called,
+	// and (ii) that the call to check() synchronizes with the 0-1 transition of _anyPosted.
+	// (In the case of threads, this is guaranteed by the blocking mechanics.)
 	std::atomic<bool> _anyPosted;
 
 	frg::intrusive_list<

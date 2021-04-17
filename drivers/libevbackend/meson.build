@@ -1,3 +1,7 @@
+if host_machine.cpu_family() != 'x86_64'
+	subdir_done()
+endif
+
 inc = [ 'include' ]
 deps = [ libarch, fs_dep, usb_dep, mbus_dep, hw_dep ]
 

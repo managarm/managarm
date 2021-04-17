@@ -5,9 +5,9 @@ Managarm without setting up the development environment and building the whole
 OS yourself.
 
 ## Nightly builds
-The latest nightly build can be downloaded [here](https://pkgs.managarm.org/nightly/image.xz).
+The latest nightly build can be downloaded [here](https://ci.managarm.org/repos/files/managarm/rolling/image.xz).
 
-The Jenkins CI environment can be viewed at [https://ci.managarm.org](https://ci.managarm.org).
+Our build server, named `xbbs`, the xbstrap build server, which builds all of our packages automatically can be viewed at [https://ci.managarm.org](https://ci.managarm.org).
 
 ### Running the nightly builds
 Before running the downloaded nightly build you have to **uncompress** it.

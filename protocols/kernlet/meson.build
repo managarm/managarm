@@ -16,6 +16,7 @@ libkernlet = shared_library('kernlet_protocol', src,
 kernlet_dep = declare_dependency(
 	link_with : libkernlet,
 	dependencies : deps,
+	sources : kernlet_pb,
 	include_directories : inc
 )
 

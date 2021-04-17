@@ -108,16 +108,9 @@ namespace stdio {
 				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided stdio file" "\e[39m" << frg::endlog;
 
-				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
-
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
-				assert(respError == Error::success);
+				assert(dismissError == Error::success);
 			}
 		}
 	}
@@ -224,16 +217,9 @@ namespace initrd {
 				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided regular file" "\e[39m" << frg::endlog;
 
-				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
-
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
-				assert(respError == Error::success);
+				assert(dismissError == Error::success);
 			}
 
 		}
@@ -293,16 +279,12 @@ namespace initrd {
 					assert(respError == Error::success);
 				}
 			}else{
-				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
+						<< " for kernel provided directory file" "\e[39m" << frg::endlog;
 
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
-				assert(respError == Error::success);
+				assert(dismissError == Error::success);
 			}
 		}
 	}

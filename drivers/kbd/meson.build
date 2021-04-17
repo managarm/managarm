@@ -1,3 +1,7 @@
+if host_machine.cpu_family() != 'x86_64'
+	subdir_done()
+endif
+
 executable('ps2-hid', 'src/main.cpp',
 	dependencies : evbackend_dep,
 	install : true

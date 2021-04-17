@@ -3,7 +3,7 @@
 This section of the Managarm Documentation shows how to get into Managarm.
 
 <center>
-<img src="https://raw.githubusercontent.com/managarm/managarm/assets/screenshots/echo-hello-managarm.png" width="70%" height="70%">
+<img src="https://raw.githubusercontent.com/managarm/managarm/assets/screenshots/managarm-glxgears-xclock.png" width="70%" height="70%">
 </center>
 
 ## I want to try out Managarm

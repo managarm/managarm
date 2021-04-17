@@ -111,7 +111,11 @@ async::detached serve(helix::UniqueLane lane) {
 
 async::detached initializeDriver() {
 	// Find an RTC on the mbus.
+
+	// TODO
+#ifndef __aarch64__
 	co_await enumerateRtc();
+#endif
 
 	// Allocate and map our tracker page.
 	size_t page_size = 4096;
@@ -125,7 +129,13 @@ async::detached initializeDriver() {
 	memset(page, 0, page_size);
 
 	// Read the RTC to initialize the realtime clock.
+	// TODO
+#ifdef __aarch64__
+	auto result = RtcTime{0, 0};
+#else
 	auto result = co_await getRtcTime(); // TODO: Use the seqlock.
+#endif
+
 	std::cout << "drivers/clocktracker: Initializing time to "
 			<< std::get<1>(result) << std::endl;
 	accessPage()->refClock = std::get<0>(result);

@@ -1,5 +1,5 @@
 here = meson.current_source_dir()
-hw_pb = protocxx.process(here/'hw.proto', 
+hw_pb = cxxbragi.process(here/'hw.bragi', 
 	extra_args : [ '-I' + here ]
 )
 

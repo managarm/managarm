@@ -1,3 +1,7 @@
+if host_machine.cpu_family() != 'x86_64'
+	subdir_done()
+endif
+
 executable('gfx_bochs', 'src/main.cpp',
 	dependencies : drm_core_dep,
 	install : true

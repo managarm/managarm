@@ -29,8 +29,6 @@ if get_option('only_docs')
 			command : [ doxygen, doxyfile ]
 		)
 	endif
-
-	subdir_done()
 endif
 
 # declare constants that subdirs are going to use

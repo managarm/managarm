@@ -1,21 +1,7 @@
-
 #include <thor-internal/core.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {
-
-WorkScope::WorkScope(WorkQueue *queue)
-: _scopedQueue{queue}, _outerQueue{nullptr} {
-	auto context = localExecutorContext();
-	_outerQueue = context->associatedWorkQueue;
-	context->associatedWorkQueue = _scopedQueue;
-}
-
-WorkScope::~WorkScope() {
-	auto context = localExecutorContext();
-	assert(context->associatedWorkQueue == _scopedQueue);
-	context->associatedWorkQueue = _outerQueue;
-}
 
 WorkQueue *WorkQueue::generalQueue() {
 	auto cpuData = getCpuData();
@@ -23,36 +9,32 @@ WorkQueue *WorkQueue::generalQueue() {
 	return cpuData->generalWorkQueue.get();
 }
 
-WorkQueue *WorkQueue::localQueue() {
-	auto context = localExecutorContext();
-	assert(context);
-	return context->associatedWorkQueue;
-}
-
 // TODO: Optimize for the case where we are on the correct thread.
 void WorkQueue::post(Worklet *worklet) {
 	auto wq = worklet->_workQueue;
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&wq->_mutex);
+	bool invokeWakeup;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&wq->_mutex);
 
-	auto was_empty = wq->_posted.empty();
-	wq->_posted.push_back(worklet);
-	wq->_anyPosted.store(true, std::memory_order_relaxed);
+		invokeWakeup = wq->_posted.empty();
+		wq->_posted.push_back(worklet);
+		wq->_anyPosted.store(true, std::memory_order_relaxed);
+	}
 
-	lock.unlock();
-	irq_lock.unlock();
-
-	if(was_empty)
+	if(invokeWakeup)
 		wq->wakeup();
 }
 
 bool WorkQueue::check() {
+	// _pending is only accessed from the thread/fiber that runs the WQ.
+	// For _anyPosted, see the comment in the header file.
 	return !_pending.empty() || _anyPosted.load(std::memory_order_relaxed);
 }
 
 void WorkQueue::run() {
 	if(_anyPosted.load(std::memory_order_relaxed)) {
-		auto irq_lock = frg::guard(&irqMutex());
+		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 		
 		_pending.splice(_pending.end(), _posted);
@@ -69,4 +51,3 @@ void WorkQueue::run() {
 }
 
 } // namespace thor
-

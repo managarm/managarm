@@ -1,4 +1,4 @@
-
+#include <cstddef>
 #include <type_traits>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/physical.hpp>
@@ -924,6 +924,126 @@ void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	}
 
 	frg::destruct(*kernelAlloc, hole);
+}
+
+coroutine<frg::expected<Error>> readVirtualSpace(VirtualSpace *space, uintptr_t address,
+		void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
+	size_t progress = 0;
+	while(progress < size) {
+		auto mapping = space->getMapping(address + progress);
+		if(!mapping)
+			co_return Error::fault;
+
+		auto startInMapping = address + progress - mapping->address;
+		auto limitInMapping = frg::min(size - progress, mapping->length - startInMapping);
+		// Otherwise, getMapping() would have returned garbage.
+		assert(limitInMapping);
+
+		FRG_CO_TRY(co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq));
+
+		// This loop iterates until we hit the end of the mapping.
+		Error e{};
+		while(progress < size) {
+			auto offsetInMapping = address + progress - mapping->address;
+			if(offsetInMapping == mapping->length)
+				break;
+			assert(offsetInMapping < mapping->length);
+
+			// Ensure that the page is available.
+			// TODO: there is no real reason why we need to page aligned here; however, the
+			//       touchVirtualPage() code does not handle the unaligned code correctly so far.
+			auto touchOutcome = co_await mapping->touchVirtualPage(
+					offsetInMapping & ~(kPageSize - 1), wq);
+			if(!touchOutcome) {
+				e = touchOutcome.error();
+				break;
+			}
+
+			auto [physical, cacheMode] = mapping->resolveRange(
+					offsetInMapping & ~(kPageSize - 1));
+			// Since we have locked the MemoryView, the physical address remains valid here.
+			assert(physical != PhysicalAddr(-1));
+
+			// Do heavy copying on the WQ.
+			co_await wq->schedule();
+
+			PageAccessor accessor{physical};
+			auto misalign = offsetInMapping & (kPageSize - 1);
+			auto chunk = frg::min(size - progress, kPageSize - misalign);
+			assert(chunk); // Otherwise, we would have finished already.
+			memcpy(reinterpret_cast<std::byte *>(buffer) + progress,
+					reinterpret_cast<const std::byte *>(accessor.get()) + misalign,
+					chunk);
+			progress += chunk;
+		}
+
+		mapping->unlockVirtualRange(startInMapping, limitInMapping);
+
+		if(e != Error::success)
+			co_return e;
+	}
+
+	co_return {};
+}
+
+coroutine<frg::expected<Error>> writeVirtualSpace(VirtualSpace *space, uintptr_t address,
+		const void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
+	size_t progress = 0;
+	while(progress < size) {
+		auto mapping = space->getMapping(address + progress);
+		if(!mapping)
+			co_return Error::fault;
+
+		auto startInMapping = address + progress - mapping->address;
+		auto limitInMapping = frg::min(size - progress, mapping->length - startInMapping);
+		// Otherwise, getMapping() would have returned garbage.
+		assert(limitInMapping);
+
+		FRG_CO_TRY(co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq));
+
+		// This loop iterates until we hit the end of the mapping.
+		Error e{};
+		while(progress < size) {
+			auto offsetInMapping = address + progress - mapping->address;
+			if(offsetInMapping == mapping->length)
+				break;
+			assert(offsetInMapping < mapping->length);
+
+			// Ensure that the page is available.
+			// TODO: there is no real reason why we need to page aligned here; however, the
+			//       touchVirtualPage() code does not handle the unaligned code correctly so far.
+			auto touchOutcome = co_await mapping->touchVirtualPage(
+					offsetInMapping & ~(kPageSize - 1), wq);
+			if(!touchOutcome) {
+				e = touchOutcome.error();
+				break;
+			}
+
+			auto [physical, cacheMode] = mapping->resolveRange(
+					offsetInMapping & ~(kPageSize - 1));
+			// Since we have locked the MemoryView, the physical address remains valid here.
+			assert(physical != PhysicalAddr(-1));
+
+			// Do heavy copying on the WQ.
+			co_await wq->schedule();
+
+			PageAccessor accessor{physical};
+			auto misalign = offsetInMapping & (kPageSize - 1);
+			auto chunk = frg::min(size - progress, kPageSize - misalign);
+			assert(chunk); // Otherwise, we would have finished already.
+			memcpy(reinterpret_cast<std::byte *>(accessor.get()) + misalign,
+					reinterpret_cast<const std::byte *>(buffer) + progress,
+					chunk);
+			progress += chunk;
+		}
+
+		mapping->unlockVirtualRange(startInMapping, limitInMapping);
+
+		if(e != Error::success)
+			co_return e;
+	}
+
+	co_return {};
 }
 
 // --------------------------------------------------------

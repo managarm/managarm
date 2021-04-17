@@ -5,6 +5,7 @@ src = [
 	'src/inotify.cpp',
 	'src/pipes.cpp',
 	'src/processgroups.cpp',
+	'src/signal.cpp',
 	'src/signalfd.cpp',
 	'src/stat.cpp',
 	'src/unixnames.cpp'

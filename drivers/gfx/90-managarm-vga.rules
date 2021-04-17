@@ -1,7 +1,6 @@
 
 ACTION!="add", GOTO="managarm_vga_end"
 SUBSYSTEM!="pci", GOTO="managarm_vga_end"
-ATTR{owns_plainfb}!="1", GOTO="managarm_vga_end"
 
 IMPORT{cmdline}="plainfb.force"
 ENV{plainfb.force}=="1", GOTO="managarm_vga_forceplain"
@@ -11,6 +10,7 @@ ATTR{vendor}=="0x1af4", ATTR{device}=="0x1050", RUN+="/usr/bin/runsvr bind /usr/
 ATTR{vendor}=="0x15ad", ATTR{device}=="0x0405", RUN+="/usr/bin/runsvr bind /usr/lib/managarm/server/gfx-vmware.bin", GOTO="managarm_vga_end"
 
 LABEL="managarm_vga_forceplain"
+ATTR{owns_plainfb}!="1", GOTO="managarm_vga_end"
 RUN += "/usr/bin/runsvr run /usr/lib/managarm/server/gfx-plainfb.bin"
 
 LABEL="managarm_vga_end"

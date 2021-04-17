@@ -16,6 +16,7 @@ libsvrctl = shared_library('svrctl_protocol', src,
 svrctl_dep = declare_dependency(
 	link_with : libsvrctl,
 	dependencies : deps,
+	sources : svrctl_pb,
 	include_directories : inc
 )
 

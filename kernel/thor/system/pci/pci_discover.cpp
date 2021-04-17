@@ -1,6 +1,6 @@
 #include <algorithm>
 #include <frg/algorithm.hpp>
-#include <hw.frigg_pb.hpp>
+#include <hw.frigg_bragi.hpp>
 #include <mbus.frigg_pb.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
@@ -9,6 +9,9 @@
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/framebuffer/boot-screen.hpp>
 #include <thor-internal/pci/pci.hpp>
+
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-frigg.hpp>
 
 namespace thor {
 
@@ -57,11 +60,34 @@ namespace {
 		// TODO: improve error handling here.
 		assert(reqError == Error::success);
 
-		managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+		auto preamble = bragi::read_preamble(reqBuffer);
+		assert(!preamble.error());
 
-		if(req.req_type() == managarm::hw::CntReqType::GET_PCI_INFO) {
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+		auto sendResponse = [] (LaneHandle &conversation,
+				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::tuple<Error, Error>> {
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+				resp.head_size};
+
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+				resp.size_of_tail()};
+
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+
+			co_return {respHeadError, respTailError};
+		};
+
+		if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			for(size_t i = 0; i < device->caps.size(); i++) {
@@ -75,31 +101,44 @@ namespace {
 			for(size_t k = 0; k < 6; k++) {
 				managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
 				if(device->bars[k].type == PciBar::kBarIo) {
-					assert(device->bars[k].offset == 0);
 					msg.set_io_type(managarm::hw::IoType::PORT);
-					msg.set_address(device->bars[k].address);
-					msg.set_length(device->bars[k].length);
 				}else if(device->bars[k].type == PciBar::kBarMemory) {
 					msg.set_io_type(managarm::hw::IoType::MEMORY);
-					msg.set_address(device->bars[k].address);
-					msg.set_length(device->bars[k].length);
-					msg.set_offset(device->bars[k].offset);
 				}else{
 					assert(device->bars[k].type == PciBar::kBarNone);
 					msg.set_io_type(managarm::hw::IoType::NO_BAR);
 				}
+
+				if(device->bars[k].hostType == PciBar::kBarIo) {
+					msg.set_host_type(managarm::hw::IoType::PORT);
+					msg.set_address(device->bars[k].address);
+					msg.set_length(device->bars[k].length);
+				}else if(device->bars[k].hostType == PciBar::kBarMemory) {
+					msg.set_host_type(managarm::hw::IoType::MEMORY);
+					msg.set_address(device->bars[k].address);
+					msg.set_length(device->bars[k].length);
+					msg.set_offset(device->bars[k].offset);
+				}else{
+					assert(device->bars[k].hostType == PciBar::kBarNone);
+					msg.set_host_type(managarm::hw::IoType::NO_BAR);
+				}
 				resp.add_bars(std::move(msg));
 			}
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
-			auto index = req.index();
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
+			auto index = req->index();
 
 			AnyDescriptor descriptor;
 			if(device->bars[index].type == PciBar::kBarIo) {
@@ -109,23 +148,25 @@ namespace {
 				descriptor = MemoryViewDescriptor{device->bars[index].memory};
 			}
 
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
 
 			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_IRQ) {
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::hw::Errors::SUCCESS);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
 
 			assert(device->interrupt);
 			auto object = smarter::allocate_shared<IrqObject>(*kernelAlloc,
@@ -137,18 +178,26 @@ namespace {
 					+ frg::to_allocated_string(*kernelAlloc, device->function));
 			IrqPin::attachSink(device->interrupt, object.get());
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
 
 			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::CLAIM_DEVICE) {
+		}else if(preamble.id() == bragi::message_id<managarm::hw::ClaimDeviceRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::ClaimDeviceRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			if(device->associatedScreen) {
 				infoLogger() << "thor: Disabling screen associated with PCI device "
 						<< device->bus << "." << device->slot << "." << device->function
@@ -156,17 +205,22 @@ namespace {
 				disableLogHandler(device->associatedScreen);
 			}
 
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::BUSIRQ_ENABLE) {
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusIrqRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::EnableBusIrqRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			auto io = device->parentBus->io;
 
 			auto command = io->readConfigHalf(device->parentBus,
@@ -174,17 +228,22 @@ namespace {
 			io->writeConfigHalf(device->parentBus, device->slot, device->function,
 					kPciCommand, command & ~uint16_t{0x400});
 
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::BUSMASTER_ENABLE) {
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusmasterRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::EnableBusmasterRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			auto io = device->parentBus->io;
 
 			auto command = io->readConfigHalf(device->parentBus,
@@ -192,43 +251,48 @@ namespace {
 			io->writeConfigHalf(device->parentBus, device->slot, device->function,
 					kPciCommand, command | 0x0004);
 
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciSpaceRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::LoadPciSpaceRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 			auto io = device->parentBus->io;
 
-			if(req.size() == 1) {
-				if(isValidConfigAccess(1, req.offset())) {
+			if(req->size() == 1) {
+				if(isValidConfigAccess(1, req->offset())) {
 					auto word = io->readConfigByte(device->parentBus,
-							device->slot, device->function, req.offset());
+							device->slot, device->function, req->offset());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req.size() == 2) {
-				if(isValidConfigAccess(2, req.offset())) {
+			}else if(req->size() == 2) {
+				if(isValidConfigAccess(2, req->offset())) {
 					auto word = io->readConfigHalf(device->parentBus,
-							device->slot, device->function, req.offset());
+							device->slot, device->function, req->offset());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req.size() == 4) {
-				if(isValidConfigAccess(4, req.offset())) {
+			}else if(req->size() == 4) {
+				if(isValidConfigAccess(4, req->offset())) {
 					auto word = io->readConfigWord(device->parentBus,
-							device->slot, device->function, req.offset());
+							device->slot, device->function, req->offset());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
 				}else{
@@ -238,38 +302,43 @@ namespace {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::STORE_PCI_SPACE) {
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::StorePciSpaceRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::StorePciSpaceRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 			auto io = device->parentBus->io;
 
-			if(req.size() == 1) {
-				if(isValidConfigAccess(1, req.offset())) {
+			if(req->size() == 1) {
+				if(isValidConfigAccess(1, req->offset())) {
 					io->writeConfigByte(device->parentBus, device->slot, device->function,
-							req.offset(), req.word());
+							req->offset(), req->word());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req.size() == 2) {
-				if(isValidConfigAccess(2, req.offset())) {
+			}else if(req->size() == 2) {
+				if(isValidConfigAccess(2, req->offset())) {
 					io->writeConfigHalf(device->parentBus, device->slot, device->function,
-							req.offset(), req.word());
+							req->offset(), req->word());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req.size() == 4) {
-				if(isValidConfigAccess(4, req.offset())) {
+			}else if(req->size() == 4) {
+				if(isValidConfigAccess(4, req->offset())) {
 					io->writeConfigWord(device->parentBus, device->slot, device->function,
-							req.offset(), req.word());
+							req->offset(), req->word());
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
@@ -278,44 +347,49 @@ namespace {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_CAPABILITY) {
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciCapabilityRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::LoadPciCapabilityRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 			auto io = device->parentBus->io;
 
-			if(req.index() < device->caps.size()) {
-				if(req.size() == 1) {
-					if(isValidConfigAccess(1, req.offset())) {
+			if(req->index() < device->caps.size()) {
+				if(req->size() == 1) {
+					if(isValidConfigAccess(1, req->offset())) {
 						auto word = io->readConfigByte(device->parentBus,
 								device->slot, device->function,
-								device->caps[req.index()].offset + req.offset());
+								device->caps[req->index()].offset + req->offset());
 						resp.set_error(managarm::hw::Errors::SUCCESS);
 						resp.set_word(word);
 					}else{
 						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 					}
-				}else if(req.size() == 2) {
-					if(isValidConfigAccess(2, req.offset())) {
+				}else if(req->size() == 2) {
+					if(isValidConfigAccess(2, req->offset())) {
 						auto word = io->readConfigHalf(device->parentBus,
 								device->slot, device->function,
-								device->caps[req.index()].offset + req.offset());
+								device->caps[req->index()].offset + req->offset());
 						resp.set_error(managarm::hw::Errors::SUCCESS);
 						resp.set_word(word);
 					}else{
 						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 					}
-				}else if(req.size() == 4) {
-					if(isValidConfigAccess(4, req.offset())) {
+				}else if(req->size() == 4) {
+					if(isValidConfigAccess(4, req->offset())) {
 						auto word = io->readConfigWord(device->parentBus,
 								device->slot, device->function,
-								device->caps[req.index()].offset + req.offset());
+								device->caps[req->index()].offset + req->offset());
 						resp.set_error(managarm::hw::Errors::SUCCESS);
 						resp.set_word(word);
 					}else{
@@ -328,63 +402,72 @@ namespace {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::GET_FB_INFO) {
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::GetFbInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetFbInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			auto fb = device->associatedFrameBuffer;
-			assert(fb);
 
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-			resp.set_fb_pitch(fb->pitch);
-			resp.set_fb_width(fb->width);
-			resp.set_fb_height(fb->height);
-			resp.set_fb_bpp(fb->bpp);
-			resp.set_fb_type(fb->type);
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			if (!fb) {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			} else {
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+
+				resp.set_fb_pitch(fb->pitch);
+				resp.set_fb_width(fb->width);
+				resp.set_fb_height(fb->height);
+				resp.set_fb_bpp(fb->bpp);
+				resp.set_fb_type(fb->type);
+			}
+
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
-		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_FB_MEMORY) {
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
 			auto fb = device->associatedFrameBuffer;
-			assert(fb);
+			MemoryViewDescriptor descriptor{nullptr};
 
-			MemoryViewDescriptor descriptor{fb->memory};
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::hw::Errors::SUCCESS);
+			if (!fb) {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			} else {
+				descriptor = MemoryViewDescriptor{fb->memory};
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			}
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
 			// TODO: improve error handling here.
-			assert(respError == Error::success);
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
 
 			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
 		}else{
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
-
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-			// TODO: improve error handling here.
-			assert(respError == Error::success);
+			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
+			co_await DismissSender{conversation};
 		}
 
 		co_return true;
@@ -613,15 +696,46 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				infoLogger() << "            unallocated I/O space BAR #" << i
 						<< ", length: " << length << " ports" << frg::endlog;
 			} else {
-				bars[i].allocated = true;
-				bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
-				for(size_t p = 0; p < length; ++p)
-					bars[i].io->addPort(address + p);
-				bars[i].offset = 0;
+				// Check all parent resources to see if this BAR is actually memory mapped
+				bool isMemoryMapped = false;
+				PciBusResource *resource = nullptr;
+
+				for (auto &res : entity->parentBus->resources) {
+					if (res.flags() == PciBusResource::io
+							&& address >= res.base()
+							&& (address + length) <= (res.base() + res.size())) {
+						resource = &res;
+						isMemoryMapped = res.isHostMmio();
+						break;
+					}
+				}
+
+				if (isMemoryMapped) {
+					uintptr_t hostAddress = resource->hostBase()
+						+ (address - resource->base());
+
+					auto offset = hostAddress & (kPageSize - 1);
+
+					bars[i].hostType = PciBar::kBarMemory;
+					bars[i].allocated = true;
+					bars[i].offset = offset;
+					bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+							hostAddress & ~(kPageSize - 1),
+							(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+							CachingMode::uncached);
+				} else {
+					bars[i].hostType = PciBar::kBarIo;
+					bars[i].allocated = true;
+					bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+					for(size_t p = 0; p < length; ++p)
+						bars[i].io->addPort(address + p);
+					bars[i].offset = 0;
+				}
 
 				infoLogger() << "            I/O space BAR #" << i
 						<< " at 0x" << frg::hex_fmt(address)
 						<< ", length: " << length << " ports" << frg::endlog;
+
 			}
 		}else if(((bar >> 1) & 3) == 0) {
 			uint32_t address = bar & 0xFFFFFFF0;
@@ -648,6 +762,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 						<< (bar & (1 << 3) ? " (prefetchable)" : "")
 						<< frg::endlog;
 			} else {
+				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
 				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
@@ -694,6 +809,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 						<< (bar & (1 << 3) ? " (prefetchable)" : "")
 						<< frg::endlog;
 			} else {
+				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
 				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
@@ -1218,7 +1334,7 @@ void allocateBars(PciBus *bus) {
 			}
 
 			req.associatedBridge->associatedBus->resources.push_back(
-					{childBase, req.size, hostBase, req.flags});
+					{childBase, req.size, hostBase, req.flags, resource->isHostMmio()});
 		} else {
 			log << "BAR #" << req.index << " of entity ";
 
@@ -1239,6 +1355,8 @@ void allocateBars(PciBus *bus) {
 
 			// Update our associated BAR object
 			bar.allocated = true;
+			bar.address = childBase;
+			bar.hostType = PciBar::kBarMemory;
 			auto offset = hostBase & (kPageSize - 1);
 			bar.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 					hostBase & ~(kPageSize - 1),

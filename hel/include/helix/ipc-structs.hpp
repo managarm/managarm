@@ -103,8 +103,8 @@ namespace helix_ng {
 
 using namespace helix;
 
-struct OfferResult {
-	OfferResult() :_valid{false} {}
+struct DismissResult {
+	DismissResult() :_valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -121,6 +121,34 @@ struct OfferResult {
 private:
 	bool _valid;
 	HelError _error;
+};
+
+struct OfferResult {
+	OfferResult() :_valid{false} {}
+
+	HelError error() {
+		FRG_ASSERT(_valid);
+		return _error;
+	}
+
+	UniqueDescriptor descriptor() {
+		FRG_ASSERT(_valid);
+		HEL_CHECK(error());
+		return std::move(_descriptor);
+	}
+
+	void parse(void *&ptr, ElementHandle) {
+		auto result = reinterpret_cast<HelHandleResult *>(ptr);
+		_error = result->error;
+		_descriptor = UniqueDescriptor{result->handle};
+		ptr = (char *)ptr + sizeof(HelHandleResult);
+		_valid = true;
+	}
+
+private:
+	bool _valid;
+	HelError _error;
+	UniqueDescriptor _descriptor;
 };
 
 struct AcceptResult {
@@ -350,9 +378,12 @@ private:
 // Items
 // --------------------------------------------------------------------
 
+struct Dismiss { };
+
 template <typename ...T>
 struct Offer {
 	frg::tuple<T...> nested_actions;
+	bool wants_lane;
 };
 
 template <typename ...T>
@@ -414,9 +445,21 @@ struct SendBragiHeadOnly {
 // Construction functions
 // --------------------------------------------------------------------
 
+inline auto dismiss() {
+	return Dismiss{};
+}
+
 template <typename ...T>
 inline auto offer(T &&...args) {
-	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...)};
+	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...), false};
+}
+
+struct want_lane_t {};
+constexpr inline want_lane_t want_lane;
+
+template <typename ...T>
+inline auto offer(want_lane_t, T &&...args) {
+	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...), true};
 }
 
 template <typename ...T>
@@ -497,12 +540,21 @@ struct {
 	}
 } chainActionArrays;
 
+inline auto createActionsArrayFor(bool chain, const Dismiss &) {
+	HelAction action{};
+	action.type = kHelActionDismiss;
+	action.flags = chain ? kHelItemChain : 0;
+
+	return frg::array<HelAction, 1>{action};
+}
+
 template <typename ...T>
 inline auto createActionsArrayFor(bool chain, const Offer<T...> &o) {
 	HelAction action{};
 	action.type = kHelActionOffer;
 	action.flags = (chain ? kHelItemChain : 0)
-			| (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0);
+			| (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0)
+			| (o.wants_lane ? kHelItemWantLane : 0);
 
 	return frg::array_concat<HelAction>(
 		frg::array<HelAction, 1>{action},
@@ -619,6 +671,10 @@ inline auto createActionsArrayFor(bool chain, const SendBragiHeadOnly<Allocator>
 // Offer/Accept helper
 template <typename Type, typename ...T>
 using HelperResultTypeTuple = decltype(frg::tuple_cat(frg::tuple<Type>{}, resultTypeTuple(std::declval<T>())...));
+
+inline auto resultTypeTuple(const Dismiss &) {
+	return HelperResultTypeTuple<DismissResult>{};
+}
 
 template <typename ...T>
 inline auto resultTypeTuple(const Offer<T...> &arg) {

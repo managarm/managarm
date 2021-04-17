@@ -156,6 +156,23 @@ void Stream::Submitter::run() {
 			continue;
 		}
 
+		// First, handle the case that any action is "dismiss".
+		// TODO: for now, we return kHelErrDismissed.
+		//       In the future, we could return some out-of-band data by adding
+		//       unions to the hel result structs (each struct has at least one
+		//       unsigned int to spare in the error case).
+		if(u->tag() == kTagDismiss || v->tag() == kTagDismiss) {
+			Error uError{};
+			Error vError{};
+			if(u->tag() == kTagDismiss)
+				vError = Error::dismissed;
+			if(v->tag() == kTagDismiss)
+				uError = Error::dismissed;
+			s->_cancelItem(u, uError);
+			s->_cancelItem(v, vError);
+			continue;
+		}
+
 		// Make sure that we only need to consider one permutation of tags.
 		if(getStreamOrientation(u->tag()) < getStreamOrientation(v->tag()))
 			std::swap(u, v);

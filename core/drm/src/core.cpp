@@ -907,7 +907,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto cursor_plane = crtc->cursorPlane();
 
 		if (cursor_plane == nullptr) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));

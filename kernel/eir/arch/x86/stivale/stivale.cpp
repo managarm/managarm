@@ -4,6 +4,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
+#include <acpispec/tables.h>
 
 namespace eir {
 
@@ -256,7 +257,17 @@ extern "C" void eirStivaleMain(Stivale2Struct *data) {
 	framebuf.fbBpp = 32;
 	framebuf.fbType = 0;
 
-	// TODO: parse rsdp here and set infoPtr->acpi{Rsdt,Revision}
+	if (rsdp) {
+		acpi_xsdp_t *xsdpPtr = reinterpret_cast<acpi_xsdp_t *>(rsdp);
+
+		if (xsdpPtr->revision == 0) {
+			infoPtr->acpiRevision = 1;
+			infoPtr->acpiRsdt = xsdpPtr->rsdt;
+		} else {
+			infoPtr->acpiRevision = 2;
+			infoPtr->acpiRsdt = xsdpPtr->xsdt;
+		}
+	}
 
 	infoPtr->dtbPtr = dtbAddr;
 	infoPtr->dtbSize = dtbSize;

@@ -10,7 +10,6 @@ namespace fs {
 
 enum class Error {
 	none = 0,
-	illegalRequest = 3,
 	fileNotFound = 1,
 	endOfFile = 2,
 	illegalArguments = 4,
@@ -32,6 +31,7 @@ enum class Error {
 	alreadyExists = 18,
 	illegalOperationTarget = 19,
 	noSpaceLeft = 20,
+	noBackingDevice = 23,
 };
 
 using ReadResult = std::variant<Error, size_t>;

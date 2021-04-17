@@ -375,6 +375,7 @@ struct Executor {
 	friend void restoreExecutor(Executor *executor);
 
 	static size_t determineSize();
+	static size_t determineSimdSize();
 
 	Executor();
 

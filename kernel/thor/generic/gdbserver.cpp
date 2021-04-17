@@ -1,4 +1,6 @@
+#ifdef __x86_64__
 #include <arch/io_space.hpp>
+#endif
 #include <async/queue.hpp>
 #include <frg/span.hpp>
 #include <frg/vector.hpp>
@@ -320,6 +322,7 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		if(!req.fullyConsumed())
 			co_return ProtocolError::malformedPacket;
 
+#if defined(__x86_64__)
 		resp.appendLeHex64(thread_->_executor.general()->rax);
 		resp.appendLeHex64(thread_->_executor.general()->rbx);
 		resp.appendLeHex64(thread_->_executor.general()->rcx);
@@ -350,6 +353,15 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		for(int i = 0; i < 8; ++i) // 8 FPU control registers.
 			for(int j = 0; j < 4; ++j)
 				resp.appendString("xx");
+#elif defined (__aarch64__)
+		for (int i = 0; i < 31; i++)
+			resp.appendLeHex32(thread_->_executor.general()->x[i]);
+		resp.appendLeHex32(thread_->_executor.general()->sp);
+		resp.appendLeHex32(thread_->_executor.general()->elr);
+		resp.appendLeHex32(thread_->_executor.general()->spsr);
+#else
+#	error Unknown architecture
+#endif
 	}else if(req.matchString("m")) { // Read memory.
 		uint64_t address;
 		uint64_t length;
@@ -424,11 +436,13 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 	co_return {};
 }
 
+#if defined (__x86_64__)
 inline constexpr arch::scalar_register<uint8_t> uartData(0);
 inline constexpr arch::bit_register<uint8_t> lineStatus(5);
 
 inline constexpr arch::field<uint8_t, bool> rxReady(0, 1);
 inline constexpr arch::field<uint8_t, bool> txReady(5, 1);
+#endif
 
 } // anonymous namespace
 
