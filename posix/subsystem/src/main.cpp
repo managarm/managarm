@@ -2668,11 +2668,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::IOCLEX) {
+		}else if(preamble.id() == bragi::message_id<managarm::posix::IoctlFioclexRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::IoctlFioclexRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests)
 				std::cout << "posix: FIOCLEX" << std::endl;
 
-			if(self->fileContext()->setDescriptor(req.fd(), true) != Error::success) {
+			if(self->fileContext()->setDescriptor(req->fd(), true) != Error::success) {
 				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
