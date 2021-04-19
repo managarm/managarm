@@ -4,6 +4,7 @@
 #include <string.h>
 #include <atomic>
 
+#include <async/oneshot-event.hpp>
 #include <frg/container_of.hpp>
 #include <frg/array.hpp>
 #include <frg/vector.hpp>
@@ -40,7 +41,7 @@ enum {
 	kTagExtractCredentials,
 	kTagSendFromBuffer,
 	kTagRecvInline,
-	kTagRecvToBuffer,
+	kTagRecvFlow,
 	kTagPushDescriptor,
 	kTagPullDescriptor
 };
@@ -50,7 +51,7 @@ inline int getStreamOrientation(int tag) {
 	case kTagAccept:
 	case kTagExtractCredentials:
 	case kTagRecvInline:
-	case kTagRecvToBuffer:
+	case kTagRecvFlow:
 	case kTagPullDescriptor:
 		return -1;
 	case kTagOffer:
@@ -60,6 +61,10 @@ inline int getStreamOrientation(int tag) {
 		return 1;
 	}
 	return 0;
+}
+
+inline bool usesFlowProtocol(int tag) {
+	return tag == kTagRecvFlow;
 }
 
 struct StreamNode {
@@ -103,8 +108,11 @@ public:
 	frg::array<char, 16> _inCredentials;
 	size_t _maxLength;
 	frg::unique_memory<KernelAlloc> _inBuffer;
-	AnyBufferAccessor _inAccessor;
 	AnyDescriptor _inDescriptor;
+
+	StreamNode *peerNode = nullptr;
+
+	async::oneshot_event issueFlow;
 
 	// List of StreamNodes that will be submitted to the ancillary lane on offer/accept.
 	frg::intrusive_list<
@@ -151,9 +159,9 @@ public:
 	}
 
 public:
-	Error _error;
+	Error _error{};
 	frg::array<char, 16> _transmitCredentials;
-	size_t _actualLength;
+	size_t _actualLength = 0;
 	frg::unique_memory<KernelAlloc> _transmitBuffer;
 	LaneHandle _lane;
 	AnyDescriptor _descriptor;

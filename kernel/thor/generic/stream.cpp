@@ -62,35 +62,6 @@ static void transfer(SendRecvInline, StreamNode *from, StreamNode *to) {
 	}
 }
 
-static void transfer(SendRecvBuffer, StreamNode *from, StreamNode *to) {
-	auto buffer = std::move(from->_inBuffer);
-
-	if(buffer.size() <= to->_inAccessor.length()) {
-		auto error = to->_inAccessor.write(0, buffer.data(), buffer.size());
-		if(error != Error::success) {
-			from->_error = Error::success;
-			from->complete();
-
-			to->_error = error;
-			to->_actualLength = 0;
-			to->complete();
-		}else{
-			from->_error = Error::success;
-			from->complete();
-
-			to->_error = Error::success;
-			to->_actualLength = buffer.size();
-			to->complete();
-		}
-	}else{
-		from->_error = Error::bufferTooSmall;
-		from->complete();
-
-		to->_error = Error::bufferTooSmall;
-		to->complete();
-	}
-}
-
 static void transfer(PushPull, StreamNode *push, StreamNode *pull) {
 	auto descriptor = std::move(push->_inDescriptor);
 
@@ -197,16 +168,35 @@ void Stream::Submitter::run() {
 			transfer(ImbueExtract{}, u, v);
 		}else if(u->tag() == kTagSendFromBuffer && v->tag() == kTagRecvInline) {
 			transfer(SendRecvInline{}, u, v);
-		}else if(u->tag() == kTagSendFromBuffer && v->tag() == kTagRecvToBuffer) {
-			transfer(SendRecvBuffer{}, u, v);
+		}else if(u->tag() == kTagSendFromBuffer && v->tag() == kTagRecvFlow) {
+			if(u->_inBuffer.size() > v->_maxLength) {
+				// Both nodes complete with bufferTooSmall.
+				u->_error = Error::bufferTooSmall;
+				v->_error = Error::bufferTooSmall;
+
+				u->complete();
+				v->issueFlow.raise();
+				continue;
+			}
+
+			v->peerNode = u;
+			v->issueFlow.raise();
 		}else if(u->tag() == kTagPushDescriptor && v->tag() == kTagPullDescriptor) {
 			transfer(PushPull{}, u, v);
 		}else{
 			u->_error = Error::transmissionMismatch;
-			u->complete();
+			if(usesFlowProtocol(u->tag())) {
+				u->issueFlow.raise();
+			}else{
+				u->complete();
+			}
 
 			v->_error = Error::transmissionMismatch;
-			v->complete();
+			if(usesFlowProtocol(v->tag())) {
+				v->issueFlow.raise();
+			}else{
+				v->complete();
+			}
 		}
 	}
 }
@@ -296,12 +286,20 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 	pending.splice(pending.end(), item->ancillaryChain);
 
 	item->_error = error;
-	item->complete();
+	if(usesFlowProtocol(item->tag())) {
+		item->issueFlow.raise();
+	}else{
+		item->complete();
+	}
 
 	while(!pending.empty()) {
 		item = pending.pop_front();
 		item->_error = error;
-		item->complete();
+		if(usesFlowProtocol(item->tag())) {
+			item->issueFlow.raise();
+		}else{
+			item->complete();
+		}
 	}
 }
 

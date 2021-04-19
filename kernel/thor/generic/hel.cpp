@@ -2022,23 +2022,21 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 }
 
 HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count,
-		HelHandle queue_handle, uintptr_t context, uint32_t flags) {
+		HelHandle queueHandle, uintptr_t context, uint32_t flags) {
 	(void)flags;
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
-
-	// TODO: check userspace page access rights
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
 	LaneHandle lane;
 	smarter::shared_ptr<IpcQueue> queue;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
+		Universe::Guard universe_guard(thisUniverse->lock);
 
 		if(handle == kHelThisThread) {
-			lane = this_thread->inferiorLane();
+			lane = thisThread->inferiorLane();
 		}else{
-			auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+			auto wrapper = thisUniverse->getDescriptor(universe_guard, handle);
 			if(!wrapper)
 				return kHelErrNoDescriptor;
 			if(wrapper->is<LaneDescriptor>()) {
@@ -2050,70 +2048,19 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			}
 		}
 
-		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
-		if(!queue_wrapper)
+		auto queueWrapper = thisUniverse->getDescriptor(universe_guard, queueHandle);
+		if(!queueWrapper)
 			return kHelErrNoDescriptor;
-		if(!queue_wrapper->is<QueueDescriptor>())
+		if(!queueWrapper->is<QueueDescriptor>())
 			return kHelErrBadDescriptor;
-		queue = queue_wrapper->get<QueueDescriptor>().queue;
+		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
-
-	size_t node_size = 0;
-	for(size_t i = 0; i < count; i++) {
-		HelAction action;
-		readUserObject(actions + i, action);
-
-		switch(action.type) {
-		case kHelActionDismiss:
-			node_size += ipcSourceSize(sizeof(HelSimpleResult));
-			break;
-		case kHelActionOffer:
-			node_size += ipcSourceSize(sizeof(HelHandleResult));
-			break;
-		case kHelActionAccept:
-			node_size += ipcSourceSize(sizeof(HelHandleResult));
-			break;
-		case kHelActionImbueCredentials:
-			node_size += ipcSourceSize(sizeof(HelSimpleResult));
-			break;
-		case kHelActionExtractCredentials:
-			node_size += ipcSourceSize(sizeof(HelCredentialsResult));
-			break;
-		case kHelActionSendFromBuffer:
-			node_size += ipcSourceSize(sizeof(HelSimpleResult));
-			break;
-		case kHelActionSendFromBufferSg:
-			node_size += ipcSourceSize(sizeof(HelSimpleResult));
-			break;
-		case kHelActionRecvInline:
-			// TODO: For now, we hardcode a size of 128 bytes.
-			node_size += ipcSourceSize(sizeof(HelLengthResult));
-			node_size += ipcSourceSize(128);
-			break;
-		case kHelActionRecvToBuffer:
-			node_size += ipcSourceSize(sizeof(HelLengthResult));
-			break;
-		case kHelActionPushDescriptor:
-			node_size += ipcSourceSize(sizeof(HelSimpleResult));
-			break;
-		case kHelActionPullDescriptor:
-			node_size += ipcSourceSize(sizeof(HelHandleResult));
-			break;
-		default:
-			// TODO: Turn this into an error return.
-			assert(!"Fix error handling here");
-		}
-	}
-
-	if(!queue->validSize(node_size))
-		return kHelErrQueueTooSmall;
 
 	struct Item {
+		HelAction recipe;
 		StreamNode transmit;
-		frg::unique_memory<KernelAlloc> buffer;
 		QueueSource mainSource;
 		QueueSource dataSource;
-		int flags;
 		union {
 			HelSimpleResult helSimpleResult;
 			HelHandleResult helHandleResult;
@@ -2134,14 +2081,18 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			for(size_t i = 0; i < closure->count; i++) {
 				auto item = &closure->items[i];
-				if(item->transmit.tag() == kTagDismiss) {
+				HelAction *recipe = &item->recipe;
+			auto node = &item->transmit;
+
+				if(recipe->type == kHelActionDismiss) {
 					item->helSimpleResult = {translateError(item->transmit.error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagOffer) {
+				}else if(recipe->type == kHelActionOffer) {
 					HelHandle handle = kHelNullHandle;
 
-					if(item->transmit.error() == Error::success && (item->flags & kHelItemWantLane)) {
+					if(item->transmit.error() == Error::success
+							&& (recipe->flags & kHelItemWantLane)) {
 						auto universe = closure->weakUniverse.lock();
 						assert(universe);
 
@@ -2155,7 +2106,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagAccept) {
+				}else if(recipe->type == kHelActionAccept) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
 					HelHandle handle = kHelNullHandle;
 					if(item->transmit.error() == Error::success) {
@@ -2172,40 +2123,40 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
 					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagImbueCredentials) {
+				}else if(recipe->type == kHelActionImbueCredentials) {
 					item->helSimpleResult = {translateError(item->transmit.error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagExtractCredentials) {
+				}else if(recipe->type == kHelActionExtractCredentials) {
 					item->helCredentialsResult = {translateError(item->transmit.error()), 0};
 					memcpy(item->helCredentialsResult.credentials,
 							item->transmit.credentials().data(), 16);
 					item->mainSource.setup(&item->helCredentialsResult,
 							sizeof(HelCredentialsResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagSendFromBuffer) {
+				}else if(recipe->type == kHelActionSendFromBuffer
+						|| recipe->type == kHelActionSendFromBufferSg) {
 					item->helSimpleResult = {translateError(item->transmit.error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagRecvInline) {
-					item->buffer = item->transmit.transmitBuffer();
-
+				}else if(recipe->type == kHelActionRecvInline) {
 					item->helInlineResult = {translateError(item->transmit.error()),
-							0, item->buffer.size()};
+							0, node->_transmitBuffer.size()};
 					item->mainSource.setup(&item->helInlineResult, sizeof(HelInlineResultNoFlex));
-					item->dataSource.setup(item->buffer.data(), item->buffer.size());
+					item->dataSource.setup(node->_transmitBuffer.data(),
+							node->_transmitBuffer.size());
 					link(&item->mainSource);
 					link(&item->dataSource);
-				}else if(item->transmit.tag() == kTagRecvToBuffer) {
+				}else if(recipe->type == kHelActionRecvToBuffer) {
 					item->helLengthResult = {translateError(item->transmit.error()),
 							0, item->transmit.actualLength()};
 					item->mainSource.setup(&item->helLengthResult, sizeof(HelLengthResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagPushDescriptor) {
+				}else if(recipe->type == kHelActionPushDescriptor) {
 					item->helSimpleResult = {translateError(item->transmit.error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(item->transmit.tag() == kTagPullDescriptor) {
+				}else if(recipe->type == kHelActionPullDescriptor) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
 					HelHandle handle = kHelNullHandle;
 					if(item->transmit.error() == Error::success) {
@@ -2249,29 +2200,79 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	} *closure = frg::construct<Closure>(*kernelAlloc);
 
 	closure->count = count;
-	closure->weakUniverse = this_universe.lock();
+	closure->weakUniverse = thisUniverse.lock();
 	closure->ipcQueue = std::move(queue);
 
 	closure->setup(count);
 	closure->setupContext(context);
 	closure->items = frg::construct_n<Item>(*kernelAlloc, count);
 
-	StreamList root_chain;
-	frg::vector<StreamNode *, KernelAlloc> ancillary_stack(*kernelAlloc);
+	// Read the message items from userspace.
+	size_t nodeSize = 0;
+	for(size_t i = 0; i < count; i++) {
+		HelAction *recipe = &closure->items[i].recipe;
+		readUserObject(actions + i, *recipe);
+
+		switch(recipe->type) {
+		case kHelActionDismiss:
+			nodeSize += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionOffer:
+			nodeSize += ipcSourceSize(sizeof(HelHandleResult));
+			break;
+		case kHelActionAccept:
+			nodeSize += ipcSourceSize(sizeof(HelHandleResult));
+			break;
+		case kHelActionImbueCredentials:
+			nodeSize += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionExtractCredentials:
+			nodeSize += ipcSourceSize(sizeof(HelCredentialsResult));
+			break;
+		case kHelActionSendFromBuffer:
+			nodeSize += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionSendFromBufferSg:
+			nodeSize += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionRecvInline:
+			// TODO: For now, we hardcode a size of 128 bytes.
+			nodeSize += ipcSourceSize(sizeof(HelLengthResult));
+			nodeSize += ipcSourceSize(128);
+			break;
+		case kHelActionRecvToBuffer:
+			nodeSize += ipcSourceSize(sizeof(HelLengthResult));
+			break;
+		case kHelActionPushDescriptor:
+			nodeSize += ipcSourceSize(sizeof(HelSimpleResult));
+			break;
+		case kHelActionPullDescriptor:
+			nodeSize += ipcSourceSize(sizeof(HelHandleResult));
+			break;
+		default:
+			// TODO: Turn this into an error return.
+			assert(!"Fix error handling here");
+		}
+	}
+
+	if(!queue->validSize(nodeSize))
+		return kHelErrQueueTooSmall;
+
+	// Now, build up the messages that we submit to the stream.
+	StreamList rootChain;
+	frg::vector<StreamNode *, KernelAlloc> ancillaryStack(*kernelAlloc);
 
 	// We use this as a marker that the root chain has not ended.
-	ancillary_stack.push_back(nullptr);
+	ancillaryStack.push_back(nullptr);
 
+	size_t numFlows = 0;
 	for(size_t i = 0; i < count; i++) {
-		HelAction action;
-		readUserObject(actions + i, action);
+		HelAction *recipe = &closure->items[i].recipe;
 
 		// TODO: Turn this into an error return.
-		assert(!ancillary_stack.empty() && "expected end of chain");
+		assert(!ancillaryStack.empty() && "expected end of chain");
 
-		closure->items[i].flags = action.flags;
-
-		switch(action.type) {
+		switch(recipe->type) {
 		case kHelActionDismiss: {
 			closure->items[i].transmit.setup(kTagDismiss, closure);
 		} break;
@@ -2284,14 +2285,14 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionImbueCredentials: {
 			closure->items[i].transmit.setup(kTagImbueCredentials, closure);
 			memcpy(closure->items[i].transmit._inCredentials.data(),
-					this_thread->credentials(), 16);
+					thisThread->credentials(), 16);
 		} break;
 		case kHelActionExtractCredentials: {
 			closure->items[i].transmit.setup(kTagExtractCredentials, closure);
 		} break;
 		case kHelActionSendFromBuffer: {
-			frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, action.length);
-			if(!readUserMemory(buffer.data(), action.buffer, action.length))
+			frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
+			if(!readUserMemory(buffer.data(), recipe->buffer, recipe->length))
 				return kHelErrFault;
 
 			closure->items[i].transmit.setup(kTagSendFromBuffer, closure);
@@ -2299,8 +2300,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		} break;
 		case kHelActionSendFromBufferSg: {
 			size_t length = 0;
-			auto sglist = reinterpret_cast<HelSgItem *>(action.buffer);
-			for(size_t j = 0; j < action.length; j++) {
+			auto sglist = reinterpret_cast<HelSgItem *>(recipe->buffer);
+			for(size_t j = 0; j < recipe->length; j++) {
 				HelSgItem item;
 				readUserObject(sglist + j, item);
 				length += item.length;
@@ -2308,7 +2309,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, length);
 			size_t offset = 0;
-			for(size_t j = 0; j < action.length; j++) {
+			for(size_t j = 0; j < recipe->length; j++) {
 				HelSgItem item;
 				readUserObject(sglist + j, item);
 				if(!readUserMemory(reinterpret_cast<char *>(buffer.data()) + offset,
@@ -2322,26 +2323,22 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		} break;
 		case kHelActionRecvInline: {
 			// TODO: For now, we hardcode a size of 128 bytes.
-			auto space = this_thread->getAddressSpace().lock();
+			auto space = thisThread->getAddressSpace().lock();
 			closure->items[i].transmit.setup(kTagRecvInline, closure);
 			closure->items[i].transmit._maxLength = 128;
 		} break;
 		case kHelActionRecvToBuffer: {
-			auto space = this_thread->getAddressSpace().lock();
-			auto accessor = AddressSpaceLockHandle{std::move(space),
-					action.buffer, action.length};
-			Thread::asyncBlockCurrent(accessor.acquire(this_thread->mainWorkQueue()->take()));
-
-			closure->items[i].transmit.setup(kTagRecvToBuffer, closure);
-			closure->items[i].transmit._inAccessor = std::move(accessor);
+			closure->items[i].transmit.setup(kTagRecvFlow, closure);
+			closure->items[i].transmit._maxLength = recipe->length;
+			++numFlows;
 		} break;
 		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
 			{
 				auto irq_lock = frg::guard(&irqMutex());
-				Universe::Guard universe_guard(this_universe->lock);
+				Universe::Guard universe_guard(thisUniverse->lock);
 
-				auto wrapper = this_universe->getDescriptor(universe_guard, action.handle);
+				auto wrapper = thisUniverse->getDescriptor(universe_guard, recipe->handle);
 				if(!wrapper)
 					return kHelErrNoDescriptor;
 				operand = *wrapper;
@@ -2358,25 +2355,86 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			assert(!"Fix error handling here");
 		}
 
-		// Here, we make sure of our marker on the ancillary_stack.
-		if(!ancillary_stack.back()) {
+		// Here, we make sure of our marker on the ancillaryStack.
+		if(!ancillaryStack.back()) {
 			// Add the item to the root list.
-			root_chain.push_back(&closure->items[i].transmit);
+			rootChain.push_back(&closure->items[i].transmit);
 		}else{
 			// Add the item to an ancillary list.
-			ancillary_stack.back()->ancillaryChain.push_back(&closure->items[i].transmit);
+			ancillaryStack.back()->ancillaryChain.push_back(&closure->items[i].transmit);
 		}
 
-		if(!(action.flags & kHelItemChain))
-			ancillary_stack.pop();
-		if(action.flags & kHelItemAncillary)
-			ancillary_stack.push(&closure->items[i].transmit);
+		if(!(recipe->flags & kHelItemChain))
+			ancillaryStack.pop();
+		if(recipe->flags & kHelItemAncillary)
+			ancillaryStack.push(&closure->items[i].transmit);
 	}
 
-	if(!ancillary_stack.empty())
+	if(!ancillaryStack.empty())
 		return kHelErrIllegalArgs;
 
-	Stream::transmit(lane, root_chain);
+	auto handleFlow = [] (Closure *closure, size_t numFlows,
+			smarter::shared_ptr<AddressSpace, BindableHandle> space,
+			smarter::shared_ptr<WorkQueue> wq) -> coroutine<void> {
+		// We exit once we processed numFlows-many items.
+		// This guarantees that we do not access the closure object after it is freed.
+		// Below, we need to ensure that we always complete our own nodes
+		// before completing peer nodes.
+
+		size_t i = 0;
+		size_t seenFlows = 0; // Iterates through flows.
+		while(seenFlows < numFlows) {
+			assert(i < closure->count);
+			auto item = &closure->items[i++];
+			auto recipe = &item->recipe;
+			auto node = &item->transmit;
+
+			if(node->tag() != kTagRecvFlow)
+				continue;
+			++seenFlows;
+
+			co_await node->issueFlow.wait();
+			auto peer = node->peerNode;
+
+			// Check for transmission errors.
+			if(!peer) {
+				assert(node->_error != Error::success);
+				node->complete();
+				continue;
+			}
+
+			assert(recipe->type == kHelActionRecvToBuffer);
+			assert(peer->tag() == kTagSendFromBuffer);
+
+			auto outcome = co_await writeVirtualSpace(space.get(),
+					reinterpret_cast<uintptr_t>(recipe->buffer),
+					peer->_inBuffer.data(), peer->_inBuffer.size(), wq);
+			if(!outcome) {
+				// We complete with fault; the remote with success.
+				// TODO: it probably makes sense to introduce a "remote fault" error.
+				peer->_error = Error::success;
+				node->_error = Error::fault;
+
+				peer->complete();
+				node->complete();
+				continue;
+			}
+
+			// Both nodes complete successfully.
+			peer->_error = Error::success;
+			node->_error = Error::success;
+			node->_actualLength = peer->_inBuffer.size();
+
+			peer->complete();
+			node->complete();
+		}
+	};
+
+	if(numFlows)
+		async::detach_with_allocator(*kernelAlloc, handleFlow(closure, numFlows,
+				thisThread->getAddressSpace().lock(), thisThread->mainWorkQueue()->take()));
+
+	Stream::transmit(lane, rootChain);
 
 	return kHelErrNone;
 }
