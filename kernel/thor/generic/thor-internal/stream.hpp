@@ -39,7 +39,7 @@ enum {
 	kTagAccept,
 	kTagImbueCredentials,
 	kTagExtractCredentials,
-	kTagSendFromBuffer,
+	kTagSendKernelBuffer,
 	kTagRecvInline,
 	kTagRecvFlow,
 	kTagPushDescriptor,
@@ -56,7 +56,7 @@ inline int getStreamOrientation(int tag) {
 		return -1;
 	case kTagOffer:
 	case kTagImbueCredentials:
-	case kTagSendFromBuffer:
+	case kTagSendKernelBuffer:
 	case kTagPushDescriptor:
 		return 1;
 	}
@@ -417,7 +417,7 @@ template<typename R>
 struct SendBufferOperation : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
-		StreamNode::setup(kTagSendFromBuffer, this);
+		StreamNode::setup(kTagSendKernelBuffer, this);
 		_inBuffer = std::move(s_.buffer);
 
 		StreamList list;

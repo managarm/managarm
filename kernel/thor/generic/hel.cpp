@@ -2295,7 +2295,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			if(!readUserMemory(buffer.data(), recipe->buffer, recipe->length))
 				return kHelErrFault;
 
-			closure->items[i].transmit.setup(kTagSendFromBuffer, closure);
+			closure->items[i].transmit.setup(kTagSendKernelBuffer, closure);
 			closure->items[i].transmit._inBuffer = std::move(buffer);
 		} break;
 		case kHelActionSendFromBufferSg: {
@@ -2318,7 +2318,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				offset += item.length;
 			}
 
-			closure->items[i].transmit.setup(kTagSendFromBuffer, closure);
+			closure->items[i].transmit.setup(kTagSendKernelBuffer, closure);
 			closure->items[i].transmit._inBuffer = std::move(buffer);
 		} break;
 		case kHelActionRecvInline: {
@@ -2404,7 +2404,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			}
 
 			assert(recipe->type == kHelActionRecvToBuffer);
-			assert(peer->tag() == kTagSendFromBuffer);
+			assert(peer->tag() == kTagSendKernelBuffer);
 
 			auto outcome = co_await writeVirtualSpace(space.get(),
 					reinterpret_cast<uintptr_t>(recipe->buffer),
