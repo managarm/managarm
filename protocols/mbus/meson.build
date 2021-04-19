@@ -13,7 +13,7 @@ libmbus = shared_library('mbus', src,
 	install : true
 )
 
-mbus_dep = declare_dependency(
+mbus_proto_dep = declare_dependency(
 	link_with : libmbus,
 	dependencies : deps,
 	sources : mbus_pb,

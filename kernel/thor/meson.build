@@ -5,7 +5,7 @@ args = [
 	'-DCXXSHIM_INTEGRATE_GCC', 
 	'-DLIBASYNC_CUSTOM_PLATFORM', 
 	'-DLIBASYNC_FORCE_USE_EXPERIMENTAL',
-	'-fno-threadsafe-statics' 
+	'-fno-threadsafe-statics'
 ]
 c_args = [ ]
 cpp_args = [ ]

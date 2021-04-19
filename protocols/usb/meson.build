@@ -19,7 +19,7 @@ libusb = shared_library('usb_protocol', src,
 	install : true
 )
 
-usb_dep = declare_dependency(
+usb_proto_dep = declare_dependency(
 	link_with : libusb,
 	dependencies : deps,
 	include_directories : inc

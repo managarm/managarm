@@ -1,5 +1,5 @@
 executable('gfx_virtio', 'src/main.cpp',
-	dependencies : [ drm_core_dep, virtio_core_dep,  svrctl_dep ],
+	dependencies : [ drm_core_dep, virtio_core_dep, svrctl_proto_dep ],
 	install : true
 )
 

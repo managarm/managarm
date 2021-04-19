@@ -1,5 +1,5 @@
 executable('virtio-console', [ 'src/main.cpp', 'src/console.cpp' ],
-	dependencies : [ mbus_dep, virtio_core_dep, kerncfg_dep ],
+	dependencies : [ mbus_proto_dep, virtio_core_dep, kerncfg_proto_dep ],
 	install : true
 )
 

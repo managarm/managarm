@@ -3,7 +3,7 @@ if host_machine.cpu_family() != 'x86_64'
 endif
 
 executable('gfx_vmware', 'src/main.cpp',
-	dependencies : [ drm_core_dep, svrctl_dep ],
+	dependencies : [ drm_core_dep, svrctl_proto_dep ],
 	install : true
 )
 

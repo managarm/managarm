@@ -3,7 +3,7 @@ if host_machine.cpu_family() != 'x86_64'
 endif
 
 inc = [ 'include' ]
-deps = [ libarch, fs_dep, usb_dep, mbus_dep, hw_dep ]
+deps = [ libarch, fs_proto_dep, usb_proto_dep, mbus_proto_dep, hw_proto_dep ]
 
 libevbackend_driver = shared_library('evbackend', 'src/libevbackend.cpp',
 	dependencies : deps,

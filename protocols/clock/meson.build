@@ -3,7 +3,7 @@ clock_pb = protocxx.process(here/'clock.proto',
 	extra_args : [ '-I' + here ]
 )
 
-clock_dep = declare_dependency(
+clock_proto_dep = declare_dependency(
 	sources : clock_pb,
 	include_directories : 'include'
 )

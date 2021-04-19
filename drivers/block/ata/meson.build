@@ -3,6 +3,6 @@ if host_machine.cpu_family() != 'x86_64'
 endif
 
 executable('block-ata', 'src/main.cpp',
-	dependencies : [ libarch, hw_dep, mbus_dep, libblockfs_dep ],
+	dependencies : [ libarch, hw_proto_dep, mbus_proto_dep, libblockfs_dep ],
 	install : true
 )

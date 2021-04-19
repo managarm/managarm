@@ -38,6 +38,6 @@ src = [
 ]
 
 executable('posix-subsystem', src,
-	dependencies : [ mbus_dep, fs_dep, clock_dep, kerncfg_dep ],
+	dependencies : [ mbus_proto_dep, fs_proto_dep, clock_proto_dep, kerncfg_proto_dep ],
 	install : true
 )

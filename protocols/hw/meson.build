@@ -13,7 +13,7 @@ libhw = shared_library('hw_protocol', src,
 	install : true
 )
 
-hw_dep = declare_dependency(
+hw_proto_dep = declare_dependency(
 	link_with : libhw,
 	dependencies : deps,
 	sources : hw_pb,

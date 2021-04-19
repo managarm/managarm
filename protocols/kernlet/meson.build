@@ -3,7 +3,7 @@ kernlet_pb = protocxx.process(here/'kernlet.proto',
 	extra_args : [ '-I' + here ]
 )
 
-deps = [ mbus_dep ]
+deps = [ mbus_proto_dep ]
 src = [ 'src/compiler.cpp', kernlet_pb ]
 inc = [ 'include' ]
 
@@ -13,7 +13,7 @@ libkernlet = shared_library('kernlet_protocol', src,
 	install : true
 )
 
-kernlet_dep = declare_dependency(
+kernlet_proto_dep = declare_dependency(
 	link_with : libkernlet,
 	dependencies : deps,
 	sources : kernlet_pb,

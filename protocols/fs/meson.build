@@ -11,7 +11,7 @@ libfs = shared_library('fs_protocol', src,
 	install : true
 )
 
-fs_dep = declare_dependency(
+fs_proto_dep = declare_dependency(
 	link_with : libfs,
 	dependencies : deps,
 	sources : fs_bragi,

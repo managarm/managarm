@@ -6,7 +6,7 @@ src = [
 ]
 
 executable('block-ahci', src,
-	dependencies : [ libarch, hw_dep, mbus_dep, libblockfs_dep ],
+	dependencies : [ libarch, hw_proto_dep, mbus_proto_dep, libblockfs_dep ],
 	install : true
 )
 

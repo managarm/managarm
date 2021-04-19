@@ -2,8 +2,8 @@ project('managarm', ['c', 'cpp'],
 	license : 'MIT',
 	meson_version : '>=0.57.0',
 	default_options : [
-		'cpp_std=c++20',
-		'c_std=c11',
+		'cpp_std=gnu++20',
+		'c_std=gnu11',
 		'warning_level=3'
 	]
 )
@@ -29,6 +29,14 @@ if get_option('build_docs')
 			command : [ doxygen, doxyfile ]
 		)
 	endif
+endif
+
+build_kernel = get_option('build_kernel')
+build_drivers = get_option('build_drivers')
+build_tools = get_option('build_tools')
+
+if not build_kernel and not build_drivers and not build_tools
+	subdir_done()
 endif
 
 # declare constants that subdirs are going to use
@@ -84,7 +92,7 @@ frigg = subproject('frigg').get_variable('frigg_dep')
 
 libarch = subproject('libarch').get_variable('libarch_dep')
 
-if get_option('build_kernel')
+if build_kernel
 	cralgo = subproject('cralgo')
 	lai = subproject('lai')
 	cralgo_sources = cralgo.get_variable('sources')
@@ -97,7 +105,7 @@ if get_option('build_kernel')
 	subdir('kernel/thor')
 endif
 
-if get_option('build_drivers')
+if build_drivers
 	bakesvr = find_program('bakesvr')
 
 	proto_lite_dep = dependency('protobuf-lite')
@@ -167,7 +175,7 @@ endif
 
 # when building these tools make sure they stay below everything else
 # as they depend on parts above
-if get_option('build_tools')
+if build_tools
 	foreach tool : [ 'ostrace', 'bakesvr', 'pb2frigg' ]
 		subdir('tools'/tool)
 	endforeach

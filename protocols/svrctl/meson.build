@@ -13,7 +13,7 @@ libsvrctl = shared_library('svrctl_protocol', src,
 	install : true
 )
 
-svrctl_dep = declare_dependency(
+svrctl_proto_dep = declare_dependency(
 	link_with : libsvrctl,
 	dependencies : deps,
 	sources : svrctl_pb,

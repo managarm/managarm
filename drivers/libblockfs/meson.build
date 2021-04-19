@@ -1,6 +1,6 @@
 src = [ 'src/libblockfs.cpp', 'src/gpt.cpp', 'src/ext2fs.cpp' ]
 inc = [ 'include' ]
-deps = [ fs_dep, mbus_dep, ostrace_dep ]
+deps = [ fs_proto_dep, mbus_proto_dep, ostrace_proto_dep ]
 
 libblockfs_driver = shared_library('blockfs', src,
 	dependencies : deps,

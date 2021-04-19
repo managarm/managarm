@@ -43,7 +43,7 @@ embed_trampoline = custom_target('embed-trampoline',
 src += embed_trampoline
 inc += include_directories('.')
 link_args += [ '-z', 'max-page-size=0x1000', '-Wl,-T,' + meson.current_source_dir()/'link.x' ]
-args += [ '-mcmodel=kernel', '-mno-red-zone', '-mstack-alignment=8' ]
+args += [ '-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2', '-mcmodel=kernel', '-mno-red-zone', '-mstack-alignment=8' ]
 link_depends += files('link.x')
 
 want_acpi = true

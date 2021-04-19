@@ -6,7 +6,7 @@ elif arch == 'aarch64'
 	src += 'aarch64-src/copy-fp.S'
 endif
 
-deps = [ libarch, fs_dep, hw_dep, mbus_dep ]
+deps = [ libarch, fs_proto_dep, hw_proto_dep, mbus_proto_dep ]
 inc = [ 'include' ]
 
 headers = [
