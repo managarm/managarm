@@ -40,7 +40,7 @@ enum {
 	kTagImbueCredentials,
 	kTagExtractCredentials,
 	kTagSendKernelBuffer,
-	kTagRecvInline,
+	kTagRecvKernelBuffer,
 	kTagRecvFlow,
 	kTagPushDescriptor,
 	kTagPullDescriptor
@@ -50,7 +50,7 @@ inline int getStreamOrientation(int tag) {
 	switch(tag) {
 	case kTagAccept:
 	case kTagExtractCredentials:
-	case kTagRecvInline:
+	case kTagRecvKernelBuffer:
 	case kTagRecvFlow:
 	case kTagPullDescriptor:
 		return -1;
@@ -457,7 +457,7 @@ template<typename R>
 struct RecvBufferOperation : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
-		StreamNode::setup(kTagRecvInline, this);
+		StreamNode::setup(kTagRecvKernelBuffer, this);
 		_maxLength = SIZE_MAX;
 
 		StreamList list;

@@ -166,7 +166,7 @@ void Stream::Submitter::run() {
 			transfer(OfferAccept{}, u, v);
 		}else if(u->tag() == kTagImbueCredentials && v->tag() == kTagExtractCredentials) {
 			transfer(ImbueExtract{}, u, v);
-		}else if(u->tag() == kTagSendKernelBuffer && v->tag() == kTagRecvInline) {
+		}else if(u->tag() == kTagSendKernelBuffer && v->tag() == kTagRecvKernelBuffer) {
 			transfer(SendRecvInline{}, u, v);
 		}else if(u->tag() == kTagSendKernelBuffer && v->tag() == kTagRecvFlow) {
 			if(u->_inBuffer.size() > v->_maxLength) {

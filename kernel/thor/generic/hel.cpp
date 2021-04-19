@@ -2324,7 +2324,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionRecvInline: {
 			// TODO: For now, we hardcode a size of 128 bytes.
 			auto space = thisThread->getAddressSpace().lock();
-			closure->items[i].transmit.setup(kTagRecvInline, closure);
+			closure->items[i].transmit.setup(kTagRecvKernelBuffer, closure);
 			closure->items[i].transmit._maxLength = 128;
 		} break;
 		case kHelActionRecvToBuffer: {
