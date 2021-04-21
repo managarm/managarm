@@ -168,6 +168,23 @@ void Stream::Submitter::run() {
 			transfer(ImbueExtract{}, u, v);
 		}else if(u->tag() == kTagSendKernelBuffer && v->tag() == kTagRecvKernelBuffer) {
 			transfer(SendRecvInline{}, u, v);
+		}else if(u->tag() == kTagSendFlow && v->tag() == kTagRecvKernelBuffer) {
+			if(u->_inBuffer.size() > v->_maxLength) {
+				// Both nodes complete with bufferTooSmall.
+				u->_error = Error::bufferTooSmall;
+				v->_error = Error::bufferTooSmall;
+
+				u->issueFlow.raise();
+				v->complete();
+				continue;
+			}else if(!u->_maxLength) {
+				u->issueFlow.raise();
+				v->complete();
+				continue;
+			}
+
+			u->peerNode = v;
+			u->issueFlow.raise();
 		}else if(u->tag() == kTagSendKernelBuffer && v->tag() == kTagRecvFlow) {
 			if(u->_inBuffer.size() > v->_maxLength) {
 				// Both nodes complete with bufferTooSmall.
@@ -177,8 +194,31 @@ void Stream::Submitter::run() {
 				u->complete();
 				v->issueFlow.raise();
 				continue;
+			}else if(!u->_inBuffer.size()) {
+				u->complete();
+				v->issueFlow.raise();
+				continue;
 			}
 
+			v->peerNode = u;
+			v->issueFlow.raise();
+		}else if(u->tag() == kTagSendFlow && v->tag() == kTagRecvFlow) {
+			if(u->_maxLength > v->_maxLength) {
+				// Both nodes complete with bufferTooSmall.
+				u->_error = Error::bufferTooSmall;
+				v->_error = Error::bufferTooSmall;
+
+				u->issueFlow.raise();
+				v->issueFlow.raise();
+				continue;
+			}else if(!u->_maxLength) {
+				u->issueFlow.raise();
+				v->issueFlow.raise();
+				continue;
+			}
+
+			u->peerNode = v;
+			u->issueFlow.raise();
 			v->peerNode = u;
 			v->issueFlow.raise();
 		}else if(u->tag() == kTagPushDescriptor && v->tag() == kTagPullDescriptor) {

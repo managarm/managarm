@@ -117,6 +117,7 @@ enum {
 	kHelErrDismissed = 20,
 	kHelErrBufferTooSmall = 1,
 	kHelErrFault = 10,
+	kHelErrRemoteFault = 21,
 	kHelErrNoHardwareSupport = 16,
 	kHelErrNoMemory = 17,
 };

@@ -90,6 +90,7 @@ HelError translateError(Error error) {
 	case Error::dismissed: return kHelErrDismissed;
 	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::fault: return kHelErrFault;
+	case Error::remoteFault: return kHelErrRemoteFault;
 	default:
 		assert(!"Unexpected error");
 		__builtin_unreachable();
@@ -2291,12 +2292,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			closure->items[i].transmit.setup(kTagExtractCredentials, closure);
 		} break;
 		case kHelActionSendFromBuffer: {
-			frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
-			if(!readUserMemory(buffer.data(), recipe->buffer, recipe->length))
-				return kHelErrFault;
-
-			closure->items[i].transmit.setup(kTagSendKernelBuffer, closure);
-			closure->items[i].transmit._inBuffer = std::move(buffer);
+			closure->items[i].transmit.setup(kTagSendFlow, closure);
+			closure->items[i].transmit._maxLength = recipe->length;
+			++numFlows;
 		} break;
 		case kHelActionSendFromBufferSg: {
 			size_t length = 0;
@@ -2381,6 +2379,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		// Below, we need to ensure that we always complete our own nodes
 		// before completing peer nodes.
 
+		// The size of this array must be a power of two.
+		frg::array<frg::unique_memory<KernelAlloc>, 2> xferBuffers;
+
 		size_t i = 0;
 		size_t seenFlows = 0; // Iterates through flows.
 		while(seenFlows < numFlows) {
@@ -2389,44 +2390,209 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto recipe = &item->recipe;
 			auto node = &item->transmit;
 
-			if(node->tag() != kTagRecvFlow)
+			if(!usesFlowProtocol(node->tag()))
 				continue;
 			++seenFlows;
 
 			co_await node->issueFlow.wait();
 			auto peer = node->peerNode;
 
-			// Check for transmission errors.
+			// Check for transmission errors (transmission errors or zero-size transfers).
 			if(!peer) {
-				assert(node->_error != Error::success);
 				node->complete();
 				continue;
 			}
 
-			assert(recipe->type == kHelActionRecvToBuffer);
-			assert(peer->tag() == kTagSendKernelBuffer);
+			if(recipe->type == kHelActionSendFromBuffer
+					&& peer->tag() == kTagRecvKernelBuffer) {
+				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
 
-			auto outcome = co_await writeVirtualSpace(space.get(),
-					reinterpret_cast<uintptr_t>(recipe->buffer),
-					peer->_inBuffer.data(), peer->_inBuffer.size(), wq);
-			if(!outcome) {
-				// We complete with fault; the remote with success.
-				// TODO: it probably makes sense to introduce a "remote fault" error.
-				peer->_error = Error::success;
-				node->_error = Error::fault;
+				auto outcome = co_await readVirtualSpace(space.get(),
+						reinterpret_cast<uintptr_t>(recipe->buffer),
+						buffer.data(), recipe->length, wq);
+				if(!outcome) {
+					// We complete with fault; the remote with success.
+					// TODO: it probably makes sense to introduce a "remote fault" error.
+					peer->_error = Error::success;
+					node->_error = Error::fault;
+					peer->complete();
+					node->complete();
+					continue;
+				}
 
+				// Both nodes complete successfully.
+				peer->_transmitBuffer = std::move(buffer);
 				peer->complete();
 				node->complete();
-				continue;
+			}else if(recipe->type == kHelActionSendFromBuffer
+					&& peer->tag() == kTagRecvFlow) {
+				// Empty packets are handled by the generic stream code.
+				assert(recipe->length);
+
+				size_t progress = 0;
+				size_t numSent = 0;
+				size_t numAcked = 0;
+				bool lastTransferSent = false;
+				// Each iteration of this loop sends one transfer packet (or terminates).
+				while(true) {
+					bool anyRemoteFault = false;
+					while(numSent != numAcked) {
+						// If there is anything more to send, we only need to wait until
+						// at least one buffer is not in-flight (otherwise, we wait for all).
+						if(!lastTransferSent && numSent - numAcked < xferBuffers.size())
+							break;
+						auto ackPacket = co_await node->flowQueue.async_get();
+						assert(ackPacket);
+						if(ackPacket->fault)
+							anyRemoteFault = true;
+						++numAcked;
+					}
+
+					if(lastTransferSent) {
+						if(anyRemoteFault) {
+							node->_error = Error::remoteFault;
+						}else{
+							node->_error = Error::success;
+						}
+						break;
+					}
+
+					// If we encounter remote faults, we terminate.
+					if(anyRemoteFault) {
+						// Send the packet (may deallocate the peer!).
+						peer->flowQueue.put({ .terminate = true });
+						++numSent;
+
+						// Retrieve but ignore all acks.
+						assert(numSent > numAcked);
+						while(numSent != numAcked) {
+							auto ackPacket = co_await node->flowQueue.async_get();
+							assert(ackPacket);
+							++numAcked;
+						}
+
+						node->_error = Error::remoteFault;
+						break;
+					}
+
+					// Prepare a buffer an send it.
+					assert(numSent - numAcked < xferBuffers.size());
+					auto &xb = xferBuffers[numSent & (xferBuffers.size() - 1)];
+					if(!xb.size())
+						xb = frg::unique_memory<KernelAlloc>{*kernelAlloc, 4096};
+
+					auto chunkSize = frg::min(recipe->length - progress, xb.size());
+					assert(chunkSize);
+
+					auto outcome = co_await readVirtualSpace(space.get(),
+							reinterpret_cast<uintptr_t>(recipe->buffer) + progress,
+							xb.data(), chunkSize, wq);
+					if(!outcome) {
+						// Send the packet (may deallocate the peer!).
+						peer->flowQueue.put({ .terminate = true, .fault = true });
+						++numSent;
+
+						// Retrieve but ignore all acks.
+						assert(numSent > numAcked);
+						while(numSent != numAcked) {
+							auto ackPacket = co_await node->flowQueue.async_get();
+							assert(ackPacket);
+							++numAcked;
+						}
+
+						node->_error = Error::fault;
+						break;
+					}
+
+					lastTransferSent = (progress + chunkSize == recipe->length);
+					// Send the packet (may deallocate the peer!).
+					peer->flowQueue.put({
+						.data = xb.data(),
+						.size = chunkSize,
+						.terminate = lastTransferSent
+					});
+					++numSent;
+					progress += chunkSize;
+				}
+
+				node->complete();
+			}else if(recipe->type == kHelActionRecvToBuffer
+					&& peer->tag() == kTagSendKernelBuffer) {
+				auto outcome = co_await writeVirtualSpace(space.get(),
+						reinterpret_cast<uintptr_t>(recipe->buffer),
+						peer->_inBuffer.data(), peer->_inBuffer.size(), wq);
+				if(!outcome) {
+					// We complete with fault; the remote with success.
+					// TODO: it probably makes sense to introduce a "remote fault" error.
+					peer->_error = Error::success;
+					node->_error = Error::fault;
+					peer->complete();
+					node->complete();
+					continue;
+				}
+
+				// Both nodes complete successfully.
+				node->_actualLength = peer->_inBuffer.size();
+				peer->complete();
+				node->complete();
+			}else{
+				assert(recipe->type == kHelActionRecvToBuffer
+						&& peer->tag() == kTagSendFlow);
+
+				size_t progress = 0;
+				bool didFault = false;
+				// Each iteration of this loop sends one ack packet.
+				while(true) {
+					auto xferPacket = co_await node->flowQueue.async_get();
+					assert(xferPacket);
+
+					if(xferPacket->data && !didFault) {
+						// Otherwise, there would have been a transmission error.
+						assert(progress + xferPacket->size <= recipe->length);
+
+						auto outcome = co_await writeVirtualSpace(space.get(),
+								reinterpret_cast<uintptr_t>(recipe->buffer) + progress,
+								xferPacket->data, xferPacket->size, wq);
+						if(outcome) {
+							progress += xferPacket->size;
+						}else{
+							didFault = true;
+						}
+					}
+
+					if(xferPacket->terminate) {
+						if(didFault) {
+							// Ack the packet (may deallocate the peer!).
+							peer->flowQueue.put({ .terminate = true, .fault = true, });
+							node->_error = Error::fault;
+						}else{
+							// Ack the packet (may deallocate the peer!).
+							peer->flowQueue.put({ .terminate = true });
+							if(xferPacket->fault) {
+								node->_error = Error::remoteFault;
+							}else{
+								node->_actualLength = progress;
+							}
+						}
+
+						// This node is finished.
+						break;
+					}
+
+					// This is the only non-terminating case.
+					// Senders should always terminate if they fault.
+					assert(!xferPacket->fault);
+
+					// Ack the packet (may deallocate the peer!).
+					if(didFault) {
+						peer->flowQueue.put({ .fault = true });
+					}else{
+						peer->flowQueue.put({});
+					}
+				}
+
+				node->complete();
 			}
-
-			// Both nodes complete successfully.
-			peer->_error = Error::success;
-			node->_error = Error::success;
-			node->_actualLength = peer->_inBuffer.size();
-
-			peer->complete();
-			node->complete();
 		}
 	};
 

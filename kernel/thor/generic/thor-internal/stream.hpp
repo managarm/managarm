@@ -5,6 +5,7 @@
 #include <atomic>
 
 #include <async/oneshot-event.hpp>
+#include <async/queue.hpp>
 #include <frg/container_of.hpp>
 #include <frg/array.hpp>
 #include <frg/vector.hpp>
@@ -40,6 +41,7 @@ enum {
 	kTagImbueCredentials,
 	kTagExtractCredentials,
 	kTagSendKernelBuffer,
+	kTagSendFlow,
 	kTagRecvKernelBuffer,
 	kTagRecvFlow,
 	kTagPushDescriptor,
@@ -57,6 +59,7 @@ inline int getStreamOrientation(int tag) {
 	case kTagOffer:
 	case kTagImbueCredentials:
 	case kTagSendKernelBuffer:
+	case kTagSendFlow:
 	case kTagPushDescriptor:
 		return 1;
 	}
@@ -64,8 +67,15 @@ inline int getStreamOrientation(int tag) {
 }
 
 inline bool usesFlowProtocol(int tag) {
-	return tag == kTagRecvFlow;
+	return tag == kTagSendFlow || tag == kTagRecvFlow;
 }
+
+struct FlowPacket {
+	void *data = nullptr;
+	size_t size = 0;
+	bool terminate = false;
+	bool fault = false;
+};
 
 struct StreamNode {
 	friend struct Stream;
@@ -113,6 +123,7 @@ public:
 	StreamNode *peerNode = nullptr;
 
 	async::oneshot_event issueFlow;
+	async::queue<FlowPacket, KernelAlloc> flowQueue{*kernelAlloc};
 
 	// List of StreamNodes that will be submitted to the ancillary lane on offer/accept.
 	frg::intrusive_list<

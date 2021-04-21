@@ -16,6 +16,7 @@ enum class Error {
 	endOfLane,
 	dismissed,
 	fault,
+	remoteFault,
 	noMemory,
 	noHardwareSupport,
 	hardwareBroken,
