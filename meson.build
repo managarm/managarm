@@ -1,150 +1,182 @@
-project('managarm')
+project('managarm', ['c', 'cpp'],
+	license : 'MIT',
+	meson_version : '>=0.57.0',
+	default_options : [
+		'cpp_std=gnu++20',
+		'c_std=gnu11',
+		'warning_level=3'
+	]
+)
 
-build_code = get_option('build_kernel') \
-	or get_option('build_drivers') \
-	or get_option('build_tools')
-
-if build_code
-	add_languages('c', 'cpp')
-	c_compiler = meson.get_compiler('cpp')
-	cpp_compiler = meson.get_compiler('cpp')
-
-	protoc = find_program('protoc')
-	bragi = find_program('bragi')
-
-	add_project_arguments('--std=c++2a', language: 'cpp')
-
-	# clang needs an additional flag to enable sized allocation/deallocation.
-	if cpp_compiler.get_id() == 'clang'
-		add_project_arguments('-fsized-deallocation', language: 'cpp')
-	endif
-
-	bragi_dep = declare_dependency(
-		include_directories: include_directories('subprojects/bragi/include')
+# build documentation
+if get_option('build_docs')
+	subdir('docs')
+	
+	doxyfile = configure_file(
+		input : 'hel/Doxyfile.in',
+		output : 'Doxyfile',
+		configuration : {
+			'ROOTDIR': meson.current_source_dir()/'hel'
+		}
 	)
+
+	doxygen = find_program('doxygen', required : false)
+	if doxygen.found()
+		custom_target('hel-doxygen',
+			input : doxyfile,
+			output : 'hel-api',
+			depend_files : 'hel/include/hel.h',
+			command : [ doxygen, doxyfile ]
+		)
+	endif
 endif
 
-if get_option('build_kernel')
-	pb2frigg = find_program('pb2frigg')
+build_kernel = get_option('build_kernel')
+build_drivers = get_option('build_drivers')
+build_tools = get_option('build_tools')
 
-	if host_machine.cpu_family() == 'x86_64'
-		add_global_arguments(
-			[
-				'-mno-80387',
-				'-mno-mmx',
-				'-mno-sse',
-				'-mno-sse2'
-			],
-			language: ['c', 'cpp'])
-	endif
+if not build_kernel and not build_drivers and not build_tools
+	subdir_done()
+endif
 
+# declare constants that subdirs are going to use
+c = meson.get_compiler('cpp')
+cxx = meson.get_compiler('cpp')
+arch = host_machine.cpu_family()
+protos = meson.project_source_root()/'protocols'
+server = get_option('libdir')/'managarm/server'
+kasan = get_option('kernel_kasan')
+ubsan = get_option('kernel_ubsan')
+log_alloc = get_option('kernel_log_allocations')
 
-	add_global_arguments(
-		[
-			'-ffreestanding',
-		],
-		language: ['c', 'cpp'])
+if arch != 'aarch64' and arch != 'x86_64'
+	error('unknown architecture ' + arch)
+endif
 
-	add_global_arguments(['-fno-exceptions', '-fno-rtti'], language: 'cpp')
+proto = find_program('protoc')
+pb2frigg = find_program('pb2frigg')
+bragi = find_program('bragi')
 
-	add_project_arguments('-fcoroutines-ts', language: 'cpp')
+# declare generators that subdirs are going to use
+protocxx = generator(proto,
+	output : [ '@BASENAME@.pb.h', '@BASENAME@.pb.cc' ],
+	arguments : [ '--cpp_out=@BUILD_DIR@', '@EXTRA_ARGS@', '@INPUT@' ]
+)
 
+protofrg = generator(proto,
+	output : '@BASENAME@.frigg_pb.hpp',
+	arguments : [ 
+		'--plugin=protoc-gen-frigg=' + pb2frigg.full_path(),
+		'--frigg_out=@BUILD_DIR@',
+		'@EXTRA_ARGS@', '@INPUT@'
+	]
+)
+
+cxxbragi = generator(bragi,
+	output : '@BASENAME@.bragi.hpp',
+	arguments : [ '-l', 'stdc++', '--protobuf', '@INPUT@', '@OUTPUT@' ]
+)
+
+frgbragi = generator(bragi,
+	output : '@BASENAME@.frigg_bragi.hpp',
+	arguments : [ '-l', 'frigg', '--protobuf', '@INPUT@', '@OUTPUT@' ]
+)
+
+# declare dependencies that subdirs are going to use
+bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include')
+
+cxxshim = subproject('cxxshim')
+coroutines = cxxshim.get_variable('clang_coroutine_dep')
+
+frigg = subproject('frigg').get_variable('frigg_dep')
+
+libarch = subproject('libarch').get_variable('libarch_dep')
+
+if build_kernel
 	cralgo = subproject('cralgo')
-	cxxshim = subproject('cxxshim')
-	frigg = subproject('frigg')
-	libarch = subproject('libarch', default_options: ['install_headers=false', 'header_only=true'])
-	libarch_dep = libarch.get_variable('libarch_dep')
 	lai = subproject('lai')
-	libsmarter = subproject('libsmarter')
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
-	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
 	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
-	frigg_dep = frigg.get_variable('frigg_dep')
 	lai_sources = lai.get_variable('sources')
 	lai_includes = lai.get_variable('includes')
-	libsmarter_dep = libsmarter.get_variable('libsmarter_dep')
 
 	subdir('kernel/eir')
 	subdir('kernel/thor')
 endif
 
-if get_option('build_drivers')
+if build_drivers
 	bakesvr = find_program('bakesvr')
-
-	add_project_arguments('-fcoroutines-ts', '-DLIBASYNC_FORCE_USE_EXPERIMENTAL', language: 'cpp')
-
-	cxxshim = subproject('cxxshim')
-	clang_coroutine_dep = cxxshim.get_variable('clang_coroutine_dep')
 
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
 
-	libarch = subproject('libarch', default_options: 'install_headers=true')
-	libarch_dep = libarch.get_variable('libarch_dep')
+	# this produces the helix dependency which
+	# all protocols depend on
+	subdir('hel')
+
+	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
+	core = [ 'core/drm', 'core/virtio', 'mbus' ]
+	posix = [ 'subsystem', 'init' ]
+	drivers = [ 
+		# libraries
+		'libblockfs', 'libevbackend', 
+		# storage
+		'block/ata', 'block/virtio-blk', 'block/ahci', 
+		# gfx
+		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware',
+		# io
+		'kbd', 'tty/virtio-console', 'uart',
+		# usb
+		'usb/hcds/uhci', 'usb/hcds/ehci', 'usb/hcds/xhci',
+		'usb/devices/hid', 'usb/devices/storage',
+		# misc
+		'kernletcc'
+	]
+	utils = [ 'runsvr', 'lsmbus' ]
+	testsuites = [ 'kernel-tests', 'posix-torture', 'posix-tests' ]
+	
+	# delay these dirs until last as they require other libs
+	# to already be built
+	delay = [ 'drivers/nic/virtio', 'servers/netserver', 'drivers/clocktracker' ]
+
+	foreach dir : protocols
+		subdir('protocols'/dir)
+	endforeach
+
+	foreach dir : core
+		subdir(dir)
+	endforeach
+
+	foreach dir : posix
+		subdir('posix'/dir)
+	endforeach
+
+	foreach dir : drivers
+		subdir('drivers'/dir)
+	endforeach
+
+	foreach dir : utils
+		subdir('utils'/dir)
+	endforeach
+
+	foreach dir : testsuites
+		subdir('testsuites'/dir)
+	endforeach
+
+	foreach dir : delay
+		subdir(dir)
+	endforeach
+
+	rules = [ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules' ]
+
+	install_data(rules, install_dir : 'lib/udev/rules.d')
 endif
 
-subdir('hel')
-
-if get_option('build_drivers')
-	subdir('protocols/clock/')
-	subdir('protocols/fs/')
-	subdir('protocols/hw/')
-	subdir('protocols/mbus/')
-	subdir('protocols/usb/')
-	subdir('protocols/svrctl/')
-	subdir('protocols/kernlet/') # Depends on mbus.
-	subdir('protocols/ostrace/')
-	subdir('core/drm/')
-	subdir('core/virtio/')
-	subdir('mbus/')
-	subdir('posix/subsystem/')
-	subdir('posix/init/')
-	subdir('drivers/libblockfs/')
-	subdir('drivers/libevbackend/')
-	subdir('drivers/block/ata')
-	subdir('drivers/block/virtio-blk/')
-	subdir('drivers/block/ahci')
-	subdir('drivers/gfx/bochs/')
-	subdir('drivers/gfx/intel/')
-	subdir('drivers/gfx/virtio/')
-	subdir('drivers/gfx/plainfb/')
-	subdir('drivers/gfx/vmware/')
-	subdir('drivers/kbd/')
-	subdir('drivers/tty/virtio-console')
-	subdir('drivers/uart/')
-	subdir('drivers/usb/hcds/uhci/')
-	subdir('drivers/usb/hcds/ehci/')
-	subdir('drivers/usb/hcds/xhci/')
-	subdir('drivers/usb/devices/hid/')
-	subdir('drivers/usb/devices/storage/')
-	subdir('drivers/kernletcc')
-	subdir('utils/runsvr/')
-	subdir('utils/lsmbus/')
-	subdir('testsuites/kernel-tests/')
-	subdir('testsuites/posix-torture/')
-	subdir('testsuites/posix-tests/')
-
-	subdir('drivers/nic/virtio/')
-	subdir('servers/netserver/')
-
-	subdir('drivers/clocktracker')
-
-	install_data(
-		[
-			'drivers/gfx/90-managarm-vga.rules',
-			'drivers/nic/90-managarm-nic.rules',
-		],
-		install_dir: 'lib/udev/rules.d')
+# when building these tools make sure they stay below everything else
+# as they depend on parts above
+if build_tools
+	foreach tool : [ 'ostrace', 'bakesvr', 'pb2frigg' ]
+		subdir('tools'/tool)
+	endforeach
 endif
-
-if get_option('build_tools')
-	frigg = subproject('frigg')
-	frigg_dep = frigg.get_variable('frigg_dep')
-
-	subdir('tools/ostrace')
-	subdir('tools/bakesvr')
-	subdir('tools/pb2frigg')
-endif
-
-subdir('docs')

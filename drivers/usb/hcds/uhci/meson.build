@@ -2,10 +2,7 @@ if host_machine.cpu_family() != 'x86_64'
 	subdir_done()
 endif
 
-executable('uhci', ['src/main.cpp'],
-	dependencies: [
-		clang_coroutine_dep,
-		libarch_dep, lib_helix_dep, hw_protocol_dep,
-		libkernlet_protocol_dep, libmbus_protocol_dep, libusb_protocol_dep, proto_lite_dep],
-	install: true)
-
+executable('uhci', 'src/main.cpp',
+	dependencies : [ libarch, hw_proto_dep, kernlet_proto_dep, mbus_proto_dep, usb_proto_dep ],
+	install : true
+)

@@ -1,6 +1,38 @@
-option('build_kernel', type: 'boolean', value: false)
-option('build_drivers', type: 'boolean', value: false)
-option('build_tools', type: 'boolean', value: false)
-option('kernel_ubsan', type: 'boolean', value: false)
-option('kernel_kasan', type: 'boolean', value: false)
-option('kernel_log_allocations', type: 'boolean', value: false)
+option('build_kernel', 
+    type : 'boolean', 
+    value : false
+)
+
+option('build_drivers', 
+    type : 'boolean', 
+    value : false
+)
+
+option('build_tools', 
+    type : 'boolean', 
+    value : false
+)
+
+option('kernel_ubsan', 
+    type : 'boolean', 
+    value : false,
+    description : 'enable ubsanitizer in the kernel'
+)
+
+option('kernel_kasan', 
+    type : 'boolean', 
+    value : false,
+    description : 'enable kasan in the kernel'
+)
+
+option('kernel_log_allocations', 
+    type : 'boolean', 
+    value : false,
+    description : 'enable memory allocation logging in kernel'
+)
+
+option('build_docs', 
+    type : 'boolean', 
+    value : false,
+    description : 'build only the mdbook and doxygen docs'
+)

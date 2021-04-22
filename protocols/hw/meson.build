@@ -1,26 +1,25 @@
+here = meson.current_source_dir()
+hw_pb = cxxbragi.process(here/'hw.bragi', 
+	extra_args : [ '-I' + here ]
+)
 
-gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'--protobuf',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
+incs = [ 'include' ]
+deps = [ helix_dep, proto_lite_dep ]
+src = [ 'src/client.cpp', hw_pb ]
 
-hw_pb = gen.process('../../protocols/hw/hw.bragi')
-hw_proto_inc = include_directories('include/')
-libhw_protocol = shared_library('hw_protocol', ['src/client.cpp', hw_pb],
-	dependencies: [
-		clang_coroutine_dep,
-		lib_helix_dep, proto_lite_dep],
-	include_directories: hw_proto_inc,
-	install: true)
+libhw = shared_library('hw_protocol', src,
+	dependencies : deps,
+	include_directories : incs,
+	install : true
+)
 
-hw_protocol_dep = declare_dependency(
-	link_with: libhw_protocol,
-	include_directories: hw_proto_inc)
+hw_proto_dep = declare_dependency(
+	link_with : libhw,
+	dependencies : deps,
+	sources : hw_pb,
+	include_directories : incs
+)
 
-install_headers(
-	'include/protocols/hw/client.hpp',
-	subdir: 'protocols/hw/')
-
+install_headers('include/protocols/hw/client.hpp',
+	subdir : 'protocols/hw'
+)

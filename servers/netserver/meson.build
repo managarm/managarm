@@ -1,44 +1,23 @@
-gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'--protobuf',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
+src = [ 
+	'src/ip/arp.cpp',
+	'src/ip/checksum.cpp',
+	'src/ip/ip4.cpp',
+	'src/ip/tcp4.cpp',
+	'src/ip/udp4.cpp',
+	'src/main.cpp',
+	'src/nic.cpp'
+]
 
-fs_bragi = gen.process('../../protocols/fs/fs.bragi')
-
-executable('netserver',
-	[
-		'src/main.cpp',
-		'src/nic.cpp',
-		'src/ip/ip4.cpp',
-		'src/ip/checksum.cpp',
-		'src/ip/arp.cpp',
-		'src/ip/udp4.cpp',
-		'src/ip/tcp4.cpp',
-		fs_bragi
-	],
-	dependencies: [
-		libarch_dep,
-		clang_coroutine_dep,
-		lib_helix_dep,
-		hw_protocol_dep,
-		libfs_protocol_dep,
-		libmbus_protocol_dep,
-		libsvrctl_protocol_dep,
-		proto_lite_dep,
-		nic_virtio_dep,
-	],
-	include_directories: [
-		include_directories('include'),
-		nic_virtio_inc,
-	],
-	install: true)
+executable('netserver', src,
+	dependencies : [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep ],
+	include_directories : 'include',
+	install : true
+)
 
 custom_target('netserver-server',
-	command: [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
-	output: 'netserver.bin',
-	input: 'netserver.yml',
-	install: true,
-	install_dir: get_option('libdir') / 'managarm/server')
+	command : [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output : 'netserver.bin',
+	input : 'netserver.yml',
+	install : true,
+	install_dir : server
+)

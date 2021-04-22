@@ -10,10 +10,10 @@ eir_includes = [include_directories(
 	'../../subprojects/lai/include',
 	'generic')]
 
-eir_cpp_args = ['-std=c++2a', '-Wall']
-eir_c_args = ['-std=c11', '-Wall']
+eir_cpp_args = ['-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2']
+eir_c_args = ['-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2']
 eir_link_args = ['-nostdlib']
-eir_dependencies = [cxxshim_dep, frigg_dep, libarch_dep]
+eir_dependencies = [cxxshim_dep, frigg, libarch]
 
 if get_option('kernel_kasan')
 	eir_c_args += [
@@ -27,10 +27,8 @@ if get_option('kernel_log_allocations')
 	eir_cpp_args += '-DKERNEL_LOG_ALLOCATIONS'
 endif
 
-if host_machine.cpu_family() == 'aarch64'
-	subdir('arch/arm/')
-elif host_machine.cpu_family() == 'x86_64'
-	subdir('arch/x86/')
-else
-	error('Unknown architecture')
+if arch == 'aarch64'
+	subdir('arch/arm')
+elif arch == 'x86_64'
+	subdir('arch/x86')
 endif

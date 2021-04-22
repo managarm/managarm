@@ -2,14 +2,7 @@ if host_machine.cpu_family() != 'x86_64'
 	subdir_done()
 endif
 
-executable('block-ata', ['src/main.cpp'],
-	dependencies: [
-		clang_coroutine_dep,
-		libarch_dep,
-		lib_helix_dep,
-		hw_protocol_dep,
-		libmbus_protocol_dep,
-		libblockfs_dep,
-		proto_lite_dep],
-	install: true)
-
+executable('block-ata', 'src/main.cpp',
+	dependencies : [ libarch, hw_proto_dep, mbus_proto_dep, libblockfs_dep ],
+	install : true
+)

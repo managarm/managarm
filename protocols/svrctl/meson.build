@@ -1,29 +1,25 @@
+here = meson.current_source_dir()
+svrctl_pb = protocxx.process(here/'svrctl.proto', 
+	extra_args : [ '-I' + here ]
+)
 
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@',
-			'@INPUT@'])
+src = [ 'src/server.cpp', svrctl_pb ]
+inc = [ 'include' ]
+deps = [ helix_dep, proto_lite_dep ]
 
-svrctl_pb = gen.process('svrctl.proto')
-svrctl_proto_includes = include_directories('include/')
+libsvrctl = shared_library('svrctl_protocol', src,
+	dependencies : deps,
+	include_directories : inc,
+	install : true
+)
 
-libsvrctl_protocol = shared_library(
-	'svrctl_protocol',
-	[
-		'src/server.cpp',
-		svrctl_pb
-	],
-	dependencies: [
-		clang_coroutine_dep,
-		lib_helix_dep, proto_lite_dep],
-	include_directories: svrctl_proto_includes,
-	install: true)
+svrctl_proto_dep = declare_dependency(
+	link_with : libsvrctl,
+	dependencies : deps,
+	sources : svrctl_pb,
+	include_directories : inc
+)
 
-libsvrctl_protocol_dep = declare_dependency(
-	link_with: libsvrctl_protocol,
-	include_directories: svrctl_proto_includes)
-
-install_headers(
-	'include/protocols/svrctl/server.hpp',
-	subdir: 'protocols/svrctl/')
-
+install_headers('include/protocols/svrctl/server.hpp',
+	subdir : 'protocols/svrctl'
+)

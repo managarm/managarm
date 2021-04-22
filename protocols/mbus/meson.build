@@ -1,21 +1,25 @@
-gen = generator(protoc,
-	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
-	arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/mbus/', 
-			'@INPUT@']) 
+here = meson.current_source_dir()
+mbus_pb = protocxx.process(here/'mbus.proto', 
+	extra_args : [ '-I' + here ]
+)
 
-mbus_pb = gen.process('../../protocols/mbus/mbus.proto')
-mbus_proto_inc = include_directories('include/')
-libmbus_protocol = shared_library('mbus', ['src/client.cpp', mbus_pb],
-	dependencies: [
-		clang_coroutine_dep,
-		lib_helix_dep, proto_lite_dep],
-	include_directories: mbus_proto_inc,
-	install: true)
+src = [ 'src/client.cpp', mbus_pb ]
+inc = [ 'include' ]
+deps = [ helix_dep, proto_lite_dep ]
 
-libmbus_protocol_dep = declare_dependency(
-	link_with: libmbus_protocol,
-	include_directories: mbus_proto_inc)
+libmbus = shared_library('mbus', src,
+	dependencies : deps,
+	include_directories : inc,
+	install : true
+)
 
-install_headers(
-	'include/protocols/mbus/client.hpp',
-	subdir: 'protocols/mbus/')
+mbus_proto_dep = declare_dependency(
+	link_with : libmbus,
+	dependencies : deps,
+	sources : mbus_pb,
+	include_directories : inc
+)
+
+install_headers('include/protocols/mbus/client.hpp',
+	subdir : 'protocols/mbus'
+)

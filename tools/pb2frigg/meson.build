@@ -1,6 +1,7 @@
-lib_protobuf_dep = dependency('protobuf')
-lib_protoc_dep = dependency('protoc')
+protobuf = dependency('protobuf')
+protoc = dependency('protoc')
 
 executable('pb2frigg', 'src/main.cpp',
-	dependencies: [lib_protobuf_dep, lib_protoc_dep],
-	install: true)
+	dependencies : [ protobuf, protoc ],
+	install : true
+)

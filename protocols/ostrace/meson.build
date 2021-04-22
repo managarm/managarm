@@ -1,27 +1,22 @@
-bragi_gen = generator(bragi, arguments: [
-		'-l', 'stdc++',
-		'@INPUT@',
-		'@OUTPUT@'
-	],
-	output: '@BASENAME@.bragi.hpp')
+ostrace_bragi = cxxbragi.process('ostrace.bragi')
 
-libostrace_protocol = shared_library('ostrace_protocol',
-	[
-		'src/ostrace.cpp',
-		bragi_gen.process('ostrace.bragi')
-	],
-	dependencies: [
-		clang_coroutine_dep,
-		lib_helix_dep,
-		libmbus_protocol_dep,
-		proto_lite_dep],
-	include_directories: include_directories('include/'),
-	install: true)
+src = [ 'src/ostrace.cpp', ostrace_bragi ]
+inc = [ 'include' ]
+deps = [ mbus_proto_dep, bragi_dep ]
 
-install_headers(
-	'include/protocols/ostrace/ostrace.hpp',
-	subdir: 'protocols/ostrace/')
+libostrace_protocol = shared_library('ostrace_protocol', src,
+	dependencies : deps,
+	include_directories : inc,
+	install : true
+)
 
-libostrace_protocol_dep = declare_dependency(
-	link_with: libostrace_protocol,
-	include_directories: include_directories('include/'))
+install_headers('include/protocols/ostrace/ostrace.hpp',
+	subdir : 'protocols/ostrace'
+)
+
+ostrace_proto_dep = declare_dependency(
+	link_with : libostrace_protocol,
+	dependencies : deps,
+	sources : ostrace_bragi,
+	include_directories : inc
+)
