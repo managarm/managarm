@@ -61,8 +61,13 @@ if arch != 'aarch64' and arch != 'x86_64'
 endif
 
 proto = find_program('protoc')
-pb2frigg = find_program('pb2frigg')
 bragi = find_program('bragi')
+
+if build_tools
+	subdir('tools/pb2frigg')
+else
+	pb2frigg = find_program('pb2frigg')
+endif
 
 # declare generators that subdirs are going to use
 protocxx = generator(proto,
@@ -183,7 +188,7 @@ endif
 # when building these tools make sure they stay below everything else
 # as they depend on parts above
 if build_tools
-	foreach tool : [ 'ostrace', 'bakesvr', 'pb2frigg' ]
+	foreach tool : [ 'ostrace', 'bakesvr' ]
 		subdir('tools'/tool)
 	endforeach
 endif
