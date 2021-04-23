@@ -1,4 +1,4 @@
-executable('extract-ostrace', 'extract-ostrace.cpp',
-	dependencies : [ bragi_dep, ostrace_dep, frigg ],
+executable('extract-ostrace', 'extract-ostrace.cpp', cxxbragi.process(protos / 'ostrace/ostrace.bragi'),
+	dependencies : [ bragi_dep, frigg ],
 	install : true
 )

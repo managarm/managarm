@@ -60,7 +60,7 @@ if arch != 'aarch64' and arch != 'x86_64'
 	error('unknown architecture ' + arch)
 endif
 
-proto = find_program('protoc')
+protoc = find_program('protoc')
 bragi = find_program('bragi')
 
 if build_tools
@@ -70,12 +70,12 @@ else
 endif
 
 # declare generators that subdirs are going to use
-protocxx = generator(proto,
+protocxx = generator(protoc,
 	output : [ '@BASENAME@.pb.h', '@BASENAME@.pb.cc' ],
 	arguments : [ '--cpp_out=@BUILD_DIR@', '@EXTRA_ARGS@', '@INPUT@' ]
 )
 
-protofrg = generator(proto,
+protofrg = generator(protoc,
 	output : '@BASENAME@.frigg_pb.hpp',
 	arguments : [ 
 		'--plugin=protoc-gen-frigg=' + pb2frigg.full_path(),
@@ -102,7 +102,9 @@ coroutines = cxxshim.get_variable('clang_coroutine_dep')
 
 frigg = subproject('frigg').get_variable('frigg_dep')
 
-libarch = subproject('libarch').get_variable('libarch_dep')
+if build_kernel or build_drivers
+	libarch = subproject('libarch').get_variable('libarch_dep')
+endif
 
 if build_kernel
 	cralgo = subproject('cralgo')
