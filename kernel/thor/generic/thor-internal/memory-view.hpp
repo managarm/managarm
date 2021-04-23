@@ -683,7 +683,7 @@ public:
 		ForkOperation(const ForkOperation &) = delete;
 		ForkOperation &operator= (const ForkOperation &) = delete;
 
-		void start_inline() {
+		void start() {
 			v_->fork(std::move(receiver_));
 		}
 

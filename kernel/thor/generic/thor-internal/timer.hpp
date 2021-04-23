@@ -159,7 +159,7 @@ public:
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &SleepOperation::worklet_);
-				op->receiver_.set_value();
+				async::execution::set_value(op->receiver_);
 			}, WorkQueue::generalQueue());
 			node_.setup(s_.deadline, &worklet_);
 			s_.self->installTimer(&node_);

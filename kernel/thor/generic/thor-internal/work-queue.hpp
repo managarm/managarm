@@ -51,7 +51,7 @@ struct WorkQueue {
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &ScheduleOperation::worklet_);
-				self->r_.set_value();
+				async::execution::set_value(self->r_);
 			}, wq_);
 			post(&worklet_);
 		}
