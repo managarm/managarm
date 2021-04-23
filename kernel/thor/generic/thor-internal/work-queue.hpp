@@ -29,6 +29,7 @@ struct WorkQueue {
 	static WorkQueue *generalQueue();
 
 	static void post(Worklet *worklet);
+	static bool enter(Worklet *worklet);
 
 	WorkQueue(ExecutorContext *executorContext = illegalExecutorContext())
 	: _executorContext{executorContext}, _anyPosted{false} { }
@@ -84,6 +85,52 @@ struct WorkQueue {
 	}
 
 	// ----------------------------------------------------------------------------------
+	// enter() and its boilerplate.
+	// ----------------------------------------------------------------------------------
+
+	template<typename Receiver>
+	struct EnterOperation {
+		EnterOperation(WorkQueue *wq, Receiver r)
+		: wq_{wq}, r_{std::move(r)} { }
+
+		bool start_inline() {
+			worklet_.setup([] (Worklet *base) {
+				auto self = frg::container_of(base, &EnterOperation::worklet_);
+				async::execution::set_value_noinline(self->r_);
+			}, wq_);
+			if(enter(&worklet_)) {
+				async::execution::set_value_inline(r_);
+				return true;
+			}
+			return false;
+		}
+
+	private:
+		WorkQueue *wq_;
+		Receiver r_;
+		Worklet worklet_;
+	};
+
+	struct EnterSender {
+		using value_type = void;
+
+		template<typename Receiver>
+		friend EnterOperation<Receiver> connect(EnterSender s, Receiver r) {
+			return {s.wq, std::move(r)};
+		}
+
+		friend async::sender_awaiter<EnterSender> operator co_await (EnterSender s) {
+			return {s};
+		}
+
+		WorkQueue *wq;
+	};
+
+	EnterSender enter() {
+		return {this};
+	}
+
+	// ----------------------------------------------------------------------------------
 
 	smarter::weak_ptr<WorkQueue> selfPtr;
 
@@ -101,7 +148,9 @@ private:
 			&Worklet::_hook
 		>
 	> _pending;
-	
+
+	std::atomic<bool> _inRun{false};
+
 	frg::ticket_spinlock _mutex;
 
 	// Writes to this flag are totally ordered since they only happen within _mutex.

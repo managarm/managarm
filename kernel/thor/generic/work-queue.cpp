@@ -31,6 +31,36 @@ void WorkQueue::post(Worklet *worklet) {
 		wq->wakeup();
 }
 
+bool WorkQueue::enter(Worklet *worklet) {
+	auto wq = worklet->_workQueue;
+
+	bool invokeWakeup;
+	if(wq->_executorContext == currentExecutorContext()) {
+		// Fast-track if we are on the right executor and the WQ is being drained.
+		if(wq->_inRun.load(std::memory_order_relaxed))
+			return true;
+		std::atomic_signal_fence(std::memory_order_acquire);
+
+		// Same logic as in post().
+		auto irqLock = frg::guard(&irqMutex());
+
+		invokeWakeup = wq->_pending.empty();
+		wq->_pending.push_back(worklet);
+	}else{
+		// Same logic as in post().
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&wq->_mutex);
+
+		invokeWakeup = wq->_posted.empty();
+		wq->_posted.push_back(worklet);
+		wq->_anyPosted.store(true, std::memory_order_relaxed);
+	}
+
+	if(invokeWakeup)
+		wq->wakeup();
+	return false;
+}
+
 bool WorkQueue::check() {
 	// _pending is only accessed from the thread/fiber that runs the WQ.
 	// For _anyPosted, see the comment in the header file.
@@ -39,6 +69,10 @@ bool WorkQueue::check() {
 
 void WorkQueue::run() {
 	assert(_executorContext == currentExecutorContext());
+	assert(!_inRun.load(std::memory_order_relaxed));
+
+	std::atomic_signal_fence(std::memory_order_release);
+	_inRun.store(true, std::memory_order_relaxed);
 
 	if(_anyPosted.load(std::memory_order_relaxed)) {
 		auto irqLock = frg::guard(&irqMutex());
@@ -55,6 +89,9 @@ void WorkQueue::run() {
 		self = std::move(worklet->_workQueue);
 		worklet->_run(worklet);
 	}
+
+	std::atomic_signal_fence(std::memory_order_release);
+	_inRun.store(false, std::memory_order_relaxed);
 }
 
 } // namespace thor
