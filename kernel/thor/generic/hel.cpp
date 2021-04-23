@@ -1,4 +1,5 @@
 #include <string.h>
+#include <cstddef>
 
 #include <async/algorithm.hpp>
 #include <async/cancellation.hpp>
@@ -2372,8 +2373,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		return kHelErrIllegalArgs;
 
 	auto handleFlow = [] (Closure *closure, size_t numFlows,
-			smarter::shared_ptr<AddressSpace, BindableHandle> space,
-			smarter::shared_ptr<WorkQueue> wq) -> coroutine<void> {
+			smarter::shared_ptr<Thread> thread) -> coroutine<void> {
 		// We exit once we processed numFlows-many items.
 		// This guarantees that we do not access the closure object after it is freed.
 		// Below, we need to ensure that we always complete our own nodes
@@ -2407,9 +2407,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					&& peer->tag() == kTagRecvKernelBuffer) {
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
 
-				auto outcome = co_await readVirtualSpace(space.get(),
-						reinterpret_cast<uintptr_t>(recipe->buffer),
-						buffer.data(), recipe->length, wq);
+				co_await thread->mainWorkQueue()->enter();
+				auto outcome = readUserMemory(buffer.data(), recipe->buffer, recipe->length);
 				if(!outcome) {
 					// We complete with fault; the remote with success.
 					// TODO: it probably makes sense to introduce a "remote fault" error.
@@ -2484,9 +2483,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					auto chunkSize = frg::min(recipe->length - progress, xb.size());
 					assert(chunkSize);
 
-					auto outcome = co_await readVirtualSpace(space.get(),
-							reinterpret_cast<uintptr_t>(recipe->buffer) + progress,
-							xb.data(), chunkSize, wq);
+					co_await thread->mainWorkQueue()->enter();
+					auto outcome = readUserMemory(xb.data(),
+							reinterpret_cast<std::byte *>(recipe->buffer) + progress, chunkSize);
 					if(!outcome) {
 						// Send the packet (may deallocate the peer!).
 						peer->flowQueue.put({ .terminate = true, .fault = true });
@@ -2518,9 +2517,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				node->complete();
 			}else if(recipe->type == kHelActionRecvToBuffer
 					&& peer->tag() == kTagSendKernelBuffer) {
-				auto outcome = co_await writeVirtualSpace(space.get(),
-						reinterpret_cast<uintptr_t>(recipe->buffer),
-						peer->_inBuffer.data(), peer->_inBuffer.size(), wq);
+				co_await thread->mainWorkQueue()->enter();
+				auto outcome = writeUserMemory(recipe->buffer,
+						peer->_inBuffer.data(), peer->_inBuffer.size());
 				if(!outcome) {
 					// We complete with fault; the remote with success.
 					// TODO: it probably makes sense to introduce a "remote fault" error.
@@ -2550,9 +2549,10 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 						// Otherwise, there would have been a transmission error.
 						assert(progress + xferPacket->size <= recipe->length);
 
-						auto outcome = co_await writeVirtualSpace(space.get(),
-								reinterpret_cast<uintptr_t>(recipe->buffer) + progress,
-								xferPacket->data, xferPacket->size, wq);
+						co_await thread->mainWorkQueue()->enter();
+						auto outcome = writeUserMemory(
+								reinterpret_cast<std::byte *>(recipe->buffer) + progress,
+								xferPacket->data, xferPacket->size);
 						if(outcome) {
 							progress += xferPacket->size;
 						}else{
@@ -2598,7 +2598,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 	if(numFlows)
 		async::detach_with_allocator(*kernelAlloc, handleFlow(closure, numFlows,
-				thisThread->getAddressSpace().lock(), thisThread->mainWorkQueue()->take()));
+				thisThread.lock()));
 
 	Stream::transmit(lane, rootChain);
 
