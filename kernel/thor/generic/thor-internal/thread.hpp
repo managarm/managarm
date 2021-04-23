@@ -88,7 +88,11 @@ public:
 		} bls {.thread = thisThread.lock()};
 
 		struct Receiver {
-			void set_value() {
+			void set_value_inline() {
+				// Do nothing (there is no value to store).
+			}
+
+			void set_value_noinline() {
 				// The blsp pointer may become invalid as soon as we set blsp->done.
 				auto thread = std::move(blsp->thread);
 				blsp->done.store(true, std::memory_order_release);
@@ -99,7 +103,8 @@ public:
 		};
 
 		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
-		async::execution::start(operation);
+		if(async::execution::start_inline(operation))
+			return;
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
@@ -128,7 +133,11 @@ public:
 		} bls{.thread = thisThread.lock()};
 
 		struct Receiver {
-			void set_value(typename Sender::value_type value) {
+			void set_value_inline(typename Sender::value_type value) {
+				blsp->value.emplace(std::move(value));
+			}
+
+			void set_value_noinline(typename Sender::value_type value) {
 				// The blsp pointer may become invalid as soon as we set blsp->done.
 				auto thread = std::move(blsp->thread);
 				blsp->value.emplace(std::move(value));
@@ -140,7 +149,8 @@ public:
 		};
 
 		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
-		async::execution::start(operation);
+		if(async::execution::start_inline(operation))
+			return std::move(*bls.value);
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;

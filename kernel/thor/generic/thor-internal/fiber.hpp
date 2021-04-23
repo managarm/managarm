@@ -49,7 +49,11 @@ public:
 		} closure;
 
 		struct Receiver {
-			void set_value() {
+			void set_value_inline() {
+				// Do nothing (there is no value to store).
+			}
+
+			void set_value_noinline() {
 				KernelFiber::unblockOther(&closure->blocker);
 			}
 
@@ -58,7 +62,8 @@ public:
 
 		closure.blocker.setup();
 		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
-		async::execution::start(operation);
+		if(async::execution::start_inline(operation))
+			return;
 		KernelFiber::blockCurrent(&closure.blocker);
 	}
 
@@ -71,7 +76,11 @@ public:
 		} closure;
 
 		struct Receiver {
-			void set_value(typename Sender::value_type value) {
+			void set_value_inline(typename Sender::value_type value) {
+				closure->value.emplace(std::move(value));
+			}
+
+			void set_value_noinline(typename Sender::value_type value) {
 				closure->value.emplace(std::move(value));
 				KernelFiber::unblockOther(&closure->blocker);
 			}
@@ -81,7 +90,8 @@ public:
 
 		closure.blocker.setup();
 		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
-		async::execution::start(operation);
+		if(async::execution::start_inline(operation))
+			return std::move(*closure.value);
 		KernelFiber::blockCurrent(&closure.blocker);
 		return std::move(*closure.value);
 	}
