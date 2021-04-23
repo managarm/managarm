@@ -4,7 +4,7 @@ project('managarm', ['c', 'cpp'],
 	default_options : [
 		'cpp_std=gnu++20',
 		'c_std=gnu11',
-		'warning_level=3'
+		'warning_level=2'
 	]
 )
 
@@ -38,6 +38,13 @@ build_tools = get_option('build_tools')
 if not build_kernel and not build_drivers and not build_tools
 	subdir_done()
 endif
+
+# It would be nice to fix these at some point in the future, but it will be a ton of work.
+add_project_arguments(
+	'-Wno-unused-parameter',
+	'-Wno-missing-field-initializers',
+	'-Wno-non-virtual-dtor',
+	language : 'cpp')
 
 # declare constants that subdirs are going to use
 c = meson.get_compiler('cpp')
