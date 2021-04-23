@@ -8,6 +8,8 @@
 #include <frg/spinlock.hpp>
 #include <smarter.hpp>
 
+#include <thor-internal/executor-context.hpp>
+
 namespace thor {
 
 struct WorkQueue;
@@ -28,8 +30,8 @@ struct WorkQueue {
 
 	static void post(Worklet *worklet);
 
-	WorkQueue()
-	: _anyPosted{false} { }
+	WorkQueue(ExecutorContext *executorContext = illegalExecutorContext())
+	: _executorContext{executorContext}, _anyPosted{false} { }
 
 	bool check();
 
@@ -89,6 +91,8 @@ protected:
 	virtual void wakeup() = 0;
 
 private:
+	ExecutorContext *_executorContext;
+
 	frg::intrusive_list<
 		Worklet,
 		frg::locate_member<

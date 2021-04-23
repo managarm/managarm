@@ -30,7 +30,7 @@ struct KernelFiber : ScheduleEntity {
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(KernelFiber *fiber)
-		: fiber_{fiber} { }
+		: WorkQueue{&fiber->_executorContext}, fiber_{fiber} { }
 
 		void wakeup() override;
 

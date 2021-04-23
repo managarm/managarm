@@ -9,11 +9,16 @@ WorkQueue *WorkQueue::generalQueue() {
 	return cpuData->generalWorkQueue.get();
 }
 
-// TODO: Optimize for the case where we are on the correct thread.
 void WorkQueue::post(Worklet *worklet) {
 	auto wq = worklet->_workQueue;
+
 	bool invokeWakeup;
-	{
+	if(wq->_executorContext == currentExecutorContext()) {
+		auto irqLock = frg::guard(&irqMutex());
+
+		invokeWakeup = wq->_pending.empty();
+		wq->_pending.push_back(worklet);
+	}else{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&wq->_mutex);
 
@@ -33,10 +38,12 @@ bool WorkQueue::check() {
 }
 
 void WorkQueue::run() {
+	assert(_executorContext == currentExecutorContext());
+
 	if(_anyPosted.load(std::memory_order_relaxed)) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
-		
+
 		_pending.splice(_pending.end(), _posted);
 		_anyPosted.store(false, std::memory_order_relaxed);
 	}

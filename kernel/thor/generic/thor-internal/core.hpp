@@ -5,6 +5,7 @@
 #include <frg/variant.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/executor-context.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/schedule.hpp>
 
@@ -27,15 +28,6 @@ struct IoSpace;
 struct WorkQueue;
 struct KernelFiber;
 
-// TODO: For now, this class is empty but it will be required for QST.
-struct ExecutorContext {
-	ExecutorContext();
-
-	ExecutorContext(const ExecutorContext &) = delete;
-
-	ExecutorContext &operator= (const ExecutorContext &) = delete;
-};
-
 enum class ProfileMechanism {
 	none,
 	intelPmc,
@@ -55,7 +47,7 @@ struct CpuData : public PlatformCpuData {
 
 	int cpuIndex;
 
-	ExecutorContext *executorContext;
+	ExecutorContext *executorContext = nullptr;
 	KernelFiber *activeFiber;
 	KernelFiber *wqFiber = nullptr;
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
@@ -73,7 +65,7 @@ inline CpuData *getCpuData() {
 	return static_cast<CpuData *>(getPlatformCpuData());
 }
 
-inline ExecutorContext *localExecutorContext() {
+inline ExecutorContext *currentExecutorContext() {
 	return getCpuData()->executorContext;
 }
 
