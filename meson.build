@@ -35,6 +35,34 @@ build_kernel = get_option('build_kernel')
 build_drivers = get_option('build_drivers')
 build_tools = get_option('build_tools')
 
+any_userspace = build_drivers or build_tools
+
+if build_kernel and any_userspace
+	error('Cannot build kernel and userspace components at the same time')
+endif
+
+# Set flavor = {'kernel', 'userspace', 'none'}.
+# Use this variable below if we need conflicting settings in each of the cases.
+if build_kernel
+	flavor = 'kernel'
+elif any_userspace
+	flavor = 'userspace'
+else
+	flavor = 'none'
+endif
+
+summary('Build flavor', flavor, section : 'Configuration')
+
+if flavor == 'kernel'
+	if not meson.is_cross_build()
+		error('Kernel can only be cross-compiled')
+	endif
+elif flavor == 'userspace'
+	summary({'System' : build_drivers,
+			'Tools' : build_tools},
+		section : 'Userspace Components', bool_yn : true)
+endif
+
 if not build_kernel and not build_drivers and not build_tools
 	subdir_done()
 endif
@@ -104,9 +132,16 @@ frigg = subproject('frigg',
 	default_options : [ 'frigg_no_install=true' ]
 ).get_variable('frigg_dep')
 
+# If we are building the kernel, we need the freestanding subset of libarch.
+if flavor == 'kernel'
+	libarch_opts = [ 'install_headers=false', 'header_only=true' ]
+elif flavor == 'userspace'
+	libarch_opts = [ 'install_headers=false' ]
+endif
+
 if build_kernel or build_drivers
 	libarch = subproject('libarch',
-		default_options : [ 'install_headers=false' ]
+		default_options : libarch_opts
 	).get_variable('libarch_dep')
 endif
 
