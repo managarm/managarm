@@ -15,6 +15,16 @@ extern inline __attribute__ (( always_inline )) void helPanic(const char *string
 	__builtin_unreachable();
 };
 
+extern inline __attribute__ (( always_inline )) HelError helNop() {
+	return helSyscall0(kHelCallNop);
+}
+
+extern inline __attribute__ (( always_inline )) HelError helSubmitAsyncNop(
+		HelHandle queueHandle, uintptr_t context) {
+	return helSyscall2(kHelCallSubmitAsyncNop,
+			(HelWord)queueHandle, (HelWord)context);
+}
+
 extern inline __attribute__ (( always_inline )) HelError helCreateUniverse(HelHandle *handle) {
 	HelWord handle_word;
 	HelError error = helSyscall0_1(kHelCallCreateUniverse, &handle_word);

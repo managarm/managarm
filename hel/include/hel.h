@@ -21,6 +21,9 @@ enum {
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
 
+	kHelCallNop = 2,
+	kHelCallSubmitAsyncNop = 3,
+
 	kHelCallCreateUniverse = 62,
 	kHelCallTransferDescriptor = 66,
 	kHelCallDescriptorInfo = 32,
@@ -545,6 +548,18 @@ HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 //! 	Size of the text in bytes.
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
+
+//! @}
+//! @name Debugging
+//! @{
+
+//! Does nothing (useful only for profiling).
+HEL_C_LINKAGE HelError helNop();
+
+//! Does nothing, asynchronously (useful only for profiling).
+//!
+//! This is an asynchronous operation.
+HEL_C_LINKAGE HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context);
 
 //! @}
 //! @name Management of Descriptors and Universes

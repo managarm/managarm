@@ -118,6 +118,36 @@ HelError helLog(const char *string, size_t length) {
 	return kHelErrNone;
 }
 
+HelError helNop() {
+	return kHelErrNone;
+}
+
+HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<IpcQueue> queue;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard universeGuard(thisUniverse->lock);
+
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, queueHandle);
+		if(!queueWrapper)
+			return kHelErrNoDescriptor;
+		if(!queueWrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queueWrapper->get<QueueDescriptor>().queue;
+	}
+
+	async::detach_with_allocator(*kernelAlloc, [] (
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context) -> coroutine<void> {
+		HelSimpleResult helResult{kHelErrNone};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(queue), context));
+
+	return kHelErrNone;
+}
 
 HelError helCreateUniverse(HelHandle *handle) {
 	auto this_thread = getCurrentThread();

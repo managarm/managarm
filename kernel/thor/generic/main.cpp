@@ -586,6 +586,13 @@ void handleSyscall(SyscallImageAccessor image) {
 		Thread::interruptCurrent(kIntrPanic, image);
 	} break;
 
+	case kHelCallNop: {
+		*image.error() = helNop();
+	} break;
+	case kHelCallSubmitAsyncNop: {
+		*image.error() = helSubmitAsyncNop((HelHandle)arg0, (uintptr_t)arg1);
+	} break;
+
 	case kHelCallCreateUniverse: {
 		HelHandle handle;
 		*image.error() = helCreateUniverse(&handle);

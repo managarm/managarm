@@ -965,6 +965,53 @@ auto exchangeMsgs(BorrowedDescriptor descriptor, Args &&...args) {
 // Operations other than exchangeMsgs().
 // --------------------------------------------------------------------
 
+template <typename Receiver>
+struct AsyncNopOperation : private Context {
+	AsyncNopOperation(Receiver receiver)
+	: receiver_{std::move(receiver)} { }
+
+	void start() {
+		auto context = static_cast<Context *>(this);
+
+		HEL_CHECK(helSubmitAsyncNop(Dispatcher::global().acquire(),
+				reinterpret_cast<uintptr_t>(context)));
+	}
+
+private:
+	void complete(ElementHandle element) override {
+		AsyncNopResult result;
+		void *ptr = element.data();
+
+		result.parse(ptr, element);
+
+		async::execution::set_value(receiver_, std::move(result));
+	}
+
+	Receiver receiver_;
+};
+
+struct AsyncNopSender {
+	using value_type = AsyncNopResult;
+
+	AsyncNopSender() = default;
+
+	template<typename Receiver>
+	AsyncNopOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(receiver)};
+	}
+};
+
+inline async::sender_awaiter<AsyncNopSender, AsyncNopResult>
+operator co_await (AsyncNopSender sender) {
+	return {std::move(sender)};
+}
+
+inline auto asyncNop() {
+	return AsyncNopSender{};
+}
+
+// --------------------------------------------------------------------
+
 struct SynchronizeSpaceResult {
 	HelError error() {
 		assert(valid_);

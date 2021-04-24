@@ -733,6 +733,26 @@ inline auto createResultsTuple(T &&...args) {
 // Results for other operations
 // --------------------------------------------------------------------
 
+struct AsyncNopResult {
+	AsyncNopResult() :_valid{false} {}
+
+	HelError error() {
+		FRG_ASSERT(_valid);
+		return _error;
+	}
+
+	void parse(void *&ptr, ElementHandle) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		_error = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		_valid = true;
+	}
+
+private:
+	bool _valid;
+	HelError _error;
+};
+
 struct AwaitEventResult {
 	AwaitEventResult() :valid_{false} {}
 
