@@ -100,10 +100,14 @@ bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include'
 cxxshim = subproject('cxxshim')
 coroutines = cxxshim.get_variable('clang_coroutine_dep')
 
-frigg = subproject('frigg').get_variable('frigg_dep')
+frigg = subproject('frigg',
+	default_options : [ 'frigg_no_install=true' ]
+).get_variable('frigg_dep')
 
 if build_kernel or build_drivers
-	libarch = subproject('libarch').get_variable('libarch_dep')
+	libarch = subproject('libarch',
+		default_options : [ 'install_headers=false' ]
+	).get_variable('libarch_dep')
 endif
 
 if build_kernel
