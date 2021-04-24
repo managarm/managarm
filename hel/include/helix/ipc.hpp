@@ -931,6 +931,8 @@ private:
 
 template <typename Results, typename Actions>
 struct ExchangeMsgsSender {
+	using value_type = Results;
+
 	ExchangeMsgsSender(BorrowedDescriptor lane, Results, Actions actions)
 	: lane_{std::move(lane)}, actions_{std::move(actions)} { }
 
