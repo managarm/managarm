@@ -73,6 +73,11 @@ void *KernelVirtualMemory::allocate(size_t length) {
 	while(length > (size_t{1} << (kPageShift + order)))
 		++order;
 
+	if(order > buddy_.tableOrder())
+		panicLogger() << "\e[31m" "thor: Kernel virtual memory allocation is too large"
+				" to be satisfied (order " << order << " while buddy order is "
+				<< buddy_.tableOrder() << ")" "\e[39m" << frg::endlog;
+
 	auto address = buddy_.allocate(order, 64);
 	if(address == BuddyAccessor::illegalAddress) {
 		infoLogger() << "thor: Failed to allocate 0x" << frg::hex_fmt(length)
