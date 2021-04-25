@@ -39,7 +39,6 @@ src += files(
 	'generic/debug.cpp',
 	'generic/event.cpp',
 	'generic/fiber.cpp',
-	'generic/futex.cpp',
 	'generic/gdbserver.cpp',
 	'generic/hel.cpp',
 	'generic/irq.cpp',

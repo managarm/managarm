@@ -9,6 +9,7 @@ enum class Error {
 	illegalState,
 	outOfBounds,
 	cancelled,
+	futexRace,
 	bufferTooSmall,
 	threadExited,
 	transmissionMismatch,

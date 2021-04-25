@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <async/algorithm.hpp>
 #include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
@@ -1181,5 +1183,88 @@ private:
 	async::recurring_event _copyEvent;
 	EvictionQueue _evictQueue;
 };
+
+// --------------------------------------------------------------------------------------
+// GlobalFutex.
+// --------------------------------------------------------------------------------------
+
+struct GlobalFutex {
+	friend void swap(GlobalFutex &p, GlobalFutex &q) {
+		using std::swap;
+		swap(p.ownerView_, q.ownerView_);
+		swap(p.offset_, q.offset_);
+		swap(p.physical_, q.physical_);
+	}
+
+	GlobalFutex() = default;
+
+	GlobalFutex(smarter::shared_ptr<MemoryView> ownerView, uintptr_t offset,
+			PhysicalAddr physical)
+	: ownerView_{std::move(ownerView)}, offset_{std::move(offset)},
+			physical_{std::move(physical)} { }
+
+	GlobalFutex(const GlobalFutex &) = delete;
+
+	GlobalFutex(GlobalFutex &&other)
+	: GlobalFutex{} {
+		swap(*this, other);
+	}
+
+	GlobalFutex &operator= (GlobalFutex other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	~GlobalFutex() {
+		// Destructing a non-retired GlobalFutex is a contract violation.
+		assert(!ownerView_);
+	}
+
+	FutexIdentity getIdentity() {
+		return {reinterpret_cast<uintptr_t>(ownerView_.get()), offset_};
+	}
+
+	unsigned int read() {
+		PageAccessor accessor{physical_};
+		auto offsetOfWord = offset_ & (kPageSize - 1);
+		auto accessPtr = reinterpret_cast<unsigned int *>(
+				reinterpret_cast<std::byte *>(accessor.get()) + offsetOfWord);
+		return __atomic_load_n(accessPtr, __ATOMIC_RELAXED);
+	}
+
+	void retire() {
+		ownerView_->unlockRange(offset_ & ~(kPageSize - 1), kPageSize);
+		ownerView_ = nullptr;
+	}
+
+private:
+	smarter::shared_ptr<MemoryView> ownerView_;
+	uintptr_t offset_ = 0;
+	PhysicalAddr physical_ = PhysicalAddr(-1);
+};
+
+inline frg::expected<Error, FutexIdentity> resolveGlobalFutex(
+		MemoryView *view, uintptr_t offset) {
+	return FutexIdentity{reinterpret_cast<uintptr_t>(view), offset};
+}
+
+// TODO: This implementation does not work for futexes within IndirectMemory.
+//       It also involves a bunch of virtual calls.
+//       Integrate it directly into MemoryView to avoid these issues.
+inline coroutine<frg::expected<Error, GlobalFutex>> takeGlobalFutex(
+		smarter::shared_ptr<MemoryView> view, uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq) {
+	auto lockError = co_await view->asyncLockRange(offset & ~(kPageSize - 1), kPageSize, wq);
+	if(lockError != Error::success)
+		co_return Error::fault;
+	auto fetchResult = co_await view->fetchRange(offset & ~(kPageSize - 1), wq);
+	if(fetchResult.get<0>() != Error::success)
+		co_return Error::fault;
+	auto range = fetchResult.get<1>();
+	assert(range.get<0>() != PhysicalAddr(-1));
+	co_return GlobalFutex{std::move(view), offset, range.get<0>()};
+}
+
+FutexRealm *getGlobalFutexRealm();
 
 } // namespace thor

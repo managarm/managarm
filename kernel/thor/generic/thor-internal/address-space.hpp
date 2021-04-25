@@ -944,7 +944,7 @@ public:
 
 	void dispose(BindableHandle);
 
-	Futex futexSpace;
+	FutexRealm localFutexRealm;
 
 	bool updatePageAccess(VirtualAddr address) {
 		return pageSpace_.updatePageAccess(address);
@@ -1154,5 +1154,25 @@ private:
 };
 
 void initializeReclaim();
+
+inline frg::expected<Error, FutexIdentity> resolveGlobalFutex(
+		AddressSpace *addressSpace, uintptr_t address) {
+	auto mapping = addressSpace->getMapping(address);
+	if(!mapping)
+		return Error::fault;
+	auto offset = address - mapping->address;
+	return resolveGlobalFutex(mapping->view.get(), mapping->viewOffset + offset);
+}
+
+inline coroutine<frg::expected<Error, GlobalFutex>> takeGlobalFutex(
+		AddressSpace *addressSpace, uintptr_t address,
+		smarter::shared_ptr<WorkQueue> wq) {
+	auto mapping = addressSpace->getMapping(address);
+	if(!mapping)
+		co_return Error::fault;
+	auto offset = address - mapping->address;
+	co_return co_await takeGlobalFutex(mapping->view, mapping->viewOffset + offset,
+			std::move(wq));
+}
 
 } // namespace thor

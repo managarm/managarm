@@ -1438,4 +1438,14 @@ void CopyOnWriteMemory::markDirty(uintptr_t, size_t) {
 	// We do not need to track dirty pages.
 }
 
+// --------------------------------------------------------------------------------------
+
+namespace {
+	frg::eternal<FutexRealm> globalFutexRealm;
+}
+
+FutexRealm *getGlobalFutexRealm() {
+	return &globalFutexRealm.get();
+}
+
 } // namespace thor

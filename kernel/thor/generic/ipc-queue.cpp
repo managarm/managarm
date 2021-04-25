@@ -81,10 +81,14 @@ coroutine<void> IpcQueue::_runQueue() {
 				break;
 
 			auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
-			co_await _space->futexSpace.wait(fa, [&] {
-				return __atomic_load_n(headFutexAccessor.get(), __ATOMIC_RELAXED)
-						== (_currentIndex | kHeadWaiters);
-			});
+			auto futexOrError = co_await takeGlobalFutex(_space.get(), fa,
+					WorkQueue::generalQueue()->take());
+			if(!futexOrError) {
+				infoLogger() << "thor: Shutting down IPC queue after fault" << frg::endlog;
+				co_return;
+			}
+			co_await getGlobalFutexRealm()->wait(std::move(futexOrError.value()),
+					_currentIndex | kHeadWaiters);
 		}
 
 		// Lock the chunk.
@@ -176,7 +180,12 @@ coroutine<void> IpcQueue::_runQueue() {
 			if(progressFutexWord & kProgressWaiters) {
 				auto fa = reinterpret_cast<Address>(currentChunk->pointer)
 						+ offsetof(ChunkStruct, progressFutex);
-				currentChunk->space->futexSpace.wake(fa);
+				auto identityOrError = resolveGlobalFutex(currentChunk->space.get(), fa);
+				if(!identityOrError) {
+					infoLogger() << "thor: Shutting down IPC queue after fault" << frg::endlog;
+					co_return;
+				}
+				getGlobalFutexRealm()->wake(identityOrError.value());
 			}
 
 			// Update our internal state and retire the chunk.

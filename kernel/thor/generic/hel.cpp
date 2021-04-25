@@ -2661,31 +2661,28 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 	auto thisThread = getCurrentThread();
 	auto space = thisThread->getAddressSpace();
 
-	auto condition = [&] () -> bool {
-		enableUserAccess();
-		unsigned int v;
-		auto e = doAtomicUserLoad(&v, reinterpret_cast<unsigned int *>(pointer));
-		disableUserAccess();
-		if(e)
-			return false;
-		return expected == v;
-	};
+	auto futexOrError = Thread::asyncBlockCurrent(
+			takeGlobalFutex(space.get(), reinterpret_cast<uintptr_t>(pointer),
+					thisThread->mainWorkQueue()->take()));
+	if(!futexOrError)
+		return kHelErrFault;
+	GlobalFutex futex = std::move(futexOrError.value());
 
 	if(deadline < 0) {
 		if(deadline != -1)
 			return kHelErrIllegalArgs;
 
 		Thread::asyncBlockCurrent(
-			space->futexSpace.wait(reinterpret_cast<uintptr_t>(pointer), condition)
+			getGlobalFutexRealm()->wait(std::move(futex), expected)
 		);
 	}else{
 		Thread::asyncBlockCurrent(
 			async::race_and_cancel(
-				[=] (async::cancellation_token cancellation) {
-					return space->futexSpace.wait(
-						reinterpret_cast<uintptr_t>(pointer), condition, cancellation);
+				[&] (async::cancellation_token cancellation) {
+					return getGlobalFutexRealm()->wait(std::move(futex), expected,
+							cancellation);
 				},
-				[=] (async::cancellation_token cancellation) {
+				[&] (async::cancellation_token cancellation) {
 					return generalTimerEngine()->sleep(deadline, cancellation);
 				}
 			)
@@ -2699,10 +2696,11 @@ HelError helFutexWake(int *pointer) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
-	{
-		// TODO: Support physical (i.e. non-private) futexes.
-		space->futexSpace.wake(VirtualAddr(pointer));
-	}
+	auto identityOrError = resolveGlobalFutex(
+			space.get(), reinterpret_cast<uintptr_t>(pointer));
+	if(!identityOrError)
+		return kHelErrFault;
+	getGlobalFutexRealm()->wake(identityOrError.value());
 
 	return kHelErrNone;
 }
