@@ -65,14 +65,16 @@ coroutine<void> IpcQueue::_runQueue() {
 		while(true) {
 			bool pastCurrentChunk = false;
 			auto headFutexWord = __atomic_load_n(headFutexAccessor.get(), __ATOMIC_ACQUIRE);
+				// TODO: Contract violation errors should be reported to user-space.
+				assert(!(headFutexWord & ~(kHeadMask | kHeadWaiters)));
 			do {
 				if(_currentIndex != (headFutexWord & kHeadMask)) {
 					pastCurrentChunk = true;
 					break;
 				}
 
-				// TODO: Contract violation errors should be reported to user-space.
-				assert(headFutexWord == _currentIndex);
+				if(headFutexWord & kHeadWaiters)
+					break; // Waiters bit is already set (in a previous iteration).
 			} while(!__atomic_compare_exchange_n(headFutexAccessor.get(), &headFutexWord,
 					_currentIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
 			if(pastCurrentChunk)
