@@ -70,7 +70,7 @@ Now proceed to the Building paragraph.
 
     If you want the full managarm experience with a selection of terminal and gui software available to try out use
     ```bash
-    xbstrap install gui
+    xbstrap install weston-desktop
     ```
     If you want to boot into `kmscon` and have some functional commands to play around with use
     ```bash
