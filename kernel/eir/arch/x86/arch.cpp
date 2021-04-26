@@ -207,7 +207,7 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	mapKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
 	unpoisonKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
 
-	mapKasanShadow(0xFFFF'E000'0000'0000, 0x4000'0000);
+	mapKasanShadow(0xFFFF'E000'0000'0000, 0x8000'0000);
 }
 
 } // namespace eir
