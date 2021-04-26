@@ -11,14 +11,6 @@ void panic();
 // Log infrastructure.
 // --------------------------------------------------------
 
-class OutputSink {
-public:
-	void print(char c);
-	void print(const char *str);
-};
-
-extern OutputSink infoSink;
-
 struct LogHandler {
 	virtual void printChar(char c) = 0;
 
@@ -35,8 +27,14 @@ void copyLogMessage(size_t sequence, char *text);
 // Loggers.
 // --------------------------------------------------------
 
-struct LogSink {
-	constexpr LogSink() = default;
+struct InfoSink {
+	constexpr InfoSink() = default;
+
+	void operator() (const char *msg);
+};
+
+struct UrgentSink {
+	constexpr UrgentSink() = default;
 
 	void operator() (const char *msg);
 };
@@ -47,7 +45,10 @@ struct PanicSink {
 	void operator() (const char *msg);
 };
 
-extern frg::stack_buffer_logger<LogSink> infoLogger;
+extern frg::stack_buffer_logger<InfoSink> infoLogger;
+// Similar in spirit as infoLogger(), but avoids the use of sophisticated kernel infrastructure.
+// This can be used to debug low-level kernel infrastructure, e.g., irqMutex().
+extern frg::stack_buffer_logger<UrgentSink> urgentLogger;
 extern frg::stack_buffer_logger<PanicSink> panicLogger;
 
 } // namespace thor

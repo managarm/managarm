@@ -3,58 +3,36 @@
 
 namespace thor {
 
-void panic() {
-	disableInts();
-	while(true)
-		halt();
-}
+namespace {
+	constexpr int logLineLength = 100;
 
-constinit OutputSink infoSink;
+	// Protects the data structures below.
+	constinit frg::ticket_spinlock logMutex;
 
-constinit frg::stack_buffer_logger<LogSink> infoLogger;
-constinit frg::stack_buffer_logger<PanicSink> panicLogger;
+	struct LogMessage {
+		char text[logLineLength];
+	};
 
-static constinit IrqSpinlock logMutex;
+	constinit LogMessage logQueue[1024]{};
+	constinit size_t logHead = 0;
 
-void LogSink::operator() (const char *msg) {
-	auto lock = frg::guard(&logMutex);
-	infoSink.print(msg);
-	infoSink.print('\n');
-}
-
-void PanicSink::operator() (const char *msg) {
-	{
-		auto lock = frg::guard(&logMutex);
-		infoSink.print(msg);
-		infoSink.print('\n');
-	}
-	panic();
-}
-
-struct LogMessage {
-	char text[100];
-};
-
-size_t currentLogLength;
-LogMessage logQueue[1024];
-size_t logHead;
+	frg::manual_box<frg::intrusive_list<
+		LogHandler,
+		frg::locate_member<
+			LogHandler,
+			frg::default_list_hook<LogHandler>,
+			&LogHandler::hook
+		>
+	>> globalLogList;
+} // anonymous namespace
 
 size_t currentLogSequence() {
 	return logHead;
 }
 
 void copyLogMessage(size_t sequence, char *text) {
-	memcpy(text, logQueue[sequence % 1024].text, 100);
+	memcpy(text, logQueue[sequence % 1024].text, logLineLength);
 }
-
-frg::manual_box<frg::intrusive_list<
-	LogHandler,
-	frg::locate_member<
-		LogHandler,
-		frg::default_list_hook<LogHandler>,
-		&LogHandler::hook
-	>
->> globalLogList;
 
 void enableLogHandler(LogHandler *sink) {
 	if (!globalLogList)
@@ -72,77 +50,134 @@ void disableLogHandler(LogHandler *sink) {
 }
 
 namespace {
-	constexpr int maximalCsiLength = 16;
-	char csiBuffer[maximalCsiLength];
-	int csiState;
-	int csiLength;
-} // namespace anonymous
+	// This class splits long log messages into lines.
+	// In also ensures that we never emit partial CSI sequences.
+	class LogProcessor {
+	public:
+		void print(char c) {
+			auto doesFit = [&] (int n) -> bool {
+				return stagedLength + n < logLineLength;
+			};
 
-void OutputSink::print(char c) {
-	auto doesFit = [] (int n) -> bool {
-		return currentLogLength + n < 100;
-	};
+			auto emit = [&] (char c) {
+				stagingBuffer[stagedLength++] = c;
 
-	auto cutOff = [] () {
-		currentLogLength = 0;
-		logHead++;
-		memset(logQueue[logHead % 1024].text, 0, 100);
-		for (const auto &it : *globalLogList)
-			it->printChar('\n');
-	};
+				for (const auto &it : *globalLogList)
+					it->printChar(c);
+			};
 
-	auto emit = [] (char c) {
-		logQueue[logHead % 1024].text[currentLogLength] = c;
-		currentLogLength++;
-		for (const auto &it : *globalLogList)
-			it->printChar(c);
-	};
+			auto flush = [&] () {
+				// Copy to the log queue.
+				memcpy(logQueue[logHead % 1024].text, stagingBuffer, logLineLength);
+				logHead++;
+				// Reset our staging buffer.
+				memset(stagingBuffer, 0, logLineLength);
+				stagedLength = 0;
 
-	if(!csiState) {
-		if(c == '\x1B') {
-			csiState = 1;
-		}else if(c == '\n' || !doesFit(1)) {
-			cutOff();
-		}else{
-			emit(c);
-		}
-	}else if(csiState == 1) {
-		if(c == '[') {
-			csiState = 2;
-		}else{
-			if(!doesFit(2)) {
-				cutOff();
+				for (const auto &it : *globalLogList)
+					it->printChar('\n');
+			};
+
+			if(!csiState) {
+				if(c == '\x1B') {
+					csiState = 1;
+				}else if(c == '\n') {
+					flush();
+				}else{
+					if(!doesFit(1))
+						flush();
+
+					assert(doesFit(1));
+					emit(c);
+				}
+			}else if(csiState == 1) {
+				if(c == '[') {
+					csiState = 2;
+				}else{
+					if(!doesFit(2))
+						flush();
+
+					assert(doesFit(2));
+					emit('\x1B');
+					emit(c);
+					csiState = 0;
+				}
 			}else{
-				emit('\x1B');
-				emit(c);
+				// This is csiState == 2.
+				if((c >= '0' && c <= '9') || (c == ';')) {
+					if(csiLength < maximalCsiLength)
+						csiBuffer[csiLength] = c;
+					csiLength++;
+				}else{
+					if(csiLength >= maximalCsiLength || !doesFit(3 + csiLength))
+						flush();
+
+					assert(doesFit(3 + csiLength));
+					emit('\x1B');
+					emit('[');
+					for(int i = 0; i < csiLength; i++)
+						emit(csiBuffer[i]);
+					emit(c);
+					csiState = 0;
+					csiLength = 0;
+				}
 			}
-			csiState = 0;
 		}
-	}else{
-		// This is csiState == 2.
-		if((c >= '0' && c <= '9') || (c == ';')) {
-			if(csiLength < maximalCsiLength)
-				csiBuffer[csiLength] = c;
-			csiLength++;
-		}else{
-			if(csiLength >= maximalCsiLength || !doesFit(3 + csiLength)) {
-				cutOff();
-			}else{
-				emit('\x1B');
-				emit('[');
-				for(int i = 0; i < csiLength; i++)
-					emit(csiBuffer[i]);
-				emit(c);
-			}
-			csiState = 0;
-			csiLength = 0;
+
+		void print(const char *str) {
+			while(*str)
+				print(*str++);
 		}
-	}
+
+	private:
+		static constexpr int maximalCsiLength = 16;
+
+		char csiBuffer[maximalCsiLength]{};
+		int csiState = 0;
+		int csiLength = 0;
+
+		char stagingBuffer[logLineLength]{};
+		size_t stagedLength = 0;
+	};
+
+	constinit LogProcessor logProcessor;
+} // anonymous namespace
+
+void panic() {
+	disableInts();
+	while(true)
+		halt();
 }
 
-void OutputSink::print(const char *str) {
-	while(*str != 0)
-		print(*str++);
+constinit frg::stack_buffer_logger<InfoSink> infoLogger;
+constinit frg::stack_buffer_logger<UrgentSink> urgentLogger;
+constinit frg::stack_buffer_logger<PanicSink> panicLogger;
+
+void InfoSink::operator() (const char *msg) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&logMutex);
+
+	logProcessor.print(msg);
+	logProcessor.print('\n');
+}
+
+void UrgentSink::operator() (const char *msg) {
+	StatelessIrqLock irqLock;
+	auto lock = frg::guard(&logMutex);
+
+	logProcessor.print(msg);
+	logProcessor.print('\n');
+}
+
+void PanicSink::operator() (const char *msg) {
+	{
+		StatelessIrqLock irqLock;
+		auto lock = frg::guard(&logMutex);
+
+		logProcessor.print(msg);
+		logProcessor.print('\n');
+	}
+	panic();
 }
 
 } // namespace thor
