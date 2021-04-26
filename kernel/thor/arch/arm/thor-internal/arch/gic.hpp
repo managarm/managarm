@@ -18,6 +18,8 @@ struct GicDistributor {
 	frg::string<KernelAlloc> buildPinName(uint32_t irq);
 
 	struct Pin : IrqPin {
+		friend struct GicDistributor;
+
 		Pin(GicDistributor *parent, uint32_t irq)
 		: IrqPin{parent->buildPinName(irq)}, parent_{parent}, irq_{irq} {}
 
@@ -33,9 +35,9 @@ struct GicDistributor {
 
 	Pin *setupIrq(uint32_t irq, TriggerMode mode);
 
-private:
 	void configureTrigger(uint32_t irq, TriggerMode trigger);
 
+private:
 	uintptr_t base_;
 	arch::mem_space space_;
 	frg::vector<IrqPin *, KernelAlloc> irqPins_;
@@ -56,5 +58,7 @@ private:
 };
 
 initgraph::Stage *getIrqControllerReadyStage();
+
+void initGicOnThisCpu();
 
 }

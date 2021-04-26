@@ -104,6 +104,8 @@ void disarmPreemption() {
 static bool timersFound = false;
 extern frg::manual_box<GicDistributor> dist;
 
+static DeviceTreeNode *timerNode = nullptr;
+
 static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
@@ -115,7 +117,6 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 		globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
 			globalClockSource, globalVGTInstance.get());
 
-		DeviceTreeNode *timerNode = nullptr;
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<1>({"arm,armv8-timer"})) {
 				timerNode = node;
@@ -127,7 +128,7 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 
 		assert(timerNode && "Failed to find timer");
 
-		// TODO: how do we determine these indices?
+		// These offsets are defined in the Linux DTB binding for compatible nodes
 		auto irqPhys = timerNode->irqs()[1];
 		auto irqVirt = timerNode->irqs()[2];
 
@@ -143,6 +144,15 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 
 bool haveTimer() {
 	return timersFound;
+}
+
+// Sets up the proper interrupt trigger and polarity for the PPI
+void initTimerOnThisCpu() {
+	auto irqPhys = timerNode->irqs()[1];
+	auto irqVirt = timerNode->irqs()[2];
+
+	dist->configureTrigger(irqPhys.id, irqPhys.trigger);
+	dist->configureTrigger(irqVirt.id, irqVirt.trigger);
 }
 
 } // namespace thor

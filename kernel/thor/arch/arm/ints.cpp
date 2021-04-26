@@ -24,10 +24,7 @@ void suspendSelf() {
 extern frg::manual_box<GicDistributor> dist;
 
 void sendPingIpi(int id) {
-	// TODO: The GIC cpu id *may* differ from the normal cpu id,
-	// get the id from the GIC and store it in the cpu local data and
-	// use that here
-	dist->sendIpi(id, 0);
+	dist->sendIpi(getCpuData(id)->archCpuIndex, 0);
 }
 
 void sendShootdownIpi() {
@@ -145,8 +142,6 @@ extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
 	infoLogger() << "onPlatformAsyncFault" << frg::endlog;
 }
 
-extern frg::manual_box<GicCpuInterface> cpuInterface;
-
 void handleIrq(IrqImageAccessor image, int number);
 void handlePreemption(IrqImageAccessor image);
 
@@ -154,6 +149,8 @@ static constexpr bool logSGIs = false;
 static constexpr bool logSpurious = false;
 
 extern "C" void onPlatformIrq(IrqImageAccessor image) {
+	auto &cpuInterface = getCpuData()->gicCpuInterface;
+
 	auto [cpu, irq] = cpuInterface->get();
 
 	if (irq < 16) {

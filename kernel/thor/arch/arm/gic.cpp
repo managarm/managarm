@@ -10,6 +10,7 @@
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/fiber.hpp>
 
 namespace thor {
 
@@ -160,11 +161,8 @@ void GicDistributor::Pin::unmask() {
 
 }
 
-// TODO: this should be per-cpu
-frg::manual_box<GicCpuInterface> cpuInterface;
-
 void GicDistributor::Pin::sendEoi() {
-	cpuInterface->eoi(0, irq_);
+	getCpuData()->gicCpuInterface->eoi(0, irq_);
 }
 
 void GicDistributor::configureTrigger(uint32_t irq, TriggerMode trigger) {
@@ -240,8 +238,10 @@ void GicCpuInterface::eoi(uint8_t cpuId, uint32_t irqId) {
 
 frg::manual_box<GicDistributor> dist;
 
+static uintptr_t cpuInterfaceAddr;
+
 static initgraph::Task initGic{&globalInitEngine, "arm.init-gic",
-	initgraph::Requires{getDeviceTreeParsedStage()},
+	initgraph::Requires{getDeviceTreeParsedStage(), getBootProcessorReadyStage()},
 	initgraph::Entails{getIrqControllerReadyStage()},
 	// Initialize the GIC.
 	[] {
@@ -262,9 +262,9 @@ static initgraph::Task initGic{&globalInitEngine, "arm.init-gic",
 		dist.initialize(gicNode->reg()[0].addr);
 		dist->init();
 
-		// TODO: do this for each cpu
-		cpuInterface.initialize(dist.get(), gicNode->reg()[1].addr);
-		cpuInterface->init();
+		cpuInterfaceAddr = gicNode->reg()[1].addr;
+
+		initGicOnThisCpu();
 	}
 };
 
@@ -272,5 +272,13 @@ initgraph::Stage *getIrqControllerReadyStage() {
 	static initgraph::Stage s{&globalInitEngine, "arm.irq-controller-ready"};
 	return &s;
 }
+
+void initGicOnThisCpu() {
+	auto cpuData = getCpuData();
+
+	cpuData->gicCpuInterface = frg::construct<GicCpuInterface>(*kernelAlloc, dist.get(), cpuInterfaceAddr);
+	cpuData->gicCpuInterface->init();
+}
+
 
 } // namespace thor
