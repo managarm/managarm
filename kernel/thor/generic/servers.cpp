@@ -41,7 +41,13 @@ void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
 
 coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
 		MfsRegular **out) {
-	auto irq_lock = frg::guard(&irqMutex());
+	// Copy to the memory object before taking locks below.
+	auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
+			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
+	co_await copyToView(memory.get(), 0, buffer, size,
+			WorkQueue::generalQueue()->take());
+
+	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&globalMfsMutex);
 
 	const char *begin = path.data();
@@ -91,11 +97,6 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 		co_return false;
 	}
 
-	auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
-			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-	co_await copyToView(memory.get(), 0, buffer, size,
-			WorkQueue::generalQueue()->take());
-
 	auto file = frg::construct<MfsRegular>(*kernelAlloc, std::move(memory), size);
 	directory->link(frg::string<KernelAlloc>{*kernelAlloc, name}, file);
 	*out = file;
@@ -103,7 +104,7 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 }
 
 MfsNode *resolveModule(frg::string_view path) {
-	auto irq_lock = frg::guard(&irqMutex());
+	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&globalMfsMutex);
 
 	const char *begin = path.data();
