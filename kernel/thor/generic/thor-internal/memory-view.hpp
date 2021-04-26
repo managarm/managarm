@@ -737,6 +737,7 @@ inline auto copyToView(MemoryView *view, uintptr_t offset,
 		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
+		PhysicalAddr physical;
 	};
 
 	return async::let([=] {
@@ -751,22 +752,29 @@ inline auto copyToView(MemoryView *view, uintptr_t offset,
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
-							[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
-						auto [error, range, flags] = result;
-						assert(error == Error::success);
-						assert(range.get<1>() >= kPageSize);
+					return async::sequence(
+						async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
+								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
+							auto [error, range, flags] = result;
+							assert(error == Error::success);
+							assert(range.get<0>() != PhysicalAddr(-1));
+							assert(range.get<1>() >= kPageSize);
+							nd.physical = range.get<0>();
+						}),
+						// Do heavy copying on the WQ.
+						// TODO: This could use wq->enter() but we want to keep stack depth low.
+						nd.wq->schedule(),
+						async::invocable([&nd] {
+							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
+							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
 
-						auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-						size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
-
-						auto physical = range.get<0>();
-						assert(physical != PhysicalAddr(-1));
-						PageAccessor accessor{physical};
-						memcpy(reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
-								reinterpret_cast<const uint8_t *>(nd.pointer) + nd.progress, chunk);
-						nd.progress += chunk;
-					});
+							PageAccessor accessor{nd.physical};
+							memcpy(reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
+									reinterpret_cast<const uint8_t *>(nd.pointer) + nd.progress,
+									chunk);
+							nd.progress += chunk;
+						})
+					);
 				}
 			),
 			async::invocable([&nd] {
@@ -795,6 +803,7 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
+		PhysicalAddr physical;
 	};
 
 	return async::let([=] {
@@ -809,22 +818,28 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
-							[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
-						auto [error, range, flags] = result;
-						assert(error == Error::success);
-						assert(range.get<1>() >= kPageSize);
+					return async::sequence(
+						async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
+								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
+							auto [error, range, flags] = result;
+							assert(error == Error::success);
+							assert(range.get<0>() != PhysicalAddr(-1));
+							assert(range.get<1>() >= kPageSize);
+							nd.physical = range.get<0>();
+						}),
+						// Do heavy copying on the WQ.
+						// TODO: This could use wq->enter() but we want to keep stack depth low.
+						nd.wq->schedule(),
+						async::invocable([&nd] {
+							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
+							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
 
-						auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-						size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
-
-						auto physical = range.get<0>();
-						assert(physical != PhysicalAddr(-1));
-						PageAccessor accessor{physical};
-						memcpy(reinterpret_cast<uint8_t *>(nd.pointer) + nd.progress,
-								reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
-						nd.progress += chunk;
-					});
+							PageAccessor accessor{nd.physical};
+							memcpy(reinterpret_cast<uint8_t *>(nd.pointer) + nd.progress,
+									reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+							nd.progress += chunk;
+						})
+					);
 				}
 			),
 			async::invocable([&nd] {
@@ -888,6 +903,9 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 							assert(range.get<1>() >= kPageSize);
 							nd.srcRange = range;
 						}),
+						// Do heavy copying on the WQ.
+						// TODO: This could use wq->enter() but we want to keep stack depth low.
+						nd.wq->schedule(),
 						async::invocable([&nd] {
 							auto destMisalign = (nd.destOffset + nd.progress) % kPageSize;
 							auto srcMisalign = (nd.srcOffset + nd.progress) % kPageSize;
