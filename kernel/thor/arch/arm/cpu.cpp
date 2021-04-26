@@ -241,8 +241,6 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 			: "x30", "x28", "x1", "x0", "memory");
 }
 
-void bootSecondary(unsigned int apic_id) { assert(!"Not implemented"); }
-
 Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
 
 namespace {
@@ -270,7 +268,7 @@ void setupBootCpuContext() {
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",
-	initgraph::Entails{getTaskingAvailableStage()},
+	initgraph::Entails{getBootProcessorReadyStage()},
 	[] {
 		allCpuContexts.initialize(*kernelAlloc);
 
@@ -278,6 +276,16 @@ static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-p
 
 		initializeThisProcessor();
 	}
+};
+
+initgraph::Stage *getBootProcessorReadyStage() {
+	static initgraph::Stage s{&globalInitEngine, "arm.boot-processor-ready"};
+	return &s;
+}
+
+initgraph::Edge bootProcessorReadyEdge{
+	getBootProcessorReadyStage(),
+	getFibersAvailableStage()
 };
 
 void initializeThisProcessor() {

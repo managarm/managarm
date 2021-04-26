@@ -2287,7 +2287,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		}
 	}
 
-	if(!queue->validSize(nodeSize))
+	if(!closure->ipcQueue->validSize(nodeSize))
 		return kHelErrQueueTooSmall;
 
 	// Now, build up the messages that we submit to the stream.

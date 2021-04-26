@@ -100,6 +100,25 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 			irqData_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
 		} else if (pn == "interrupt-map") {
 			interruptMapRaw_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
+		} else if (pn == "enable-method") {
+			auto methods = parseStringList(prop);
+
+			// Look for the first known method
+			for (auto method : methods) {
+				if (method == "spin-table") {
+					enableMethod_ = EnableMethod::spintable;
+					break;
+				} else if (method == "psci") {
+					enableMethod_ = EnableMethod::psci;
+					break;
+				}
+			}
+		} else if (pn == "cpu-release-addr") {
+			cpuReleaseAddr_ = prop.asU64();
+		} else if (pn == "method") {
+			method_ = reinterpret_cast<const char *>(prop.data());
+		} else if (pn == "cpu_on") {
+			cpuOn_ = prop.asU32();
 		}
 	}
 

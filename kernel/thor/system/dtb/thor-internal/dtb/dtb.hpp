@@ -22,7 +22,8 @@ struct DeviceTreeNode {
 	interruptCells_{}, reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
 	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
 	interruptMapRaw_{nullptr, 0}, interruptController_{false},
-	interruptParentId_{0}, interruptParent_{} { }
+	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0},
+	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0}, method_{} { }
 
 	void initializeWith(::DeviceTreeNode dtNode);
 	void finalizeInit();
@@ -105,6 +106,12 @@ struct DeviceTreeNode {
 		bool childAddrHiValid;
 	};
 
+	enum class EnableMethod {
+		unknown,
+		spintable,
+		psci
+	};
+
 	frg::string_view path() const {
 		return path_;
 	}
@@ -137,6 +144,22 @@ struct DeviceTreeNode {
 
 	const auto &interruptMapMask() const {
 		return interruptMapMask_;
+	}
+
+	const auto &enableMethod() const {
+		return enableMethod_;
+	}
+
+	const auto &method() const {
+		return method_;
+	}
+
+	const auto &cpuOn() const {
+		return cpuOn_;
+	}
+
+	const auto &cpuReleaseAddr() const {
+		return cpuReleaseAddr_;
 	}
 
 	template <typename F>
@@ -190,6 +213,12 @@ private:
 	DeviceTreeNode *interruptParent_;
 
 	BusRange busRange_;
+
+	EnableMethod enableMethod_;
+	uintptr_t cpuReleaseAddr_;
+
+	uint32_t cpuOn_;
+	frg::string_view method_;
 };
 
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path);

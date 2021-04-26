@@ -10,6 +10,7 @@
 #include <thor-internal/types.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-stack.hpp>
+#include <thor-internal/initgraph.hpp>
 
 namespace thor {
 
@@ -301,10 +302,13 @@ struct AssemblyCpuData {
 
 static inline constexpr size_t maxAsid = 256;
 
+struct GicCpuInterface;
+
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
 	int cpuIndex;
+	int archCpuIndex;
 
 	UniqueKernelStack irqStack;
 	UniqueKernelStack detachedStack;
@@ -314,6 +318,8 @@ struct PlatformCpuData : public AssemblyCpuData {
 	GlobalPageBinding globalBinding;
 
 	uint32_t profileFlags = 0;
+
+	GicCpuInterface *gicCpuInterface = nullptr;
 
 	// TODO: This is not really arch-specific!
 	smarter::borrowed_ptr<Thread> activeExecutor;
@@ -382,5 +388,9 @@ void disarmPreemption();
 uint64_t getRawTimestampCounter();
 
 void setupBootCpuContext();
+
+void setupCpuContext(AssemblyCpuData *context);
+
+initgraph::Stage *getBootProcessorReadyStage();
 
 } // namespace thor
