@@ -31,7 +31,7 @@ namespace {
 
 	template<typename T>
 	struct word_helper {
-		enum class [[gnu::may_alias]] word_enum : T { };
+		enum class [[gnu::may_alias, gnu::aligned(1)]] word_enum : T { };
 	};
 
 	template<typename T>
