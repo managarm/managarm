@@ -32,7 +32,7 @@ struct WorkQueue {
 	static bool enter(Worklet *worklet);
 
 	WorkQueue(ExecutorContext *executorContext = illegalExecutorContext())
-	: _executorContext{executorContext}, _anyPosted{false} { }
+	: _executorContext{executorContext}, _localPosted{false}, _lockedPosted{false} { }
 
 	bool check();
 
@@ -147,7 +147,9 @@ private:
 			frg::default_list_hook<Worklet>,
 			&Worklet::_hook
 		>
-	> _pending;
+	> _localQueue;
+
+	std::atomic<bool> _localPosted;
 
 	std::atomic<bool> _inRun{false};
 
@@ -156,9 +158,9 @@ private:
 	// Writes to this flag are totally ordered since they only happen within _mutex.
 	// Each 0-1 transition of this flag causes wakeup() to be called.
 	// wakeup() is responsible to ensure that (i) check() (and eventually run()) will be called,
-	// and (ii) that the call to check() synchronizes with the 0-1 transition of _anyPosted.
+	// and (ii) that the call to check() synchronizes with the 0-1 transition of _lockedPosted.
 	// (In the case of threads, this is guaranteed by the blocking mechanics.)
-	std::atomic<bool> _anyPosted;
+	std::atomic<bool> _lockedPosted;
 
 	frg::intrusive_list<
 		Worklet,
@@ -167,7 +169,7 @@ private:
 			frg::default_list_hook<Worklet>,
 			&Worklet::_hook
 		>
-	> _posted;
+	> _lockedQueue;
 };
 
 inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {

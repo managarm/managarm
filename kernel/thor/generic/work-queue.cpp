@@ -16,15 +16,16 @@ void WorkQueue::post(Worklet *worklet) {
 	if(wq->_executorContext == currentExecutorContext()) {
 		auto irqLock = frg::guard(&irqMutex());
 
-		invokeWakeup = wq->_pending.empty();
-		wq->_pending.push_back(worklet);
+		invokeWakeup = wq->_localQueue.empty();
+		wq->_localQueue.push_back(worklet);
+		wq->_localPosted.store(true, std::memory_order_relaxed);
 	}else{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&wq->_mutex);
 
-		invokeWakeup = wq->_posted.empty();
-		wq->_posted.push_back(worklet);
-		wq->_anyPosted.store(true, std::memory_order_relaxed);
+		invokeWakeup = wq->_lockedQueue.empty();
+		wq->_lockedQueue.push_back(worklet);
+		wq->_lockedPosted.store(true, std::memory_order_relaxed);
 	}
 
 	if(invokeWakeup)
@@ -37,23 +38,24 @@ bool WorkQueue::enter(Worklet *worklet) {
 	bool invokeWakeup;
 	if(wq->_executorContext == currentExecutorContext()) {
 		// Fast-track if we are on the right executor and the WQ is being drained.
-		if(wq->_inRun.load(std::memory_order_relaxed))
+		if(wq->_inRun.load(std::memory_order_relaxed)) {
+			std::atomic_signal_fence(std::memory_order_acquire);
 			return true;
-		std::atomic_signal_fence(std::memory_order_acquire);
+		}
 
 		// Same logic as in post().
 		auto irqLock = frg::guard(&irqMutex());
 
-		invokeWakeup = wq->_pending.empty();
-		wq->_pending.push_back(worklet);
+		invokeWakeup = wq->_localQueue.empty();
+		wq->_localQueue.push_back(worklet);
 	}else{
 		// Same logic as in post().
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&wq->_mutex);
 
-		invokeWakeup = wq->_posted.empty();
-		wq->_posted.push_back(worklet);
-		wq->_anyPosted.store(true, std::memory_order_relaxed);
+		invokeWakeup = wq->_lockedQueue.empty();
+		wq->_lockedQueue.push_back(worklet);
+		wq->_lockedPosted.store(true, std::memory_order_relaxed);
 	}
 
 	if(invokeWakeup)
@@ -62,9 +64,10 @@ bool WorkQueue::enter(Worklet *worklet) {
 }
 
 bool WorkQueue::check() {
-	// _pending is only accessed from the thread/fiber that runs the WQ.
-	// For _anyPosted, see the comment in the header file.
-	return !_pending.empty() || _anyPosted.load(std::memory_order_relaxed);
+	// _localPosted is only accessed from the thread/fiber that runs the WQ.
+	// For _lockedPosted, see the comment in the header file.
+	return _localPosted.load(std::memory_order_relaxed)
+			|| _lockedPosted.load(std::memory_order_relaxed);
 }
 
 void WorkQueue::run() {
@@ -74,18 +77,32 @@ void WorkQueue::run() {
 	std::atomic_signal_fence(std::memory_order_release);
 	_inRun.store(true, std::memory_order_relaxed);
 
-	if(_anyPosted.load(std::memory_order_relaxed)) {
+	frg::intrusive_list<
+		Worklet,
+		frg::locate_member<
+			Worklet,
+			frg::default_list_hook<Worklet>,
+			&Worklet::_hook
+		>
+	> pending;
+	{
 		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
 
-		_pending.splice(_pending.end(), _posted);
-		_anyPosted.store(false, std::memory_order_relaxed);
+		pending.splice(pending.end(), _localQueue);
+		_localPosted.store(false, std::memory_order_relaxed);
+
+		if(_lockedPosted.load(std::memory_order_relaxed)) {
+			auto lock = frg::guard(&_mutex);
+
+			pending.splice(pending.end(), _lockedQueue);
+			_lockedPosted.store(false, std::memory_order_relaxed);
+		}
 	}
 
 	// Keep this shared pointer to avoid destructing *this here.
 	smarter::shared_ptr<WorkQueue> self;
-	while(!_pending.empty()) {
-		auto worklet = _pending.pop_front();
+	while(!pending.empty()) {
+		auto worklet = pending.pop_front();
 		self = std::move(worklet->_workQueue);
 		worklet->_run(worklet);
 	}
