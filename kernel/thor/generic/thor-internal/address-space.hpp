@@ -1161,18 +1161,23 @@ inline frg::expected<Error, FutexIdentity> resolveGlobalFutex(
 	if(!mapping)
 		return Error::fault;
 	auto offset = address - mapping->address;
-	return resolveGlobalFutex(mapping->view.get(), mapping->viewOffset + offset);
+	auto [futexSpace, futexOffset] = FRG_TRY(mapping->view->resolveGlobalFutex(
+			mapping->viewOffset + offset));
+	return FutexIdentity{reinterpret_cast<uintptr_t>(futexSpace.get()), offset};
 }
 
-inline coroutine<frg::expected<Error, GlobalFutex>> takeGlobalFutex(
+inline coroutine<frg::expected<Error, GlobalFutex>> grabGlobalFutex(
 		AddressSpace *addressSpace, uintptr_t address,
 		smarter::shared_ptr<WorkQueue> wq) {
 	auto mapping = addressSpace->getMapping(address);
 	if(!mapping)
 		co_return Error::fault;
 	auto offset = address - mapping->address;
-	co_return co_await takeGlobalFutex(mapping->view, mapping->viewOffset + offset,
-			std::move(wq));
+	auto [futexSpace, futexOffset] = FRG_CO_TRY(mapping->view->resolveGlobalFutex(
+			mapping->viewOffset + offset));
+	auto futexPhysical = FRG_CO_TRY(co_await futexSpace->takeGlobalFutex(futexOffset,
+			std::move(wq)));
+	co_return GlobalFutex{std::move(futexSpace), futexOffset, futexPhysical};
 }
 
 } // namespace thor

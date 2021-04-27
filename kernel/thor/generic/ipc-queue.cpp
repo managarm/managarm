@@ -20,6 +20,7 @@ IpcQueue::IpcQueue(unsigned int ringShift, unsigned int numChunks, size_t chunkS
 
 	// Setup internal state.
 	_memory = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc, overallSize);
+	_memory->selfPtr = _memory;
 	_chunkOffsets.resize(numChunks);
 	for(unsigned int i = 0; i < numChunks; ++i)
 		_chunkOffsets[i] = chunksOffset + i * reservedPerChunk;

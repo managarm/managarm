@@ -258,8 +258,10 @@ void ImmediateMemory::resize(size_t newSize, async::any_receiver<void> receiver)
 	receiver.set_value();
 }
 
-frg::expected<Error, AddressIdentity> ImmediateMemory::getAddressIdentity(uintptr_t offset) {
-	return AddressIdentity{this, offset};
+frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+ImmediateMemory::resolveGlobalFutex(uintptr_t offset) {
+	smarter::shared_ptr<GlobalFutexSpace> futexSpace{selfPtr.lock()};
+	return frg::make_tuple(std::move(futexSpace), offset);
 }
 
 Error ImmediateMemory::lockRange(uintptr_t offset, size_t size) {
@@ -308,6 +310,18 @@ size_t ImmediateMemory::getLength() {
 	return _physicalPages.size() * kPageSize;
 }
 
+coroutine<frg::expected<Error, PhysicalAddr>> ImmediateMemory::takeGlobalFutex(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>) {
+	auto index = offset >> kPageShift;
+	if(index >= _physicalPages.size())
+		co_return Error::fault;
+	co_return _physicalPages[index];
+}
+
+void ImmediateMemory::retireGlobalFutex(uintptr_t offset) {
+	// Do nothing.
+}
+
 // --------------------------------------------------------
 // HardwareMemory
 // --------------------------------------------------------
@@ -322,8 +336,9 @@ HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-frg::expected<Error, AddressIdentity> HardwareMemory::getAddressIdentity(uintptr_t offset) {
-	return AddressIdentity{this, offset};
+frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+HardwareMemory::resolveGlobalFutex(uintptr_t offset) {
+	return Error::illegalObject;
 }
 
 Error HardwareMemory::lockRange(uintptr_t offset, size_t size) {
@@ -408,8 +423,10 @@ void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver)
 	receiver.set_value();
 }
 
-frg::expected<Error, AddressIdentity> AllocatedMemory::getAddressIdentity(uintptr_t offset) {
-	return AddressIdentity{this, offset};
+frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+AllocatedMemory::resolveGlobalFutex(uintptr_t offset) {
+	smarter::shared_ptr<GlobalFutexSpace> futexSpace{selfPtr.lock()};
+	return frg::make_tuple(std::move(futexSpace), offset);
 }
 
 Error AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
@@ -473,6 +490,19 @@ size_t AllocatedMemory::getLength() {
 	auto lock = frg::guard(&_mutex);
 
 	return _physicalChunks.size() * _chunkSize;
+}
+
+coroutine<frg::expected<Error, PhysicalAddr>> AllocatedMemory::takeGlobalFutex(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq) {
+	// TODO: This could be optimized further (by avoiding the coroutine call).
+	auto fetchResult = co_await MemoryView::fetchRange(offset & ~(kPageSize - 1), wq);
+	assert(fetchResult.get<0>() == Error::success);
+	auto range = fetchResult.get<1>();
+	assert(range.get<0>() != PhysicalAddr(-1));
+	co_return range.get<0>();
+}
+
+void AllocatedMemory::retireGlobalFutex(uintptr_t offset) {
 }
 
 // --------------------------------------------------------
@@ -730,8 +760,9 @@ void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 	}(this, newPages, std::move(receiver)));
 }
 
-frg::expected<Error, AddressIdentity> BackingMemory::getAddressIdentity(uintptr_t offset) {
-	return AddressIdentity{_managed.get(), offset};
+frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+BackingMemory::resolveGlobalFutex(uintptr_t offset) {
+	return Error::illegalObject;
 }
 
 Error BackingMemory::lockRange(uintptr_t offset, size_t size) {
@@ -851,8 +882,10 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 // FrontalMemory
 // --------------------------------------------------------
 
-frg::expected<Error, AddressIdentity> FrontalMemory::getAddressIdentity(uintptr_t offset) {
-	return AddressIdentity{_managed.get(), offset};
+frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+FrontalMemory::resolveGlobalFutex(uintptr_t offset) {
+	smarter::shared_ptr<GlobalFutexSpace> futexSpace{selfPtr.lock()};
+	return frg::make_tuple(std::move(futexSpace), offset);
 }
 
 Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
@@ -1062,6 +1095,24 @@ void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
 	}
 }
 
+coroutine<frg::expected<Error, PhysicalAddr>> FrontalMemory::takeGlobalFutex(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq) {
+	// For now, we pick the trival implementation here.
+	auto lockError = co_await MemoryView::asyncLockRange(offset & ~(kPageSize - 1), kPageSize, wq);
+	if(lockError != Error::success)
+		co_return Error::fault;
+	auto fetchResult = co_await MemoryView::fetchRange(offset & ~(kPageSize - 1), wq);
+	if(fetchResult.get<0>() != Error::success)
+		co_return Error::fault;
+	auto range = fetchResult.get<1>();
+	assert(range.get<0>() != PhysicalAddr(-1));
+	co_return range.get<0>();
+}
+
+void FrontalMemory::retireGlobalFutex(uintptr_t offset) {
+	unlockRange(offset & ~(kPageSize - 1), kPageSize);
+}
+
 // --------------------------------------------------------
 // IndirectMemory
 // --------------------------------------------------------
@@ -1075,7 +1126,8 @@ IndirectMemory::~IndirectMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-frg::expected<Error, AddressIdentity> IndirectMemory::getAddressIdentity(uintptr_t offset) {
+frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+IndirectMemory::resolveGlobalFutex(uintptr_t offset) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 
@@ -1085,7 +1137,7 @@ frg::expected<Error, AddressIdentity> IndirectMemory::getAddressIdentity(uintptr
 		return Error::fault;
 	if(!indirections_[slot])
 		return Error::fault;
-	return indirections_[slot]->memory->getAddressIdentity(inSlotOffset);
+	return indirections_[slot]->memory->resolveGlobalFutex(inSlotOffset);
 }
 
 Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
@@ -1201,8 +1253,10 @@ size_t CopyOnWriteMemory::getLength() {
 	return _length;
 }
 
-frg::expected<Error, AddressIdentity> CopyOnWriteMemory::getAddressIdentity(uintptr_t offset) {
-	return AddressIdentity{this, offset};
+frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+CopyOnWriteMemory::resolveGlobalFutex(uintptr_t offset) {
+	smarter::shared_ptr<GlobalFutexSpace> futexSpace{selfPtr.lock()};
+	return frg::make_tuple(std::move(futexSpace), offset);
 }
 
 void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) {
@@ -1225,6 +1279,7 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, smarter::shar
 		// Create a new mapping in the forked space.
 		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 				_view, _viewOffset, _length, newChain);
+		forked->selfPtr = forked;
 
 		// Finally, inspect all copied pages owned by the original mapping.
 		for(size_t pg = 0; pg < _length; pg += kPageSize) {
@@ -1531,6 +1586,24 @@ bool CopyOnWriteMemory::fetchRange(uintptr_t offset,
 
 void CopyOnWriteMemory::markDirty(uintptr_t, size_t) {
 	// We do not need to track dirty pages.
+}
+
+coroutine<frg::expected<Error, PhysicalAddr>> CopyOnWriteMemory::takeGlobalFutex(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue> wq) {
+	// For now, we pick the trival implementation here.
+	auto lockError = co_await MemoryView::asyncLockRange(offset & ~(kPageSize - 1), kPageSize, wq);
+	if(lockError != Error::success)
+		co_return Error::fault;
+	auto fetchResult = co_await MemoryView::fetchRange(offset & ~(kPageSize - 1), wq);
+	if(fetchResult.get<0>() != Error::success)
+		co_return Error::fault;
+	auto range = fetchResult.get<1>();
+	assert(range.get<0>() != PhysicalAddr(-1));
+	co_return range.get<0>();
+}
+
+void CopyOnWriteMemory::retireGlobalFutex(uintptr_t offset) {
+	unlockRange(offset & ~(kPageSize - 1), kPageSize);
 }
 
 // --------------------------------------------------------------------------------------

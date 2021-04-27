@@ -347,7 +347,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 		if(!readUserMemory(&effective, restrictions, sizeof(HelAllocRestrictions)))
 			return kHelErrFault;
 
-	smarter::shared_ptr<MemoryView> memory;
+	smarter::shared_ptr<AllocatedMemory> memory;
 	if(flags & kHelAllocContinuous) {
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits,
 				size, kPageSize);
@@ -357,6 +357,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 		// TODO: 
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}
+	memory->selfPtr = memory;
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -405,6 +406,7 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto managed = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, size);
 	auto backing_memory = smarter::allocate_shared<BackingMemory>(*kernelAlloc, managed);
 	auto frontal_memory = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, std::move(managed));
+	frontal_memory->selfPtr = frontal_memory;
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -439,6 +441,7 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 
 	auto slice = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, std::move(view),
 			offset, size);
+	slice->selfPtr = slice;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(this_universe->lock);
@@ -2648,7 +2651,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 	auto space = thisThread->getAddressSpace();
 
 	auto futexOrError = Thread::asyncBlockCurrent(
-			takeGlobalFutex(space.get(), reinterpret_cast<uintptr_t>(pointer),
+			grabGlobalFutex(space.get(), reinterpret_cast<uintptr_t>(pointer),
 					thisThread->mainWorkQueue()->take()));
 	if(!futexOrError)
 		return kHelErrFault;

@@ -299,6 +299,7 @@ namespace posix {
 		Process(frg::string<KernelAlloc> name, smarter::shared_ptr<Thread, ActiveHandle> thread)
 		: _name{std::move(name)}, _thread(std::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, 0x1000);
+			fileTableMemory->selfPtr = fileTableMemory;
 		}
 
 		coroutine<void> setupAddressSpace() {
@@ -357,7 +358,7 @@ namespace posix {
 
 		Handle controlHandle;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
-		smarter::shared_ptr<MemoryView> fileTableMemory;
+		smarter::shared_ptr<AllocatedMemory> fileTableMemory;
 		VirtualAddr clientFileTable;
 	};
 
@@ -578,7 +579,9 @@ namespace posix {
 				smarter::shared_ptr<MemoryView> fileMemory;
 				if(req->flags() & 8) { // MAP_ANONYMOUS.
 					// TODO: Use some always-zero memory for private anonymous mappings.
-					fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, req->size());
+					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, req->size());
+					memory->selfPtr = memory;
+					fileMemory = std::move(memory);
 				}else{
 					// TODO: improve error handling here.
 					assert((size_t)req->fd() < openFiles.size());
@@ -591,6 +594,7 @@ namespace posix {
 				if(req->flags() & 1) { // MAP_PRIVATE.
 					auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 							std::move(fileMemory), req->rel_offset(), req->size());
+					cowMemory->selfPtr = cowMemory;
 					slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 							std::move(cowMemory), 0, req->size());
 				}else{
@@ -648,8 +652,10 @@ namespace posix {
 				// TODO: Use some always-zero memory for private anonymous mappings.
 				auto size = *_thread->_executor.arg0();
 				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
+				fileMemory->selfPtr = fileMemory;
 				auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 						std::move(fileMemory), 0, size);
+				cowMemory->selfPtr = cowMemory;
 				auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 						std::move(cowMemory), 0, size);
 

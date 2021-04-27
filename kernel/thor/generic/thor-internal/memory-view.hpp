@@ -75,6 +75,19 @@ struct CachePage {
 	uint32_t flags = 0;
 };
 
+struct GlobalFutexSpace {
+protected:
+	~GlobalFutexSpace() = default;
+
+public:
+	// Called to construct GlobalFutex.
+	virtual coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq) = 0;
+
+	// Called by GlobalFutex::retire().
+	virtual void retireGlobalFutex(uintptr_t offset) = 0;
+};
+
 using PhysicalRange = frg::tuple<PhysicalAddr, size_t, CachingMode>;
 
 struct ManageNode {
@@ -275,11 +288,6 @@ private:
 	async::post_ack_mechanism<RangeToEvict> mechanism_;
 };
 
-struct AddressIdentity {
-	void *object;
-	uintptr_t offset;
-};
-
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
@@ -317,7 +325,8 @@ public:
 
 	// Returns a unique identity for each memory address.
 	// This is used as a key to access futexes.
-	virtual frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) = 0;
+	virtual frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+	resolveGlobalFutex(uintptr_t offset) = 0;
 
 	virtual void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver);
 
@@ -948,12 +957,12 @@ struct ImmediateMemory;
 struct ImmediateFutex {
 	ImmediateFutex() = default;
 
-	ImmediateFutex(ImmediateMemory *memory, uintptr_t offset, PhysicalAddr physical)
-	: memory_{memory}, offset_{std::move(offset)},
+	ImmediateFutex(GlobalFutexSpace *space, uintptr_t offset, PhysicalAddr physical)
+	: space_{space}, offset_{std::move(offset)},
 			physical_{std::move(physical)} { }
 
 	FutexIdentity getIdentity() {
-		return {reinterpret_cast<uintptr_t>(memory_), offset_};
+		return {reinterpret_cast<uintptr_t>(space_), offset_};
 	}
 
 	unsigned int read() {
@@ -969,14 +978,14 @@ struct ImmediateFutex {
 	}
 
 private:
-	ImmediateMemory *memory_;
+	GlobalFutexSpace *space_;
 	uintptr_t offset_ = 0;
 	PhysicalAddr physical_ = PhysicalAddr(-1);
 };
 
 // Memory that is allocated by the kernel and never swapped out.
 // In contrast to most other memory objects, it can be accessed synchronously.
-struct ImmediateMemory final : MemoryView {
+struct ImmediateMemory final : MemoryView, GlobalFutexSpace {
 	ImmediateMemory(size_t length);
 	ImmediateMemory(const ImmediateMemory &) = delete;
 	~ImmediateMemory();
@@ -985,15 +994,20 @@ struct ImmediateMemory final : MemoryView {
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;
-	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
+	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq) override;
+	void retireGlobalFutex(uintptr_t offset) override;
+
 	FutexIdentity resolveImmediateFutex(uintptr_t offset) {
-		return {reinterpret_cast<uintptr_t>(this), offset};
+		return {reinterpret_cast<uintptr_t>(static_cast<GlobalFutexSpace *>(this)), offset};
 	}
 
 	ImmediateFutex getImmediateFutex(uintptr_t offset) {
@@ -1030,6 +1044,9 @@ struct ImmediateMemory final : MemoryView {
 		}
 	}
 
+public:
+	// Contract: set by the code that constructs this object.
+	smarter::borrowed_ptr<ImmediateMemory> selfPtr;
 private:
 	frg::ticket_spinlock _mutex;
 
@@ -1044,7 +1061,8 @@ struct HardwareMemory final : MemoryView {
 	HardwareMemory &operator= (const HardwareMemory &) = delete;
 
 	size_t getLength() override;
-	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -1057,7 +1075,7 @@ private:
 	CachingMode _cacheMode;
 };
 
-struct AllocatedMemory final : MemoryView {
+struct AllocatedMemory final : MemoryView, GlobalFutexSpace {
 	AllocatedMemory(size_t length, int addressBits = 64,
 			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
 	AllocatedMemory(const AllocatedMemory &) = delete;
@@ -1067,13 +1085,21 @@ struct AllocatedMemory final : MemoryView {
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;
-	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
+	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq) override;
+	void retireGlobalFutex(uintptr_t offset) override;
+
+public:
+	// Contract: set by the code that constructs this object.
+	smarter::borrowed_ptr<AllocatedMemory> selfPtr;
 private:
 	frg::ticket_spinlock _mutex;
 
@@ -1166,7 +1192,8 @@ public:
 
 	size_t getLength() override;
 	void resize(size_t newLength, async::any_receiver<void> receiver) override;
-	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -1179,7 +1206,7 @@ private:
 	smarter::shared_ptr<ManagedSpace> _managed;
 };
 
-struct FrontalMemory final : MemoryView {
+struct FrontalMemory final : MemoryView, GlobalFutexSpace {
 public:
 	FrontalMemory(smarter::shared_ptr<ManagedSpace> managed)
 	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
@@ -1189,7 +1216,8 @@ public:
 	FrontalMemory &operator= (const FrontalMemory &) = delete;
 
 	size_t getLength() override;
-	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -1197,6 +1225,13 @@ public:
 	void markDirty(uintptr_t offset, size_t size) override;
 	void submitInitiateLoad(MonitorNode *initiate) override;
 
+	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq) override;
+	void retireGlobalFutex(uintptr_t offset) override;
+
+public:
+	// Contract: set by the code that constructs this object.
+	smarter::borrowed_ptr<FrontalMemory> selfPtr;
 private:
 	smarter::shared_ptr<ManagedSpace> _managed;
 };
@@ -1209,7 +1244,8 @@ struct IndirectMemory final : MemoryView {
 	IndirectMemory &operator= (const IndirectMemory &) = delete;
 
 	size_t getLength() override;
-	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
@@ -1251,7 +1287,7 @@ struct CowChain {
 	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
 };
 
-struct CopyOnWriteMemory final : MemoryView /*, MemoryObserver */ {
+struct CopyOnWriteMemory final : MemoryView, GlobalFutexSpace /*, MemoryObserver */ {
 public:
 	CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length,
@@ -1264,7 +1300,8 @@ public:
 
 	size_t getLength() override;
 	void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) override;
-	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	bool asyncLockRange(uintptr_t offset, size_t size,
 			smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node) override;
@@ -1273,6 +1310,13 @@ public:
 	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
+	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
+			smarter::shared_ptr<WorkQueue> wq) override;
+	void retireGlobalFutex(uintptr_t offset) override;
+
+public:
+	// Contract: set by the code that constructs this object.
+	smarter::borrowed_ptr<CopyOnWriteMemory> selfPtr;
 private:
 	enum class CowState {
 		null,
@@ -1304,16 +1348,16 @@ private:
 struct GlobalFutex {
 	friend void swap(GlobalFutex &p, GlobalFutex &q) {
 		using std::swap;
-		swap(p.ownerView_, q.ownerView_);
+		swap(p.space_, q.space_);
 		swap(p.offset_, q.offset_);
 		swap(p.physical_, q.physical_);
 	}
 
 	GlobalFutex() = default;
 
-	GlobalFutex(smarter::shared_ptr<MemoryView> ownerView, uintptr_t offset,
+	GlobalFutex(smarter::shared_ptr<GlobalFutexSpace> space, uintptr_t offset,
 			PhysicalAddr physical)
-	: ownerView_{std::move(ownerView)}, offset_{std::move(offset)},
+	: space_{std::move(space)}, offset_{std::move(offset)},
 			physical_{std::move(physical)} { }
 
 	GlobalFutex(const GlobalFutex &) = delete;
@@ -1330,11 +1374,11 @@ struct GlobalFutex {
 
 	~GlobalFutex() {
 		// Destructing a non-retired GlobalFutex is a contract violation.
-		assert(!ownerView_);
+		assert(!space_);
 	}
 
 	FutexIdentity getIdentity() {
-		return {reinterpret_cast<uintptr_t>(ownerView_.get()), offset_};
+		return {reinterpret_cast<uintptr_t>(space_.get()), offset_};
 	}
 
 	unsigned int read() {
@@ -1346,37 +1390,15 @@ struct GlobalFutex {
 	}
 
 	void retire() {
-		ownerView_->unlockRange(offset_ & ~(kPageSize - 1), kPageSize);
-		ownerView_ = nullptr;
+		space_->retireGlobalFutex(offset_);
+		space_ = nullptr;
 	}
 
 private:
-	smarter::shared_ptr<MemoryView> ownerView_;
+	smarter::shared_ptr<GlobalFutexSpace> space_;
 	uintptr_t offset_ = 0;
 	PhysicalAddr physical_ = PhysicalAddr(-1);
 };
-
-inline frg::expected<Error, FutexIdentity> resolveGlobalFutex(
-		MemoryView *view, uintptr_t offset) {
-	return FutexIdentity{reinterpret_cast<uintptr_t>(view), offset};
-}
-
-// TODO: This implementation does not work for futexes within IndirectMemory.
-//       It also involves a bunch of virtual calls.
-//       Integrate it directly into MemoryView to avoid these issues.
-inline coroutine<frg::expected<Error, GlobalFutex>> takeGlobalFutex(
-		smarter::shared_ptr<MemoryView> view, uintptr_t offset,
-		smarter::shared_ptr<WorkQueue> wq) {
-	auto lockError = co_await view->asyncLockRange(offset & ~(kPageSize - 1), kPageSize, wq);
-	if(lockError != Error::success)
-		co_return Error::fault;
-	auto fetchResult = co_await view->fetchRange(offset & ~(kPageSize - 1), wq);
-	if(fetchResult.get<0>() != Error::success)
-		co_return Error::fault;
-	auto range = fetchResult.get<1>();
-	assert(range.get<0>() != PhysicalAddr(-1));
-	co_return GlobalFutex{std::move(view), offset, range.get<0>()};
-}
 
 FutexRealm *getGlobalFutexRealm();
 
