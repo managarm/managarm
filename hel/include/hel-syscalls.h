@@ -65,12 +65,6 @@ extern inline __attribute__ (( always_inline )) HelError helCreateQueue(
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSetupChunk(HelHandle queue,
-		int index, struct HelChunk *chunk, uint32_t flags) {
-	return helSyscall4(kHelCallSetupChunk, (HelWord)queue, (HelWord)index,
-			(HelWord)chunk, (HelWord)flags);
-};
-
 extern inline __attribute__ (( always_inline )) HelError helCancelAsync(HelHandle handle,
 		uint64_t async_id) {
 	return helSyscall2(kHelCallCancelAsync, (HelWord)handle, (HelWord)async_id);

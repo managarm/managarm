@@ -11,33 +11,24 @@ namespace thor {
 // IpcQueue
 // ----------------------------------------------------------------------------
 
-IpcQueue::IpcQueue(unsigned int ringShift, size_t)
-: _ringShift{ringShift},
-		_chunks{*kernelAlloc},
+IpcQueue::IpcQueue(unsigned int ringShift, unsigned int numChunks, size_t chunkSize)
+: _ringShift{ringShift}, _chunkSize{chunkSize}, _chunkOffsets{*kernelAlloc},
 		_currentIndex{0}, _currentProgress{0}, _anyNodes{false} {
-	// Setup internal state.
-	_memory = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc,
-			sizeof(QueueStruct) + (sizeof(int) << ringShift));
-	_chunks.resize(1 << _ringShift);
+	auto chunksOffset = (sizeof(QueueStruct) + (sizeof(int) << ringShift) + 63) & ~size_t(63);
+	auto reservedPerChunk = (sizeof(ChunkStruct) + chunkSize + 63) & ~size_t(63);
+	auto overallSize = chunksOffset + numChunks * reservedPerChunk;
 
-	// Setup the queue data structure.
-	auto head = _memory->accessImmediate<QueueStruct>(0);
-	memset(head, 0, sizeof(QueueStruct));
+	// Setup internal state.
+	_memory = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc, overallSize);
+	_chunkOffsets.resize(numChunks);
+	for(unsigned int i = 0; i < numChunks; ++i)
+		_chunkOffsets[i] = chunksOffset + i * reservedPerChunk;
 
 	async::detach_with_allocator(*kernelAlloc, _runQueue());
 }
 
 bool IpcQueue::validSize(size_t size) {
-	// TODO: Note that the chunk size is currently hardcoded.
-	return sizeof(ElementStruct) + size <= 4096;
-}
-
-void IpcQueue::setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	assert(index < _chunks.size());
-	_chunks[index] = Chunk{std::move(space), pointer};
+	return sizeof(ElementStruct) + size <= _chunkSize;
 }
 
 void IpcQueue::submit(IpcNode *node) {
@@ -83,8 +74,8 @@ coroutine<void> IpcQueue::_runQueue() {
 			if(pastCurrentChunk)
 				break;
 
-			auto futexOrError = co_await takeGlobalFutex(
-					_memory, offsetof(QueueStruct, headFutex),
+			auto futexOrError = co_await takeGlobalFutex(_memory,
+					offsetof(QueueStruct, headFutex),
 					WorkQueue::generalQueue()->take());
 			if(!futexOrError) {
 				infoLogger() << "thor: Shutting down IPC queue after fault" << frg::endlog;
@@ -95,21 +86,18 @@ coroutine<void> IpcQueue::_runQueue() {
 		}
 
 		// Lock the chunk.
-		Chunk *currentChunk;
+		size_t chunkOffset;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&_mutex);
 
 			size_t iq = + _currentIndex & ((size_t{1} << _ringShift) - 1);
 			size_t cn = *_memory->accessImmediate<int>(offsetof(QueueStruct, indexQueue) + iq * sizeof(int));
-			assert(cn < _chunks.size());
-			assert(_chunks[cn].space);
-
-			currentChunk = &_chunks[cn];
+			assert(cn < _chunkOffsets.size());
+			chunkOffset = _chunkOffsets[cn];
 		}
-		AddressSpaceLockHandle chunkLock{currentChunk->space,
-					currentChunk->pointer, sizeof(ChunkStruct)};
-		co_await chunkLock.acquire(WorkQueue::generalQueue()->take());
+
+		auto chunkHead = _memory->accessImmediate<ChunkStruct>(chunkOffset);
 
 		// This inner loop runs until the chunk is exhausted.
 		while(true) {
@@ -131,36 +119,31 @@ coroutine<void> IpcQueue::_runQueue() {
 				progress = _currentProgress;
 			}
 
-			// Compute destion pointer and length of the element.
-			auto dest = reinterpret_cast<Address>(currentChunk->pointer)
-					+ offsetof(ChunkStruct, buffer) + _currentProgress;
-			assert(!(dest & 0x7));
-
+			// Compute the overall length of the element.
 			size_t length = 0;
-			for(auto source = _nodeQueue.front()->_source; source; source = source->link)
-				length += (source->size + 7) & ~size_t(7);
-			assert(length <= currentChunk->bufferSize);
+			for(auto sgSource = _nodeQueue.front()->_source; sgSource; sgSource = sgSource->link)
+				length += (sgSource->size + 7) & ~size_t(7);
+			assert(length <= _chunkSize);
 
 			// Check if we need to retire the current chunk.
 			bool emitElement = true;
-			if(progress + length <= currentChunk->bufferSize) {
-				AddressSpaceLockHandle elementLock{currentChunk->space,
-						reinterpret_cast<void *>(dest), sizeof(ElementStruct) + length};
-				co_await elementLock.acquire(WorkQueue::generalQueue()->take());
-
+			if(progress + length <= _chunkSize) {
 				// Emit the next element to the current chunk.
+				auto elementOffset = offsetof(ChunkStruct, buffer) + _currentProgress;
+				assert(!(elementOffset & 0x7));
+
 				ElementStruct element;
 				memset(&element, 0, sizeof(element));
 				element.length = length;
 				element.context = reinterpret_cast<void *>(node->_context);
-				auto err = elementLock.write(0, &element, sizeof(ElementStruct));
-				assert(err == Error::success);
+				_memory->writeImmediate(chunkOffset + elementOffset,
+						&element, sizeof(ElementStruct));
 
-				size_t disp = sizeof(ElementStruct);
-				for(auto source = node->_source; source; source = source->link) {
-					err = elementLock.write(disp, source->pointer, source->size);
-					assert(err == Error::success);
-					disp += (source->size + 7) & ~size_t(7);
+				size_t sgOffset = sizeof(ElementStruct);
+				for(auto sgSource = node->_source; sgSource; sgSource = sgSource->link) {
+					_memory->writeImmediate(chunkOffset + elementOffset + sgOffset,
+							sgSource->pointer, sgSource->size);
+					sgOffset += (sgSource->size + 7) & ~size_t(7);
 				}
 			}else{
 				emitElement = false;
@@ -174,16 +157,13 @@ coroutine<void> IpcQueue::_runQueue() {
 				newProgressWord = progress | kProgressDone;
 			}
 
-			DirectSpaceAccessor<ChunkStruct> chunkAccessor{chunkLock, 0};
-
-			auto progressFutexWord = __atomic_exchange_n(&chunkAccessor.get()->progressFutex,
+			auto progressFutexWord = __atomic_exchange_n(&chunkHead->progressFutex,
 					newProgressWord, __ATOMIC_RELEASE);
 			// If user-space modifies any non-flags field, that's a contract violation.
 			// TODO: Shut down the queue in this case.
 			if(progressFutexWord & kProgressWaiters) {
-				auto fa = reinterpret_cast<Address>(currentChunk->pointer)
-						+ offsetof(ChunkStruct, progressFutex);
-				auto identityOrError = resolveGlobalFutex(currentChunk->space.get(), fa);
+				auto identityOrError = resolveGlobalFutex(_memory.get(),
+						chunkOffset + offsetof(ChunkStruct, progressFutex));
 				if(!identityOrError) {
 					infoLogger() << "thor: Shutting down IPC queue after fault" << frg::endlog;
 					co_return;

@@ -31,7 +31,6 @@ enum {
 	kHelCallCloseDescriptor = 21,
 
 	kHelCallCreateQueue = 89,
-	kHelCallSetupChunk = 90,
 	kHelCallCancelAsync = 92,
 
 	kHelCallAllocateMemory = 51,
@@ -611,8 +610,6 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle ha
 //! Creates an IPC queue.
 HEL_C_LINKAGE HelError helCreateQueue(struct HelQueueParameters *params,
 		HelHandle *handle);
-
-HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, struct HelChunk *chunk, uint32_t flags);
 
 //! Cancels an ongoing asynchronous operation.
 //! @param[in] queueHandle

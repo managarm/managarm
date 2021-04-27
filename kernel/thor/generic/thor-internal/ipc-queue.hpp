@@ -89,23 +89,8 @@ private:
 
 	using Mutex = frg::ticket_spinlock;
 
-	struct Chunk {
-		Chunk()
-		: pointer{nullptr} { }
-
-		Chunk(smarter::shared_ptr<AddressSpace, BindableHandle> space_, void *pointer_)
-		: space{std::move(space_)}, pointer{pointer_}, bufferSize{4096} { }
-
-		// Pointer (+ address space) to queue chunk struct.
-		smarter::shared_ptr<AddressSpace, BindableHandle> space;
-		void *pointer;
-
-		// Size of the chunk's buffer.
-		size_t bufferSize;
-	};
-
 public:
-	IpcQueue(unsigned int ringShift, size_t chunkSize);
+	IpcQueue(unsigned int ringShift, unsigned int numChunks, size_t chunkSize);
 
 	IpcQueue(const IpcQueue &) = delete;
 
@@ -184,8 +169,9 @@ private:
 	smarter::shared_ptr<ImmediateMemory> _memory;
 
 	unsigned int _ringShift;
+	size_t _chunkSize;
 
-	frg::vector<Chunk, KernelAlloc> _chunks;
+	frg::vector<size_t, KernelAlloc> _chunkOffsets;
 
 	// Index into the queue that we are currently processing.
 	int _currentIndex;

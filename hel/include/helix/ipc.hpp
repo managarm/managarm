@@ -1,4 +1,3 @@
-
 #ifndef HELIX_HPP
 #define HELIX_HPP
 
@@ -195,11 +194,19 @@ public:
 			};
 			HEL_CHECK(helCreateQueue(&params, &_handle));
 
+			auto chunksOffset = (sizeof(HelQueue) + (sizeof(int) << sizeShift) + 63) & ~size_t(63);
+			auto reservedPerChunk = (sizeof(HelChunk) + params.chunkSize + 63) & ~size_t(63);
+			auto overallSize = chunksOffset + params.numChunks * reservedPerChunk;
+
 			void *mapping;
 			HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
-					0, (sizeof(HelQueue) + (sizeof(int) << sizeShift) + 0xFFF) & ~size_t(0xFFF),
+					0, (overallSize + 0xFFF) & ~size_t(0xFFF),
 					kHelMapProtRead | kHelMapProtWrite, &mapping));
+
 			_queue = reinterpret_cast<HelQueue *>(mapping);
+			auto chunksPtr = reinterpret_cast<std::byte *>(mapping) + chunksOffset;
+			for(unsigned int i = 0; i < 16; ++i)
+				_chunks[i] = reinterpret_cast<HelChunk *>(chunksPtr + i * reservedPerChunk);
 		}
 
 		return _handle;
@@ -207,18 +214,12 @@ public:
 
 	void wait() {
 		while(true) {
+			// TODO: Initialize all chunks when setting up the queue.
 			if(_retrieveIndex == _nextIndex) {
-				assert(_activeChunks < (1 << sizeShift));
-				if(_activeChunks >= 16)
-					std::cerr << "\e[35mhelix: Queue is forced to grow to " << _activeChunks
-							<< " chunks (memory leak?)\e[39m" << std::endl;
-
-				auto chunk = reinterpret_cast<HelChunk *>(operator new(sizeof(HelChunk) + 4096));
-				_chunks[_activeChunks] = chunk;
-				HEL_CHECK(helSetupChunk(_handle, _activeChunks, chunk, 0));
+				assert(_activeChunks < 16);
 
 				// Reset and enqueue the new chunk.
-				chunk->progressFutex = 0;
+				_chunks[_activeChunks]->progressFutex = 0;
 
 				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
 				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
@@ -228,15 +229,10 @@ public:
 				_activeChunks++;
 				continue;
 			}else if (_hadWaiters && _activeChunks < (1 << sizeShift)) {
-//				std::cerr << "\e[35mhelix: Growing queue to " << _activeChunks
-//						<< " chunks to improve throughput\e[39m" << std::endl;
-
-				auto chunk = reinterpret_cast<HelChunk *>(operator new(sizeof(HelChunk) + 4096));
-				_chunks[_activeChunks] = chunk;
-				HEL_CHECK(helSetupChunk(_handle, _activeChunks, chunk, 0));
+				assert(_activeChunks < 16);
 
 				// Reset and enqueue the new chunk.
-				chunk->progressFutex = 0;
+				_chunks[_activeChunks]->progressFutex = 0;
 
 				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
 				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
@@ -335,7 +331,7 @@ private:
 private:
 	HelHandle _handle;
 	HelQueue *_queue;
-	HelChunk *_chunks[1 << sizeShift];
+	HelChunk *_chunks[16];
 
 	int _activeChunks;
 	bool _hadWaiters;
@@ -348,7 +344,7 @@ private:
 	int _lastProgress;
 
 	// Per-chunk reference counts.
-	int _refCounts[1 << sizeShift];
+	int _refCounts[16];
 };
 
 async::run_queue *globalQueue();

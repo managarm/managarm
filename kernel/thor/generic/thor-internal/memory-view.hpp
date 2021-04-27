@@ -972,6 +972,21 @@ struct ImmediateMemory final : MemoryView {
 				reinterpret_cast<std::byte *>(accessor.get()) + misalign);
 	}
 
+	void writeImmediate(uintptr_t offset, void *pointer, size_t size) {
+		size_t progress = 0;
+		while(progress < size) {
+			auto misalign = (offset + progress) & (kPageSize - 1);
+			auto chunk = frg::min(size - progress, kPageSize - misalign);
+
+			auto index = (offset + progress) >> kPageShift;
+			assert(index < _physicalPages.size());
+			PageAccessor accessor{_physicalPages[index]};
+			memcpy(reinterpret_cast<std::byte *>(accessor.get()) + misalign,
+					reinterpret_cast<std::byte *>(pointer) + progress, chunk);
+			progress += chunk;
+		}
+	}
+
 private:
 	frg::ticket_spinlock _mutex;
 

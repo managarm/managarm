@@ -291,7 +291,7 @@ HelError helCreateQueue(HelQueueParameters *paramsPtr, HelHandle *handle) {
 		return kHelErrIllegalArgs;
 
 	auto queue = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
-			params.ringShift, params.chunkSize);
+			params.ringShift, params.numChunks, params.chunkSize);
 	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -300,29 +300,6 @@ HelError helCreateQueue(HelQueueParameters *paramsPtr, HelHandle *handle) {
 		*handle = thisUniverse->attachDescriptor(universe_guard,
 				QueueDescriptor(std::move(queue)));
 	}
-
-	return kHelErrNone;
-}
-
-HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint32_t flags) {
-	assert(!flags);
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
-
-	smarter::shared_ptr<IpcQueue> queue;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
-		if(!queue_wrapper)
-			return kHelErrNoDescriptor;
-		if(!queue_wrapper->is<QueueDescriptor>())
-			return kHelErrBadDescriptor;
-		queue = queue_wrapper->get<QueueDescriptor>().queue;
-	}
-
-	queue->setupChunk(index, this_thread->getAddressSpace().lock(), chunk);
 
 	return kHelErrNone;
 }

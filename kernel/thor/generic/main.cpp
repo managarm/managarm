@@ -619,10 +619,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateQueue((HelQueueParameters *)arg0, &handle);
 		*image.out0() = handle;
 	} break;
-	case kHelCallSetupChunk: {
-		*image.error() = helSetupChunk((HelHandle)arg0, (int)arg1,
-				(HelChunk *)arg2, (uint32_t)arg3);
-	} break;
 	case kHelCallCancelAsync: {
 		*image.error() = helCancelAsync((HelHandle)arg0, (uint64_t)arg1);
 	} break;
