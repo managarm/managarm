@@ -126,6 +126,9 @@ void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
 			smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
+			// Avoid stack overflows.
+			co_await wq->schedule();
+
 			auto outcome = co_await self->touchVirtualPage(offset + progress, wq);
 			if(!outcome) {
 				node->result = outcome.error();
