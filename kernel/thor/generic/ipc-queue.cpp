@@ -11,12 +11,18 @@ namespace thor {
 // IpcQueue
 // ----------------------------------------------------------------------------
 
-IpcQueue::IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer,
-		unsigned int size_shift, size_t)
-: _space{std::move(space)}, _pointer{pointer}, _sizeShift{size_shift},
+IpcQueue::IpcQueue(unsigned int ringShift, size_t)
+: _ringShift{ringShift},
 		_chunks{*kernelAlloc},
 		_currentIndex{0}, _currentProgress{0}, _anyNodes{false} {
-	_chunks.resize(1 << _sizeShift);
+	// Setup internal state.
+	_memory = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc,
+			sizeof(QueueStruct) + (sizeof(int) << ringShift));
+	_chunks.resize(1 << _ringShift);
+
+	// Setup the queue data structure.
+	auto head = _memory->accessImmediate<QueueStruct>(0);
+	memset(head, 0, sizeof(QueueStruct));
 
 	async::detach_with_allocator(*kernelAlloc, _runQueue());
 }
@@ -49,9 +55,7 @@ void IpcQueue::submit(IpcNode *node) {
 }
 
 coroutine<void> IpcQueue::_runQueue() {
-	AddressSpaceLockHandle queueLock{_space, _pointer, sizeof(QueueStruct)
-			+ (size_t{1} << _sizeShift) * sizeof(int)};
-	co_await queueLock.acquire(WorkQueue::generalQueue()->take());
+	auto head = _memory->accessImmediate<QueueStruct>(0);
 
 	while(true) {
 		co_await _doorbell.async_wait_if([&] () -> bool {
@@ -61,12 +65,11 @@ coroutine<void> IpcQueue::_runQueue() {
 			continue;
 
 		// Wait until the futex advances past _currentIndex.
-		DirectSpaceAccessor<int> headFutexAccessor{queueLock, offsetof(QueueStruct, headFutex)};
 		while(true) {
 			bool pastCurrentChunk = false;
-			auto headFutexWord = __atomic_load_n(headFutexAccessor.get(), __ATOMIC_ACQUIRE);
-				// TODO: Contract violation errors should be reported to user-space.
-				assert(!(headFutexWord & ~(kHeadMask | kHeadWaiters)));
+			auto headFutexWord = __atomic_load_n(&head->headFutex, __ATOMIC_ACQUIRE);
+			// TODO: Contract violation errors should be reported to user-space.
+			assert(!(headFutexWord & ~(kHeadMask | kHeadWaiters)));
 			do {
 				if(_currentIndex != (headFutexWord & kHeadMask)) {
 					pastCurrentChunk = true;
@@ -75,13 +78,13 @@ coroutine<void> IpcQueue::_runQueue() {
 
 				if(headFutexWord & kHeadWaiters)
 					break; // Waiters bit is already set (in a previous iteration).
-			} while(!__atomic_compare_exchange_n(headFutexAccessor.get(), &headFutexWord,
+			} while(!__atomic_compare_exchange_n(&head->headFutex, &headFutexWord,
 					_currentIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
 			if(pastCurrentChunk)
 				break;
 
-			auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
-			auto futexOrError = co_await takeGlobalFutex(_space.get(), fa,
+			auto futexOrError = co_await takeGlobalFutex(
+					_memory, offsetof(QueueStruct, headFutex),
 					WorkQueue::generalQueue()->take());
 			if(!futexOrError) {
 				infoLogger() << "thor: Shutting down IPC queue after fault" << frg::endlog;
@@ -97,8 +100,8 @@ coroutine<void> IpcQueue::_runQueue() {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&_mutex);
 
-			size_t iq = + _currentIndex & ((size_t{1} << _sizeShift) - 1);
-			size_t cn = queueLock.read<int>(offsetof(QueueStruct, indexQueue) + iq * sizeof(int));
+			size_t iq = + _currentIndex & ((size_t{1} << _ringShift) - 1);
+			size_t cn = *_memory->accessImmediate<int>(offsetof(QueueStruct, indexQueue) + iq * sizeof(int));
 			assert(cn < _chunks.size());
 			assert(_chunks[cn].space);
 

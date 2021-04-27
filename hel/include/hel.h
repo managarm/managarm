@@ -398,6 +398,13 @@ enum HelMessageFlags {
 	kHelResponse = 2
 };
 
+struct HelQueueParameters {
+	uint32_t flags;
+	unsigned int ringShift;
+	unsigned int numChunks;
+	size_t chunkSize;
+};
+
 //! Mask to extract the current queue head.
 static const int kHelHeadMask = 0xFFFFFF;
 
@@ -601,11 +608,9 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle ha
 //! @name Management of IPC Queues
 //! @{
 
-//! size_shift:    Size of the indexQueue array.
-//! element_limit: Maximum size of a single element in bytes.
-//!                Does not include the per-element HelElement header.
-HEL_C_LINKAGE HelError helCreateQueue(struct HelQueue *head, uint32_t flags,
-		unsigned int size_shift, size_t element_limit, HelHandle *handle);
+//! Creates an IPC queue.
+HEL_C_LINKAGE HelError helCreateQueue(struct HelQueueParameters *params,
+		HelHandle *handle);
 
 HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, struct HelChunk *chunk, uint32_t flags);
 

@@ -188,10 +188,18 @@ public:
 
 	HelHandle acquire() {
 		if(!_handle) {
-			_queue = reinterpret_cast<HelQueue *>(operator new(sizeof(HelQueue)
-					+ (1 << sizeShift) * sizeof(int)));
-			_queue->headFutex = 0;
-			HEL_CHECK(helCreateQueue(_queue, 0, sizeShift, 128, &_handle));
+			HelQueueParameters params {
+				.ringShift = sizeShift,
+				.numChunks = 16,
+				.chunkSize = 4096
+			};
+			HEL_CHECK(helCreateQueue(&params, &_handle));
+
+			void *mapping;
+			HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
+					0, (sizeof(HelQueue) + (sizeof(int) << sizeShift) + 0xFFF) & ~size_t(0xFFF),
+					kHelMapProtRead | kHelMapProtWrite, &mapping));
+			_queue = reinterpret_cast<HelQueue *>(mapping);
 		}
 
 		return _handle;

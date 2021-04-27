@@ -279,21 +279,25 @@ HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helCreateQueue(HelQueue *head, uint32_t flags,
-		unsigned int size_shift, size_t element_limit, HelHandle *handle) {
-	assert(!flags);
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError helCreateQueue(HelQueueParameters *paramsPtr, HelHandle *handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	HelQueueParameters params;
+	if(!readUserObject(paramsPtr, params))
+		return kHelErrFault;
+
+	if(params.flags)
+		return kHelErrIllegalArgs;
 
 	auto queue = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
-			this_thread->getAddressSpace().lock(), head,
-			size_shift, element_limit);
+			params.ringShift, params.chunkSize);
 	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
+		Universe::Guard universe_guard(thisUniverse->lock);
 
-		*handle = this_universe->attachDescriptor(universe_guard,
+		*handle = thisUniverse->attachDescriptor(universe_guard,
 				QueueDescriptor(std::move(queue)));
 	}
 
@@ -758,9 +762,14 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			slice = memory_wrapper->get<MemorySliceDescriptor>().slice;
 		}else if(memory_wrapper->is<MemoryViewDescriptor>()) {
 			auto memory = memory_wrapper->get<MemoryViewDescriptor>().memory;
-			auto bundle_length = memory->getLength();
+			auto sliceLength = memory->getLength();
 			slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-					std::move(memory), 0, bundle_length);
+					std::move(memory), 0, sliceLength);
+		}else if(memory_wrapper->is<QueueDescriptor>()) {
+			auto memory = memory_wrapper->get<QueueDescriptor>().queue->getMemory();
+			auto sliceLength = memory->getLength();
+			slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
+					std::move(memory), 0, sliceLength);
 		}else{
 			return kHelErrBadDescriptor;
 		}

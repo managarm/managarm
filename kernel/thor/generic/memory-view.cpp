@@ -214,6 +214,101 @@ Error MemoryView::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> vi
 }
 
 // --------------------------------------------------------
+// ImmediateMemory
+// --------------------------------------------------------
+
+ImmediateMemory::ImmediateMemory(size_t length)
+: _physicalPages{*kernelAlloc} {
+	auto numPages = (length + kPageSize - 1) >> kPageShift;
+	_physicalPages.resize(numPages);
+	for(size_t i = 0; i < numPages; ++i) {
+		auto physical = physicalAllocator->allocate(kPageSize, 64);
+		assert(physical != PhysicalAddr(-1) && "OOM when allocating ImmediateMemory");
+
+		PageAccessor accessor{physical};
+		memset(accessor.get(), 0, kPageSize);
+
+		_physicalPages[i] = physical;
+	}
+}
+
+ImmediateMemory::~ImmediateMemory() {
+	for(size_t i = 0; i < _physicalPages.size(); ++i)
+		physicalAllocator->free(_physicalPages[i], kPageSize);
+}
+
+void ImmediateMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	size_t currentNumPages = _physicalPages.size();
+	size_t newNumPages = (newSize + kPageSize - 1) >> kPageShift;
+	assert(newNumPages >= currentNumPages);
+	_physicalPages.resize(newNumPages);
+	for(size_t i = currentNumPages; i < newNumPages; ++i) {
+		auto physical = physicalAllocator->allocate(kPageSize, 64);
+		assert(physical != PhysicalAddr(-1) && "OOM when allocating ImmediateMemory");
+
+		PageAccessor accessor{physical};
+		memset(accessor.get(), 0, kPageSize);
+
+		_physicalPages[i] = physical;
+	}
+
+	receiver.set_value();
+}
+
+frg::expected<Error, AddressIdentity> ImmediateMemory::getAddressIdentity(uintptr_t offset) {
+	return AddressIdentity{this, offset};
+}
+
+Error ImmediateMemory::lockRange(uintptr_t offset, size_t size) {
+	return Error::success;
+}
+
+void ImmediateMemory::unlockRange(uintptr_t offset, size_t size) {
+	// Do nothing.
+}
+
+frg::tuple<PhysicalAddr, CachingMode> ImmediateMemory::peekRange(uintptr_t offset) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	auto index = offset >> kPageShift;
+	if(index >= _physicalPages.size())
+		return {PhysicalAddr(-1), CachingMode::null};
+	return {_physicalPages[index], CachingMode::null};
+}
+
+bool ImmediateMemory::fetchRange(uintptr_t offset,
+		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	auto index = offset >> kPageShift;
+	auto disp = offset & (kPageSize - 1);
+	if(index >= _physicalPages.size()) {
+		completeFetch(node, Error::fault,
+				PhysicalAddr(-1), kPageSize - disp, CachingMode::null);
+	}else{
+		completeFetch(node, Error::success,
+				_physicalPages[index] + disp, kPageSize - disp, CachingMode::null);
+	}
+	return true;
+}
+
+void ImmediateMemory::markDirty(uintptr_t offset, size_t size) {
+	// Do nothing for now.
+}
+
+size_t ImmediateMemory::getLength() {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	return _physicalPages.size() * kPageSize;
+}
+
+// --------------------------------------------------------
 // HardwareMemory
 // --------------------------------------------------------
 

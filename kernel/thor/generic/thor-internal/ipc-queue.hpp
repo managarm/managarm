@@ -105,12 +105,15 @@ private:
 	};
 
 public:
-	IpcQueue(smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer,
-			unsigned int size_shift, size_t element_limit);
+	IpcQueue(unsigned int ringShift, size_t chunkSize);
 
 	IpcQueue(const IpcQueue &) = delete;
 
 	IpcQueue &operator= (const IpcQueue &) = delete;
+
+	smarter::shared_ptr<MemoryView> getMemory() {
+		return _memory;
+	}
 
 	bool validSize(size_t size);
 
@@ -178,11 +181,9 @@ private:
 private:
 	Mutex _mutex;
 
-	// Pointer (+ address space) to queue head struct.
-	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
-	void *_pointer;
+	smarter::shared_ptr<ImmediateMemory> _memory;
 
-	unsigned int _sizeShift;
+	unsigned int _ringShift;
 
 	frg::vector<Chunk, KernelAlloc> _chunks;
 

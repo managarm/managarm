@@ -941,6 +941,43 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 
 // ----------------------------------------------------------------------------------
 
+// Memory that is allocated by the kernel and never swapped out.
+// In contrast to most other memory objects, it can be accessed synchronously.
+struct ImmediateMemory final : MemoryView {
+	ImmediateMemory(size_t length);
+	ImmediateMemory(const ImmediateMemory &) = delete;
+	~ImmediateMemory();
+
+	ImmediateMemory &operator= (const ImmediateMemory &) = delete;
+
+	size_t getLength() override;
+	void resize(size_t newLength, async::any_receiver<void> receiver) override;
+	frg::expected<Error, AddressIdentity> getAddressIdentity(uintptr_t offset) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
+	void unlockRange(uintptr_t offset, size_t size) override;
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	void markDirty(uintptr_t offset, size_t size) override;
+
+	template<typename T>
+	T *accessImmediate(uintptr_t offset) {
+		static_assert(sizeof(T) <= kPageSize); // Otherwise, the assert below will always fail.
+		auto misalign = offset & (kPageSize - 1);
+		assert(misalign + sizeof(T) <= kPageSize);
+
+		auto index = offset >> kPageShift;
+		assert(index < _physicalPages.size());
+		PageAccessor accessor{_physicalPages[index]};
+		return reinterpret_cast<T *>(
+				reinterpret_cast<std::byte *>(accessor.get()) + misalign);
+	}
+
+private:
+	frg::ticket_spinlock _mutex;
+
+	frg::vector<PhysicalAddr, KernelAlloc> _physicalPages;
+};
+
 struct HardwareMemory final : MemoryView {
 	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
 	HardwareMemory(const HardwareMemory &) = delete;
