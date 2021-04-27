@@ -941,6 +941,39 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 
 // ----------------------------------------------------------------------------------
 
+struct ImmediateMemory;
+
+// This class is compatible with GlobalFutex: a GlobalFutex and an ImmediateFutex
+// to the same MemoryView and offset have the same FutexIdentity.
+struct ImmediateFutex {
+	ImmediateFutex() = default;
+
+	ImmediateFutex(ImmediateMemory *memory, uintptr_t offset, PhysicalAddr physical)
+	: memory_{memory}, offset_{std::move(offset)},
+			physical_{std::move(physical)} { }
+
+	FutexIdentity getIdentity() {
+		return {reinterpret_cast<uintptr_t>(memory_), offset_};
+	}
+
+	unsigned int read() {
+		PageAccessor accessor{physical_};
+		auto offsetOfWord = offset_ & (kPageSize - 1);
+		auto accessPtr = reinterpret_cast<unsigned int *>(
+				reinterpret_cast<std::byte *>(accessor.get()) + offsetOfWord);
+		return __atomic_load_n(accessPtr, __ATOMIC_RELAXED);
+	}
+
+	void retire() {
+		// Do nothing.
+	}
+
+private:
+	ImmediateMemory *memory_;
+	uintptr_t offset_ = 0;
+	PhysicalAddr physical_ = PhysicalAddr(-1);
+};
+
 // Memory that is allocated by the kernel and never swapped out.
 // In contrast to most other memory objects, it can be accessed synchronously.
 struct ImmediateMemory final : MemoryView {
@@ -958,6 +991,16 @@ struct ImmediateMemory final : MemoryView {
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
 	void markDirty(uintptr_t offset, size_t size) override;
+
+	FutexIdentity resolveImmediateFutex(uintptr_t offset) {
+		return {reinterpret_cast<uintptr_t>(this), offset};
+	}
+
+	ImmediateFutex getImmediateFutex(uintptr_t offset) {
+		auto index = offset >> kPageShift;
+		assert(index < _physicalPages.size());
+		return {this, offset, _physicalPages[index]};
+	}
 
 	template<typename T>
 	T *accessImmediate(uintptr_t offset) {

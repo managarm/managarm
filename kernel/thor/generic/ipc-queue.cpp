@@ -74,14 +74,8 @@ coroutine<void> IpcQueue::_runQueue() {
 			if(pastCurrentChunk)
 				break;
 
-			auto futexOrError = co_await takeGlobalFutex(_memory,
-					offsetof(QueueStruct, headFutex),
-					WorkQueue::generalQueue()->take());
-			if(!futexOrError) {
-				infoLogger() << "thor: Shutting down IPC queue after fault" << frg::endlog;
-				co_return;
-			}
-			co_await getGlobalFutexRealm()->wait(std::move(futexOrError.value()),
+			auto hfOffset = offsetof(QueueStruct, headFutex);
+			co_await getGlobalFutexRealm()->wait(_memory->getImmediateFutex(hfOffset),
 					_currentIndex | kHeadWaiters);
 		}
 
@@ -162,13 +156,8 @@ coroutine<void> IpcQueue::_runQueue() {
 			// If user-space modifies any non-flags field, that's a contract violation.
 			// TODO: Shut down the queue in this case.
 			if(progressFutexWord & kProgressWaiters) {
-				auto identityOrError = resolveGlobalFutex(_memory.get(),
-						chunkOffset + offsetof(ChunkStruct, progressFutex));
-				if(!identityOrError) {
-					infoLogger() << "thor: Shutting down IPC queue after fault" << frg::endlog;
-					co_return;
-				}
-				getGlobalFutexRealm()->wake(identityOrError.value());
+				auto pfOffset = chunkOffset + offsetof(ChunkStruct, progressFutex);
+				getGlobalFutexRealm()->wake(_memory->resolveImmediateFutex(pfOffset));
 			}
 
 			// Update our internal state and retire the chunk.
