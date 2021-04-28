@@ -106,7 +106,6 @@ struct StreamNode {
 
 	LaneHandle _transmitLane;
 
-private:
 	int _tag;
 	StreamPacket *_packet;
 
