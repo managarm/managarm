@@ -34,6 +34,8 @@
 #include "devices/full.hpp"
 #include "devices/helout.hpp"
 #include "devices/null.hpp"
+#include "devices/random.hpp"
+#include "devices/urandom.hpp"
 #include "devices/zero.hpp"
 #include "fifo.hpp"
 #include "gdbserver.hpp"
@@ -3783,6 +3785,8 @@ int main() {
 		charRegistry.install(pts::createMasterDevice());
 		charRegistry.install(createNullDevice());
 		charRegistry.install(createFullDevice());
+		charRegistry.install(createRandomDevice());
+		charRegistry.install(createUrandomDevice());
 		charRegistry.install(createZeroDevice());
 		block_subsystem::run();
 		drm_subsystem::run();
