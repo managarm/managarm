@@ -6,6 +6,7 @@
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/profile.hpp>
+#include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
 
 #include "kerncfg.frigg_pb.hpp"

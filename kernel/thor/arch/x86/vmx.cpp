@@ -4,6 +4,7 @@
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/core.hpp>
+#include <thor-internal/thread.hpp>
 #include <x86/machine.hpp>
 
 extern "C" void vmLaunch(void* state);

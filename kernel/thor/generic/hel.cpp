@@ -8,11 +8,13 @@
 #include <frg/small_vector.hpp>
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/io.hpp>
 #include <thor-internal/ipc-queue.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/random.hpp>
+#include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 #ifdef __x86_64__

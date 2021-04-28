@@ -4,6 +4,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/stream.hpp>
 #include <clock.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
 

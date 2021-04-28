@@ -8,6 +8,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/gdbserver.hpp>
 #include <thor-internal/module.hpp>
+#include <thor-internal/stream.hpp>
 
 namespace thor {
 

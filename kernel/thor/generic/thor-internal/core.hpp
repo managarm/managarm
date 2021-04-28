@@ -6,6 +6,7 @@
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/executor-context.hpp>
+#include <thor-internal/descriptor.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/schedule.hpp>
 
@@ -67,28 +68,6 @@ inline CpuData *getCpuData() {
 
 inline ExecutorContext *currentExecutorContext() {
 	return getCpuData()->executorContext;
-}
-
-} // namespace thor
-
-#include <thor-internal/accessors.hpp>
-#include <thor-internal/address-space.hpp>
-#include <thor-internal/descriptor.hpp>
-#include <thor-internal/io.hpp>
-#include <thor-internal/stream.hpp>
-#include <thor-internal/thread.hpp>
-
-namespace thor {
-
-template<typename T>
-DirectSpaceAccessor<T>::DirectSpaceAccessor(AddressSpaceLockHandle &lock, ptrdiff_t offset) {
-	static_assert(sizeof(T) < kPageSize, "Type too large for DirectSpaceAccessor");
-	assert(!(lock.address() % sizeof(T)));
-	
-	_misalign = (lock.address() + offset) & (kPageSize - 1);
-	auto physical = lock.getPhysical(offset);
-	assert(physical != PhysicalAddr(-1));
-	_accessor = PageAccessor{physical};
 }
 
 // --------------------------------------------------------

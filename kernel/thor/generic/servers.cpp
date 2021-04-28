@@ -8,6 +8,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>
+#include <thor-internal/thread.hpp>
 #include "mbus.frigg_pb.hpp"
 #include "svrctl.frigg_pb.hpp"
 

@@ -17,6 +17,7 @@
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
+#include <thor-internal/thread.hpp>
 
 namespace thor {
 

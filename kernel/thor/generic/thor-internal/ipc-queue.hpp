@@ -2,10 +2,10 @@
 
 #include <frg/list.hpp>
 #include <frg/vector.hpp>
-#include <thor-internal/accessors.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/memory-view.hpp>
 
 namespace thor {
 

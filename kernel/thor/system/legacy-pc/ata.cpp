@@ -1,7 +1,9 @@
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/io.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/stream.hpp>
 #include <hw.frigg_bragi.hpp>
 #include <mbus.frigg_pb.hpp>
 
