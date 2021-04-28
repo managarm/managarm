@@ -2,8 +2,7 @@ libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
 link_args = [ '-nostdlib' ]
 
 args = [ 
-	'-DCXXSHIM_INTEGRATE_GCC', 
-	'-DLIBASYNC_CUSTOM_PLATFORM', 
+	'-DLIBASYNC_CUSTOM_PLATFORM',
 	'-DLIBASYNC_FORCE_USE_EXPERIMENTAL',
 	'-fno-threadsafe-statics'
 ]
