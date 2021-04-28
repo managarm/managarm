@@ -223,7 +223,7 @@ async::detached handleIrqs() {
 async::result<protocols::fs::ReadResult>
 read(void *, const char *, void *buffer, size_t length) {
 	if(!length)
-		co_return 0;
+		co_return size_t{0};
 
 	ReadRequest req{buffer, length};
 	recvRequests.push_back(req);
