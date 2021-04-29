@@ -97,6 +97,4 @@ private:
 	bool _enabled;
 };
 
-IrqMutex &irqMutex();
-
 } // namespace thor

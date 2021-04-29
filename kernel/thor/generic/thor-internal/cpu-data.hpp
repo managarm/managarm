@@ -2,13 +2,15 @@
 
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/executor-context.hpp>
-#include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/schedule.hpp>
 
 namespace thor {
 
-struct WorkQueue;
+// Forward defined for pointers that are part of CpuData.
 struct KernelFiber;
+struct SingleContextRecordRing;
+struct WorkQueue;
 
 enum class ProfileMechanism {
 	none,
@@ -43,8 +45,13 @@ struct CpuData : public PlatformCpuData {
 
 CpuData *getCpuData(size_t k);
 int getCpuCount();
+
 inline CpuData *getCpuData() {
 	return static_cast<CpuData *>(getPlatformCpuData());
+}
+
+inline IrqMutex &irqMutex() {
+	return getCpuData()->irqMutex;
 }
 
 inline ExecutorContext *currentExecutorContext() {

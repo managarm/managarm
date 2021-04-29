@@ -217,10 +217,6 @@ frg::manual_box<KernelAlloc> kernelAlloc;
 // CpuData
 // --------------------------------------------------------
 
-IrqMutex &irqMutex() {
-	return getCpuData()->irqMutex;
-}
-
 ExecutorContext::ExecutorContext() { }
 
 CpuData::CpuData()

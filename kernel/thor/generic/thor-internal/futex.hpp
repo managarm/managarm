@@ -8,9 +8,9 @@
 
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel_heap.hpp>
-#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {

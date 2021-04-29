@@ -1,6 +1,6 @@
-
-#include <thor-internal/kernel-locks.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/event.hpp>
+#include <thor-internal/kernel-locks.hpp>
 
 namespace thor {
 

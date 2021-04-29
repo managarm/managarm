@@ -1,6 +1,6 @@
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/irq.hpp>
-#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/timer.hpp>
 
 namespace thor {
