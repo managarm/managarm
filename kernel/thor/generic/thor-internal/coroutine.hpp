@@ -260,7 +260,7 @@ struct coroutine_operation : private coroutine_continuation<T> {
 
 private:
 	void set_value(T value) override {
-		async::execution::set_value(receiver_, std::move(value));
+		async::execution::set_value_noinline(receiver_, std::move(value));
 	}
 
 private:
@@ -286,7 +286,7 @@ struct coroutine_operation<void, R> : private coroutine_continuation<void> {
 
 private:
 	void set_value() override {
-		async::execution::set_value(receiver_);
+		async::execution::set_value_noinline(receiver_);
 	}
 
 private:
