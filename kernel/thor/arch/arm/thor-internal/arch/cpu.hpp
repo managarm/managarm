@@ -5,6 +5,7 @@
 #include <utility>
 
 #include <frg/tuple.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/types.hpp>

@@ -9,9 +9,10 @@
 #include <frg/container_of.hpp>
 #include <frg/array.hpp>
 #include <frg/vector.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/universe.hpp>
 
 namespace thor {
 

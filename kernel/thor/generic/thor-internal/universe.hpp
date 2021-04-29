@@ -8,6 +8,8 @@
 
 namespace thor {
 
+typedef int64_t Handle;
+
 struct MemoryView;
 struct AddressSpace;
 struct IoSpace;
@@ -233,5 +235,36 @@ typedef frg::variant<
 	KernletObjectDescriptor,
 	BoundKernletDescriptor
 > AnyDescriptor;
+
+// --------------------------------------------------------
+// Universe.
+// --------------------------------------------------------
+
+struct Universe {
+public:
+	typedef frg::ticket_spinlock Lock;
+	typedef frg::unique_lock<frg::ticket_spinlock> Guard;
+
+	Universe();
+	~Universe();
+
+	Handle attachDescriptor(Guard &guard, AnyDescriptor descriptor);
+
+	AnyDescriptor *getDescriptor(Guard &guard, Handle handle);
+
+	frg::optional<AnyDescriptor> detachDescriptor(Guard &guard, Handle handle);
+
+	Lock lock;
+
+private:
+	frg::hash_map<
+		Handle,
+		AnyDescriptor,
+		frg::hash<Handle>,
+		KernelAlloc
+	> _descriptorMap;
+
+	Handle _nextHandle;
+};
 
 } // namespace thor

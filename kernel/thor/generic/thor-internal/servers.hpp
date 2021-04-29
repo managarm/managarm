@@ -1,6 +1,7 @@
 #pragma once
 
 #include <thor-internal/coroutine.hpp>
+#include <thor-internal/universe.hpp>
 
 namespace thor {
 

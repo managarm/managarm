@@ -1,5 +1,5 @@
 #include <thor-internal/arch/cpu.hpp>
-#include <generic/thor-internal/core.hpp>
+#include <generic/thor-internal/cpu-data.hpp>
 #include <frg/manual_box.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/kasan.hpp>

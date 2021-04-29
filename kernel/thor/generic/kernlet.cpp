@@ -7,7 +7,7 @@
 #include <arch/mem_space.hpp>
 #include <frg/string.hpp>
 #include <elf.h>
-#include <thor-internal/descriptor.hpp>
+#include <thor-internal/universe.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernlet.hpp>

@@ -61,6 +61,7 @@ src += files(
 	'generic/thread.cpp',
 	'generic/servers.cpp',
 	'generic/ubsan.cpp',
+	'generic/universe.cpp',
 	'generic/work-queue.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',

@@ -1,4 +1,4 @@
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {

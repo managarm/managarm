@@ -3,7 +3,7 @@
 
 #include <frg/container_of.hpp>
 
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 

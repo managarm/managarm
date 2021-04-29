@@ -1,5 +1,5 @@
 
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/arch/cpu.hpp>

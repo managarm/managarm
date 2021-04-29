@@ -4,7 +4,7 @@
 #include <elf.h>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
-#include <thor-internal/descriptor.hpp>
+#include <thor-internal/universe.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>

@@ -2,7 +2,7 @@
 #include <thor-internal/arch/ints.hpp>
 #include <arch/variable.hpp>
 #include <thor-internal/physical.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 
 namespace thor {
 

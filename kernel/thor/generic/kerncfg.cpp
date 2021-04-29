@@ -1,6 +1,6 @@
 #include <frg/string.hpp>
 
-#include <thor-internal/descriptor.hpp>
+#include <thor-internal/universe.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>

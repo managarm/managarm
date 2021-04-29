@@ -4,9 +4,10 @@
 #include <atomic>
 
 #include <frg/container_of.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/schedule.hpp>
+#include <thor-internal/universe.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {

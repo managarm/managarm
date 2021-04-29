@@ -3,7 +3,7 @@
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/physical.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/thread.hpp>
 #include <x86/machine.hpp>
 

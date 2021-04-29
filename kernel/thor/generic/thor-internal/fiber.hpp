@@ -2,7 +2,7 @@
 
 #include <frg/container_of.hpp>
 #include <thor-internal/arch/cpu.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/initgraph.hpp>
 

@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <type_traits>
+#include <thor-internal/address-space.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/fiber.hpp>

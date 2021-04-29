@@ -3,7 +3,7 @@
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/initgraph.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/fiber.hpp>

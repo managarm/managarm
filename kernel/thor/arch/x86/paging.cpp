@@ -1,7 +1,7 @@
 
 #include <arch/variable.hpp>
 #include <frg/list.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/arch/paging.hpp>
 

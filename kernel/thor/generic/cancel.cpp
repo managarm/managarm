@@ -1,5 +1,5 @@
 #include <thor-internal/cancel.hpp>
-#include <thor-internal/core.hpp>
+#include <thor-internal/cpu-data.hpp>
 
 namespace thor {
 
