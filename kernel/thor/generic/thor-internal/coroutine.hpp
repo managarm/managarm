@@ -5,13 +5,36 @@
 
 template<typename T>
 struct coroutine_continuation {
-	virtual void set_value(T value) = 0;
+	void pass_value(T value) {
+		obj_.emplace(std::move(value));
+	}
+
+	virtual void resume() = 0;
+
+protected:
+	T &value() {
+		return *obj_;
+	}
+
+private:
+	frg::optional<T> obj_;
 };
 
 // Specialization for coroutines without results.
 template<>
 struct coroutine_continuation<void> {
-	virtual void set_value() = 0;
+	virtual void resume() = 0;
+};
+
+// "Control flow path" that the coroutine takes. This state is used to distinguish inline
+// completion from asynchronous completion. In contrast to other state machines, the states
+// are not significant only their own; only transitions matter:
+// On past_suspend -> past_start transitions, we continue inline.
+// On past_start -> past_suspend transitions, we call resume().
+enum class coroutine_cfp {
+	indeterminate,
+	past_start, // We are past start_inline().
+	past_suspend // We are past final_suspend.
 };
 
 template<typename T, typename R>
@@ -45,7 +68,7 @@ struct coroutine {
 		}
 
 		void return_value(T value) {
-			value_ = std::move(value);
+			cont_->pass_value(std::move(value));
 		}
 
 		auto initial_suspend() {
@@ -80,15 +103,14 @@ struct coroutine {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
-					// NOTE: Clang 10 mis-optimizes statement below. It elides a copy of the type T
-					//       temporary here; if the temporary is not placed on the stack, this
-					//       causes a failure after the coroutine state is deallocated within
-					//       set_value() and the dtor of the temporary runs within this function.
-					// promise_->cont_->set_value(std::move(*promise_->value_));
-
-					T temp{std::move(*promise_->value_)};
-					promise_->cont_->set_value(std::move(temp));
+				void await_suspend(std::experimental::coroutine_handle<void> h) noexcept {
+					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
+							std::memory_order_release);
+					if(cfp == coroutine_cfp::past_start) {
+						// We do not need to synchronize with the thread that started the
+						// coroutine here, as that thread is already done on its part.
+						promise_->cont_->resume();
+					}
 				}
 
 				void await_resume() noexcept {
@@ -103,7 +125,7 @@ struct coroutine {
 
 	private:
 		coroutine_continuation<T> *cont_ = nullptr;
-		frg::optional<T> value_;
+		std::atomic<coroutine_cfp> cfp_{coroutine_cfp::indeterminate};
 	};
 
 	coroutine()
@@ -198,8 +220,14 @@ struct coroutine<void> {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
-					promise_->cont_->set_value();
+				void await_suspend(std::experimental::coroutine_handle<void> h) noexcept {
+					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
+							std::memory_order_release);
+					if(cfp == coroutine_cfp::past_start) {
+						// We do not need to synchronize with the thread that started the
+						// coroutine here, as that thread is already done on its part.
+						promise_->cont_->resume();
+					}
 				}
 
 				void await_resume() noexcept {
@@ -214,6 +242,7 @@ struct coroutine<void> {
 
 	private:
 		coroutine_continuation<void> *cont_ = nullptr;
+		std::atomic<coroutine_cfp> cfp_{coroutine_cfp::indeterminate};
 	};
 
 	coroutine()
@@ -252,18 +281,29 @@ struct coroutine_operation : private coroutine_continuation<T> {
 
 	coroutine_operation &operator= (const coroutine_operation &) = delete;
 
-	void start() {
-		auto promise = &s_.h_.promise();
+	bool start_inline() {
+		auto h = s_.h_;
+		auto promise = &h.promise();
 		promise->cont_ = this;
-		s_.h_.resume();
+		h.resume();
+		auto cfp = promise->cfp_.exchange(coroutine_cfp::past_start, std::memory_order_relaxed);
+		if(cfp == coroutine_cfp::past_suspend) {
+			// Synchronize with the thread that complete the coroutine.
+			std::atomic_thread_fence(std::memory_order_acquire);
+			async::execution::set_value_inline(receiver_, std::move(value()));
+			return true;
+		}
+		return false;
 	}
 
 private:
-	void set_value(T value) override {
-		async::execution::set_value_noinline(receiver_, std::move(value));
+	void resume() override {
+		async::execution::set_value_noinline(receiver_, std::move(value()));
 	}
 
 private:
+	using coroutine_continuation<T>::value;
+
 	coroutine<T> s_;
 	R receiver_;
 };
@@ -278,14 +318,23 @@ struct coroutine_operation<void, R> : private coroutine_continuation<void> {
 
 	coroutine_operation &operator= (const coroutine_operation &) = delete;
 
-	void start() {
-		auto promise = &s_.h_.promise();
+	bool start_inline() {
+		auto h = s_.h_;
+		auto promise = &h.promise();
 		promise->cont_ = this;
-		s_.h_.resume();
+		h.resume();
+		auto cfp = promise->cfp_.exchange(coroutine_cfp::past_start, std::memory_order_relaxed);
+		if(cfp == coroutine_cfp::past_suspend) {
+			// Synchronize with the thread that complete the coroutine.
+			std::atomic_thread_fence(std::memory_order_acquire);
+			async::execution::set_value_inline(receiver_);
+			return true;
+		}
+		return false;
 	}
 
 private:
-	void set_value() override {
+	void resume() override {
 		async::execution::set_value_noinline(receiver_);
 	}
 
