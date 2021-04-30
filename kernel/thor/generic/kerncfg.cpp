@@ -73,23 +73,56 @@ coroutine<Error> handleByteRingReq(LogRingBuffer *ringBuffer, LaneHandle boundLa
 	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 	if(req.req_type() == managarm::kerncfg::CntReqType::GET_BUFFER_CONTENTS) {
-		size_t oldDequeue = req.dequeue();
-		size_t wantedSize = ringBuffer->wantedSize(oldDequeue, req.size());;
+		frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc, req.size()};
 
-		constexpr uint64_t nanos = 100000000;
-		size_t minSize = req.watermark();
-		while (!ringBuffer->hasEnoughBytes(oldDequeue, minSize))
-			co_await generalTimerEngine()->sleep(systemClockSource()->currentNanos() + nanos);
+		size_t progress = 0;
 
-		frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc, wantedSize};
-		auto [newDequeue, actualSize] =
-			ringBuffer->dequeueInto(dataBuffer.data(), oldDequeue, wantedSize);
+		// Extract the first record. We stop on success.
+		uint64_t effectivePtr;
+		uint64_t currentPtr;
+		while(true) {
+			auto [success, recordPtr, nextPtr, actualSize] = ringBuffer->dequeueAt(
+					req.dequeue(), dataBuffer.data(), req.size());
+			if(success) {
+				assert(actualSize); // For now, we do not support size zero records.
+				if(actualSize == req.size())
+					infoLogger() << "thor: kerncfg truncates a ring buffer record" << frg::endlog;
+				effectivePtr = recordPtr;
+				currentPtr = nextPtr;
+				progress += actualSize;
+				break;
+			}
+
+			co_await ringBuffer->wait(nextPtr);
+		}
+
+		// Extract further records. We stop on failure, or if we miss records.
+		while(true) {
+			auto [success, recordPtr, nextPtr, actualSize] = ringBuffer->dequeueAt(
+					currentPtr, static_cast<std::byte *>(dataBuffer.data()) + progress,
+					req.size() - progress);
+			if(recordPtr != currentPtr)
+				break;
+			if(success) {
+				assert(actualSize); // For now, we do not support size zero records.
+				if(actualSize == req.size() - progress)
+					break;
+				currentPtr = nextPtr;
+				progress += actualSize;
+				continue;
+			}
+
+			if(progress >= req.watermark())
+				break;
+
+			co_await ringBuffer->wait(nextPtr);
+		}
 
 		managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::kerncfg::Error::SUCCESS);
-		resp.set_size(actualSize);
-		resp.set_new_dequeue(newDequeue);
-		resp.set_enqueue(ringBuffer->enqueueIndex());
+		resp.set_size(progress);
+		resp.set_effective_dequeue(effectivePtr);
+		resp.set_new_dequeue(currentPtr);
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);

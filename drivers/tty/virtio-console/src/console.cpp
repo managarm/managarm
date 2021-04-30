@@ -57,7 +57,7 @@ getKerncfgByteRingPart(helix::BorrowedLane lane,
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
-	co_return std::make_tuple(resp.size(), resp.new_dequeue(), resp.enqueue());
+	co_return std::make_tuple(resp.size(), resp.effective_dequeue(), resp.new_dequeue());
 }
 
 namespace tty {
@@ -89,15 +89,13 @@ async::detached Device::runDevice() {
 		arch::dma_buffer chunkBuffer{&dmaPool_, 1 << 16};
 
 		while (true) {
-			auto [size, newDequeue, enqueue] = co_await getKerncfgByteRingPart(
+			auto [size, effectiveDequeue, newDequeue] = co_await getKerncfgByteRingPart(
 					lane, chunkBuffer, dequeue, watermark);
-			if (!size)
-				continue;
 
 			// TODO: improve this by passing the "true" dequeue pointer to userspace.
-			if (dequeue + (256 * 1024 * 1024) < enqueue)
+			if (dequeue != effectiveDequeue)
 				std::cerr << "virtio-console: warning, we possibly missed "
-					<< (enqueue - dequeue + (256 * 1024 * 1024)) << " bytes" << std::endl;
+					<< (effectiveDequeue - dequeue) << " bytes" << std::endl;
 
 			dequeue = newDequeue;
 

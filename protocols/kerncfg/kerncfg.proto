@@ -1,4 +1,3 @@
-
 syntax = "proto2";
 package managarm.kerncfg;
 option optimize_for = LITE_RUNTIME;
@@ -24,7 +23,6 @@ message CntRequest {
 message SvrResponse {
 	optional Error error = 1;
 	optional uint64 size = 2;
-	optional uint64 new_dequeue = 3;
-	optional uint64 enqueue = 4;
+	optional uint64 effective_dequeue = 3;
+	optional uint64 new_dequeue = 4;
 }
-

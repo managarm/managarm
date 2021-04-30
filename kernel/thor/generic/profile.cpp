@@ -46,7 +46,7 @@ void initializeProfile() {
 		uint64_t deqPtr = 0;
 		while(true) {
 			char buffer[128];
-			auto [success, newPtr, size] = getCpuData()->localProfileRing->dequeueAt(
+			auto [success, recordPtr, newPtr, size] = getCpuData()->localProfileRing->dequeueAt(
 					deqPtr, buffer, 128);
 			deqPtr = newPtr;
 			if(!success) {
