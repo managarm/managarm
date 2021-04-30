@@ -8,7 +8,6 @@
 #include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
 #include <mbus.frigg_pb.hpp>
-#include <ostrace.frigg_bragi.hpp>
 
 // --------------------------------------------------------------------------------------
 // Core ostrace implementation.
@@ -20,13 +19,20 @@ extern frg::manual_box<LaneHandle> mbusClient;
 
 bool wantOsTrace = false;
 
+constinit std::atomic<bool> osTraceInUse{false};
+
+initgraph::Stage *getOsTraceAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.ostrace-available"};
+	return &s;
+}
+
 namespace {
 
-constinit bool osTraceInUse = false;
 std::atomic<uint64_t> nextId{1};
 frg::manual_box<LogRingBuffer> globalOsTraceRing;
 
 initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
+	initgraph::Entails{getOsTraceAvailableStage()},
 	[] {
 		if(!wantOsTrace)
 			return;
@@ -34,13 +40,13 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 		void *osTraceMemory = kernelAlloc->allocate(1 << 20);
 		globalOsTraceRing.initialize(reinterpret_cast<uintptr_t>(osTraceMemory), 1 << 20);
 
-		__atomic_store_n(&osTraceInUse, true, __ATOMIC_RELEASE);
+		osTraceInUse.store(true);
 	}
 };
 
 template<typename R>
 void commitOsTrace(R record) {
-	if(!__atomic_load_n(&osTraceInUse, __ATOMIC_ACQUIRE))
+	if(!osTraceInUse.load(std::memory_order_relaxed))
 		return;
 
 	auto ts = record.size_of_tail();
@@ -51,11 +57,23 @@ void commitOsTrace(R record) {
 			frg::span<char>(ser.data() + 8, ts));
 	assert(encodeSuccess);
 
-	for(size_t i = 0; i < ser.size(); ++i)
-		globalOsTraceRing->enqueue(ser[i]);
+	// We want to be able to call this function from any context, but we cannot wake the waiters
+	// in all contexts. For now, only wake waiters if IRQs are enabled.
+	globalOsTraceRing->enqueue(ser.data(), ser.size(), !intsAreEnabled());
 }
 
 } // anonymous namespace
+
+OsTraceEventId announceOsTraceEvent(frg::string_view name) {
+	auto id = nextId.fetch_add(1, std::memory_order_relaxed);
+
+	managarm::ostrace::AnnounceEventRecord<KernelAlloc> record{*kernelAlloc};
+	record.set_id(id);
+	record.set_name({*kernelAlloc, name});
+	commitOsTrace(std::move(record));
+
+	return static_cast<OsTraceEventId>(id);
+}
 
 void emitOsTrace(managarm::ostrace::EventRecord<KernelAlloc> record) {
 	record.set_ts(systemClockSource()->currentNanos());

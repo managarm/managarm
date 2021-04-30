@@ -22,7 +22,7 @@ struct LogRingBuffer {
 		});
 	}
 
-	void enqueue(const void *data, size_t recordSize) {
+	void enqueue(const void *data, size_t recordSize, bool suppressWakeup = false) {
 		{
 			auto irqLock = frg::guard(&thor::irqMutex());
 			auto lock = frg::guard(&mutex_);
@@ -66,7 +66,8 @@ struct LogRingBuffer {
 			headPtr_.store(commitPtr, std::memory_order_release);
 		}
 
-		event_.raise();
+		if(!suppressWakeup)
+			event_.raise();
 	}
 
 	void enqueue(char c) {
