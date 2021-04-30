@@ -22,6 +22,7 @@ ext2fs::FileSystem *fs;
 
 protocols::ostrace::Context ostContext;
 protocols::ostrace::EventId ostReadEvent;
+protocols::ostrace::EventId ostReaddirEvent;
 protocols::ostrace::ItemId ostByteCounter;
 protocols::ostrace::ItemId ostTimeCounter;
 
@@ -107,10 +108,10 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	uint64_t end;
 	HEL_CHECK(helGetClock(&end));
 
-	protocols::ostrace::Event ostEvent{&ostContext, ostReadEvent};
-	ostEvent.withCounter(ostByteCounter, static_cast<int64_t>(length));
-	ostEvent.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
-	co_await ostEvent.emit();
+	protocols::ostrace::Event oste{&ostContext, ostReadEvent};
+	oste.withCounter(ostByteCounter, static_cast<int64_t>(length));
+	oste.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
+	co_await oste.emit();
 
 	co_return chunkSize;
 }
@@ -170,6 +171,10 @@ accessMemory(void *object) {
 async::result<protocols::fs::ReadEntriesResult>
 readEntries(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
+
+	protocols::ostrace::Event oste{&ostContext, ostReaddirEvent};
+	co_await oste.emit();
+
 	co_return co_await self->readEntries();
 }
 
@@ -588,6 +593,7 @@ async::detached servePartition(helix::UniqueLane lane) {
 async::detached runDevice(BlockDevice *device) {
 	ostContext = co_await protocols::ostrace::createContext();
 	ostReadEvent = co_await ostContext.announceEvent("libblockfs.read");
+	ostReaddirEvent = co_await ostContext.announceEvent("libblockfs.readdir");
 	ostByteCounter = co_await ostContext.announceItem("numBytes");
 	ostTimeCounter = co_await ostContext.announceItem("time");
 
