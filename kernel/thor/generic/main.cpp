@@ -81,7 +81,7 @@ extern "C" void thorInitialize() {
 	SkeletalRegion::initialize();
 	physicalAllocator.initialize();
 	auto region = reinterpret_cast<EirRegion *>(thorBootInfoPtr->regionInfo);
-	for(int i = 0; i < thorBootInfoPtr->numRegions; i++)
+	for(size_t i = 0; i < thorBootInfoPtr->numRegions; i++)
 		physicalAllocator->bootstrapRegion(region[i].address, region[i].order,
 				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
 	infoLogger() << "thor: Number of available pages: "

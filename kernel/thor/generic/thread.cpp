@@ -36,9 +36,9 @@ void Thread::migrateCurrent() {
 	Scheduler::unassociate(this_thread);
 
 	size_t n = -1;
-	for (size_t i = 0; i < getCpuCount(); i++) {
+	for (int i = 0; i < getCpuCount(); i++) {
 		bool bit = 0;
-		if ((i + 7) / 8 < this_thread->_affinityMask.size())
+		if ((static_cast<size_t>(i) + 7) / 8 < this_thread->_affinityMask.size())
 			bit = this_thread->_affinityMask[(i + 7) / 8] & (1 << (i % 8));
 
 		if (bit) {
@@ -386,7 +386,6 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this}, _pagingWorkQueue{this},
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
-		_numTicks{0}, _activationTick{0},
 		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)},

@@ -365,7 +365,7 @@ namespace {
 
 			auto io = device->parentBus->io;
 
-			if(req->index() < device->caps.size()) {
+			if(static_cast<size_t>(req->index()) < device->caps.size()) {
 				if(req->size() == 1) {
 					if(isValidConfigAccess(1, req->offset())) {
 						auto word = io->readConfigByte(device->parentBus,
@@ -1023,7 +1023,7 @@ void addRootBus(PciBus *bus) {
 	addToEnumerationQueue(bus);
 }
 
-void configureBridges(PciBus *root, PciBus *bus, int &highestId) {
+void configureBridges(PciBus *root, PciBus *bus, uint32_t &highestId) {
 	for (size_t i = 0; i < bus->childBridges.size(); i++) {
 		auto bridge = bus->childBridges[i];
 		if (!bridge->downstreamId) {
@@ -1422,7 +1422,7 @@ void enumerateAll() {
 	infoLogger() << "thor: Looking for unconfigured PCI bridges" << frg::endlog;
 
 	for (auto rootBus : *allRootBuses) {
-		int i = findHighestId(rootBus);
+		uint32_t i = findHighestId(rootBus);
 		configureBridges(rootBus, rootBus, i);
 		allocateBars(rootBus);
 	}
