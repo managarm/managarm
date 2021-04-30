@@ -229,6 +229,8 @@ endif
 # when building these tools make sure they stay below everything else
 # as they depend on parts above
 if build_tools
+	cli11_dep = dependency('CLI11')
+
 	foreach tool : [ 'ostrace', 'bakesvr' ]
 		subdir('tools'/tool)
 	endforeach
