@@ -28,6 +28,10 @@ struct Node : FsNode {
 protected:
 	~Node() = default;
 
+	void initializeMode(mode_t mode) {
+		_mode = mode;
+	}
+
 public:
 	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
@@ -170,9 +174,10 @@ private:
 	}
 
 public:
-	FifoNode(Superblock *superblock, mode_t)
+	FifoNode(Superblock *superblock, mode_t mode)
 	:Node{superblock} {
 		fifo::createNamedChannel(this);
+		initializeMode(mode);
 	}
 
 	~FifoNode() {

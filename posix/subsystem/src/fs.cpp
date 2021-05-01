@@ -105,7 +105,7 @@ bool FsNode::hasTraverseLinks() {
 	return false;
 }
 
-async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> FsNode::traverseLinks(std::deque<std::string> path) {
+async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> FsNode::traverseLinks(std::deque<std::string>) {
 	throw std::runtime_error("traverseLinks() is not implemented for this FsNode");
 }
 

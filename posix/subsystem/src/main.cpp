@@ -3732,7 +3732,7 @@ struct CmdlineNode final : public procfs::RegularNode {
 		co_return std::string{(const char *)recv_cmdline.data(), recv_cmdline.length()} + '\n';
 	}
 
-	async::result<void> store(std::string buffer) override {
+	async::result<void> store(std::string) override {
 		throw std::runtime_error("Cannot store to /proc/cmdline");
 	}
 };

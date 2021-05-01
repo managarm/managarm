@@ -366,7 +366,7 @@ async::result<protocols::fs::Error> File::listen() {
 	co_return protocols::fs::Error::none;
 }
 
-async::result<size_t> File::sockname(void *addr_ptr, size_t max_addr_length) {
+async::result<size_t> File::sockname(void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement sockname()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::sockname()");
