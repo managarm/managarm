@@ -135,7 +135,7 @@ struct Operation : OperationBase {
 		_asyncId = async_id;
 	}
 
-	virtual void parse(void *&element) {
+	virtual void parse(void *&) {
 		assert(!"Not supported");
 	}
 
