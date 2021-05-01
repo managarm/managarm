@@ -590,22 +590,22 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		managarm::fs::SvrResponse resp;
 
 		auto &crtcs = self->_device->getCrtcs();
-		for(int i = 0; i < crtcs.size(); i++) {
+		for(size_t i = 0; i < crtcs.size(); i++) {
 			resp.add_drm_crtc_ids(crtcs[i]->id());
 		}
 			
 		auto &encoders = self->_device->getEncoders();
-		for(int i = 0; i < encoders.size(); i++) {
+		for(size_t i = 0; i < encoders.size(); i++) {
 			resp.add_drm_encoder_ids(encoders[i]->id());
 		}
 	
 		auto &connectors = self->_device->getConnectors();
-		for(int i = 0; i < connectors.size(); i++) {
+		for(size_t i = 0; i < connectors.size(); i++) {
 			resp.add_drm_connector_ids(connectors[i]->id());
 		}
 		
 		auto &fbs = self->getFrameBuffers();
-		for(int i = 0; i < fbs.size(); i++) {
+		for(size_t i = 0; i < fbs.size(); i++) {
 			resp.add_drm_fb_ids(fbs[i]->id());
 		}
 	
@@ -631,7 +631,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		assert(conn);
 		
 		auto psbl_enc = conn->getPossibleEncoders();
-		for(int i = 0; i < psbl_enc.size(); i++) { 
+		for(size_t i = 0; i < psbl_enc.size(); i++) { 
 			resp.add_drm_encoders(psbl_enc[i]->id());
 		}
 
