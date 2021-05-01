@@ -247,7 +247,7 @@ namespace thor::vmx {
 		vmwrite(GUEST_CR4, cr4FixedLo | ((uint64_t)cr4FixedHi) << 32);
 
 		vmwrite(CTLS_EPTP, ept->spaceRoot | 6 | (4 - 1) << 3 | (1 << 6));
-		state = {0};
+		state = {};
 
 
 		if(getCpuData()->haveXsave){
@@ -296,7 +296,7 @@ namespace thor::vmx {
 		vmwrite(HOST_GS_BASE, common::x86::rdmsr(MSR_GS_BASE));
 		vmwrite(HOST_CR3, cr3);
 
-		HelVmexitReason exitInfo{0};
+		HelVmexitReason exitInfo{};
 
 		while(1) {
 			/*
