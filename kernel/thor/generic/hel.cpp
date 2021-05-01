@@ -209,7 +209,7 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 	return kHelErrNone;
 }
 
-HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *info) {
+HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 

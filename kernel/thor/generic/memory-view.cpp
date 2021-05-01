@@ -195,11 +195,11 @@ bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
 	return true;
 }
 
-Error MemoryView::updateRange(ManageRequest type, size_t offset, size_t length) {
+Error MemoryView::updateRange(ManageRequest, size_t, size_t) {
 	return Error::illegalObject;
 }
 
-void MemoryView::submitManage(ManageNode *handle) {
+void MemoryView::submitManage(ManageNode *) {
 	panicLogger() << "MemoryView does not support management!" << frg::endlog;
 }
 
@@ -208,8 +208,8 @@ void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
 	initiate->complete();
 }
 
-Error MemoryView::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
-		uintptr_t offset, size_t size) {
+Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
+		uintptr_t, size_t) {
 	return Error::illegalObject;
 }
 
@@ -264,11 +264,11 @@ ImmediateMemory::resolveGlobalFutex(uintptr_t offset) {
 	return frg::make_tuple(std::move(futexSpace), offset);
 }
 
-Error ImmediateMemory::lockRange(uintptr_t offset, size_t size) {
+Error ImmediateMemory::lockRange(uintptr_t, size_t) {
 	return Error::success;
 }
 
-void ImmediateMemory::unlockRange(uintptr_t offset, size_t size) {
+void ImmediateMemory::unlockRange(uintptr_t, size_t) {
 	// Do nothing.
 }
 
@@ -299,7 +299,7 @@ bool ImmediateMemory::fetchRange(uintptr_t offset,
 	return true;
 }
 
-void ImmediateMemory::markDirty(uintptr_t offset, size_t size) {
+void ImmediateMemory::markDirty(uintptr_t, size_t) {
 	// Do nothing for now.
 }
 
@@ -318,7 +318,7 @@ coroutine<frg::expected<Error, PhysicalAddr>> ImmediateMemory::takeGlobalFutex(u
 	co_return _physicalPages[index];
 }
 
-void ImmediateMemory::retireGlobalFutex(uintptr_t offset) {
+void ImmediateMemory::retireGlobalFutex(uintptr_t) {
 	// Do nothing.
 }
 
@@ -337,16 +337,16 @@ HardwareMemory::~HardwareMemory() {
 }
 
 frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
-HardwareMemory::resolveGlobalFutex(uintptr_t offset) {
+HardwareMemory::resolveGlobalFutex(uintptr_t) {
 	return Error::illegalObject;
 }
 
-Error HardwareMemory::lockRange(uintptr_t offset, size_t size) {
+Error HardwareMemory::lockRange(uintptr_t, size_t) {
 	// Hardware memory is "always locked".
 	return Error::success;
 }
 
-void HardwareMemory::unlockRange(uintptr_t offset, size_t size) {
+void HardwareMemory::unlockRange(uintptr_t, size_t) {
 	// Hardware memory is "always locked".
 }
 
@@ -429,12 +429,12 @@ AllocatedMemory::resolveGlobalFutex(uintptr_t offset) {
 	return frg::make_tuple(std::move(futexSpace), offset);
 }
 
-Error AllocatedMemory::lockRange(uintptr_t offset, size_t size) {
+Error AllocatedMemory::lockRange(uintptr_t, size_t) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 	return Error::success;
 }
 
-void AllocatedMemory::unlockRange(uintptr_t offset, size_t size) {
+void AllocatedMemory::unlockRange(uintptr_t, size_t) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
@@ -481,7 +481,7 @@ bool AllocatedMemory::fetchRange(uintptr_t offset,
 	return true;
 }
 
-void AllocatedMemory::markDirty(uintptr_t offset, size_t size) {
+void AllocatedMemory::markDirty(uintptr_t, size_t) {
 	// Do nothing for now.
 }
 
@@ -502,7 +502,7 @@ coroutine<frg::expected<Error, PhysicalAddr>> AllocatedMemory::takeGlobalFutex(u
 	co_return range.get<0>();
 }
 
-void AllocatedMemory::retireGlobalFutex(uintptr_t offset) {
+void AllocatedMemory::retireGlobalFutex(uintptr_t) {
 }
 
 // --------------------------------------------------------
@@ -558,7 +558,7 @@ bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
 	return false;
 }
 
-void ManagedSpace::retirePage(CachePage *page) {
+void ManagedSpace::retirePage(CachePage *) {
 	// TODO: Take a reference to the CachePage when it is first used.
 	//       Take a reference to the ManagedSpace for each CachePage in use (so that it is not
 	//       destructed until all CachePages are retired).
@@ -761,7 +761,7 @@ void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
 }
 
 frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
-BackingMemory::resolveGlobalFutex(uintptr_t offset) {
+BackingMemory::resolveGlobalFutex(uintptr_t) {
 	return Error::illegalObject;
 }
 
@@ -813,7 +813,7 @@ bool BackingMemory::fetchRange(uintptr_t offset,
 	return true;
 }
 
-void BackingMemory::markDirty(uintptr_t offset, size_t size) {
+void BackingMemory::markDirty(uintptr_t, size_t) {
 	// Writes through the BackingMemory do not affect the dirty state!
 }
 

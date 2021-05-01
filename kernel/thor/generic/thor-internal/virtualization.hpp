@@ -54,7 +54,7 @@ namespace thor {
 			}
 
 			void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-					uint32_t flags, CachingMode cachingMode) override {
+					uint32_t flags, CachingMode) override {
 				space_->map(pointer, physical, flags);
 			}
 
@@ -62,7 +62,7 @@ namespace thor {
 				return space_->unmap(pointer);
 			}
 
-			PageStatus cleanSingle4k(VirtualAddr pointer) override {
+			PageStatus cleanSingle4k(VirtualAddr) override {
 				infoLogger() << "\e[31m" "thor: VirtualizedPageSpace::cleanSingle4k()"
 						" is not properly supported" "\e[39m" << frg::endlog;
 				return 0;

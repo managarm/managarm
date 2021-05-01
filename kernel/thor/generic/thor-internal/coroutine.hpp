@@ -103,7 +103,7 @@ struct coroutine {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void> h) noexcept {
+				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
 					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
 							std::memory_order_release);
 					if(cfp == coroutine_cfp::past_start) {
@@ -220,7 +220,7 @@ struct coroutine<void> {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void> h) noexcept {
+				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
 					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
 							std::memory_order_release);
 					if(cfp == coroutine_cfp::past_start) {
