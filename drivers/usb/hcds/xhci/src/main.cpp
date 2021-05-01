@@ -1209,7 +1209,7 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 // ------------------------------------------------------------------------
 
 Controller::ConfigurationState::ConfigurationState(Controller *controller, 
-		std::shared_ptr<Device> device, int number)
+		std::shared_ptr<Device> device, int)
 :_controller{controller}, _device{device} {
 }
 
@@ -1223,7 +1223,7 @@ async::result<Interface> Controller::ConfigurationState::useInterface(int number
 // ------------------------------------------------------------------------
 
 Controller::InterfaceState::InterfaceState(Controller *controller, 
-		std::shared_ptr<Device> device, int interface)
+		std::shared_ptr<Device> device, int)
 : _controller{controller}, _device{device} {
 }
 
@@ -1235,7 +1235,7 @@ async::result<Endpoint> Controller::InterfaceState::getEndpoint(PipeType type, i
 // Controller::EndpointState
 // ------------------------------------------------------------------------
 
-Controller::EndpointState::EndpointState(Controller *controller, 
+Controller::EndpointState::EndpointState(Controller *, 
 		std::shared_ptr<Device> device, int endpoint, PipeType type)
 : _device{device}, _endpoint{endpoint}, _type{type} {
 }
