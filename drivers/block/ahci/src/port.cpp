@@ -201,7 +201,7 @@ async::result<size_t> Port::findFreeSlot_() {
 	// We can't look at CI here, as the HBA might clear it before we have
 	// a chance to notify completion, so the array slot will still be occupied.
 	// TODO: We could use a bitmask and CLZ for this.
-	for (int i = 0; i < numCommandSlots_; i++) {
+	for (size_t i = 0; i < numCommandSlots_; i++) {
 		if (!submittedCmds_[i]) {
 			co_return i;
 		}
@@ -231,7 +231,7 @@ void Port::handleIrq() {
 	// Notify all completed commands
 	auto numCompleted = 0;
 	auto cmdActiveMask = regs_.load(regs::commandIssue);
-	for (int i = 0; i < numCommandSlots_; i++) {
+	for (size_t i = 0; i < numCommandSlots_; i++) {
 		if (submittedCmds_[i] && !(cmdActiveMask & (1 << i))) {
 			std::unique_ptr<Command> cmd = std::move(submittedCmds_[i]);
 			cmd->notifyCompletion();
