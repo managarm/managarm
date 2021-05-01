@@ -179,6 +179,7 @@ static initgraph::Task discoverDtbNodes{&globalInitEngine, "pci.discover-dtb-nod
 
 static initgraph::Task enumerateRootBuses{&globalInitEngine, "pci.enumerate-buses",
 	initgraph::Requires{getTaskingAvailableStage()},
+	initgraph::Entails{getDevicesEnumeratedStage()},
 	[] {
 		infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
 		enumerateAll();

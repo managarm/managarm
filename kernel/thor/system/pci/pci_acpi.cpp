@@ -170,6 +170,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 
 static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-acpi-root-buses",
 	initgraph::Requires{getTaskingAvailableStage(), acpi::getNsAvailableStage()},
+	initgraph::Entails{getDevicesEnumeratedStage()},
 	[] {
 		LAI_CLEANUP_STATE lai_state_t laiState;
 		lai_init_state(&laiState);

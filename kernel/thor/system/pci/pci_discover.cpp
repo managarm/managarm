@@ -49,6 +49,11 @@ initgraph::Stage *getBus0AvailableStage() {
 	return &s;
 }
 
+initgraph::Stage *getDevicesEnumeratedStage() {
+	static initgraph::Stage s{&globalInitEngine, "pci.devices-enumerated"};
+	return &s;
+}
+
 namespace {
 	coroutine<bool> handleReq(LaneHandle lane, smarter::shared_ptr<PciDevice> device) {
 		auto [acceptError, conversation] = co_await AcceptSender{lane};

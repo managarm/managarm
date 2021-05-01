@@ -19,6 +19,7 @@ struct BootScreen;
 namespace pci {
 
 initgraph::Stage *getBus0AvailableStage();
+initgraph::Stage *getDevicesEnumeratedStage();
 
 enum class IrqIndex {
 	null, inta, intb, intc, intd
