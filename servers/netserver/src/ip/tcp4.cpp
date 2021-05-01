@@ -430,7 +430,7 @@ struct Tcp4Socket {
 		auto number = dist(globalPrng);
 		auto range = dist.b() - dist.a();
 		auto self = holder_.lock();
-		for (size_t i = 0; i < range; i++) {
+		for (int i = 0; i < range; i++) {
 			uint16_t port = dist.a() + ((number + i) % range);
 			if (parent_->tryBind(self, { ipAddress, port }))
 				return true;
