@@ -750,7 +750,7 @@ inline auto copyToView(MemoryView *view, uintptr_t offset,
 	};
 
 	return async::let([=] {
-		return Node{view, offset, pointer, size, std::move(wq)};
+		return Node{.view = view, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
@@ -816,7 +816,7 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 	};
 
 	return async::let([=] {
-		return Node{view, offset, pointer, size, std::move(wq)};
+		return Node{.view = view, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
@@ -880,7 +880,7 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 	};
 
 	return async::let([=] {
-		return Node{destView, srcView, destOffset, srcOffset, size, std::move(wq)};
+		return Node{.destView = destView, .srcView = srcView, .destOffset = destOffset, .srcOffset = srcOffset, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.destView->asyncLockRange(nd.destOffset, nd.size,
