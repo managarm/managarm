@@ -44,7 +44,7 @@ std::optional<Route> Ip4Router::resolveRoute(uint32_t ip) {
 	return {};
 }
 
-bool operator<(const CidrAddress &lhs, const CidrAddress &rhs) {
+bool operator<(const CidrAddress &lhs, const CidrAddress &) {
 	return std::tie(lhs.prefix, lhs.ip) < std::tie(lhs.prefix, lhs.ip);
 }
 
@@ -304,7 +304,7 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 	co_return protocols::fs::Error::none;
 }
 
-void Ip4::feedPacket(nic::MacAddress dest, nic::MacAddress src,
+void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 		arch::dma_buffer owner, arch::dma_buffer_view frame) {
 	Ip4Packet hdr;
 	if (!hdr.parse(std::move(owner), frame)) {
