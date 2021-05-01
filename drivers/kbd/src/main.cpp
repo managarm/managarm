@@ -202,7 +202,7 @@ bool Controller::processData(int port) {
 // --------------------------------------------------------------------
 
 Controller::Device::Device(Controller *controller, int port)
-: _controller{controller}, _port{port}, _deviceType{0}, _exists{false} {
+: _controller{controller}, _port{port}, _deviceType{}, _exists{false} {
 }
 
 async::result<void> Controller::Device::init() {
