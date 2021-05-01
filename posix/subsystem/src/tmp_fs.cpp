@@ -109,9 +109,9 @@ private:
 	mode_t _mode = 0;
 	uid_t _uid = 0;
 	gid_t _gid = 0;
-	timespec _atime = {0};
-	timespec _mtime = {0};
-	timespec _ctime = {0};
+	timespec _atime = {0, 0};
+	timespec _mtime = {0, 0};
+	timespec _ctime = {0, 0};
 };
 
 struct SymlinkNode final : Node {
