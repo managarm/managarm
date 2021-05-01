@@ -186,7 +186,7 @@ async::detached asyncMain(const char **args) {
 	co_await createCompilerObject();
 }
 
-int main(int argc, const char **argv) {
+int main(int, const char **argv) {
 	std::cout << "kernletcc: Starting up" << std::endl;
 	{
 		async::queue_scope scope{helix::globalQueue()};
