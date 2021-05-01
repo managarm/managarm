@@ -646,7 +646,7 @@ struct Observe : Operation {
 		return result()->error;
 	}
 
-	int observation() {
+	unsigned int observation() {
 		return result()->observation;
 	}
 

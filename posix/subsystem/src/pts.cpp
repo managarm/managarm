@@ -486,7 +486,7 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 	auto s = reinterpret_cast<const char *>(data);
 	for(size_t i = 0; i < length; i++) {
 		if(_channel->activeSettings.c_lflag & ISIG) {
-			if(s[i] == _channel->activeSettings.c_cc[VINTR]) {
+			if(s[i] == static_cast<char>(_channel->activeSettings.c_cc[VINTR])) {
 				UserSignal info;
 				_channel->cts.issueSignalToForegroundGroup(SIGINT, info);
 				continue;

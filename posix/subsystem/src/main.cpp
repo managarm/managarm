@@ -2962,7 +2962,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(req.fds_size() == req.events_size());
 
 			bool errorOut = false;
-			for(int i = 0; i < req.fds_size(); i++) {
+			for(size_t i = 0; i < req.fds_size(); i++) {
 				auto [mapIt, inserted] = fdsToEvents.insert({req.fds(i), 0});
 				if(!inserted)
 					continue;
@@ -3037,7 +3037,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			for(int i = 0; i < req.fds_size(); ++i) {
+			for(size_t i = 0; i < req.fds_size(); ++i) {
 				auto it = fdsToEvents.find(req.fds(i));
 				assert(it != fdsToEvents.end());
 				resp.add_events(it->second);
