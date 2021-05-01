@@ -47,6 +47,7 @@ src += files(
 	'generic/kasan.cpp',
 	'generic/kerncfg.cpp',
 	'generic/kernlet.cpp',
+	'generic/kernel-io.cpp',
 	'generic/kernel-stack.cpp',
 	'generic/main.cpp',
 	'generic/memory-view.cpp',

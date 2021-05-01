@@ -1,0 +1,93 @@
+#pragma once
+
+#include <cstddef>
+
+#include <frg/expected.hpp>
+#include <frg/span.hpp>
+#include <frg/string.hpp>
+#include <thor-internal/coroutine.hpp>
+#include <thor-internal/error.hpp>
+#include <thor-internal/initgraph.hpp>
+#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/ring-buffer.hpp>
+#include <smarter.hpp>
+
+namespace thor {
+
+struct KernelIoChannel {
+public:
+	using IoFlags = unsigned int;
+
+	// The following flags control what kind of I/O operations issueIo() should perform.
+	// * If ioProgressOutput is given, issueIo() must make an effort to flush output;
+	//   in other words, writeableSpan() must become larger.
+	// * If ioProgressInput is given, issueIo() must make an effort to obtain more input;
+	//   in other words, readableSpan() must become larger.
+	// * If both ioProgress flags are given, issueIo() should return once progress is made
+	//   in either direction (but not necessarily both).
+	// * issueIo() is always allowed to also make progress in the other direction.
+	static constexpr IoFlags ioProgressOutput = 1;
+	static constexpr IoFlags ioProgressInput = 2;
+
+	KernelIoChannel(frg::string<KernelAlloc> tag, frg::string<KernelAlloc> descriptiveTag)
+	: tag_{std::move(tag)}, descriptiveTag_{std::move(descriptiveTag)} { }
+
+	KernelIoChannel(const KernelIoChannel &) = delete;
+
+protected:
+	~KernelIoChannel() = default;
+
+public:
+	KernelIoChannel &operator= (const KernelIoChannel &) = delete;
+
+	frg::string_view tag() {
+		return tag_;
+	}
+
+	frg::string_view descriptiveTag() {
+		return descriptiveTag_;
+	}
+
+	frg::span<std::byte> writableSpan() {
+		return writable_;
+	}
+
+	frg::span<const std::byte> readableSpan() {
+		return readable_;
+	}
+
+	// These two functions inform the channel that bytes have been written to
+	// (or taken from) writeableSpan() (or readableSpan(), respectively).
+	// The advance the spans but do not necessarily invoke I/O.
+	virtual void produceOutput(size_t n) = 0;
+	virtual void consumeInput(size_t n) = 0;
+
+	virtual coroutine<frg::expected<Error>> issueIo(IoFlags flags) = 0;
+
+protected:
+	void updateWritableSpan(frg::span<std::byte> span) {
+		writable_ = span;
+	}
+
+	void updateReadableSpan(frg::span<const std::byte> span) {
+		readable_ = span;
+	}
+
+private:
+	frg::string<KernelAlloc> tag_;
+	frg::string<KernelAlloc> descriptiveTag_;
+	frg::span<std::byte> writable_;
+	frg::span<const std::byte> readable_;
+};
+
+initgraph::Stage *getIoChannelsDiscoveredStage();
+
+void publishIoChannel(smarter::shared_ptr<KernelIoChannel> channel);
+
+smarter::shared_ptr<KernelIoChannel> solicitIoChannel(frg::string_view tag);
+
+// Helper function to drain a ring buffer to an I/O channel.
+coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
+		smarter::shared_ptr<KernelIoChannel> channel, size_t packetSize);
+
+} // namespace thor

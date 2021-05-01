@@ -6,6 +6,7 @@
 #include <async/recurring-event.hpp>
 #include <frg/tuple.hpp>
 #include <frg/utility.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/kernel-locks.hpp>
 
 namespace thor {

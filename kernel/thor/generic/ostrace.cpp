@@ -3,6 +3,7 @@
 #include <frg/small_vector.hpp>
 #include <frg/span.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/kernel-io.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/stream.hpp>
@@ -318,13 +319,24 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 	co_return Error::success;
 }
 
-initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-mbus",
+initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 	initgraph::Requires{&initOsTraceCore,
-		getFibersAvailableStage()},
+		getFibersAvailableStage(),
+		getIoChannelsDiscoveredStage()},
 	[] {
+		if(!wantOsTrace)
+			return;
+
 		// Create a fiber to manage requests to the ostrace mbus object.
 		KernelFiber::run([=] {
 			async::detach_with_allocator(*kernelAlloc, createObject(*mbusClient));
+
+			auto channel = solicitIoChannel("ostrace");
+			if(channel) {
+				infoLogger() << "thor: Connecting ostrace to I/O channel" << frg::endlog;
+				async::detach_with_allocator(*kernelAlloc,
+						dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 256));
+			}
 		});
 	}
 };
