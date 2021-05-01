@@ -291,10 +291,7 @@ private:
 
 public:
 	RegularNode(Superblock *sb, uint64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane), sb}, _sb{sb} { }
-
-private:
-	Superblock *_sb;
+	: Node{inode, std::move(lane), sb} { }
 };
 
 struct SymlinkNode final : Node {

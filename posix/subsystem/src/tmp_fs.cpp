@@ -170,17 +170,14 @@ private:
 	}
 
 public:
-	FifoNode(Superblock *superblock, mode_t mode)
-	:Node{superblock}, mode_{mode} {
+	FifoNode(Superblock *superblock, mode_t)
+	:Node{superblock} {
 		fifo::createNamedChannel(this);
 	}
 
 	~FifoNode() {
 		fifo::unlinkNamedChannel(this);
 	}
-
-private:
-	mode_t mode_;
 };
 
 struct Link final : FsLink {
