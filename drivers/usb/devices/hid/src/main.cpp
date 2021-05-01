@@ -278,7 +278,7 @@ HidDevice::HidDevice() {
 	_eventDev = std::make_shared<libevbackend::EventDevice>();
 }
 
-void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit) {
+void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 	LocalState local;
 	GlobalState global;
 	
@@ -520,7 +520,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 	size_t in_endp_pktsize;
 
 //	std::cout << "usb-hid: Device configuration:" << std::endl;
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+	walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
 //		std::cout << "    Descriptor: " << type << std::endl;
 		if(type == descriptor_type::hid) {	
 			if(info.configNumber.value() != config_num
@@ -684,7 +684,7 @@ async::detached bindDevice(mbus::Entity entity) {
 	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> intf_alternative;
 	
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+	walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
