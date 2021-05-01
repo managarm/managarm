@@ -79,7 +79,6 @@ private:
 		void submit();
 	private:
 		arch::dma_object<CommandRingEntries> _commandRing;
-		size_t _dequeuePtr;
 		size_t _enqueuePtr;
 
 		Controller *_controller;
@@ -149,8 +148,6 @@ private:
 		arch::dma_object<TransferRingEntries> _transferRing;
 		size_t _dequeuePtr;
 		size_t _enqueuePtr;
-
-		Controller *_controller;
 
 		bool _pcs; // producer cycle state
 	};
@@ -269,7 +266,6 @@ private:
 	private:
 		Controller *_controller;
 		std::shared_ptr<Device> _device;
-		int _number;
 	};
 
 	struct InterfaceState final : InterfaceData {
@@ -280,7 +276,6 @@ private:
 	private:
 		Controller *_controller;
 		std::shared_ptr<Device> _device;
-		int _interface;
 	};
 
 	struct EndpointState final : EndpointData {
@@ -291,7 +286,6 @@ private:
 		async::result<size_t> transfer(BulkTransfer info) override;
 
 	private:
-		Controller *_controller;
 		std::shared_ptr<Device> _device;
 		int _endpoint;
 		PipeType _type;
