@@ -216,14 +216,6 @@ public:
 	smarter::borrowed_ptr<Universe> getUniverse();
 	smarter::borrowed_ptr<AddressSpace, BindableHandle> getAddressSpace();
 
-	LaneHandle inferiorLane() {
-		return _inferiorLane;
-	}
-
-	LaneHandle superiorLane() {
-		return _superiorLane;
-	}
-
 	// ----------------------------------------------------------------------------------
 	// observe() and its boilerplate.
 	// ----------------------------------------------------------------------------------
@@ -364,9 +356,6 @@ public:
 private:
 	smarter::shared_ptr<Universe> _universe;
 	smarter::shared_ptr<AddressSpace, BindableHandle> _addressSpace;
-
-	LaneHandle _superiorLane;
-	LaneHandle _inferiorLane;
 
 	using ObserveQueue = frg::intrusive_list<
 		ObserveNode,

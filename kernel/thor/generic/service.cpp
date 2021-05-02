@@ -301,6 +301,15 @@ namespace posix {
 		: _name{std::move(name)}, _thread(std::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, 0x1000);
 			fileTableMemory->selfPtr = fileTableMemory;
+
+			auto posixStream = createStream();
+			posixLane = std::move(posixStream.get<0>());
+
+			auto irqLock = frg::guard(&irqMutex());
+			Universe::Guard universeLock(_thread->getUniverse()->lock);
+
+			posixHandle = _thread->getUniverse()->attachDescriptor(universeLock,
+					LaneDescriptor{std::move(posixStream.get<1>())});
 		}
 
 		coroutine<void> setupAddressSpace() {
@@ -313,7 +322,7 @@ namespace posix {
 			clientFileTable = result.value();
 		}
 
-		coroutine<void> runPosixRequests(LaneHandle lane);
+		coroutine<void> runPosixRequests();
 		coroutine<void> runObserveLoop();
 
 		frg::string_view name() {
@@ -357,15 +366,17 @@ namespace posix {
 		frg::string<KernelAlloc> _name;
 		smarter::shared_ptr<Thread, ActiveHandle> _thread;
 
+		Handle posixHandle;
 		Handle controlHandle;
+		LaneHandle posixLane;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
 		smarter::shared_ptr<AllocatedMemory> fileTableMemory;
 		VirtualAddr clientFileTable;
 	};
 
-	coroutine<void> Process::runPosixRequests(LaneHandle lane) {
+	coroutine<void> Process::runPosixRequests() {
 		while(true) {
-			auto [acceptError, conversation] = co_await AcceptSender{lane};
+			auto [acceptError, conversation] = co_await AcceptSender{posixLane};
 			if(acceptError != Error::success) {
 				infoLogger() << "thor: Could not accept POSIX lane" << frg::endlog;
 				co_return;
@@ -684,7 +695,7 @@ namespace posix {
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 1) {
 				ManagarmProcessData data = {
-					kHelThisThread,
+					posixHandle,
 					nullptr,
 					reinterpret_cast<HelHandle *>(clientFileTable),
 					nullptr
@@ -750,7 +761,7 @@ void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
 
 		async::detach_with_allocator(*kernelAlloc,
-				process->runPosixRequests(thread->superiorLane()));
+				process->runPosixRequests());
 		async::detach_with_allocator(*kernelAlloc,
 				process->runObserveLoop());
 

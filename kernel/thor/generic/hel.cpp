@@ -2062,19 +2062,13 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(thisUniverse->lock);
 
-		if(handle == kHelThisThread) {
-			lane = thisThread->inferiorLane();
+		auto wrapper = thisUniverse->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(wrapper->is<LaneDescriptor>()) {
+			lane = wrapper->get<LaneDescriptor>().handle;
 		}else{
-			auto wrapper = thisUniverse->getDescriptor(universe_guard, handle);
-			if(!wrapper)
-				return kHelErrNoDescriptor;
-			if(wrapper->is<LaneDescriptor>()) {
-				lane = wrapper->get<LaneDescriptor>().handle;
-			}else if(wrapper->is<ThreadDescriptor>()) {
-				lane = wrapper->get<ThreadDescriptor>().thread->superiorLane();
-			}else{
-				return kHelErrBadDescriptor;
-			}
+			return kHelErrBadDescriptor;
 		}
 
 		auto queueWrapper = thisUniverse->getDescriptor(universe_guard, queueHandle);

@@ -395,10 +395,6 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 	uint64_t id = globalThreadId.fetch_add(1, std::memory_order_relaxed) + 1;
 	memset(_credentials, 0, 16);
 	memcpy(_credentials + 8, &id, sizeof(uint64_t));
-
-	auto stream = createStream();
-	_superiorLane = std::move(stream.get<0>());
-	_inferiorLane = std::move(stream.get<1>());
 }
 
 Thread::~Thread() {
