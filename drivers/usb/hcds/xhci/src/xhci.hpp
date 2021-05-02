@@ -202,7 +202,7 @@ private:
 		arch::mem_space _space;
 	};
 
-	struct Device : DeviceData, std::enable_shared_from_this<Device> {
+	struct Device final : DeviceData, std::enable_shared_from_this<Device> {
 		Device(int portId, Controller *controller);
 
 		// Public API inherited from DeviceData.
