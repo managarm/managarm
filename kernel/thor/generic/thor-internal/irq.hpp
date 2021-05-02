@@ -119,6 +119,8 @@ protected:
 		return _currentSequence;
 	}
 
+	~IrqSink() = default;
+
 private:
 	frg::string<KernelAlloc> _name;
 
@@ -185,6 +187,8 @@ protected:
 
 	// Sends an end-of-interrupt signal to the interrupt controller.
 	virtual void sendEoi() = 0;
+
+	~IrqPin() = default;
 
 private:
 	void _callSinks();

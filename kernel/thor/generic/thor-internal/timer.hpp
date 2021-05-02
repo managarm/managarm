@@ -17,12 +17,18 @@ struct PrecisionTimerEngine;
 
 struct ClockSource {
 	virtual uint64_t currentNanos() = 0;
+
+protected:
+	~ClockSource() = default;
 };
 
 ClockSource *systemClockSource();
 
 struct AlarmSink {
 	virtual void firedAlarm() = 0;
+
+protected:
+	~AlarmSink() = default;
 };
 
 struct AlarmTracker {
@@ -42,6 +48,8 @@ protected:
 		if(sink)
 			sink->firedAlarm();
 	}
+
+	~AlarmTracker() = default;
 
 private:
 	std::atomic<AlarmSink *> _sink;
@@ -107,7 +115,7 @@ struct CompareTimer {
 	}
 };
 
-struct PrecisionTimerEngine : private AlarmSink {
+struct PrecisionTimerEngine final : private AlarmSink {
 	friend struct PrecisionTimerNode;
 
 private:

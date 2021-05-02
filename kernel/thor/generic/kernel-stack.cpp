@@ -33,7 +33,7 @@ UniqueKernelStack::~UniqueKernelStack() {
 		physicalAllocator->free(physical, kPageSize);
 	}
 
-	struct Closure : ShootNode {
+	struct Closure final : ShootNode {
 		void complete() override {
 			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
 			auto physical = thisPage;

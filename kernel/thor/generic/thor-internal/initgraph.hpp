@@ -59,6 +59,8 @@ struct Node {
 protected:
 	virtual void activate() { };
 
+	~Node() = default;
+
 private:
 	NodeType type_;
 	Engine *engine_;
@@ -238,7 +240,7 @@ inline void realizeEdge(Edge *edge) {
 				<< " -> n" << edge->target_ << ";" << frg::endlog;
 }
 
-struct Stage : Node {
+struct Stage final : Node {
 	Stage(Engine *engine, const char *displayName)
 	: Node{NodeType::stage, engine, displayName} { }
 };
@@ -295,7 +297,7 @@ auto apply(std::index_sequence<S...>, frg::array<T, N> array, I invocable) {
 }
 
 template< typename F, size_t NR = 0, size_t NE = 0>
-struct Task : Node {
+struct Task final : Node {
 	Task(Engine *engine, const char *displayName, Requires<NR> r, Entails<NE> e, F invocable)
 	: Node{NodeType::task, engine, displayName}, invocable_{std::move(invocable)},
 			rEdges_{apply(std::make_index_sequence<NR>{}, r.array, IntoEdgesTo{this})},

@@ -19,7 +19,7 @@ namespace thor::pci {
 		uint32_t function, uint32_t offset, uint8_t value);
 
 
-struct LegacyPciConfigIo : PciConfigIo {
+struct LegacyPciConfigIo final : PciConfigIo {
 	uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
 			uint32_t function, uint16_t offset) override;
 	uint16_t readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,

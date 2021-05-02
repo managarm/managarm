@@ -64,6 +64,8 @@ private:
 	protected:
 		virtual void complete() = 0;
 
+		~Node() = default;
+
 	private:
 		void cancel_() {
 			{
@@ -120,7 +122,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<Futex F, typename R>
-	struct WaitOperation : private Node {
+	struct WaitOperation final : private Node {
 		WaitOperation(FutexRealm *self, F f, unsigned int expected,
 				async::cancellation_token ct, R receiver)
 		: Node{self, f.getIdentity()}, f_{std::move(f)}, expected_{expected}, ct_{ct},

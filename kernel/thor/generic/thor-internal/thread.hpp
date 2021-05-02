@@ -42,7 +42,7 @@ struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntit
 	using smarter::crtp_counter<Thread, ActiveHandle>::dispose;
 
 private:
-	struct AssociatedWorkQueue : WorkQueue {
+	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(Thread *thread)
 		: WorkQueue{&thread->_executorContext}, _thread{thread} { }
 

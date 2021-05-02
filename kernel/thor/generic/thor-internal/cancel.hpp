@@ -31,6 +31,8 @@ protected:
 	// Specifically, it must not call into CancelRegistry functions.
 	virtual void handleCancellation() = 0;
 
+	~CancelNode() = default;
+
 private:
 	smarter::shared_ptr<CancelRegistry> _registry;
 

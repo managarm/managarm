@@ -153,7 +153,7 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	}
 	kernelMemoryUsage -= length;
 
-	struct Closure : ShootNode {
+	struct Closure final : ShootNode {
 		void complete() override {
 			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
 			auto physical = thisPage;

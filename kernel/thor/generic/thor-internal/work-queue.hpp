@@ -137,6 +137,8 @@ struct WorkQueue {
 protected:
 	virtual void wakeup() = 0;
 
+	~WorkQueue() = default;
+
 private:
 	ExecutorContext *_executorContext;
 

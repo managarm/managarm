@@ -15,6 +15,9 @@ struct LogHandler {
 	virtual void printChar(char c) = 0;
 
 	frg::default_list_hook<LogHandler> hook;
+
+protected:
+	~LogHandler() = default;
 };
 
 void enableLogHandler(LogHandler *sink);

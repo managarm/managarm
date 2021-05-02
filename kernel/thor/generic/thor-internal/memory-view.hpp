@@ -107,6 +107,9 @@ struct ManageNode {
 
 	frg::default_list_hook<ManageNode> processQueueItem;
 
+protected:
+	~ManageNode() = default;
+
 private:
 	// Results of the operation.
 	Error _error;
@@ -306,6 +309,8 @@ protected:
 
 	MemoryView(EvictionQueue *associatedEvictionQueue = nullptr)
 	: associatedEvictionQueue_{associatedEvictionQueue} { }
+
+	~MemoryView() = default;
 
 public:
 	// Add/remove memory observers. These will be notified of page evictions.
@@ -633,7 +638,7 @@ public:
 	}
 
 	template<typename R>
-	struct SubmitManageOperation : private ManageNode {
+	struct SubmitManageOperation final : private ManageNode {
 		SubmitManageOperation(SubmitManageSender s, R receiver)
 		: s_{s.self}, receiver_{std::move(receiver)} { }
 

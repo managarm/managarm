@@ -28,6 +28,9 @@ namespace thor {
 			virtual HelVmexitReason run() = 0;
 			virtual void storeRegs(const HelX86VirtualizationRegs *regs) = 0;
 			virtual void loadRegs(HelX86VirtualizationRegs *res) = 0;
+
+	protected:
+		~VirtualizedCpu() = default;
 	};
 
 	struct VirtualizedPageSpace : VirtualSpace {
@@ -41,7 +44,7 @@ namespace thor {
 		virtual PageStatus unmap(uint64_t guestAddress) = 0;
 		VirtualizedPageSpace() : VirtualSpace{&ops_}, ops_{this} {}
 
-		struct Operations : VirtualOperations {
+		struct Operations final : VirtualOperations {
 			Operations(VirtualizedPageSpace *space)
 			: space_{space} { }
 
@@ -74,6 +77,8 @@ namespace thor {
 			private:
 				VirtualizedPageSpace *space_;
 		};
+	protected:
+		~VirtualizedPageSpace() = default;
 	private:
 		Operations ops_;
 	};
