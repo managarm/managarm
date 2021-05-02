@@ -12,6 +12,13 @@
 
 constexpr size_t kPageSize = 0x1000;
 
+// This struct is parsed before knowing the type of executable (PIE vs. non-PIE)
+// and also before knowing the ELF's base address.
+struct ImagePreamble {
+	bool isPie = false;
+};
+
+// This struct contains the image meta data with correct base address applied.
 struct ImageInfo {
 	ImageInfo()
 	: entryIp(nullptr) { }
@@ -22,8 +29,33 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
+async::result<frg::expected<Error, ImagePreamble>>
+parseElfPreamble(SharedFilePtr file) {
+	ImagePreamble preamble;
+
+	// Read the elf file header and verify the signature.
+	Elf64_Ehdr ehdr;
+	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
+	FRG_CO_TRY(co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr)));
+
+	if(!(ehdr.e_ident[0] == 0x7F
+			&& ehdr.e_ident[1] == 'E'
+			&& ehdr.e_ident[2] == 'L'
+			&& ehdr.e_ident[3] == 'F'))
+		co_return Error::badExecutable;
+	if(ehdr.e_type != ET_EXEC && ehdr.e_type != ET_DYN)
+		co_return Error::badExecutable;
+
+	// Right now we treat every ET_DYN object as PIE and unconditionally apply
+	// a non-zero base address.
+	if(ehdr.e_type == ET_DYN)
+		preamble.isPie = true;
+
+	co_return preamble;
+}
+
 async::result<frg::expected<Error, ImageInfo>>
-load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
+loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 	assert(!(base & (kPageSize - 1))); // Callers need to ensure this.
 	ImageInfo info;
 
@@ -35,6 +67,8 @@ load(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 	FRG_CO_TRY(co_await file->seek(0, VfsSeek::absolute));
 	FRG_CO_TRY(co_await file->readExactly(nullptr, &ehdr, sizeof(Elf64_Ehdr)));
 
+	// Verify the ELF file again, since loadElfPreamble() is not necessarily called
+	// on every object that we load.
 	if(!(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
@@ -216,13 +250,19 @@ execute(ViewPath root, ViewPath workdir,
 		nRecursions++;
 	}
 
-	auto binaryFile = std::move(execFile);
-	auto binaryInfo = FRG_CO_TRY(co_await load(binaryFile, vmContext.get(), 0));
+	auto execPreamble = FRG_CO_TRY(co_await parseElfPreamble(execFile));
+	ImageInfo execInfo;
+	if(execPreamble.isPie) {
+		// Unconditionally apply a non-zero base address to PIE objects.
+		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, vmContext.get(), 0x200000));
+	}else{
+		execInfo = FRG_CO_TRY(co_await loadElfImage(execFile, vmContext.get(), 0));
+	}
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
 	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, "/lib/ld-init.so"));
 	assert(ldsoFile); // If open() succeeds, it must return a non-null file.
-	auto ldsoInfo = FRG_CO_TRY(co_await load(ldsoFile, vmContext.get(), 0x40000000));
+	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), 0x40000000));
 
 	constexpr size_t stackSize = 0x200000;
 
@@ -275,13 +315,13 @@ execute(ViewPath root, ViewPath workdir,
 
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
-		uintptr_t(binaryInfo.entryIp),
+		uintptr_t(execInfo.entryIp),
 		AT_PHDR,
-		uintptr_t(binaryInfo.phdrPtr),
+		uintptr_t(execInfo.phdrPtr),
 		AT_PHENT,
-		binaryInfo.phdrEntrySize,
+		execInfo.phdrEntrySize,
 		AT_PHNUM,
-		binaryInfo.phdrCount,
+		execInfo.phdrCount,
 		AT_MBUS_SERVER,
 		static_cast<uintptr_t>(mbusHandle),
 		AT_EXECFN,
