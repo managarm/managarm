@@ -19,7 +19,7 @@ struct EptPtr {
 	uint64_t gpa;
 };
 
-struct EptSpace : VirtualizedPageSpace {
+struct EptSpace final : VirtualizedPageSpace {
 	friend struct Vmcs;
 	friend struct ShootNode;
 

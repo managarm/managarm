@@ -51,7 +51,7 @@ void breakOnWrite(const T *p) {
 
 namespace thor {
 
-struct PIOLogHandler : public LogHandler {
+struct PIOLogHandler final : public LogHandler {
 	constexpr PIOLogHandler()
 	: serialBufferIndex{0}, serialBuffer{0} {}
 

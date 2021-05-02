@@ -313,7 +313,7 @@ uint64_t localTicks() {
 	return picBase.load(lApicCurCount);
 }
 
-struct TimeStampCounter : ClockSource {
+struct TimeStampCounter final : ClockSource {
 	uint64_t currentNanos() override {
 		auto r = getRawTimestampCounter() * 1'000'000 / tscTicksPerMilli;
 //		infoLogger() << r << frg::endlog;
@@ -502,7 +502,7 @@ namespace {
 
 	struct IoApic {
 	public:
-		struct Pin : IrqPin {
+		struct Pin final : IrqPin {
 			Pin(IoApic *chip, unsigned int index);
 
 			IrqStrategy program(TriggerMode mode, Polarity polarity) override;
