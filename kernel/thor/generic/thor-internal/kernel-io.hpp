@@ -29,6 +29,9 @@ public:
 	static constexpr IoFlags ioProgressOutput = 1;
 	static constexpr IoFlags ioProgressInput = 2;
 
+	// Write all output.
+	static constexpr IoFlags ioFlush = 4;
+
 	KernelIoChannel(frg::string<KernelAlloc> tag, frg::string<KernelAlloc> descriptiveTag)
 	: tag_{std::move(tag)}, descriptiveTag_{std::move(descriptiveTag)} { }
 
@@ -63,6 +66,53 @@ public:
 	virtual void consumeInput(size_t n) = 0;
 
 	virtual coroutine<frg::expected<Error>> issueIo(IoFlags flags) = 0;
+
+	// ----------------------------------------------------------------------------------
+	// High-level convenience API.
+	// For users that are not performance critical; unless the compiler manages to
+	// elide all coroutines, the low-level API will be considerably faster.
+	// ----------------------------------------------------------------------------------
+
+	coroutine<frg::expected<Error>> writeOutput(uint8_t b) {
+		auto span = writableSpan();
+		if(!span.size()) {
+			FRG_CO_TRY(co_await issueIo(ioProgressOutput));
+			span = writableSpan();
+			assert(span.size());
+		}
+		*span.data() = static_cast<std::byte>(b);
+		produceOutput(1);
+		FRG_CO_TRY(co_await issueIo(ioProgressOutput | ioFlush));
+		co_return {};
+	}
+
+	coroutine<frg::expected<Error>> postOutput(uint8_t b) {
+		auto span = writableSpan();
+		if(!span.size()) {
+			FRG_CO_TRY(co_await issueIo(ioProgressOutput));
+			span = writableSpan();
+			assert(span.size());
+		}
+		*span.data() = static_cast<std::byte>(b);
+		produceOutput(1);
+		co_return {};
+	}
+
+	coroutine<frg::expected<Error>> flushOutput() {
+		return issueIo(ioProgressOutput | ioFlush);
+	}
+
+	coroutine<frg::expected<Error, uint8_t>> readInput() {
+		auto span = readableSpan();
+		if(!span.size()) {
+			FRG_CO_TRY(co_await issueIo(ioProgressInput));
+			span = readableSpan();
+			assert(span.size());
+		}
+		auto b = static_cast<uint8_t>(*span.data());
+		consumeInput(1);
+		co_return b;
+	}
 
 protected:
 	void updateWritableSpan(frg::span<std::byte> span) {
