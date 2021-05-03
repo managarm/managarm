@@ -193,7 +193,9 @@ struct DeviceTreeProperty {
 	}
 
 	uint64_t asPropArrayEntry(size_t nCells, size_t offset = 0) {
-		if (nCells == 1)
+		if (nCells == 0)
+			return 0;
+		else if (nCells == 1)
 			return asU32(offset);
 		else if (nCells == 2)
 			return asU64(offset);
