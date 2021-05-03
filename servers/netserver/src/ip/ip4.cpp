@@ -2,7 +2,7 @@
 
 #include "arp.hpp"
 #include "checksum.hpp"
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <algorithm>
@@ -160,7 +160,7 @@ private:
 	int proto;
 	uint32_t remote = 0;
 	std::queue<smarter::shared_ptr<const Ip4Packet>> pqueue;
-	async::doorbell bell;
+	async::recurring_event bell;
 };
 
 async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(void *obj,
@@ -331,7 +331,7 @@ void Ip4::feedPacket(nic::MacAddress dest, nic::MacAddress src,
 
 	for (; begin != sockets.end() && begin->first == proto; begin++) {
 		begin->second->pqueue.emplace(hdrs);
-		begin->second->bell.ring();
+		begin->second->bell.raise();
 	}
 }
 

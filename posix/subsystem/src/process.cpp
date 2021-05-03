@@ -457,7 +457,7 @@ void SignalContext::issueSignal(int sn, SignalInfo info) {
 	_slots[sn - 1].raiseSeq = ++_currentSeq;
 	_slots[sn - 1].asyncQueue.push_back(*item);
 	_activeSet |= (UINT64_C(1) << (sn - 1));
-	_signalBell.ring();
+	_signalBell.raise();
 }
 
 async::result<PollSignalResult>
@@ -1056,7 +1056,7 @@ async::result<void> Process::terminate(TerminationState state) {
 	_notifyType = NotifyType::terminated;
 	_state = std::move(state);
 	parent->_notifyQueue.push_back(*this);
-	parent->_notifyBell.ring();
+	parent->_notifyBell.raise();
 
 	// Send SIGCHLD to the parent.
 	UserSignal info;

@@ -10,7 +10,7 @@ namespace protocols::fs {
 				auto iter = boost::intrusive::list<Flock>::s_iterator_to(*this);
 				manager->flocks.erase(iter);
 				if(manager->flocks.size() == 0) {
-					manager->flockNotify.ring();
+					manager->flockNotify.raise();
 				}
 			}
 		}
@@ -26,7 +26,7 @@ namespace protocols::fs {
 		if(flags & managarm::fs::FlockFlags::LOCK_UN) {
 			if(newFlock->is_linked()) {
 				flocks.clear();
-				flockNotify.ring();
+				flockNotify.raise();
 			}
 			co_return protocols::fs::Error::none;
 		}

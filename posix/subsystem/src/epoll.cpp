@@ -2,7 +2,7 @@
 #include <string.h>
 #include <iostream>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include "common.hpp"
@@ -89,7 +89,7 @@ private:
 
 				self->_pendingQueue.push_back(*item);
 				self->_currentSeq++;
-				self->_statusBell.ring();
+				self->_statusBell.raise();
 			}
 		}else{
 			// Here, we assume that the lambda does not execute on the current stack.
@@ -132,7 +132,7 @@ public:
 
 		_pendingQueue.push_back(*item);
 		_currentSeq++;
-		_statusBell.ring();
+		_statusBell.raise();
 		return Error::success;
 	}
 
@@ -157,7 +157,7 @@ public:
 
 			_pendingQueue.push_back(*item);
 			_currentSeq++;
-			_statusBell.ring();
+			_statusBell.raise();
 		}
 		return Error::success;
 	}
@@ -287,7 +287,7 @@ public:
 		if(!repoll_queue.empty()) {
 			_pendingQueue.splice(_pendingQueue.end(), repoll_queue);
 			_currentSeq++;
-			_statusBell.ring();
+			_statusBell.raise();
 		}
 
 		if(logEpoll)
@@ -323,7 +323,7 @@ public:
 				delete item;
 		}
 
-		_statusBell.ring();
+		_statusBell.raise();
 		_cancelServe.cancel();
 	}
 
@@ -382,7 +382,7 @@ private:
 	std::unordered_map<Key, Item *, KeyHash> _fileMap;
 
 	boost::intrusive::list<Item> _pendingQueue;
-	async::doorbell _statusBell;
+	async::recurring_event _statusBell;
 	uint64_t _currentSeq;
 };
 

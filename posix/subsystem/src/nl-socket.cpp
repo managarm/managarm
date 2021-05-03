@@ -6,7 +6,7 @@
 #include <iostream>
 #include <map>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "nl-socket.hpp"
 #include "process.hpp"
@@ -54,12 +54,12 @@ public:
 	void deliver(Packet packet) {
 		_recvQueue.push_back(std::move(packet));
 		_inSeq = ++_currentSeq;
-		_statusBell.ring();
+		_statusBell.raise();
 	}
 
 	void handleClose() override {
 		_isClosed = true;
-		_statusBell.ring();
+		_statusBell.raise();
 		_cancelServe.cancel();
 	}
 
@@ -209,7 +209,7 @@ private:
 	async::cancellation_event _cancelServe;
 
 	// Status management for poll().
-	async::doorbell _statusBell;
+	async::recurring_event _statusBell;
 	bool _isClosed = false;
 	uint64_t _currentSeq;
 	uint64_t _inSeq;

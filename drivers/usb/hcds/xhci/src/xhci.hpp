@@ -2,7 +2,7 @@
 #include <queue>
 
 #include <arch/mem_space.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
@@ -111,7 +111,7 @@ private:
 		void processRing();
 
 		std::deque<Event> _dequeuedEvents;
-		async::doorbell _doorbell;
+		async::recurring_event _doorbell;
 	private:
 		arch::dma_object<EventRingEntries> _eventRing;
 		arch::dma_array<ErstEntry> _erst;
@@ -194,7 +194,7 @@ private:
 			}
 		}
 
-		async::doorbell _doorbell;
+		async::recurring_event _doorbell;
 	private:
 		uint8_t getLinkStatus();
 		uint8_t getSpeed();

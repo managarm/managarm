@@ -822,7 +822,7 @@ void Queue::processInterrupt() {
 			chain_index = successor;
 		}
 		_descriptorStack.push_back(chain_index);
-		_descriptorDoorbell.ring();
+		_descriptorDoorbell.raise();
 
 		// Call the completion handler.
 		request->complete(request);

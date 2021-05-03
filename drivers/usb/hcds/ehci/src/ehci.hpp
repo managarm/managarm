@@ -2,7 +2,7 @@
 #include <queue>
 
 #include <arch/mem_space.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>

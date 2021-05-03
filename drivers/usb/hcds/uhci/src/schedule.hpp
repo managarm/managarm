@@ -2,7 +2,7 @@
 #include <queue>
 #include <arch/dma_pool.hpp>
 #include <arch/io_space.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <protocols/hw/client.hpp>
 
@@ -95,7 +95,7 @@ private:
 	uint16_t _lastFrame;
 	int64_t _frameCounter;
 	PortState _portState[2];
-	async::doorbell _portDoorbell;
+	async::recurring_event _portDoorbell;
 
 	void _updateFrame();
 

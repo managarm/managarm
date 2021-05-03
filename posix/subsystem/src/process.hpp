@@ -6,7 +6,7 @@
 
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
 
 #include "vfs.hpp"
@@ -280,7 +280,7 @@ private:
 	SignalHandler _handlers[64];
 	SignalSlot _slots[64];
 
-	async::doorbell _signalBell;
+	async::recurring_event _signalBell;
 	uint64_t _currentSeq;
 	uint64_t _activeSet;
 };
@@ -571,7 +571,7 @@ private:
 		>
 	> _notifyQueue;
 
-	async::doorbell _notifyBell;
+	async::recurring_event _notifyBell;
 
 	// Resource usage accumulated from previous generations.
 	ResourceUsage _generationUsage = {};

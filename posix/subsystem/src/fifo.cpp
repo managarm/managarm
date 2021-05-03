@@ -5,7 +5,7 @@
 #include <deque>
 #include <map>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
 
@@ -29,7 +29,7 @@ struct Channel {
 	: writerCount{0}, readerCount{0} { }
 
 	// Status management for poll().
-	async::doorbell statusBell;
+	async::recurring_event statusBell;
 	// Start at currentSeq = 1 since the pipe is always writable.
 	uint64_t currentSeq = 1;
 	uint64_t noWriterSeq = 0;
@@ -38,8 +38,8 @@ struct Channel {
 	int writerCount;
 	int readerCount;
 
-	async::doorbell readerPresent;
-	async::doorbell writerPresent;
+	async::recurring_event readerPresent;
+	async::recurring_event writerPresent;
 
 	// The actual queue of this pipe.
 	std::deque<Packet> packetQueue;
@@ -68,7 +68,7 @@ public:
 	void handleClose() override {
 		if(_channel->readerCount-- == 1) {
 			_channel->noReaderSeq = ++_channel->currentSeq;
-			_channel->statusBell.ring();
+			_channel->statusBell.raise();
 		}
 		_channel = nullptr;
 	}
@@ -194,7 +194,7 @@ public:
 				<< std::endl;
 		if(_channel->writerCount-- == 1) {
 			_channel->noWriterSeq = ++_channel->currentSeq;
-			_channel->statusBell.ring();
+			_channel->statusBell.raise();
 		}
 		_channel = nullptr;
 	}
@@ -208,7 +208,7 @@ public:
 
 		_channel->packetQueue.push_back(std::move(packet));
 		_channel->inSeq = ++_channel->currentSeq;
-		_channel->statusBell.ring();
+		_channel->statusBell.raise();
 		co_return maxLength;
 	}
 
@@ -279,7 +279,7 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		r_file->setupWeakFile(r_file);
 		r_file->connectChannel(channel);
 
-		channel->readerPresent.ring();
+		channel->readerPresent.raise();
 		if (!channel->writerCount && !(flags & semanticNonBlock))
 			co_await channel->writerPresent.async_wait();
 
@@ -294,7 +294,7 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		w_file->setupWeakFile(w_file);
 		w_file->connectChannel(channel);
 
-		channel->writerPresent.ring();
+		channel->writerPresent.raise();
 		if (!channel->readerCount && !(flags & semanticNonBlock))
 			co_await channel->readerPresent.async_wait();
 

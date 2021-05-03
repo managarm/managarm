@@ -5,7 +5,7 @@
 #include <queue>
 
 #include <async/result.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
 #include <helix/ipc.hpp>
@@ -102,7 +102,7 @@ private:
 	async::result<bool> _detectDevice();
 
 	std::queue<std::unique_ptr<Request>> _requestQueue;
-	async::doorbell _doorbell;
+	async::recurring_event _doorbell;
 
 	helix::UniqueDescriptor _irq;
 	arch::io_space _ioSpace;
@@ -217,7 +217,7 @@ async::result<void> Controller::readSectors(uint64_t sector,
 	request->buffer = buffer;
 
 	_requestQueue.push(std::move(request));
-	_doorbell.ring();
+	_doorbell.raise();
 
 	return future;
 }
@@ -232,7 +232,7 @@ async::result<void> Controller::writeSectors(uint64_t sector,
 	request->buffer = const_cast<void *>(buffer);
 
 	_requestQueue.push(std::move(request));
-	_doorbell.ring();
+	_doorbell.raise();
 
 	return future;
 }

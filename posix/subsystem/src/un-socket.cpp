@@ -5,7 +5,7 @@
 #include <sys/un.h>
 #include <iostream>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "sockutil.hpp"
 #include "un-socket.hpp"
@@ -59,8 +59,8 @@ public:
 		b->_remote = a;
 		a->_currentState = State::connected;
 		b->_currentState = State::connected;
-		a->_statusBell.ring();
-		b->_statusBell.ring();
+		a->_statusBell.raise();
+		b->_statusBell.raise();
 	}
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -91,12 +91,12 @@ public:
 			auto rf = _remote;
 			rf->_currentState = State::remoteShutDown;
 			rf->_hupSeq = ++rf->_currentSeq;
-			rf->_statusBell.ring();
+			rf->_statusBell.raise();
 			rf->_remote = nullptr;
 			_remote = nullptr;
 		}
 		_currentState = State::closed;
-		_statusBell.ring();
+		_statusBell.raise();
 		_cancelServe.cancel();
 	}
 
@@ -143,7 +143,7 @@ public:
 
 		_remote->_recvQueue.push_back(std::move(packet));
 		_remote->_inSeq = ++_remote->_currentSeq;
-		_remote->_statusBell.ring();
+		_remote->_statusBell.raise();
 		co_return length;
 	}
 
@@ -230,7 +230,7 @@ public:
 
 		_remote->_recvQueue.push_back(std::move(packet));
 		_remote->_inSeq = ++_remote->_currentSeq;
-		_remote->_statusBell.ring();
+		_remote->_statusBell.raise();
 
 		co_return max_length;
 	}
@@ -390,7 +390,7 @@ public:
 			auto server = abstractSocketsBindMap.at(path);
 			server->_acceptQueue.push_back(this);
 			server->_inSeq = ++server->_currentSeq;
-			server->_statusBell.ring();
+			server->_statusBell.raise();
 
 			while(_currentState == State::null)
 				co_await _statusBell.async_wait();
@@ -416,7 +416,7 @@ public:
 			auto server = globalBindMap.at(node);
 			server->_acceptQueue.push_back(this);
 			server->_inSeq = ++server->_currentSeq;
-			server->_statusBell.ring();
+			server->_statusBell.raise();
 
 			while(_currentState == State::null)
 				co_await _statusBell.async_wait();
@@ -496,7 +496,7 @@ private:
 	State _currentState;
 
 	// Status management for poll().
-	async::doorbell _statusBell;
+	async::recurring_event _statusBell;
 	uint64_t _currentSeq;
 	uint64_t _hupSeq = 0;
 	uint64_t _inSeq;

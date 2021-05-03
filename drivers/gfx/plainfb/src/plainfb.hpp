@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 #include <arch/mem_space.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/jump.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>

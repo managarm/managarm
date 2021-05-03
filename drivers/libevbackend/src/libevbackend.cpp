@@ -446,7 +446,7 @@ void EventDevice::notify() {
 			file._pending.push_back(PendingEvent{evt.type, evt.code, evt.value, now});
 		file._currentSeq++;
 		file._statusPage.update(file._currentSeq, EPOLLIN);
-		file._statusBell.ring();
+		file._statusBell.raise();
 	}
 	_staged.clear();
 }

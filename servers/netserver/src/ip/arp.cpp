@@ -150,7 +150,7 @@ void Neighbours::updateTable(uint32_t ip, nic::MacAddress mac) {
 	auto &entry = getEntry(ip);
 	entry.mac = mac;
 	entry.state = State::reachable;
-	entry.change.ring();
+	entry.change.raise();
 }
 
 namespace {
@@ -170,7 +170,7 @@ async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) 
 		}
 	}
 	e.state = Neighbours::State::failed;
-	e.change.ring();
+	e.change.raise();
 }
 } // namespace
 

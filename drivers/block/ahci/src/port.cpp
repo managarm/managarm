@@ -243,7 +243,7 @@ void Port::handleIrq() {
 	// TODO: If we have a lot of waiters, this will cause many spurious wakeups. Ideally, we only
 	// notify a certain number of tasks, and the rest can stay asleep.
 	if (commandsInFlight_ == numCommandSlots_ && numCompleted > 0) {
-		freeSlotDoorbell_.ring();
+		freeSlotDoorbell_.raise();
 	}
 
 	commandsInFlight_ -= numCompleted;

@@ -1,5 +1,5 @@
 #include <async/basic.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <arch/bit.hpp>
 #include <arch/variable.hpp>
@@ -257,7 +257,7 @@ struct Tcp4Socket {
 		// Connect to the remote.
 		self->connectState_ = ConnectState::sendSyn;
 		self->remoteEp_ = connectEp;
-		self->flushEvent_.ring();
+		self->flushEvent_.raise();
 
 		while(true) {
 			if(self->connectState_ != ConnectState::sendSyn)
@@ -308,7 +308,7 @@ struct Tcp4Socket {
 			if(flags & MSG_PEEK)
 				break;
 			self->recvRing_.dequeueAdvance(chunk);
-			self->flushEvent_.ring();
+			self->flushEvent_.raise();
 		}
 
 		struct sockaddr_in sa;
@@ -342,7 +342,7 @@ struct Tcp4Socket {
 			}
 			size_t chunk = std::min(space, size - progress);
 			self->sendRing_.enqueue(p + progress, chunk);
-			self->flushEvent_.ring();
+			self->flushEvent_.raise();
 			progress += chunk;
 		}
 
@@ -478,9 +478,9 @@ private:
 	RingBuffer recvRing_;
 	RingBuffer sendRing_;
 
-	async::doorbell inEvent_;
-	async::doorbell flushEvent_;
-	async::doorbell settleEvent_;
+	async::recurring_event inEvent_;
+	async::recurring_event flushEvent_;
+	async::recurring_event settleEvent_;
 
 	// The following sequence numbers are *not* TCP sequence numbers,
 	// they implement the poll() function.
@@ -488,7 +488,7 @@ private:
 	uint64_t inSeq_ = 1;
 	uint64_t outSeq_ = 0;
 	uint64_t hupSeq_ = 1;
-	async::doorbell pollEvent_;
+	async::recurring_event pollEvent_;
 };
 
 async::result<void> Tcp4Socket::flushOutPackets_() {
@@ -662,8 +662,8 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		remoteAckedSn_ = packet.header.seqNumber.load();
 		remoteKnownSn_ = packet.header.seqNumber.load() + 1; // SYN counts as one byte.
 		connectState_ = ConnectState::connected;
-		flushEvent_.ring();
-		settleEvent_.ring();
+		flushEvent_.raise();
+		settleEvent_.raise();
 	}else if(connectState_ == ConnectState::connected) {
 		if(packet.header.seqNumber.load() == remoteKnownSn_) {
 			bool gotUpdate = false;
@@ -692,9 +692,9 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 			}
 
 			if(gotUpdate) {
-				inEvent_.ring();
-				flushEvent_.ring();
-				pollEvent_.ring();
+				inEvent_.raise();
+				flushEvent_.raise();
+				pollEvent_.raise();
 			}
 		}
 
@@ -706,8 +706,8 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 				localWindowSn_ = localSettledSn_ + packet.header.window.load();
 				sendRing_.dequeueAdvance(ackPointer);
 				outSeq_ = ++currentSeq_;
-				settleEvent_.ring();
-				pollEvent_.ring();
+				settleEvent_.raise();
+				pollEvent_.raise();
 			}else{
 				std::cout << "netserver: Rejecting ack-number outside of valid window"
 						<< std::endl;

@@ -4,7 +4,7 @@
 #include <vector>
 
 #include <async/result.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -74,7 +74,7 @@ private:
 	EventDevice *_device;
 	boost::intrusive::list_member_hook<> hook;
 	protocols::fs::StatusPageProvider _statusPage;
-	async::doorbell _statusBell;
+	async::recurring_event _statusBell;
 	uint64_t _currentSeq;
 
 	bool _nonBlock;

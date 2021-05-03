@@ -1,5 +1,5 @@
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <blockfs.hpp>
 #include <boost/intrusive/list.hpp>
@@ -120,7 +120,7 @@ private:
 	};
 
 	Device _usbDevice;
-	async::doorbell _doorbell;
+	async::recurring_event _doorbell;
 
 	boost::intrusive::list<
 		Request,

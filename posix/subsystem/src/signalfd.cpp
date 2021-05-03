@@ -4,7 +4,7 @@
 #include <sys/signalfd.h>
 #include <iostream>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "process.hpp"
 #include "signalfd.hpp"

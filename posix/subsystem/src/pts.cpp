@@ -3,7 +3,7 @@
 #include <sys/epoll.h>
 #include <sstream>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 
 #include "file.hpp"
 #include "process.hpp"
@@ -73,7 +73,7 @@ struct Channel {
 	int pixelHeight = 16 * 25;
 
 	// Status management for poll().
-	async::doorbell statusBell;
+	async::recurring_event statusBell;
 	uint64_t currentSeq;
 	uint64_t masterInSeq;
 	uint64_t slaveInSeq;
@@ -501,7 +501,7 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 	if(packet.buffer.size()) {
 		_channel->slaveQueue.push_back(std::move(packet));
 		_channel->slaveInSeq = ++_channel->currentSeq;
-		_channel->statusBell.ring();
+		_channel->statusBell.raise();
 	}
 	co_return length;
 }
@@ -658,7 +658,7 @@ SlaveFile::writeAll(Process *, const void *data, size_t length) {
 
 	_channel->masterQueue.push_back(std::move(packet));
 	_channel->masterInSeq = ++_channel->currentSeq;
-	_channel->statusBell.ring();
+	_channel->statusBell.raise();
 	co_return length;
 }
 

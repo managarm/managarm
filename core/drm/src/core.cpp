@@ -498,7 +498,7 @@ void drm_core::File::postEvent(drm_core::Event event) {
 		_statusPage.update(_eventSequence, EPOLLIN);
 	}
 	_pendingEvents.push_back(event);
-	_eventBell.ring();
+	_eventBell.raise();
 }
 
 async::result<protocols::fs::ReadResult>

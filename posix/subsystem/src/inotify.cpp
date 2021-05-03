@@ -3,7 +3,7 @@
 #include <sys/inotify.h>
 #include <iostream>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "fs.hpp"
 #include "inotify.hpp"
@@ -36,7 +36,7 @@ public:
 				return;
 			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
 			file->_inSeq = ++file->_currentSeq;
-			file->_statusBell.ring();
+			file->_statusBell.raise();
 		}
 
 		OpenFile *file;
@@ -129,7 +129,7 @@ private:
 	// TODO: Use a proper ID allocator to allocate watch descriptor IDs.
 	int _nextDescriptor = 1;
 
-	async::doorbell _statusBell;
+	async::recurring_event _statusBell;
 	uint64_t _currentSeq = 1;
 	uint64_t _inSeq = 0;
 };

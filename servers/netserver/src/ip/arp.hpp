@@ -1,6 +1,6 @@
 #pragma once
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <netserver/nic.hpp>
 #include <map>
 
@@ -16,7 +16,7 @@ struct Neighbours {
 	struct Entry {
 		uint64_t mtime_ns;
 		nic::MacAddress mac;
-		async::doorbell change;
+		async::recurring_event change;
 		State state = State::none;
 	};
 	async::result<std::optional<nic::MacAddress>> tryResolve(uint32_t addr,

@@ -4,7 +4,7 @@
 
 #include <arch/mem_space.hpp>
 #include <arch/dma_structs.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <async/queue.hpp>
 
@@ -55,7 +55,7 @@ private:
 	async::queue<std::unique_ptr<Command>, stl_allocator> pendingCmdQueue_;
 
 	std::array<std::unique_ptr<Command>, limits::maxCmdSlots> submittedCmds_;
-	async::doorbell freeSlotDoorbell_;
+	async::recurring_event freeSlotDoorbell_;
 
 	size_t numCommandSlots_;
 	size_t commandsInFlight_;

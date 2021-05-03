@@ -3,7 +3,7 @@
 #include <sys/epoll.h>
 #include <iostream>
 
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "fs.hpp"
 #include "eventfd.hpp"
@@ -39,7 +39,7 @@ struct OpenFile : File {
 				memcpy(data, &_counter, 8);
 				_counter = 0;
 				_writeableSeq = ++_currentSeq;
-				_doorbell.ring();
+				_doorbell.raise();
 				co_return 8;
 			}
 
@@ -69,7 +69,7 @@ struct OpenFile : File {
 		_counter += num;
 
 		_readableSeq = ++_currentSeq;
-		_doorbell.ring();
+		_doorbell.raise();
 		co_return length;
 	}
 
@@ -109,7 +109,7 @@ struct OpenFile : File {
 
 private:
 	helix::UniqueLane _passthrough;
-	async::doorbell _doorbell;
+	async::recurring_event _doorbell;
 
 	uint64_t _currentSeq;
 	uint64_t _readableSeq;

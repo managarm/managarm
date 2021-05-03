@@ -4,7 +4,7 @@
 
 #include <protocols/fs/server.hpp>
 #include <boost/intrusive/list.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 
 namespace protocols::fs {
 
@@ -33,7 +33,7 @@ private:
 		async::result<protocols::fs::Error> lock(Flock* newFlock, int flags);
 private:
 		boost::intrusive::list<Flock> flocks;
-		async::doorbell flockNotify;
+		async::recurring_event flockNotify;
 		static bool validateFlockFlags(int flags);
 	};
 

@@ -9,7 +9,7 @@
 
 #include <arch/mem_space.hpp>
 #include <async/cancellation.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
@@ -222,7 +222,7 @@ private:
 	bool _isBlocking = true;
 	std::deque<Event> _pendingEvents;
 	uint64_t _eventSequence;
-	async::doorbell _eventBell;
+	async::recurring_event _eventBell;
 
 	protocols::fs::StatusPageProvider _statusPage;
 };

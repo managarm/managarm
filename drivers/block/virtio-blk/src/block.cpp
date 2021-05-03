@@ -63,7 +63,7 @@ async::result<void> Device::readSectors(uint64_t sector,
 				(char *)buffer + 512 * progress,
 				std::min(num_sectors - progress, max_sectors));
 		_pendingQueue.push(request);
-		_pendingDoorbell.ring();
+		_pendingDoorbell.raise();
 		co_await request->promise.async_get();
 		delete request;
 	}
@@ -84,7 +84,7 @@ async::result<void> Device::writeSectors(uint64_t sector,
 				(char *)buffer + 512 * progress,
 				std::min(num_sectors - progress, max_sectors));
 		_pendingQueue.push(request);
-		_pendingDoorbell.ring();
+		_pendingDoorbell.raise();
 		co_await request->promise.async_get();
 		delete request;
 	}

@@ -4,7 +4,7 @@
 #include <iostream>
 
 #include <async/result.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "timerfd.hpp"
 
@@ -40,7 +40,7 @@ private:
 			if(_activeTimer == timer) {
 				_expirations++;
 				_theSeq++;
-				_seqBell.ring();
+				_seqBell.raise();
 			}else{
 				delete timer;
 				co_return;
@@ -67,7 +67,7 @@ private:
 			if(_activeTimer == timer) {
 				_expirations++;
 				_theSeq++;
-				_seqBell.ring();
+				_seqBell.raise();
 			}else{
 				delete timer;
 				co_return;
@@ -96,7 +96,7 @@ public:
 	}
 
 	void handleClose() override {
-		_seqBell.ring();
+		_seqBell.raise();
 		_cancelServe.cancel();
 	}
 
@@ -164,7 +164,7 @@ private:
 	uint64_t _expirations;
 
 	uint64_t _theSeq;
-	async::doorbell _seqBell;
+	async::recurring_event _seqBell;
 };
 
 } // anonymous namespace

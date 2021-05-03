@@ -183,7 +183,7 @@ async::result<void> StorageDevice::readSectors(uint64_t sector,
 	auto req = new Request{false, sector, buffer, numSectors};
 	_queue.push_back(*req);
 	auto result = req->promise.async_get();
-	_doorbell.ring();
+	_doorbell.raise();
 	return result;
 }
 
@@ -192,7 +192,7 @@ async::result<void> StorageDevice::writeSectors(uint64_t sector,
 	auto req = new Request{true, sector, const_cast<void *>(buffer), numSectors};
 	_queue.push_back(*req);
 	auto result = req->promise.async_get();
-	_doorbell.ring();
+	_doorbell.raise();
 	return result;
 }
 

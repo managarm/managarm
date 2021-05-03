@@ -241,7 +241,7 @@ private:
 	Device _device;
 	Endpoint _endpoint;
 
-	async::doorbell _doorbell;
+	async::recurring_event _doorbell;
 	std::vector<PortState> _state;
 };
 
@@ -330,7 +330,7 @@ async::detached StandardHub::_run() {
 			// Inspect the status change bits and reset them.
 			if(result[1] & port_bits::connect) {
 				_state[port].changes |= hub_status::connect;
-				_doorbell.ring();
+				_doorbell.raise();
 
 				arch::dma_object<SetupPacket> clear_req{_device.setupPool()};
 				clear_req->type = setup_type::targetOther | setup_type::byClass
@@ -346,7 +346,7 @@ async::detached StandardHub::_run() {
 
 			if(result[1] & port_bits::enable) {
 				_state[port].changes |= hub_status::enable;
-				_doorbell.ring();
+				_doorbell.raise();
 
 				arch::dma_object<SetupPacket> clear_req{_device.setupPool()};
 				clear_req->type = setup_type::targetOther | setup_type::byClass
@@ -362,7 +362,7 @@ async::detached StandardHub::_run() {
 
 			if(result[1] & port_bits::reset) {
 				_state[port].changes |= hub_status::reset;
-				_doorbell.ring();
+				_doorbell.raise();
 
 				arch::dma_object<SetupPacket> clear_req{_device.setupPool()};
 				clear_req->type = setup_type::targetOther | setup_type::byClass
@@ -594,11 +594,11 @@ void Controller::_updateFrame() {
 			// Extract the change bits.
 			if(sc & port_status_ctrl::connectChange) {
 				_portState[port].changes |= hub_status::connect;
-				_portDoorbell.ring();
+				_portDoorbell.raise();
 			}
 			if(sc & port_status_ctrl::enableChange) {
 				_portState[port].changes |= hub_status::enable;
-				_portDoorbell.ring();
+				_portDoorbell.raise();
 			}
 
 			// Write-back clears the change bits.
@@ -684,7 +684,7 @@ async::result<bool> Controller::RootHub::issueReset(int port, bool *low_speed) {
 	// Similar to USB standard hubs we do not reset the enable-change bit.
 	_controller->_portState[port].status |= hub_status::enable;
 	_controller->_portState[port].changes |= hub_status::reset;
-	_controller->_portDoorbell.ring();
+	_controller->_portDoorbell.raise();
 
 	co_return true;
 }

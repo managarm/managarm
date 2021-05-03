@@ -460,7 +460,7 @@ void Controller::EventRing::processRing() {
 	}
 
 	_controller->_interrupters[0]->setEventRing(this, true);
-	_doorbell.ring();
+	_doorbell.raise();
 }
 
 void Controller::EventRing::processEvent(Controller::Event ev) {
@@ -477,7 +477,7 @@ void Controller::EventRing::processEvent(Controller::Event ev) {
 		printf("xhci: port %lu changed state\n", ev.portId);
 		assert(ev.portId <= _controller->_ports.size());
 		if (_controller->_ports[ev.portId - 1])
-			_controller->_ports[ev.portId - 1]->_doorbell.ring();
+			_controller->_ports[ev.portId - 1]->_doorbell.raise();
 	} else if (ev.type == TrbType::transferEvent) {
 		auto transferRing = _controller->_devices[ev.slotId]->_transferRings[ev.endpointId - 1].get();
 		size_t commandIndex = (ev.trbPointer - transferRing->getPtr()) / sizeof(RawTrb);

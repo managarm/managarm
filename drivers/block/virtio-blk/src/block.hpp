@@ -72,7 +72,7 @@ private:
 
 	// Stores UserRequest objects that have not been submitted yet.
 	std::queue<UserRequest *> _pendingQueue;
-	async::doorbell _pendingDoorbell;
+	async::recurring_event _pendingDoorbell;
 
 	// these two buffer store virtio-block request header and status bytes
 	// they are indexed by the index of the request's first descriptor

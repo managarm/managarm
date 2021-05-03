@@ -12,7 +12,7 @@
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
-#include <async/doorbell.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 
@@ -354,7 +354,7 @@ private:
 	// Keeps track of unused descriptor indices.
 	std::vector<uint16_t> _descriptorStack;
 
-	async::doorbell _descriptorDoorbell;
+	async::recurring_event _descriptorDoorbell;
 
 	std::vector<Request *> _activeRequests;
 
