@@ -69,10 +69,13 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 			compatible_ = parseStringList(prop);
 		} else if (pn == "#address-cells") {
 			addressCells_ = prop.asU32();
+			hasAddressCells_ = true;
 		} else if (pn == "#size-cells") {
 			sizeCells_ = prop.asU32();
+			hasSizeCells_ = true;
 		} else if (pn == "#interrupt-cells") {
 			interruptCells_ = prop.asU32();
+			hasInterruptCells_ = true;
 		} else if (pn == "interrupt-parent") {
 			interruptParentId_ = prop.asU32();
 		} else if (pn == "reg") {

@@ -18,8 +18,9 @@ namespace thor {
 struct DeviceTreeNode {
 	DeviceTreeNode(DeviceTreeNode *parent)
 	: parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
-	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{2}, sizeCells_{1},
-	interruptCells_{}, reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
+	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{2}, hasAddressCells_{false},
+	sizeCells_{1}, hasSizeCells_{false}, interruptCells_{}, hasInterruptCells_{false},
+	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
 	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
 	interruptMapRaw_{nullptr, 0}, interruptController_{false},
 	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0},
@@ -195,8 +196,11 @@ private:
 	frg::vector<frg::string_view, KernelAlloc> compatible_;
 
 	int addressCells_;
+	bool hasAddressCells_;
 	int sizeCells_;
+	bool hasSizeCells_;
 	int interruptCells_;
+	bool hasInterruptCells_;
 
 	frg::vector<RegRange, KernelAlloc> reg_;
 	frg::vector<AddrTranslateRange, KernelAlloc> ranges_;
