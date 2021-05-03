@@ -1,5 +1,5 @@
 
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
@@ -11,7 +11,7 @@ namespace clk {
 
 namespace {
 
-async::jump foundTracker;
+async::oneshot_event foundTracker;
 
 helix::UniqueLane trackerLane;
 helix::UniqueDescriptor globalTrackerPageMemory;
@@ -42,7 +42,7 @@ async::detached fetchTrackerPage() {
 	
 	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000};
 	
-	foundTracker.trigger();
+	foundTracker.raise();
 }
 
 } // anonymous namespace
@@ -67,7 +67,7 @@ async::result<void> enumerateTracker() {
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundTracker.async_wait();
+	co_await foundTracker.wait();
 }
 
 struct timespec getRealtime() {

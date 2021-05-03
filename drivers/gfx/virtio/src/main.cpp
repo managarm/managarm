@@ -495,7 +495,7 @@ uint32_t GfxDevice::BufferObject::hardwareId() {
 }
 
 async::result<void> GfxDevice::BufferObject::wait() {
-	return async::make_result(_jump.async_wait());
+	return async::make_result(_jump.wait());
 }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
@@ -552,7 +552,7 @@ async::detached GfxDevice::BufferObject::_initHw() {
 	co_await AwaitableRequest{_device->_controlQ, attach_chain.front()};
 	assert(attach_result.type == spec::resp::noData);
 
-	_jump.trigger();
+	_jump.raise();
 }
 
 // ----------------------------------------------------------------

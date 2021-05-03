@@ -3,7 +3,7 @@
 #include <sys/stat.h>
 #include <iostream>
 
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
 #include <protocols/mbus/client.hpp>
 #include <kernlet.pb.h>
@@ -16,7 +16,7 @@ static bool dumpHex = false;
 // ----------------------------------------------------------------------------
 
 helix::UniqueLane kernletCtlLane;
-async::jump foundKernletCtl;
+async::oneshot_event foundKernletCtl;
 
 async::result<void> enumerateCtl() {
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -30,11 +30,11 @@ async::result<void> enumerateCtl() {
 		std::cout << "kernletcc: Found kernletctl" << std::endl;
 
 		kernletCtlLane = helix::UniqueLane(co_await entity.bind());
-		foundKernletCtl.trigger();
+		foundKernletCtl.raise();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundKernletCtl.async_wait();
+	co_await foundKernletCtl.wait();
 }
 
 async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,

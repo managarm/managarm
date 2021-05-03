@@ -7,7 +7,7 @@
 
 #include <arch/mem_space.hpp>
 #include <async/recurring-event.hpp>
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <core/virtio/core.hpp>
@@ -75,7 +75,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		helix::UniqueDescriptor _memory;
 		uint32_t _width;
 		uint32_t _height;
-		async::jump _jump;
+		async::oneshot_event _jump;
 	};
 
 	struct Connector : drm_core::Connector {

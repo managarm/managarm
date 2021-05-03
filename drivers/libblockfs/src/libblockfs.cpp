@@ -51,7 +51,7 @@ using Flock = protocols::fs::Flock;
 
 async::result<protocols::fs::Error> flock(void *object, int flags) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->readyJump.async_wait();
+	co_await self->inode->readyJump.wait();
 	auto inode = self->inode;
 
 	auto result = co_await inode->flockManager.lock(&self->flock, flags);
@@ -66,7 +66,7 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	HEL_CHECK(helGetClock(&start));
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->readyJump.async_wait();
+	co_await self->inode->readyJump.wait();
 
 	if(self->offset >= self->inode->fileSize())
 		co_return size_t{0};
@@ -88,7 +88,7 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	helix::LockMemoryView lockMemory;
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
 			&lockMemory, mapOffset, mapSize, helix::Dispatcher::global());
-	co_await submit.async_wait();
+	co_await submit.wait();
 	HEL_CHECK(lockMemory.error());
 
 	// Map the page cache into the address space.
@@ -121,7 +121,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 	assert(length);
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->readyJump.async_wait();
+	co_await self->inode->readyJump.wait();
 
 	if(self->offset >= self->inode->fileSize())
 		co_return size_t{0};
@@ -164,7 +164,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, c
 async::result<helix::BorrowedDescriptor>
 accessMemory(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->readyJump.async_wait();
+	co_await self->inode->readyJump.wait();
 	co_return self->inode->frontalMemory;
 }
 
@@ -294,7 +294,7 @@ async::detached serve(smarter::shared_ptr<ext2fs::OpenFile> file,
 async::result<protocols::fs::FileStats>
 getStats(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	co_await self->readyJump.async_wait();
+	co_await self->readyJump.wait();
 
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->diskInode()->linksCount;
@@ -313,7 +313,7 @@ async::result<protocols::fs::OpenResult>
 open(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto file = smarter::make_shared<ext2fs::OpenFile>(self);
-	co_await self->readyJump.async_wait();
+	co_await self->readyJump.wait();
 
 	helix::UniqueLane local_ctrl, remote_ctrl;
 	helix::UniqueLane local_pt, remote_pt;
@@ -336,7 +336,7 @@ open(std::shared_ptr<void> object) {
 
 async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	co_await self->readyJump.async_wait();
+	co_await self->readyJump.wait();
 
 	assert(self->fileSize() <= 60);
 	co_return std::string{self->diskInode()->data.embedded,

@@ -7,7 +7,7 @@
 #include <iostream>
 
 #include <async/result.hpp>
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include <libevbackend.hpp>
@@ -30,7 +30,7 @@ bool logRequests = false;
 
 namespace {
 
-async::jump pmFound;
+async::oneshot_event pmFound;
 helix::UniqueLane pmLane;
 
 async::detached issueReset() {
@@ -43,11 +43,11 @@ async::detached issueReset() {
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		pmLane = helix::UniqueLane(co_await entity.bind());
-		pmFound.trigger();
+		pmFound.raise();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await pmFound.async_wait();
+	co_await pmFound.wait();
 
 	managarm::hw::PmResetRequest req;
 

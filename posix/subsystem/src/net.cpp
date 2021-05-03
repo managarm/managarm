@@ -1,12 +1,12 @@
 #include "net.hpp"
 
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <protocols/mbus/client.hpp>
 
 namespace net {
 namespace {
 helix::UniqueLane netserverLane;
-async::jump foundNetserver;
+async::oneshot_event foundNetserver;
 } // namespace
 
 async::result<void> enumerateNetserver() {
@@ -21,15 +21,15 @@ async::result<void> enumerateNetserver() {
 		std::cout << "POSIX: found netserver" << std::endl;
 
 		netserverLane = helix::UniqueLane(co_await entity.bind());
-		foundNetserver.trigger();
+		foundNetserver.raise();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundNetserver.async_wait();
+	co_await foundNetserver.wait();
 }
 
 async::result<helix::BorrowedLane> getNetLane() {
-	co_await foundNetserver.async_wait();
+	co_await foundNetserver.wait();
 	co_return netserverLane;
 }
 

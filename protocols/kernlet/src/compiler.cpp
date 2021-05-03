@@ -1,7 +1,7 @@
 
 #include <string.h>
 
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/kernlet/compiler.hpp>
 #include <protocols/mbus/client.hpp>
@@ -9,7 +9,7 @@
 #include "kernlet.pb.h"
 
 helix::UniqueLane kernletCompilerLane;
-async::jump foundKernletCompiler;
+async::oneshot_event foundKernletCompiler;
 
 async::result<void> connectKernletCompiler() {
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -23,11 +23,11 @@ async::result<void> connectKernletCompiler() {
 		std::cout << "kernlet: Found kernletcc" << std::endl;
 
 		kernletCompilerLane = helix::UniqueLane(co_await entity.bind());
-		foundKernletCompiler.trigger();
+		foundKernletCompiler.raise();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundKernletCompiler.async_wait();
+	co_await foundKernletCompiler.wait();
 }
 
 async::result<helix::UniqueDescriptor> compile(void *code, size_t size,

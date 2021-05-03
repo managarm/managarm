@@ -9,7 +9,7 @@
 #include <vector>
 #include <protocols/fs/file-locks.hpp>
 
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
 #include <hel.h>
 
@@ -207,7 +207,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	helix::Mapping diskMapping;
 
 	// called when the inode becomes ready
-	async::jump readyJump;
+	async::oneshot_event readyJump;
 
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;

@@ -1,7 +1,7 @@
 
 #include <iostream>
 
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
@@ -15,7 +15,7 @@
 using RtcTime = std::pair<int64_t, int64_t>;
 
 helix::UniqueLane rtcLane;
-async::jump foundRtc;
+async::oneshot_event foundRtc;
 
 async::result<void> enumerateRtc() {
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -29,11 +29,11 @@ async::result<void> enumerateRtc() {
 		std::cout << "drivers/clocktracker: Found RTC" << std::endl;
 
 		rtcLane = helix::UniqueLane(co_await entity.bind());
-		foundRtc.trigger();
+		foundRtc.raise();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundRtc.async_wait();
+	co_await foundRtc.wait();
 }
 
 async::result<RtcTime> getRtcTime() {

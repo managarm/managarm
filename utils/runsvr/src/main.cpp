@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <iostream>
 
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
 #include <protocols/mbus/client.hpp>
 #include <svrctl.pb.h>
@@ -47,7 +47,7 @@ static std::vector<std::byte> readEntireFile(const char *path) {
 // ----------------------------------------------------------------------------
 
 helix::UniqueLane svrctlLane;
-async::jump foundSvrctl;
+async::oneshot_event foundSvrctl;
 
 async::result<void> enumerateSvrctl() {
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -61,11 +61,11 @@ async::result<void> enumerateSvrctl() {
 //		std::cout << "runsvr: Found svrctl" << std::endl;
 
 		svrctlLane = helix::UniqueLane(co_await entity.bind());
-		foundSvrctl.trigger();
+		foundSvrctl.raise();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundSvrctl.async_wait();
+	co_await foundSvrctl.wait();
 }
 
 async::result<helix::UniqueLane> runServer(const char *name) {

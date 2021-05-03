@@ -15,7 +15,7 @@
 #include <iostream>
 
 #include <async/algorithm.hpp>
-#include <async/jump.hpp>
+#include <async/oneshot-event.hpp>
 #include <protocols/mbus/client.hpp>
 #include <helix/timer.hpp>
 
@@ -3700,7 +3700,7 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 // --------------------------------------------------------
 
 namespace {
-	async::jump foundKerncfg;
+	async::oneshot_event foundKerncfg;
 	helix::UniqueLane kerncfgLane;
 };
 
@@ -3749,11 +3749,11 @@ async::result<void> enumerateKerncfg() {
 		std::cout << "POSIX: Found kerncfg" << std::endl;
 
 		kerncfgLane = helix::UniqueLane(co_await entity.bind());
-		foundKerncfg.trigger();
+		foundKerncfg.raise();
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundKerncfg.async_wait();
+	co_await foundKerncfg.wait();
 
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	procfs_root->directMkregular("cmdline", std::make_shared<CmdlineNode>());
