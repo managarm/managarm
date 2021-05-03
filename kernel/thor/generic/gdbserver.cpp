@@ -1,11 +1,9 @@
-#ifdef __x86_64__
-#include <arch/io_space.hpp>
-#endif
 #include <async/queue.hpp>
 #include <frg/span.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/gdbserver.hpp>
+#include <thor-internal/kernel-io.hpp>
 
 namespace thor {
 
@@ -47,12 +45,6 @@ void hexdump(frg::span<uint8_t> s) {
 	}
 }
 
-// This gives a more precise assertion failure if our assumption is broken.
-uint8_t unwrapByte(frg::optional<uint8_t> maybeByte) {
-	assert(maybeByte); // We never cancel async_get(), hence we always get a value.
-	return *maybeByte;
-}
-
 bool is_hex(uint8_t h) {
 	return (h >= 'a' && h <= 'f') || (h >= '0' && h <= '9');
 }
@@ -79,25 +71,20 @@ uint8_t computeCsum(frg::span<uint8_t> s) {
 }
 
 struct GdbServer {
-	GdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread,
-		frg::string_view path, smarter::shared_ptr<WorkQueue> wq)
-	: thread_{std::move(thread)}, path_{path}, wq_{std::move(wq)} { }
+	GdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread, frg::string_view path,
+		smarter::shared_ptr<KernelIoChannel> channel, smarter::shared_ptr<WorkQueue> wq)
+	: thread_{std::move(thread)}, path_{path}, channel_{std::move(channel)}, wq_{std::move(wq)} { }
 
-	coroutine<void> run();
+	coroutine<frg::expected<Error>> run();
 
 private:
 	coroutine<frg::expected<ProtocolError>> handleRequest_();
 
 	smarter::shared_ptr<Thread, ActiveHandle> thread_;
 	frg::string_view path_;
+	smarter::shared_ptr<KernelIoChannel> channel_;
 	smarter::shared_ptr<WorkQueue> wq_;
 
-	// These are public for now, such that external code and help us send/receive data.
-public:
-	async::queue<uint8_t, KernelAlloc> recvQ{*kernelAlloc};
-	frg::vector<uint8_t, KernelAlloc> sendQ{*kernelAlloc};
-
-private:
 	// Internal buffer for parsing / emitting packets.
 	frg::vector<uint8_t, KernelAlloc> inBuffer_{*kernelAlloc};
 	frg::vector<uint8_t, KernelAlloc> outBuffer_{*kernelAlloc};
@@ -217,36 +204,37 @@ private:
 	frg::vector<uint8_t, KernelAlloc> *buf_;
 };
 
-coroutine<void> GdbServer::run() {
+coroutine<frg::expected<Error>> GdbServer::run() {
 	while(true) {
 		if(responseStage_ == ResponseStage::responseReady) {
 			// Send the packet.
-			sendQ.push_back('$');
+			FRG_CO_TRY(co_await channel_->postOutput('$'));
 			for(size_t i = 0; i < outBuffer_.size(); ++i)
-				sendQ.push_back(outBuffer_[i]);
-			sendQ.push_back('#');
+				FRG_CO_TRY(co_await channel_->postOutput(outBuffer_[i]));
+			FRG_CO_TRY(co_await channel_->postOutput('#'));
 
 			auto csum = computeCsum({outBuffer_.data(), outBuffer_.size()});
-			sendQ.push_back(int2hex(csum >> 4));
-			sendQ.push_back(int2hex(csum & 0xF));
+			FRG_CO_TRY(co_await channel_->postOutput(int2hex(csum >> 4)));
+			FRG_CO_TRY(co_await channel_->postOutput(int2hex(csum & 0xF)));
+			FRG_CO_TRY(co_await channel_->flushOutput());
 			responseStage_ = ResponseStage::responseSent;
 		}
 
-		auto firstByte = unwrapByte(co_await recvQ.async_get());
+		auto firstByte = FRG_CO_TRY(co_await channel_->readInput());
 
 		if(firstByte == '$') {
 			inBuffer_.clear();
 
 			// Process the bytes.
 			while(true) {
-				auto byte = unwrapByte(co_await recvQ.async_get());
+				auto byte = FRG_CO_TRY(co_await channel_->readInput());
 				if(byte == '#')
 					break;
 				inBuffer_.push_back(byte);
 			}
 
-			auto csumByte1 = unwrapByte(co_await recvQ.async_get());
-			auto csumByte2 = unwrapByte(co_await recvQ.async_get());
+			auto csumByte1 = FRG_CO_TRY(co_await channel_->readInput());
+			auto csumByte2 = FRG_CO_TRY(co_await channel_->readInput());
 
 			if(responseStage_ != ResponseStage::none) {
 				infoLogger() << "thor, gdbserver: Ignoring ill-sequenced request" << frg::endlog;
@@ -256,19 +244,19 @@ coroutine<void> GdbServer::run() {
 			// Verify checksum.
 			if(!is_hex(csumByte1) || !is_hex(csumByte2)) {
 				infoLogger() << "thor, gdbserver: NACK due to missing checksum" << frg::endlog;
-				sendQ.push_back('-');
+				FRG_CO_TRY(co_await channel_->writeOutput('-'));
 				continue;
 			}
 			auto csum = (hex2int(csumByte1) << 4) | hex2int(csumByte2);
 			auto expectedCsum = computeCsum({inBuffer_.data(), inBuffer_.size()});
 			if(csum != expectedCsum) {
 				infoLogger() << "thor, gdbserver: NACK due to checksum mismatch" << frg::endlog;
-				sendQ.push_back('-');
+				FRG_CO_TRY(co_await channel_->writeOutput('-'));
 				continue;
 			}
 
 			// Ack the packet.
-			sendQ.push_back('+');
+			FRG_CO_TRY(co_await channel_->writeOutput('+'));
 
 			auto outcome = co_await handleRequest_();
 			if(!outcome) {
@@ -436,59 +424,26 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 	co_return {};
 }
 
-#if defined (__x86_64__)
-inline constexpr arch::scalar_register<uint8_t> uartData(0);
-inline constexpr arch::bit_register<uint8_t> lineStatus(5);
-
-inline constexpr arch::field<uint8_t, bool> rxReady(0, 1);
-inline constexpr arch::field<uint8_t, bool> txReady(5, 1);
-#endif
-
 } // anonymous namespace
 
 void launchGdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread,
 		frg::string_view path, smarter::shared_ptr<WorkQueue> wq) {
-#ifdef __x86_64__
-	infoLogger() << "thor: Launching gdbserver" << frg::endlog;
+	auto channel = solicitIoChannel("kernel-gdbserver");
+	if(!channel) {
+		infoLogger() << "thor: No I/O channel available for gdbserver" << frg::endlog;
+		return;
+	}
+	infoLogger() << "thor: Launching gdbserver on I/O channel "
+			<< channel->descriptiveTag() << frg::endlog;
 
 	auto svr = frg::construct<GdbServer>(*kernelAlloc,
-			std::move(thread), path, std::move(wq));
-
-	// Start the actual GDB server.
-	async::detach_with_allocator(*kernelAlloc, svr->run());
-
-	// Start the byte stream transport.
-	// TODO: Generalize this to other (and better!) transport mechanisms.
-	async::detach_with_allocator(*kernelAlloc, [] (GdbServer *svr) -> coroutine<void> {
-		auto uartBase = arch::global_io.subspace(0x3F8);
-		while(true) {
-			// Ready all data that is available.
-			while(uartBase.load(lineStatus) & rxReady) {
-				uint8_t b = uartBase.load(uartData);
-				svr->recvQ.put(b);
-			}
-
-			// Transmit all buffered data.
-			if(!svr->sendQ.empty()) {
-				for(size_t i = 0; i < svr->sendQ.size(); ++i) {
-					while(!(uartBase.load(lineStatus) & txReady))
-						;
-					uartBase.store(uartData, svr->sendQ[i]);
-				}
-				svr->sendQ.clear();
-			}
-
-			// 10ms is quite expensive, OTOH we want to switch to IRQs anyway.
-			auto pre = systemClockSource()->currentNanos();
-			co_await generalTimerEngine()->sleepFor(10'000'000);
-			auto elapsed = systemClockSource()->currentNanos() - pre;
-			if(elapsed > 100'000'000)
-				infoLogger() << "elapsed: " << elapsed << frg::endlog;
-		}
-	}(svr));
-#else
-	infoLogger() << "thor: No suitable transport for gdbserver" << frg::endlog;
-#endif
+			std::move(thread), path, std::move(channel), std::move(wq));
+	async::detach_with_allocator(*kernelAlloc,
+		async::transform(svr->run(), [] (auto outcome) {
+			if(!outcome)
+				infoLogger() << "thor: Internal error in gdbserver" << frg::endlog;
+		})
+	);
 }
 
 } // namespace thor
