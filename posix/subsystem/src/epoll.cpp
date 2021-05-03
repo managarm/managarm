@@ -280,13 +280,7 @@ public:
 			// Block and re-check if there are pending events.
 			if(cancellation.is_cancellation_requested())
 				break;
-
-			auto future = _statusBell.async_wait();
-			async::result_reference<void> ref = future;
-			async::cancellation_callback cancel_callback{cancellation, [&] {
-				_statusBell.cancel_async_wait(ref);
-			}};
-			co_await std::move(future);
+			co_await _statusBell.async_wait(cancellation);
 		}
 
 		// Before returning, we have to reinsert the level-triggered events that we report.
