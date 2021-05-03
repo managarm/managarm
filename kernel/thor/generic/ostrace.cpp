@@ -324,18 +324,20 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 		getFibersAvailableStage(),
 		getIoChannelsDiscoveredStage()},
 	[] {
-		if(!wantOsTrace)
-			return;
-
 		// Create a fiber to manage requests to the ostrace mbus object.
 		KernelFiber::run([=] {
+			// We unconditionally create the mbus object since userspace might use it.
 			async::detach_with_allocator(*kernelAlloc, createObject(*mbusClient));
 
-			auto channel = solicitIoChannel("ostrace");
-			if(channel) {
-				infoLogger() << "thor: Connecting ostrace to I/O channel" << frg::endlog;
-				async::detach_with_allocator(*kernelAlloc,
-						dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 256));
+			// Only dump to an I/O channel if ostrace is supported (otherwise, the ring buffer
+			// does not even exist).
+			if(wantOsTrace) {
+				auto channel = solicitIoChannel("ostrace");
+				if(channel) {
+					infoLogger() << "thor: Connecting ostrace to I/O channel" << frg::endlog;
+					async::detach_with_allocator(*kernelAlloc,
+							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 256));
+				}
 			}
 		});
 	}
