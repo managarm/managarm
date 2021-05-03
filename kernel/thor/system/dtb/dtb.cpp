@@ -218,10 +218,8 @@ void DeviceTreeNode::finalizeInit() {
 
 	// parse interrupt-map
 	if (interruptMapRaw_.data()) {
-		auto parentAddrCells = parent_->addressCells_;
 		auto childAddrCells = addressCells_;
 		auto nexusInterruptCells = interruptCells_;
-		auto parentInterruptCells = interruptParent_->interruptCells_;
 
 		::DeviceTreeProperty prop{"", interruptMapRaw_};
 
@@ -247,13 +245,19 @@ void DeviceTreeNode::finalizeInit() {
 			auto phandle = prop.asPropArrayEntry(1, j);
 			j += 4;
 
-			entry.interruptController = (*phandles)[phandle];
+			auto intParent = (*phandles)[phandle];
+			entry.interruptController = intParent;
+
+			auto parentAddrCells = intParent->hasAddressCells_
+				? intParent->addressCells_
+				: 0;
+			auto parentInterruptCells = intParent->interruptCells_;
 
 			assert(parentAddrCells < 3);
 			entry.parentAddr = prop.asPropArrayEntry(parentAddrCells, j);
 			j += parentAddrCells * 4;
 
-			entry.parentIrq = interruptParent_->parseIrq_(&prop, j);
+			entry.parentIrq = intParent->parseIrq_(&prop, j);
 			j += parentInterruptCells * 4;
 
 			interruptMap_.push_back(entry);
