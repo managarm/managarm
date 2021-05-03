@@ -465,24 +465,12 @@ SignalContext::pollSignal(uint64_t in_seq, uint64_t mask,
 		async::cancellation_token cancellation) {
 	assert(in_seq <= _currentSeq);
 
-	while(in_seq == _currentSeq && !cancellation.is_cancellation_requested()) {
-		auto future = _signalBell.async_wait();
-		async::result_reference<void> ref = future;
-		async::cancellation_callback cancel_callback{cancellation, [&] {
-			_signalBell.cancel_async_wait(ref);
-		}};
-		co_await std::move(future);
-	}
+	while(in_seq == _currentSeq && !cancellation.is_cancellation_requested())
+		co_await _signalBell.async_wait(cancellation);
 
 	// Wait until one of the requested signals becomes active.
-	while(!(_activeSet & mask) && !cancellation.is_cancellation_requested()) {
-		auto future = _signalBell.async_wait();
-		async::result_reference<void> ref = future;
-		async::cancellation_callback cancel_callback{cancellation, [&] {
-			_signalBell.cancel_async_wait(ref);
-		}};
-		co_await std::move(future);
-	}
+	while(!(_activeSet & mask) && !cancellation.is_cancellation_requested())
+		co_await _signalBell.async_wait(cancellation);
 
 	uint64_t edges = 0;
 	for(int sn = 1; sn <= 64; sn++)
