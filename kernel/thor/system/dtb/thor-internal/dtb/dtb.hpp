@@ -67,8 +67,11 @@ struct DeviceTreeNode {
 	}
 
 	struct RegRange {
+		uint32_t addrHi;
 		uint64_t addr;
 		size_t size;
+
+		bool addrHiValid;
 	};
 
 	struct BusRange {

@@ -87,8 +87,15 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 				RegRange reg{};
 
 				if (addrCells) {
-					reg.addr = prop.asPropArrayEntry(addrCells, j);
-					j += addrCells * 4;
+					if (addrCells == 3) {
+						reg.addrHi = prop.asPropArrayEntry(1, j);
+						reg.addrHiValid = true;
+						reg.addr = prop.asPropArrayEntry(addrCells - 1, j + 1);
+						j += addrCells * 4;
+					} else {
+						reg.addr = prop.asPropArrayEntry(addrCells, j);
+						j += addrCells * 4;
+					}
 				}
 
 				if (sizeCells) {
