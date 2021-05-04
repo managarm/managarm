@@ -98,6 +98,50 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(fileType == kTypeDirectory);
 	assert(fileMapping.size() == fileSize());
 
+	// Lock the mapping into memory before calling this function.
+	auto appendDirEntry = [&](size_t offset, size_t length)
+			-> async::result<std::optional<DirEntry>> {
+		auto diskEntry = reinterpret_cast<DiskDirEntry *>(
+				reinterpret_cast<char *>(fileMapping.get()) + offset);
+		memset(diskEntry, 0, sizeof(DiskDirEntry));
+		diskEntry->inode = ino;
+		diskEntry->recordLength = length;
+		diskEntry->nameLength = name.length();
+		switch (type) {
+			case kTypeRegular:
+				diskEntry->fileType = EXT2_FT_REG_FILE;
+				break;
+			case kTypeDirectory:
+				diskEntry->fileType = EXT2_FT_DIR;
+				break;
+			case kTypeSymlink:
+				diskEntry->fileType = EXT2_FT_SYMLINK;
+				break;
+			default:
+				throw std::runtime_error("unexpected type");
+		}
+		memcpy(diskEntry->name, name.data(), name.length() + 1);
+
+		// Flush the data to disk.
+		auto syncInode = co_await helix_ng::synchronizeSpace(
+				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+		HEL_CHECK(syncInode.error());
+
+		// Flush the target inode to disk.
+		auto target = fs.accessInode(ino);
+		co_await target->readyJump.wait();
+		target->diskInode()->linksCount++;
+		syncInode = co_await helix_ng::synchronizeSpace(
+				helix::BorrowedDescriptor{kHelNullHandle},
+				target->diskMapping.get(), fs.inodeSize);
+		HEL_CHECK(syncInode.error());
+
+		DirEntry entry;
+		entry.inode = ino;
+		entry.fileType = type;
+		co_return entry;
+	};
+
 	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
 	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
@@ -126,51 +170,37 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 
 		// Check whether we can shrink previous_entry and insert a new entry after it.
 		if(available >= required) {
-			// Create the new dentry.
-			auto disk_entry = reinterpret_cast<DiskDirEntry *>(
-					reinterpret_cast<char *>(fileMapping.get()) + offset + contracted);
-			memset(disk_entry, 0, sizeof(DiskDirEntry));
-			disk_entry->inode = ino;
-			disk_entry->recordLength = available;
-			disk_entry->nameLength = name.length();
-			switch (type) {
-				case kTypeRegular:
-					disk_entry->fileType = EXT2_FT_REG_FILE;
-					break;
-				case kTypeDirectory:
-					disk_entry->fileType = EXT2_FT_DIR;
-					break;
-				case kTypeSymlink:
-					disk_entry->fileType = EXT2_FT_SYMLINK;
-					break;
-				default:
-					throw std::runtime_error("unexpected type");
-			}
-			memcpy(disk_entry->name, name.data(), name.length() + 1);
-
 			// Update the existing dentry.
 			previous_entry->recordLength = contracted;
 
-			// Update the inode.
-			auto target = fs.accessInode(ino);
-			co_await target->readyJump.wait();
-			target->diskInode()->linksCount++;
-			auto syncInode = co_await helix_ng::synchronizeSpace(
-					helix::BorrowedDescriptor{kHelNullHandle},
-					target->diskMapping.get(), fs.inodeSize);
-			HEL_CHECK(syncInode.error());
-
-			DirEntry entry;
-			entry.inode = ino;
-			entry.fileType = type;
-			co_return entry;
+			co_return co_await appendDirEntry(offset + contracted, available);
 		}
 
 		offset += previous_entry->recordLength;
 	}
 	assert(offset == fileSize());
 
-	throw std::runtime_error("Not enough space for ext2fs directory entry");
+	// If we made it this far, we ran out of space in the directory. Resize it.
+	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
+	auto newSize = (offset + fs.blockSize + 0xFFF) & ~size_t(0xFFF);
+	setFileSize(newSize);
+	co_await fs.assignDataBlocks(this, blockOffset, 1);
+	HEL_CHECK(helResizeMemory(backingMemory, newSize));
+	fileMapping = helix::Mapping{helix::BorrowedDescriptor{frontalMemory},
+			0, newSize,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+	// Now append the entry that we couldn't add before.
+	{
+		helix::LockMemoryView lock_memory;
+		auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
+				&lock_memory,
+				0, newSize, helix::Dispatcher::global());
+		co_await submit.async_wait();
+		HEL_CHECK(lock_memory.error());
+
+		co_return co_await appendDirEntry(offset, fileSize() - offset);
+	}
 }
 
 async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
@@ -286,6 +316,12 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	// Synchronize the data blocks
+	syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			dirNode->fileMapping.get(), dirNode->fileSize());
 	HEL_CHECK(syncInode.error());
 
 	co_return co_await link(name, dirNode->number, kTypeDirectory);
