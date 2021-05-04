@@ -99,7 +99,8 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(fileMapping.size() == fileSize());
 
 	// Lock the mapping into memory before calling this function.
-	auto appendDirEntry = [&](size_t offset, size_t length){
+	auto appendDirEntry = [&](size_t offset, size_t length)
+			-> async::result<std::optional<DirEntry>> {
 		auto diskEntry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(fileMapping.get()) + offset);
 		memset(diskEntry, 0, sizeof(DiskDirEntry));
@@ -120,6 +121,25 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 				throw std::runtime_error("unexpected type");
 		}
 		memcpy(diskEntry->name, name.data(), name.length() + 1);
+
+		// Flush the data to disk.
+		auto syncInode = co_await helix_ng::synchronizeSpace(
+				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+		HEL_CHECK(syncInode.error());
+
+		// Flush the target inode to disk.
+		auto target = fs.accessInode(ino);
+		co_await target->readyJump.wait();
+		target->diskInode()->linksCount++;
+		syncInode = co_await helix_ng::synchronizeSpace(
+				helix::BorrowedDescriptor{kHelNullHandle},
+				target->diskMapping.get(), fs.inodeSize);
+		HEL_CHECK(syncInode.error());
+
+		DirEntry entry;
+		entry.inode = ino;
+		entry.fileType = type;
+		co_return entry;
 	};
 
 	helix::LockMemoryView lock_memory;
@@ -150,24 +170,10 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 
 		// Check whether we can shrink previous_entry and insert a new entry after it.
 		if(available >= required) {
-			appendDirEntry(offset + contracted, available);
-
 			// Update the existing dentry.
 			previous_entry->recordLength = contracted;
 
-			// Update the inode.
-			auto target = fs.accessInode(ino);
-			co_await target->readyJump.wait();
-			target->diskInode()->linksCount++;
-			auto syncInode = co_await helix_ng::synchronizeSpace(
-					helix::BorrowedDescriptor{kHelNullHandle},
-					target->diskMapping.get(), fs.inodeSize);
-			HEL_CHECK(syncInode.error());
-
-			DirEntry entry;
-			entry.inode = ino;
-			entry.fileType = type;
-			co_return entry;
+			co_return co_await appendDirEntry(offset + contracted, available);
 		}
 
 		offset += previous_entry->recordLength;
@@ -177,9 +183,9 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	// If we made it this far, we ran out of space in the directory. Resize it.
 	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
 	auto newSize = (offset + fs.blockSize + 0xFFF) & ~size_t(0xFFF);
+	setFileSize(newSize);
 	co_await fs.assignDataBlocks(this, blockOffset, 1);
 	HEL_CHECK(helResizeMemory(backingMemory, newSize));
-	setFileSize(newSize);
 	fileMapping = helix::Mapping{helix::BorrowedDescriptor{frontalMemory},
 			0, newSize,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
@@ -193,22 +199,8 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		co_await submit.async_wait();
 		HEL_CHECK(lock_memory.error());
 
-		appendDirEntry(offset, fileSize() - offset);
-
-		// Update the inode.
-		auto target = fs.accessInode(ino);
-		co_await target->readyJump.wait();
-		target->diskInode()->linksCount++;
-		auto syncInode = co_await helix_ng::synchronizeSpace(
-				helix::BorrowedDescriptor{kHelNullHandle},
-				target->diskMapping.get(), fs.inodeSize);
-		HEL_CHECK(syncInode.error());
+		co_return co_await appendDirEntry(offset, fileSize() - offset);
 	}
-
-	DirEntry entry;
-	entry.inode = ino;
-	entry.fileType = type;
-	co_return entry;
 }
 
 async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
@@ -324,6 +316,12 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	// Synchronize the data blocks
+	syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			dirNode->fileMapping.get(), dirNode->fileSize());
 	HEL_CHECK(syncInode.error());
 
 	co_return co_await link(name, dirNode->number, kTypeDirectory);
