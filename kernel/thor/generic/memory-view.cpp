@@ -238,21 +238,23 @@ ImmediateMemory::~ImmediateMemory() {
 }
 
 void ImmediateMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	size_t currentNumPages = _physicalPages.size();
-	size_t newNumPages = (newSize + kPageSize - 1) >> kPageShift;
-	assert(newNumPages >= currentNumPages);
-	_physicalPages.resize(newNumPages);
-	for(size_t i = currentNumPages; i < newNumPages; ++i) {
-		auto physical = physicalAllocator->allocate(kPageSize, 64);
-		assert(physical != PhysicalAddr(-1) && "OOM when allocating ImmediateMemory");
+		size_t currentNumPages = _physicalPages.size();
+		size_t newNumPages = (newSize + kPageSize - 1) >> kPageShift;
+		assert(newNumPages >= currentNumPages);
+		_physicalPages.resize(newNumPages);
+		for(size_t i = currentNumPages; i < newNumPages; ++i) {
+			auto physical = physicalAllocator->allocate(kPageSize, 64);
+			assert(physical != PhysicalAddr(-1) && "OOM when allocating ImmediateMemory");
 
-		PageAccessor accessor{physical};
-		memset(accessor.get(), 0, kPageSize);
+			PageAccessor accessor{physical};
+			memset(accessor.get(), 0, kPageSize);
 
-		_physicalPages[i] = physical;
+			_physicalPages[i] = physical;
+		}
 	}
 
 	receiver.set_value();
@@ -413,13 +415,15 @@ AllocatedMemory::~AllocatedMemory() {
 }
 
 void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	assert(!(newSize % _chunkSize));
-	size_t num_chunks = newSize / _chunkSize;
-	assert(num_chunks >= _physicalChunks.size());
-	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
+		assert(!(newSize % _chunkSize));
+		size_t num_chunks = newSize / _chunkSize;
+		assert(num_chunks >= _physicalChunks.size());
+		_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
+	}
 	receiver.set_value();
 }
 
