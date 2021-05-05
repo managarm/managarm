@@ -401,7 +401,9 @@ bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		return true;
 	}
 
+	// The shared_ptr to the new Mapping needs to survive until the locks are released.
 	VirtualAddr actualAddress;
+	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto spaceLock = frg::guard(&_mutex);
@@ -446,7 +448,7 @@ bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		if(flags & kMapDontRequireBacking)
 			mappingFlags |= MappingFlags::dontRequireBacking;
 
-		auto mapping = smarter::allocate_shared<Mapping>(Allocator{},
+		mapping = smarter::allocate_shared<Mapping>(Allocator{},
 				length, static_cast<MappingFlags>(mappingFlags),
 				slice.lock(), slice->offset() + offset);
 		mapping->selfPtr = mapping;
@@ -460,6 +462,8 @@ bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		assert(mapping->state == MappingState::null);
 		mapping->state = MappingState::active;
 
+		// We keep one reference until the detach the observer.
+		mapping.ctr()->increment();
 		mapping->view->addObserver(&mapping->observer);
 
 		uint32_t pageFlags = 0;
@@ -486,14 +490,13 @@ bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			}
 		}
 
-		// Only enable eviction after the peekRange() loop above.
-		// Since eviction is not yet enabled in that loop, we do not have
-		// to take the evictionMutex.
-		if(mapping->view->canEvictMemory())
-			async::detach_with_allocator(*kernelAlloc, mapping->runEvictionLoop());
-
-		mapping.release(); // VirtualSpace owns one reference.
 	}
+
+	// Only enable eviction after the peekRange() loop above.
+	// Since eviction is not yet enabled in that loop, we do not have
+	// to take the evictionMutex.
+	if(mapping->view->canEvictMemory())
+		async::detach_with_allocator(*kernelAlloc, mapping->runEvictionLoop());
 
 	node->nodeResult_.emplace(actualAddress);
 	return true;
