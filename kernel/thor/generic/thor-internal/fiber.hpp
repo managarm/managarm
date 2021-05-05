@@ -26,7 +26,7 @@ private:
 	bool _done;
 };
 
-struct KernelFiber : ScheduleEntity {
+struct KernelFiber final : ScheduleEntity {
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(KernelFiber *fiber)

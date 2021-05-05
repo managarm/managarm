@@ -21,7 +21,7 @@ namespace thor {
 constexpr size_t fontHeight = 16;
 constexpr size_t fontWidth = 8;
 
-struct FbDisplay : TextDisplay {
+struct FbDisplay final : TextDisplay {
 	FbDisplay(void *ptr, unsigned int width, unsigned int height, size_t pitch)
 	: _width{width}, _height{height}, _pitch{pitch / sizeof(uint32_t)} {
 		assert(!(pitch % sizeof(uint32_t)));

@@ -16,6 +16,8 @@ protected:
 		return *obj_;
 	}
 
+	~coroutine_continuation() = default;
+
 private:
 	frg::optional<T> obj_;
 };
@@ -24,6 +26,9 @@ private:
 template<>
 struct coroutine_continuation<void> {
 	virtual void resume() = 0;
+
+protected:
+	~coroutine_continuation() = default;
 };
 
 // "Control flow path" that the coroutine takes. This state is used to distinguish inline
@@ -103,7 +108,7 @@ struct coroutine {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void> h) noexcept {
+				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
 					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
 							std::memory_order_release);
 					if(cfp == coroutine_cfp::past_start) {
@@ -220,7 +225,7 @@ struct coroutine<void> {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void> h) noexcept {
+				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
 					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
 							std::memory_order_release);
 					if(cfp == coroutine_cfp::past_start) {
@@ -273,7 +278,7 @@ private:
 };
 
 template<typename T, typename R>
-struct coroutine_operation : private coroutine_continuation<T> {
+struct coroutine_operation final : private coroutine_continuation<T> {
 	coroutine_operation(coroutine<T> s, R receiver)
 	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
 
@@ -310,7 +315,7 @@ private:
 
 // Specialization for coroutines without results.
 template<typename R>
-struct coroutine_operation<void, R> : private coroutine_continuation<void> {
+struct coroutine_operation<void, R> final : private coroutine_continuation<void> {
 	coroutine_operation(coroutine<void> s, R receiver)
 	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
 

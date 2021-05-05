@@ -91,7 +91,7 @@ BootScreen::BootScreen(TextDisplay *display)
 	_height = _display->getHeight();
 }
 
-void BootScreen::printChar(char c) {
+void BootScreen::printChar(char) {
 	auto displayLine = [&] (uint64_t seq, int i) {
 		char text[100];
 		copyLogMessage(seq, text);

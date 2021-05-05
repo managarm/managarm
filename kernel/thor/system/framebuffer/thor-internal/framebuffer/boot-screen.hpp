@@ -11,9 +11,12 @@ struct TextDisplay {
 	virtual void setChars(unsigned int x, unsigned int y,
 			const char *c, int count, int fg, int bg) = 0;
 	virtual void setBlanks(unsigned int x, unsigned int y, int count, int bg) = 0;
+
+protected:
+	~TextDisplay() = default;
 };
 
-struct BootScreen : LogHandler {
+struct BootScreen final : LogHandler {
 	struct Formatter {
 		Formatter(BootScreen *screen, int x, int y);
 

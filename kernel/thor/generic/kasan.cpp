@@ -40,6 +40,9 @@ namespace {
 		assert(shadow[size >> kasanShift] == static_cast<int8_t>(0xFF));
 		shadow[size >> kasanShift] = size & (kasanScale - 1);
 	}
+#else
+	(void)pointer;
+	(void)size;
 #endif // THOR_KASAN
 }
 
@@ -58,6 +61,9 @@ namespace {
 		assert(shadow[size >> kasanShift] == (size & (kasanScale - 1)));
 		shadow[size >> kasanShift] = 0xFF;
 	}
+#else
+	(void)pointer;
+	(void)size;
 #endif // THOR_KASAN
 }
 
@@ -72,6 +78,9 @@ namespace {
 		shadow[n] = 0;
 	if(size & (kasanScale - 1))
 		shadow[size >> kasanShift] = size & (kasanScale - 1);
+#else
+	(void)pointer;
+	(void)size;
 #endif // THOR_KASAN
 }
 
@@ -82,6 +91,9 @@ namespace {
 	auto shadow = kasanShadowOf(pointer);
 	for(size_t n = 0; n < (size >> kasanShift); ++n)
 		assert(!shadow[n]);
+#else
+	(void)pointer;
+	(void)size;
 #endif // THOR_KASAN
 }
 
@@ -90,10 +102,14 @@ namespace {
 #ifdef THOR_KASAN
 
 extern "C" void __asan_alloca_poison(uintptr_t address, size_t size) {
+	(void)address;
+	(void)size;
 	// TODO: Implement alloca poisoning.
 }
 
 extern "C" void __asan_allocas_unpoison(void *stackTop, void *stackBottom) {
+	(void)stackTop;
+	(void)stackBottom;
 	// TODO: Implement alloca poisoning.
 }
 

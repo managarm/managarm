@@ -147,7 +147,7 @@ namespace thor::vmx {
 
 	bool vmxon();
 
-	struct Vmcs : VirtualizedCpu {
+	struct Vmcs final : VirtualizedCpu {
 		Vmcs(smarter::shared_ptr<EptSpace> ept);
 		Vmcs(const Vmcs& vmcs) = delete;
 		Vmcs& operator=(const Vmcs& vmcs) = delete;

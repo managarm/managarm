@@ -57,7 +57,7 @@ private:
 struct GlobalApicContext {
 	friend struct LocalApicContext;
 
-	struct GlobalAlarmSlot : AlarmTracker {
+	struct GlobalAlarmSlot final : AlarmTracker {
 		using AlarmTracker::fireAlarm;
 
 		void arm(uint64_t nanos) override;

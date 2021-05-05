@@ -107,6 +107,9 @@ struct ManageNode {
 
 	frg::default_list_hook<ManageNode> processQueueItem;
 
+protected:
+	~ManageNode() = default;
+
 private:
 	// Results of the operation.
 	Error _error;
@@ -306,6 +309,8 @@ protected:
 
 	MemoryView(EvictionQueue *associatedEvictionQueue = nullptr)
 	: associatedEvictionQueue_{associatedEvictionQueue} { }
+
+	~MemoryView() = default;
 
 public:
 	// Add/remove memory observers. These will be notified of page evictions.
@@ -633,7 +638,7 @@ public:
 	}
 
 	template<typename R>
-	struct SubmitManageOperation : private ManageNode {
+	struct SubmitManageOperation final : private ManageNode {
 		SubmitManageOperation(SubmitManageSender s, R receiver)
 		: s_{s.self}, receiver_{std::move(receiver)} { }
 
@@ -750,7 +755,7 @@ inline auto copyToView(MemoryView *view, uintptr_t offset,
 	};
 
 	return async::let([=] {
-		return Node{view, offset, pointer, size, std::move(wq)};
+		return Node{.view = view, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
@@ -816,7 +821,7 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 	};
 
 	return async::let([=] {
-		return Node{view, offset, pointer, size, std::move(wq)};
+		return Node{.view = view, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
@@ -880,7 +885,7 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 	};
 
 	return async::let([=] {
-		return Node{destView, srcView, destOffset, srcOffset, size, std::move(wq)};
+		return Node{.destView = destView, .srcView = srcView, .destOffset = destOffset, .srcOffset = srcOffset, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.destView->asyncLockRange(nd.destOffset, nd.size,

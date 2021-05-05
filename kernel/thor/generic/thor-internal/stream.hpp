@@ -29,6 +29,7 @@ struct StreamPacket {
 
 protected:
 	virtual void completePacket() = 0;
+	~StreamPacket() = default;
 
 private:
 	std::atomic<unsigned int> _incompleteCount;
@@ -253,7 +254,7 @@ struct DismissSender {
 };
 
 template<typename R>
-struct DismissOperation : private StreamPacket, private StreamNode {
+struct DismissOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagDismiss, this);
@@ -296,7 +297,7 @@ struct OfferSender {
 };
 
 template<typename R>
-struct OfferOperation : private StreamPacket, private StreamNode {
+struct OfferOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagOffer, this);
@@ -340,7 +341,7 @@ struct AcceptSender {
 };
 
 template<typename R>
-struct AcceptOperation : private StreamPacket, private StreamNode {
+struct AcceptOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagAccept, this);
@@ -384,7 +385,7 @@ struct ExtractCredentialsSender {
 };
 
 template<typename R>
-struct ExtractCredentialsOperation : private StreamPacket, private StreamNode {
+struct ExtractCredentialsOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagExtractCredentials, this);
@@ -425,7 +426,7 @@ struct SendBufferSender {
 };
 
 template<typename R>
-struct SendBufferOperation : private StreamPacket, private StreamNode {
+struct SendBufferOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagSendKernelBuffer, this);
@@ -465,7 +466,7 @@ struct RecvBufferSender {
 };
 
 template<typename R>
-struct RecvBufferOperation : private StreamPacket, private StreamNode {
+struct RecvBufferOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagRecvKernelBuffer, this);
@@ -507,7 +508,7 @@ struct PushDescriptorSender {
 };
 
 template<typename R>
-struct PushDescriptorOperation : private StreamPacket, private StreamNode {
+struct PushDescriptorOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagPushDescriptor, this);
@@ -547,7 +548,7 @@ struct PullDescriptorSender {
 };
 
 template<typename R>
-struct PullDescriptorOperation : private StreamPacket, private StreamNode {
+struct PullDescriptorOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagPullDescriptor, this);

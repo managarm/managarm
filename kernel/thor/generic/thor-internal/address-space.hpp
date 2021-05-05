@@ -28,7 +28,7 @@ struct VirtualOperations {
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct RetireOperation : private RetireNode {
+	struct RetireOperation final : private RetireNode {
 		RetireOperation(VirtualOperations *self, R receiver)
 		: self_{self}, receiver_{std::move(receiver)} { }
 
@@ -88,7 +88,7 @@ struct VirtualOperations {
 	}
 
 	template<typename R>
-	struct ShootdownOperation : private ShootNode {
+	struct ShootdownOperation final : private ShootNode {
 		ShootdownOperation(ShootdownSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -119,6 +119,9 @@ struct VirtualOperations {
 	operator co_await(ShootdownSender sender) {
 		return {sender};
 	}
+
+protected:
+	~VirtualOperations() = default;
 
 	// ----------------------------------------------------------------------------------
 };
@@ -196,6 +199,9 @@ private:
 		virtual void resume() = 0;
 
 		frg::expected<Error> result;
+
+	protected:
+		~LockVirtualRangeNode() = default;
 	};
 
 	// Makes sure that pages are not evicted from virtual memory.
@@ -225,7 +231,7 @@ public:
 	}
 
 	template<typename R>
-	struct LockVirtualRangeOperation : private LockVirtualRangeNode {
+	struct LockVirtualRangeOperation final : private LockVirtualRangeNode {
 		LockVirtualRangeOperation(LockVirtualRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -261,6 +267,9 @@ private:
 		virtual void resume() = 0;
 
 		frg::expected<Error, TouchVirtualResult> result;
+
+	protected:
+		~TouchVirtualPageNode() = default;
 	};
 
 	// Ensures that a page of virtual memory is present.
@@ -291,7 +300,7 @@ public:
 	}
 
 	template<typename R>
-	struct TouchVirtualPageOperation : private TouchVirtualPageNode {
+	struct TouchVirtualPageOperation final : private TouchVirtualPageNode {
 		TouchVirtualPageOperation(TouchVirtualPageSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -327,6 +336,9 @@ private:
 		virtual void resume() = 0;
 
 		frg::expected<Error> result;
+
+	protected:
+		~PopulateVirtualRangeNode() = default;
 	};
 
 	// Helper function that calls touchVirtualPage() on a certain range.
@@ -356,7 +368,7 @@ public:
 	}
 
 	template<typename R>
-	struct PopulateVirtualRangeOperation : private PopulateVirtualRangeNode {
+	struct PopulateVirtualRangeOperation final : private PopulateVirtualRangeNode {
 		PopulateVirtualRangeOperation(PopulateVirtualRangeSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -466,6 +478,7 @@ struct MapNode {
 
 protected:
 	virtual void resume() = 0;
+	~MapNode() = default;
 
 private:
 	frg::optional<frg::expected<Error, VirtualAddr>> nodeResult_;
@@ -482,6 +495,7 @@ struct SynchronizeNode {
 
 protected:
 	virtual void resume() = 0;
+	~SynchronizeNode() = default;
 };
 
 struct FaultNode {
@@ -495,6 +509,7 @@ struct FaultNode {
 
 protected:
 	virtual void complete(bool resolved) = 0;
+	~FaultNode() = default;
 };
 
 struct AddressProtectNode {
@@ -502,6 +517,7 @@ struct AddressProtectNode {
 
 protected:
 	virtual void complete() = 0;
+	~AddressProtectNode() = default;
 };
 
 struct AddressUnmapNode {
@@ -509,6 +525,7 @@ struct AddressUnmapNode {
 
 protected:
 	virtual void complete() = 0;
+	~AddressUnmapNode() = default;
 };
 
 struct VirtualSpace {
@@ -565,7 +582,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct [[nodiscard]] MapOperation : private MapNode {
+	struct [[nodiscard]] MapOperation final : private MapNode {
 		MapOperation(VirtualSpace *self, smarter::borrowed_ptr<MemorySlice> slice,
 				VirtualAddr address, size_t offset, size_t length, uint32_t flags,
 				R receiver)
@@ -630,7 +647,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct SynchronizeOperation : private SynchronizeNode {
+	struct SynchronizeOperation final : private SynchronizeNode {
 		SynchronizeOperation(VirtualSpace *self, VirtualAddr address, size_t size, R receiver)
 		: self_{self}, address_{address}, size_{size}, receiver_{std::move(receiver)} { }
 
@@ -699,7 +716,7 @@ public:
 	}
 
 	template<typename R>
-	struct UnmapOperation : private AddressUnmapNode {
+	struct UnmapOperation final : private AddressUnmapNode {
 		UnmapOperation(UnmapSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -756,7 +773,7 @@ public:
 	}
 
 	template<typename R>
-	struct ProtectOperation : private AddressProtectNode {
+	struct ProtectOperation final : private AddressProtectNode {
 		ProtectOperation(ProtectSender s, R receiver)
 		: self_{s.self}, address_{s.address}, size_{s.size},
 				flags_{s.flags}, receiver_{std::move(receiver)} { }
@@ -795,7 +812,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct HandleFaultOperation : private FaultNode {
+	struct HandleFaultOperation final : private FaultNode {
 		HandleFaultOperation(VirtualSpace *self, VirtualAddr address, uint32_t flags,
 				smarter::shared_ptr<WorkQueue> wq, R receiver)
 		: self_{self}, address_{address}, flags_{flags},
@@ -880,14 +897,14 @@ coroutine<frg::expected<Error>> writeVirtualSpace(VirtualSpace *space,
 		uintptr_t address, const void *buffer, size_t size,
 		smarter::shared_ptr<WorkQueue> wq);
 
-struct AddressSpace : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {
+struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {
 	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;
 
 	// Silence Clang warning about hidden overloads.
 	using smarter::crtp_counter<AddressSpace, BindableHandle>::dispose;
 
-	struct Operations : VirtualOperations {
+	struct Operations final : VirtualOperations {
 		Operations(AddressSpace *space)
 		: space_{space} { }
 
@@ -1010,6 +1027,7 @@ struct AcquireNode {
 
 protected:
 	virtual void complete() = 0;
+	~AcquireNode() = default;
 };
 
 struct AddressSpaceLockHandle {
@@ -1080,7 +1098,7 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<typename R>
-	struct [[nodiscard]] AcquireOperation : private AcquireNode {
+	struct [[nodiscard]] AcquireOperation final : private AcquireNode {
 		AcquireOperation(AddressSpaceLockHandle *handle,
 				smarter::shared_ptr<WorkQueue> wq, R receiver)
 		: handle_{handle}, wq_{std::move(wq)}, receiver_{std::move(receiver)} { }

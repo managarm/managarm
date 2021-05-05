@@ -120,7 +120,7 @@ void configureIrq(GlobalIrqInfo info) {
 namespace thor {
 namespace acpi {
 
-struct SciDevice : IrqSink {
+struct SciDevice final : IrqSink {
 	SciDevice()
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "acpi-sci"}} { }
 

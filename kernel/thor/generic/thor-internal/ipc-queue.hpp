@@ -66,6 +66,9 @@ struct IpcNode {
 
 	virtual void complete() = 0;
 
+protected:
+	~IpcNode() = default;
+
 private:
 	uintptr_t _context;
 	const QueueSource *_source;
@@ -130,7 +133,7 @@ public:
 	}
 
 	template<typename R>
-	struct SubmitOperation : private IpcNode {
+	struct SubmitOperation final : private IpcNode {
 		SubmitOperation(SubmitSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 

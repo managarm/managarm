@@ -231,9 +231,12 @@ struct PciEntity {
 	uint32_t bus;
 	uint32_t slot;
 	uint32_t function;
+
+protected:
+	~PciEntity() = default;
 };
 
-struct PciBridge : PciEntity {
+struct PciBridge final : PciEntity {
 	PciBridge(PciBus *parentBus_, uint32_t seg, uint32_t bus,
 			uint32_t slot, uint32_t function)
 	: PciEntity{parentBus_, seg, bus, slot, function}, associatedBus{nullptr},
@@ -250,7 +253,7 @@ struct PciBridge : PciEntity {
 	uint32_t subordinateId;
 };
 
-struct PciDevice : PciEntity {
+struct PciDevice final : PciEntity {
 	struct Capability {
 		unsigned int type;
 		ptrdiff_t offset;
@@ -399,6 +402,9 @@ struct PciConfigIo {
 			uint32_t function, uint16_t offset, uint16_t value) = 0;
 	virtual void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
 			uint32_t function, uint16_t offset, uint32_t value) = 0;
+
+protected:
+	~PciConfigIo() = default;
 };
 
 void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io);

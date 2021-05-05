@@ -6,7 +6,7 @@
 
 namespace thor::pci {
 
-struct EcamPcieConfigIo : PciConfigIo {
+struct EcamPcieConfigIo final : PciConfigIo {
 	EcamPcieConfigIo(uintptr_t mmioBase, uint16_t seg, uint8_t busStart, uint8_t busEnd);
 
 	uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,

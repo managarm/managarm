@@ -62,7 +62,7 @@ inline constexpr arch::bit_register<uint8_t> command(67);
 inline constexpr arch::field<uint8_t, int> operatingMode(1, 3);
 inline constexpr arch::field<uint8_t, int> accessMode(4, 2);
 
-struct HpetDevice : IrqSink, ClockSource, AlarmTracker {
+struct HpetDevice final : IrqSink, ClockSource, AlarmTracker {
 	friend void setupHpet(PhysicalAddr);
 
 private:

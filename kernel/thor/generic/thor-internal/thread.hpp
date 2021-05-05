@@ -42,7 +42,7 @@ struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntit
 	using smarter::crtp_counter<Thread, ActiveHandle>::dispose;
 
 private:
-	struct AssociatedWorkQueue : WorkQueue {
+	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(Thread *thread)
 		: WorkQueue{&thread->_executorContext}, _thread{thread} { }
 
@@ -332,12 +332,6 @@ private:
 
 	Interrupt _lastInterrupt;
 	uint64_t _stateSeq;
-
-	// number of ticks this thread has been running (i.e. in the active state)
-	uint64_t _numTicks;
-
-	// tick in which this thread transitioned to the active state
-	uint64_t _activationTick;
 
 	// This is set by interruptOther() and polled by raiseSignals().
 	bool _pendingKill;

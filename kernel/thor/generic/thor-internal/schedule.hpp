@@ -33,7 +33,7 @@ struct ScheduleEntity {
 
 	ScheduleEntity(const ScheduleEntity &) = delete;
 
-	~ScheduleEntity();
+	virtual ~ScheduleEntity();
 
 	ScheduleEntity &operator= (const ScheduleEntity &) = delete;
 

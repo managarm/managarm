@@ -252,6 +252,9 @@ void mapKasanShadow(address_t base, size_t size) {
 		memset(reinterpret_cast<void *>(physical), 0xFF, pageSize);
 		mapSingle4kPage(page, physical, PageFlags::write | PageFlags::global);
 	}
+#else
+	(void)base;
+	(void)size;
 #endif // EIR_KASAN
 }
 
@@ -265,6 +268,9 @@ void unpoisonKasanShadow(address_t base, size_t size) {
 	setShadowRange(base, size & ~(kasanScale - 1), 0);
 	if(size & (kasanScale - 1))
 		setShadowByte(base + (size & ~(kasanScale - 1)), size & (kasanScale - 1));
+#else
+	(void)base;
+	(void)size;
 #endif // EIR_KASAN
 }
 
