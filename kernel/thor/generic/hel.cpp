@@ -274,11 +274,17 @@ HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
 		universe = universeIt->get<UniverseDescriptor>().universe;
 	}
 
-	auto irqLock = frg::guard(&irqMutex());
-	Universe::Guard otherUniverseLock(universe->lock);
+	frg::optional<AnyDescriptor> descriptor;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard otherUniverseLock(universe->lock);
 
-	if(!universe->detachDescriptor(otherUniverseLock, handle))
+		descriptor = universe->detachDescriptor(otherUniverseLock, handle);
+	}
+	if(!descriptor)
 		return kHelErrNoDescriptor;
+
+	// Note that the descriptor is released outside of the locks.
 
 	return kHelErrNone;
 }
