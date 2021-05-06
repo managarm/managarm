@@ -414,6 +414,7 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto this_universe = this_thread->getUniverse();
 
 	auto managed = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, size);
+	managed->selfPtr = managed;
 	auto backing_memory = smarter::allocate_shared<BackingMemory>(*kernelAlloc, managed);
 	auto frontal_memory = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, std::move(managed));
 	frontal_memory->selfPtr = frontal_memory;

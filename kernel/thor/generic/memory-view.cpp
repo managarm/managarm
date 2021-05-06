@@ -1028,7 +1028,6 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 	assert(!(offset % kPageSize));
 	assert(!(size % kPageSize));
 
-	ManageList pending;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
@@ -1054,14 +1053,11 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 						|| pit->loadState == ManagedSpace::kStateAnotherWriteback);
 			}
 		}
-
-		_managed->_progressManagement(pending);
 	}
 
-	while(!pending.empty()) {
-		auto node = pending.pop_front();
-		node->complete();
-	}
+	// We cannot call management callbacks with locks held, but markDirty() may be called
+	// with external locks held; do it on a WorkQueue.
+	_managed->_deferredManagement.invoke();
 }
 
 size_t FrontalMemory::getLength() {

@@ -181,4 +181,41 @@ inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
 	_workQueue = std::move(swq);
 }
 
+template<typename P>
+requires requires(P policy) {
+	// setUp() is called inline when the work is scheduled; for example, it can increase
+	// a reference count to ensure that the state that execute() operates on is kept alive.
+	// execute() is called from the WQ.
+	{ policy.setUp() };
+	{ policy.execute() };
+}
+struct DeferredWork {
+	DeferredWork(P policy = P{})
+	: policy_{std::move(policy)} { }
+
+	bool invoke() {
+		// We need to guarantee that the Worklet is available again;
+		// that is enfored by the acquire-release ordering here.
+		// (The WQ guarantees that the lambda below is ordered after WorkQueue::post().)
+		if(posted_.exchange(true, std::memory_order_acquire))
+			return false;
+
+		policy_.setUp();
+
+		worklet_.setup([] (Worklet *base) {
+			auto self = frg::container_of(base, &DeferredWork::worklet_);
+			assert(self->posted_.load(std::memory_order_relaxed));
+			self->posted_.store(false, std::memory_order_release);
+			self->policy_.execute();
+		}, WorkQueue::generalQueue());
+		WorkQueue::post(&worklet_);
+		return true;
+	}
+
+private:
+	P policy_;
+	Worklet worklet_;
+	std::atomic<bool> posted_;
+};
+
 } // namespace thor

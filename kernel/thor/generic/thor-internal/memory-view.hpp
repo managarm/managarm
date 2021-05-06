@@ -1141,6 +1141,32 @@ struct ManagedSpace : CacheBundle {
 		CachePage cachePage;
 	};
 
+	// Calls management callbacks from a WQ; required to implement markDirty().
+	struct DeferredManagement {
+		void setUp() {
+			self->selfPtr.ctr()->increment();
+		}
+
+		void execute() {
+			ManageList pending;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+
+				self->_progressManagement(pending);
+			}
+
+			while(!pending.empty()) {
+				auto node = pending.pop_front();
+				node->complete();
+			}
+
+			self->selfPtr.ctr()->decrement();
+		}
+
+		ManagedSpace *self;
+	};
+
 	ManagedSpace(size_t length);
 	~ManagedSpace();
 
@@ -1155,6 +1181,8 @@ struct ManagedSpace : CacheBundle {
 	void submitMonitor(MonitorNode *node);
 	void _progressManagement(ManageList &pending);
 	void _progressMonitors();
+
+	smarter::borrowed_ptr<ManagedSpace> selfPtr;
 
 	frg::ticket_spinlock mutex;
 
@@ -1184,6 +1212,8 @@ struct ManagedSpace : CacheBundle {
 
 	ManageList _managementQueue;
 	InitiateList _monitorQueue;
+
+	DeferredWork<DeferredManagement> _deferredManagement{{this}};
 };
 
 struct BackingMemory final : MemoryView {
