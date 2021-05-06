@@ -581,7 +581,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 inline PlatformCpuData *getPlatformCpuData() {
 	AssemblyCpuData *cpu_data;
-	asm ("mov %%gs:0, %0" : "=r"(cpu_data));
+	asm volatile ("mov %%gs:0, %0" : "=r"(cpu_data));
 	return static_cast<PlatformCpuData *>(cpu_data);
 }
 
