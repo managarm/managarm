@@ -157,8 +157,8 @@ namespace thor::vmx {
 		vmwrite(VM_ENTRY_CONTROLS, vm_entry_ctls);
 
 		uint64_t cr0, cr4;
-		asm("\t mov %%cr0,%0" : "=r"(cr0));
-		asm("\t mov %%cr4,%0" : "=r"(cr4));
+		asm volatile ("mov %%cr0,%0" : "=r"(cr0));
+		asm volatile ("mov %%cr4,%0" : "=r"(cr4));
 
 		//Set up host state on vmexit.
 		uint32_t cr0Fixed = (uint32_t)common::x86::rdmsr(IA32_VMX_CR0_FIXED0_MSR);
@@ -276,14 +276,14 @@ namespace thor::vmx {
 		uint16_t gs;
 		uint16_t tr;
 		uint64_t cr3;
-		asm("\t mov %%cr3,%0" : "=r"(cr3));
-		asm ("str %[tr]" : [tr]"=rm"(tr));
-		asm("\t mov %%es,%0" : "=r"(es));
-		asm("\t mov %%cs,%0" : "=r"(cs));
-		asm("\t mov %%ss,%0" : "=r"(ss));
-		asm("\t mov %%ds,%0" : "=r"(ds));
-		asm("\t mov %%fs,%0" : "=r"(fs));
-		asm("\t mov %%gs,%0" : "=r"(gs));
+		asm volatile ("mov %%cr3,%0" : "=r"(cr3));
+		asm volatile ("str %[tr]" : [tr]"=rm"(tr));
+		asm volatile ("mov %%es,%0" : "=r"(es));
+		asm volatile ("mov %%cs,%0" : "=r"(cs));
+		asm volatile ("mov %%ss,%0" : "=r"(ss));
+		asm volatile ("mov %%ds,%0" : "=r"(ds));
+		asm volatile ("mov %%fs,%0" : "=r"(fs));
+		asm volatile ("mov %%gs,%0" : "=r"(gs));
 
 		vmwrite(HOST_ES_SELECTOR, es);
 		vmwrite(HOST_CS_SELECTOR, cs);

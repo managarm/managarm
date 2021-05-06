@@ -852,7 +852,7 @@ Error getEntropyFromCpu(void *buffer, size_t size) {
 		// Do a maximal number of tries before we give up (e.g., due to broken firmware).
 		for(int k = 0; k < 512; ++k) {
 			bool success;
-			asm ("rdseed %0" : "=r"(word), "=@ccc"(success));
+			asm volatile ("rdseed %0" : "=r"(word), "=@ccc"(success));
 			if(success)
 				return true;
 		}
