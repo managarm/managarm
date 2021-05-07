@@ -131,6 +131,8 @@ public:
 
 	[[ noreturn ]] void invoke() override;
 
+	void handlePreemption(IrqImageAccessor) override;
+
 	WorkQueue *associatedWorkQueue() {
 		return _associatedWorkQueue.get();
 	}

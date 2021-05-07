@@ -271,6 +271,8 @@ public:
 
 	[[ noreturn ]] void invoke() override;
 
+	void handlePreemption(IrqImageAccessor accessor) override;
+
 private:
 	void _uninvoke();
 	void _kill();

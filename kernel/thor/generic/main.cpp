@@ -284,8 +284,7 @@ extern "C" void thorMain() {
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	localScheduler()->update();
 	localScheduler()->reschedule();
-	localScheduler()->commit();
-	localScheduler()->invoke();
+	localScheduler()->commitReschedule();
 }
 
 extern "C" void handleStubInterrupt() {
@@ -491,32 +490,9 @@ void handleIrq(IrqImageAccessor image, int number) {
 	entropy[5] = (tsc >> 24) & 0xFF;
 	injectEntropy(entropySrcIrqs, cpuData->irqEntropySeq++, entropy, 6);
 
-	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
-	if(!noScheduleOnIrq) {
-		localScheduler()->update();
-		if(localScheduler()->wantReschedule()) {
-			if(image.inThreadDomain()) {
-				if(image.inManipulableDomain()) {
-					Thread::suspendCurrent(image);
-				}else{
-					Thread::deferCurrent(image);
-				}
-			}else if(image.inFiberDomain()) {
-				// TODO: For now we do not defer kernel fibers.
-			}else{
-				assert(image.inIdleDomain());
-				localScheduler()->reschedule();
-				runDetached([] (Continuation cont, IrqImageAccessor image) {
-					scrubStack(image, cont);
-					localScheduler()->commit();
-					localScheduler()->invoke();
-				}, image);
-			}
-		}else{
-			localScheduler()->commit();
-		}
-	}
+	if(!noScheduleOnIrq)
+		localScheduler()->currentRunnable()->handlePreemption(image);
 }
 
 void handlePreemption(IrqImageAccessor image) {
@@ -525,30 +501,8 @@ void handlePreemption(IrqImageAccessor image) {
 	if(logPreemptionIrq)
 		infoLogger() << "thor: Preemption IRQ" << frg::endlog;
 
-	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
-	localScheduler()->update();
-	if(localScheduler()->wantReschedule()) {
-		if(image.inThreadDomain()) {
-			if(image.inManipulableDomain()) {
-				Thread::suspendCurrent(image);
-			}else{
-				Thread::deferCurrent(image);
-			}
-		}else if(image.inFiberDomain()) {
-			// TODO: For now we do not defer kernel fibers.
-		}else{
-			assert(image.inIdleDomain());
-			localScheduler()->reschedule();
-			runDetached([] (Continuation cont, IrqImageAccessor image) {
-				scrubStack(image, cont);
-				localScheduler()->commit();
-				localScheduler()->invoke();
-			}, image);
-		}
-	}else{
-		localScheduler()->commit();
-	}
+	localScheduler()->currentRunnable()->handlePreemption(image);
 }
 
 extern "C" void thorImplementNoThreadIrqs() {

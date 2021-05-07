@@ -12,6 +12,12 @@ namespace thor {
 struct Scheduler;
 struct CpuData;
 
+enum class ScheduleType {
+	none,
+	idle,
+	regular
+};
+
 enum class ScheduleState {
 	null,
 	attached,
@@ -29,21 +35,31 @@ struct ScheduleEntity {
 	static int orderPriority(const ScheduleEntity *a, const ScheduleEntity *b);
 	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
 
-	ScheduleEntity();
+	ScheduleEntity(ScheduleType type = ScheduleType::idle);
 
 	ScheduleEntity(const ScheduleEntity &) = delete;
 
-	virtual ~ScheduleEntity();
-
 	ScheduleEntity &operator= (const ScheduleEntity &) = delete;
+
+protected:
+	~ScheduleEntity();
+
+public:
+	ScheduleType type() {
+		return type_;
+	}
+
+	[[ noreturn ]] virtual void invoke() = 0;
+
+	virtual void handlePreemption(IrqImageAccessor image) = 0;
 
 	uint64_t runTime() {
 		return _runTime;
 	}
 
-	[[ noreturn ]] virtual void invoke() = 0;
-
 private:
+	const ScheduleType type_;
+
 	frg::ticket_spinlock _associationMutex;
 	Scheduler *_scheduler;
 
@@ -100,8 +116,11 @@ public:
 	void forcePreemptionUpdate();
 	bool wantReschedule();
 	void reschedule();
-	void commit();
-	[[noreturn]] void invoke();
+
+	[[noreturn]] void commitReschedule();
+	void renewSchedule();
+
+	ScheduleEntity *currentRunnable();
 
 private:
 	void _unschedule();

@@ -76,8 +76,7 @@ namespace {
 
 		localScheduler()->update();
 		localScheduler()->reschedule();
-		localScheduler()->commit();
-		localScheduler()->invoke();
+		localScheduler()->commitReschedule();
 
 		while(1);
 	}

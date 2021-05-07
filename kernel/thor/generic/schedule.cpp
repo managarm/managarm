@@ -19,6 +19,34 @@ namespace {
 
 	// Minimum length of a preemption time slice in ns.
 	constexpr int64_t sliceGranularity = 10'000'000;
+
+	struct IdleTask : ScheduleEntity {
+		IdleTask()
+		: ScheduleEntity{ScheduleType::idle} { }
+
+		[[noreturn]] void invoke() override {
+			if(logIdle)
+				infoLogger() << "System is idle" << frg::endlog;
+			suspendSelf();
+			__builtin_trap();
+		}
+
+		void handlePreemption(IrqImageAccessor image) override {
+			localScheduler()->update();
+			if(localScheduler()->wantReschedule()) {
+				localScheduler()->reschedule();
+
+				runDetached([] (Continuation cont, IrqImageAccessor image) {
+					scrubStack(image, cont);
+					localScheduler()->commitReschedule();
+				}, image);
+			}else{
+				localScheduler()->renewSchedule();
+			}
+		}
+	};
+
+	frg::eternal<IdleTask> globalIdleTask;
 }
 
 int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity *b) {
@@ -30,8 +58,8 @@ bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntit
 			> b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
 }
 
-ScheduleEntity::ScheduleEntity()
-: state{ScheduleState::null}, priority{0}, _refClock{0}, _runTime{0},
+ScheduleEntity::ScheduleEntity(ScheduleType type)
+: type_{type}, state{ScheduleState::null}, priority{0}, _refClock{0}, _runTime{0},
 		refProgress{0}, baseUnfairness{0} { }
 
 ScheduleEntity::~ScheduleEntity() {
@@ -231,7 +259,7 @@ void Scheduler::reschedule() {
 	_needPreemptionUpdate = true;
 }
 
-void Scheduler::commit() {
+[[noreturn]] void Scheduler::commitReschedule() {
 	if(!_current) {
 		_current = _scheduled;
 		_scheduled = nullptr;
@@ -244,18 +272,21 @@ void Scheduler::commit() {
 		_updatePreemption();
 		_needPreemptionUpdate = false;
 	}
+
+	currentRunnable()->invoke();
 }
 
-void Scheduler::invoke() {
-	if(!_current) {
-		if(logIdle)
-			infoLogger() << "System is idle" << frg::endlog;
-		suspendSelf();
-	}else{
-		_current->invoke();
+void Scheduler::renewSchedule() {
+	if(_needPreemptionUpdate) {
+		_updatePreemption();
+		_needPreemptionUpdate = false;
 	}
-	panicLogger() << "Return from scheduling invocation" << frg::endlog;
-	__builtin_unreachable();
+}
+
+ScheduleEntity *Scheduler::currentRunnable() {
+	if(!_current)
+		return &globalIdleTask.get();
+	return _current;
 }
 
 void Scheduler::_unschedule() {

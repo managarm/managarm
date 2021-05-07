@@ -36,8 +36,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 					frg::unique_lock<frg::ticket_spinlock> lock) {
 				scrubStack(executor, cont);
 				lock.unlock();
-				localScheduler()->commit();
-				localScheduler()->invoke();
+				localScheduler()->commitReschedule();
 			}, &this_fiber->_executor, std::move(lock));
 		}, &this_fiber->_executor);
 	}
@@ -100,6 +99,10 @@ void KernelFiber::invoke() {
 	getCpuData()->executorContext = &_executorContext;
 	getCpuData()->activeFiber = this;
 	restoreExecutor(&_executor);
+}
+
+void KernelFiber::handlePreemption(IrqImageAccessor image) {
+	// Do nothing (do not preempt fibers for now).
 }
 
 void KernelFiber::AssociatedWorkQueue::wakeup() {

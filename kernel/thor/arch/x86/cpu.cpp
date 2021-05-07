@@ -776,8 +776,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 	auto scheduler = localScheduler();
 	scheduler->update();
 	scheduler->reschedule();
-	scheduler->commit();
-	scheduler->invoke();
+	scheduler->commitReschedule();
 }
 
 void bootSecondary(unsigned int apic_id) {
