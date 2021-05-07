@@ -136,6 +136,10 @@ void LocalApicContext::setPreemption(uint64_t nanos) {
 	LocalApicContext::_updateLocalTimer();
 }
 
+bool LocalApicContext::checkPreemption() {
+	return localApicContext()->_preemptionDeadline != 0;
+}
+
 void LocalApicContext::handleTimerIrq() {
 	assert(localApicContext()->timersAreCalibrated);
 
@@ -230,6 +234,10 @@ void armPreemption(uint64_t nanos) {
 
 void disarmPreemption() {
 	LocalApicContext::setPreemption(0);
+}
+
+bool preemptionIsArmed() {
+	return LocalApicContext::checkPreemption();
 }
 
 // --------------------------------------------------------

@@ -657,6 +657,7 @@ Error getEntropyFromCpu(void *buffer, size_t size);
 
 void armPreemption(uint64_t nanos);
 void disarmPreemption();
+bool preemptionIsArmed();
 
 // --------------------------------------------------------
 // TSC functionality.

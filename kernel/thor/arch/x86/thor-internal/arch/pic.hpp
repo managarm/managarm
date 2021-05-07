@@ -82,6 +82,7 @@ struct LocalApicContext {
 	LocalApicContext();
 
 	static void setPreemption(uint64_t nanos);
+	static bool checkPreemption();
 
 	static void handleTimerIrq();
 

@@ -13,7 +13,6 @@ namespace {
 	constexpr bool logNextBest = false;
 	constexpr bool logUpdates = false;
 	constexpr bool logIdle = false;
-	constexpr bool logTimeSlice = false;
 
 	constexpr bool disablePreemption = false;
 
@@ -94,7 +93,6 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 	assert(entity == self->_current);
 
 	entity->priority = priority;
-	self->_needPreemptionUpdate = true;
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
@@ -137,7 +135,6 @@ void Scheduler::suspendCurrent() {
 	entity->state = ScheduleState::attached;
 
 	self->_current = nullptr;
-	self->_needPreemptionUpdate = true;
 }
 
 Scheduler::Scheduler(CpuData *cpu_context)
@@ -200,8 +197,6 @@ void Scheduler::update() {
 
 		pendingSnapshot.splice(pendingSnapshot.end(), _pendingList);
 	}
-	if(!pendingSnapshot.empty())
-		_needPreemptionUpdate = true;
 	while(!pendingSnapshot.empty()) {
 		auto entity = pendingSnapshot.pop_front();
 		assert(entity->state == ScheduleState::pending);
@@ -214,10 +209,6 @@ void Scheduler::update() {
 		_waitQueue.push(entity);
 		_numWaiting++;
 	}
-}
-
-void Scheduler::forcePreemptionUpdate() {
-	_needPreemptionUpdate = true;
 }
 
 bool Scheduler::maybeReschedule() {
@@ -252,7 +243,6 @@ bool Scheduler::maybeReschedule() {
 	if(_current)
 		_unschedule();
 	_schedule();
-	_needPreemptionUpdate = true;
 	return true;
 }
 
@@ -262,7 +252,6 @@ void Scheduler::forceReschedule() {
 	if(_current)
 		_unschedule();
 	_schedule();
-	_needPreemptionUpdate = true;
 }
 
 [[noreturn]] void Scheduler::commitReschedule() {
@@ -274,19 +263,15 @@ void Scheduler::forceReschedule() {
 		assert(!_scheduled);
 	}
 
-	if(_needPreemptionUpdate) {
+	if(!preemptionIsArmed())
 		_updatePreemption();
-		_needPreemptionUpdate = false;
-	}
 
 	currentRunnable()->invoke();
 }
 
 void Scheduler::renewSchedule() {
-	if(_needPreemptionUpdate) {
+	if(!preemptionIsArmed())
 		_updatePreemption();
-		_needPreemptionUpdate = false;
-	}
 }
 
 ScheduleEntity *Scheduler::currentRunnable() {
@@ -351,10 +336,8 @@ void Scheduler::_updatePreemption() {
 		return;
 
 	// Disable preemption if there are no other threads.
-	if(_waitQueue.empty()) {
-		disarmPreemption();
+	if(_waitQueue.empty())
 		return;
-	}
 
 	// If there was no current entity, we would have rescheduled.
 	assert(_current);
@@ -362,25 +345,13 @@ void Scheduler::_updatePreemption() {
 
 	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po < 0) {
 		// Disable preemption if we have higher priority.
-		disarmPreemption();
 		return;
 	}else{
 		// If there was an entity with higher priority, we would have rescheduled.
 		assert(!po);
 	}
 
-	auto diff = _liveUnfairness(_current) + sliceGranularity * 256
-			- _liveUnfairness(_waitQueue.top());
-	// If the unfairness was too small, we would have rescheduled.
-	assert(diff >= 0);
-
-	auto slice = diff / 256;
-	if(logTimeSlice)
-		infoLogger() << "Scheduling time slice: "
-				<< slice / 1000 << " us" << frg::endlog;
-	armPreemption(slice);
-
-	return;
+	armPreemption(sliceGranularity);
 }
 
 void Scheduler::_updateCurrentEntity() {
