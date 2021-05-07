@@ -33,9 +33,7 @@ namespace {
 
 		void handlePreemption(IrqImageAccessor image) override {
 			localScheduler()->update();
-			if(localScheduler()->wantReschedule()) {
-				localScheduler()->reschedule();
-
+			if(localScheduler()->maybeReschedule()) {
 				runDetached([] (Continuation cont, IrqImageAccessor image) {
 					scrubStack(image, cont);
 					localScheduler()->commitReschedule();
@@ -222,35 +220,43 @@ void Scheduler::forcePreemptionUpdate() {
 	_needPreemptionUpdate = true;
 }
 
-// Note: this function only returns true if there is a *strictly better* entity
-//       that we can schedule. In particular, if there are no waiters,
-//       this function returns false, *even if* no entity is currently running.
-bool Scheduler::wantReschedule() {
+bool Scheduler::maybeReschedule() {
 	assert(!intsAreEnabled());
 
-	// If there are no waiters, we keep the current entity.
-	// Otherwise, if the current entity is not active anymore, we always switch.
-	if(_waitQueue.empty())
+	auto wantToSchedule = [this] () -> bool {
+		// If there are no waiters, we keep the current entity.
+		// Otherwise, if the current entity is not active anymore, we always switch.
+		if(_waitQueue.empty())
+			return false;
+
+		if(!_current)
+			return true;
+		assert(_current->state == ScheduleState::active);
+
+		// Switch based on entity priority.
+		if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
+			return true;
+		}else if(po < 0) {
+			return false;
+		}
+
+		// Switch based on unfairness.
+		auto diff = _liveUnfairness(_current) + sliceGranularity * 256
+				- _liveUnfairness(_waitQueue.top());
+		return diff < 0;
+	};
+
+	if(!wantToSchedule())
 		return false;
 
-	if(!_current)
-		return true;
-	assert(_current->state == ScheduleState::active);
-
-	// Switch based on entity priority.
-	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
-		return true;
-	}else if(po < 0) {
-		return false;
-	}
-
-	// Switch based on unfairness.
-	auto diff = _liveUnfairness(_current) + sliceGranularity * 256
-			- _liveUnfairness(_waitQueue.top());
-	return diff < 0;
+	if(_current)
+		_unschedule();
+	_schedule();
+	_needPreemptionUpdate = true;
+	return true;
 }
 
-void Scheduler::reschedule() {
+void Scheduler::forceReschedule() {
 	assert(!intsAreEnabled());
 
 	if(_current)

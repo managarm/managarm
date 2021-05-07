@@ -775,7 +775,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 
 	auto scheduler = localScheduler();
 	scheduler->update();
-	scheduler->reschedule();
+	scheduler->forceReschedule();
 	scheduler->commitReschedule();
 }
 

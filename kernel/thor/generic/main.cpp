@@ -283,7 +283,7 @@ extern "C" void thorMain() {
 
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	localScheduler()->update();
-	localScheduler()->reschedule();
+	localScheduler()->forceReschedule();
 	localScheduler()->commitReschedule();
 }
 

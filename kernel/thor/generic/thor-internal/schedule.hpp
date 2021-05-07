@@ -114,8 +114,9 @@ private:
 public:
 	void update();
 	void forcePreemptionUpdate();
-	bool wantReschedule();
-	void reschedule();
+
+	bool maybeReschedule();
+	void forceReschedule();
 
 	[[noreturn]] void commitReschedule();
 	void renewSchedule();

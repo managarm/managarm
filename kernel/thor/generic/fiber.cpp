@@ -29,7 +29,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		getCpuData()->activeFiber = nullptr;
 		getCpuData()->scheduler.update();
 		Scheduler::suspendCurrent();
-		localScheduler()->reschedule();
+		localScheduler()->forceReschedule();
 
 		forkExecutor([&] {
 			runDetached([] (Continuation cont, Executor *executor,

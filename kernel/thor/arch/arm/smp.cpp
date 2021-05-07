@@ -75,7 +75,7 @@ namespace {
 		Scheduler::resume(cpuContext->wqFiber);
 
 		localScheduler()->update();
-		localScheduler()->reschedule();
+		localScheduler()->forceReschedule();
 		localScheduler()->commitReschedule();
 
 		while(1);

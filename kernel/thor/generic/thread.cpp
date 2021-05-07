@@ -51,7 +51,7 @@ void Thread::migrateCurrent() {
 
 	Scheduler::associate(this_thread, new_scheduler);
 	Scheduler::resume(this_thread);
-	localScheduler()->reschedule();
+	localScheduler()->forceReschedule();
 
 	forkExecutor([&] {
 		runDetached([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
@@ -86,7 +86,7 @@ void Thread::blockCurrent() {
 	thisThread->_runState = kRunBlocked;
 	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
-	getCpuData()->scheduler.reschedule();
+	getCpuData()->scheduler.forceReschedule();
 	thisThread->_uninvoke();
 
 	forkExecutor([&] {
@@ -111,7 +111,7 @@ void Thread::deferCurrent() {
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
 	getCpuData()->scheduler.update();
-	getCpuData()->scheduler.reschedule();
+	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (Continuation, frg::unique_lock<Mutex> lock) {
@@ -133,7 +133,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	this_thread->_runState = kRunDeferred;
 	saveExecutor(&this_thread->_executor, image);
 	getCpuData()->scheduler.update();
-	getCpuData()->scheduler.reschedule();
+	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
@@ -156,7 +156,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	this_thread->_runState = kRunSuspended;
 	saveExecutor(&this_thread->_executor, image);
 	getCpuData()->scheduler.update();
-	getCpuData()->scheduler.reschedule();
+	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
@@ -182,7 +182,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	saveExecutor(&this_thread->_executor, image);
 	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
-	getCpuData()->scheduler.reschedule();
+	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (Continuation cont, FaultImageAccessor image,
@@ -220,7 +220,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	saveExecutor(&this_thread->_executor, image);
 	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
-	getCpuData()->scheduler.reschedule();
+	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
 	runDetached([] (Continuation cont, SyscallImageAccessor image,
@@ -263,7 +263,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		getCpuData()->scheduler.update();
 		Scheduler::suspendCurrent();
 		Scheduler::unassociate(this_thread.get());
-		getCpuData()->scheduler.reschedule();
+		getCpuData()->scheduler.forceReschedule();
 		this_thread->_uninvoke();
 
 		runDetached([] (Continuation cont, SyscallImageAccessor image,
@@ -296,7 +296,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		saveExecutor(&this_thread->_executor, image);
 		getCpuData()->scheduler.update();
 		Scheduler::suspendCurrent();
-		getCpuData()->scheduler.reschedule();
+		getCpuData()->scheduler.forceReschedule();
 		this_thread->_uninvoke();
 
 		runDetached([] (Continuation cont, SyscallImageAccessor image,
@@ -483,7 +483,7 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 	assert(getCurrentThread().get() == this);
 
 	localScheduler()->update();
-	if(localScheduler()->wantReschedule()) {
+	if(localScheduler()->maybeReschedule()) {
 		auto lock = frg::guard(&_mutex);
 
 		if(logRunStates)
@@ -496,7 +496,6 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 			_runState = kRunDeferred;
 		}
 		saveExecutor(&_executor, image);
-		localScheduler()->reschedule();
 		_uninvoke();
 
 		runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
