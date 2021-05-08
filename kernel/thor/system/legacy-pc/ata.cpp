@@ -48,7 +48,8 @@ namespace {
 		auto preamble = bragi::read_preamble(reqBuffer);
 		assert(!preamble.error());
 
-		if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
+		switch(preamble.id()) {
+		case bragi::message_id<managarm::hw::GetPciInfoRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -84,7 +85,9 @@ namespace {
 				co_return headError;
 			if(tailError != Error::success)
 				co_return tailError;
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::AccessBarRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -95,14 +98,17 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 			auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
-			if(req->index() == 0) {
+			switch(req->index()) {
+			case 0:
 				for(size_t p = 0; p < 8; ++p)
 					space->addPort(0x1F0 + p);
 				resp.set_error(managarm::hw::Errors::SUCCESS);
-			}else if(req->index() == 1) {
+				break;
+			case 1:
 				space->addPort(0x3F6);
 				resp.set_error(managarm::hw::Errors::SUCCESS);
-			}else{
+				break;
+			default:
 				resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);
 			}
 
@@ -116,7 +122,9 @@ namespace {
 			auto ioError = co_await PushDescriptorSender{lane, IoDescriptor{space}};
 			if(ioError != Error::success)
 				co_return ioError;
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::AccessIrqRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {

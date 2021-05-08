@@ -276,11 +276,14 @@ void IrqPin::_callSinks() {
 		if(status != IrqStatus::null)
 			(*it)->_responseSequence = _sinkSequence;
 
-		if(status == IrqStatus::acked) {
+		switch(status) {
+		case IrqStatus::acked:
 			_inService = false;
-		}else if(status == IrqStatus::nacked) {
+			break;
+		case IrqStatus::nacked:
 			// We do not need to do anything here; we just do not increment _dueSinks.
-		}else{
+			break;
+		default:
 			_dueSinks++;
 		}
 	}
@@ -321,16 +324,15 @@ IrqStatus IrqObject::raise() {
 
 	if(_automationKernlet) {
 		auto result = _automationKernlet->invokeIrqAutomation();
-		if(result == 1) {
-			return IrqStatus::acked;
-		}else if(result == 2) {
-			return IrqStatus::nacked;
-		}else{
-			assert(!result);
-			return IrqStatus::null;
+		switch(result) {
+		case 0: break;
+		case 1: return IrqStatus::acked;
+		case 2: return IrqStatus::nacked;
+		default: assert(!"Unexpected irq status");
 		}
-	}else
-		return IrqStatus::null;
+	}
+
+	return IrqStatus::null;
 }
 
 void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {

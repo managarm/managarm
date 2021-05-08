@@ -60,7 +60,8 @@ namespace stdio {
 			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-			if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+			switch(req.req_type()) {
+			case managarm::fs::CntReqType::WRITE) {
 				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"
@@ -94,7 +95,9 @@ namespace stdio {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+				break;
+			}
+			case managarm::fs::CntReqType::SEEK_REL: {
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
 
@@ -105,14 +108,16 @@ namespace stdio {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else{
+				break;
+			}
+			default: {
 				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided stdio file" "\e[39m" << frg::endlog;
 
 				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
 				assert(dismissError == Error::success);
-			}
+			}}
 		}
 	}
 
@@ -157,7 +162,8 @@ namespace initrd {
 			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-			if(req.req_type() == managarm::fs::CntReqType::READ) {
+			switch(req.req_type()) {
+			case managarm::fs::CntReqType::READ) {
 				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"
@@ -185,7 +191,9 @@ namespace initrd {
 				auto dataError = co_await SendBufferSender{conversation, std::move(dataBuffer)};
 				// TODO: improve error handling here.
 				assert(dataError == Error::success);
-			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
+				break;
+			}
+			case managarm::fs::CntReqType::SEEK_ABS: {
 				file->offset = req.rel_offset();
 
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -198,7 +206,9 @@ namespace initrd {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
+				break;
+			}
+			case managarm::fs::CntReqType::MMAP: {
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -214,15 +224,15 @@ namespace initrd {
 						MemoryViewDescriptor{file->module->getMemory()}};
 				// TODO: improve error handling here.
 				assert(memoryError == Error::success);
-			}else{
+				break;
+			default: {
 				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided regular file" "\e[39m" << frg::endlog;
 
 				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
 				assert(dismissError == Error::success);
-			}
-
+			}}
 		}
 	}
 
@@ -390,7 +400,8 @@ namespace posix {
 			auto preamble = bragi::read_preamble(reqBuffer);
 			assert(!preamble.error());
 
-			if(preamble.id() == bragi::message_id<managarm::posix::CntRequest>) {
+			switch(preamble.id()) {
+			case bragi::message_id<managarm::posix::CntRequest>: {
 				// This case is only really needed to return an error from SIG_ACTION,
 				// since mlibc tries to install a signal handler to support cancellation.
 
@@ -415,7 +426,9 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
+				break;
+			}
+			case bragi::message_id<managarm::posix::GetTidRequest>: {
 				auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
@@ -434,7 +447,9 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
+				break;
+			}
+			case bragi::message_id<managarm::posix::OpenAtRequest>: {
 				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
 				if(tailError != Error::success) {
 					infoLogger() << "thor: Could not receive POSIX tail" << frg::endlog;
@@ -514,7 +529,9 @@ namespace posix {
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 				}
-			}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
+				break;
+			}
+			case bragi::message_id<managarm::posix::IsTtyRequest>: {
 				auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
@@ -536,7 +553,9 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(preamble.id() == bragi::message_id<managarm::posix::CloseRequest>) {
+				break;
+			}
+			case bragi::message_id<managarm::posix::CloseRequest>: {
 				auto req = bragi::parse_head_only<managarm::posix::CloseRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
@@ -555,7 +574,9 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
+				break;
+			}
+			case bragi::message_id<managarm::posix::VmMapRequest>: {
 				auto req = bragi::parse_head_only<managarm::posix::VmMapRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
@@ -631,11 +652,12 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else{
+				break;
+			default: {
 				infoLogger() << "thor: Illegal POSIX request type "
 						<< preamble.id() << frg::endlog;
 				co_return;
-			}
+			}}
 		}
 	}
 
@@ -646,21 +668,24 @@ namespace posix {
 			assert(error == Error::success);
 			currentSeq = observedSeq;
 
-			if(interrupt == kIntrPanic) {
+			switch(interrupt){
+			case kIntrPanic: {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				infoLogger() << "\e[31m" "thor: Panic in server "
 						<< name().data() << "\e[39m" << frg::endlog;
 				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
 				break;
-			}else if(interrupt == kIntrPageFault) {
+			}
+			case kIntrPageFault: {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				infoLogger() << "\e[31m" "thor: Fault in server "
 						<< name().data() << "\e[39m" << frg::endlog;
 				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
 				break;
-			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
+			}
+			case kIntrSuperCall + 10: { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
 				auto size = *_thread->_executor.arg0();
 				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
@@ -683,7 +708,9 @@ namespace posix {
 				*_thread->_executor.result1() = mapResult.value();
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
+				break;
+			}
+			caese kIntrSuperCall + 11: { // ANON_FREE.
 				auto address = *_thread->_executor.arg0();
 				auto size = *_thread->_executor.arg1();
 				auto space = _thread->getAddressSpace();
@@ -693,7 +720,9 @@ namespace posix {
 				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 1) {
+				break;
+			}
+			case kIntrSuperCall + 1: {
 				ManagarmProcessData data = {
 					posixHandle,
 					nullptr,
@@ -713,7 +742,9 @@ namespace posix {
 				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 64) {
+				break;
+			}
+			case kIntrSuperCall + 64: {
 				ManagarmServerData data = {
 					controlHandle
 				};
@@ -730,12 +761,16 @@ namespace posix {
 				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
+				break;
+			}
+			case kIntrSuperCall + 7: { // sigprocmask.
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else{
+				break;
+			}
+			default:
 				panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frg::endlog;
 			}

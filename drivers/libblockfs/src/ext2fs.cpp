@@ -761,13 +761,14 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	auto disk_inode = inode->diskInode();
 //	printf("Inode %u: file size: %u\n", inode->number, disk_inode.size);
 
-	if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
-		inode->fileType = kTypeRegular;
-	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFLNK) {
-		inode->fileType = kTypeSymlink;
-	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFDIR) {
-		inode->fileType = kTypeDirectory;
-	}else{
+	switch(disk_inode->mode & EXT2_S_IFMT) {
+	case EXT2_S_IFREG:
+		inode->fileType = kTypeRegular; break;
+	case EXT2_S_IFLNK:
+		inode->fileType = kTypeSymlink; break;
+	case EXT2_S_IFDIR:
+		inode->fileType = kTypeDirectory; break;
+	default:
 		std::cerr << "ext2fs: Unexpected inode type " << (disk_inode->mode & EXT2_S_IFMT)
 				<< " for inode " << inode->number << std::endl;
 		abort();
@@ -935,7 +936,7 @@ async::result<uint32_t> FileSystem::allocateBlock() {
 		// TODO: Update the block group descriptor table.
 
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
-		for(int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+		for(unsigned i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
@@ -978,7 +979,7 @@ async::result<uint32_t> FileSystem::allocateInode() {
 		// TODO: Update the block group descriptor table.
 
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
-		for(int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
+		for(unsigned i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {

@@ -519,14 +519,20 @@ void MemoryFile::handleClose() {
 
 async::result<frg::expected<Error, off_t>>
 MemoryFile::seek(off_t delta, VfsSeek whence) {
-	if(whence == VfsSeek::absolute) {
-		_offset = delta;
-	}else if(whence == VfsSeek::relative){
-		_offset += delta;
-	}else if(whence == VfsSeek::eof) {
+	switch(whence) {
+	case VfsSeek::absolute: {
+		_offset = delta; break;
+	}
+	case VfsSeek::relative: {
+		_offset += delta; break;
+	}
+	case VfsSeek::eof: {
 		assert(whence == VfsSeek::eof);
 		auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 		_offset += delta + node->_fileSize;
+		break;
+	}
+	default:;
 	}
 	co_return _offset;
 }

@@ -181,8 +181,8 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 		Elf64_Phdr phdr;
 		co_await copyFromView(image.get(), ehdr.e_phoff + i * ehdr.e_phentsize,
 				&phdr, sizeof(Elf64_Phdr), WorkQueue::generalQueue()->take());
-		
-		if(phdr.p_type == PT_LOAD) {
+		switch(phdr.p_type) {
+		case PT_LOAD: {
 			assert(phdr.p_memsz > 0);
 			
 			// align virtual address and length to page size
@@ -218,18 +218,26 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 				panicLogger() << "Illegal combination of segment permissions"
 						<< frg::endlog;
 			}
-		}else if(phdr.p_type == PT_INTERP) {
+			break;
+		}
+		case PT_INTERP: {
 			info.interpreter.resize(phdr.p_filesz);
 			co_await copyFromView(image.get(), phdr.p_offset,
 					info.interpreter.data(), phdr.p_filesz, WorkQueue::generalQueue()->take());
-		}else if(phdr.p_type == PT_PHDR) {
+			break;
+		}
+		case PT_PHDR: {
 			info.phdrPtr = reinterpret_cast<void *>(base + phdr.p_vaddr);
-		}else if(phdr.p_type == PT_DYNAMIC
-				|| phdr.p_type == PT_TLS
-				|| phdr.p_type == PT_GNU_EH_FRAME
-				|| phdr.p_type == PT_GNU_STACK) {
+			break;
+		}
+		case PT_DYNAMIC:
+		case PT_TLS:
+		case PT_GNU_EH_FRAME:
+		case PT_GNU_STACK: {
 			// ignore the phdr
-		}else{
+			break;
+		}
+		default:
 			assert(!"Unexpected PHDR");
 		}
 	}

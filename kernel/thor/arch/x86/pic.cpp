@@ -766,13 +766,16 @@ bool checkLegacyPicIsr(int irq) {
 
 // TODO: Split this function in two: One for the legacy PIC and one for APIC.
 void acknowledgeIrq(int irq) {
-	if(picModel == kModelApic) {
-		picBase.store(lApicEoi, 0);
-	}else if(picModel == kModelLegacy) {
+	switch(picModel) {
+	case kModelApic:
+		icBase.store(lApicEoi, 0);
+		break;
+	case kModelLegacy:
 		if(irq >= 8)
 			common::x86::ioOutByte(kPic2Command, kPicEoi);
 		common::x86::ioOutByte(kPic1Command, kPicEoi);
-	}else{
+		break;
+	default:
 		assert(!"Illegal PIC model");
 	}
 }

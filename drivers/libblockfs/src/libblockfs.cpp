@@ -492,7 +492,8 @@ async::detached servePartition(helix::UniqueLane lane) {
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
+		switch(req.req_type()) {
+		case managarm::fs::CntReqType::DEV_MOUNT: {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
@@ -509,7 +510,9 @@ async::detached servePartition(helix::UniqueLane lane) {
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
+			break;
+		}
+		case managarm::fs::CntReqType::SB_CREATE_REGULAR: {
 			auto inode = co_await fs->createRegular();
 
 			helix::UniqueLane local_lane, remote_lane;
@@ -530,7 +533,9 @@ async::detached servePartition(helix::UniqueLane lane) {
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::RENAME) {
+			break;
+		}
+		case managarm::fs::CntReqType::RENAME: {
 			auto oldInode = fs->accessInode(req.inode_source());
 			auto newInode = fs->accessInode(req.inode_target());
 
@@ -584,7 +589,9 @@ async::detached servePartition(helix::UniqueLane lane) {
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
-		}else{
+			break;
+		}
+		default:
 			throw std::runtime_error("Unexpected request type");
 		}
 	}

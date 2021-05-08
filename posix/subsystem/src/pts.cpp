@@ -317,7 +317,8 @@ private:
 
 async::result<void>
 Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) {
-	if(req.command() == TIOCSCTTY) {
+	switch(req.command()) {
+	case TIOCSCTTY: {
 		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials()
@@ -342,7 +343,9 @@ Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::Uniq
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(sendResp.error());
-	}else if(req.command() == TIOCGPGRP) {
+		break;
+	}
+	case TIOCGPGRP: {
 		managarm::fs::SvrResponse resp;
 
 		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
@@ -366,7 +369,9 @@ Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::Uniq
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == TIOCSPGRP) {
+		break;
+	}
+	case TIOCSPGRP: {
 		managarm::fs::SvrResponse resp;
 
 		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
@@ -395,7 +400,9 @@ Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::Uniq
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == TIOCGSID) {
+		break;
+	}
+	case TIOCGSID: {
 		managarm::fs::SvrResponse resp;
 
 		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
@@ -419,7 +426,9 @@ Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::Uniq
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else{
+		break;
+	}
+	default:
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS ioctl (commonIoctl) " << req.command()
 				<< "\e[39m" << std::endl;
 	}
@@ -536,7 +545,8 @@ MasterFile::pollStatus(Process *) {
 
 async::result<void> MasterFile::ioctl(Process *process, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation) {
-	if(req.command() == TIOCGPTN) {
+	switch(req.command()) {
+	case TIOCGPTN: {
 		managarm::fs::SvrResponse resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -548,7 +558,9 @@ async::result<void> MasterFile::ioctl(Process *process, managarm::fs::CntRequest
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == TIOCSWINSZ) {
+		break;
+	}
+	case TIOCSWINSZ: {
 		managarm::fs::SvrResponse resp;
 
 		if(logAttrs)
@@ -571,10 +583,16 @@ async::result<void> MasterFile::ioctl(Process *process, managarm::fs::CntRequest
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
-			|| req.command() == TIOCSPGRP || req.command() == TIOCGSID) {
+		break;
+	}
+	case TIOCSCTTY:
+	case TIOCGPGRP:
+	case TIOCSPGRP:
+	case TIOCGSID: {
 		co_await _channel->commonIoctl(process, std::move(req), std::move(conversation));
-	}else{
+		break;
+	}
+	default:
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req.command()
 				<< "\e[39m" << std::endl;
 	}
@@ -691,7 +709,8 @@ SlaveFile::pollStatus(Process *) {
 
 async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation) {
-	if(req.command() == TCGETS) {
+	switch(req.command()) {
+	case TCGETS: {
 		managarm::fs::SvrResponse resp;
 		struct termios attrs;
 
@@ -714,7 +733,9 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_attrs.error());
-	}else if(req.command() == TCSETS) {
+		break;
+	}
+	case TCSETS: {
 		struct termios attrs;
 		managarm::fs::SvrResponse resp;
 
@@ -747,7 +768,9 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == TIOCGWINSZ) {
+		break;
+	}
+	case TIOCGWINSZ: {
 		managarm::fs::SvrResponse resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -762,7 +785,9 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == TIOCSWINSZ) {
+		break;
+	}
+	case TIOCSWINSZ: {
 		managarm::fs::SvrResponse resp;
 
 		if(logAttrs)
@@ -785,10 +810,16 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
-			|| req.command() == TIOCSPGRP || req.command() == TIOCGSID) {
+		break;
+	}
+	case TIOCSCTTY:
+	case TIOCGPGRP:
+	case TIOCSPGRP:
+	case TIOCGSID: {
 		co_await _channel->commonIoctl(process, std::move(req), std::move(conversation));
-	}else{
+		break;
+	}
+	default:
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req.command()
 				<< "\e[39m" << std::endl;
 	}

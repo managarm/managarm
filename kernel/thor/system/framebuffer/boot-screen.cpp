@@ -11,11 +11,14 @@ BootScreen::Formatter::Formatter(BootScreen *screen, int x, int y)
 
 void BootScreen::Formatter::print(const char *c) {
 	while(*c) {
-		if(!_csiState) {
-			if(*c == '\x1B') {
+		switch(_csiState) {
+		case 0: switch(*c) {
+			case '\x1B': {
 				_csiState = 1;
 				c++;
-			}else if(*c == '\t') {
+				break;
+			}
+			case '\t': {
 				constexpr const char *spaces = "        ";
 
 				int n = 8 - (_x % 8);
@@ -29,7 +32,8 @@ void BootScreen::Formatter::print(const char *c) {
 				}
 
 				c++;
-			}else{
+				break;
+			default: {
 				int n = 0;
 				while(c[n] && c[n] != '\x1B')
 					n++;
@@ -40,8 +44,8 @@ void BootScreen::Formatter::print(const char *c) {
 				}
 				c += n;
 			}
-		}else if(_csiState == 1) {
-			if(*c == '[') {
+			break;
+		case 1: if(*c == '[') {
 				_csiState = 2;
 				c++;
 			}else{
@@ -50,8 +54,8 @@ void BootScreen::Formatter::print(const char *c) {
 				_csiState = 0;
 				c++;
 			}
-		}else{
-			// This is _csiState == 2.
+			break;
+		default:// This is _csiState == 2.
 			if(*c >= '0' && *c <= '9') {
 				_modeStack[_modeCount] *= 10;
 				_modeStack[_modeCount] += *c - '0'; 
