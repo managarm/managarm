@@ -222,7 +222,8 @@ coroutine<frg::expected<Error>> GdbServer::run() {
 
 		auto firstByte = FRG_CO_TRY(co_await channel_->readInput());
 
-		if(firstByte == '$') {
+		switch(firstByte) {
+		case '$': {
 			inBuffer_.clear();
 
 			// Process the bytes.
@@ -272,21 +273,27 @@ coroutine<frg::expected<Error>> GdbServer::run() {
 			}
 
 			responseStage_ = ResponseStage::responseReady;
-		}else if(firstByte == '+') {
+			break;
+		}
+		case '+': {
 			if(responseStage_ == ResponseStage::responseSent) {
 				outBuffer_.clear();
 				responseStage_ = ResponseStage::none;
 			}else{
 				infoLogger() << "thor, gdbserver: Ignoring stray ACK" << frg::endlog;
 			}
-		}else if(firstByte == '-') {
+			break;
+		}
+		case '-': {
 			if(responseStage_ == ResponseStage::responseSent) {
 				outBuffer_.clear();
 				responseStage_ = ResponseStage::responseReady;
 			}else{
 				infoLogger() << "thor, gdbserver: Ignoring stray NACK" << frg::endlog;
 			}
-		}else{
+			break;
+		}
+		default:
 			infoLogger() << "thor, gdbserver: Packet starts with unexpected byte: "
 					<< frg::hex_fmt(firstByte) << frg::endlog;
 		}

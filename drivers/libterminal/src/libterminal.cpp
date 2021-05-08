@@ -21,7 +21,8 @@ void Emulator::setChar(int x, int y, char c, Attribute attribute) {
 }
 
 void Emulator::handleControlSeq(char character) {
-	if(character == 'A') {
+	switch(character)
+	case 'A': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
@@ -34,7 +35,9 @@ void Emulator::handleControlSeq(char character) {
 			cursorY = 0;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'B') {
+		break;
+	}
+	case 'B': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
@@ -47,7 +50,9 @@ void Emulator::handleControlSeq(char character) {
 			cursorY = height;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'C') {
+		break;
+	}
+	case 'C': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
@@ -60,7 +65,9 @@ void Emulator::handleControlSeq(char character) {
 			cursorX = width;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'D') {
+		break;
+	}
+	case 'D': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
@@ -73,7 +80,9 @@ void Emulator::handleControlSeq(char character) {
 			cursorX = 0;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'E') {
+		break;
+	}
+	case 'E': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
@@ -85,7 +94,9 @@ void Emulator::handleControlSeq(char character) {
 		}
 		cursorX = 0;
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'F') {
+		break;
+	}
+	case 'F': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
@@ -97,7 +108,8 @@ void Emulator::handleControlSeq(char character) {
 		}
 		cursorX = 0;
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'G') {
+	}
+	case 'G': {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
@@ -106,13 +118,16 @@ void Emulator::handleControlSeq(char character) {
 			cursorX = n;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'J') {
+		break;
+	}
+	case 'J': {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
 		
 		Attribute attribute;
-		if(n == 0) {
+		switch(n) {
+		case 0:
 			for(int i = cursorX; i <= width; i++) {
 				setChar(i, cursorY, ' ', attribute);
 			}
@@ -121,7 +136,9 @@ void Emulator::handleControlSeq(char character) {
 					setChar(i, cursorY, ' ', attribute);
 				}
 			}
-		}else if(n == 1) {
+			break;
+		}
+		case 1:
 			for(int i = cursorX; i >= 0; i--) {
 					setChar(i, cursorY, ' ', attribute);
 			}
@@ -130,33 +147,43 @@ void Emulator::handleControlSeq(char character) {
 					setChar(i, cursorY, ' ', attribute);
 				}
 			}
-		}else if(n == 2) {
+			break;
+		}
+		case 2:
 			for(int i = 0; i <= height; i++) {
 				for(int j = 0; j <= width; j++) {
 					setChar(i, cursorY, ' ', attribute);
 				}
 			}
+			break;
+		default:;
 		}
-	}else if(character == 'K') {
+		break;
+	}
+	case 'K': {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
 
 		Attribute attribute;
-		if(n == 0) {
-			for(int i = cursorX; i < width; i++) {
+		switch(n) {
+		case 0:	for(int i = cursorX; i < width; i++) {
 				setChar(i, cursorY, ' ', attribute);
 			}
-		}else if(n == 1) {
-			for(int i = cursorX; i >= 0; i--) {
+			break;
+		case 1: for(int i = cursorX; i >= 0; i--) {
 				setChar(i, cursorY, ' ', attribute);
 			}
-		}else if(n == 2) {
-			for(int i = 0; i <= width; i++) {
+			break;
+		case 2: for(int i = 0; i <= width; i++) {
 				setChar(i, cursorY, ' ', attribute);
 			}
+			break;
+		default:;
 		}
-	}else if(character == 'm') {
+		break;
+	}
+	case 'm': {
 		if(!params.empty())
 			params.push_back(0);
 

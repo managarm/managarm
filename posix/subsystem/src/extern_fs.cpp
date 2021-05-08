@@ -468,11 +468,14 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 
-		if (resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
+		switch (resp.error()) {
+		case managarm::fs::Errors::FILE_NOT_FOUND:
 			co_return Error::noSuchFile;
-		} else if (resp.error() == managarm::fs::Errors::NOT_DIRECTORY) {
+			break;
+		case managarm::fs::Errors::NOT_DIRECTORY:
 			co_return Error::notDirectory;
-		} else {
+			break;
+		default:
 			assert(resp.error() == managarm::fs::Errors::SUCCESS);
 			HEL_CHECK(pull_desc.error());
 		}
@@ -610,7 +613,8 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		if(resp.error() == managarm::fs::Errors::SUCCESS) {
+		switch(resp.error()) {
+		case managarm::fs::Errors::SUCCESS: {
 			HEL_CHECK(pull_node.error());
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
@@ -622,9 +626,14 @@ private:
 						pull_node.descriptor());
 				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
-		}else if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
+
+			break;
+		}
+		case managarm::fs::Errors::FILE_NOT_FOUND: {
 			co_return nullptr;
-		}else{
+			break;
+		}
+		default:
 			assert(resp.error() == managarm::fs::Errors::NOT_DIRECTORY);
 			co_return Error::notDirectory;
 		}

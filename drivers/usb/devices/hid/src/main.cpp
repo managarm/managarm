@@ -35,7 +35,8 @@ void setupInputTranslation(Element *element) {
 		element->inputCode = code;
 	};
 
-	if(element->usagePage == pages::genericDesktop) {
+	switch(element->usagePage) {
+	case pages::genericDesktop:
 		// TODO: Distinguish between absolute and relative controls.
 		if(element->isAbsolute) {
 			switch(element->usageId) {
@@ -58,7 +59,8 @@ void setupInputTranslation(Element *element) {
 								<< " in Generic Desktop Page" << std::endl;
 			}
 		}
-	}else if(element->usagePage == pages::keyboard) {
+		break;
+	case pages::keyboard:
 //		assert(element->isAbsolute);
 		switch(element->usageId) {
 			case 0x04: setInput(EV_KEY, KEY_A); break;
@@ -169,7 +171,8 @@ void setupInputTranslation(Element *element) {
 					std::cout << "usb-hid: Unknown usage " << element->usageId
 							<< " in Keyboard Page" << std::endl;
 		}
-	}else if(element->usagePage == pages::button) {
+		break;
+	case pages::button:
 //		assert(element->isAbsolute);
 		switch(element->usageId) {
 			case 0x01: setInput(EV_KEY, BTN_LEFT); break;
@@ -180,7 +183,8 @@ void setupInputTranslation(Element *element) {
 					std::cout << "usb-hid: Unknown usage " << element->usageId
 							<< " in Button Page" << std::endl;
 		}
-	}else{
+		break;
+	default:
 		if(logUnknownCodes)
 			std::cout << "usb-hid: Unkown usage page " << element->usagePage << std::endl;
 	}
@@ -522,7 +526,8 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 //	std::cout << "usb-hid: Device configuration:" << std::endl;
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 //		std::cout << "    Descriptor: " << type << std::endl;
-		if(type == descriptor_type::hid) {	
+		switch(type) {
+		case descriptor_type::hid: {
 			if(info.configNumber.value() != config_num
 					|| info.interfaceNumber.value() != intf_num)
 				return;
@@ -535,7 +540,9 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 				assert(desc->entries[i].descriptorType == descriptor_type::report);
 				report_descs.push_back(desc->entries[i].descriptorLength);
 			}
-		}else if(type == descriptor_type::endpoint) {
+			break;
+		}
+		case descriptor_type::endpoint: {
 			if(info.configNumber.value() != config_num
 					|| info.interfaceNumber.value() != intf_num)
 				return;
@@ -545,6 +552,9 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 
 			in_endp_number = info.endpointNumber.value();
 			in_endp_pktsize = desc->maxPacketSize;
+			break;
+		}
+		default:;
 		}
 	});
 
@@ -685,10 +695,13 @@ async::detached bindDevice(mbus::Entity entity) {
 	std::experimental::optional<int> intf_alternative;
 	
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		if(type == descriptor_type::configuration) {
+		switch(type) {
+		case descriptor_type::configuration: {
 			assert(!config_number);
 			config_number = info.configNumber.value();
-		}else if(type == descriptor_type::interface) {
+			break;
+		}
+		case descriptor_type::interface: {
 			auto desc = reinterpret_cast<InterfaceDescriptor *>(p);
 			if(desc->interfaceClass != 3)
 				return;
@@ -702,6 +715,9 @@ async::detached bindDevice(mbus::Entity entity) {
 
 			intf_number = info.interfaceNumber.value();
 			intf_alternative = info.interfaceAlternative.value();
+			break;
+		}
+		default:;
 		}
 	});
 	

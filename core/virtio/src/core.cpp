@@ -577,7 +577,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 		std::optional<Mapping> device_mapping;
 		unsigned int notify_multiplier = 0;
 
-		for(size_t i = 0; i < info.caps.size(); i++) {
+		for(size_t i = 0; i != info.caps.size(); i++) {
 			if(info.caps[i].type != 0x09)
 				continue;
 
@@ -595,15 +595,17 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			auto bar = co_await hw_device.accessBar(bir);
 			Mapping mapping{std::move(bar), info.barInfo[bir].offset + offset, length};
 
-			if(subtype == 1) {
-				common_mapping = std::move(mapping);
-			}else if(subtype == 2) {
-				notify_mapping = std::move(mapping);
+			switch(subtype) {
+			case 1: common_mapping = std::move(mapping);
+				break;
+			case 2: notify_mapping = std::move(mapping);
 				notify_multiplier = co_await hw_device.loadPciCapability(i, 16, 4);
-			}else if(subtype == 3) {
-				isr_mapping = std::move(mapping);
-			}else if(subtype == 4) {
-				device_mapping = std::move(mapping);
+				break;
+			case 3: isr_mapping = std::move(mapping);
+				break;
+			case 4: device_mapping = std::move(mapping);
+				break;
+			default:;
 			}
 		}
 
@@ -739,18 +741,18 @@ Queue::Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *tabl
 
 	_availableRing->flags.store(0);
 	_availableRing->headIndex.store(0);
-	for(size_t i = 0; i < _queueSize; i++)
+	for(size_t i = 0; i != _queueSize; i++)
 		_availableRing->elements[i].tableIndex.store(0xFFFF);
 	_availableExtra->eventIndex.store(0);
 
 	_usedRing->flags.store(0);
 	_usedRing->headIndex.store(0);
-	for(size_t i = 0; i < _queueSize; i++)
+	for(size_t i = 0; i != _queueSize; i++)
 		_usedRing->elements[i].tableIndex.store(0xFFFF);
 	_usedExtra->eventIndex.store(0);
 
 	// Construct the software state.
-	for(size_t i = 0; i < _queueSize; i++)
+	for(size_t i = 0; i != _queueSize; i++)
 		_descriptorStack.push_back(i);
 	_activeRequests.resize(_queueSize);
 }

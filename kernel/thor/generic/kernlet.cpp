@@ -34,19 +34,23 @@ KernletObject::KernletObject(void *entry,
 		const frg::vector<KernletParameterType, KernelAlloc> &bind_types)
 : _entry(entry), _bindDefns{*kernelAlloc}, _instanceSize{0} {
 	for(auto type : bind_types) {
-		if(type == KernletParameterType::offset) {
+		switch(type) {
+		case KernletParameterType::offset:
 			_instanceSize = (_instanceSize + 3) & ~size_t(3);
 			_bindDefns.push_back({type, _instanceSize});
 			_instanceSize += 4;
-		}else if(type == KernletParameterType::memoryView) {
+			break;
+		case KernletParameterType::memoryView:
 			_instanceSize = (_instanceSize + 7) & ~size_t(7);
 			_bindDefns.push_back({type, _instanceSize});
 			_instanceSize += 8;
-		}else if(type == KernletParameterType::bitsetEvent) {
+			break;
+		case KernletParameterType::bitsetEvent:
 			_instanceSize = (_instanceSize + 7) & ~size_t(7);
 			_bindDefns.push_back({type, _instanceSize});
 			_instanceSize += 8;
-		}else{
+			break;
+		default:
 			assert(!"Unexpected kernlet parameter type");
 		}
 	}
@@ -131,7 +135,8 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 		Elf64_Phdr phdr;
 		memcpy(&phdr, buffer + ehdr.e_phoff + i * ehdr.e_phentsize, sizeof(Elf64_Phdr));
 
-		if(phdr.p_type == PT_LOAD) {
+		switch(phdr.p_type) {
+		case PT_LOAD: {
 			uintptr_t misalign = phdr.p_vaddr & (kPageSize - 1);
 			assert(phdr.p_memsz > 0);
 
@@ -153,14 +158,19 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 			// Fill the segment.
 			memset(base + phdr.p_vaddr, 0, phdr.p_memsz);
 			memcpy(base + phdr.p_vaddr, buffer + phdr.p_offset, phdr.p_filesz);
-		}else if(phdr.p_type == PT_DYNAMIC) {
+			break;
+		}
+		case PT_DYNAMIC: {
 			dynamic = reinterpret_cast<Elf64_Dyn *>(base + phdr.p_vaddr);
-		}else if(phdr.p_type == PT_NOTE
-				|| phdr.p_type == PT_GNU_EH_FRAME
-				|| phdr.p_type == PT_GNU_STACK
-				|| phdr.p_type == PT_GNU_RELRO) {
+			break;
+		}
+		case PT_NOTE:
+		case PT_GNU_EH_FRAME:
+		case PT_GNU_STACK:
+		case PT_GNU_RELRO:
 			// Ignore the PHDR.
-		}else{
+			break;
+		default:
 			assert(!"Unexpected PHDR");
 		}
 	}
@@ -366,14 +376,11 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		for(size_t i = 0; i < req.bind_types_size(); i++) {
 			switch(req.bind_types(i)) {
 			case managarm::kernlet::ParameterType::OFFSET:
-				bind_types.push_back(KernletParameterType::offset);
-				break;
+				bind_types.push_back(KernletParameterType::offset); break;
 			case managarm::kernlet::ParameterType::MEMORY_VIEW:
-				bind_types.push_back(KernletParameterType::memoryView);
-				break;
+				bind_types.push_back(KernletParameterType::memoryView); break;
 			case managarm::kernlet::ParameterType::BITSET_EVENT:
-				bind_types.push_back(KernletParameterType::bitsetEvent);
-				break;
+				bind_types.push_back(KernletParameterType::bitsetEvent); break;
 			default:
 				assert(!"Unexpected kernlet parameter type");
 			}

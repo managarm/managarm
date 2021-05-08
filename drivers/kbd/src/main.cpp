@@ -591,11 +591,8 @@ int scanE0(uint8_t data) {
 }
 
 int scanE1(uint8_t data1, uint8_t data2) {
-	if ((data1 & 0x7F) == 0x1D && (data2 & 0x7F) == 0x45) {
-		return KEY_PAUSE;
-	} else {
-		return KEY_RESERVED;
-	}
+	return ((data1 & 0x7F) == 0x1D && (data2 & 0x7F) == 0x45) ?
+		KEY_PAUSE : KEY_RESERVED;
 }
 
 async::detached Controller::Device::runKbd() {
@@ -606,17 +603,21 @@ async::detached Controller::Device::runKbd() {
 
 		byte0 = (co_await recvByte()).value();
 
-		if (byte0 == 0xE0) {
+		switch (byte0)
+		{
+		case 0xE0:
 			byte1 = (co_await recvByte()).value();
 			key = scanE0(byte1 & 0x7F);
 			pressed = !(byte1 & 0x80);
-		} else if (byte0 == 0xE1) {
+			break;
+		case 0xE1:
 			byte1 = (co_await recvByte()).value();
 			byte2 = (co_await recvByte()).value();
 			key = scanE1(byte1, byte2);
 			pressed = !(byte1 & 0x80);
 			assert((byte1 & 0x80) == (byte2 & 0x80));
-		} else {
+			break;
+		default:
 			key = scanNormal(byte0 & 0x7F);
 			pressed = !(byte0 & 0x80);
 		}

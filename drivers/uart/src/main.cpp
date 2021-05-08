@@ -180,10 +180,12 @@ async::detached handleIrqs() {
 			if(reason & irq_ident_register::ignore)
 				break;
 
-			if((reason & irq_ident_register::id) == IrqIds::lineStatus) {
+			switch(reason & irq_ident_register::id) {
+			case IrqIds::lineStatus:
 				std::cout << "uart: Overrun, Parity, Framing or Break Error!" << std::endl;
-			}else if((reason & irq_ident_register::id) == IrqIds::dataAvailable
-					|| (reason & irq_ident_register::id) == IrqIds::charTimeout) {
+				break;
+			case IrqIds::dataAvailable:
+			case IrqIds::charTimeout:
 				if(logIrqs)
 					std::cout << "uart: IRQ caused by: RX available" << std::endl;
 
@@ -193,7 +195,8 @@ async::detached handleIrqs() {
 				}
 				if(!recvRequests.empty())
 					completeRecvs();
-			}else if((reason & irq_ident_register::id) == IrqIds::txEmpty) {
+				break;
+			case IrqIds::txEmpty:
 				if(logIrqs)
 					std::cout << "uart: IRQ caused by: TX empty" << std::endl;
 
@@ -205,8 +208,11 @@ async::detached handleIrqs() {
 					if(!sendRequests.empty())
 						flushSends();
 				}
-			}else if((reason & irq_ident_register::id) == IrqIds::modem) {
+				break;
+			case IrqIds::modem:
 				std::cout << "uart: Modem detected!" << std::endl;
+				break;
+			default:;
 			}
 		}
 
