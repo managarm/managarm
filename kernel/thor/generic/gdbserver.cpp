@@ -361,14 +361,10 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 
 		frg::vector<uint8_t, KernelAlloc> mem{*kernelAlloc};
 		mem.resize(length);
-		{
-			auto lockHandle = AddressSpaceLockHandle{thread_->getAddressSpace().lock(),
-					reinterpret_cast<void *>(address), length};
-			co_await lockHandle.acquire(wq_);
-			lockHandle.load(0, mem.data(), length);
-		}
+		auto actualLength = co_await readPartialVirtualSpace(thread_->getAddressSpace().get(),
+				address, mem.data(), length, wq_);
 
-		for(size_t i = 0; i < length; ++i)
+		for(size_t i = 0; i < actualLength; ++i)
 			resp.appendHexByte(mem[i]);
 	}else if(req.matchString("q")) { // General query.
 		if(req.matchString("Supported")) {
