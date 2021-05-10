@@ -35,7 +35,7 @@ struct ScheduleEntity {
 	static int orderPriority(const ScheduleEntity *a, const ScheduleEntity *b);
 	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
 
-	ScheduleEntity(ScheduleType type = ScheduleType::idle);
+	ScheduleEntity(ScheduleType type = ScheduleType::regular);
 
 	ScheduleEntity(const ScheduleEntity &) = delete;
 
@@ -45,7 +45,7 @@ protected:
 	~ScheduleEntity();
 
 public:
-	ScheduleType type() {
+	ScheduleType type() const {
 		return type_;
 	}
 
@@ -137,7 +137,7 @@ private:
 
 	CpuData *_cpuContext;
 
-	ScheduleEntity *_current = nullptr;
+	ScheduleEntity *_current;
 	ScheduleEntity *_scheduled = nullptr;
 
 	frg::pairing_heap<

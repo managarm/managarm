@@ -47,10 +47,14 @@ namespace {
 }
 
 int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity *b) {
+	assert(a->type() == ScheduleType::regular);
+	assert(b->type() == ScheduleType::regular);
 	return b->priority - a->priority; // Prefer larger priority.
 }
 
 bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b) {
+	assert(a->type() == ScheduleType::regular);
+	assert(b->type() == ScheduleType::regular);
 	return a->baseUnfairness - a->refProgress
 			> b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
 }
@@ -64,6 +68,8 @@ ScheduleEntity::~ScheduleEntity() {
 }
 
 void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
+	assert(entity->type() == ScheduleType::regular);
+
 //	infoLogger() << "associate " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::null);
 	entity->_scheduler = scheduler;
@@ -71,6 +77,8 @@ void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
 }
 
 void Scheduler::unassociate(ScheduleEntity *entity) {
+	assert(entity->type() == ScheduleType::regular);
+
 	// TODO: This is only really need to assert against _current.
 	auto irqLock = frg::guard(&irqMutex());
 
@@ -84,6 +92,8 @@ void Scheduler::unassociate(ScheduleEntity *entity) {
 }
 
 void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
+	assert(entity->type() == ScheduleType::regular);
+
 	auto scheduleLock = frg::guard(&irqMutex());
 
 	auto self = entity->_scheduler;
@@ -96,6 +106,8 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
+	assert(entity->type() == ScheduleType::regular);
+
 //	infoLogger() << "resume " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::attached);
 
@@ -123,11 +135,12 @@ void Scheduler::resume(ScheduleEntity *entity) {
 }
 
 void Scheduler::suspendCurrent() {
-	auto scheduleLock = frg::guard(&irqMutex());
+	assert(!intsAreEnabled());
 
 	auto self = localScheduler();
 	auto entity = self->_current;
 	assert(entity);
+	assert(entity->type() == ScheduleType::regular);
 //	infoLogger() << "suspend " << entity << frg::endlog;
 
 	// Update the unfairness on suspend.
@@ -137,10 +150,11 @@ void Scheduler::suspendCurrent() {
 	self->_current = nullptr;
 }
 
-Scheduler::Scheduler(CpuData *cpu_context)
-: _cpuContext{cpu_context} { }
+Scheduler::Scheduler(CpuData *cpuContext)
+: _cpuContext{cpuContext}, _current{&globalIdleTask.get()} { }
 
 Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
+	assert(entity->type() == ScheduleType::regular);
 	assert(entity->state == ScheduleState::active);
 
 	auto delta_progress = _systemProgress - entity->refProgress;
@@ -152,7 +166,9 @@ Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
 }
 
 int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
+	assert(entity->type() == ScheduleType::regular);
 	assert(entity->state == ScheduleState::active);
+
 	if(entity == _current) {
 		return entity->_runTime + (_refClock - entity->_refClock);
 	}else{
@@ -167,9 +183,11 @@ void Scheduler::update() {
 		return static_cast<uint32_t>(1 << 8) / x;
 	};
 
+	assert(_current);
+
 	// Number of waiting/running threads.
 	auto n = _numWaiting;
-	if(_current)
+	if(_current->type() == ScheduleType::regular)
 		n++;
 
 	assert(haveTimer());
@@ -179,8 +197,7 @@ void Scheduler::update() {
 	if(n)
 		_systemProgress += deltaTime * fixedInverse(n);
 
-	if(_current)
-		_updateCurrentEntity();
+	_updateCurrentEntity();
 
 	// Finally, process all pending entities.
 	frg::intrusive_list<
@@ -213,6 +230,7 @@ void Scheduler::update() {
 
 bool Scheduler::maybeReschedule() {
 	assert(!intsAreEnabled());
+	assert(_current);
 
 	auto wantToSchedule = [this] () -> bool {
 		// If there are no waiters, we keep the current entity.
@@ -220,8 +238,9 @@ bool Scheduler::maybeReschedule() {
 		if(_waitQueue.empty())
 			return false;
 
-		if(!_current)
+		if(_current->type() == ScheduleType::idle)
 			return true;
+		assert(_current->type() == ScheduleType::regular);
 		assert(_current->state == ScheduleState::active);
 
 		// Switch based on entity priority.
@@ -240,8 +259,7 @@ bool Scheduler::maybeReschedule() {
 	if(!wantToSchedule())
 		return false;
 
-	if(_current)
-		_unschedule();
+	_unschedule();
 	_schedule();
 	return true;
 }
@@ -255,13 +273,12 @@ void Scheduler::forceReschedule() {
 }
 
 [[noreturn]] void Scheduler::commitReschedule() {
-	if(!_current) {
-		_current = _scheduled;
-		_scheduled = nullptr;
-		_sliceClock = _refClock;
-	}else{
-		assert(!_scheduled);
-	}
+	assert(!_current);
+	assert(_scheduled);
+
+	_current = _scheduled;
+	_scheduled = nullptr;
+	_sliceClock = _refClock;
 
 	if(!preemptionIsArmed())
 		_updatePreemption();
@@ -275,8 +292,7 @@ void Scheduler::renewSchedule() {
 }
 
 ScheduleEntity *Scheduler::currentRunnable() {
-	if(!_current)
-		return &globalIdleTask.get();
+	assert(_current);
 	return _current;
 }
 
@@ -286,7 +302,8 @@ void Scheduler::_unschedule() {
 	// Decrease the unfairness at the end of the time slice.
 	_updateEntityStats(_current);
 
-	if(_current->state == ScheduleState::active) {
+	if(_current->type() == ScheduleType::regular
+			|| _current->state == ScheduleState::active) {
 		_waitQueue.push(_current);
 		_numWaiting++;
 	}
@@ -301,6 +318,7 @@ void Scheduler::_schedule() {
 	if(_waitQueue.empty()) {
 		if(logScheduling)
 			infoLogger() << "No entities to schedule" << frg::endlog;
+		_scheduled = &globalIdleTask.get();
 		return;
 	}
 
@@ -341,6 +359,7 @@ void Scheduler::_updatePreemption() {
 
 	// If there was no current entity, we would have rescheduled.
 	assert(_current);
+	assert(_current->type() == ScheduleType::regular);
 	assert(_current->state == ScheduleState::active);
 
 	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po < 0) {
@@ -356,6 +375,9 @@ void Scheduler::_updatePreemption() {
 
 void Scheduler::_updateCurrentEntity() {
 	assert(_current);
+	if(_current->type() == ScheduleType::idle)
+		return;
+	assert(_current->type() == ScheduleType::regular);
 
 	auto delta_progress = _systemProgress - _current->refProgress;
 	if(logUpdates)
@@ -367,6 +389,7 @@ void Scheduler::_updateCurrentEntity() {
 }
 
 void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
+	assert(entity->type() == ScheduleType::regular);
 	assert(entity->state == ScheduleState::active);
 	assert(entity != _current);
 
@@ -379,6 +402,9 @@ void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
 }
 
 void Scheduler::_updateEntityStats(ScheduleEntity *entity) {
+	if(entity->type() == ScheduleType::idle)
+		return;
+	assert(entity->type() == ScheduleType::regular);
 	assert(entity->state == ScheduleState::active
 			|| entity == _current);
 
