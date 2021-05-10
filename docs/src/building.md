@@ -44,10 +44,6 @@ mkdir build
       src_mount: /var/bootstrap-managarm/src
       build_mount: /var/bootstrap-managarm/build
       allow_containerless: true
-
-    general:
-      cargo:
-        config_toml: '../src/extrafiles/config.toml'
     ```
     This `bootstrap-site.yml` will instruct our build system to invoke the build scripts within your container image.
 
