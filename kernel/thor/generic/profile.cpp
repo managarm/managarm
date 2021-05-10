@@ -3,13 +3,34 @@
 #include <thor-internal/arch/pmc-intel.hpp>
 #endif
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/kernel-io.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/timer.hpp>
 
 namespace thor {
 
 bool wantKernelProfile = false;
-frg::manual_box<LogRingBuffer> globalProfileRing;
+
+namespace {
+	frg::manual_box<LogRingBuffer> globalProfileRing;
+
+	initgraph::Task initProfilingSinks{&globalInitEngine, "generic.init-profiling-sinks",
+		initgraph::Requires{getFibersAvailableStage(),
+			getIoChannelsDiscoveredStage()},
+		[] {
+			if(!wantKernelProfile)
+				return;
+
+			auto channel = solicitIoChannel("kernel-profile");
+			if(channel) {
+				infoLogger() << "thor: Connecting profiling to I/O channel" << frg::endlog;
+				async::detach_with_allocator(*kernelAlloc,
+						dumpRingToChannel(globalProfileRing.get(), std::move(channel), 2048));
+			}
+		}
+	};
+}
 
 void initializeProfile() {
 #ifdef __x86_64__
@@ -55,8 +76,8 @@ void initializeProfile() {
 			}
 			assert(size);
 			assert(size < 128);
-			for(size_t i = 0; i < size; ++i)
-				globalProfileRing->enqueue(buffer[i]);
+
+			globalProfileRing->enqueue(buffer, size);
 		}
 	});
 #endif

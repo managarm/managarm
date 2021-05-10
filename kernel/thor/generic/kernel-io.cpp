@@ -54,6 +54,10 @@ coroutine<void> dumpRingToChannel(LogRingBuffer *ringBuffer,
 				continue;
 			}
 			assert(actualSize); // For now, we do not support size zero records.
+			if(recordPtr != currentPtr)
+				infoLogger() << "thor: Up to " << (currentPtr - recordPtr)
+						<< " lost on I/O channel "
+						<< channel->descriptiveTag() << frg::endlog;
 			if(actualSize == span.size() - progress) {
 				if(progress)
 					break;
