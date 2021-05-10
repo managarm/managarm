@@ -933,23 +933,25 @@ void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	frg::destruct(*kernelAlloc, hole);
 }
 
-coroutine<frg::expected<Error>> readVirtualSpace(VirtualSpace *space, uintptr_t address,
+coroutine<size_t> readPartialVirtualSpace(VirtualSpace *space, uintptr_t address,
 		void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
 	size_t progress = 0;
 	while(progress < size) {
 		auto mapping = space->getMapping(address + progress);
 		if(!mapping)
-			co_return Error::fault;
+			co_return progress;
 
 		auto startInMapping = address + progress - mapping->address;
 		auto limitInMapping = frg::min(size - progress, mapping->length - startInMapping);
 		// Otherwise, getMapping() would have returned garbage.
 		assert(limitInMapping);
 
-		FRG_CO_TRY(co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq));
+		auto lockOutcome = co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq);
+		if(!lockOutcome)
+			co_return progress;
 
 		// This loop iterates until we hit the end of the mapping.
-		Error e{};
+		bool success = true;
 		while(progress < size) {
 			auto offsetInMapping = address + progress - mapping->address;
 			if(offsetInMapping == mapping->length)
@@ -962,7 +964,7 @@ coroutine<frg::expected<Error>> readVirtualSpace(VirtualSpace *space, uintptr_t 
 			auto touchOutcome = co_await mapping->touchVirtualPage(
 					offsetInMapping & ~(kPageSize - 1), wq);
 			if(!touchOutcome) {
-				e = touchOutcome.error();
+				success = false;
 				break;
 			}
 
@@ -986,30 +988,32 @@ coroutine<frg::expected<Error>> readVirtualSpace(VirtualSpace *space, uintptr_t 
 
 		mapping->unlockVirtualRange(startInMapping, limitInMapping);
 
-		if(e != Error::success)
-			co_return e;
+		if(!success)
+			co_return progress;
 	}
 
-	co_return {};
+	co_return progress;
 }
 
-coroutine<frg::expected<Error>> writeVirtualSpace(VirtualSpace *space, uintptr_t address,
+coroutine<size_t> writePartialVirtualSpace(VirtualSpace *space, uintptr_t address,
 		const void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
 	size_t progress = 0;
 	while(progress < size) {
 		auto mapping = space->getMapping(address + progress);
 		if(!mapping)
-			co_return Error::fault;
+			co_return progress;
 
 		auto startInMapping = address + progress - mapping->address;
 		auto limitInMapping = frg::min(size - progress, mapping->length - startInMapping);
 		// Otherwise, getMapping() would have returned garbage.
 		assert(limitInMapping);
 
-		FRG_CO_TRY(co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq));
+		auto lockOutcome = co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq);
+		if(!lockOutcome)
+			co_return progress;
 
 		// This loop iterates until we hit the end of the mapping.
-		Error e{};
+		bool success = true;
 		while(progress < size) {
 			auto offsetInMapping = address + progress - mapping->address;
 			if(offsetInMapping == mapping->length)
@@ -1022,7 +1026,7 @@ coroutine<frg::expected<Error>> writeVirtualSpace(VirtualSpace *space, uintptr_t
 			auto touchOutcome = co_await mapping->touchVirtualPage(
 					offsetInMapping & ~(kPageSize - 1), wq);
 			if(!touchOutcome) {
-				e = touchOutcome.error();
+				success = false;
 				break;
 			}
 
@@ -1046,11 +1050,11 @@ coroutine<frg::expected<Error>> writeVirtualSpace(VirtualSpace *space, uintptr_t
 
 		mapping->unlockVirtualRange(startInMapping, limitInMapping);
 
-		if(e != Error::success)
-			co_return e;
+		if(!success)
+			co_return progress;
 	}
 
-	co_return {};
+	co_return progress;
 }
 
 // --------------------------------------------------------

@@ -890,12 +890,40 @@ private:
 	int64_t _residuentSize = 0;
 };
 
-coroutine<frg::expected<Error>> readVirtualSpace(VirtualSpace *space,
+// These functions read as much data as possible;
+// on error, they read/write a partially filled buffer.
+coroutine<size_t> readPartialVirtualSpace(VirtualSpace *space,
 		uintptr_t address, void *buffer, size_t size,
 		smarter::shared_ptr<WorkQueue> wq);
-coroutine<frg::expected<Error>> writeVirtualSpace(VirtualSpace *space,
+coroutine<size_t> writePartialVirtualSpace(VirtualSpace *space,
 		uintptr_t address, const void *buffer, size_t size,
 		smarter::shared_ptr<WorkQueue> wq);
+
+inline auto readVirtualSpace(VirtualSpace *space,
+		uintptr_t address, void *buffer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq) {
+	return async::transform(
+		readPartialVirtualSpace(space, address, buffer, size, std::move(wq)),
+		[=] (size_t actualSize) -> frg::expected<Error> {
+			if(actualSize != size)
+				return Error::fault;
+			return {};
+		}
+	);
+}
+
+inline auto writeVirtualSpace(VirtualSpace *space,
+		uintptr_t address, const void *buffer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq) {
+	return async::transform(
+		writePartialVirtualSpace(space, address, buffer, size, std::move(wq)),
+		[=] (size_t actualSize) -> frg::expected<Error> {
+			if(actualSize != size)
+				return Error::fault;
+			return {};
+		}
+	);
+}
 
 struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {
 	friend struct AddressSpaceLockHandle;
