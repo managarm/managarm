@@ -11,7 +11,7 @@ provided [Dockerfile](https://github.com/managarm/bootstrap-managarm/blob/master
 
 Make sure that you have atleast 20 - 30 GiB of free disk space.
 
-#### Preperations
+#### Preparations
 First, create a directory which will be used for storing the
 source and build directories. Here we use `~/managarm`, but it can be any directory.
 
@@ -39,11 +39,15 @@ mkdir build
 3.  Create a `bootstrap-site.yml` file inside the `build` directory containing:
     ```yml
     container:
-        runtime: docker
-        image: managarm-buildenv
-        src_mount: /var/bootstrap-managarm/src
-        build_mount: /var/bootstrap-managarm/build
-        allow_containerless: true
+      runtime: docker
+      image: managarm-buildenv
+      src_mount: /var/bootstrap-managarm/src
+      build_mount: /var/bootstrap-managarm/build
+      allow_containerless: true
+
+    general:
+      cargo:
+        config_toml: '../src/extrafiles/config.toml'
     ```
     This `bootstrap-site.yml` will instruct our build system to invoke the build scripts within your container image.
 
