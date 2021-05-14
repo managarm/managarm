@@ -144,5 +144,5 @@ xbstrap run make-image qemu
 # Check their help messages for more information.
 ../src/managarm/tools/gen-initrd.py
 ../src/scripts/update-image.py
-../src/scripts/run-qemu
+../src/scripts/vm-util.py qemu
 ```
