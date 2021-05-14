@@ -1,5 +1,6 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/arch/stack.hpp>
 
 namespace thor {
 
@@ -177,6 +178,10 @@ void PanicSink::operator() (const char *msg) {
 		logProcessor.print(msg);
 		logProcessor.print('\n');
 	}
+	urgentLogger() << "Stacktrace:" << frg::endlog;
+	walkThisStack([&](uintptr_t ip) {
+		urgentLogger() << "\t<" << (void*)ip << ">" << frg::endlog;
+	});
 	panic();
 }
 
