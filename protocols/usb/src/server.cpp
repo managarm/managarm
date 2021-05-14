@@ -28,7 +28,8 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 		managarm::usb::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 	
-		if(req.req_type() == managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST) {
+		switch(req.req_type()) {
+		case managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST: {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
@@ -49,7 +50,9 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE) {
+			break;
+		}
+		case managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE: {
 			helix::RecvBuffer recv_buffer;
 			helix::SendBuffer send_resp;
 		
@@ -73,7 +76,9 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST) {
+			break;
+		}
+		case managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST: {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
@@ -94,7 +99,9 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-		}else{
+			break;
+		}
+		default: {
 			helix::SendBuffer send_resp;
 
 			managarm::usb::SvrResponse resp;
@@ -105,7 +112,7 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}
+		}}
 	}
 }
 
@@ -241,7 +248,8 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 		managarm::usb::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		
-		if(req.req_type() == managarm::usb::CntReqType::GET_CONFIGURATION_DESCRIPTOR) {
+		switch(req.req_type()) {
+		case managarm::usb::CntReqType::GET_CONFIGURATION_DESCRIPTOR: {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
@@ -257,7 +265,9 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-		}else if(req.req_type() == managarm::usb::CntReqType::TRANSFER_TO_HOST) {
+			break;
+		}
+		case managarm::usb::CntReqType::TRANSFER_TO_HOST: {
 			helix::RecvBuffer recv_buffer;
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
@@ -280,7 +290,9 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-		}else if(req.req_type() == managarm::usb::CntReqType::USE_CONFIGURATION) {
+			break;
+		}
+		case managarm::usb::CntReqType::USE_CONFIGURATION: {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
@@ -300,7 +312,9 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
-		}else {
+			break;
+		}
+		default: {
 			helix::SendBuffer send_resp;
 
 			managarm::usb::SvrResponse resp;
@@ -311,7 +325,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}
+		}}
 	}
 }
 
