@@ -57,4 +57,4 @@ Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/w
 
 While this repository contains managarm's kernel, its drivers and other core functionality,
 it is not enough to build a full managarm distribution. Instead, we refer to the
-[bootstrap-managarm](https://github.com/managarm/bootstrap-managarm) repository for build instructions.
+[Managarm Handbook](https://docs.managarm.org/handbook/building.html) for build instructions.

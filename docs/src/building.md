@@ -11,23 +11,22 @@ provided [Dockerfile](https://github.com/managarm/bootstrap-managarm/blob/master
 
 Make sure that you have atleast 20 - 30 GiB of free disk space.
 
-#### Preperations
-First and foremost we will create a directory (`$MANAGARM_DIR`) which will be
-used for storing the source and build directories.
+#### Preparations
+First, create a directory which will be used for storing the
+source and build directories. Here we use `~/managarm`, but it can be any directory.
 
 ```sh
-export MANAGARM_DIR="$HOME/managarm" # In this example we are using $HOME/managarm, but it can be any directory
-mkdir -p "$MANAGARM_DIR" && cd "$MANAGARM_DIR"
+mkdir ~/managarm && cd ~/managarm
 ```
 
 The `xbstrap` build system is required on the host (whether you build in a container or not). `xbstrap` can be installed via pip3: `pip3 install xbstrap`.
 You also need `git`, `subversion` and `mercurial` on the host (whether you build in a container or not). Install these via your package manager.
 
 Clone this repository into a `src` directory and create a `build` directory:
-    ```bash
-    git clone https://github.com/managarm/bootstrap-managarm.git src
-    mkdir build
-    ```
+```bash
+git clone https://github.com/managarm/bootstrap-managarm.git src
+mkdir build
+```
 
 #### Creating Docker image and container
 > Note: this step is not needed if you don't want to use a Docker container, if so skip to the next paragraph.
@@ -40,11 +39,11 @@ Clone this repository into a `src` directory and create a `build` directory:
 3.  Create a `bootstrap-site.yml` file inside the `build` directory containing:
     ```yml
     container:
-        runtime: docker
-        image: managarm-buildenv
-        src_mount: /var/bootstrap-managarm/src
-        build_mount: /var/bootstrap-managarm/build
-        allow_containerless: true
+      runtime: docker
+      image: managarm-buildenv
+      src_mount: /var/bootstrap-managarm/src
+      build_mount: /var/bootstrap-managarm/build
+      allow_containerless: true
     ```
     This `bootstrap-site.yml` will instruct our build system to invoke the build scripts within your container image.
 
@@ -122,7 +121,8 @@ define_options:
 
 When invoking the script directly, selecting the method can be done with the `--mount-using` argument.
 
-Furthermore, all methods require `rsync` installed on the host as well.
+For all methods, the `image_create.sh` and `make-image` invocations shown below require the following programs to be installed:
+`rsync`, `losetup`, `sfdisk`, `mkfs.ext2`, `mkfs.vfat`. Refer to [image_create](https://github.com/qookei/image_create#requirements) for more details on this.
 
 Hence, running the following commands in the build directory
 should produce a working image and launch it using QEMU:
@@ -134,11 +134,15 @@ should produce a working image and launch it using QEMU:
 # Copy the system onto it.
 xbstrap run make-image
 
+# Launch the image using QEMU.
+xbstrap run qemu
+
+# Or as a one-liner:
+xbstrap run make-image qemu
+
 # Alternatively, you can call the necessary scripts manually:
 # Check their help messages for more information.
 ../src/managarm/tools/gen-initrd.py
 ../src/scripts/update-image.py
-
-# To launch the image using QEMU, you can run:
-../src/scripts/run-qemu
+../src/scripts/vm-util.py qemu
 ```
