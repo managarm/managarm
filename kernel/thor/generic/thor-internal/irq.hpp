@@ -1,5 +1,6 @@
 #pragma once
 
+#include <frg/expected.hpp>
 #include <frg/list.hpp>
 #include <frg/string.hpp>
 #include <thor-internal/error.hpp>
@@ -237,6 +238,58 @@ struct IrqObject final : IrqSink {
 	IrqStatus raise() override;
 
 	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
+
+	// ----------------------------------------------------------------------------------
+	// awaitIrq() and its boilerplate.
+	// ----------------------------------------------------------------------------------
+
+	template<typename Receiver>
+	struct AwaitIrqOperation : AwaitIrqNode {
+		AwaitIrqOperation(IrqObject *object, uint64_t sequence, WorkQueue *wq, Receiver r)
+		: object_{object}, sequence_{sequence}, wq_{wq}, r_{std::move(r)} { }
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto self = frg::container_of(base, &AwaitIrqOperation::worklet_);
+				if(self->error() != Error::success) {
+					async::execution::set_value(self->r_, self->error());
+				}else{
+					async::execution::set_value(self->r_, self->sequence());
+				}
+			}, wq_);
+			setup(&worklet_);
+			object_->submitAwait(this, sequence_);
+		}
+
+	private:
+		IrqObject *object_;
+		uint64_t sequence_;
+		WorkQueue *wq_;
+		Receiver r_;
+		Worklet worklet_;
+	};
+
+	struct AwaitIrqSender {
+		using value_type = frg::expected<Error, uint64_t>;
+
+		template<typename Receiver>
+		friend AwaitIrqOperation<Receiver> connect(AwaitIrqSender s, Receiver r) {
+			return {s.object, s.sequence, s.wq, std::move(r)};
+		}
+
+		friend async::sender_awaiter<AwaitIrqSender, frg::expected<Error, uint64_t>>
+		operator co_await (AwaitIrqSender s) {
+			return {s};
+		}
+
+		IrqObject *object;
+		uint64_t sequence;
+		WorkQueue *wq;
+	};
+
+	AwaitIrqSender awaitIrq(uint64_t sequence, WorkQueue *wq) {
+		return {this, sequence, wq};
+	}
 
 private:
 	smarter::shared_ptr<BoundKernlet> _automationKernlet;
