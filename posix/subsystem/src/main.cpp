@@ -343,24 +343,20 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto error = co_await Process::exec(self,
 					path, std::move(args), std::move(env));
-			switch(error) {
-			case Error::noSuchFile:
+			if(error == Error::noSuchFile) {
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOENT;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-				break;
-			case Error::badExecutable:
+			}else if(error == Error::badExecutable) {
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOEXEC;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-				break;
-			default:
+			}else
 				assert(error == Error::success);
-			}
 			break;
 		}
 		case kHelObserveSuperCall + 4: {
@@ -577,7 +573,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(!killed)
+			if(killed)
 				HEL_CHECK(helResume(thread.getHandle()));
 			break;
 		}
