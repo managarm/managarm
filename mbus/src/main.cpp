@@ -264,14 +264,14 @@ static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
 }
 
 async::detached serve(helix::UniqueLane lane) {
+	std::array<char, 1024> buffer;
+	helix::RecvBuffer recv_req;
 	while(true) {
 		helix::Accept accept;
-		helix::RecvBuffer recv_req;
 
-		char buffer[1024];
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req, buffer, 1024));
+				helix::action(&recv_req, buffer.data(), buffer.size()));
 		co_await header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -279,8 +279,10 @@ async::detached serve(helix::UniqueLane lane) {
 		auto conversation = accept.descriptor();
 
 		managarm::mbus::CntRequest req;
-		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.req_type() == managarm::mbus::CntReqType::GET_ROOT) {
+		req.ParseFromArray(buffer.data(), recv_req.actualLength());
+		using RequestType = managarm::mbus::CntReqType;
+		switch (req.req_type()) {
+		case RequestType::GET_ROOT: {
 			helix::SendBuffer send_resp;
 
 			managarm::mbus::SvrResponse resp;
@@ -292,7 +294,9 @@ async::detached serve(helix::UniqueLane lane) {
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::GET_PROPERTIES) {
+			break;
+		}
+		case RequestType::GET_PROPERTIES: {
 			helix::SendBuffer send_resp;
 
 			auto entity = getEntityById(req.id());
@@ -321,7 +325,9 @@ async::detached serve(helix::UniqueLane lane) {
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
+			break;
+		}
+		case RequestType::CREATE_OBJECT: {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
@@ -374,7 +380,9 @@ async::detached serve(helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
+			break;
+		}
+		case RequestType::LINK_OBSERVER: {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
@@ -413,7 +421,9 @@ async::detached serve(helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
+			break;
+		}
+		case RequestType::BIND2: {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_desc;
 
@@ -446,7 +456,9 @@ async::detached serve(helix::UniqueLane lane) {
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_desc.error());
-		}else{
+			break;
+		}
+		default:
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
