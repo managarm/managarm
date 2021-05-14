@@ -181,8 +181,8 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 		Elf64_Phdr phdr;
 		co_await copyFromView(image.get(), ehdr.e_phoff + i * ehdr.e_phentsize,
 				&phdr, sizeof(Elf64_Phdr), WorkQueue::generalQueue()->take());
-		
-		if(phdr.p_type == PT_LOAD) {
+		switch(phdr.p_type) {
+		case PT_LOAD: {
 			assert(phdr.p_memsz > 0);
 			
 			// align virtual address and length to page size
@@ -218,18 +218,26 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 				panicLogger() << "Illegal combination of segment permissions"
 						<< frg::endlog;
 			}
-		}else if(phdr.p_type == PT_INTERP) {
+			break;
+		}
+		case PT_INTERP: {
 			info.interpreter.resize(phdr.p_filesz);
 			co_await copyFromView(image.get(), phdr.p_offset,
 					info.interpreter.data(), phdr.p_filesz, WorkQueue::generalQueue()->take());
-		}else if(phdr.p_type == PT_PHDR) {
+			break;
+		}
+		case PT_PHDR: {
 			info.phdrPtr = reinterpret_cast<void *>(base + phdr.p_vaddr);
-		}else if(phdr.p_type == PT_DYNAMIC
-				|| phdr.p_type == PT_TLS
-				|| phdr.p_type == PT_GNU_EH_FRAME
-				|| phdr.p_type == PT_GNU_STACK) {
+			break;
+		}
+		case PT_DYNAMIC:
+		case PT_TLS:
+		case PT_GNU_EH_FRAME:
+		case PT_GNU_STACK: {
 			// ignore the phdr
-		}else{
+			break;
+		}
+		default:
 			assert(!"Unexpected PHDR");
 		}
 	}
@@ -435,7 +443,8 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 	managarm::svrctl::CntRequest<KernelAlloc> req(*kernelAlloc);
 	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-	if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD) {
+	switch(req.req_type()) {
+	case managarm::svrctl::CntReqType::FILE_UPLOAD: {
 		auto file = resolveModule(req.name());
 		if(file) {
 			// The file data is already known to us.
@@ -462,15 +471,17 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 			if(respError != Error::success)
 				co_return respError;
 		}
-	}else if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD_DATA) {
+		break;
+	}
+	case managarm::svrctl::CntReqType::FILE_UPLOAD_DATA: {
 		auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
 		if(dataError != Error::success)
 			co_return dataError;
 		MfsRegular *file;
 		if(!(co_await createMfsFile(req.name(), dataBuffer.data(), dataBuffer.size(), &file))) {
 			// TODO: Verify that the file data matches. This is somewhat expensive because
-			//       we would have to map the file's memory. Hence, we do not implement
-			//       it for now.
+			//	   we would have to map the file's memory. Hence, we do not implement
+			//	   it for now.
 			if(file->size() != dataBuffer.size()) {
 				managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::svrctl::Error::SUCCESS);
@@ -496,7 +507,9 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
 			co_return respError;
-	}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
+		break;
+	}
+	case managarm::svrctl::CntReqType::SVR_RUN: {
 		auto controlLane = co_await runServer(req.name());
 
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -512,10 +525,12 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		auto controlError = co_await PushDescriptorSender{lane, LaneDescriptor{controlLane}};
 		if(controlError != Error::success)
 			co_return controlError;
-	}else{
+		break;
+	}
+	default: {
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
-		
+
 		frg::string<KernelAlloc> ser(*kernelAlloc);
 		resp.SerializeToString(&ser);
 		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
@@ -523,7 +538,7 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 		if(respError != Error::success)
 			co_return respError;
-	}
+	}}
 
 	co_return Error::success;
 }

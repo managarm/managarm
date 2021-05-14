@@ -387,12 +387,11 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 	uintptr_t initrd = 0;
 	if (auto p = chosenNode.findProperty("linux,initrd-start"); p) {
-		if (p->size() == 4)
-			initrd = p->asU32();
-		else if (p->size() == 8)
-			initrd = p->asU64();
-		else
-			assert(!"Invalid linux,initrd-start size");
+		switch (p->size()) {
+		case 4:	initrd = p->asU32(); break;
+		case 8:	initrd = p->asU64(); break;
+		default: assert(!"Invalid linux,initrd-start size");
+		}
 
 		eir::infoLogger() << "Initrd is at " << (void *)initrd << frg::endlog;
 	} else {

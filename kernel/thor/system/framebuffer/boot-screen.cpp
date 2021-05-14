@@ -11,74 +11,80 @@ BootScreen::Formatter::Formatter(BootScreen *screen, int x, int y)
 
 void BootScreen::Formatter::print(const char *c) {
 	while(*c) {
-		if(!_csiState) {
-			if(*c == '\x1B') {
-				_csiState = 1;
-				c++;
-			}else if(*c == '\t') {
-				constexpr const char *spaces = "        ";
-
-				int n = 8 - (_x % 8);
-				if (!n)
-					n = 8;
-
-				int m = frg::min(_screen->_width - _x, n);
-				if(m) {
-					_screen->_display->setChars(_x, _y, spaces, m, _fg, _bg);
-					_x += m;
+		switch(_csiState) {
+		case 0: switch(*c) {
+				case '\x1B': {
+					_csiState = 1;
+					c++;
+					break;
 				}
+				case '\t': {
+					constexpr const char *spaces = "        ";
 
-				c++;
-			}else{
-				int n = 0;
-				while(c[n] && c[n] != '\x1B')
-					n++;
-				int m = frg::min(_screen->_width - _x, n);
-				if(m) {
-					_screen->_display->setChars(_x, _y, c, m, _fg, _bg);
-					_x += m;
+					int n = 8 - (_x % 8);
+					if (!n)
+						n = 8;
+
+					int m = frg::min(_screen->_width - _x, n);
+					if(m) {
+						_screen->_display->setChars(_x, _y, spaces, m, _fg, _bg);
+						_x += m;
+					}
+
+					c++;
+					break;
 				}
-				c += n;
-			}
-		}else if(_csiState == 1) {
-			if(*c == '[') {
-				_csiState = 2;
-				c++;
-			}else{
-				// TODO: ESC should never be emitted (?).
-				_screen->_display->setChars(_x, _y, c, 1, _fg, _bg);
-				_csiState = 0;
-				c++;
-			}
-		}else{
-			// This is _csiState == 2.
-			if(*c >= '0' && *c <= '9') {
-				_modeStack[_modeCount] *= 10;
-				_modeStack[_modeCount] += *c - '0'; 
-				c++;
-			}else if(*c == ';') {
-				_modeCount++;
-				c++;
-			}else{
-				if(*c == 'm') {
-					for(int i = 0; i <= _modeCount; i++) {
-						if(!_modeStack[i]) {
-							_fg = 15;
-						}else if(_modeStack[i] >= 30 && _modeStack[i] <= 37) {
-							_fg = _modeStack[i] - 30;
-						}else if(_modeStack[i] == 39) {
-							_fg = 15;
+				default: {
+					int n = 0;
+					while(c[n] && c[n] != '\x1B')
+						n++;
+					int m = frg::min(_screen->_width - _x, n);
+					if(m) {
+						_screen->_display->setChars(_x, _y, c, m, _fg, _bg);
+						_x += m;
+					}
+					c += n;
+				}}
+				break;
+		case 1: if(*c == '[') {
+					_csiState = 2;
+					c++;
+				}else{
+					// TODO: ESC should never be emitted (?).
+					_screen->_display->setChars(_x, _y, c, 1, _fg, _bg);
+					_csiState = 0;
+					c++;
+				}
+				break;
+		default:// This is _csiState == 2.
+				if(*c >= '0' && *c <= '9') {
+					_modeStack[_modeCount] *= 10;
+					_modeStack[_modeCount] += *c - '0';
+					c++;
+				}else if(*c == ';') {
+					_modeCount++;
+					c++;
+				}else{
+					if(*c == 'm') {
+						for(int i = 0; i <= _modeCount; i++) {
+							if(!_modeStack[i]) {
+								_fg = 15;
+							}else if(_modeStack[i] >= 30 && _modeStack[i] <= 37) {
+								_fg = _modeStack[i] - 30;
+							}else if(_modeStack[i] == 39) {
+								_fg = 15;
+							}
 						}
 					}
+
+					for(int i = 0; i < 4; i++)
+						_modeStack[i] = 0;
+
+					_modeCount = 0;
+
+					_csiState = 0;
+					c++;
 				}
-		
-				for(int i = 0; i < 4; i++)
-					_modeStack[i] = 0;
-				_modeCount = 0;
-				
-				_csiState = 0;
-				c++;
-			}
 		}
 	}
 

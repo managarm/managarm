@@ -222,7 +222,8 @@ coroutine<frg::expected<Error>> GdbServer::run() {
 
 		auto firstByte = FRG_CO_TRY(co_await channel_->readInput());
 
-		if(firstByte == '$') {
+		switch(firstByte) {
+		case '$': {
 			inBuffer_.clear();
 
 			// Process the bytes.
@@ -272,21 +273,27 @@ coroutine<frg::expected<Error>> GdbServer::run() {
 			}
 
 			responseStage_ = ResponseStage::responseReady;
-		}else if(firstByte == '+') {
+			break;
+		}
+		case '+': {
 			if(responseStage_ == ResponseStage::responseSent) {
 				outBuffer_.clear();
 				responseStage_ = ResponseStage::none;
 			}else{
 				infoLogger() << "thor, gdbserver: Ignoring stray ACK" << frg::endlog;
 			}
-		}else if(firstByte == '-') {
+			break;
+		}
+		case '-': {
 			if(responseStage_ == ResponseStage::responseSent) {
 				outBuffer_.clear();
 				responseStage_ = ResponseStage::responseReady;
 			}else{
 				infoLogger() << "thor, gdbserver: Ignoring stray NACK" << frg::endlog;
 			}
-		}else{
+			break;
+		}
+		default:
 			infoLogger() << "thor, gdbserver: Packet starts with unexpected byte: "
 					<< frg::hex_fmt(firstByte) << frg::endlog;
 		}
@@ -361,10 +368,14 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 
 		frg::vector<uint8_t, KernelAlloc> mem{*kernelAlloc};
 		mem.resize(length);
-		auto actualLength = co_await readPartialVirtualSpace(thread_->getAddressSpace().get(),
-				address, mem.data(), length, wq_);
+		{
+			auto lockHandle = AddressSpaceLockHandle{thread_->getAddressSpace().lock(),
+					reinterpret_cast<void *>(address), length};
+			co_await lockHandle.acquire(wq_);
+			lockHandle.load(0, mem.data(), length);
+		}
 
-		for(size_t i = 0; i < actualLength; ++i)
+		for(size_t i = 0; i < length; ++i)
 			resp.appendHexByte(mem[i]);
 	}else if(req.matchString("q")) { // General query.
 		if(req.matchString("Supported")) {

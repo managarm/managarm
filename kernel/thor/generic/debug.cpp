@@ -78,32 +78,34 @@ namespace {
 					it->printChar('\n');
 			};
 
-			if(!csiState) {
-				if(c == '\x1B') {
-					csiState = 1;
-				}else if(c == '\n') {
-					flush();
-				}else{
-					if(!doesFit(1))
-						flush();
+			switch(csiState) {
+			case 0: switch(c) {
+					case '\x1B':
+						csiState = 1; break;
+					case '\n':
+						flush(); break;
+					default:
+						if(!doesFit(1))
+							flush();
 
-					assert(doesFit(1));
-					emit(c);
-				}
-			}else if(csiState == 1) {
-				if(c == '[') {
-					csiState = 2;
-				}else{
-					if(!doesFit(2))
-						flush();
+						assert(doesFit(1));
+						emit(c);
+					}
+					break;
+			case 1: switch(c) {
+					case '[':
+						csiState = 2; break;
+					default:
+						if(!doesFit(2))
+							flush();
 
-					assert(doesFit(2));
-					emit('\x1B');
-					emit(c);
-					csiState = 0;
-				}
-			}else{
-				// This is csiState == 2.
+						assert(doesFit(2));
+						emit('\x1B');
+						emit(c);
+						csiState = 0;
+					}
+					break;
+			default:// This is csiState == 2.
 				if((c >= '0' && c <= '9') || (c == ';')) {
 					if(csiLength < maximalCsiLength)
 						csiBuffer[csiLength] = c;

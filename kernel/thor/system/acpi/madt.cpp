@@ -173,18 +173,23 @@ void dumpMadt() {
 	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
 	while(offset < madt->length) {
 		auto generic = (MadtGenericEntry *)((uintptr_t)madt + offset);
-		if(generic->type == 0) { // local APIC
+		switch(generic->type) {
+		case 0: { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			infoLogger() << "    Local APIC id: "
 					<< (int)entry->localApicId
 					<< ((entry->flags & local_flags::enabled) ? "" :" (disabled)")
 					<< frg::endlog;
-		}else if(generic->type == 1) { // I/O APIC
+			break;
+		}
+		case 1: { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
 			infoLogger() << "    I/O APIC id: " << (int)entry->ioApicId
 					<< ", sytem interrupt base: " << (int)entry->systemIntBase
 					<< frg::endlog;
-		}else if(generic->type == 2) { // interrupt source override
+			break;
+		}
+		case 2: { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
 
 			const char *bus, *polarity, *trigger;
@@ -195,24 +200,26 @@ void dumpMadt() {
 						<< frg::endlog;
 			}
 
-			if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityDefault) {
-				polarity = "default";
-			}else if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityHigh) {
-				polarity = "high";
-			}else if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityLow) {
-				polarity = "low";
-			}else{
+			switch(entry->flags & OverrideFlags::polarityMask) {
+			case OverrideFlags::polarityDefault:
+				polarity = "default"; break;
+			case  OverrideFlags::polarityHigh:
+				polarity = "high"; break;
+			case OverrideFlags::polarityLow:
+				polarity = "low"; break;
+			default:
 				panicLogger() << "Unexpected polarity in MADT interrupt override"
 						<< frg::endlog;
 			}
 
-			if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerDefault) {
-				trigger = "default";
-			}else if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerEdge) {
-				trigger = "edge";
-			}else if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerLevel) {
-				trigger = "level";
-			}else{
+			switch(entry->flags & OverrideFlags::triggerMask) {
+			case OverrideFlags::triggerDefault:
+				trigger = "default"; break;
+			case OverrideFlags::triggerEdge:
+				trigger = "edge"; break;
+			case OverrideFlags::triggerLevel:
+				trigger = "level"; break;
+			default:
 				panicLogger() << "Unexpected trigger mode in MADT interrupt override"
 						<< frg::endlog;
 			}
@@ -221,11 +228,15 @@ void dumpMadt() {
 					<< " is mapped to GSI " << entry->systemInt
 					<< " (Polarity: " << polarity << ", trigger mode: " << trigger
 					<< ")" << frg::endlog;
-		}else if(generic->type == 4) { // local APIC NMI source
+			break;
+		}
+		case 4: { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
 			infoLogger() << "    Local APIC NMI: processor " << (int)entry->processorId
 					<< ", lint: " << (int)entry->localInt << frg::endlog;
-		}else{
+			break;
+		}
+		default:
 			infoLogger() << "    Unexpected MADT entry of type "
 					<< generic->type << frg::endlog;
 		}
