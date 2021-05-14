@@ -384,10 +384,11 @@ void Controller::CommandRing::pushRawCommand(RawTrb cmd,
 	assert(_enqueuePtr < 127 && "ring aspect of the command ring not yet supported");
 	_commandRing->ent[_enqueuePtr] = cmd;
 	_commandEvents[_enqueuePtr] = ev;
+	auto& value = _commandRing->ent[_enqueuePtr].val[3];
 	if (_pcs) {
-		_commandRing->ent[_enqueuePtr].val[3] |= 1;
+		value |= 1;
 	} else {
-		_commandRing->ent[_enqueuePtr].val[3] &= ~1;
+		value &= ~1;
 	}
 	_enqueuePtr++;
 
@@ -857,10 +858,11 @@ void Controller::TransferRing::pushRawTransfer(RawTrb cmd,
 
 	_transferRing->ent[_enqueuePtr] = cmd;
 	_transferEvents[_enqueuePtr] = ev;
+	auto& value = _transferRing->ent[_enqueuePtr].val[3];
 	if (_pcs) {
-		_transferRing->ent[_enqueuePtr].val[3] |= 1;
+		value |= 1;
 	} else {
-		_transferRing->ent[_enqueuePtr].val[3] &= ~1;
+		value &= ~1;
 	}
 	_enqueuePtr++;
 
