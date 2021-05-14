@@ -754,11 +754,15 @@ bool Process::checkSignalRaise() {
 bool Process::checkOrRequestSignalRaise() {
 	auto p = reinterpret_cast<unsigned int *>(accessThreadPage());
 	unsigned int gsf = __atomic_load_n(p, __ATOMIC_RELAXED);
-	if(!gsf)
+	switch (gsf) {
+	case 0:
 		return true;
-	if(gsf == 1) {
+	case 1:
 		__atomic_store_n(p, 2, __ATOMIC_RELAXED);
-	}else if(gsf != 2) {
+		break;
+	case 2:
+		break;
+	default:
 		std::cout << "\e[33m" "posix: Ignoring unexpected value "
 				<< gsf << " of global signal flag" "\e[39m" << std::endl;
 	}

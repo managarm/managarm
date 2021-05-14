@@ -169,10 +169,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 	auto thread = self->threadDescriptor();
 
 	uint64_t sequence = 1;
-	while(true) {
-		if(generation->inTermination)
-			break;
-
+	for(bool killed = false; !killed && !generation->inTermination; ) {
 		helix::Observe observe;
 		auto &&submit = helix::submitObserve(thread, &observe,
 				sequence, helix::Dispatcher::global());
@@ -187,7 +184,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		HEL_CHECK(observe.error());
 		sequence = observe.sequence();
 
-		if(observe.observation() == kHelObserveSuperCall + 10) {
+		switch(unsigned(observe.observation())) {
+		case kHelObserveSuperCall + 10: {
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			size_t size = gprs[kHelRegArg0];
@@ -204,7 +202,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = reinterpret_cast<uintptr_t>(address);
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 11) {
+			break;
+		}
+		case kHelObserveSuperCall + 11: {
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
@@ -214,7 +214,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 1) {
+			break;
+		}
+		case kHelObserveSuperCall + 1: {
 			struct ManagarmProcessData {
 				HelHandle posixLane;
 				void *threadPage;
@@ -239,7 +241,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegError] = kHelErrNone;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 2) {
+			break;
+		}
+		case kHelObserveSuperCall + 2: {
 			if(logRequests)
 				std::cout << "posix: fork supercall" << std::endl;
 			auto child = Process::fork(self);
@@ -264,7 +268,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
-		}else if(observe.observation() == kHelObserveSuperCall + 9) {
+			break;
+		}
+		case kHelObserveSuperCall + 9: {
 			if(logRequests)
 				std::cout << "posix: clone supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
@@ -283,7 +289,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
-		}else if(observe.observation() == kHelObserveSuperCall + 3) {
+			break;
+		}
+		case kHelObserveSuperCall + 3: {
 			if(logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
@@ -335,21 +343,27 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto error = co_await Process::exec(self,
 					path, std::move(args), std::move(env));
-			if(error == Error::noSuchFile) {
+			switch(error) {
+			case Error::noSuchFile:
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOENT;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-			}else if(error == Error::badExecutable) {
+				break;
+			case Error::badExecutable:
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOEXEC;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-			}else
+				break;
+			default:
 				assert(error == Error::success);
-		}else if(observe.observation() == kHelObserveSuperCall + 4) {
+			}
+			break;
+		}
+		case kHelObserveSuperCall + 4: {
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
 
@@ -358,7 +372,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			auto code = gprs[kHelRegArg0];
 
 			co_await self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
-		}else if(observe.observation() == kHelObserveSuperCall + 7) {
+			break;
+		}
+		case kHelObserveSuperCall + 7: {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
 
@@ -368,13 +384,14 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			auto mask = gprs[kHelRegArg1];
 
 			uint64_t former = self->signalMask();
-			if(mode == SIG_SETMASK) {
-				self->setSignalMask(mask);
-			}else if(mode == SIG_BLOCK) {
-				self->setSignalMask(former | mask);
-			}else if(mode == SIG_UNBLOCK) {
-				self->setSignalMask(former & ~mask);
-			}else{
+			switch(mode) {
+			case SIG_SETMASK:
+				self->setSignalMask(mask); break;
+			case SIG_BLOCK:
+				self->setSignalMask(former | mask); break;
+			case SIG_UNBLOCK:
+				self->setSignalMask(former & ~mask); break;
+			default:
 				assert(!mode);
 			}
 
@@ -382,7 +399,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = former;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 8) {
+			break;
+		}
+		case kHelObserveSuperCall + 8: {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RAISE supercall" << std::endl;
 
@@ -395,20 +414,22 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
-			bool killed = false;
 			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
 			if(active)
 				co_await self->signalContext()->raiseContext(active, self.get(), killed);
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 6) {
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+			break;
+		}
+		case kHelObserveSuperCall + 6: {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 
 			co_await self->signalContext()->restoreContext(thread);
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 5) {
+			break;
+		}
+		case kHelObserveSuperCall + 5: {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
 
@@ -442,29 +463,29 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			target->signalContext()->issueSignal(sn, info);
 
 			// If the process signalled itself, we should process the signal before resuming.
-			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
 				auto active = co_await self->signalContext()->fetchSignal(
 						~self->signalMask(), true);
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveInterrupt) {
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+			break;
+		}
+		case kHelObserveInterrupt: {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
-			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
 				auto active = co_await self->signalContext()->fetchSignal(
 						~self->signalMask(), true);
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObservePanic) {
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+			break;
+		}
+		case kHelObservePanic: {
 			printf("\e[35mposix: User space panic in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -480,12 +501,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous user space panic" "\e[39m" << std::endl;
-			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveBreakpoint) {
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+			break;
+		}
+		case kHelObserveBreakpoint: {
 			printf("\e[35mposix: Breakpoint in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -495,7 +516,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				launchGdbServer(self.get());
 				co_await async::suspend_indefinitely({});
 			}
-		}else if(observe.observation() == kHelObservePageFault) {
+			break;
+		}
+		case kHelObservePageFault: {
 			printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -511,12 +534,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
-			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveGeneralFault) {
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+			break;
+		}
+		case kHelObserveGeneralFault: {
 			printf("\e[31mposix: General fault in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -532,12 +555,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
-			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveIllegalInstruction) {
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+			break;
+		}
+		case kHelObserveIllegalInstruction: {
 			printf("\e[31mposix: Illegal instruction in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -553,12 +576,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
-			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}else{
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+			break;
+		}
+		default: {
 			printf("\e[31mposix: Unexpected observation in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -569,12 +592,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
-			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
-				break;
-			HEL_CHECK(helResume(thread.getHandle()));
-		}
+			if(!killed)
+				HEL_CHECK(helResume(thread.getHandle()));
+		}}
 	}
 }
 
@@ -741,11 +762,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: SET_UID" << std::endl;
 
 			Error err = self->setUid(req->uid());
-			if(err == Error::accessDenied) {
+			switch(err) {
+			case Error::accessDenied: {
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
-			} else if(err == Error::illegalArguments) {
+				break;
+			} 
+			case Error::illegalArguments: {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			} else {
+				break;
+			}
+			default:
 				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 			}
 		}else if(preamble.id() == managarm::posix::GetEuidRequest::message_id) {
@@ -781,11 +807,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: SET_EUID" << std::endl;
 
 			Error err = self->setEuid(req->uid());
-			if(err == Error::accessDenied) {
+			switch(err) {
+			case Error::accessDenied:
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
-			} else if(err == Error::illegalArguments) {
+				break;
+			case Error::illegalArguments:
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			} else {
+				break;
+			default:
 				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 			}
 		}else if(preamble.id() == managarm::posix::GetGidRequest::message_id) {
@@ -842,13 +871,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: SET_GID" << std::endl;
 
 			Error err = self->setGid(req->uid());
-			if(err == Error::accessDenied) {
+			switch(err) {
+			case Error::accessDenied: {
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
-			} else if(err == Error::illegalArguments) {
+				break;
+			} 
+			case Error::illegalArguments: {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			} else {
-				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
+				break;
 			}
+			default: {
+				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
+			}}
 		}else if(preamble.id() == managarm::posix::SetEgidRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::SetEgidRequest>(recv_head);
 
@@ -861,13 +895,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: SET_EGID" << std::endl;
 
 			Error err = self->setEgid(req->uid());
-			if(err == Error::accessDenied) {
+			switch(err) {
+			case Error::accessDenied: {
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
-			} else if(err == Error::illegalArguments) {
+				break;
+			} 
+			case Error::illegalArguments: {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			} else {
-				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
+				break;
 			}
+			default: {
+				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
+			}}
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
 			if(logRequests)
 				std::cout << "posix: WAIT" << std::endl;
@@ -1696,16 +1735,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					relative_to, req->path());
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+				switch(resolveResult.error()) {
+				case protocols::fs::Error::illegalOperationTarget:
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
 					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				case protocols::fs::Error::fileNotFound:
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+				case protocols::fs::Error::notDirectory:
 					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
 					continue;
-				} else {
+				default:
 					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
 					co_return;
 				}
@@ -2007,16 +2047,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						relativeTo, req->path());
 				auto resolveResult = co_await resolver.resolve(resolvePrefix);
 				if(!resolveResult) {
-					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
+					switch(resolveResult.error()) {
+					case protocols::fs::Error::illegalOperationTarget:
 						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
 						continue;
-					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					case protocols::fs::Error::fileNotFound:
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
-					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+					case protocols::fs::Error::notDirectory:
 						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
 						continue;
-					} else {
+					default:
 						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
 						co_return;
 					}
@@ -2843,22 +2884,26 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
 			smarter::shared_ptr<File, FileHandle> file;
-			if(req->domain() == AF_UNIX) {
+			switch(req->domain()) {
+			case AF_UNIX:
 				assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
 						|| req->socktype() == SOCK_SEQPACKET);
 				assert(!req->protocol());
 
 				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK);
-			}else if(req->domain() == AF_NETLINK) {
+				break;
+			case AF_NETLINK:
 				assert(req->socktype() == SOCK_RAW || req->socktype() == SOCK_DGRAM);
 				file = nl_socket::createSocketFile(req->protocol());
-			} else if (req->domain() == AF_INET) {
+				break;
+			case AF_INET:
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
 					req->domain(),
 					req->socktype(), req->protocol(),
 					req->flags() & SOCK_NONBLOCK);
-			}else{
+				break;
+			default:
 				throw std::runtime_error("posix: Handle unknown protocol families");
 			}
 
@@ -2962,7 +3007,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			assert(req.fds_size() == req.events_size());
 
 			bool errorOut = false;
-			for(int i = 0; i < req.fds_size(); i++) {
+			for(size_t i = 0; i < req.fds_size(); i++) {
 				auto [mapIt, inserted] = fdsToEvents.insert({req.fds(i), 0});
 				if(!inserted)
 					continue;
@@ -3037,7 +3082,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			for(int i = 0; i < req.fds_size(); ++i) {
+			for(size_t i = 0; i != req.fds_size(); ++i) {
 				auto it = fdsToEvents.find(req.fds(i));
 				assert(it != fdsToEvents.end());
 				resp.add_events(it->second);

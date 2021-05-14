@@ -91,7 +91,8 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdrBuffer.data() + i * ehdr.e_phentsize);
 
-		if(phdr->p_type == PT_LOAD) {
+		switch(phdr->p_type) {
+		case PT_LOAD: {
 			if(!phdr->p_memsz) // Skip empty segments.
 				continue;
 
@@ -153,14 +154,23 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 						(char *)window + misalign, phdr->p_filesz));
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
 			}
-		}else if(phdr->p_type == PT_PHDR) {
+
+			break;
+		}
+		case PT_PHDR: {
 			info.phdrPtr = (char *)base + phdr->p_vaddr;
-		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_INTERP
-				|| phdr->p_type == PT_TLS
-				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
-				|| phdr->p_type == PT_GNU_RELRO) {
+			break;
+		}
+		case PT_DYNAMIC:
+		case PT_INTERP:
+		case PT_TLS:
+		case PT_GNU_EH_FRAME:
+		case PT_GNU_STACK:
+		case PT_GNU_RELRO: {
 			// Ignore this PHDR here.
-		}else{
+			break;
+		}
+		default:
 			std::cout << "posix: Unexpected PHDR type" << std::endl;
 			co_return Error::badExecutable;
 		}
