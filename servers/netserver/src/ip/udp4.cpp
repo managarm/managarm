@@ -356,7 +356,7 @@ struct Udp4Socket {
 		// (read: absolutely) every case is is an immediate miss: we are
 		// using next to nothing in this region, or any other region for
 		// that manner
-		for (size_t i = 0; i < range_size; i++) {
+		for (int i = 0; i < range_size; i++) {
 			uint16_t port = dist.a() + ((number + i) % range_size);
 			if (parent_->tryBind(shared_from_this, { addr, port })) {
 				return true;
