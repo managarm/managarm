@@ -50,7 +50,7 @@ async::result<PciInfo> Device::getPciInfo() {
 
 	PciInfo info;
 
-	for(int i = 0; i < resp.capabilities_size(); i++)
+	for(size_t i = 0; i < resp.capabilities_size(); i++)
 		info.caps.push_back({resp.capabilities(i).type()});
 
 	for(int i = 0; i < 6; i++) {
