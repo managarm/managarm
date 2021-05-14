@@ -270,6 +270,8 @@ struct PciDevice final : PciEntity {
 			interrupt{nullptr}, caps{*kernelAlloc},
 			associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
 
+	void enableIrq();
+
 	// mbus object ID of the device
 	int64_t mbusId;
 

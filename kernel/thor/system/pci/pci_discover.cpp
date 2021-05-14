@@ -227,12 +227,7 @@ namespace {
 				co_return true;
 			}
 
-			auto io = device->parentBus->io;
-
-			auto command = io->readConfigHalf(device->parentBus,
-					device->slot, device->function, kPciCommand);
-			io->writeConfigHalf(device->parentBus, device->slot, device->function,
-					kPciCommand, command & ~uint16_t{0x400});
+			device->enableIrq();
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -646,6 +641,18 @@ void runDevice(smarter::shared_ptr<PciDevice> device) {
 				co_await handleBind(objectLane, device);
 		}(device));
 	});
+}
+
+// --------------------------------------------------------
+// PciDevice implementation.
+// --------------------------------------------------------
+
+void PciDevice::enableIrq() {
+	auto io = parentBus->io;
+
+	auto command = io->readConfigHalf(parentBus, slot, function, kPciCommand);
+	io->writeConfigHalf(parentBus, slot, function,
+			kPciCommand, command & ~uint16_t{0x400});
 }
 
 // --------------------------------------------------------
