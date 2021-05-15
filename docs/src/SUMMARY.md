@@ -7,7 +7,6 @@
     - [Supported Hardware and Software](getting-started/supported/index.md)
         - [Supported Packages](getting-started/supported/package_index.md)
 
-
 - [Building](building.md)
 
 - [Design](design/index.md)
@@ -23,8 +22,11 @@
     - [Drivers](design/drivers/index.md)
         - [libblockfs](design/drivers/libblockfs/index.md)
 
-
 - [Contributing](contributing/overview.md)
     - [Overview](contributing/overview.md)
     - [Commit messages](contributing/commit-messages.md)
     - [Coding style](contributing/coding-style.md)
+
+- [Implementation Notes](impl-notes/index.md)
+    - [Thor](impl-notes/thor/index.md)
+        - [Scheduling](impl-notes/thor/scheduling.md)
