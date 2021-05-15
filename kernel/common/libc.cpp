@@ -1,5 +1,11 @@
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+
+// We need to define the true memcpy / memset symbols
+// (string.h expands them to the __builtin variants).
+#undef memcpy
+#undef memset
 
 extern "C" {
 
@@ -57,7 +63,7 @@ namespace {
 
 #ifdef __LP64__
 
-void *memcpy(void *dest, const void *src, size_t n) {
+void *memcpy(void *__restrict dest, const void *__restrict src, size_t n) {
 	auto curDest = reinterpret_cast<unsigned char *>(dest);
 	auto curSrc = reinterpret_cast<const unsigned char *>(src);
 
