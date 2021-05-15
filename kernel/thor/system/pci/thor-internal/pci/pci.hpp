@@ -270,6 +270,8 @@ struct PciDevice final : PciEntity {
 			interrupt{nullptr}, caps{*kernelAlloc},
 			associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
 
+	smarter::shared_ptr<IrqObject> obtainIrqObject();
+
 	void enableIrq();
 
 	// mbus object ID of the device
