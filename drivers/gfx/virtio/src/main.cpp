@@ -144,7 +144,7 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 }
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
-		uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) {
+		uint32_t width, uint32_t height, uint32_t, uint32_t pitch) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 
 	assert(pitch % 4 == 0);

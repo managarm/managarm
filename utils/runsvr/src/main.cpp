@@ -232,7 +232,7 @@ async::detached asyncMain(const char **args) {
 	}
 }
 
-int main(int argc, const char **argv) {
+int main(int, const char **argv) {
 	int fd = open("/dev/helout", O_RDONLY);
 	dup2(fd, 0);
 	dup2(fd, 1);

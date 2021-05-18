@@ -131,21 +131,21 @@ std::optional<uint8_t> Controller::recvByte(uint64_t timeout) {
 	return _space.load(kbd_register::data);
 }
 
-void Controller::submitCommand(controller_cmd::DisablePort tag, int port) {
+void Controller::submitCommand(controller_cmd::DisablePort, int port) {
 	if (port == 0)
 		sendCommandByte(disable1stPort);
 	else if (port == 1)
 		sendCommandByte(disable2ndPort);
 }
 
-void Controller::submitCommand(controller_cmd::EnablePort tag, int port) {
+void Controller::submitCommand(controller_cmd::EnablePort, int port) {
 	if (port == 0)
 		sendCommandByte(enable1stPort);
 	else if (port == 1)
 		sendCommandByte(enable2ndPort);
 }
 
-uint8_t Controller::submitCommand(controller_cmd::GetByte0 tag) {
+uint8_t Controller::submitCommand(controller_cmd::GetByte0) {
 	sendCommandByte(readByte0);
 
 	auto result = recvByte(default_timeout);
@@ -155,12 +155,12 @@ uint8_t Controller::submitCommand(controller_cmd::GetByte0 tag) {
 	return result.value();
 }
 
-void Controller::submitCommand(controller_cmd::SetByte0 tag, uint8_t val) {
+void Controller::submitCommand(controller_cmd::SetByte0, uint8_t val) {
 	sendCommandByte(writeByte0);
 	sendDataByte(val);
 }
 
-void Controller::submitCommand(controller_cmd::SendBytePort2 tag) {
+void Controller::submitCommand(controller_cmd::SendBytePort2) {
 	sendCommandByte(0xD4); // TODO: define a constant?
 }
 
@@ -202,7 +202,7 @@ bool Controller::processData(int port) {
 // --------------------------------------------------------------------
 
 Controller::Device::Device(Controller *controller, int port)
-: _controller{controller}, _port{port}, _deviceType{0}, _exists{false} {
+: _controller{controller}, _port{port}, _deviceType{}, _exists{false} {
 }
 
 async::result<void> Controller::Device::init() {

@@ -11,7 +11,7 @@ struct PrintVisitor {
 	}
 
 	template<typename T>
-	void operator()(T&& val) {
+	void operator()(T&&) {
 		std::cout << "WARNING: Unimplemented type: " << typeid(std::decay_t<T>).name();
 	}
 };

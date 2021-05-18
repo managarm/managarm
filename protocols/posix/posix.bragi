@@ -466,8 +466,8 @@ head(128):
 
 message SetPgidRequest 81 {
 head(128):
-	uint64 pid;
-	uint64 pgid;
+	int64 pid;
+	int64 pgid;
 }
 
 message GetSidRequest 82 {

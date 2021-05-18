@@ -30,7 +30,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	std::experimental::optional<int> in_endp_number;
 	std::experimental::optional<int> out_endp_number;
 	
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+	walkConfiguration(descriptor, [&] (int type, size_t, void *, const auto &info) {
 		if(type == descriptor_type::endpoint) {
 			if(info.endpointIn.value()) {
 				in_endp_number = info.endpointNumber.value();
@@ -210,7 +210,7 @@ async::detached bindDevice(mbus::Entity entity) {
 		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
 	auto descriptor = co_await device.configurationDescriptor();
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+	walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();

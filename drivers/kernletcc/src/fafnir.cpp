@@ -301,7 +301,7 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			int nargs = extractUint();
 			int nrvs = extractUint();
 			auto function = extractString();
-			assert(comp->opstack.size() >= nargs);
+			assert(comp->opstack.size() >= static_cast<size_t>(nargs));
 
 			auto inst = scope->insertBb->insertNewInstruction<lewis::InvokeInstruction>(
 					std::move(function), nargs, nrvs);

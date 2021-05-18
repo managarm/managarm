@@ -34,7 +34,7 @@ namespace {
 // ----------------------------------------------------------------
 
 GfxDevice::GfxDevice(protocols::hw::Device hw_device,
-		helix::UniqueDescriptor video_ram, void* frame_buffer)
+		helix::UniqueDescriptor video_ram, void *)
 : _videoRam{std::move(video_ram)}, _hwDevice{std::move(hw_device)},
 		_vramAllocator{24, 12}, _claimedDevice{false} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
@@ -95,7 +95,7 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 }
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
-		uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) {
+		uint32_t width, uint32_t height, uint32_t, uint32_t pitch) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 		
 	assert(pitch % 4 == 0);
@@ -434,7 +434,7 @@ async::detached observeControllers() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) {
 		std::cout << "gfx/bochs: Detected device" << std::endl;
 		bindController(std::move(entity));
 	});

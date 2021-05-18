@@ -42,7 +42,7 @@ namespace {
 }
 
 Controller::Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
-		helix::UniqueDescriptor ahciBar, helix::UniqueDescriptor irq)
+		helix::UniqueDescriptor, helix::UniqueDescriptor irq)
 	: hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(hbaRegs)},
 	regs_{regsMapping_.get()}, irq_{std::move(irq)} {
 }

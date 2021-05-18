@@ -675,7 +675,7 @@ async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 
 auto Controller::_buildControl(XferFlags dir,
 		arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
-		size_t max_packet_size) -> Transaction * {
+		size_t) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
 	size_t num_data = (buffer.size() + 0x3FFF) / 0x4000;
