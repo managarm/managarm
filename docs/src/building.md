@@ -102,9 +102,9 @@ chmod +x image_create.sh
 This repository contains an `update-image.py` script to mount the image and copy the system onto it.
 
 This script can use 3 different methods to copy files onto the image:
-1. Using libguestfs (the default method).
-2. Using a classic loopback and mount (requires root privileges). This is the safe fallback method most guaranteed to work.
-3. Via Docker container. This is handy in case the user is in the `docker` group since it does not require additional root authentication.
+1. **Using libguestfs** (the default method). We recommend this when root access is not possible or desirable. However, it is much slower than method 2 and requires some setup on the host (see below).
+2. **Using a classic loopback and mount** (requires root privileges). We recommend this when root access is acceptable because it is the fastest method and most guaranteed to work.
+3. **Via Docker container**. This is handy in case the user is in the `docker` group since it does not require additional root authentication. We discourage this because it uses `docker run --privileged` (which is not safer than giving root access) and [currently has some bugs](https://github.com/managarm/bootstrap-managarm/issues/103).
 
 Going with method 1 will require `libguestfs` to be installed on the host.
 After installing `libguestfs` it might be necessary to run the following:
