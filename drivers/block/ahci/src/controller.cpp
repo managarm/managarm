@@ -37,10 +37,6 @@ namespace flags {
 	}
 }
 
-namespace {
-	constexpr bool logCommands = false;
-}
-
 Controller::Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
 		helix::UniqueDescriptor, helix::UniqueDescriptor irq)
 	: hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(hbaRegs)},
@@ -63,7 +59,9 @@ async::detached Controller::run() {
 		auto success = co_await helix::kindaBusyWait(25'000'000,
 				[&]{ return !(regs_.load(regs::biosHandoff) & flags::bohc::biosOwnership); });
 
-		if (!success) {
+		if (success) {
+			std::cout << "block/ahci: BIOS handoff successful\n";
+		} else {
 			// If BB is now set, we wait on BOS = 0 for 2 seconds.
 			if (regs_.load(regs::biosHandoff) & flags::bohc::biosBusy) {
 				std::cout << "block/ahci: BIOS handoff timed out once, retrying...\n";
@@ -95,7 +93,8 @@ async::detached Controller::run() {
 	portsImpl_ = regs_.load(regs::portsImpl);
 	assert(portsImpl_ != 0 && std::popcount(portsImpl_) <= maxPorts_);
 
-	auto numCommandSlots = ((cap >> 8) & 0x1F) + 1;
+	// auto numCommandSlots = ((cap >> 8) & 0x1F) + 1;
+	auto numCommandSlots = 1;
 	auto iss = (cap >> 20) & 0xF;
 	bool ss = cap & flags::cap::staggeredSpinup;
 	bool s64a = cap & flags::cap::supports64Bit;
@@ -142,15 +141,22 @@ async::detached Controller::handleIrqs_() {
 
 		auto intStatus = regs_.load(regs::interruptStatus) & portsImpl_;
 		if (intStatus) {
-			for (auto& port : activePorts_) {
+			for (auto &port : activePorts_) {
 				if (intStatus & (1 << port->getIndex())) {
 					port->handleIrq();
 				}
 			}
 
-			regs_.store(regs::interruptStatus, ~0);
+			regs_.store(regs::interruptStatus, intStatus);
 			HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckAcknowledge, irqSequence_));
 		} else {
+			for (auto &port : activePorts_) {
+				std::cout << "block/ahci: NACK, dumping state on port " << port->getIndex() << ":\n";
+				port->dumpState();
+				port->checkErrors();
+				std::cout << "\tglobal IS: " << regs_.load(regs::interruptStatus) << ", masked GIS " << (regs_.load(regs::interruptStatus) & portsImpl_) << ", read GIS " << intStatus << "\n";
+			}
+
 			HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckNack, irqSequence_));
 		}
 	}
