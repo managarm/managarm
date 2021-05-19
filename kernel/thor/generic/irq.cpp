@@ -157,6 +157,7 @@ void IrqPin::raise() {
 	
 	if(_strategy == IrqStrategy::null) {
 		infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frg::endlog;
+		dumpHardwareState();
 	}else{
 		assert(_strategy == IrqStrategy::justEoi
 				|| _strategy == IrqStrategy::maskThenEoi);
@@ -166,6 +167,7 @@ void IrqPin::raise() {
 	if(_maskState) {
 		infoLogger() << "\e[31mthor: Ignoring masked IRQ " << _name
 				<< " (hardware race?).\e[39m" << frg::endlog;
+		dumpHardwareState();
 		sendEoi();
 		return;
 	}
@@ -251,6 +253,10 @@ void IrqPin::warnIfPending() {
 		log << "\e[39m" << frg::endlog;
 		_warnedAfterPending = true;
 	}
+}
+
+void IrqPin::dumpHardwareState() {
+	// Do nothing.
 }
 
 void IrqPin::_callSinks() {

@@ -68,6 +68,23 @@ inline constexpr arch::field<uint32_t, uint8_t> apicLvtTimerMode(17, 2);
 
 ApicRegisterSpace picBase;
 
+namespace {
+	bool getLocalApicIsr(unsigned int vector) {
+		arch::scalar_register<uint32_t> isrRegister{0x100 + 0x10 * (vector >> 5)};
+		return picBase.load(isrRegister) & (1 << (vector & 31));
+	}
+
+	bool getLocalApicTmr(unsigned int vector) {
+		arch::scalar_register<uint32_t> tmrRegister{0x180 + 0x10 * (vector >> 5)};
+		return picBase.load(tmrRegister) & (1 << (vector & 31));
+	}
+
+	bool getLocalApicIrr(unsigned int vector) {
+		arch::scalar_register<uint32_t> irrRegister{0x200 + 0x10 * (vector >> 5)};
+		return picBase.load(irrRegister) & (1 << (vector & 31));
+	}
+}
+
 enum {
 	kModelLegacy = 1,
 	kModelApic = 2
@@ -482,9 +499,9 @@ namespace pin_word1 {
 	inline constexpr arch::field<uint32_t, unsigned int> vector(0, 8);
 	inline constexpr arch::field<uint32_t, unsigned int> deliveryMode(8, 3);
 //	inline constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
-//	inline constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
+	inline constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
 	inline constexpr arch::field<uint32_t, bool> activeLow(13, 1);
-//	inline constexpr arch::field<uint32_t, bool> remotePending(14, 1);
+	inline constexpr arch::field<uint32_t, bool> remoteIrr(14, 1);
 	inline constexpr arch::field<uint32_t, bool> levelTriggered(15, 1);
 	inline constexpr arch::field<uint32_t, bool> masked(16, 1);
 };
@@ -505,6 +522,7 @@ namespace {
 		struct Pin final : IrqPin {
 			Pin(IoApic *chip, unsigned int index);
 
+			void dumpHardwareState() override;
 			IrqStrategy program(TriggerMode mode, Polarity polarity) override;
 			void mask() override;
 			void unmask() override;
@@ -553,6 +571,32 @@ namespace {
 
 	IoApic::Pin::Pin(IoApic *chip, unsigned int index)
 	: IrqPin{buildName(chip->_apicId, index)}, _chip{chip}, _index{index} { }
+
+	void IoApic::Pin::dumpHardwareState() {
+		infoLogger() << "thor: Local APIC state of vector " << _vector << ":"
+				<< " ISR: " << (int)getLocalApicIsr(_vector)
+				<< ", TMR: " << (getLocalApicTmr(_vector) ? "level" : "edge")
+				<< ", IRR: " << (int)getLocalApicIrr(_vector)
+				<< frg::endlog;
+
+		arch::bit_value<uint32_t> word1{_chip->_loadRegister(kIoApicInts + _index * 2)};
+		infoLogger() << "thor: Configuration of pin " << name() << ": "
+				<< ((word1 & pin_word1::levelTriggered) ? "level" : "edge")
+				<< "-triggered, active-"
+				<< ((word1 & pin_word1::activeLow) ? "low" : "high")
+				<< frg::endlog;
+		if(_levelTriggered != (word1 & pin_word1::levelTriggered))
+			infoLogger() << "\e[31m" "thor: Trigger mode does not match software state!"
+					"\e[39m" << frg::endlog;
+		if(_activeLow != (word1 & pin_word1::activeLow))
+			infoLogger() << "\e[31m" "thor: Trigger mode does not match software state!"
+					"\e[39m" << frg::endlog;
+		infoLogger() << "thor: I/O APIC state:"
+				<< " mask: " << (int)(word1 & pin_word1::masked)
+				<< ", delivery status: " << (int)(word1 & pin_word1::deliveryStatus)
+				<< ", remote IRR: " << (int)(word1 & pin_word1::remoteIrr)
+				<< frg::endlog;
+	}
 
 	IrqStrategy IoApic::Pin::program(TriggerMode mode, Polarity polarity) {
 		IrqStrategy strategy;

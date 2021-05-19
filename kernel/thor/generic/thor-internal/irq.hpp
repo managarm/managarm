@@ -180,6 +180,8 @@ private:
 public:
 	void warnIfPending();
 
+	virtual void dumpHardwareState();
+
 protected:
 	virtual IrqStrategy program(TriggerMode mode, Polarity polarity) = 0;
 
