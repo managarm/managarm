@@ -646,6 +646,13 @@ namespace {
 				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
 				| pin_word1::activeLow(_activeLow) | pin_word1::masked(true)));
+
+		// Dummy load from the I/O APIC to ensure that the mask has taken effect.
+		// Without this, we encounter innocuous but annoying races on some hardware:
+		// since (x2)APIC EOIs are not necessarily serializing, we observe that the
+		// I/O APIC submits IRQs to the local APIC even *after* they have been masked
+		// in the I/O APIC.
+		_chip->_loadRegister(kIoApicInts + _index * 2);
 	}
 
 	void IoApic::Pin::unmask() {
