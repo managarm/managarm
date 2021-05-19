@@ -128,12 +128,12 @@ int main() {
 	// Finally, launch into kmscon/Weston.
 	auto desktop = fork();
 	if(!desktop) {
-//		putenv("MLIBC_DEBUG_MALLOC=1");
-		putenv("PATH=/usr/local/bin:/usr/bin:/bin");
-		putenv("HOME=/root");
-		putenv("XDG_RUNTIME_DIR=/run");
-		putenv("MESA_GLSL_CACHE_DISABLE=1");
-//		putenv("MESA_DEBUG=1");
+//		setenv("MLIBC_DEBUG_MALLOC", "1", 1);
+		setenv("PATH", "/usr/local/bin:/usr/bin:/bin", 1);
+		setenv("HOME", "/root", 1);
+		setenv("XDG_RUNTIME_DIR", "/run", 1);
+		setenv("MESA_GLSL_CACHE_DISABLE", "1", 1);
+//		setenv("MESA_DEBUG", "1", 1);
 
 		if(launch == "kmscon") {
 			// TODO: kmscon should invoke a login program which sets these environment vars.

@@ -187,15 +187,7 @@ namespace {
 				co_return true;
 			}
 
-			assert(device->interrupt);
-			auto object = smarter::allocate_shared<IrqObject>(*kernelAlloc,
-					frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
-					+ frg::to_allocated_string(*kernelAlloc, device->bus)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-					+ frg::to_allocated_string(*kernelAlloc, device->slot)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-					+ frg::to_allocated_string(*kernelAlloc, device->function));
-			IrqPin::attachSink(device->interrupt, object.get());
+			auto object = device->obtainIrqObject();
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -640,6 +632,20 @@ void runDevice(smarter::shared_ptr<PciDevice> device) {
 // --------------------------------------------------------
 // PciDevice implementation.
 // --------------------------------------------------------
+
+
+smarter::shared_ptr<IrqObject> PciDevice::obtainIrqObject() {
+	assert(interrupt);
+	auto object = smarter::allocate_shared<IrqObject>(*kernelAlloc,
+			frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
+			+ frg::to_allocated_string(*kernelAlloc, bus)
+			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+			+ frg::to_allocated_string(*kernelAlloc, slot)
+			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+			+ frg::to_allocated_string(*kernelAlloc, function));
+	IrqPin::attachSink(interrupt, object.get());
+	return object;
+}
 
 void PciDevice::enableIrq() {
 	auto io = parentBus->io;

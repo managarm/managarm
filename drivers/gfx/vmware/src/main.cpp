@@ -134,7 +134,7 @@ async::detached GfxDevice::initialize() {
 }
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
-		uint32_t w, uint32_t h, uint32_t fmt, uint32_t pitch) {
+		uint32_t w, uint32_t, uint32_t, uint32_t) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 
 	auto fb = std::make_shared<FrameBuffer>(this, bo, w * 4);

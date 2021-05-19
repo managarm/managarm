@@ -30,7 +30,7 @@ drm_core::Device::Device() {
 		SrcWProperty()
 		: drm_core::Property{drm_core::IntPropertyType{}} { }
 
-		bool validate(const Assignment& assignment) override {
+		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
@@ -40,7 +40,7 @@ drm_core::Device::Device() {
 		SrcHProperty()
 		: drm_core::Property{drm_core::IntPropertyType{}} { }
 
-		bool validate(const Assignment& assignment) override {
+		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
@@ -98,7 +98,7 @@ drm_core::Device::Device() {
 		CrtcXProperty()
 		: drm_core::Property{drm_core::IntPropertyType{}} { }
 
-		bool validate(const Assignment& assignment) override {
+		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
@@ -108,7 +108,7 @@ drm_core::Device::Device() {
 		CrtcYProperty()
 		: drm_core::Property{drm_core::IntPropertyType{}} { }
 
-		bool validate(const Assignment& assignment) override {
+		bool validate(const Assignment&) override {
 			return true;
 		};
 	};

@@ -677,50 +677,50 @@ inline auto resultTypeTuple(const Dismiss &) {
 }
 
 template <typename ...T>
-inline auto resultTypeTuple(const Offer<T...> &arg) {
+inline auto resultTypeTuple(const Offer<T...> &) {
 	return HelperResultTypeTuple<OfferResult, T...>{};
 }
 
 template <typename ...T>
-inline auto resultTypeTuple(const Accept<T...> &arg) {
+inline auto resultTypeTuple(const Accept<T...> &) {
 	return HelperResultTypeTuple<AcceptResult, T...>{};
 }
 
-inline auto resultTypeTuple(const ImbueCredentials &arg) {
+inline auto resultTypeTuple(const ImbueCredentials &) {
 	return frg::tuple<ImbueCredentialsResult>{};
 }
 
-inline auto resultTypeTuple(const ExtractCredentials &arg) {
+inline auto resultTypeTuple(const ExtractCredentials &) {
 	return frg::tuple<ExtractCredentialsResult>{};
 }
 
-inline auto resultTypeTuple(const SendBuffer &arg) {
+inline auto resultTypeTuple(const SendBuffer &) {
 	return frg::tuple<SendBufferResult>{};
 }
 
-inline auto resultTypeTuple(const RecvBuffer &arg) {
+inline auto resultTypeTuple(const RecvBuffer &) {
 	return frg::tuple<RecvBufferResult>{};
 }
 
-inline auto resultTypeTuple(const RecvInline &arg) {
+inline auto resultTypeTuple(const RecvInline &) {
 	return frg::tuple<RecvInlineResult>{};
 }
 
-inline auto resultTypeTuple(const PushDescriptor &arg) {
+inline auto resultTypeTuple(const PushDescriptor &) {
 	return frg::tuple<PushDescriptorResult>{};
 }
 
-inline auto resultTypeTuple(const PullDescriptor &arg) {
+inline auto resultTypeTuple(const PullDescriptor &) {
 	return frg::tuple<PullDescriptorResult>{};
 }
 
 template <typename Allocator>
-inline auto resultTypeTuple(const SendBragiHeadTail<Allocator> &arg) {
+inline auto resultTypeTuple(const SendBragiHeadTail<Allocator> &) {
 	return frg::tuple<SendBufferResult, SendBufferResult>{};
 }
 
 template <typename Allocator>
-inline auto resultTypeTuple(const SendBragiHeadOnly<Allocator> &arg) {
+inline auto resultTypeTuple(const SendBragiHeadOnly<Allocator> &) {
 	return frg::tuple<SendBufferResult>{};
 }
 

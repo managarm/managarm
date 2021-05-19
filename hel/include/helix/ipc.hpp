@@ -135,7 +135,7 @@ struct Operation : OperationBase {
 		_asyncId = async_id;
 	}
 
-	virtual void parse(void *&element) {
+	virtual void parse(void *&) {
 		assert(!"Not supported");
 	}
 
@@ -646,7 +646,7 @@ struct Observe : Operation {
 		return result()->error;
 	}
 
-	int observation() {
+	unsigned int observation() {
 		return result()->observation;
 	}
 

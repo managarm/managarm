@@ -358,7 +358,7 @@ void Controller::ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_
 // ------------------------------------------------------------------------
 
 Controller::CommandRing::CommandRing(Controller *controller)
-:_commandRing{&controller->_memoryPool}, _dequeuePtr{0}, _enqueuePtr{0},
+:_commandRing{&controller->_memoryPool}, _enqueuePtr{0},
 	_controller{controller}, _pcs{true} {
 
 	for (uint32_t i = 0; i < commandRingSize; i++) {
@@ -833,7 +833,7 @@ async::detached Controller::Port::initPort() {
 
 Controller::TransferRing::TransferRing(Controller *controller)
 :_transferRing{&controller->_memoryPool}, _dequeuePtr{0}, _enqueuePtr{0},
-	_controller{controller}, _pcs{true} {
+	_pcs{true} {
 
 	for (uint32_t i = 0; i < transferRingSize; i++) {
 		_transferRing->ent[i] = {{0, 0, 0, 0}};
@@ -1211,8 +1211,8 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 // ------------------------------------------------------------------------
 
 Controller::ConfigurationState::ConfigurationState(Controller *controller, 
-		std::shared_ptr<Device> device, int number)
-:_controller{controller}, _device{device}, _number{number} {
+		std::shared_ptr<Device> device, int)
+:_controller{controller}, _device{device} {
 }
 
 async::result<Interface> Controller::ConfigurationState::useInterface(int number, int alternative) {
@@ -1225,8 +1225,8 @@ async::result<Interface> Controller::ConfigurationState::useInterface(int number
 // ------------------------------------------------------------------------
 
 Controller::InterfaceState::InterfaceState(Controller *controller, 
-		std::shared_ptr<Device> device, int interface)
-: _controller{controller}, _device{device}, _interface{interface} {
+		std::shared_ptr<Device> device, int)
+: _controller{controller}, _device{device} {
 }
 
 async::result<Endpoint> Controller::InterfaceState::getEndpoint(PipeType type, int number) {
@@ -1237,9 +1237,9 @@ async::result<Endpoint> Controller::InterfaceState::getEndpoint(PipeType type, i
 // Controller::EndpointState
 // ------------------------------------------------------------------------
 
-Controller::EndpointState::EndpointState(Controller *controller, 
+Controller::EndpointState::EndpointState(Controller *, 
 		std::shared_ptr<Device> device, int endpoint, PipeType type)
-: _controller{controller}, _device{device}, _endpoint{endpoint}, _type{type} {
+: _device{device}, _endpoint{endpoint}, _type{type} {
 }
 
 async::result<void> Controller::EndpointState::transfer(ControlTransfer info) {

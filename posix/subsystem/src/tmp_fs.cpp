@@ -28,6 +28,10 @@ struct Node : FsNode {
 protected:
 	~Node() = default;
 
+	void initializeMode(mode_t mode) {
+		_mode = mode;
+	}
+
 public:
 	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
@@ -105,9 +109,9 @@ private:
 	mode_t _mode = 0;
 	uid_t _uid = 0;
 	gid_t _gid = 0;
-	timespec _atime = {0};
-	timespec _mtime = {0};
-	timespec _ctime = {0};
+	timespec _atime = {0, 0};
+	timespec _mtime = {0, 0};
+	timespec _ctime = {0, 0};
 };
 
 struct SymlinkNode final : Node {
@@ -171,16 +175,14 @@ private:
 
 public:
 	FifoNode(Superblock *superblock, mode_t mode)
-	:Node{superblock}, mode_{mode} {
+	:Node{superblock} {
 		fifo::createNamedChannel(this);
+		initializeMode(mode);
 	}
 
 	~FifoNode() {
 		fifo::unlinkNamedChannel(this);
 	}
-
-private:
-	mode_t mode_;
 };
 
 struct Link final : FsLink {

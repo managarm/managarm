@@ -2,6 +2,9 @@
 
 #include <stddef.h>
 
+#define memset __builtin_memset
+#define memcpy __builtin_memcpy
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13,7 +16,7 @@ char *strncat(char *__restrict, const char *__restrict, size_t);
 
 // [7.24.2] Copying functions
 
-void *memcpy(void *__restrict, const void *__restrict, size_t);
+// memcpy is defined as a macro above.
 void *memmove(void *, const void *, size_t);
 char *strcpy(char *__restrict, const char *);
 char *strncpy(char *__restrict, const char *, size_t);
@@ -30,7 +33,7 @@ char *strstr(const char *, const char *);
 
 // [7.24.6] Miscellaneous functions
 
-void *memset(void *, int, size_t);
+// memset is defined as a macro above.
 size_t strlen(const char *);
 
 #ifdef __cplusplus

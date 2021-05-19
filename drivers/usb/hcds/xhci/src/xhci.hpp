@@ -79,7 +79,6 @@ private:
 		void submit();
 	private:
 		arch::dma_object<CommandRingEntries> _commandRing;
-		size_t _dequeuePtr;
 		size_t _enqueuePtr;
 
 		Controller *_controller;
@@ -150,8 +149,6 @@ private:
 		size_t _dequeuePtr;
 		size_t _enqueuePtr;
 
-		Controller *_controller;
-
 		bool _pcs; // producer cycle state
 	};
 
@@ -205,7 +202,7 @@ private:
 		arch::mem_space _space;
 	};
 
-	struct Device : DeviceData, std::enable_shared_from_this<Device> {
+	struct Device final : DeviceData, std::enable_shared_from_this<Device> {
 		Device(int portId, Controller *controller);
 
 		// Public API inherited from DeviceData.
@@ -269,7 +266,6 @@ private:
 	private:
 		Controller *_controller;
 		std::shared_ptr<Device> _device;
-		int _number;
 	};
 
 	struct InterfaceState final : InterfaceData {
@@ -280,7 +276,6 @@ private:
 	private:
 		Controller *_controller;
 		std::shared_ptr<Device> _device;
-		int _interface;
 	};
 
 	struct EndpointState final : EndpointData {
@@ -291,7 +286,6 @@ private:
 		async::result<size_t> transfer(BulkTransfer info) override;
 
 	private:
-		Controller *_controller;
 		std::shared_ptr<Device> _device;
 		int _endpoint;
 		PipeType _type;

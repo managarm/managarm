@@ -229,7 +229,7 @@ async::result<Endpoint> InterfaceState::getEndpoint(PipeType type, int number) {
 	co_return Endpoint(std::move(state));
 }
 
-async::result<void> EndpointState::transfer(ControlTransfer info) {
+async::result<void> EndpointState::transfer(ControlTransfer) {
 	throw std::runtime_error("endpoint control transfer not implemented");
 }
 

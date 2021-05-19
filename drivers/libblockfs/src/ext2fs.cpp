@@ -936,7 +936,7 @@ async::result<uint32_t> FileSystem::allocateBlock() {
 		// TODO: Update the block group descriptor table.
 
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
-		for(unsigned i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
@@ -979,7 +979,7 @@ async::result<uint32_t> FileSystem::allocateInode() {
 		// TODO: Update the block group descriptor table.
 
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
-		for(unsigned i = 0; i < (inodesPerGroup + 31) / 32; i++) {
+		for(unsigned int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {

@@ -69,7 +69,7 @@ async::result<void> sendArp(uint16_t op,
 }
 }
 
-void Neighbours::feedArp(nic::MacAddress dst, arch::dma_buffer_view view) {
+void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view) {
 	using namespace nic;
 	auto ensureEndian = [] (auto &x) {
 		using namespace arch;

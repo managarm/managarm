@@ -28,7 +28,7 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 // Attribute implementation.
 // ----------------------------------------------------------------------------
 
-async::result<void> Attribute::store(Object *object, std::string data) {
+async::result<void> Attribute::store(Object *, std::string) {
 	// FIXME: Return an error to the caller.
 	throw std::runtime_error("Attribute does not support store()");
 }

@@ -357,3 +357,60 @@ template<typename T>
 async::sender_awaiter<coroutine<T>, T> operator co_await(coroutine<T> s) {
 	return {std::move(s)};
 }
+
+// Helper type that marks void-returning functions as detached coroutines.
+// Must be passed as last argument to the function.
+// Example usage: [] (enable_detached_coroutine = {}) -> void { co_await foobar(); }
+struct enable_detached_coroutine { };
+
+struct detached_coroutine_promise {
+	void *operator new(size_t size) {
+		return thor::kernelAlloc->allocate(size);
+	}
+
+	void operator delete(void *p, size_t size) {
+		return thor::kernelAlloc->deallocate(p, size);
+	}
+
+	void get_return_object() {
+		// Our return object is void.
+	}
+
+	void unhandled_exception() {
+		thor::panicLogger() << "thor: Unhandled exception in detached coroutine" << frg::endlog;
+	}
+
+	void return_void() {
+		// Do nothing.
+	}
+
+	auto initial_suspend() {
+		return std::experimental::suspend_never{};
+	}
+
+	auto final_suspend() noexcept {
+		return std::experimental::suspend_never{};
+	}
+};
+
+template<typename... Ts>
+struct last_type {
+    using type = typename decltype((std::detail::type_identity<Ts>{}, ...))::type;
+};
+
+template<typename... Ts>
+using last_type_t = typename last_type<Ts...>::type;
+
+namespace std::experimental {
+	template<typename... Args>
+	requires (std::is_same_v<last_type_t<Args...>, enable_detached_coroutine>)
+	struct coroutine_traits<void, Args...> {
+		using promise_type = detached_coroutine_promise;
+	};
+
+	template<typename X, typename... Args>
+	requires (std::is_same_v<last_type_t<Args...>, enable_detached_coroutine>)
+	struct coroutine_traits<void, X, Args...> {
+		using promise_type = detached_coroutine_promise;
+	};
+}
