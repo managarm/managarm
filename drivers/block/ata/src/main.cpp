@@ -101,7 +101,7 @@ private:
 
 	async::result<bool> _detectDevice();
 
-	std::queue<std::unique_ptr<Request>> _requestQueue;
+	std::queue<Request *> _requestQueue;
 	async::recurring_event _doorbell;
 
 	helix::UniqueDescriptor _irq;
@@ -144,10 +144,10 @@ async::detached Controller::_doRequestLoop() {
 			continue;
 		}
 
-		auto request = _requestQueue.front().get();
+		auto request = _requestQueue.front();
+		_requestQueue.pop();
 		co_await _performRequest(request);
 		request->promise.set_value();
-		_requestQueue.pop();
 	}
 }
 
@@ -209,32 +209,30 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 
 async::result<void> Controller::readSectors(uint64_t sector,
 		void *buffer, size_t numSectors) {
-	auto request = std::make_unique<Request>();
-	auto future = request->promise.async_get();
-	request->isWrite = false;
-	request->sector = sector;
-	request->numSectors = numSectors;
-	request->buffer = buffer;
+	Request request{};
+	request.isWrite = false;
+	request.sector = sector;
+	request.numSectors = numSectors;
+	request.buffer = buffer;
 
-	_requestQueue.push(std::move(request));
+	_requestQueue.push(&request);
 	_doorbell.raise();
 
-	return future;
+	co_await request.promise.async_get();
 }
 
 async::result<void> Controller::writeSectors(uint64_t sector,
 		const void *buffer, size_t numSectors) {
-	auto request = std::make_unique<Request>();
-	auto future = request->promise.async_get();
-	request->isWrite = true;
-	request->sector = sector;
-	request->numSectors = numSectors;
-	request->buffer = const_cast<void *>(buffer);
+	Request request{};
+	request.isWrite = true;
+	request.sector = sector;
+	request.numSectors = numSectors;
+	request.buffer = const_cast<void *>(buffer);
 
-	_requestQueue.push(std::move(request));
+	_requestQueue.push(&request);
 	_doorbell.raise();
 
-	return future;
+	co_await request.promise.async_get();
 }
 
 async::result<bool> Controller::_detectDevice() {
