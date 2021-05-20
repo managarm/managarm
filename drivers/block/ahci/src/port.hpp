@@ -30,7 +30,7 @@ public:
 private:
 	async::result<size_t> findFreeSlot_();
 	async::detached submitPendingLoop_();
-	async::result<void> submitCommand_(std::unique_ptr<Command> cmd);
+	async::result<void> submitCommand_(Command *cmd);
 	void start_();
 	void stop_();
 
@@ -52,9 +52,9 @@ private:
 			return operator delete(p);
 		}
 	};
-	async::queue<std::unique_ptr<Command>, stl_allocator> pendingCmdQueue_;
+	async::queue<Command *, stl_allocator> pendingCmdQueue_;
 
-	std::array<std::unique_ptr<Command>, limits::maxCmdSlots> submittedCmds_;
+	std::array<Command *, limits::maxCmdSlots> submittedCmds_{};
 	async::recurring_event freeSlotDoorbell_;
 
 	size_t numCommandSlots_;

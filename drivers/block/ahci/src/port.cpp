@@ -233,7 +233,7 @@ void Port::handleIrq() {
 	auto cmdActiveMask = regs_.load(regs::commandIssue);
 	for (size_t i = 0; i < numCommandSlots_; i++) {
 		if (submittedCmds_[i] && !(cmdActiveMask & (1 << i))) {
-			std::unique_ptr<Command> cmd = std::move(submittedCmds_[i]);
+			Command *cmd = std::exchange(submittedCmds_[i], nullptr);
 			cmd->notifyCompletion();
 			numCompleted++;
 		}
@@ -256,11 +256,11 @@ async::detached Port::submitPendingLoop_() {
 	while (true) {
 		auto cmd =	co_await pendingCmdQueue_.async_get();
 		assert(cmd);
-		co_await submitCommand_(std::move(cmd.value()));
+		co_await submitCommand_(cmd.value());
 	}
 }
 
-async::result<void> Port::submitCommand_(std::unique_ptr<Command> cmd) {
+async::result<void> Port::submitCommand_(Command *cmd) {
 	auto slot = co_await findFreeSlot_();
 	assert(!(regs_.load(regs::commandIssue) & (1 << slot)));
 	assert(!submittedCmds_[slot]);
@@ -269,7 +269,7 @@ async::result<void> Port::submitCommand_(std::unique_ptr<Command> cmd) {
 	cmd->prepare(commandTables_[slot], commandList_->slots[slot]);
 
 	// Issue command
-	submittedCmds_[slot] = std::move(cmd);
+	submittedCmds_[slot] = cmd;
 	commandsInFlight_++;
 	regs_.store(regs::commandIssue, 1 << slot);
 
@@ -277,19 +277,15 @@ async::result<void> Port::submitCommand_(std::unique_ptr<Command> cmd) {
 }
 
 async::result<void> Port::readSectors(uint64_t sector, void *buffer, size_t numSectors) {
-	auto cmd = std::make_unique<Command>(sector, numSectors, numSectors * sectorSize,
-			buffer, CommandType::read);
-	auto future = cmd->getFuture();
-
-	pendingCmdQueue_.put(std::move(cmd));
-	return future;
+	Command cmd{sector, numSectors, numSectors * sectorSize,
+			buffer, CommandType::read};
+	pendingCmdQueue_.put(&cmd);
+	co_await cmd.getFuture();
 }
 
 async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
-	auto cmd = std::make_unique<Command>(sector, numSectors, numSectors * sectorSize,
-			const_cast<void *>(buffer), CommandType::write);
-	auto future = cmd->getFuture();
-
-	pendingCmdQueue_.put(std::move(cmd));
-	return future;
+	Command cmd{sector, numSectors, numSectors * sectorSize,
+			const_cast<void *>(buffer), CommandType::write};
+	pendingCmdQueue_.put(&cmd);
+	co_await cmd.getFuture();
 }
