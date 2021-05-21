@@ -67,6 +67,9 @@ int Queue::handleIrq() {
         cqe = &cqes_[cqHead_];
     }
 
+    if (commandsInFlight_ == depth_ && found > 0)
+        freeSlotDoorbell_.raise();
+
     commandsInFlight_ -= found;
 
     if (found)
