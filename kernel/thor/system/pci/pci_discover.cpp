@@ -639,10 +639,27 @@ void runDevice(smarter::shared_ptr<PciDevice> device) {
 // PciDevice implementation.
 // --------------------------------------------------------
 
+namespace {
+	struct PciIrqObject final : IrqObject {
+		PciIrqObject(PciDevice *pciDevice, frg::string<KernelAlloc> name)
+		: IrqObject{name}, pciDevice_{pciDevice} { }
+
+		void dumpHardwareState() override {
+			auto io = pciDevice_->parentBus->io;
+			auto status = io->readConfigHalf(pciDevice_->parentBus,
+					pciDevice_->slot, pciDevice_->function, kPciStatus);
+			infoLogger() << "thor: PCI IRQ " << name() << " is "
+					<< ((status & 0x08) ? "asserted" : "inactive") << frg::endlog;
+		}
+
+	private:
+		PciDevice *pciDevice_;
+	};
+}
 
 smarter::shared_ptr<IrqObject> PciDevice::obtainIrqObject() {
 	assert(interrupt);
-	auto object = smarter::allocate_shared<IrqObject>(*kernelAlloc,
+	auto object = smarter::allocate_shared<PciIrqObject>(*kernelAlloc, this,
 			frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
 			+ frg::to_allocated_string(*kernelAlloc, bus)
 			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
