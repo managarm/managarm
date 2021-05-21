@@ -32,9 +32,6 @@ constexpr int default_timeout = 100'000'000;
 // --------------------------------------------------------------------
 
 Controller::Controller() {
-	for (auto &dev : _devices)
-		dev = nullptr;
-
 	HEL_CHECK(helAccessIrq(1, &_irq1Handle));
 	_irq1 = helix::UniqueIrq(_irq1Handle);
 
@@ -80,22 +77,22 @@ async::detached Controller::init() {
 	handleIrqsFor(_irq12, 1);
 
 	// Initialize devices.
-	_devices[0] = new Device{this, 0};
-	co_await _devices[0]->init();
+	_ports[0] = new Port{this, 0};
+	co_await _ports[0]->init();
 
-	if (!_devices[0]->exists()) { // port exists, device doesnt
-		delete _devices[0];
-		_devices[0] = nullptr;
+	if (!_ports[0]->exists()) { // port exists, device doesnt
+		delete _ports[0];
+		_ports[0] = nullptr;
 	}
 
 	if (_hasSecondPort) {
 		printf("ps2-hid: setting up second port!\n");
-		_devices[1] = new Device{this, 1};
-		co_await _devices[1]->init();
+		_ports[1] = new Port{this, 1};
+		co_await _ports[1]->init();
 
-		if (!_devices[1]->exists()) { // port exists, device doesnt
-			delete _devices[1];
-			_devices[1] = nullptr;
+		if (!_ports[1]->exists()) { // port exists, device doesnt
+			delete _ports[1];
+			_ports[1] = nullptr;
 		}
 	}
 
@@ -193,10 +190,10 @@ bool Controller::processData(int port) {
 		if (logPackets)
 			printf("ps2-hid: received byte 0x%02x on port %d!\n", val, port);
 
-		if (!_devices[port]) {
+		if (!_ports[port]) {
 			printf("ps2-hid: received irq for non-existent device!\n");
 		} else {
-			_devices[port]->pushByte(val);
+			_ports[port]->pushByte(val);
 		}
 
 		count++;
@@ -206,14 +203,14 @@ bool Controller::processData(int port) {
 }
 
 // --------------------------------------------------------------------
-// Controller::Device
+// Controller::Port
 // --------------------------------------------------------------------
 
-Controller::Device::Device(Controller *controller, int port)
+Controller::Port::Port(Controller *controller, int port)
 : _controller{controller}, _port{port}, _deviceType{}, _exists{false} {
 }
 
-async::result<void> Controller::Device::init() {
+async::result<void> Controller::Port::init() {
 	auto res1 = co_await submitCommand(device_cmd::DisableScan{});
 
 	if (std::holds_alternative<NoDevice>(res1))
@@ -227,23 +224,16 @@ async::result<void> Controller::Device::init() {
 	if (!_exists)
 		co_return;
 
-	_evDev = std::make_shared<libevbackend::EventDevice>();
-
 	if (_deviceType.keyboard)
-		co_await kbdInit();
+		_device = std::make_unique<KbdDevice>(this);
 	if (_deviceType.mouse)
-		co_await mouseInit();
+		_device = std::make_unique<MouseDevice>(this);
 
-	auto res3 = co_await submitCommand(device_cmd::EnableScan{});
-	assert(std::holds_alternative<std::monostate>(res3));
-
-	if (_deviceType.keyboard)
-		runKbd();
-	if (_deviceType.mouse)
-		runMouse();
+	if (_device)
+		co_await _device->run();
 }
 
-async::result<void> Controller::Device::kbdInit() {
+async::result<void> Controller::KbdDevice::run() {
 	//set scancode 1
 	auto res1 = co_await submitCommand(device_cmd::SetScancodeSet{}, 1);
 	assert(std::holds_alternative<std::monostate>(res1));
@@ -254,6 +244,8 @@ async::result<void> Controller::Device::kbdInit() {
 	assert(std::get<int>(res2) == 1);
 
 	//setup evdev stuff
+	_evDev = std::make_shared<libevbackend::EventDevice>();
+
 	_evDev->enableEvent(EV_KEY, KEY_A);
 	_evDev->enableEvent(EV_KEY, KEY_B);
 	_evDev->enableEvent(EV_KEY, KEY_C);
@@ -341,9 +333,17 @@ async::result<void> Controller::Device::kbdInit() {
 	});
 
 	co_await root.createObject("ps2kbd", descriptor, std::move(handler));
+
+	// Finalize the device initialization.
+	auto res3 = co_await _port->submitCommand(device_cmd::EnableScan{});
+	assert(std::holds_alternative<std::monostate>(res3));
+
+	processReports();
 }
 
-async::result<void> Controller::Device::mouseInit() {
+async::result<void> Controller::MouseDevice::run() {
+	_deviceType = _port->deviceType();
+
 	// attempt to enable scroll wheel
 	auto res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
 	assert(std::holds_alternative<std::monostate>(res1));
@@ -354,7 +354,7 @@ async::result<void> Controller::Device::mouseInit() {
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 80);
 	assert(std::holds_alternative<std::monostate>(res1));
 
-	auto res2 = co_await submitCommand(device_cmd::Identify{});
+	auto res2 = co_await _port->submitCommand(device_cmd::Identify{});
 	assert(std::holds_alternative<DeviceType>(res2));
 
 	auto type = std::get<DeviceType>(res2);
@@ -371,7 +371,7 @@ async::result<void> Controller::Device::mouseInit() {
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 80);
 	assert(std::holds_alternative<std::monostate>(res1));
 
-	res2 = co_await submitCommand(device_cmd::Identify{});
+	res2 = co_await _port->submitCommand(device_cmd::Identify{});
 	assert(std::holds_alternative<DeviceType>(res2));
 
 	type = std::get<DeviceType>(res2);
@@ -383,6 +383,8 @@ async::result<void> Controller::Device::mouseInit() {
 	assert(std::holds_alternative<std::monostate>(res1));
 
 	// setup evdev stuff
+	_evDev = std::make_shared<libevbackend::EventDevice>();
+
 	_evDev->enableEvent(EV_REL, REL_X);
 	_evDev->enableEvent(EV_REL, REL_Y);
 
@@ -417,17 +419,23 @@ async::result<void> Controller::Device::mouseInit() {
 	});
 
 	co_await root.createObject("ps2mouse", descriptor, std::move(handler));
+
+	// Finalize the device initialization.
+	auto res3 = co_await _port->submitCommand(device_cmd::EnableScan{});
+	assert(std::holds_alternative<std::monostate>(res3));
+
+	processReports();
 }
 
-async::detached Controller::Device::runMouse() {
+async::detached Controller::MouseDevice::processReports() {
 	while (true) {
 		uint8_t byte0, byte1, byte2, byte3 = 0;
-		byte0 = (co_await _dataQueue.async_get()).value();
-		byte1 = (co_await _dataQueue.async_get()).value();
-		byte2 = (co_await _dataQueue.async_get()).value();
+		byte0 = (co_await _port->pullByte()).value();
+		byte1 = (co_await _port->pullByte()).value();
+		byte2 = (co_await _port->pullByte()).value();
 
 		if (_deviceType.has5Buttons || _deviceType.hasScrollWheel)
-			byte3 = (co_await _dataQueue.async_get()).value();
+			byte3 = (co_await _port->pullByte()).value();
 
 		int movement_x = (int)byte1 - (int)((byte0 << 4) & 0x100);
 		int movement_y = (int)byte2 - (int)((byte0 << 3) & 0x100);
@@ -602,21 +610,21 @@ int scanE1(uint8_t data1, uint8_t data2) {
 	}
 }
 
-async::detached Controller::Device::runKbd() {
+async::detached Controller::KbdDevice::processReports() {
 	while (true) {
 		int key = -1;
 		bool pressed = false;
 		uint8_t byte0, byte1, byte2;
 
-		byte0 = (co_await _dataQueue.async_get()).value();
+		byte0 = (co_await _port->pullByte()).value();
 
 		if (byte0 == 0xE0) {
-			byte1 = (co_await _dataQueue.async_get()).value();
+			byte1 = (co_await _port->pullByte()).value();
 			key = scanE0(byte1 & 0x7F);
 			pressed = !(byte1 & 0x80);
 		} else if (byte0 == 0xE1) {
-			byte1 = (co_await _dataQueue.async_get()).value();
-			byte2 = (co_await _dataQueue.async_get()).value();
+			byte1 = (co_await _port->pullByte()).value();
+			byte2 = (co_await _port->pullByte()).value();
 			key = scanE1(byte1, byte2);
 			pressed = !(byte1 & 0x80);
 			assert((byte1 & 0x80) == (byte2 & 0x80));
@@ -631,26 +639,36 @@ async::detached Controller::Device::runKbd() {
 	}
 }
 
-void Controller::Device::pushByte(uint8_t byte) {
+void Controller::Port::pushByte(uint8_t byte) {
 	_dataQueue.put(byte);
 }
 
-static Controller::Device::DeviceType determineTypeById(uint16_t id) {
-	if (id == 0)
-		return Controller::Device::DeviceType{.mouse = true};
-	if (id == 0x3)
-		return Controller::Device::DeviceType{.mouse = true, .hasScrollWheel = true};
-	if (id == 0x4)
-		return Controller::Device::DeviceType{.mouse = true, .has5Buttons = true};
-	if (id == 0xAB41 || id == 0xABC1 || id == 0xAB83)
-		return Controller::Device::DeviceType{.keyboard = true};
+async::result<std::optional<uint8_t>>
+Controller::Port::pullByte(async::cancellation_token ct) {
+	auto result = co_await _dataQueue.async_get(ct);
 
-	printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
-	return Controller::Device::DeviceType{}; // we assume nothing
+	// We need to convert the frg::optional to a std::optional here.
+	if(!result)
+		co_return std::nullopt;
+	co_return *result;
 }
 
-async::result<std::variant<NoDevice, Controller::Device::DeviceType>>
-Controller::Device::submitCommand(device_cmd::Identify tag) {
+static DeviceType determineTypeById(uint16_t id) {
+	if (id == 0)
+		return DeviceType{.mouse = true};
+	if (id == 0x3)
+		return DeviceType{.mouse = true, .hasScrollWheel = true};
+	if (id == 0x4)
+		return DeviceType{.mouse = true, .has5Buttons = true};
+	if (id == 0xAB41 || id == 0xABC1 || id == 0xAB83)
+		return DeviceType{.keyboard = true};
+
+	printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
+	return DeviceType{}; // we assume nothing
+}
+
+async::result<std::variant<NoDevice, DeviceType>>
+Controller::Port::submitCommand(device_cmd::Identify tag) {
 	auto cmdResp = co_await transferByte(0xF2);
 	if (!cmdResp)
 		co_return NoDevice{};
@@ -675,47 +693,47 @@ Controller::Device::submitCommand(device_cmd::Identify tag) {
 }
 
 async::result<std::variant<NoDevice, std::monostate>>
-Controller::Device::submitCommand(device_cmd::DisableScan tag) {
+Controller::Port::submitCommand(device_cmd::DisableScan tag) {
 	if (co_await transferByte(0xF5) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
 async::result<std::variant<NoDevice, std::monostate>>
-Controller::Device::submitCommand(device_cmd::EnableScan tag) {
+Controller::Port::submitCommand(device_cmd::EnableScan tag) {
 	if (co_await transferByte(0xF4) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
 async::result<std::variant<NoDevice, std::monostate>>
-Controller::Device::submitCommand(device_cmd::SetReportRate tag, int rate) {
-	if (co_await transferByte(0xF3) == std::nullopt) co_return NoDevice{};
-	if (co_await transferByte(rate) == std::nullopt) co_return NoDevice{};
+Controller::MouseDevice::submitCommand(device_cmd::SetReportRate tag, int rate) {
+	if (co_await _port->transferByte(0xF3) == std::nullopt) co_return NoDevice{};
+	if (co_await _port->transferByte(rate) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
 async::result<std::variant<NoDevice, std::monostate>>
-Controller::Device::submitCommand(device_cmd::SetScancodeSet tag, int set) {
-	if (co_await transferByte(0xF0) == std::nullopt) co_return NoDevice{};
-	if (co_await transferByte(set) == std::nullopt) co_return NoDevice{};
+Controller::KbdDevice::submitCommand(device_cmd::SetScancodeSet tag, int set) {
+	if (co_await _port->transferByte(0xF0) == std::nullopt) co_return NoDevice{};
+	if (co_await _port->transferByte(set) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
 async::result<std::variant<NoDevice, int>>
-Controller::Device::submitCommand(device_cmd::GetScancodeSet tag) {
-	if (co_await transferByte(0xF0) == std::nullopt) co_return NoDevice{};
-	if (co_await transferByte(0) == std::nullopt) co_return NoDevice{};
+Controller::KbdDevice::submitCommand(device_cmd::GetScancodeSet tag) {
+	if (co_await _port->transferByte(0xF0) == std::nullopt) co_return NoDevice{};
+	if (co_await _port->transferByte(0) == std::nullopt) co_return NoDevice{};
 
-	auto set = co_await recvResponseByte(default_timeout);
+	auto set = co_await _port->recvResponseByte(default_timeout);
 	assert(set != std::nullopt);
 
 	co_return set.value();
 }
 
-void Controller::Device::sendByte(uint8_t byte) {
+void Controller::Port::sendByte(uint8_t byte) {
 	if (_port == 1) {
 		_controller->submitCommand(controller_cmd::SendBytePort2{});
 	}
@@ -727,7 +745,7 @@ void Controller::Device::sendByte(uint8_t byte) {
 }
 
 
-async::result<std::optional<uint8_t>> Controller::Device::transferByte(uint8_t byte) {
+async::result<std::optional<uint8_t>> Controller::Port::transferByte(uint8_t byte) {
 	while (true) {
 		sendByte(byte);
 
@@ -739,7 +757,7 @@ async::result<std::optional<uint8_t>> Controller::Device::transferByte(uint8_t b
 	}
 }
 
-async::result<std::optional<uint8_t>> Controller::Device::recvResponseByte(uint64_t timeout) {
+async::result<std::optional<uint8_t>> Controller::Port::recvResponseByte(uint64_t timeout) {
 	frg::optional<uint8_t> result;
 	if (timeout) {
 		async::cancellation_event ev;
@@ -757,7 +775,7 @@ async::result<std::optional<uint8_t>> Controller::Device::recvResponseByte(uint6
 	co_return *result;
 }
 
-bool Controller::Device::exists() {
+bool Controller::Port::exists() {
 	return _exists;
 }
 
