@@ -52,6 +52,11 @@ int main() {
 		execl("/bin/runsvr", "/bin/runsvr", "run", "/lib/block-ahci.bin", nullptr);
 	}else assert(block_ahci != -1);
 
+    auto block_nvme = fork();
+	if(!block_nvme) {
+		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/block-nvme", nullptr);
+	}else assert(block_nvme != -1);
+
 	auto block_usb = fork();
 	if(!block_usb) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/storage", nullptr);
