@@ -112,9 +112,6 @@ async::result<bool> Port::init() {
 			return (regs_.load(regs::status) & 0xF) == 0x3; });
 	assert(success);
 
-	// Clear port error register
-	regs_.store(regs::sErr, 0xFFFFFFFF);
-
 	// Allocate memory for command list, received FIS, and command tables
 	// Note: the combination of libarch DMA types and ptrToPhysical ensures that
 	// these buffers will remain present in the page tables at all times.
@@ -201,7 +198,7 @@ async::detached Port::run() {
 	assert(logicalSize == 512 && "block/ahci: logical sector size > 512 is not supported");
 
 	// Clear errors
-	regs_.store(regs::sErr, ~0);
+	regs_.store(regs::sErr, regs_.load(regs::sErr));
 
 	// Clear and enable interrupts on this port
 	auto is = regs_.load(regs::interruptStatus);
