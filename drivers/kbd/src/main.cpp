@@ -38,6 +38,9 @@ Controller::Controller() {
 	HEL_CHECK(helAccessIrq(1, &_irq1Handle));
 	_irq1 = helix::UniqueIrq(_irq1Handle);
 
+	HEL_CHECK(helAccessIrq(12, &_irq12Handle));
+	_irq12 = helix::UniqueIrq(_irq12Handle);
+
 	uintptr_t ports[] = { DATA, STATUS };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 2, &handle));
@@ -47,8 +50,6 @@ Controller::Controller() {
 }
 
 async::detached Controller::init() {
-	handleIrqsFor(_irq1, 0);
-
 	_space = arch::global_io.subspace(DATA);
 
 	// disable both devices
@@ -70,6 +71,15 @@ async::detached Controller::init() {
 
 	// enable devices
 	submitCommand(controller_cmd::EnablePort{}, 0);
+	if(_hasSecondPort)
+		submitCommand(controller_cmd::EnablePort{}, 1);
+
+	// From this point on, data read from the data port belongs to the device.
+	_portsOwnData = true;
+	handleIrqsFor(_irq1, 0);
+	handleIrqsFor(_irq12, 1);
+
+	// Initialize devices.
 	_devices[0] = new Device{this, 0};
 	co_await _devices[0]->init();
 
@@ -79,13 +89,7 @@ async::detached Controller::init() {
 	}
 
 	if (_hasSecondPort) {
-		printf("setting up second port!\n");
-		HEL_CHECK(helAccessIrq(12, &_irq12Handle));
-		_irq12 = helix::UniqueIrq(_irq12Handle);
-
-		handleIrqsFor(_irq12, 1);
-
-		submitCommand(controller_cmd::EnablePort{}, 1);
+		printf("ps2-hid: setting up second port!\n");
 		_devices[1] = new Device{this, 1};
 		co_await _devices[1]->init();
 
@@ -106,7 +110,9 @@ void Controller::sendDataByte(uint8_t byte) {
 	_space.store(kbd_register::data, byte);
 }
 
-std::optional<uint8_t> Controller::recvByte(uint64_t timeout) {
+std::optional<uint8_t> Controller::recvResponseByte(uint64_t timeout) {
+	assert(!_portsOwnData);
+
 	if (timeout) {
 		uint64_t start, end, current;
 
@@ -148,7 +154,7 @@ void Controller::submitCommand(controller_cmd::EnablePort, int port) {
 uint8_t Controller::submitCommand(controller_cmd::GetByte0) {
 	sendCommandByte(readByte0);
 
-	auto result = recvByte(default_timeout);
+	auto result = recvResponseByte(default_timeout);
 
 	assert(result != std::nullopt && "timed out");
 
@@ -165,6 +171,8 @@ void Controller::submitCommand(controller_cmd::SendBytePort2) {
 }
 
 async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
+	assert(_portsOwnData);
+
 	uint64_t sequence = 0;
 	while(true) {
 		auto await = co_await helix_ng::awaitEvent(irq, sequence);
@@ -183,10 +191,10 @@ bool Controller::processData(int port) {
 		auto val = _space.load(kbd_register::data);
 
 		if (logPackets)
-			printf("ps2-hid: received byte %02x\n!", val);
+			printf("ps2-hid: received byte 0x%02x on port %d!\n", val, port);
 
 		if (!_devices[port]) {
-			printf("ps2-hid: received irq for non-existent device\n!");
+			printf("ps2-hid: received irq for non-existent device!\n");
 		} else {
 			_devices[port]->pushByte(val);
 		}
@@ -223,14 +231,16 @@ async::result<void> Controller::Device::init() {
 
 	if (_deviceType.keyboard)
 		co_await kbdInit();
-
 	if (_deviceType.mouse)
 		co_await mouseInit();
 
 	auto res3 = co_await submitCommand(device_cmd::EnableScan{});
 	assert(std::holds_alternative<std::monostate>(res3));
 
-	//printf("done setting up ps2kbd: 2\n");
+	if (_deviceType.keyboard)
+		runKbd();
+	if (_deviceType.mouse)
+		runMouse();
 }
 
 async::result<void> Controller::Device::kbdInit() {
@@ -331,10 +341,6 @@ async::result<void> Controller::Device::kbdInit() {
 	});
 
 	co_await root.createObject("ps2kbd", descriptor, std::move(handler));
-
-	printf("done setting up ps2kbd\n");
-
-	runKbd();
 }
 
 async::result<void> Controller::Device::mouseInit() {
@@ -411,19 +417,17 @@ async::result<void> Controller::Device::mouseInit() {
 	});
 
 	co_await root.createObject("ps2mouse", descriptor, std::move(handler));
-
-	runMouse();
 }
 
 async::detached Controller::Device::runMouse() {
 	while (true) {
 		uint8_t byte0, byte1, byte2, byte3 = 0;
-		byte0 = (co_await recvByte()).value();
-		byte1 = (co_await recvByte()).value();
-		byte2 = (co_await recvByte()).value();
+		byte0 = (co_await _dataQueue.async_get()).value();
+		byte1 = (co_await _dataQueue.async_get()).value();
+		byte2 = (co_await _dataQueue.async_get()).value();
 
 		if (_deviceType.has5Buttons || _deviceType.hasScrollWheel)
-			byte3 = (co_await recvByte()).value();
+			byte3 = (co_await _dataQueue.async_get()).value();
 
 		int movement_x = (int)byte1 - (int)((byte0 << 4) & 0x100);
 		int movement_y = (int)byte2 - (int)((byte0 << 3) & 0x100);
@@ -604,15 +608,15 @@ async::detached Controller::Device::runKbd() {
 		bool pressed = false;
 		uint8_t byte0, byte1, byte2;
 
-		byte0 = (co_await recvByte()).value();
+		byte0 = (co_await _dataQueue.async_get()).value();
 
 		if (byte0 == 0xE0) {
-			byte1 = (co_await recvByte()).value();
+			byte1 = (co_await _dataQueue.async_get()).value();
 			key = scanE0(byte1 & 0x7F);
 			pressed = !(byte1 & 0x80);
 		} else if (byte0 == 0xE1) {
-			byte1 = (co_await recvByte()).value();
-			byte2 = (co_await recvByte()).value();
+			byte1 = (co_await _dataQueue.async_get()).value();
+			byte2 = (co_await _dataQueue.async_get()).value();
 			key = scanE1(byte1, byte2);
 			pressed = !(byte1 & 0x80);
 			assert((byte1 & 0x80) == (byte2 & 0x80));
@@ -628,11 +632,7 @@ async::detached Controller::Device::runKbd() {
 }
 
 void Controller::Device::pushByte(uint8_t byte) {
-	if (_awaitingResponse) {
-		_responseQueue.put(byte);
-	} else {
-		_reportQueue.put(byte);
-	}
+	_dataQueue.put(byte);
 }
 
 static Controller::Device::DeviceType determineTypeById(uint16_t id) {
@@ -649,78 +649,67 @@ static Controller::Device::DeviceType determineTypeById(uint16_t id) {
 	return Controller::Device::DeviceType{}; // we assume nothing
 }
 
-async::result<std::variant<NoDevice, Controller::Device::DeviceType>> Controller::Device::submitCommand(device_cmd::Identify tag) {
-	_awaitingResponse = true;
-	FlagGuard g{_awaitingResponse, false};
+async::result<std::variant<NoDevice, Controller::Device::DeviceType>>
+Controller::Device::submitCommand(device_cmd::Identify tag) {
+	auto cmdResp = co_await transferByte(0xF2);
+	if (!cmdResp)
+		co_return NoDevice{};
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after identify command on port %d, got 0x%02x\n",
+				_port, *cmdResp);
+		co_return NoDevice{};
+	}
 
-	if (co_await transferByte(0xF2) == std::nullopt) co_return NoDevice{};
+	auto data0 = co_await recvResponseByte(default_timeout);
+	auto data1 = co_await recvResponseByte(default_timeout);
 
-	auto resp2 = co_await recvByte(default_timeout);
-	auto resp3 = co_await recvByte(default_timeout);
-
-	if (resp2 == std::nullopt && resp3 == std::nullopt) { // ancient AT keyboard
+	if (!data0 && !data1) {
+		// Ancient AT keyboard (identify command returns nothing).
 		co_return DeviceType{.keyboard = true};
+	} else if (!data1) {
+		co_return determineTypeById(static_cast<uint16_t>(*data0));
+	} else {
+		co_return determineTypeById((static_cast<uint16_t>(*data0) << 8)
+				| static_cast<uint16_t>(*data1));
 	}
-
-	if ((resp2 != std::nullopt) ^ (resp3 != std::nullopt)) {
-		uint16_t v = resp2 != std::nullopt ? resp2.value() : resp3.value();
-
-		co_return determineTypeById(v);
-	}
-
-	uint16_t a = resp2.value();
-	uint16_t b = resp3.value();
-	uint16_t v = a << 8 | b;
-
-	co_return determineTypeById(v);
 }
 
-async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::DisableScan tag) {
-	_awaitingResponse = true;
-	FlagGuard g{_awaitingResponse, false};
-
+async::result<std::variant<NoDevice, std::monostate>>
+Controller::Device::submitCommand(device_cmd::DisableScan tag) {
 	if (co_await transferByte(0xF5) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
-async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::EnableScan tag) {
-	_awaitingResponse = true;
-	FlagGuard g{_awaitingResponse, false};
-
+async::result<std::variant<NoDevice, std::monostate>>
+Controller::Device::submitCommand(device_cmd::EnableScan tag) {
 	if (co_await transferByte(0xF4) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
-async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::SetReportRate tag, int rate) {
-	_awaitingResponse = true;
-	FlagGuard g{_awaitingResponse, false};
-
+async::result<std::variant<NoDevice, std::monostate>>
+Controller::Device::submitCommand(device_cmd::SetReportRate tag, int rate) {
 	if (co_await transferByte(0xF3) == std::nullopt) co_return NoDevice{};
 	if (co_await transferByte(rate) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
-async::result<std::variant<NoDevice, std::monostate>> Controller::Device::submitCommand(device_cmd::SetScancodeSet tag, int set) {
-	_awaitingResponse = true;
-	FlagGuard g{_awaitingResponse, false};
-
+async::result<std::variant<NoDevice, std::monostate>>
+Controller::Device::submitCommand(device_cmd::SetScancodeSet tag, int set) {
 	if (co_await transferByte(0xF0) == std::nullopt) co_return NoDevice{};
 	if (co_await transferByte(set) == std::nullopt) co_return NoDevice{};
 
 	co_return std::monostate{};
 }
 
-async::result<std::variant<NoDevice, int>> Controller::Device::submitCommand(device_cmd::GetScancodeSet tag) {
-	_awaitingResponse = true;
-	FlagGuard g{_awaitingResponse, false};
-
+async::result<std::variant<NoDevice, int>>
+Controller::Device::submitCommand(device_cmd::GetScancodeSet tag) {
 	if (co_await transferByte(0xF0) == std::nullopt) co_return NoDevice{};
 	if (co_await transferByte(0) == std::nullopt) co_return NoDevice{};
 
-	auto set = co_await recvByte(default_timeout);
+	auto set = co_await recvResponseByte(default_timeout);
 	assert(set != std::nullopt);
 
 	co_return set.value();
@@ -742,31 +731,30 @@ async::result<std::optional<uint8_t>> Controller::Device::transferByte(uint8_t b
 	while (true) {
 		sendByte(byte);
 
-		auto resp = co_await recvByte(default_timeout);
+		auto resp = co_await recvResponseByte(default_timeout);
 
-		if (auto v = resp.value_or(0); v != 0xFE)
+		// 0xFE requests a retransmission.
+		if (!resp || *resp != 0xFE)
 			co_return resp;
 	}
 }
 
-async::result<std::optional<uint8_t>> Controller::Device::recvByte(uint64_t timeout) {
+async::result<std::optional<uint8_t>> Controller::Device::recvResponseByte(uint64_t timeout) {
+	frg::optional<uint8_t> result;
 	if (timeout) {
 		async::cancellation_event ev;
 		helix::TimeoutCancellation timer{timeout, ev};
 
-		auto result = _awaitingResponse ? 
-			co_await _responseQueue.async_get(ev) 
-			: co_await _reportQueue.async_get(ev);
-
+		result = co_await _dataQueue.async_get(ev);
 		co_await timer.retire();
-
-		co_return result;
 	} else {
-		if (_awaitingResponse)
-			co_return co_await _responseQueue.async_get();
-		else
-			co_return co_await _reportQueue.async_get();
+		result = co_await _dataQueue.async_get();
 	}
+
+	// We need to convert the frg::optional to a std::optional here.
+	if(!result)
+		co_return std::nullopt;
+	co_return *result;
 }
 
 bool Controller::Device::exists() {

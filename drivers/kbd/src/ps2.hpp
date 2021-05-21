@@ -77,19 +77,28 @@ struct Controller {
 			bool has5Buttons;
 		};
 
-		async::result<std::variant<NoDevice, std::monostate>> submitCommand(device_cmd::DisableScan tag);
-		async::result<std::variant<NoDevice, std::monostate>> submitCommand(device_cmd::EnableScan tag);
-		async::result<std::variant<NoDevice, DeviceType>> submitCommand(device_cmd::Identify tag);
+		async::result<std::variant<NoDevice, std::monostate>>
+		submitCommand(device_cmd::DisableScan tag);
 
-		async::result<std::variant<NoDevice, std::monostate>> submitCommand(device_cmd::SetReportRate tag, int rate);
+		async::result<std::variant<NoDevice, std::monostate>>
+		submitCommand(device_cmd::EnableScan tag);
 
-		async::result<std::variant<NoDevice, std::monostate>> submitCommand(device_cmd::SetScancodeSet tag, int set);
-		async::result<std::variant<NoDevice, int>> submitCommand(device_cmd::GetScancodeSet tag);
+		async::result<std::variant<NoDevice, DeviceType>>
+		submitCommand(device_cmd::Identify tag);
+
+		async::result<std::variant<NoDevice, std::monostate>>
+		submitCommand(device_cmd::SetReportRate tag, int rate);
+
+		async::result<std::variant<NoDevice, std::monostate>>
+		submitCommand(device_cmd::SetScancodeSet tag, int set);
+
+		async::result<std::variant<NoDevice, int>>
+		submitCommand(device_cmd::GetScancodeSet tag);
 
 	private:
 		void sendByte(uint8_t byte);
 		async::result<std::optional<uint8_t>> transferByte(uint8_t byte);
-		async::result<std::optional<uint8_t>> recvByte(uint64_t timeout = 0);
+		async::result<std::optional<uint8_t>> recvResponseByte(uint64_t timeout = 0);
 
 		async::result<void> mouseInit();
 		async::result<void> kbdInit();
@@ -102,9 +111,7 @@ struct Controller {
 		DeviceType _deviceType;
 		bool _exists;
 
-		async::queue<uint8_t, stl_allocator> _responseQueue;
-		async::queue<uint8_t, stl_allocator> _reportQueue;
-		bool _awaitingResponse;
+		async::queue<uint8_t, stl_allocator> _dataQueue;
 
 		std::shared_ptr<libevbackend::EventDevice> _evDev;
 	};
@@ -122,10 +129,11 @@ private:
 
 	void sendCommandByte(uint8_t byte);
 	void sendDataByte(uint8_t byte);
-	std::optional<uint8_t> recvByte(uint64_t timeout = 0);
+	std::optional<uint8_t> recvResponseByte(uint64_t timeout = 0);
 
 	std::array<Device *, 2> _devices;
 	bool _hasSecondPort;
+	bool _portsOwnData = false;
 
 	arch::io_space _space;
 
