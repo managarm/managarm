@@ -11,15 +11,15 @@ async::detached bindController(mbus::Entity entity) {
     protocols::hw::Device device(co_await entity.bind());
     auto info = co_await device.getPciInfo();
 
-    auto& ahciBarInfo = info.barInfo[0];
-    assert(ahciBarInfo.ioType == protocols::hw::IoType::kIoTypeMemory);
-    auto ahciBar = co_await device.accessBar(0);
+    auto& barInfo = info.barInfo[0];
+    assert(barInfo.ioType == protocols::hw::IoType::kIoTypeMemory);
+    auto bar0 = co_await device.accessBar(0);
     auto irq  = co_await device.accessIrq();
 
-    helix::Mapping mapping{ahciBar, ahciBarInfo.offset, ahciBarInfo.length};
+    helix::Mapping mapping{bar0, barInfo.offset, barInfo.length};
 
     auto controller = std::make_unique<Controller>(std::move(device), std::move(mapping),
-            std::move(ahciBar), std::move(irq));
+            std::move(bar0), std::move(irq));
     controller->run();
     globalControllers.push_back(std::move(controller));
 }
