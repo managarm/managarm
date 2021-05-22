@@ -1,4 +1,5 @@
 #include <arch/bit.hpp>
+#include <helix/timer.hpp>
 
 #include "controller.hpp"
 
@@ -79,12 +80,8 @@ async::detached Controller::handleIrqs() {
 async::result<void> Controller::waitStatus(bool enabled) {
     auto readyBit = enabled ? flags::csts::ready : 0;
 
-    while (true) {
-        auto csts = regs_.load(regs::csts);
-        if ((csts & flags::csts::ready) == readyBit) break;
-    }
-
-    co_return;
+    co_await helix::kindaBusyWait(50'000'000,
+        [&]{ return (regs_.load(regs::csts) & flags::csts::ready) == readyBit; });
 }
 
 async::result<void> Controller::enable() {
