@@ -3,9 +3,9 @@
 #include "controller.hpp"
 
 namespace regs {
-    constexpr arch::scalar_register<uint64_t> cap{0x0};
+    constexpr arch::bit_register<uint64_t> cap{0x0};
     constexpr arch::scalar_register<uint32_t> vs{0x4};
-    constexpr arch::scalar_register<uint32_t> cc{0x14};
+    constexpr arch::bit_register<uint32_t> cc{0x14};
     constexpr arch::scalar_register<uint32_t> csts{0x1c};
     constexpr arch::scalar_register<uint32_t> aqa{0x24};
     constexpr arch::scalar_register<uint64_t> asq{0x28};
@@ -15,12 +15,8 @@ namespace regs {
 namespace flags {
 
 namespace cap {
-static inline int mqes(uint64_t cap) {
-    return cap & 0xffff;
-}
-static inline int dstrd(uint64_t cap) {
-    return (cap >> 32) & 0xf;
-}
+constexpr arch::field<uint64_t, uint16_t> mqes{0, 16};
+constexpr arch::field<uint64_t, uint8_t> dstrd{32, 4};
 }
 
 namespace vs {
@@ -30,9 +26,9 @@ static inline uint32_t version(uint16_t major, uint8_t minor, uint8_t tertiary) 
 }
 
 namespace cc {
-constexpr int enable       = 1 << 0;
-constexpr int iosqes_shift = 16;
-constexpr int iocqes_shift = 20;
+constexpr arch::field<uint32_t, uint8_t> iocqes{20, 4};
+constexpr arch::field<uint32_t, uint8_t> iosqes{16, 4};
+constexpr arch::field<uint32_t, bool> enable{0, 1};
 }
 
 namespace csts {
@@ -93,10 +89,8 @@ async::result<void> Controller::waitStatus(bool enabled) {
 
 async::result<void> Controller::enable() {
     auto cc = regs_.load(regs::cc);
-    cc |= 6 << flags::cc::iosqes_shift;
-    cc |= 4 << flags::cc::iocqes_shift;
-    cc |= flags::cc::enable;
-    regs_.store(regs::cc, cc);
+    auto new_val = cc / flags::cc::iosqes(6) / flags::cc::iocqes(4) / flags::cc::enable(true);
+    regs_.store(regs::cc, new_val);
 
     co_await waitStatus(true);
     co_return;
@@ -104,8 +98,8 @@ async::result<void> Controller::enable() {
 
 async::result<void> Controller::disable() {
     auto cc = regs_.load(regs::cc);
-    cc &= ~flags::cc::enable;
-    regs_.store(regs::cc, cc);
+    auto new_val = cc / flags::cc::enable(false);
+    regs_.store(regs::cc, new_val);
 
     co_await waitStatus(false);
     co_return;
@@ -115,8 +109,8 @@ async::result<void> Controller::reset() {
     auto cap = regs_.load(regs::cap);
     const auto doorbellsOffset = 0x1000;
 
-    queueDepth_ = std::min(flags::cap::mqes(cap) + 1, IO_QUEUE_DEPTH);
-    dbStride_ = 1 << flags::cap::dstrd(cap);
+    queueDepth_ = std::min((cap & flags::cap::mqes) + 1, IO_QUEUE_DEPTH);
+    dbStride_ = 1 << (cap & flags::cap::dstrd);
 
     version_ = regs_.load(regs::vs);
 
