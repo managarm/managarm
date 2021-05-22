@@ -2,6 +2,7 @@
 #include <string.h>
 #include <iostream>
 #include <algorithm>
+#include <string>
 #include <sys/epoll.h>
 
 #include <helix/ipc.hpp>
@@ -125,7 +126,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 
 	if(self->offset >= self->inode->fileSize())
 		co_return size_t{0};
-	
+
 	auto remaining = self->inode->fileSize() - offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
@@ -600,6 +601,27 @@ async::detached runDevice(BlockDevice *device) {
 	table = new gpt::Table(device);
 	co_await table->parse();
 
+	int64_t diskId = 0;
+	{
+		auto root = co_await mbus::Instance::global().getRoot();
+
+		mbus::Properties descriptor {
+			{"unix.devtype", mbus::StringItem{"block"}},
+			{"unix.blocktype", mbus::StringItem{"disk"}}
+		};
+
+		auto handler = mbus::ObjectHandler{}
+		.withBind([] () -> async::result<helix::UniqueDescriptor> {
+			std::cout << "\e[31mlibblockfs: Disks don't currently serve requests\e[39m" << std::endl;
+			async::promise<helix::UniqueDescriptor> promise;
+			return promise.async_get();
+		});
+
+		auto obj = co_await root.createObject("disk", descriptor, std::move(handler));
+		diskId = obj.getId();
+	}
+
+	int partId = 0;
 	for(size_t i = 0; i < table->numPartitions(); ++i) {
 		auto type = table->getPartition(i).type();
 		printf("Partition %lu, type: %.8X-%.4X-%.4X-%.2X%.2X-%.2X%.2X%.2X%.2X%.2X%.2X\n",
@@ -619,7 +641,9 @@ async::detached runDevice(BlockDevice *device) {
 
 		mbus::Properties descriptor{
 			{"unix.devtype", mbus::StringItem{"block"}},
-			{"unix.devname", mbus::StringItem{"sda0"}}
+			{"unix.blocktype", mbus::StringItem{"partition"}},
+			{"unix.partid", mbus::StringItem{std::to_string(partId++)}},
+			{"unix.diskid", mbus::StringItem{std::to_string(diskId)}}
 		};
 
 		auto handler = mbus::ObjectHandler{}
