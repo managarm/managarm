@@ -99,20 +99,12 @@ uint64_t getRawTimestampCounter() {
 			| static_cast<uint64_t>(lsw);
 }
 
-namespace {
-	uint64_t tscTicksPerMilli;
-}
-
 // --------------------------------------------------------
 // Local APIC timer
 // --------------------------------------------------------
 
 namespace {
-	bool apicIsCalibrated = false;
-	// TODO: APIC variables should be CPU-specific.
-	uint32_t apicTicksPerMilli;
-
-	GlobalApicContext *globalApicContextInstance;
+	frg::eternal<GlobalApicContext> globalApicContextInstance;
 
 	LocalApicContext *localApicContext() {
 		return &getCpuData()->apicContext;
@@ -120,11 +112,11 @@ namespace {
 }
 
 GlobalApicContext *globalApicContext() {
-	return globalApicContextInstance;
+	return &globalApicContextInstance.get();
 }
 
 void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
-	assert(apicIsCalibrated);
+	assert(localApicContext()->timersAreCalibrated);
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -138,14 +130,14 @@ LocalApicContext::LocalApicContext()
 : _preemptionDeadline{0}, _globalDeadline{0} { }
 
 void LocalApicContext::setPreemption(uint64_t nanos) {
-	assert(apicIsCalibrated);
+	assert(localApicContext()->timersAreCalibrated);
 
 	localApicContext()->_preemptionDeadline = nanos;
 	LocalApicContext::_updateLocalTimer();
 }
 
 void LocalApicContext::handleTimerIrq() {
-	assert(apicIsCalibrated);
+	assert(localApicContext()->timersAreCalibrated);
 
 	if(debugTimer)
 		infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
@@ -190,14 +182,14 @@ void LocalApicContext::_updateLocalTimer() {
 	consider(localApicContext()->_preemptionDeadline);
 	consider(localApicContext()->_globalDeadline);
 
-	if(getGlobalCpuFeatures()->haveTscDeadline) {
+	if(localApicContext()->useTscMode) {
 		if(!deadline) {
 			common::x86::wrmsr(0x6E0, 0);
 			return;
 		}
 
 		uint64_t ticks;
-		auto of = __builtin_mul_overflow(deadline, tscTicksPerMilli, &ticks);
+		auto of = __builtin_mul_overflow(deadline, localApicContext()->tscTicksPerMilli, &ticks);
 		assert(!of);
 		ticks /= 1'000'000;
 		common::x86::wrmsr(0x6E0, ticks);
@@ -221,7 +213,8 @@ void LocalApicContext::_updateLocalTimer() {
 			if(debugTimer)
 				infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
 						<< ((deadline - now)/1000) << " us in the future" << frg::endlog;
-			auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
+			auto of = __builtin_mul_overflow(deadline - now,
+					localApicContext()->localTicksPerMilli, &ticks);
 			assert(!of);
 			ticks /= 1'000'000;
 			if(!ticks)
@@ -304,8 +297,12 @@ void initLocalApicPerCpu() {
 	dumpLocalInt(0);
 	dumpLocalInt(1);
 
+	if(getGlobalCpuFeatures()->haveInvariantTsc
+			&& getGlobalCpuFeatures()->haveTscDeadline)
+		localApicContext()->useTscMode = true;
+
 	// Setup a timer interrupt for scheduling.
-	if(getGlobalCpuFeatures()->haveTscDeadline) {
+	if(localApicContext()->useTscMode) {
 		picBase.store(lApicLvtTimer, apicLvtVector(0xFF) | apicLvtTimerMode(2));
 		// The SDM requires this to order MMIO and MSR writes.
 		asm volatile ("mfence" : : : "memory");
@@ -315,6 +312,8 @@ void initLocalApicPerCpu() {
 
 	// Setup the PMI.
 	picBase.store(lApicLvtPerfCount, apicLvtMode(4));
+
+	calibrateApicTimer();
 }
 
 uint32_t getLocalApicId() {
@@ -326,19 +325,21 @@ uint32_t getLocalApicId() {
 }
 
 uint64_t localTicks() {
-	assert(!getGlobalCpuFeatures()->haveTscDeadline);
+	assert(!localApicContext()->useTscMode);
 	return picBase.load(lApicCurCount);
 }
 
-struct TimeStampCounter final : ClockSource {
-	uint64_t currentNanos() override {
-		auto r = getRawTimestampCounter() * 1'000'000 / tscTicksPerMilli;
-//		infoLogger() << r << frg::endlog;
-		return r;
-	}
-};
+namespace {
+	struct TscClockSource final : ClockSource {
+		uint64_t currentNanos() override {
+			auto r = getRawTimestampCounter() * 1'000'000 / localApicContext()->tscTicksPerMilli;
+	//		infoLogger() << r << frg::endlog;
+			return r;
+		}
+	};
 
-TimeStampCounter *globalTscInstance;
+	frg::manual_box<TscClockSource> globalTscClockSource;
+}
 
 extern ClockSource *hpetClockSource;
 extern AlarmTracker *hpetAlarmTracker;
@@ -349,15 +350,17 @@ void calibrateApicTimer() {
 	const uint64_t millis = 100;
 
 	// Calibrate the local APIC timer.
-	if(!getGlobalCpuFeatures()->haveTscDeadline) {
+	if(!localApicContext()->useTscMode) {
 		picBase.store(lApicInitCount, 0xFFFFFFFF);
 		pollSleepNano(millis * 1'000'000);
 		uint32_t elapsed = 0xFFFFFFFF
 				- picBase.load(lApicCurCount);
 		picBase.store(lApicInitCount, 0);
 
-		apicTicksPerMilli = elapsed / millis;
-		infoLogger() << "thor: Local APIC ticks/ms: " << apicTicksPerMilli << frg::endlog;
+		localApicContext()->localTicksPerMilli = elapsed / millis;
+		infoLogger() << "thor: Local APIC ticks/ms: "
+				<< localApicContext()->localTicksPerMilli
+				<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 	}
 
 	// Calibrate the TSC.
@@ -365,20 +368,32 @@ void calibrateApicTimer() {
 	pollSleepNano(millis * 1'000'000);
 	auto tsc_elapsed = getRawTimestampCounter() - tsc_start;
 
-	tscTicksPerMilli = tsc_elapsed / millis;
-	infoLogger() << "thor: TSC ticks/ms: " << tscTicksPerMilli << frg::endlog;
+	localApicContext()->tscTicksPerMilli = tsc_elapsed / millis;
+	infoLogger() << "thor: TSC ticks/ms: " << localApicContext()->tscTicksPerMilli
+				<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 
-	apicIsCalibrated = true;
-
-	globalTscInstance = frg::construct<TimeStampCounter>(*kernelAlloc);
-	globalApicContextInstance = frg::construct<GlobalApicContext>(*kernelAlloc);
-
-	globalClockSource = globalTscInstance;
-//	globalClockSource = hpetClockSource;
-	globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
-			globalClockSource, globalApicContext()->globalAlarm());
-//			globalClockSource, hpetAlarmTracker);
+	localApicContext()->timersAreCalibrated = true;
 }
+
+static initgraph::Task assessTimersTask{&globalInitEngine, "x86.assess-timers",
+	initgraph::Requires{getHpetInitializedStage()},
+	initgraph::Entails{getTaskingAvailableStage()},
+	[] {
+		if(getGlobalCpuFeatures()->haveInvariantTsc) {
+			globalTscClockSource.initialize();
+			globalClockSource = globalTscClockSource.get();
+		}else{
+			infoLogger() << "thor: No invariant TSC; using HPET as system clock source"
+					<< frg::endlog;
+
+			globalClockSource = hpetClockSource;
+		}
+
+		globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
+				globalClockSource, globalApicContext()->globalAlarm());
+	//			globalClockSource, hpetAlarmTracker);
+	}
+};
 
 void acknowledgeIpi() {
 	picBase.store(lApicEoi, 0);

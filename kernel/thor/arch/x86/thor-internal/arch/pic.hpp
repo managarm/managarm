@@ -85,6 +85,11 @@ struct LocalApicContext {
 
 	static void handleTimerIrq();
 
+	bool useTscMode = false;
+	bool timersAreCalibrated = false;
+	uint32_t localTicksPerMilli = 0;
+	uint64_t tscTicksPerMilli = 0;
+
 private:
 	static void _updateLocalTimer();
 

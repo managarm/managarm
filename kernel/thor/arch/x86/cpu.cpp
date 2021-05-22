@@ -1,3 +1,4 @@
+#include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -469,10 +470,21 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 			}
 		}
 
+		if(common::x86::cpuid(0x80000007)[3] & (1 << 8)) {
+			infoLogger() << "\e[37mthor: CPUs support invariant TSC\e[39m"
+					<< frg::endlog;
+			globalCpuFeatures.haveInvariantTsc = true;
+		}else{
+			infoLogger() << "\e[37mthor: CPUs do not support invariant TSC!\e[39m" << frg::endlog;
+		}
+
 		if(common::x86::cpuid(0x01)[2] & (1 << 24)) {
 			infoLogger() << "\e[37mthor: CPUs support TSC deadline mode\e[39m"
 					<< frg::endlog;
 			globalCpuFeatures.haveTscDeadline = true;
+		}else{
+			infoLogger() << "\e[37mthor: CPUs do not support TSC deadline mode!\e[39m"
+					<< frg::endlog;
 		}
 
 		auto intelPmLeaf = common::x86::cpuid(0xA)[0];
@@ -550,7 +562,10 @@ void setupBootCpuContext() {
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
-	initgraph::Requires{getCpuFeaturesKnownStage(), getApicDiscoveryStage()},
+	initgraph::Requires{getCpuFeaturesKnownStage(),
+		getApicDiscoveryStage(),
+		// HPET is needed for local APIC timer calibration.
+		getHpetInitializedStage()},
 	initgraph::Entails{getFibersAvailableStage()},
 	[] {
 		allCpuContexts.initialize(*kernelAlloc);

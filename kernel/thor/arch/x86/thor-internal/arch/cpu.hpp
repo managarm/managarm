@@ -520,6 +520,7 @@ struct CpuFeatures {
 	bool haveXsave;
 	bool haveAvx;
 	bool haveZmm;
+	bool haveInvariantTsc;
 	bool haveTscDeadline;
 	bool haveVmx;
 	uint32_t profileFlags;
