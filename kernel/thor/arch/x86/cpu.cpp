@@ -12,8 +12,6 @@ namespace {
 }
 
 namespace {
-	constinit bool cpuFeaturesKnown = false;
-
 	void activateTss(common::x86::Tss64 *tss) {
 		common::x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
 				tss, sizeof(common::x86::Tss64));
@@ -38,10 +36,8 @@ bool FaultImageAccessor::allowUserPages() {
 
 size_t Executor::determineSimdSize() {
 	assert(cpuFeaturesKnown);
-	auto *cpuData = getCpuData();
-
-	if(cpuData->haveXsave){
-		return cpuData->xsaveRegionSize;
+	if(getGlobalCpuFeatures()->haveXsave){
+		return getGlobalCpuFeatures()->xsaveRegionSize;
 	}else{
 		return sizeof(FxState);
 	}
@@ -56,8 +52,8 @@ Executor::Executor()
 : _pointer{nullptr}, _syscallStack{nullptr}, _tss{nullptr} { }
 
 Executor::Executor(UserContext *context, AbiParameters abi) {
-	_pointer = (char *)kernelAlloc->allocate(getStateSize());
-	memset(_pointer, 0, getStateSize());
+	_pointer = (char *)kernelAlloc->allocate(determineSize());
+	memset(_pointer, 0, determineSize());
 
 	// Assert assumptions about xsave
 	assert(!((uintptr_t)_pointer & 0x3F));
@@ -90,8 +86,8 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 
 Executor::Executor(FiberContext *context, AbiParameters abi)
 : _syscallStack{nullptr}, _tss{nullptr} {
-	_pointer = (char *)kernelAlloc->allocate(getStateSize());
-	memset(_pointer, 0, getStateSize());
+	_pointer = (char *)kernelAlloc->allocate(determineSize());
+	memset(_pointer, 0, determineSize());
 
 	// Assert assumptions about xsave
 	assert(!((uintptr_t)_pointer & 0x3F));
@@ -150,7 +146,7 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
 	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
 
-	if(getCpuData()->haveXsave){
+	if(getGlobalCpuFeatures()->haveXsave){
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	} else {
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
@@ -184,7 +180,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
 
 
-	if(getCpuData()->haveXsave){
+	if(getGlobalCpuFeatures()->haveXsave){
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	}else{
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
@@ -217,7 +213,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
 	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
 
-	if(getCpuData()->haveXsave){
+	if(getGlobalCpuFeatures()->haveXsave){
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	}else{
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
@@ -269,7 +265,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	common::x86::wrmsr(common::x86::kMsrIndexFsBase, executor->general()->clientFs);
 	common::x86::wrmsr(common::x86::kMsrIndexKernelGsBase, executor->general()->clientGs);
 
-	if(getCpuData()->haveXsave){
+	if(getGlobalCpuFeatures()->haveXsave){
 		common::x86::xrstor((uint8_t*)executor->_fxState(), ~0);
 	}else{
 		asm volatile ("fxrstorq %0" : : "m" (*executor->_fxState()));
@@ -369,8 +365,7 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 // PlatformCpuData
 // --------------------------------------------------------
 
-PlatformCpuData::PlatformCpuData()
-: haveSmap{false}, havePcids{false} {
+PlatformCpuData::PlatformCpuData() {
 	for(int i = 0; i < maxPcidCount; i++)
 		pcidBindings[i].setupPcid(i);
 
@@ -436,12 +431,79 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 // Namespace scope functions
 // --------------------------------------------------------
 
-namespace {
-	frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
+constinit bool cpuFeaturesKnown = false;
+constinit CpuFeatures globalCpuFeatures{};
+
+initgraph::Stage *getCpuFeaturesKnownStage() {
+	static initgraph::Stage s{&globalInitEngine, "x86.cpu-features-known"};
+	return &s;
 }
 
-size_t getStateSize() {
-	return Executor::determineSize();
+static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerate-cpu-features",
+	initgraph::Entails{getCpuFeaturesKnownStage()},
+	[] {
+		// Enable the XSAVE instruction set and child features
+		if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
+			infoLogger() << "\e[37mthor: CPUs support XSAVE\e[39m" << frg::endlog;
+			globalCpuFeatures.haveXsave = true;
+
+			auto xsaveCpuid = common::x86::cpuid(0xD);
+			globalCpuFeatures.xsaveRegionSize = xsaveCpuid[2];
+		}else{
+			infoLogger() << "\e[37mthor: CPUs do not support XSAVE!\e[39m" << frg::endlog;
+		}
+
+		if(globalCpuFeatures.haveXsave) {
+			if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
+				infoLogger() << "\e[37mthor: CPUs support AVX\e[39m" << frg::endlog;
+				globalCpuFeatures.haveAvx = true;
+			}else{
+				infoLogger() << "\e[37mthor: CPUs do not support AVX!\e[39m" << frg::endlog;
+			}
+
+			if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 16)) {
+				infoLogger() << "\e[37mthor: CPUs support AVX-512\e[39m" << frg::endlog;
+				globalCpuFeatures.haveZmm = true;
+			}else{
+				infoLogger() << "\e[37mthor: CPUs do not support AVX-512!\e[39m" << frg::endlog;
+			}
+		}
+
+		if(common::x86::cpuid(0x01)[2] & (1 << 24)) {
+			infoLogger() << "\e[37mthor: CPUs support TSC deadline mode\e[39m"
+					<< frg::endlog;
+			globalCpuFeatures.haveTscDeadline = true;
+		}
+
+		auto intelPmLeaf = common::x86::cpuid(0xA)[0];
+		if(intelPmLeaf & 0xFF) {
+			infoLogger() << "\e[37mthor: CPUs support Intel performance counters\e[39m"
+					<< frg::endlog;
+			globalCpuFeatures.profileFlags |= CpuFeatures::profileIntelSupported;
+		}
+		auto amdPmLeaf = common::x86::cpuid(0x8000'0001)[2];
+		if(amdPmLeaf & (1 << 23)) {
+			infoLogger() << "\e[37mthor: CPUs support AMD performance counters\e[39m"
+					<< frg::endlog;
+			globalCpuFeatures.profileFlags |= CpuFeatures::profileAmdSupported;
+		}
+
+		// Check that both vmx and ept are supported.
+		bool vmxSupported = (common::x86::cpuid(0x1)[2] >> 5) & 1 && common::x86::rdmsr(0x0000048CU) * (1 << 6);
+		if(vmxSupported) {
+			infoLogger() << "\e[37mthor: CPUs support VMX\e[39m"
+					<< frg::endlog;
+			globalCpuFeatures.haveVmx = true;
+		}else{
+			infoLogger() << "\e[37mthor: CPUs do not support VMX!\e[39m" << frg::endlog;
+		}
+
+		cpuFeaturesKnown = true;
+	}
+};
+
+namespace {
+	frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
 }
 
 CpuData *getCpuData(size_t k) {
@@ -488,10 +550,7 @@ void setupBootCpuContext() {
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
-	initgraph::Requires{getApicDiscoveryStage()},
-	// TODO: initializeThisProcessor() does a lot of initialization that should be global instead;
-	//       for example: discovering whether we use syscall, VMX, etc.
-	//       Move this to another task that entails the fibers-available stage.
+	initgraph::Requires{getCpuFeaturesKnownStage(), getApicDiscoveryStage()},
 	initgraph::Entails{getFibersAvailableStage()},
 	[] {
 		allCpuContexts.initialize(*kernelAlloc);
@@ -507,37 +566,35 @@ static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-p
 };
 
 void initializeThisProcessor() {
-	// FIXME: the stateSize should not be CPU specific!
-	// move it to a global variable and initialize it in initializeTheSystem() etc.!
-	auto cpu_data = getCpuData();
+	auto cpuData = getCpuData();
 
 	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
-	cpu_data->cpuIndex = allCpuContexts->size();
-	allCpuContexts->push(cpu_data);
+	cpuData->cpuIndex = allCpuContexts->size();
+	allCpuContexts->push(cpuData);
 
 	// Allocate per-CPU areas.
-	cpu_data->irqStack = UniqueKernelStack::make();
-	cpu_data->dfStack = UniqueKernelStack::make();
-	cpu_data->nmiStack = UniqueKernelStack::make();
-	cpu_data->detachedStack = UniqueKernelStack::make();
+	cpuData->irqStack = UniqueKernelStack::make();
+	cpuData->dfStack = UniqueKernelStack::make();
+	cpuData->nmiStack = UniqueKernelStack::make();
+	cpuData->detachedStack = UniqueKernelStack::make();
 
 	// We embed some data at the top of the NMI stack.
 	// The NMI handler needs this data to enter a consistent kernel state.
 	struct Embedded {
 		AssemblyCpuData *expectedGs;
 		uint64_t padding;
-	} embedded{cpu_data, 0};
+	} embedded{cpuData, 0};
 
-	cpu_data->nmiStack.embed<Embedded>(embedded);
+	cpuData->nmiStack.embed<Embedded>(embedded);
 
 	// Setup our IST after the did the embedding.
-	cpu_data->tss.ist1 = (uintptr_t)cpu_data->irqStack.base();
-	cpu_data->tss.ist2 = (uintptr_t)cpu_data->dfStack.base();
-	cpu_data->tss.ist3 = (uintptr_t)cpu_data->nmiStack.base();
+	cpuData->tss.ist1 = (uintptr_t)cpuData->irqStack.base();
+	cpuData->tss.ist2 = (uintptr_t)cpuData->dfStack.base();
+	cpuData->tss.ist3 = (uintptr_t)cpuData->nmiStack.base();
 
 	common::x86::Gdtr gdtr;
 	gdtr.limit = 14 * 8;
-	gdtr.pointer = cpu_data->gdt;
+	gdtr.pointer = cpuData->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	asm volatile ( "pushq %0\n"
@@ -546,16 +603,16 @@ void initializeThisProcessor() {
 			".L_reloadCs:" : : "i" (kSelInitialCode) );
 
 	// We need a valid TSS in case an NMI or fault happens here.
-	activateTss(&cpu_data->tss);
+	activateTss(&cpuData->tss);
 
-	// setup the idt
+	// Setup the IDT.
 	for(int i = 0; i < 256; i++)
-		common::x86::makeIdt64NullGate(cpu_data->idt, i);
-	setupIdt(cpu_data->idt);
+		common::x86::makeIdt64NullGate(cpuData->idt, i);
+	setupIdt(cpuData->idt);
 
 	common::x86::Idtr idtr;
 	idtr.limit = 256 * 16;
-	idtr.pointer = cpu_data->idt;
+	idtr.pointer = cpuData->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
 	// Enable the global page feature.
@@ -579,42 +636,26 @@ void initializeThisProcessor() {
 //	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
 
 	// Enable the XSAVE instruction set and child features
-	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
-		infoLogger() << "\e[37mthor: CPU supports XSAVE\e[39m" << frg::endlog;
-
+	if(getGlobalCpuFeatures()->haveXsave) {
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
 		cr4 |= uint32_t(1) << 18; // Enable XSAVE and x{get, set}bv
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
-		auto xsave_cpuid = common::x86::cpuid(0xD);
-
 		uint64_t xcr0 = 0;
 		xcr0 |= (uint64_t(1) << 0); // Enable saving of x87 feature set
 		xcr0 |= (uint64_t(1) << 1); // Enable saving of SSE feature set
 
-		if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
-			infoLogger() << "\e[37mthor: CPU supports AVX\e[39m" << frg::endlog;
+		if(getGlobalCpuFeatures()->haveAvx)
 			xcr0 |= (uint64_t(1) << 2); // Enable saving of AVX feature set and enable it
-		}else{
-			infoLogger() << "\e[37mthor: CPU does not support AVX!\e[39m" << frg::endlog;
-		}
 
-		if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 16)) {
-			infoLogger() << "\e[37mthor: CPU supports AVX-512\e[39m" << frg::endlog;
+		if(getGlobalCpuFeatures()->haveZmm) {
 			xcr0 |= (uint64_t(1) << 5); // Enable AVX-512
 			xcr0 |= (uint64_t(1) << 6); // Enable management of ZMM{0 -> 15}
 			xcr0 |= (uint64_t(1) << 7); // Enable management of ZMM{16 -> 31}
-		}else{
-			infoLogger() << "\e[37mthor: CPU does not support AVX-512!\e[39m" << frg::endlog;
 		}
 
 		common::x86::wrxcr(0, xcr0);
-
-		cpu_data->xsaveRegionSize = xsave_cpuid[2];
-		cpu_data->haveXsave = true;
-	}else{
-		infoLogger() << "\e[37mthor: CPU does not support XSAVE!\e[39m" << frg::endlog;
 	}
 
 	// Enable the SMAP extension.
@@ -628,7 +669,7 @@ void initializeThisProcessor() {
 
 		asm volatile ("clac" : : : "memory");
 
-		cpu_data->haveSmap = true;
+		cpuData->haveSmap = true;
 	}else{
 		infoLogger() << "\e[37mthor: CPU does not support SMAP!\e[39m" << frg::endlog;
 	}
@@ -641,7 +682,6 @@ void initializeThisProcessor() {
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
 		cr4 |= uint32_t(1) << 20;
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
-
 	}else{
 		infoLogger() << "\e[37mthor: CPU does not support SMEP!\e[39m" << frg::endlog;
 	}
@@ -654,15 +694,14 @@ void initializeThisProcessor() {
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
 		cr4 |= uint32_t(1) << 11;
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
-
 	}else{
 		infoLogger() << "\e[37mthor: CPU does not support UMIP!\e[39m" << frg::endlog;
 	}
 
 	// Enable the PCID extension.
-	bool pcid_bit = common::x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
-	bool invpcid_bit = common::x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
-	if(pcid_bit && invpcid_bit) {
+	bool pcidBit = common::x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
+	bool invpcidBit = common::x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
+	if(pcidBit && invpcidBit) {
 		infoLogger() << "\e[37mthor: CPU supports PCIDs\e[39m" << frg::endlog;
 
 		uint64_t cr4;
@@ -670,43 +709,19 @@ void initializeThisProcessor() {
 		cr4 |= uint32_t(1) << 17;
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 
-		cpu_data->havePcids = true;
-	}else if(pcid_bit) {
+		cpuData->havePcids = true;
+	}else if(pcidBit) {
 		infoLogger() << "\e[37mthor: CPU supports PCIDs but no INVPCID;"
 				" will not use PCIDs!\e[39m" << frg::endlog;
 	}else{
 		infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frg::endlog;
 	}
 
-	if(common::x86::cpuid(0x01)[2] & (1 << 24)) {
-		infoLogger() << "\e[37mthor: CPU supports TSC deadline mode\e[39m"
-				<< frg::endlog;
-		cpu_data->haveTscDeadline = true;
-	}
+	// Enable VMX if it is supported.
+	if(getGlobalCpuFeatures()->haveVmx)
+		cpuData->haveVirtualization = thor::vmx::vmxon();
 
-	auto intelPmLeaf = common::x86::cpuid(0xA)[0];
-	if(intelPmLeaf & 0xFF) {
-		infoLogger() << "\e[37mthor: CPU supports Intel performance counters\e[39m"
-				<< frg::endlog;
-		cpu_data->profileFlags |= PlatformCpuData::profileIntelSupported;
-	}
-	auto amdPmLeaf = common::x86::cpuid(0x8000'0001)[2];
-	if(amdPmLeaf & (1 << 23)) {
-		infoLogger() << "\e[37mthor: CPU supports AMD performance counters\e[39m"
-				<< frg::endlog;
-		cpu_data->profileFlags |= PlatformCpuData::profileAmdSupported;
-	}
-
-	//Check that both vmx and ept are supported.
-	bool vmxSupported = (common::x86::cpuid(0x1)[2] >> 5) & 1 && common::x86::rdmsr(0x0000048CU) * (1 << 6);
-	if(!vmxSupported) {
-		infoLogger() << "vmx: vmx not supported" << frg::endlog;
-		cpu_data->haveVirtualization = false;
-	} else {
-		cpu_data->haveVirtualization = thor::vmx::vmxon();
-	}
-
-	// setup the syscall interface
+	// Setup the syscall interface.
 	if((common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures)[3]
 			& common::x86::kCpuFlagSyscall) == 0)
 		panicLogger() << "CPU does not support the syscall instruction"
@@ -717,19 +732,18 @@ void initializeThisProcessor() {
 			efer | common::x86::kMsrSyscallEnable);
 
 	common::x86::wrmsr(common::x86::kMsrLstar, (uintptr_t)&syscallStub);
-	// set user mode rpl bits to work around a qemu bug
+	// Set user mode rpl bits to work around a qemu bug.
 	common::x86::wrmsr(common::x86::kMsrStar, (uint64_t(kSelClientUserCompat) << 48)
 			| (uint64_t(kSelExecutorSyscallCode) << 32));
-	// mask interrupt and trap flag
+	// Mask interrupt and trap flag.
 	common::x86::wrmsr(common::x86::kMsrFmask, 0x300);
 
-	cpuFeaturesKnown = true;
-
-	cpu_data->wqFiber = KernelFiber::post([] {
+	// Setup the per-CPU work queue.
+	cpuData->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.
 	});
-	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue()->selfPtr.lock();
-	assert(cpu_data->generalWorkQueue);
+	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue()->selfPtr.lock();
+	assert(cpuData->generalWorkQueue);
 
 	initLocalApicPerCpu();
 }

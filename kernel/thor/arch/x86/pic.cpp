@@ -190,7 +190,7 @@ void LocalApicContext::_updateLocalTimer() {
 	consider(localApicContext()->_preemptionDeadline);
 	consider(localApicContext()->_globalDeadline);
 
-	if(getCpuData()->haveTscDeadline) {
+	if(getGlobalCpuFeatures()->haveTscDeadline) {
 		if(!deadline) {
 			common::x86::wrmsr(0x6E0, 0);
 			return;
@@ -305,7 +305,7 @@ void initLocalApicPerCpu() {
 	dumpLocalInt(1);
 
 	// Setup a timer interrupt for scheduling.
-	if(getCpuData()->haveTscDeadline) {
+	if(getGlobalCpuFeatures()->haveTscDeadline) {
 		picBase.store(lApicLvtTimer, apicLvtVector(0xFF) | apicLvtTimerMode(2));
 		// The SDM requires this to order MMIO and MSR writes.
 		asm volatile ("mfence" : : : "memory");
@@ -326,7 +326,7 @@ uint32_t getLocalApicId() {
 }
 
 uint64_t localTicks() {
-	assert(!getCpuData()->haveTscDeadline);
+	assert(!getGlobalCpuFeatures()->haveTscDeadline);
 	return picBase.load(lApicCurCount);
 }
 
@@ -349,7 +349,7 @@ void calibrateApicTimer() {
 	const uint64_t millis = 100;
 
 	// Calibrate the local APIC timer.
-	if(!getCpuData()->haveTscDeadline) {
+	if(!getGlobalCpuFeatures()->haveTscDeadline) {
 		picBase.store(lApicInitCount, 0xFFFFFFFF);
 		pollSleepNano(millis * 1'000'000);
 		uint32_t elapsed = 0xFFFFFFFF

@@ -513,7 +513,28 @@ void scrubStack(IrqImageAccessor accessor, Continuation cont);
 void scrubStack(SyscallImageAccessor accessor, Continuation cont);
 void scrubStack(Executor *executor, Continuation cont);
 
-size_t getStateSize();
+struct CpuFeatures {
+	static constexpr uint32_t profileIntelSupported = 1;
+	static constexpr uint32_t profileAmdSupported = 2;
+
+	bool haveXsave;
+	bool haveAvx;
+	bool haveZmm;
+	bool haveTscDeadline;
+	bool haveVmx;
+	uint32_t profileFlags;
+	size_t xsaveRegionSize;
+};
+
+extern bool cpuFeaturesKnown;
+extern CpuFeatures globalCpuFeatures;
+
+[[gnu::const]] inline CpuFeatures *getGlobalCpuFeatures() {
+	assert(cpuFeaturesKnown);
+	return &globalCpuFeatures;
+}
+
+initgraph::Stage *getCpuFeaturesKnownStage();
 
 // switches the active executor.
 // does NOT restore the executor's state.
@@ -545,9 +566,6 @@ struct AssemblyCpuData {
 };
 
 struct PlatformCpuData : public AssemblyCpuData {
-	static constexpr uint32_t profileIntelSupported = 1;
-	static constexpr uint32_t profileAmdSupported = 2;
-
 	PlatformCpuData();
 
 	int localApicId;
@@ -566,12 +584,9 @@ struct PlatformCpuData : public AssemblyCpuData {
 	PageBinding pcidBindings[maxPcidCount];
 	GlobalPageBinding globalBinding;
 
-	bool haveSmap;
-	bool havePcids;
-	bool haveXsave;
-	bool haveTscDeadline;
-	uint32_t profileFlags = 0;
-	size_t xsaveRegionSize;
+	bool havePcids = false;
+	bool haveSmap = false;
+	bool haveVirtualization = false;
 
 	LocalApicContext apicContext;
 
@@ -628,7 +643,7 @@ void forkExecutor(F functor, Executor *executor) {
 		(*fp)();
 	};
 
-	if(getPlatformCpuData()->haveXsave) {
+	if(getGlobalCpuFeatures()->haveXsave) {
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	} else {
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));

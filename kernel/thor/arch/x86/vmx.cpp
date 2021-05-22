@@ -54,9 +54,10 @@ namespace thor::vmx {
 		);
 
 		if(successful) {
-			infoLogger() << "vmx: processor entered vmxon operation" << frg::endlog;
+			infoLogger() << "thor: CPU entered vmxon operation" << frg::endlog;
 		} else {
-			infoLogger() << "vmx: vmxon failed" << frg::endlog;
+			infoLogger() << "\e[31m" "thor: vmxon failed; this will be a hard error in the future"
+					"\e[39m" << frg::endlog;
 		}
 
 		return successful;
@@ -250,16 +251,16 @@ namespace thor::vmx {
 		state = {};
 
 
-		if(getCpuData()->haveXsave){
-			hostFstate = (uint8_t*)kernelAlloc->allocate(getCpuData()->xsaveRegionSize);
+		if(getGlobalCpuFeatures()->haveXsave){
+			hostFstate = (uint8_t*)kernelAlloc->allocate(getGlobalCpuFeatures()->xsaveRegionSize);
 			assert(reinterpret_cast<PhysicalAddr>(hostFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
-			guestFstate = (uint8_t*)kernelAlloc->allocate(getCpuData()->xsaveRegionSize);
+			guestFstate = (uint8_t*)kernelAlloc->allocate(getGlobalCpuFeatures()->xsaveRegionSize);
 			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
-			memset((void*)hostFstate, 0, getCpuData()->xsaveRegionSize);
-			memset((void*)guestFstate, 0, getCpuData()->xsaveRegionSize);
+			memset((void*)hostFstate, 0, getGlobalCpuFeatures()->xsaveRegionSize);
+			memset((void*)guestFstate, 0, getGlobalCpuFeatures()->xsaveRegionSize);
 		} else {
 			hostFstate = (uint8_t*)kernelAlloc->allocate(512);
-			hostFstate = (uint8_t*)kernelAlloc->allocate(getCpuData()->xsaveRegionSize);
+			hostFstate = (uint8_t*)kernelAlloc->allocate(getGlobalCpuFeatures()->xsaveRegionSize);
 			guestFstate = (uint8_t*)kernelAlloc->allocate(512);
 			assert(reinterpret_cast<PhysicalAddr>(guestFstate) != static_cast<PhysicalAddr>(-1) && "OOM");
 			memset((void*)hostFstate, 0, 512);
@@ -309,7 +310,7 @@ namespace thor::vmx {
 			asm volatile("cli");
 			vmclear((PhysicalAddr)region);
 			vmptrld((PhysicalAddr)region);
-			if(getCpuData()->haveXsave){
+			if(getGlobalCpuFeatures()->haveXsave){
 				common::x86::xsave((uint8_t*)hostFstate, ~0);
 				common::x86::xrstor((uint8_t*)guestFstate, ~0);
 			} else {
@@ -324,7 +325,7 @@ namespace thor::vmx {
 				vmResume((void*)&state);
 			}
 
-			if(getCpuData()->haveXsave){
+			if(getGlobalCpuFeatures()->haveXsave){
 				common::x86::xsave((uint8_t*)guestFstate, ~0);
 				common::x86::xrstor((uint8_t*)hostFstate, ~0);
 			} else {
