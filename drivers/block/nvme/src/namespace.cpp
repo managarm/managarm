@@ -3,8 +3,9 @@
 #include "namespace.hpp"
 #include "controller.hpp"
 
-Namespace::Namespace(Controller* controller, unsigned int nsid, int lbaShift) : BlockDevice{(size_t)1 << lbaShift}, controller_(controller),
-                                                                        nsid_(nsid), lbaShift_(lbaShift) {
+Namespace::Namespace(Controller* controller, unsigned int nsid, int lbaShift)
+    : BlockDevice{(size_t)1 << lbaShift}, controller_(controller), nsid_(nsid),
+    lbaShift_(lbaShift) {
 }
 
 async::detached Namespace::run() {
