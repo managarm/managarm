@@ -48,10 +48,10 @@ int Queue::handleIrq() {
     int found = 0;
     volatile spec::CompletionEntry* cqe = &cqes_[cqHead_];
 
-    while (convert_endian<endian::little>(cqe->status & 1) == cqPhase_) {
+    while ((convert_endian<endian::little>(cqe->status) & 1) == cqPhase_) {
         found++;
 
-        auto status = convert_endian<endian::little>(cqe->status >> 1);
+        auto status = convert_endian<endian::little>(cqe->status) >> 1;
         auto slot = cqe->commandId;
         assert(slot < queuedCmds_.size());
         assert(queuedCmds_[slot]);
