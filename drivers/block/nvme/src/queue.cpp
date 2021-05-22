@@ -1,5 +1,6 @@
 #include <arch/bit.hpp>
 #include <helix/ipc.hpp>
+#include <helix/memory.hpp>
 
 #include "queue.hpp"
 #include "spec.hpp"
@@ -31,8 +32,8 @@ void Queue::init() {
 
     sqCmds_ = reinterpret_cast<spec::CompletionEntry *>(window);
 
-    HEL_CHECK(helPointerPhysical(cqes_, &cqPhys_));
-    HEL_CHECK(helPointerPhysical(sqCmds_, &sqPhys_));
+    cqPhys_ = helix::ptrToPhysical(cqes_);
+    sqPhys_ = helix::ptrToPhysical(sqCmds_);
 }
 
 async::detached Queue::run() {

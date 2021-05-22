@@ -1,5 +1,5 @@
 #include <arch/bit.hpp>
-#include <helix/ipc.hpp>
+#include <helix/memory.hpp>
 #include <unistd.h>
 
 #include "command.hpp"
@@ -15,25 +15,24 @@ void Command::setupBuffer(arch::dma_buffer_view view) {
 
     if (offset + view.size() <= pageSize * 2) {
         // Inline
-        uintptr_t physical;
-        HEL_CHECK(helPointerPhysical(view.data(), &physical));
-        command_.common.dataPtr.prp1 = convert_endian<endian::little, endian::native>(physical);
+        command_.common.dataPtr.prp1 = convert_endian<endian::little, endian::native>(
+            helix::ptrToPhysical(view.data())
+        );
 
         auto firstPrpLen = pageSize - offset;
         if (view.size() > firstPrpLen) {
-            HEL_CHECK(helPointerPhysical(view.subview(firstPrpLen).data(), &physical));
-            command_.common.dataPtr.prp2 = convert_endian<endian::little, endian::native>(physical);
+            command_.common.dataPtr.prp2 = convert_endian<endian::little, endian::native>(
+                helix::ptrToPhysical(view.subview(firstPrpLen).data())
+            );
         }
 
         return;
     }
 
     uintptr_t prp1, prp2;
-    uintptr_t dmaAddr;
     auto size = view.size();
 
-    HEL_CHECK(helPointerPhysical((void*)virtStart, &dmaAddr));
-    prp1 = dmaAddr;
+    prp1 = helix::addressToPhysical(virtStart);
 
     if (offset + view.size() <= pageSize) {
         command_.readWrite.dataPtr.prp1 = convert_endian<endian::little, endian::native>(prp1);
@@ -42,20 +41,19 @@ void Command::setupBuffer(arch::dma_buffer_view view) {
     }
     size -= pageSize - offset;
     virtStart += pageSize - offset;
-    HEL_CHECK(helPointerPhysical((void*)virtStart, &dmaAddr));
 
     if (size <= pageSize) {
         command_.readWrite.dataPtr.prp1 = convert_endian<endian::little, endian::native>(prp1);
-        command_.readWrite.dataPtr.prp2 = convert_endian<endian::little, endian::native>(dmaAddr);
+        command_.readWrite.dataPtr.prp2 = convert_endian<endian::little, endian::native>(
+            helix::addressToPhysical(virtStart)
+        );
         return;
     }
 
     auto prpObj = arch::dma_array<uint64_t>{nullptr, pageSize >> 3};
     auto* prpList = prpObj.data();
-    uintptr_t prpPhys;
 
-    HEL_CHECK(helPointerPhysical(prpList, &prpPhys));
-    prp2 = prpPhys;
+    prp2 = helix::ptrToPhysical(prpList);
     prpLists.push_back(std::move(prpObj));
 
     int i = 0;
@@ -64,16 +62,18 @@ void Command::setupBuffer(arch::dma_buffer_view view) {
             auto* oldPrpList = prpList;
             prpObj = arch::dma_array<uint64_t>{nullptr, pageSize >> 3};
             prpList = prpObj.data();
-            HEL_CHECK(helPointerPhysical(prpList, &prpPhys));
             prpLists.push_back(std::move(prpObj));
 
             prpList[0] = oldPrpList[i - 1];
-            oldPrpList[i - 1] = convert_endian<endian::little, endian::native>(prpPhys);
+            oldPrpList[i - 1] = convert_endian<endian::little, endian::native>(
+                helix::ptrToPhysical(prpList)
+            );
             i = 1;
         }
-        prpList[i++] = convert_endian<endian::little, endian::native>(dmaAddr);
+        prpList[i++] = convert_endian<endian::little, endian::native>(
+            helix::addressToPhysical(virtStart)
+        );
         virtStart += pageSize;
-        HEL_CHECK(helPointerPhysical((void*)virtStart, &dmaAddr));
 
         if (size <= pageSize) break;
         size -= pageSize;
