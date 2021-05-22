@@ -31,6 +31,7 @@ private:
 
     unsigned int queueDepth_;
     uint32_t dbStride_;
+    uint32_t version_;
 
     uint64_t irqSequence_;
 
@@ -49,6 +50,7 @@ private:
     async::result<Command::Result> identifyNamespaceList(unsigned int nsid, uint32_t* list);
     async::result<Command::Result> identifyNamespace(unsigned int nsid, spec::IdentifyNamespace& id);
 
+    async::result<void> createNamespace(unsigned int nsid);
 
     async::detached handleIrqs();
 };

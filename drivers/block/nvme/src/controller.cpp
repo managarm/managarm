@@ -4,6 +4,7 @@
 
 namespace regs {
     constexpr arch::scalar_register<uint64_t> cap{0x0};
+    constexpr arch::scalar_register<uint32_t> vs{0x4};
     constexpr arch::scalar_register<uint32_t> cc{0x14};
     constexpr arch::scalar_register<uint32_t> csts{0x1c};
     constexpr arch::scalar_register<uint32_t> aqa{0x24};
@@ -19,6 +20,12 @@ static inline int mqes(uint64_t cap) {
 }
 static inline int dstrd(uint64_t cap) {
     return (cap >> 32) & 0xf;
+}
+}
+
+namespace vs {
+static inline uint32_t version(uint16_t major, uint8_t minor, uint8_t tertiary) {
+    return ((uint32_t)major << 16) | ((uint32_t)minor << 8) | tertiary;
 }
 }
 
@@ -110,6 +117,8 @@ async::result<void> Controller::reset() {
 
     queueDepth_ = std::min(flags::cap::mqes(cap) + 1, IO_QUEUE_DEPTH);
     dbStride_ = 1 << flags::cap::dstrd(cap);
+
+    version_ = regs_.load(regs::vs);
 
     co_await disable();
 
@@ -237,41 +246,59 @@ async::result<void> Controller::scanNamespaces() {
     using arch::endian;
 
     spec::IdentifyController idCtrl;
-    uint32_t nn;
+    int nn;
 
     if ((co_await identifyController(idCtrl)).first != 0)
         co_return;
 
     nn = convert_endian<endian::little>(idCtrl.nn);
 
-    auto nsList = arch::dma_array<uint32_t>{nullptr, 1024};
-    int numLists = (nn + 1023) >> 10;
-    unsigned int prev = 0;
-    for (auto i = 0; i < numLists; i++) {
-        if ((co_await identifyNamespaceList(prev, nsList.data())).first != 0)
-            co_return;
-
-        int j;
-        for (j = 0; j < std::min((int)nn, 1024); j++) {
-            auto nsid = convert_endian<endian::little>(nsList[j]);
-            spec::IdentifyNamespace id;
-            if (!nsid)
+    if (version_ >= flags::vs::version(1, 1, 0)) {
+        auto nsList = arch::dma_array<uint32_t>{nullptr, 1024};
+        int numLists = (nn + 1023) >> 10;
+        unsigned int prev = 0;
+        for (auto i = 0; i < numLists; i++) {
+            if ((co_await identifyNamespaceList(prev, nsList.data())).first != 0)
                 co_return;
 
-            if ((co_await identifyNamespace(nsid, id)).first != 0)
-                co_return;
+            int j;
+            for (j = 0; j < std::min((int)nn, 1024); j++) {
+                auto nsid = convert_endian<endian::little>(nsList[j]);
+                if (!nsid)
+                    co_return;
 
-            auto lbaShift = id.lbaf[id.flbas & 0xf].ds;
-            if (!lbaShift) lbaShift = 9;
+                co_await createNamespace(nsid);
 
-            auto ns = std::make_unique<Namespace>(this, nsid, lbaShift);
-            activeNamespaces_.push_back(std::move(ns));
+                prev = nsid;
+            }
 
-            prev = nsid;
+            nn -= j;
         }
 
-        nn -= j;
+        co_return;
     }
+
+    for (int i = 1; i <= nn; i++) {
+        co_await createNamespace(i);
+    }
+
+    co_return;
+}
+
+async::result<void> Controller::createNamespace(unsigned int nsid) {
+    spec::IdentifyNamespace id;
+
+    if ((co_await identifyNamespace(nsid, id)).first != 0)
+        co_return;
+
+    if (!id.ncap)
+        co_return;
+
+    auto lbaShift = id.lbaf[id.flbas & 0xf].ds;
+    if (!lbaShift) lbaShift = 9;
+
+    auto ns = std::make_unique<Namespace>(this, nsid, lbaShift);
+    activeNamespaces_.push_back(std::move(ns));
 
     co_return;
 }
