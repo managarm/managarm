@@ -46,7 +46,7 @@ void Command::setupBuffer(arch::dma_buffer_view view) {
 
     if (size <= pageSize) {
         command_.readWrite.dataPtr.prp1 = convert_endian<endian::little, endian::native>(prp1);
-        command_.readWrite.dataPtr.prp1 = convert_endian<endian::little, endian::native>(dmaAddr);
+        command_.readWrite.dataPtr.prp2 = convert_endian<endian::little, endian::native>(dmaAddr);
         return;
     }
 
@@ -80,5 +80,5 @@ void Command::setupBuffer(arch::dma_buffer_view view) {
     }
 
     command_.readWrite.dataPtr.prp1 = convert_endian<endian::little, endian::native>(prp1);
-    command_.readWrite.dataPtr.prp1 = convert_endian<endian::little, endian::native>(prp2);
+    command_.readWrite.dataPtr.prp2 = convert_endian<endian::little, endian::native>(prp2);
 }
