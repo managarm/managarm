@@ -30,7 +30,7 @@ void Queue::init() {
             0, sqSize, kHelMapProtRead | kHelMapProtWrite, &window));
     HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
 
-    sqCmds_ = reinterpret_cast<spec::CompletionEntry *>(window);
+    sqCmds_ = window;
 
     cqPhys_ = helix::ptrToPhysical(cqes_);
     sqPhys_ = helix::ptrToPhysical(sqCmds_);

@@ -3,6 +3,7 @@
 #include <arch/mem_space.hpp>
 #include <async/recurring-event.hpp>
 #include <async/queue.hpp>
+#include <frg/std_compat.hpp>
 
 #include "command.hpp"
 #include "spec.hpp"
@@ -36,16 +37,7 @@ private:
     uint16_t cqHead_;
     uint8_t cqPhase_;
 
-        struct stl_allocator {
-        void *allocate(size_t size) {
-            return operator new(size);
-        }
-
-        void deallocate(void *p, size_t) {
-            return operator delete(p);
-        }
-    };
-    async::queue<std::unique_ptr<Command>, stl_allocator> pendingCmdQueue_;
+    async::queue<std::unique_ptr<Command>, frg::stl_allocator> pendingCmdQueue_;
 
     std::vector<std::unique_ptr<Command>> queuedCmds_;
     async::recurring_event freeSlotDoorbell_;
