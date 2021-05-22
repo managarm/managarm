@@ -97,10 +97,26 @@ async::detached Controller::init() {
 }
 
 void Controller::sendCommandByte(uint8_t byte) {
+	bool inEmpty = helix::busyWaitUntil(default_timeout, [&] {
+		return !(_space.load(kbd_register::status) & status_bits::inBufferStatus);
+	});
+	if(!inEmpty)
+		printf("ps2-hid: Controller failed to empty input buffer\n");
+	// There is not a load that we can do if the controller misbehaves; for now we just abort.
+	assert(inEmpty);
+
 	_space.store(kbd_register::command, byte);
 }
 
 void Controller::sendDataByte(uint8_t byte) {
+	bool inEmpty = helix::busyWaitUntil(default_timeout, [&] {
+		return !(_space.load(kbd_register::status) & status_bits::inBufferStatus);
+	});
+	if(!inEmpty)
+		printf("ps2-hid: Controller failed to empty input buffer\n");
+	// There is not a load that we can do if the controller misbehaves; for now we just abort.
+	assert(inEmpty);
+
 	_space.store(kbd_register::data, byte);
 }
 
@@ -738,10 +754,7 @@ void Controller::Port::sendByte(uint8_t byte) {
 		_controller->submitCommand(controller_cmd::SendBytePort2{});
 	}
 
-	while (_controller->_space.load(kbd_register::status) & status_bits::inBufferStatus)
-		; // wait for the buffer to become empty
-
-	_controller->_space.store(kbd_register::data, byte);
+	_controller->sendDataByte(byte);
 }
 
 

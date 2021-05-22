@@ -104,6 +104,22 @@ async::result<bool> kindaBusyWait(uint64_t timeoutNs, F cond) {
 	co_return std::invoke(cond);
 }
 
+// Returns true if the operation succeeded, or false if it timed out
+template<typename F> requires (std::is_invocable_r_v<bool, F>)
+bool busyWaitUntil(uint64_t timeoutNs, F cond) {
+	uint64_t startNs, currNs;
+	HEL_CHECK(helGetClock(&startNs));
+
+	do {
+		if (std::invoke(cond))
+			return true;
+
+		HEL_CHECK(helGetClock(&currNs));
+	} while (currNs < startNs + timeoutNs);
+
+	return std::invoke(cond);
 }
+
+} // namespace helix
 
 #endif // HELIX_TIMEOUT_HPP
