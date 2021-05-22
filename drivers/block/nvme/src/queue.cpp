@@ -113,8 +113,6 @@ async::result<void> Queue::submitCommandToDevice(std::unique_ptr<Command> cmd) {
 
     queuedCmds_[slot] = std::move(cmd);
     commandsInFlight_++;
-
-    co_return;
 }
 
 async::result<Command::Result> Queue::submitCommand(std::unique_ptr<Command> cmd) {

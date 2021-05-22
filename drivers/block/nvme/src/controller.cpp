@@ -90,7 +90,6 @@ async::result<void> Controller::enable() {
     regs_.store(regs::cc, new_val);
 
     co_await waitStatus(true);
-    co_return;
 }
 
 async::result<void> Controller::disable() {
@@ -99,7 +98,6 @@ async::result<void> Controller::disable() {
     regs_.store(regs::cc, new_val);
 
     co_await waitStatus(false);
-    co_return;
 }
 
 async::result<void> Controller::reset() {
@@ -135,7 +133,6 @@ async::result<void> Controller::reset() {
     }
 
     assert(activeQueues_.size() >= 2 && "At least need one IO queue");
-    co_return;
 }
 
 async::result<bool> Controller::setupIoQueue(Queue* q) {
@@ -272,8 +269,6 @@ async::result<void> Controller::scanNamespaces() {
     for (int i = 1; i <= nn; i++) {
         co_await createNamespace(i);
     }
-
-    co_return;
 }
 
 async::result<void> Controller::createNamespace(unsigned int nsid) {
@@ -290,8 +285,6 @@ async::result<void> Controller::createNamespace(unsigned int nsid) {
 
     auto ns = std::make_unique<Namespace>(this, nsid, lbaShift);
     activeNamespaces_.push_back(std::move(ns));
-
-    co_return;
 }
 
 async::result<Command::Result> Controller::submitIoCommand(std::unique_ptr<Command> cmd) {
