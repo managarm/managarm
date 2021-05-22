@@ -77,26 +77,23 @@ async::detached Controller::init() {
 	handleIrqsFor(_irq12, 1);
 
 	// Initialize devices.
+	printf("ps2-hid: Setting up first port\n");
 	_ports[0] = new Port{this, 0};
 	co_await _ports[0]->init();
 
-	if (!_ports[0]->exists()) { // port exists, device doesnt
-		delete _ports[0];
-		_ports[0] = nullptr;
-	}
+	if (_ports[0]->isDead())
+		printf("ps2-hid: No device on first port\n");
 
 	if (_hasSecondPort) {
-		printf("ps2-hid: setting up second port!\n");
+		printf("ps2-hid: Setting up second port\n");
 		_ports[1] = new Port{this, 1};
 		co_await _ports[1]->init();
 
-		if (!_ports[1]->exists()) { // port exists, device doesnt
-			delete _ports[1];
-			_ports[1] = nullptr;
-		}
+		if (_ports[1]->isDead())
+			printf("ps2-hid: No device on second port\n");
 	}
 
-	co_return;
+	printf("ps2-hid: Initialization done\n");
 }
 
 void Controller::sendCommandByte(uint8_t byte) {
@@ -190,7 +187,7 @@ bool Controller::processData(int port) {
 		if (logPackets)
 			printf("ps2-hid: received byte 0x%02x on port %d!\n", val, port);
 
-		if (!_ports[port]) {
+		if (_ports[port]->isDead()) {
 			printf("ps2-hid: received irq for non-existent device!\n");
 		} else {
 			_ports[port]->pushByte(val);
@@ -207,30 +204,33 @@ bool Controller::processData(int port) {
 // --------------------------------------------------------------------
 
 Controller::Port::Port(Controller *controller, int port)
-: _controller{controller}, _port{port}, _deviceType{}, _exists{false} {
+: _controller{controller}, _port{port}, _deviceType{} {
 }
 
 async::result<void> Controller::Port::init() {
 	auto res1 = co_await submitCommand(device_cmd::DisableScan{});
-
-	if (std::holds_alternative<NoDevice>(res1))
-		co_return; // not present
+	if (std::holds_alternative<NoDevice>(res1)) {
+		_dead = true;
+		co_return;
+	}
 
 	auto res2 = co_await submitCommand(device_cmd::Identify{});
-
-	_exists = !std::holds_alternative<NoDevice>(res2);
-	_deviceType = _exists ? std::get<DeviceType>(res2) : DeviceType{};
-
-	if (!_exists)
+	if (std::holds_alternative<NoDevice>(res1)) {
+		_dead = true;
 		co_return;
+	}
+	_deviceType = std::get<DeviceType>(res2);
 
 	if (_deviceType.keyboard)
 		_device = std::make_unique<KbdDevice>(this);
 	if (_deviceType.mouse)
 		_device = std::make_unique<MouseDevice>(this);
 
-	if (_device)
-		co_await _device->run();
+	if (!_device) {
+		_dead = true;
+		co_return;
+	}
+	co_await _device->run();
 }
 
 async::result<void> Controller::KbdDevice::run() {
@@ -773,10 +773,6 @@ async::result<std::optional<uint8_t>> Controller::Port::recvResponseByte(uint64_
 	if(!result)
 		co_return std::nullopt;
 	co_return *result;
-}
-
-bool Controller::Port::exists() {
-	return _exists;
 }
 
 Controller *_controller;

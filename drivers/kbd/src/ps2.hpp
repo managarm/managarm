@@ -80,7 +80,9 @@ struct Controller {
 
 		async::result<void> init();
 
-		bool exists();
+		bool isDead() {
+			return _dead;
+		}
 
 		DeviceType deviceType() {
 			return _deviceType;
@@ -106,7 +108,7 @@ struct Controller {
 		Controller *_controller;
 		int _port;
 		DeviceType _deviceType;
-		bool _exists;
+		bool _dead = false;
 
 		async::queue<uint8_t, stl_allocator> _dataQueue;
 		std::unique_ptr<Device> _device;
