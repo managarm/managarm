@@ -3,10 +3,9 @@
 #include <async/result.hpp>
 #include <blockfs.hpp>
 
-class Controller;
+struct Controller;
 
-class Namespace : public blockfs::BlockDevice {
-public:
+struct Namespace : blockfs::BlockDevice {
     Namespace(Controller* controller, unsigned int nsid, int lbaShift);
 
     async::detached run();

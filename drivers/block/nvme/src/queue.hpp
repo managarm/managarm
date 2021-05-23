@@ -8,8 +8,7 @@
 #include "command.hpp"
 #include "spec.hpp"
 
-class Queue {
-public:
+struct Queue {
     Queue(unsigned int index, unsigned int depth, arch::mem_space doorbells);
 
     void init();

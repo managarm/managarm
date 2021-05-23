@@ -5,8 +5,7 @@
 
 #include "spec.hpp"
 
-class Command {
-public:
+struct Command {
     using Result = std::pair<uint16_t, spec::CompletionEntry::Result>;
 
     spec::Command& getCommandBuffer() { return  command_; }

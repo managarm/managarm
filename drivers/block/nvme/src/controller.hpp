@@ -8,9 +8,7 @@
 #include "queue.hpp"
 #include "namespace.hpp"
 
-class Controller {
-
-public:
+struct Controller {
     Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
             helix::UniqueDescriptor ahciBar, helix::UniqueDescriptor irq);
 
