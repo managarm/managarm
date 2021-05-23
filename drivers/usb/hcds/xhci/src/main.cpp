@@ -709,8 +709,11 @@ async::detached Controller::Port::initPort() {
 		// await CCS=1
 		co_await awaitFlag(portsc::connectStatus, true);
 
+		// The XHCI spec states that USB2 devices should enter the polling state at the
+		// same time they set CCS=1, but VirtualBox' XHCI does not implement this behavior.
 		auto linkStatus = getLinkStatus();
-		assert(linkStatus == 7); // Polling
+		if(linkStatus != 7)
+			printf("\e[35m" "xhci: USB2 port did not enter polling state after CCS=1" "\e[39m\n");
 
 		reset();
 

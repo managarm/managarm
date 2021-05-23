@@ -25,7 +25,7 @@ public:
 	void prepare(commandTable& table, commandHeader& header);
 	void notifyCompletion(); 
 
-	async::result<void> getFuture() {
+	auto getFuture() {
 		return promise_.async_get();
 	}
 

@@ -199,8 +199,6 @@ void setupHpet(PhysicalAddr address) {
 	//arch::global_io.store(command, operatingMode(0) | accessMode(3));
 	//arch::global_io.store(channel0, 1);
 	//arch::global_io.store(channel0, 0);
-
-	calibrateApicTimer();
 }
 
 void pollSleepNano(uint64_t nanotime) {
@@ -219,10 +217,15 @@ struct HpetEntry {
 	uint8_t pageProtection;
 } __attribute__ (( packed ));
 
+initgraph::Stage *getHpetInitializedStage() {
+	static initgraph::Stage s{&globalInitEngine, "x86.hpet-initialized"};
+	return &s;
+}
+
 static initgraph::Task initHpetTask{&globalInitEngine, "x86.init-hpet",
 	initgraph::Requires{getApicDiscoveryStage(), // For APIC calibration.
 			acpi::getTablesDiscoveredStage()},
-	initgraph::Entails{getTaskingAvailableStage()},
+	initgraph::Entails{getHpetInitializedStage()},
 	// Initialize the HPET.
 	[] {
 		void *hpetWindow = laihost_scan("HPET", 0);

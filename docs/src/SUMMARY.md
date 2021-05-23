@@ -29,4 +29,5 @@
 
 - [Implementation Notes](impl-notes/index.md)
     - [Thor](impl-notes/thor/index.md)
+        - [Initialization](impl-notes/thor/initialization.md)
         - [Scheduling](impl-notes/thor/scheduling.md)

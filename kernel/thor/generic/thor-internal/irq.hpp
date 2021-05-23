@@ -105,6 +105,8 @@ struct IrqSink {
 	// This method is called with sinkMutex() held.
 	virtual IrqStatus raise() = 0;
 
+	virtual void dumpHardwareState();
+
 	// TODO: This needs to be thread-safe.
 	IrqPin *getPin();
 
@@ -180,6 +182,8 @@ private:
 public:
 	void warnIfPending();
 
+	virtual void dumpHardwareState();
+
 protected:
 	virtual IrqStrategy program(TriggerMode mode, Polarity polarity) = 0;
 
@@ -230,7 +234,7 @@ private:
 // ----------------------------------------------------------------------------
 
 // This class implements the user-visible part of IRQ handling.
-struct IrqObject final : IrqSink {
+struct IrqObject : IrqSink {
 	IrqObject(frg::string<KernelAlloc> name);
 
 	void automate(smarter::shared_ptr<BoundKernlet> kernlet);
@@ -303,6 +307,11 @@ private:
 			&AwaitIrqNode::_queueNode
 		>
 	> _waitQueue;
+};
+
+struct GenericIrqObject final : IrqObject {
+	GenericIrqObject(frg::string<KernelAlloc> name)
+	: IrqObject{name} { }
 };
 
 } // namespace thor

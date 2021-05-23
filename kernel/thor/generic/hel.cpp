@@ -2801,7 +2801,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto irq = smarter::allocate_shared<IrqObject>(*kernelAlloc,
+	auto irq = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
 	IrqPin::attachSink(getGlobalSystemIrq(number), irq.get());
 

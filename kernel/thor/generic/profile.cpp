@@ -37,8 +37,8 @@ void initializeProfile() {
 	if(!wantKernelProfile)
 		return;
 
-	if(!(getCpuData()->profileFlags & PlatformCpuData::profileIntelSupported)
-			&& !(getCpuData()->profileFlags & PlatformCpuData::profileAmdSupported)) {
+	if(!(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported)
+			&& !(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileAmdSupported)) {
 		infoLogger() << "\e[31m" "thor: Kernel profiling was requested but"
 				" no hardware support is available" "\e[39m" << frg::endlog;
 		return;
@@ -52,13 +52,13 @@ void initializeProfile() {
 	KernelFiber::run([=] {
 		getCpuData()->localProfileRing = frg::construct<SingleContextRecordRing>(*kernelAlloc);
 
-		if(getCpuData()->profileFlags & PlatformCpuData::profileIntelSupported) {
+		if(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported) {
 			initializeIntelPmc();
 			getCpuData()->profileMechanism.store(ProfileMechanism::intelPmc,
 					std::memory_order_release);
 			setIntelPmc();
 		}else{
-			assert(getCpuData()->profileFlags & PlatformCpuData::profileAmdSupported);
+			assert(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileAmdSupported);
 			getCpuData()->profileMechanism.store(ProfileMechanism::amdPmc,
 					std::memory_order_release);
 			setAmdPmc();

@@ -59,6 +59,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	while(true) {
 		if(!_queue.empty()) {
 			auto req = &_queue.front();
+			_queue.pop_front();
 			
 			if(logRequests)
 				std::cout << "block-usb: Reading " << req->numSectors << " sectors" << std::endl;
@@ -170,8 +171,6 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 			}
 
 			req->promise.set_value();
-			_queue.pop_front();
-			delete req;
 		}else{
 			co_await _doorbell.async_wait();
 		}
@@ -180,20 +179,18 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 
 async::result<void> StorageDevice::readSectors(uint64_t sector,
 		void *buffer, size_t numSectors) {
-	auto req = new Request{false, sector, buffer, numSectors};
-	_queue.push_back(*req);
-	auto result = req->promise.async_get();
+	Request req{false, sector, buffer, numSectors};
+	_queue.push_back(req);
 	_doorbell.raise();
-	return result;
+	co_await req.promise.async_get();
 }
 
 async::result<void> StorageDevice::writeSectors(uint64_t sector,
 		const void *buffer, size_t numSectors) {
-	auto req = new Request{true, sector, const_cast<void *>(buffer), numSectors};
-	_queue.push_back(*req);
-	auto result = req->promise.async_get();
+	Request req{true, sector, const_cast<void *>(buffer), numSectors};
+	_queue.push_back(req);
 	_doorbell.raise();
-	return result;
+	co_await req.promise.async_get();
 }
 
 async::detached bindDevice(mbus::Entity entity) {

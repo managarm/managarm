@@ -27,6 +27,10 @@ IrqSink::IrqSink(frg::string<KernelAlloc> name)
 : _name{std::move(name)}, _pin{nullptr}, _currentSequence{0},
 		_responseSequence{0}, _status{IrqStatus::null} { }
 
+void IrqSink::dumpHardwareState() {
+	infoLogger() << "thor: No dump available for IRQ sink " << name() << frg::endlog;
+}
+
 IrqPin *IrqSink::getPin() {
 	return _pin;
 }
@@ -157,6 +161,7 @@ void IrqPin::raise() {
 	
 	if(_strategy == IrqStrategy::null) {
 		infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frg::endlog;
+		dumpHardwareState();
 	}else{
 		assert(_strategy == IrqStrategy::justEoi
 				|| _strategy == IrqStrategy::maskThenEoi);
@@ -166,6 +171,7 @@ void IrqPin::raise() {
 	if(_maskState) {
 		infoLogger() << "\e[31mthor: Ignoring masked IRQ " << _name
 				<< " (hardware race?).\e[39m" << frg::endlog;
+		dumpHardwareState();
 		sendEoi();
 		return;
 	}
@@ -183,6 +189,11 @@ void IrqPin::raise() {
 		if(_inService && !_dueSinks) {
 			infoLogger() << "\e[31mthor: IRQ " << _name
 					<< " was nacked (synchronously)!\e[39m" << frg::endlog;
+			for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
+				auto lock = frg::guard(&(*it)->_mutex);
+				(*it)->dumpHardwareState();
+			}
+
 			_maskState |= maskedForNack;
 		}
 	}
@@ -217,6 +228,11 @@ void IrqPin::_nack() {
 
 	infoLogger() << "\e[31mthor: IRQ " << _name
 			<< " was nacked (asynchronously)!\e[39m" << frg::endlog;
+	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
+		auto lock = frg::guard(&(*it)->_mutex);
+		(*it)->dumpHardwareState();
+	}
+
 	_maskState |= maskedForNack;
 	_updateMask();
 }
@@ -251,6 +267,10 @@ void IrqPin::warnIfPending() {
 		log << "\e[39m" << frg::endlog;
 		_warnedAfterPending = true;
 	}
+}
+
+void IrqPin::dumpHardwareState() {
+	infoLogger() << "thor: No dump available for IRQ pin " << name() << frg::endlog;
 }
 
 void IrqPin::_callSinks() {

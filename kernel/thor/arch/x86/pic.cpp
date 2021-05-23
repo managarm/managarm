@@ -68,6 +68,23 @@ inline constexpr arch::field<uint32_t, uint8_t> apicLvtTimerMode(17, 2);
 
 ApicRegisterSpace picBase;
 
+namespace {
+	bool getLocalApicIsr(unsigned int vector) {
+		arch::scalar_register<uint32_t> isrRegister{0x100 + 0x10 * (vector >> 5)};
+		return picBase.load(isrRegister) & (1 << (vector & 31));
+	}
+
+	bool getLocalApicTmr(unsigned int vector) {
+		arch::scalar_register<uint32_t> tmrRegister{0x180 + 0x10 * (vector >> 5)};
+		return picBase.load(tmrRegister) & (1 << (vector & 31));
+	}
+
+	bool getLocalApicIrr(unsigned int vector) {
+		arch::scalar_register<uint32_t> irrRegister{0x200 + 0x10 * (vector >> 5)};
+		return picBase.load(irrRegister) & (1 << (vector & 31));
+	}
+}
+
 enum {
 	kModelLegacy = 1,
 	kModelApic = 2
@@ -82,20 +99,12 @@ uint64_t getRawTimestampCounter() {
 			| static_cast<uint64_t>(lsw);
 }
 
-namespace {
-	uint64_t tscTicksPerMilli;
-}
-
 // --------------------------------------------------------
 // Local APIC timer
 // --------------------------------------------------------
 
 namespace {
-	bool apicIsCalibrated = false;
-	// TODO: APIC variables should be CPU-specific.
-	uint32_t apicTicksPerMilli;
-
-	GlobalApicContext *globalApicContextInstance;
+	frg::eternal<GlobalApicContext> globalApicContextInstance;
 
 	LocalApicContext *localApicContext() {
 		return &getCpuData()->apicContext;
@@ -103,11 +112,11 @@ namespace {
 }
 
 GlobalApicContext *globalApicContext() {
-	return globalApicContextInstance;
+	return &globalApicContextInstance.get();
 }
 
 void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
-	assert(apicIsCalibrated);
+	assert(localApicContext()->timersAreCalibrated);
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -121,14 +130,14 @@ LocalApicContext::LocalApicContext()
 : _preemptionDeadline{0}, _globalDeadline{0} { }
 
 void LocalApicContext::setPreemption(uint64_t nanos) {
-	assert(apicIsCalibrated);
+	assert(localApicContext()->timersAreCalibrated);
 
 	localApicContext()->_preemptionDeadline = nanos;
 	LocalApicContext::_updateLocalTimer();
 }
 
 void LocalApicContext::handleTimerIrq() {
-	assert(apicIsCalibrated);
+	assert(localApicContext()->timersAreCalibrated);
 
 	if(debugTimer)
 		infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
@@ -173,14 +182,14 @@ void LocalApicContext::_updateLocalTimer() {
 	consider(localApicContext()->_preemptionDeadline);
 	consider(localApicContext()->_globalDeadline);
 
-	if(getCpuData()->haveTscDeadline) {
+	if(localApicContext()->useTscMode) {
 		if(!deadline) {
 			common::x86::wrmsr(0x6E0, 0);
 			return;
 		}
 
 		uint64_t ticks;
-		auto of = __builtin_mul_overflow(deadline, tscTicksPerMilli, &ticks);
+		auto of = __builtin_mul_overflow(deadline, localApicContext()->tscTicksPerMilli, &ticks);
 		assert(!of);
 		ticks /= 1'000'000;
 		common::x86::wrmsr(0x6E0, ticks);
@@ -204,7 +213,8 @@ void LocalApicContext::_updateLocalTimer() {
 			if(debugTimer)
 				infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
 						<< ((deadline - now)/1000) << " us in the future" << frg::endlog;
-			auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
+			auto of = __builtin_mul_overflow(deadline - now,
+					localApicContext()->localTicksPerMilli, &ticks);
 			assert(!of);
 			ticks /= 1'000'000;
 			if(!ticks)
@@ -287,8 +297,12 @@ void initLocalApicPerCpu() {
 	dumpLocalInt(0);
 	dumpLocalInt(1);
 
+	if(getGlobalCpuFeatures()->haveInvariantTsc
+			&& getGlobalCpuFeatures()->haveTscDeadline)
+		localApicContext()->useTscMode = true;
+
 	// Setup a timer interrupt for scheduling.
-	if(getCpuData()->haveTscDeadline) {
+	if(localApicContext()->useTscMode) {
 		picBase.store(lApicLvtTimer, apicLvtVector(0xFF) | apicLvtTimerMode(2));
 		// The SDM requires this to order MMIO and MSR writes.
 		asm volatile ("mfence" : : : "memory");
@@ -298,6 +312,8 @@ void initLocalApicPerCpu() {
 
 	// Setup the PMI.
 	picBase.store(lApicLvtPerfCount, apicLvtMode(4));
+
+	calibrateApicTimer();
 }
 
 uint32_t getLocalApicId() {
@@ -309,19 +325,21 @@ uint32_t getLocalApicId() {
 }
 
 uint64_t localTicks() {
-	assert(!getCpuData()->haveTscDeadline);
+	assert(!localApicContext()->useTscMode);
 	return picBase.load(lApicCurCount);
 }
 
-struct TimeStampCounter final : ClockSource {
-	uint64_t currentNanos() override {
-		auto r = getRawTimestampCounter() * 1'000'000 / tscTicksPerMilli;
-//		infoLogger() << r << frg::endlog;
-		return r;
-	}
-};
+namespace {
+	struct TscClockSource final : ClockSource {
+		uint64_t currentNanos() override {
+			auto r = getRawTimestampCounter() * 1'000'000 / localApicContext()->tscTicksPerMilli;
+	//		infoLogger() << r << frg::endlog;
+			return r;
+		}
+	};
 
-TimeStampCounter *globalTscInstance;
+	frg::manual_box<TscClockSource> globalTscClockSource;
+}
 
 extern ClockSource *hpetClockSource;
 extern AlarmTracker *hpetAlarmTracker;
@@ -332,15 +350,17 @@ void calibrateApicTimer() {
 	const uint64_t millis = 100;
 
 	// Calibrate the local APIC timer.
-	if(!getCpuData()->haveTscDeadline) {
+	if(!localApicContext()->useTscMode) {
 		picBase.store(lApicInitCount, 0xFFFFFFFF);
 		pollSleepNano(millis * 1'000'000);
 		uint32_t elapsed = 0xFFFFFFFF
 				- picBase.load(lApicCurCount);
 		picBase.store(lApicInitCount, 0);
 
-		apicTicksPerMilli = elapsed / millis;
-		infoLogger() << "thor: Local APIC ticks/ms: " << apicTicksPerMilli << frg::endlog;
+		localApicContext()->localTicksPerMilli = elapsed / millis;
+		infoLogger() << "thor: Local APIC ticks/ms: "
+				<< localApicContext()->localTicksPerMilli
+				<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 	}
 
 	// Calibrate the TSC.
@@ -348,20 +368,32 @@ void calibrateApicTimer() {
 	pollSleepNano(millis * 1'000'000);
 	auto tsc_elapsed = getRawTimestampCounter() - tsc_start;
 
-	tscTicksPerMilli = tsc_elapsed / millis;
-	infoLogger() << "thor: TSC ticks/ms: " << tscTicksPerMilli << frg::endlog;
+	localApicContext()->tscTicksPerMilli = tsc_elapsed / millis;
+	infoLogger() << "thor: TSC ticks/ms: " << localApicContext()->tscTicksPerMilli
+				<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 
-	apicIsCalibrated = true;
-
-	globalTscInstance = frg::construct<TimeStampCounter>(*kernelAlloc);
-	globalApicContextInstance = frg::construct<GlobalApicContext>(*kernelAlloc);
-
-	globalClockSource = globalTscInstance;
-//	globalClockSource = hpetClockSource;
-	globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
-			globalClockSource, globalApicContext()->globalAlarm());
-//			globalClockSource, hpetAlarmTracker);
+	localApicContext()->timersAreCalibrated = true;
 }
+
+static initgraph::Task assessTimersTask{&globalInitEngine, "x86.assess-timers",
+	initgraph::Requires{getHpetInitializedStage()},
+	initgraph::Entails{getTaskingAvailableStage()},
+	[] {
+		if(getGlobalCpuFeatures()->haveInvariantTsc) {
+			globalTscClockSource.initialize();
+			globalClockSource = globalTscClockSource.get();
+		}else{
+			infoLogger() << "thor: No invariant TSC; using HPET as system clock source"
+					<< frg::endlog;
+
+			globalClockSource = hpetClockSource;
+		}
+
+		globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
+				globalClockSource, globalApicContext()->globalAlarm());
+	//			globalClockSource, hpetAlarmTracker);
+	}
+};
 
 void acknowledgeIpi() {
 	picBase.store(lApicEoi, 0);
@@ -482,9 +514,9 @@ namespace pin_word1 {
 	inline constexpr arch::field<uint32_t, unsigned int> vector(0, 8);
 	inline constexpr arch::field<uint32_t, unsigned int> deliveryMode(8, 3);
 //	inline constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
-//	inline constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
+	inline constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
 	inline constexpr arch::field<uint32_t, bool> activeLow(13, 1);
-//	inline constexpr arch::field<uint32_t, bool> remotePending(14, 1);
+	inline constexpr arch::field<uint32_t, bool> remoteIrr(14, 1);
 	inline constexpr arch::field<uint32_t, bool> levelTriggered(15, 1);
 	inline constexpr arch::field<uint32_t, bool> masked(16, 1);
 };
@@ -505,6 +537,7 @@ namespace {
 		struct Pin final : IrqPin {
 			Pin(IoApic *chip, unsigned int index);
 
+			void dumpHardwareState() override;
 			IrqStrategy program(TriggerMode mode, Polarity polarity) override;
 			void mask() override;
 			void unmask() override;
@@ -554,6 +587,32 @@ namespace {
 	IoApic::Pin::Pin(IoApic *chip, unsigned int index)
 	: IrqPin{buildName(chip->_apicId, index)}, _chip{chip}, _index{index} { }
 
+	void IoApic::Pin::dumpHardwareState() {
+		infoLogger() << "thor: Local APIC state of vector " << _vector << ":"
+				<< " ISR: " << (int)getLocalApicIsr(_vector)
+				<< ", TMR: " << (getLocalApicTmr(_vector) ? "level" : "edge")
+				<< ", IRR: " << (int)getLocalApicIrr(_vector)
+				<< frg::endlog;
+
+		arch::bit_value<uint32_t> word1{_chip->_loadRegister(kIoApicInts + _index * 2)};
+		infoLogger() << "thor: Configuration of pin " << name() << ": "
+				<< ((word1 & pin_word1::levelTriggered) ? "level" : "edge")
+				<< "-triggered, active-"
+				<< ((word1 & pin_word1::activeLow) ? "low" : "high")
+				<< frg::endlog;
+		if(_levelTriggered != (word1 & pin_word1::levelTriggered))
+			infoLogger() << "\e[31m" "thor: Trigger mode does not match software state!"
+					"\e[39m" << frg::endlog;
+		if(_activeLow != (word1 & pin_word1::activeLow))
+			infoLogger() << "\e[31m" "thor: Trigger mode does not match software state!"
+					"\e[39m" << frg::endlog;
+		infoLogger() << "thor: I/O APIC state:"
+				<< " mask: " << (int)(word1 & pin_word1::masked)
+				<< ", delivery status: " << (int)(word1 & pin_word1::deliveryStatus)
+				<< ", remote IRR: " << (int)(word1 & pin_word1::remoteIrr)
+				<< frg::endlog;
+	}
+
 	IrqStrategy IoApic::Pin::program(TriggerMode mode, Polarity polarity) {
 		IrqStrategy strategy;
 		if(mode == TriggerMode::edge) {
@@ -602,6 +661,13 @@ namespace {
 				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
 				| pin_word1::activeLow(_activeLow) | pin_word1::masked(true)));
+
+		// Dummy load from the I/O APIC to ensure that the mask has taken effect.
+		// Without this, we encounter innocuous but annoying races on some hardware:
+		// since (x2)APIC EOIs are not necessarily serializing, we observe that the
+		// I/O APIC submits IRQs to the local APIC even *after* they have been masked
+		// in the I/O APIC.
+		_chip->_loadRegister(kIoApicInts + _index * 2);
 	}
 
 	void IoApic::Pin::unmask() {

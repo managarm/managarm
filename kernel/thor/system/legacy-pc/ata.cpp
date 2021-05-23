@@ -135,7 +135,7 @@ namespace {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			auto object = smarter::allocate_shared<IrqObject>(*kernelAlloc,
+			auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
 					frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
 #ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(14);
