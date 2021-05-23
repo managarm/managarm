@@ -47,7 +47,7 @@ int Queue::handleIrq() {
 	using arch::endian;
 
 	int found = 0;
-	volatile spec::CompletionEntry *cqe = &cqes_[cqHead_];
+	spec::CompletionEntry *cqe = &cqes_[cqHead_];
 
 	while ((convert_endian<endian::little>(cqe->status) & 1) == cqPhase_) {
 		found++;
@@ -58,7 +58,7 @@ int Queue::handleIrq() {
 		assert(queuedCmds_[slot]);
 
 		std::unique_ptr<Command> cmd = std::move(queuedCmds_[slot]);
-		cmd->complete(status, spec::CompletionEntry::Result{.u64 = cqe->result.u64});
+		cmd->complete(status, cqe->result);
 
 		if (++cqHead_ == depth_) {
 			cqHead_ = 0;
