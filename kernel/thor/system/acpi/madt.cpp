@@ -280,8 +280,6 @@ static initgraph::Task initTablesTask{&globalInitEngine, "acpi.init-tables",
 			auto rsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
 			globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, rsdt->header.length);
 		}
-
-		lai_create_namespace();
 	}
 };
 
@@ -371,6 +369,7 @@ static initgraph::Task enterAcpiModeTask{&globalInitEngine, "acpi.enter-acpi-mod
 		pci::getBus0AvailableStage()},
 	initgraph::Entails{getNsAvailableStage()},
 	[] {
+		lai_create_namespace();
 		// Configure the ISA IRQs.
 		// TODO: This is a hack. We assume that HPET will use legacy replacement.
 		infoLogger() << "thor: Configuring ISA IRQs." << frg::endlog;

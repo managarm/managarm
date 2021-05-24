@@ -14,10 +14,13 @@ namespace block_subsystem {
 namespace {
 
 id_allocator<uint32_t> minorAllocator;
+id_allocator<uint32_t> diskAllocator;
+std::unordered_map<int64_t, char> diskNames;
 
 struct Subsystem {
 	Subsystem() {
 		minorAllocator.use_range(0);
+		diskAllocator.use_range(0);
 	}
 } subsystem;
 
@@ -29,7 +32,7 @@ struct Device final : UnixDevice {
 	std::string nodePath() override {
 		return _name;
 	}
-	
+
 	FutureMaybe<smarter::shared_ptr<File, FileHandle>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
@@ -51,17 +54,38 @@ async::detached run() {
 	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.devtype", "block")
+		mbus::EqualsFilter("unix.devtype", "block"),
+		mbus::EqualsFilter("unix.blocktype", "disk")
 	});
-	
+
 	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+		constexpr const char *alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+		auto id = entity.getId();
+		int diskId = diskAllocator.allocate();
+		assert(static_cast<size_t>(diskId) < sizeof(alphabet));
+		diskNames.emplace(id, alphabet[diskId]);
+	});
+
+	co_await root.linkObserver(std::move(filter), std::move(handler));
+
+	filter = mbus::Conjunction({
+		mbus::EqualsFilter("unix.devtype", "block"),
+		mbus::EqualsFilter("unix.blocktype", "partition")
+	});
+
+	handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
-		std::cout << "POSIX: Installing block device "
-				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
+		auto diskId = std::stoll(std::get<mbus::StringItem>(properties.at("unix.diskid")).value);
+		auto diskName = diskNames.at(diskId);
+
+		auto name = std::string("sd") + diskName + std::get<mbus::StringItem>(properties.at("unix.partid")).value;
+		std::cout << "POSIX: Installing block device " << name << std::endl;
 
 		auto lane = helix::UniqueLane(co_await entity.bind());
 		auto device = std::make_shared<Device>(VfsType::blockDevice,
-				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
+				name,
 				std::move(lane));
 		// We use 8 here, the major for SCSI devices and allocate minors sequentially.
 		// Note that this is not really correct as the minor of a partition
