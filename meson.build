@@ -175,7 +175,7 @@ if build_drivers
 		# libraries
 		'libblockfs', 'libevbackend', 
 		# storage
-		'block/ata', 'block/virtio-blk', 'block/ahci', 
+		'block/ata', 'block/virtio-blk', 'block/ahci', 'block/nvme',
 		# gfx
 		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware',
 		# io
