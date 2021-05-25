@@ -83,6 +83,7 @@ server = get_option('libdir')/'managarm/server'
 kasan = get_option('kernel_kasan')
 ubsan = get_option('kernel_ubsan')
 log_alloc = get_option('kernel_log_allocations')
+frame_pointers = get_option('kernel_frame_pointers')
 
 if arch != 'aarch64' and arch != 'x86_64'
 	error('unknown architecture ' + arch)

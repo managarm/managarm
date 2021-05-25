@@ -36,3 +36,9 @@ option('build_docs',
     value : false,
     description : 'build only the mdbook and doxygen docs'
 )
+
+option('kernel_frame_pointers',
+    type : 'boolean',
+    value : 'false',
+    description : 'include frame pointers for stack traces'
+)
