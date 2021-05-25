@@ -133,44 +133,33 @@ void workOnExecutor(Executor *executor) {
 	executor->general()->spsr = 0x3c5;
 }
 
-void scrubStack(FaultImageAccessor accessor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
+void scrubStackInternal(uintptr_t top, Continuation cont) {
 	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
 	assert(top >= bottom);
 	cleanKasanShadow(cont.sp, top - bottom);
 	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)), bottom & (kPageSize - 1));
+}
+
+template <typename Accessor>
+void scrubStackAccessor(const Accessor& accessor, const Continuation& cont) {
+	scrubStackInternal(reinterpret_cast<uintptr_t>(accessor.frameBase()), cont);
+}
+
+void scrubStack(FaultImageAccessor accessor, Continuation cont) {
+	scrubStackAccessor(accessor, cont);
 }
 
 void scrubStack(IrqImageAccessor accessor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
-	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
-	assert(top >= bottom);
-	cleanKasanShadow(cont.sp, top - bottom);
-	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	scrubStackAccessor(accessor, cont);
 }
 
 void scrubStack(SyscallImageAccessor accessor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
-	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
-	assert(top >= bottom);
-	cleanKasanShadow(cont.sp, top - bottom);
-	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	scrubStackAccessor(accessor, cont);
 }
 
 void scrubStack(Executor *executor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(*executor->sp());
-	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
-	assert(top >= bottom);
-	cleanKasanShadow(cont.sp, top - bottom);
-	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	scrubStackInternal(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
 }
 
 size_t getStateSize() {
