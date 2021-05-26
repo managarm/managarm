@@ -22,7 +22,8 @@ While the managarm user space API supports many Linux APIs (e.g. epoll, timerfd,
 managarm does not share any source code (or binaries) with the Linux kernel.
 
 **Official Discord server:** https://discord.gg/7WB6Ur3. This is our primary real-time communication channel.
-**Official IRC channel:** `#managarm` on `irc.freenode.net`
+
+**Official IRC channel:** `#managarm` on `irc.libera.chat`, our former channel on freenode is no longer in use.
 
 ## Features
 
@@ -51,7 +52,7 @@ Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/w
 **General** USB (UHCI, EHCI)\
 **Graphics** Generic VBE graphics, Intel G45, virtio GPU, Bochs VBE interface, VMWare SVGA\
 **Input** USB human interface devices, PS/2 keyboard and mouse\
-**Storage** USB mass storage devices, AHCI, ATA, virtio block
+**Storage** USB mass storage devices, NVMe, AHCI, ATA, virtio block
 
 ## Building managarm
 
