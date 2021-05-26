@@ -11,7 +11,7 @@ Most of our communication happens on our Discord at [https://discord.gg/7WB6Ur3]
 Some of our communication takes place on GitHub at [https://github.com/managarm/managarm](https://github.com/managarm/managarm).
 
 ### IRC
-We also have an IRC channel `#managarm` on `chat.freenode.net`
+We also have an IRC channel `#managarm` on `irc.libera.chat`, please keep in mind that our former channel found on freenode is no longer in use.
 
 
 <!-- omit in toc -->
