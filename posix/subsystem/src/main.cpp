@@ -2266,7 +2266,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC) {
 				auto result = co_await file->truncate(0);
-				assert(result);
+				assert(result || result.error() == protocols::fs::Error::illegalOperationTarget);
 			}
 			int fd = self->fileContext()->attachFile(file,
 					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);

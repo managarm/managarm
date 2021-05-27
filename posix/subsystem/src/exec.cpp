@@ -241,9 +241,9 @@ execute(ViewPath root, ViewPath workdir,
 
 		if(!args.empty()) // Handle exec() without arguments.
 			args.erase(args.begin());
+		args.insert(args.begin(), path);
 		if(beginArg != endArg)
 			args.insert(args.begin(), std::string{beginArg, endArg});
-		args.insert(args.begin(), path);
 		args.insert(args.begin(), interpreterPath);
 		path = std::move(interpreterPath);
 		execFile = std::move(interpreterFile);
