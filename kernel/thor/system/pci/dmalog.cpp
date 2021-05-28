@@ -27,7 +27,7 @@ constexpr arch::bit_register<uint32_t> isrRegister{0x10};
 constexpr arch::field<uint32_t, bool> isrOutStatus{0, 1};
 constexpr arch::field<uint32_t, bool> isrInStatus{1, 1};
 
-struct DmalogDevice : KernelIoChannel {
+struct DmalogDevice final : KernelIoChannel {
 	static constexpr size_t ringSize = kPageSize;
 
 	DmalogDevice(frg::string<KernelAlloc> tag, frg::string<KernelAlloc> descriptiveTag,

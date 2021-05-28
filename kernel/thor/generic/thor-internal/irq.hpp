@@ -307,6 +307,9 @@ private:
 			&AwaitIrqNode::_queueNode
 		>
 	> _waitQueue;
+
+protected:
+	~IrqObject() = default;
 };
 
 struct GenericIrqObject final : IrqObject {
