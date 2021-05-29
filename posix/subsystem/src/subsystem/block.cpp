@@ -59,7 +59,7 @@ async::detached run() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) {
 		constexpr const char *alphabet = "abcdefghijklmnopqrstuvwxyz";
 
 		auto id = entity.getId();
