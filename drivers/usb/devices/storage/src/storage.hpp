@@ -96,8 +96,9 @@ struct Read32 {
 } // namespace scsi
 
 struct StorageDevice : blockfs::BlockDevice {
-	StorageDevice(Device usb_device) 
-	: blockfs::BlockDevice(512), _usbDevice(std::move(usb_device)) { }
+	//TODO(geert): hook up USB to sysfs too
+	StorageDevice(Device usb_device)
+	: blockfs::BlockDevice(512, -1), _usbDevice(std::move(usb_device)) { }
 
 	async::detached run(int config_num, int intf_num);
 

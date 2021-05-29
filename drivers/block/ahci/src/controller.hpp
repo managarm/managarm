@@ -7,10 +7,10 @@
 
 #include "port.hpp"
 
-class Controller { 
+class Controller {
 
 public:
-	Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
+	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
 			helix::UniqueDescriptor ahciBar, helix::UniqueDescriptor irq);
 
 	async::detached run();
@@ -27,6 +27,7 @@ private:
 
 	std::vector<std::unique_ptr<Port>> activePorts_;
 
+	int64_t parentId_;
 	uint32_t portsImpl_;
 	uint64_t irqSequence_;
 	int maxPorts_;

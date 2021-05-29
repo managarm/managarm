@@ -484,8 +484,8 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 
 } // anonymous namespace
 
-BlockDevice::BlockDevice(size_t sector_size)
-: sectorSize(sector_size) { }
+BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id)
+: sectorSize(sector_size), parentId(parent_id) { }
 
 async::detached servePartition(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
@@ -642,7 +642,8 @@ async::detached runDevice(BlockDevice *device) {
 
 		mbus::Properties descriptor {
 			{"unix.devtype", mbus::StringItem{"block"}},
-			{"unix.blocktype", mbus::StringItem{"disk"}}
+			{"unix.blocktype", mbus::StringItem{"disk"}},
+			{"drvcore.mbus-parent", mbus::StringItem{std::to_string(device->parentId)}}
 		};
 
 		auto handler = mbus::ObjectHandler{}
@@ -677,7 +678,8 @@ async::detached runDevice(BlockDevice *device) {
 			{"unix.devtype", mbus::StringItem{"block"}},
 			{"unix.blocktype", mbus::StringItem{"partition"}},
 			{"unix.partid", mbus::StringItem{std::to_string(partId++)}},
-			{"unix.diskid", mbus::StringItem{std::to_string(diskId)}}
+			{"unix.diskid", mbus::StringItem{std::to_string(diskId)}},
+			{"drvcore.mbus-parent", mbus::StringItem{std::to_string(device->parentId)}}
 		};
 
 		auto handler = mbus::ObjectHandler{}

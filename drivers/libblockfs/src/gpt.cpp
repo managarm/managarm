@@ -20,7 +20,7 @@ async::result<void> Table::parse() {
 	auto header_buffer = malloc(512);
 	assert(header_buffer);
 	co_await getDevice()->readSectors(1, header_buffer, 1);
-	
+
 	DiskHeader *header = (DiskHeader *)header_buffer;
 	assert(header->signature == 0x5452415020494645); // TODO: handle this error
 
@@ -32,7 +32,7 @@ async::result<void> Table::parse() {
 	auto table_buffer = malloc(table_sectors * 512);
 	assert(table_buffer);
 	co_await getDevice()->readSectors(2, table_buffer, table_sectors);
-	
+
 	for(uint32_t i = 0; i < header->numEntries; i++) {
 		DiskEntry *entry = (DiskEntry *)((char *)table_buffer + i * header->entrySize);
 
@@ -65,8 +65,8 @@ Partition &Table::getPartition(int index) {
 
 Partition::Partition(Table &table, Guid id, Guid type,
 		uint64_t start_lba, uint64_t num_sectors)
-: BlockDevice(table.getDevice()->sectorSize), _table(table), _id(id), _type(type),
-		_startLba(start_lba), _numSectors(num_sectors) { }
+: BlockDevice(table.getDevice()->sectorSize, table.getDevice()->parentId), _table(table),
+	_id(id), _type(type), _startLba(start_lba), _numSectors(num_sectors) { }
 
 Guid Partition::type() {
 	return _type;

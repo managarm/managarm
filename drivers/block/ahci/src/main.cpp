@@ -8,7 +8,7 @@
 std::vector<std::unique_ptr<Controller>> globalControllers;
 
 async::detached bindController(mbus::Entity entity) {
-	protocols::hw::Device device(co_await entity.bind());	
+	protocols::hw::Device device(co_await entity.bind());
 	auto info = co_await device.getPciInfo();
 
 	auto& ahciBarInfo = info.barInfo[5];
@@ -18,8 +18,8 @@ async::detached bindController(mbus::Entity entity) {
 
 	helix::Mapping mapping{ahciBar, ahciBarInfo.offset, ahciBarInfo.length};
 
-	auto controller = std::make_unique<Controller>(std::move(device), std::move(mapping),
-			std::move(ahciBar), std::move(irq));
+	auto controller = std::make_unique<Controller>(entity.getId(), std::move(device),
+			std::move(mapping), std::move(ahciBar), std::move(irq));
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }

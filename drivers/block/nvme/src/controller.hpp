@@ -9,13 +9,16 @@
 #include "namespace.hpp"
 
 struct Controller {
-	Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
+	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
 			   helix::UniqueDescriptor ahciBar, helix::UniqueDescriptor irq);
 
 	async::detached run();
 
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd);
 
+	inline int64_t getParentId() const {
+		return parentId_;
+	}
 private:
 	static constexpr int IO_QUEUE_DEPTH = 1024;
 
@@ -27,6 +30,7 @@ private:
 	std::vector<std::unique_ptr<Queue>> activeQueues_;
 	std::vector<std::unique_ptr<Namespace>> activeNamespaces_;
 
+	int64_t parentId_;
 	unsigned int queueDepth_;
 	uint32_t dbStride_;
 	uint32_t version_;

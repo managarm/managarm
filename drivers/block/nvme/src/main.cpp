@@ -18,8 +18,8 @@ async::detached bindController(mbus::Entity entity) {
 
 	helix::Mapping mapping{bar0, barInfo.offset, barInfo.length};
 
-	auto controller = std::make_unique<Controller>(std::move(device), std::move(mapping),
-												   std::move(bar0), std::move(irq));
+	auto controller = std::make_unique<Controller>(entity.getId(), std::move(device), std::move(mapping),
+			   std::move(bar0), std::move(irq));
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }

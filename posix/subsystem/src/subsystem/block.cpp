@@ -8,10 +8,14 @@
 #include "../device.hpp"
 #include "../util.hpp"
 #include "../vfs.hpp"
+#include "../drvcore.hpp"
+#include "pci.hpp"
 
 namespace block_subsystem {
 
 namespace {
+
+drvcore::ClassSubsystem *sysfsSubsystem;
 
 id_allocator<uint32_t> minorAllocator;
 id_allocator<uint32_t> diskAllocator;
@@ -24,9 +28,12 @@ struct Subsystem {
 	}
 } subsystem;
 
-struct Device final : UnixDevice {
-	Device(VfsType type, std::string name, helix::UniqueLane lane)
+struct Device final : UnixDevice, drvcore::BlockDevice {
+	Device(VfsType type, std::string name, helix::UniqueLane lane,
+			std::shared_ptr<drvcore::Device> parent)
 	: UnixDevice{type},
+			drvcore::BlockDevice{sysfsSubsystem, std::move(parent), name,
+					this},
 			_name{std::move(name)}, _lane{std::move(lane)} { }
 
 	std::string nodePath() override {
@@ -43,6 +50,10 @@ struct Device final : UnixDevice {
 		return mountExternalDevice(_lane);
 	}
 
+	void composeUevent(drvcore::UeventProperties &ue) override {
+		ue.set("SUBSYSTEM", "block");
+	}
+
 private:
 	std::string _name;
 	helix::UniqueLane _lane;
@@ -51,6 +62,8 @@ private:
 } // anonymous namepsace
 
 async::detached run() {
+	sysfsSubsystem = new drvcore::ClassSubsystem{"block"};
+
 	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
@@ -83,15 +96,23 @@ async::detached run() {
 		auto name = std::string("sd") + diskName + std::get<mbus::StringItem>(properties.at("unix.partid")).value;
 		std::cout << "POSIX: Installing block device " << name << std::endl;
 
+		auto parent_property = std::get<mbus::StringItem>(properties.at("drvcore.mbus-parent"));
+		auto mbus_parent = std::stoi(parent_property.value);
+		std::shared_ptr<drvcore::Device> parent_device;
+		if (mbus_parent != -1)
+			parent_device = pci_subsystem::getDeviceByMbus(mbus_parent);
+
 		auto lane = helix::UniqueLane(co_await entity.bind());
 		auto device = std::make_shared<Device>(VfsType::blockDevice,
 				name,
-				std::move(lane));
+				std::move(lane),
+				parent_device);
 		// We use 8 here, the major for SCSI devices and allocate minors sequentially.
 		// Note that this is not really correct as the minor of a partition
 		// depends on the minor of the whole device (see Linux devices.txt documentation).
 		device->assignId({8, minorAllocator.allocate()});
 		blockRegistry.install(device);
+		drvcore::installDevice(device);
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));

@@ -52,7 +52,7 @@ struct UserRequest : virtio_core::Request {
 // --------------------------------------------------------
 
 struct Device : blockfs::BlockDevice {
-	Device(std::unique_ptr<virtio_core::Transport> transport);
+	Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent_id);
 
 	void runDevice();
 
@@ -65,7 +65,7 @@ struct Device : blockfs::BlockDevice {
 private:
 	// Submits requests from _pendingQueue to the device.
 	async::detached _processRequests();
-	
+
 	std::unique_ptr<virtio_core::Transport> _transport;
 
 	// The single virtq of this device.

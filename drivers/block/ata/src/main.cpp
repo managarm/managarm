@@ -51,7 +51,7 @@ class Controller : public blockfs::BlockDevice {
 	};
 
 public:
-	Controller(uint16_t mainOffset, uint16_t altOffset,
+	Controller(int64_t parentId, uint16_t mainOffset, uint16_t altOffset,
 			helix::UniqueDescriptor mainBar, helix::UniqueDescriptor altBar,
 			helix::UniqueDescriptor irq);
 
@@ -114,10 +114,10 @@ private:
 	uint64_t _irqSequence;
 };
 
-Controller::Controller(uint16_t mainOffset, uint16_t altOffset,
+Controller::Controller(int64_t parentId, uint16_t mainOffset, uint16_t altOffset,
 		helix::UniqueDescriptor mainBar, helix::UniqueDescriptor altBar,
 		helix::UniqueDescriptor irq)
-: BlockDevice{512}, _irq{std::move(irq)},
+: BlockDevice{512, parentId}, _irq{std::move(irq)},
 		_ioSpace{mainOffset}, _altSpace{altOffset}, _supportsLBA48{false} {
 	HEL_CHECK(helEnableIo(mainBar.getHandle()));
 	HEL_CHECK(helEnableIo(altBar.getHandle()));
@@ -245,7 +245,7 @@ async::result<bool> Controller::_detectDevice() {
 
 	// Try to detect non-ATAPI drives now.
 	// Virtually all non-ATAPI commands (inclduing IDENTIY) require RDY to be set
-	// (this is documented on a per-command basis in the ATA specification). 
+	// (this is documented on a per-command basis in the ATA specification).
 	// The RDY bit is set in <= 30s after the drive spins up.
 
 	// First, wait until RDY becomes set, then send IDENTITY.
@@ -385,7 +385,7 @@ async::detached bindController(mbus::Entity entity) {
 	auto altBar = co_await device.accessBar(1);
 	auto irq = co_await device.accessIrq();
 
-	auto controller = std::make_shared<Controller>(
+	auto controller = std::make_shared<Controller>(entity.getId(),
 			info.barInfo[0].address, info.barInfo[1].address,
 			std::move(mainBar), std::move(altBar),
 			std::move(irq));

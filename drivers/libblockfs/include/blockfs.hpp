@@ -1,11 +1,12 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <stdint.h>
 
 namespace blockfs {
 
 struct BlockDevice {
-	BlockDevice(size_t sector_size);
+	BlockDevice(size_t sector_size, int64_t parent_id);
 
 	virtual ~BlockDevice() = default;
 
@@ -17,6 +18,7 @@ struct BlockDevice {
 	}
 
 	const size_t sectorSize;
+	const int64_t parentId;
 };
 
 async::detached runDevice(BlockDevice *device);
