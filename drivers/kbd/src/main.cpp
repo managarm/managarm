@@ -750,7 +750,7 @@ Controller::KbdDevice::submitCommand(device_cmd::GetScancodeSet tag) {
 }
 
 void Controller::Port::sendByte(uint8_t byte) {
-	if (_port == 1) {
+	if (_port == 2) {
 		_controller->submitCommand(controller_cmd::SendBytePort2{});
 	}
 
