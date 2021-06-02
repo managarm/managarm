@@ -63,7 +63,7 @@ public:
 	void unpoison_expand(void *pointer, size_t size);
 	void poison(void *pointer, size_t size);
 
-	void output_trace(uint8_t val);
+	void output_trace(void *buffer, size_t size);
 };
 
 using KernelAlloc = frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock>;

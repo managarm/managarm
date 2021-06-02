@@ -215,11 +215,11 @@ void KernelVirtualAlloc::poison(void *pointer, size_t size) {
 	poisonKasanShadow(pointer, size);
 }
 
-void KernelVirtualAlloc::output_trace(uint8_t val) {
+void KernelVirtualAlloc::output_trace(void *buffer, size_t size) {
 	if (!allocLog)
 		allocLog.initialize(0xFFFF'F000'0000'0000, 268435456);
 
-	allocLog->enqueue(val);
+	allocLog->enqueue(buffer, size);
 }
 
 frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
