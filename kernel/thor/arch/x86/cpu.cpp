@@ -535,11 +535,11 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 	cleanKasanShadow(reinterpret_cast<void *>(stackPtr - UniqueKernelStack::kSize),
 			UniqueKernelStack::kSize);
 	asm volatile (
-			"mov %%rsp, %%rbp\n"
+			"xor %%rbp, %%rbp\n"
 			"mov %%rsp, %%rsi\n"
 			"\tmov %2, %%rsp\n"
 			"\tcall *%1\n"
-			"\tmov %%rbp, %%rsp"
+			"\tud2"
 			:
 			: "D" (argument), "r" (function), "r" (stackPtr)
 			: "rbp", "rsi", "memory");
