@@ -1,6 +1,9 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
+#include <thor-internal/kernel-io.hpp>
+#include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
 
@@ -180,6 +183,25 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 }
 
 frg::manual_box<LogRingBuffer> allocLog;
+
+namespace {
+	initgraph::Task initAllocTraceSink{&globalInitEngine, "generic.init-alloc-trace-sink",
+		initgraph::Requires{getFibersAvailableStage(),
+			getIoChannelsDiscoveredStage()},
+		[] {
+#ifndef KERNEL_LOG_ALLOCATIONS
+			return;
+#endif // KERNEL_LOG_ALLOCATIONS
+
+			auto channel = solicitIoChannel("kernel-alloc-trace");
+			if(channel) {
+				infoLogger() << "thor: Connecting alloc-trace to I/O channel" << frg::endlog;
+				async::detach_with_allocator(*kernelAlloc,
+						dumpRingToChannel(allocLog.get(), std::move(channel), 2048));
+			}
+		}
+	};
+}
 
 void KernelVirtualAlloc::unpoison(void *pointer, size_t size) {
 	unpoisonKasanShadow(pointer, size);
