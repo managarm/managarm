@@ -108,7 +108,7 @@ if kasan
 endif
 
 if log_alloc
-	args = [ '-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS', '-DTHOR_HAS_FRAME_POINTERS' ]
+	args += [ '-fno-omit-frame-pointer', '-DKERNEL_LOG_ALLOCATIONS', '-DTHOR_HAS_FRAME_POINTERS' ]
 endif
 
 if frame_pointers
