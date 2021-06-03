@@ -630,90 +630,81 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 		logRss(this);
 	}
 
-	static constexpr auto deleteMapping = [] (VirtualSpace *space, Mapping *mapping) {
-		space->_mappings.remove(mapping);
-
-		assert(mapping->state == MappingState::zombie);
-		mapping->state = MappingState::retired;
-
-		if(mapping->view->canEvictMemory())
-			mapping->cancelEviction.cancel();
-
-		// TODO: It would be less ugly to run this in a non-detached way.
-		auto cleanUpObserver = [] (Mapping *mapping) -> coroutine<void> {
-			if(mapping->view->canEvictMemory())
-				co_await mapping->evictionDoneEvent.wait();
-			mapping->view->removeObserver(&mapping->observer);
-			mapping->selfPtr.ctr()->decrement();
-		};
-		async::detach_with_allocator(*kernelAlloc, cleanUpObserver(mapping));
-	};
-
-	static constexpr auto closeHole = [] (VirtualSpace *space, VirtualAddr address, size_t length) {
-		// Find the holes that preceede/succeede mapping.
-		Hole *pre;
-		Hole *succ;
-
-		auto current = space->_holes.get_root();
-		while(true) {
-			assert(current);
-			if(address < current->address()) {
-				if(HoleTree::get_left(current)) {
-					current = HoleTree::get_left(current);
-				}else{
-					pre = HoleTree::predecessor(current);
-					succ = current;
-					break;
-				}
-			}else{
-				assert(address >= current->address() + current->length());
-				if(HoleTree::get_right(current)) {
-					current = HoleTree::get_right(current);
-				}else{
-					pre = current;
-					succ = HoleTree::successor(current);
-					break;
-				}
-			}
-		}
-
-		// Try to merge the new hole and the existing ones.
-		if(pre && pre->address() + pre->length() == address
-				&& succ && address + length == succ->address()) {
-			auto hole = frg::construct<Hole>(*kernelAlloc, pre->address(),
-					pre->length() + length + succ->length());
-
-			space->_holes.remove(pre);
-			space->_holes.remove(succ);
-			space->_holes.insert(hole);
-			frg::destruct(*kernelAlloc, pre);
-			frg::destruct(*kernelAlloc, succ);
-		}else if(pre && pre->address() + pre->length() == address) {
-			auto hole = frg::construct<Hole>(*kernelAlloc,
-					pre->address(), pre->length() + length);
-
-			space->_holes.remove(pre);
-			space->_holes.insert(hole);
-			frg::destruct(*kernelAlloc, pre);
-		}else if(succ && address + length == succ->address()) {
-			auto hole = frg::construct<Hole>(*kernelAlloc,
-					address, length + succ->length());
-
-			space->_holes.remove(succ);
-			space->_holes.insert(hole);
-			frg::destruct(*kernelAlloc, succ);
-		}else{
-			auto hole = frg::construct<Hole>(*kernelAlloc,
-					address, length);
-
-			space->_holes.insert(hole);
-		}
-	};
-
 	co_await _ops->shootdown(address, length);
 
-	deleteMapping(this, mapping.get());
-	closeHole(this, address, length);
+	// Now remove the mapping.
+	_mappings.remove(mapping.get());
+
+	assert(mapping->state == MappingState::zombie);
+	mapping->state = MappingState::retired;
+
+	if(mapping->view->canEvictMemory()) {
+		mapping->cancelEviction.cancel();
+		co_await mapping->evictionDoneEvent.wait();
+	}
+	mapping->view->removeObserver(&mapping->observer);
+	mapping->selfPtr.ctr()->decrement();
+
+	// Finally, coalesce the hole in the hole tree.
+
+	// Find the holes that preceede/succeede mapping.
+	Hole *pre;
+	Hole *succ;
+
+	auto current = _holes.get_root();
+	while(true) {
+		assert(current);
+		if(address < current->address()) {
+			if(HoleTree::get_left(current)) {
+				current = HoleTree::get_left(current);
+			}else{
+				pre = HoleTree::predecessor(current);
+				succ = current;
+				break;
+			}
+		}else{
+			assert(address >= current->address() + current->length());
+			if(HoleTree::get_right(current)) {
+				current = HoleTree::get_right(current);
+			}else{
+				pre = current;
+				succ = HoleTree::successor(current);
+				break;
+			}
+		}
+	}
+
+	// Try to merge the new hole and the existing ones.
+	if(pre && pre->address() + pre->length() == address
+			&& succ && address + length == succ->address()) {
+		auto hole = frg::construct<Hole>(*kernelAlloc, pre->address(),
+				pre->length() + length + succ->length());
+
+		_holes.remove(pre);
+		_holes.remove(succ);
+		_holes.insert(hole);
+		frg::destruct(*kernelAlloc, pre);
+		frg::destruct(*kernelAlloc, succ);
+	}else if(pre && pre->address() + pre->length() == address) {
+		auto hole = frg::construct<Hole>(*kernelAlloc,
+				pre->address(), pre->length() + length);
+
+		_holes.remove(pre);
+		_holes.insert(hole);
+		frg::destruct(*kernelAlloc, pre);
+	}else if(succ && address + length == succ->address()) {
+		auto hole = frg::construct<Hole>(*kernelAlloc,
+				address, length + succ->length());
+
+		_holes.remove(succ);
+		_holes.insert(hole);
+		frg::destruct(*kernelAlloc, succ);
+	}else{
+		auto hole = frg::construct<Hole>(*kernelAlloc,
+				address, length);
+
+		_holes.insert(hole);
+	}
 
 	co_return {};
 }
