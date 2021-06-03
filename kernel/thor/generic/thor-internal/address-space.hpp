@@ -499,14 +499,6 @@ protected:
 	~AddressProtectNode() = default;
 };
 
-struct AddressUnmapNode {
-	friend struct VirtualSpace;
-
-protected:
-	virtual void complete() = 0;
-	~AddressUnmapNode() = default;
-};
-
 struct VirtualSpace {
 	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;
@@ -547,7 +539,8 @@ public:
 
 	void synchronize(VirtualAddr address, size_t length, SynchronizeNode *node);
 
-	bool unmap(VirtualAddr address, size_t length, AddressUnmapNode *node);
+	coroutine<frg::expected<Error>>
+	unmap(VirtualAddr address, size_t length);
 
 	frg::optional<bool> handleFault(VirtualAddr address, uint32_t flags,
 			smarter::shared_ptr<WorkQueue> wq, FaultNode *node);
@@ -602,62 +595,6 @@ public:
 
 	SynchronizeSender synchronize(VirtualAddr address, size_t size) {
 		return {this, address, size};
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for unmap()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct UnmapOperation;
-
-	struct [[nodiscard]] UnmapSender {
-		using value_type = void;
-
-		template<typename R>
-		friend UnmapOperation<R>
-		connect(UnmapSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		VirtualSpace *self;
-		VirtualAddr address;
-		size_t size;
-	};
-
-	UnmapSender unmap(VirtualAddr address, size_t size) {
-		return {this, address, size};
-	}
-
-	template<typename R>
-	struct UnmapOperation final : private AddressUnmapNode {
-		UnmapOperation(UnmapSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		UnmapOperation(const UnmapOperation &) = delete;
-
-		UnmapOperation &operator= (const UnmapOperation &) = delete;
-
-		bool start_inline() {
-			if(s_.self->unmap(s_.address, s_.size, this)) {
-				async::execution::set_value_inline(receiver_);
-				return true;
-			}
-			return false;
-		}
-
-	private:
-		void complete() override {
-			async::execution::set_value_noinline(receiver_);
-		}
-
-		UnmapSender s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<UnmapSender>
-	operator co_await(UnmapSender sender) {
-		return {sender};
 	}
 
 	// ----------------------------------------------------------------------------------

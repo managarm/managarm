@@ -592,7 +592,7 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 	return false;
 }
 
-bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *node) {
+coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t length) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -710,14 +710,12 @@ bool VirtualSpace::unmap(VirtualAddr address, size_t length, AddressUnmapNode *n
 		}
 	};
 
-	async::detach_with_allocator(*kernelAlloc,
-			async::transform(_ops->shootdown(address, length), [=] () {
-		deleteMapping(this, mapping.get());
-		closeHole(this, address, length);
-		node->complete();
-	}));
+	co_await _ops->shootdown(address, length);
 
-	return false;
+	deleteMapping(this, mapping.get());
+	closeHole(this, address, length);
+
+	co_return {};
 }
 
 void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode *node) {
