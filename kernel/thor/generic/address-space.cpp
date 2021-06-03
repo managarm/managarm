@@ -390,16 +390,14 @@ smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
 	return _findMapping(address);
 }
 
-bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
-		VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-		MapNode *node) {
+coroutine<frg::expected<Error, VirtualAddr>>
+VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
+		VirtualAddr address, size_t offset, size_t length, uint32_t flags) {
 	assert(length);
 	assert(!(length % kPageSize));
 
-	if(offset + length > slice->length()) {
-		node->nodeResult_.emplace(Error::bufferTooSmall);
-		return true;
-	}
+	if(offset + length > slice->length())
+		co_return Error::bufferTooSmall;
 
 	// The shared_ptr to the new Mapping needs to survive until the locks are released.
 	VirtualAddr actualAddress;
@@ -498,8 +496,7 @@ bool VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	if(mapping->view->canEvictMemory())
 		async::detach_with_allocator(*kernelAlloc, mapping->runEvictionLoop());
 
-	node->nodeResult_.emplace(actualAddress);
-	return true;
+	co_return actualAddress;
 }
 
 bool VirtualSpace::protect(VirtualAddr address, size_t length,

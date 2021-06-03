@@ -463,27 +463,6 @@ using MappingTree = frg::rbtree<
 	MappingLess
 >;
 
-struct MapNode {
-	friend struct VirtualSpace;
-
-	MapNode() = default;
-
-	MapNode(const MapNode &) = delete;
-
-	MapNode &operator= (const MapNode &) = delete;
-
-	frg::expected<Error, VirtualAddr> result() {
-		return *nodeResult_;
-	}
-
-protected:
-	virtual void resume() = 0;
-	~MapNode() = default;
-
-private:
-	frg::optional<frg::expected<Error, VirtualAddr>> nodeResult_;
-};
-
 struct SynchronizeNode {
 	friend struct VirtualSpace;
 
@@ -560,9 +539,9 @@ public:
 
 	void setupInitialHole(VirtualAddr address, size_t size);
 
-	bool map(smarter::borrowed_ptr<MemorySlice> view,
-			VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-			MapNode *node);
+	coroutine<frg::expected<Error, VirtualAddr>>
+	map(smarter::borrowed_ptr<MemorySlice> view,
+			VirtualAddr address, size_t offset, size_t length, uint32_t flags);
 
 	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
 
@@ -575,71 +554,6 @@ public:
 
 	size_t rss() {
 		return _residuentSize;
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for map()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct [[nodiscard]] MapOperation final : private MapNode {
-		MapOperation(VirtualSpace *self, smarter::borrowed_ptr<MemorySlice> slice,
-				VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-				R receiver)
-		: self_{self}, slice_{slice},
-				address_{address}, offset_{offset}, length_{length}, flags_{flags},
-				receiver_{std::move(receiver)} { }
-
-		MapOperation(const MapOperation &) = delete;
-
-		MapOperation &operator= (const MapOperation &) = delete;
-
-		bool start_inline() {
-			if(self_->map(slice_, address_, offset_, length_, flags_, this)) {
-				async::execution::set_value_inline(receiver_, result());
-				return true;
-			}
-			return false;
-		}
-
-	private:
-		void resume() override {
-			async::execution::set_value_noinline(receiver_, result());
-		}
-
-		VirtualSpace *self_;
-		smarter::borrowed_ptr<MemorySlice> slice_;
-		VirtualAddr address_;
-		size_t offset_;
-		size_t length_;
-		uint32_t flags_;
-		R receiver_;
-	};
-
-	struct [[nodiscard]] MapSender {
-		using value_type = frg::expected<Error, VirtualAddr>;
-
-		async::sender_awaiter<MapSender, frg::expected<Error, VirtualAddr>>
-		operator co_await() {
-			return {*this};
-		}
-
-		template<typename R>
-		MapOperation<R> connect(R receiver) {
-			return {self, slice, address, offset, length, flags, std::move(receiver)};
-		}
-
-		VirtualSpace *self;
-		smarter::borrowed_ptr<MemorySlice> slice;
-		VirtualAddr address;
-		size_t offset;
-		size_t length;
-		uint32_t flags;
-	};
-
-	MapSender map(smarter::borrowed_ptr<MemorySlice> slice,
-			VirtualAddr address, size_t offset, size_t length, uint32_t flags) {
-		return {this, slice, address, offset, length, flags};
 	}
 
 	// ----------------------------------------------------------------------------------
