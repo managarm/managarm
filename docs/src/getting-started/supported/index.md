@@ -10,7 +10,7 @@ A list of packages is available on our [repo](https://ci.managarm.org/project/ma
 - General: USB (UHCI, EHCI, XHCI)
 - Graphics: Generic VBE graphics, Intel G45
 - Input: USB human interface devices, PS/2 keyboard and mouse
-- Storage: USB mass storage devices, AHCI, ATA
+- Storage: USB mass storage devices, NVMe, AHCI, ATA
 
 ### Virtual Hardware
 Includes all of the hardware listed above
