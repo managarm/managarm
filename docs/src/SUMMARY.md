@@ -7,7 +7,9 @@
     - [Supported Hardware and Software](getting-started/supported/index.md)
         - [Supported Packages](getting-started/supported/package_index.md)
 
-- [Building](building.md)
+- [Building](building/index.md)
+	- [With Docker](building/with-docker.md)
+	- [With Manual Installation](building/with-manual.md)
 
 - [Contributing](contributing/overview.md)
     - [Overview](contributing/overview.md)

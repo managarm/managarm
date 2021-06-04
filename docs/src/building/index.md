@@ -6,8 +6,9 @@ This guide shows how to build a managarm distribution from source utilising the 
 
 ### Build environment
 To make sure that all build environments work properly, it is recommended to
-setup a build environment with [Docker](https://www.docker.com/) using the
-provided [Dockerfile](https://github.com/managarm/bootstrap-managarm/blob/master/docker/Dockerfile).
+setup a build environment with our lightweight containerized build runtime [cbuildrt](https://github.com/managarm/cbuildrt) (see below for instructions).
+It is also possible to build with [Docker](https://www.docker.com/) 
+(see [here](with-docker.md)), or by installing the dependencies manually (see [here](with-manual.md)), but these methods are no longer recommended.
 
 Make sure that you have atleast 20 - 30 GiB of free disk space.
 
@@ -28,36 +29,31 @@ git clone https://github.com/managarm/bootstrap-managarm.git src
 mkdir build
 ```
 
-#### Creating Docker image and container
-> Note: this step is not needed if you don't want to use a Docker container, if so skip to the next paragraph.
+### Creating a `cbuildrt` environment
 
-1.  A working `docker` installation is required to perform a containerized build.
-2.  Build a Docker image from the provided Dockerfile:
+1.  Download and install the latest `cbuildrt` release by running:
     ```bash
-    docker build -t managarm-buildenv --build-arg=USER=$(id -u) src/docker
+    xbstrap prereqs cbuildrt
     ```
-3.  Create a `bootstrap-site.yml` file inside the `build` directory containing:
+    > Note: If you choose to build `cbuildrt` from source, make sure to place the resulting binary in `~/.xbstrap/bin`.
+
+2.  Download and unpack the latest Managarm `rootfs` somewhere:
+    ```bash
+    curl https://mirrors.managarm.org/cbuildrt/rootfs/managarm-buildenv.tar.gz -o managarm-rootfs.tar.gz
+    tar xvf managarm-rootfs.tar.gz
+    ```
+3.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents (replace the `rootfs` key as appropriate):
     ```yml
     container:
-      runtime: docker
-      image: managarm-buildenv
-      src_mount: /var/bootstrap-managarm/src
-      build_mount: /var/bootstrap-managarm/build
+      runtime: cbuildrt
+      rootfs:  /path/to/your/rootfs
+      uid: 1000
+      gid: 1000
+      src_mount: /var/lib/managarm-buildenv/src
+      build_mount: /var/lib/managarm-buildenv/build
       allow_containerless: true
     ```
-    This `bootstrap-site.yml` will instruct our build system to invoke the build scripts within your container image.
-
-Now proceed to the Building paragraph.
-
-#### Installing dependecies manually
-> Note: if you created a Docker image in the previous step, skip this paragraph.
-1.  Certain programs are required to build managarm; To get a list of the corresponding Debian packages we refer you to the [Dockerfile](https://github.com/managarm/bootstrap-managarm/blob/master/docker/Dockerfile)
-1.  `meson` is required. There is a Debian package, but as of Debian Stretch, a newer version is required.
-    Install it from pip: `pip3 install meson`.
-1.  `protobuf` is also required. There is a Debian package, but a newer version is required.
-    Install it from pip: `pip3 install protobuf`
-1.  For managarm kernel documentation you may also want `mdbook`. This requires `rust` & `cargo` to be installed.
-    Install it using cargo: `cargo install --git https://github.com/rust-lang/mdBook.git mdbook`
+    > Note: you must keep the `src_mount` and `build_mount` values as shown above if you want to be able to use pre-built tools from our build server. These paths refer to locations on the *container*, not on your host machine.
 
 ### Building
 1.  Initialize the build directory with
@@ -65,7 +61,7 @@ Now proceed to the Building paragraph.
     cd build
     xbstrap init ../src
     ```
-1.  There are several meta-packages available which control what software is build, this means that the build can be started using one of the following commands:
+1.  There are several meta-packages available which control what software is built, this means that the build can be started using one of the following commands:
 
     If you want the full managarm experience with a selection of terminal and gui software available to try out use
     ```bash
@@ -104,7 +100,7 @@ This repository contains an `update-image.py` script to mount the image and copy
 This script can use 3 different methods to copy files onto the image:
 1. **Using libguestfs** (the default method). We recommend this when root access is not possible or desirable. However, it is much slower than method 2 and requires some setup on the host (see below).
 2. **Using a classic loopback and mount** (requires root privileges). We recommend this when root access is acceptable because it is the fastest method and most guaranteed to work.
-3. **Via Docker container**. This is handy in case the user is in the `docker` group since it does not require additional root authentication. We discourage this because it uses `docker run --privileged` (which is not safer than giving root access) and [currently has some bugs](https://github.com/managarm/bootstrap-managarm/issues/103).
+3. **Via Docker container** (only works with the Docker build method). This is handy in case the user is in the `docker` group since it does not require additional root authentication. We discourage this because it uses `docker run --privileged` (which is not safer than giving root access) and [currently has some bugs](https://github.com/managarm/bootstrap-managarm/issues/103).
 
 Going with method 1 will require `libguestfs` to be installed on the host.
 After installing `libguestfs` it might be necessary to run the following:
