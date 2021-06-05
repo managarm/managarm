@@ -1,8 +1,8 @@
-# Building With Docker
+# Building with Docker
 
 This section explains how to build Managarm in a Docker environment.
 
-> Note: we recommend using `cbuildrt` instead of Docker as it is faster, more minimal and better tested
+> Note: we recommend using `cbuildrt` instead of Docker as it is faster, requires less privileges and is better tested
 (we use `cbuildrt` on our continuous integration build server, so breakages are more noticeable).
 
 1.  Install [Docker](https://docs.docker.com/get-docker/).

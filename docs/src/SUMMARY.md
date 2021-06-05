@@ -8,9 +8,9 @@
         - [Supported Packages](getting-started/supported/package_index.md)
 
 - [Building](building/index.md)
-	- [With `cbuildrt`](building/index.md)
+	- [With `cbuildrt` (recommended)](building/index.md)
 	- [With Docker](building/with-docker.md)
-	- [With Manual Installation](building/with-manual.md)
+	- [Without containers](building/without-containers.md)
 
 - [Contributing](contributing/overview.md)
     - [Overview](contributing/overview.md)

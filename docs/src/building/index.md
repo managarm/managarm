@@ -10,7 +10,7 @@ setup a build environment with our lightweight containerized build runtime [cbui
 It is also possible to build with [Docker](https://www.docker.com/) 
 (see [here](with-docker.md)), or by installing the dependencies manually (see [here](with-manual.md)), but these methods are no longer recommended.
 
-Make sure that you have atleast 20 - 30 GiB of free disk space.
+Make sure that you have at least 20 - 30 GiB of free disk space.
 
 #### Preparations
 
@@ -23,7 +23,7 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     ```bash
     pip3 install xbstrap
     ```
-1.  Install `git`, `subversion` and `mercurial`. Install these via your package manager.
+1.  The `git`, `subversion` and `mercurial` tools are required on the host (whether you build in a container or not). Install these via your package manager.
 1.  Clone this repository into a `src` directory and create a `build` directory:
     ```bash
     git clone https://github.com/managarm/bootstrap-managarm.git src
@@ -34,7 +34,7 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
 
 1.  Download and install the latest `cbuildrt` release by running:
     ```bash
-    xbstrap prereqs cbuildrt
+    xbstrap prereqs cbuildrt xbps
     ```
     > Note: If you choose to build `cbuildrt` from source, make sure to place the resulting binary either in `$PATH` or in `~/.xbstrap/bin`.
 
