@@ -19,12 +19,12 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     ```sh
     mkdir ~/managarm && cd ~/managarm
     ```
-2.  Install the `xbstrap` build system via `pip3`:
+1.  Install the `xbstrap` build system via `pip3`:
     ```bash
     pip3 install xbstrap
     ```
-3.  Install `git`, `subversion` and `mercurial`. Install these via your package manager.
-4.  Clone this repository into a `src` directory and create a `build` directory:
+1.  Install `git`, `subversion` and `mercurial`. Install these via your package manager.
+1.  Clone this repository into a `src` directory and create a `build` directory:
     ```bash
     git clone https://github.com/managarm/bootstrap-managarm.git src
     mkdir build
@@ -38,12 +38,12 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     ```
     > Note: If you choose to build `cbuildrt` from source, make sure to place the resulting binary either in `$PATH` or in `~/.xbstrap/bin`.
 
-2.  Download and unpack the latest Managarm `rootfs` somewhere:
+1.  Download and unpack the latest Managarm `rootfs` somewhere:
     ```bash
     curl https://mirrors.managarm.org/cbuildrt/rootfs/managarm-buildenv.tar.gz -o managarm-rootfs.tar.gz
     tar xvf managarm-rootfs.tar.gz
     ```
-3.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents (replace the `container.rootfs` key as appropriate):
+1.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents (replace the `container.rootfs` key as appropriate):
     ```yml
     pkg_management:
       format: xbps
@@ -104,8 +104,8 @@ This repository contains an `update-image.py` script to mount the image and copy
 
 This script can use 3 different methods to copy files onto the image:
 1. **Using libguestfs** (the default method). We recommend this when root access is not possible or desirable. However, it is much slower than method 2 and requires some setup on the host (see below).
-2. **Using a classic loopback and mount** (requires root privileges). We recommend this when root access is acceptable because it is the fastest method and most guaranteed to work.
-3. **Via Docker container** (only works with the Docker build method). This is handy in case the user is in the `docker` group since it does not require additional root authentication. We discourage this because it uses `docker run --privileged` (which is not safer than giving root access) and [currently has some bugs](https://github.com/managarm/bootstrap-managarm/issues/103).
+1. **Using a classic loopback and mount** (requires root privileges). We recommend this when root access is acceptable because it is the fastest method and most guaranteed to work.
+1. **Via Docker container** (only works with the Docker build method). This is handy in case the user is in the `docker` group since it does not require additional root authentication. We discourage this because it uses `docker run --privileged` (which is not safer than giving root access) and [currently has some bugs](https://github.com/managarm/bootstrap-managarm/issues/103).
 
 Going with method 1 will require `libguestfs` to be installed on the host.
 After installing `libguestfs` it might be necessary to run the following:
