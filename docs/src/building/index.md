@@ -13,21 +13,22 @@ It is also possible to build with [Docker](https://www.docker.com/)
 Make sure that you have atleast 20 - 30 GiB of free disk space.
 
 #### Preparations
-First, create a directory which will be used for storing the
+
+1.  Create a directory which will be used for storing the
 source and build directories. Here we use `~/managarm`, but it can be any directory.
-
-```sh
-mkdir ~/managarm && cd ~/managarm
-```
-
-The `xbstrap` build system is required on the host (whether you build in a container or not). `xbstrap` can be installed via pip3: `pip3 install xbstrap`.
-You also need `git`, `subversion` and `mercurial` on the host (whether you build in a container or not). Install these via your package manager.
-
-Clone this repository into a `src` directory and create a `build` directory:
-```bash
-git clone https://github.com/managarm/bootstrap-managarm.git src
-mkdir build
-```
+    ```sh
+    mkdir ~/managarm && cd ~/managarm
+    ```
+2.  Install the `xbstrap` build system via `pip3`:
+    ```bash
+    pip3 install xbstrap
+    ```
+3.  Install `git`, `subversion` and `mercurial`. Install these via your package manager.
+4.  Clone this repository into a `src` directory and create a `build` directory:
+    ```bash
+    git clone https://github.com/managarm/bootstrap-managarm.git src
+    mkdir build
+    ```
 
 ### Creating a `cbuildrt` environment
 
@@ -35,7 +36,7 @@ mkdir build
     ```bash
     xbstrap prereqs cbuildrt
     ```
-    > Note: If you choose to build `cbuildrt` from source, make sure to place the resulting binary in `~/.xbstrap/bin`.
+    > Note: If you choose to build `cbuildrt` from source, make sure to place the resulting binary either in `$PATH` or in `~/.xbstrap/bin`.
 
 2.  Download and unpack the latest Managarm `rootfs` somewhere:
     ```bash
@@ -53,7 +54,8 @@ mkdir build
       build_mount: /var/lib/managarm-buildenv/build
       allow_containerless: true
     ```
-    > Note: you must keep the `src_mount` and `build_mount` values as shown above if you want to be able to use pre-built tools from our build server. These paths refer to locations on the *container*, not on your host machine.
+    > Note: you must keep the `src_mount` and `build_mount` values as shown above if you want to be able to use pre-built tools from our build server. These paths refer to locations on the *container*, not on your host machine. Also note that these paths cannot be changed after starting the build; doing so will likely result in a broken directory tree.
+
 
 ### Building
 1.  Initialize the build directory with
