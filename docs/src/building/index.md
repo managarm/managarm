@@ -43,8 +43,11 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     curl https://mirrors.managarm.org/cbuildrt/rootfs/managarm-buildenv.tar.gz -o managarm-rootfs.tar.gz
     tar xvf managarm-rootfs.tar.gz
     ```
-3.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents (replace the `rootfs` key as appropriate):
+3.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents (replace the `container.rootfs` key as appropriate):
     ```yml
+    pkg_management:
+      format: xbps
+
     container:
       runtime: cbuildrt
       rootfs:  /path/to/your/rootfs
