@@ -85,7 +85,8 @@ namespace {
 			co_return {respHeadError, respTailError};
 		};
 
-		if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
+		switch(preamble.id()) {
+		case bragi::message_id<managarm::hw::GetPciInfoRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -106,28 +107,39 @@ namespace {
 
 			for(size_t k = 0; k < 6; k++) {
 				managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
-				if(device->bars[k].type == PciBar::kBarIo) {
+				switch(device->bars[k].type) {
+				case PciBar::kBarIo:
 					msg.set_io_type(managarm::hw::IoType::PORT);
-				}else if(device->bars[k].type == PciBar::kBarMemory) {
+					break;
+				case PciBar::kBarMemory:
 					msg.set_io_type(managarm::hw::IoType::MEMORY);
-				}else{
-					assert(device->bars[k].type == PciBar::kBarNone);
+					break;
+				case PciBar::kBarNone:
 					msg.set_io_type(managarm::hw::IoType::NO_BAR);
+					break;
+				default:
+					assert(!"Unknown PciBar type");
 				}
 
-				if(device->bars[k].hostType == PciBar::kBarIo) {
+				switch(device->bars[k].hostType) {
+				case PciBar::kBarIo:
 					msg.set_host_type(managarm::hw::IoType::PORT);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
-				}else if(device->bars[k].hostType == PciBar::kBarMemory) {
+					break;
+				case PciBar::kBarMemory:
 					msg.set_host_type(managarm::hw::IoType::MEMORY);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
 					msg.set_offset(device->bars[k].offset);
-				}else{
-					assert(device->bars[k].hostType == PciBar::kBarNone);
+					break;
+				case PciBar::kBarNone:
 					msg.set_host_type(managarm::hw::IoType::NO_BAR);
+					break;
+				default:
+					assert(!"Unknown PciBar type");
 				}
+
 				resp.add_bars(std::move(msg));
 			}
 
@@ -136,7 +148,9 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::AccessBarRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -166,7 +180,9 @@ namespace {
 			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::AccessIrqRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -188,7 +204,9 @@ namespace {
 			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::ClaimDeviceRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::ClaimDeviceRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::ClaimDeviceRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -211,7 +229,9 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusIrqRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::EnableBusIrqRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::EnableBusIrqRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -229,7 +249,8 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusmasterRequest>) {
+		}
+		case bragi::message_id<managarm::hw::EnableBusmasterRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::EnableBusmasterRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -252,7 +273,9 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciSpaceRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::LoadPciSpaceRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::LoadPciSpaceRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -264,7 +287,8 @@ namespace {
 
 			auto io = device->parentBus->io;
 
-			if(req->size() == 1) {
+			switch(req->size()) {
+			case 1:
 				if(isValidConfigAccess(1, req->offset())) {
 					auto word = io->readConfigByte(device->parentBus,
 							device->slot, device->function, req->offset());
@@ -273,7 +297,8 @@ namespace {
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req->size() == 2) {
+				break;
+			case 2:
 				if(isValidConfigAccess(2, req->offset())) {
 					auto word = io->readConfigHalf(device->parentBus,
 							device->slot, device->function, req->offset());
@@ -282,7 +307,8 @@ namespace {
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req->size() == 4) {
+				break;
+			case 4:
 				if(isValidConfigAccess(4, req->offset())) {
 					auto word = io->readConfigWord(device->parentBus,
 							device->slot, device->function, req->offset());
@@ -291,7 +317,9 @@ namespace {
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else{
+
+				break;
+			default:
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
 
@@ -300,7 +328,9 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::StorePciSpaceRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::StorePciSpaceRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::StorePciSpaceRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -312,7 +342,8 @@ namespace {
 
 			auto io = device->parentBus->io;
 
-			if(req->size() == 1) {
+			switch(req->size()) {
+			case 1:
 				if(isValidConfigAccess(1, req->offset())) {
 					io->writeConfigByte(device->parentBus, device->slot, device->function,
 							req->offset(), req->word());
@@ -320,7 +351,8 @@ namespace {
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req->size() == 2) {
+				break;
+			case 2:
 				if(isValidConfigAccess(2, req->offset())) {
 					io->writeConfigHalf(device->parentBus, device->slot, device->function,
 							req->offset(), req->word());
@@ -328,7 +360,8 @@ namespace {
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req->size() == 4) {
+				break;
+			case 4:
 				if(isValidConfigAccess(4, req->offset())) {
 					io->writeConfigWord(device->parentBus, device->slot, device->function,
 							req->offset(), req->word());
@@ -336,7 +369,8 @@ namespace {
 				}else{
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else{
+				break;
+			default:
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
 
@@ -345,7 +379,9 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciCapabilityRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::LoadPciCapabilityRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::LoadPciCapabilityRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -358,7 +394,8 @@ namespace {
 			auto io = device->parentBus->io;
 
 			if(static_cast<size_t>(req->index()) < device->caps.size()) {
-				if(req->size() == 1) {
+				switch(req->size()) {
+				case 1:
 					if(isValidConfigAccess(1, req->offset())) {
 						auto word = io->readConfigByte(device->parentBus,
 								device->slot, device->function,
@@ -368,7 +405,8 @@ namespace {
 					}else{
 						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 					}
-				}else if(req->size() == 2) {
+					break;
+				case 2:
 					if(isValidConfigAccess(2, req->offset())) {
 						auto word = io->readConfigHalf(device->parentBus,
 								device->slot, device->function,
@@ -378,7 +416,8 @@ namespace {
 					}else{
 						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 					}
-				}else if(req->size() == 4) {
+					break;
+				case 4:
 					if(isValidConfigAccess(4, req->offset())) {
 						auto word = io->readConfigWord(device->parentBus,
 								device->slot, device->function,
@@ -388,7 +427,8 @@ namespace {
 					}else{
 						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 					}
-				}else{
+					break;
+				default:
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
 			}else{
@@ -400,7 +440,9 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::GetFbInfoRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::GetFbInfoRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::GetFbInfoRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -429,7 +471,9 @@ namespace {
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
+			break;
+		}
+		case bragi::message_id<managarm::hw::AccessFbMemoryRequest>: {
 			auto req = bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
 
 			if (!req) {
@@ -458,7 +502,9 @@ namespace {
 			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
-		}else{
+			break;
+		}
+		default:
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 			co_await DismissSender{conversation};
 		}
@@ -880,9 +926,12 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 	auto log = infoLogger();
 
 	uint8_t header_type = io->readConfigByte(bus, slot, function, kPciHeaderType);
-	if ((header_type & 0x7F) == 0) {
+	switch(header_type & 0x7F) {
+	case 0: {
 		log << "        Function " << function << ": Device";
-	} else if ((header_type & 0x7F) == 1) {
+		break;
+	}
+	case 1: {
 		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
 
 		if (!downstreamId) {
@@ -892,7 +941,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			log << "        Function " << function
 					<< ": PCI-to-PCI bridge to bus " << (int)downstreamId;
 		}
-	} else {
+		break;
+	}
+	default:
 		log << "        Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F);
 	}
@@ -921,7 +972,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			<< "." << frg::hex_fmt(sub_class)
 			<< "." << frg::hex_fmt(interface) << frg::endlog;
 
-	if ((header_type & 0x7F) == 0) {
+	switch(header_type & 0x7F) {
+	case 0: {
 		uint16_t subsystem_vendor = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemVendor);
 		uint16_t subsystem_device = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemDevice);
 //		infoLogger() << "        Subsystem vendor: 0x" << frg::hex_fmt(subsystem_vendor)
@@ -951,7 +1003,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 							<< frg::hex_fmt((int)type) << frg::endlog;
 				}
 
-				// TODO: 
+				// TODO:
 				size_t size = -1;
 				if(type == 0x09)
 					size = io->readConfigByte(bus, slot, function, offset + 2);
@@ -983,7 +1035,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 
 		allDevices->push_back(device);
 		bus->childDevices.push_back(device.get());
-	} else if ((header_type & 0x7F) == 1) {
+		break;
+	}
+	case 1: {
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function);
 		bus->childBridges.push_back(bridge);
 
@@ -1001,6 +1055,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		} else {
 			infoLogger() << "            Deferring enumeration until bridge is configured" << frg::endlog;
 		}
+	}
+	default:;
 	}
 
 	// TODO: This should probably be moved somewhere else.
@@ -1163,7 +1219,6 @@ frg::vector<SpaceRequirement, KernelAlloc> getRequiredSpaceForBus(PciBus *bus) {
 					flags = PciBusResource::prefMemory;
 				break;
 			default:
-				break;
 				panicLogger() << "thor: Invalid BAR type" << frg::endlog;
 		}
 
@@ -1367,6 +1422,7 @@ void allocateBars(PciBus *bus) {
 					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
 							kPciBridgePrefetchMemLimitUpper, (childBase + req.size) >> 32);
 					break;
+				default:;
 			}
 
 			req.associatedBridge->associatedBus->resources.push_back(
