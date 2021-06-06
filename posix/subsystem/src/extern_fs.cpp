@@ -33,7 +33,7 @@ private:
 	helix::UniqueLane _lane;
 	std::map<uint64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
 	std::map<uint64_t, std::weak_ptr<Node>> _activePeripheralNodes;
-	std::map<std::pair<Node *, std::string>, std::weak_ptr<FsLink>> _activePeripheralLinks;
+	std::map<std::tuple<uint64_t, std::string, uint64_t>, std::weak_ptr<FsLink>> _activePeripheralLinks;
 };
 
 struct Node : FsNode {
@@ -905,7 +905,7 @@ std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 
 std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std::string name,
 		std::shared_ptr<Node> target) {
-	auto entry = &_activePeripheralLinks[{parent, name}];
+	auto entry = &_activePeripheralLinks[{parent->getInode(), name, target->getInode()}];
 	auto intern = entry->lock();
 	if(intern)
 		return intern;
