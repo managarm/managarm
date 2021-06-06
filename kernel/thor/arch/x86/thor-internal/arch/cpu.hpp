@@ -85,15 +85,18 @@ struct FaultImageAccessor {
 	Word *code() { return &_frame()->code; }
 
 	bool inKernelDomain() {
-		if(*cs() == kSelSystemIrqCode
-				|| *cs() == kSelSystemIdleCode
-				|| *cs() == kSelSystemFiberCode
-				|| *cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode) {
+		switch(*cs()) {
+		case kSelSystemIrqCode:
+		case kSelSystemIdleCode:
+		case kSelSystemFiberCode:
+		case kSelExecutorFaultCode:
+		case kSelExecutorSyscallCode:
 			return true;
-		}else{
-			assert(*cs() == kSelClientUserCompat
-					|| *cs() == kSelClientUserCode);
+		case kSelClientUserCompat:
+		case kSelClientUserCode:
+			return false;
+		default:
+			assert(!"Unexpected domain");
 			return false;
 		}
 	}
@@ -160,24 +163,21 @@ struct IrqImageAccessor {
 
 	bool inThreadDomain() {
 		assert(inPreemptibleDomain());
-		if(*cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode
-				|| *cs() == kSelClientUserCompat
-				|| *cs() == kSelClientUserCode) {
+		switch(*cs()) {
+		case kSelExecutorFaultCode:
+		case kSelExecutorSyscallCode:
+		case kSelClientUserCompat:
+		case kSelClientUserCode:
 			return true;
-		}else{
+		default:
 			return false;
 		}
 	}
 
 	bool inManipulableDomain() {
 		assert(inThreadDomain());
-		if(*cs() == kSelClientUserCompat
-				|| *cs() == kSelClientUserCode) {
-			return true;
-		}else{
-			return false;
-		}
+		return *cs() == kSelClientUserCompat ||
+				*cs() == kSelClientUserCode;
 	}
 
 	bool inFiberDomain() {
