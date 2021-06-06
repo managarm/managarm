@@ -619,11 +619,8 @@ int scanE0(uint8_t data) {
 }
 
 int scanE1(uint8_t data1, uint8_t data2) {
-	if ((data1 & 0x7F) == 0x1D && (data2 & 0x7F) == 0x45) {
-		return KEY_PAUSE;
-	} else {
-		return KEY_RESERVED;
-	}
+	return ((data1 & 0x7F) == 0x1D && (data2 & 0x7F) == 0x45) ?
+		KEY_PAUSE : KEY_RESERVED;
 }
 
 async::detached Controller::KbdDevice::processReports() {
@@ -634,17 +631,20 @@ async::detached Controller::KbdDevice::processReports() {
 
 		byte0 = (co_await _port->pullByte()).value();
 
-		if (byte0 == 0xE0) {
+		switch (byte0) {
+		case 0xE0:
 			byte1 = (co_await _port->pullByte()).value();
 			key = scanE0(byte1 & 0x7F);
 			pressed = !(byte1 & 0x80);
-		} else if (byte0 == 0xE1) {
+			break;
+		case 0xE1:
 			byte1 = (co_await _port->pullByte()).value();
 			byte2 = (co_await _port->pullByte()).value();
 			key = scanE1(byte1, byte2);
 			pressed = !(byte1 & 0x80);
 			assert((byte1 & 0x80) == (byte2 & 0x80));
-		} else {
+			break;
+		default:
 			key = scanNormal(byte0 & 0x7F);
 			pressed = !(byte0 & 0x80);
 		}
@@ -670,17 +670,21 @@ Controller::Port::pullByte(async::cancellation_token ct) {
 }
 
 static DeviceType determineTypeById(uint16_t id) {
-	if (id == 0)
+	switch(id) {
+	case 0:
 		return DeviceType{.mouse = true};
-	if (id == 0x3)
+	case 3:
 		return DeviceType{.mouse = true, .hasScrollWheel = true};
-	if (id == 0x4)
+	case 4:
 		return DeviceType{.mouse = true, .has5Buttons = true};
-	if (id == 0xAB41 || id == 0xABC1 || id == 0xAB83)
+	case 0xAB41:
+	case 0xABC1:
+	case 0xAB83:
 		return DeviceType{.keyboard = true};
-
-	printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
-	return DeviceType{}; // we assume nothing
+	default:
+		printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
+		return DeviceType{}; // we assume nothing
+	}
 }
 
 async::result<std::variant<NoDevice, DeviceType>>
