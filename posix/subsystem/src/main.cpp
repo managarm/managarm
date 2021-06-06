@@ -2880,7 +2880,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					req->socktype(), req->protocol(),
 					req->flags() & SOCK_NONBLOCK);
 			}else{
-				throw std::runtime_error("posix: Handle unknown protocol families");
+				std::cout << "posix: SOCKET: Handle unknown protocols families, this is: " << req->domain() << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
 			}
 
 			auto fd = self->fileContext()->attachFile(file,
