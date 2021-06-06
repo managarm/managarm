@@ -96,12 +96,18 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 	if (!(flags & PageFlags::global))
 		new_entry |= kPageNotGlobal;
 
-	if (caching_mode == CachingMode::writeCombine) {
+	switch (caching_mode) {
+	case CachingMode::writeCombine:
 		new_entry |= kPageGRE | kPageOuterSh;
-	} else if (caching_mode == CachingMode::mmio) {
+		break;
+	case CachingMode::mmio:
 		new_entry |= kPagenGnRnE | kPageOuterSh;
-	} else {
-		assert(caching_mode == CachingMode::null);
+		break;
+	case CachingMode::null:
+		new_entry |= kPageWb | kPageInnerSh;
+		break;
+	default:
+		assert(!"Unexpected caching mode");
 		new_entry |= kPageWb | kPageInnerSh;
 	}
 
