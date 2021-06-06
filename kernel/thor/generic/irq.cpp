@@ -95,12 +95,12 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&pin->_mutex);
 	assert(sink->currentSequence() == pin->_sinkSequence);
-	
+
 	if(sequence <= sink->_responseSequence)
 		return Error::illegalArgs;
 	if(sequence > sink->currentSequence())
 		return Error::illegalArgs;
-		
+
 	if(sequence == sink->currentSequence()) {
 		// Because _responseSequence is lagging behind, the IRQ status must be null here.
 		assert(sink->_status == IrqStatus::null);
@@ -118,7 +118,7 @@ Error IrqPin::kickSink(IrqSink *sink) {
 
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&pin->_mutex);
-	
+
 	pin->_kick();
 	return Error::success;
 }
@@ -158,7 +158,7 @@ void IrqPin::configure(IrqConfiguration desired) {
 void IrqPin::raise() {
 	assert(!intsAreEnabled());
 	auto lock = frg::guard(&_mutex);
-	
+
 	if(_strategy == IrqStrategy::null) {
 		infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frg::endlog;
 		dumpHardwareState();
@@ -179,7 +179,7 @@ void IrqPin::raise() {
 	auto already_in_service = _inService;
 	_raiseSequence++;
 	_inService = true;
-	
+
 	if(already_in_service) {
 		assert(_strategy == IrqStrategy::justEoi);
 		_maskState |= maskedForService;
@@ -222,7 +222,7 @@ void IrqPin::_acknowledge() {
 void IrqPin::_nack() {
 	assert(_dueSinks);
 	_dueSinks--;
-	
+
 	if(!_inService || _dueSinks)
 		return;
 
@@ -296,11 +296,14 @@ void IrqPin::_callSinks() {
 		if(status != IrqStatus::null)
 			(*it)->_responseSequence = _sinkSequence;
 
-		if(status == IrqStatus::acked) {
+		switch(status) {
+		case IrqStatus::acked:
 			_inService = false;
-		}else if(status == IrqStatus::nacked) {
+			break;
+		case IrqStatus::nacked:
 			// We do not need to do anything here; we just do not increment _dueSinks.
-		}else{
+			break;
+		default:
 			_dueSinks++;
 		}
 	}
@@ -341,16 +344,15 @@ IrqStatus IrqObject::raise() {
 
 	if(_automationKernlet) {
 		auto result = _automationKernlet->invokeIrqAutomation();
-		if(result == 1) {
-			return IrqStatus::acked;
-		}else if(result == 2) {
-			return IrqStatus::nacked;
-		}else{
-			assert(!result);
-			return IrqStatus::null;
+		switch(result) {
+		case 0: break;
+		case 1: return IrqStatus::acked;
+		case 2: return IrqStatus::nacked;
+		default: assert(!"Unexpected irq status");
 		}
-	}else
-		return IrqStatus::null;
+	}
+
+	return IrqStatus::null;
 }
 
 void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {

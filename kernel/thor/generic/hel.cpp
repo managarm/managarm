@@ -97,7 +97,7 @@ HelError translateError(Error error) {
 	case Error::fault: return kHelErrFault;
 	case Error::remoteFault: return kHelErrRemoteFault;
 	default:
-		assert(!"Unexpected error");
+		assert(!"Unknown error to translate");
 		__builtin_unreachable();
 	}
 }
@@ -364,7 +364,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	}else if(flags & kHelAllocOnDemand) {
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}else{
-		// TODO: 
+		// TODO:
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}
 	memory->selfPtr = memory;
@@ -1628,25 +1628,20 @@ HelError helSubmitObserve(HelHandle handle, uint64_t inSeq,
 		auto [error, sequence, interrupt] = co_await thread->observe(inSeq);
 
 		HelObserveResult helResult{translateError(error), 0, sequence};
-		if(interrupt == kIntrNull) {
-			helResult.observation = kHelObserveNull;
-		}else if(interrupt == kIntrRequested) {
-			helResult.observation = kHelObserveInterrupt;
-		}else if(interrupt == kIntrPanic) {
-			helResult.observation = kHelObservePanic;
-		}else if(interrupt == kIntrBreakpoint) {
-			helResult.observation = kHelObserveBreakpoint;
-		}else if(interrupt == kIntrPageFault) {
-			helResult.observation = kHelObservePageFault;
-		}else if(interrupt == kIntrGeneralFault) {
-			helResult.observation = kHelObserveGeneralFault;
-		}else if(interrupt == kIntrIllegalInstruction) {
-			helResult.observation = kHelObserveIllegalInstruction;
-		}else if(interrupt >= kIntrSuperCall) {
-			helResult.observation = kHelObserveSuperCall + (interrupt - kIntrSuperCall);
-		}else{
-			thor::panicLogger() << "Unexpected interrupt" << frg::endlog;
-			__builtin_unreachable();
+		switch(interrupt){
+		case kIntrNull:	helResult.observation = kHelObserveNull; break;
+		case kIntrRequested: helResult.observation = kHelObserveInterrupt; break;
+		case kIntrPanic: helResult.observation = kHelObservePanic; break;
+		case kIntrBreakpoint: helResult.observation = kHelObserveBreakpoint; break;
+		case kIntrPageFault: helResult.observation = kHelObservePageFault; break;
+		case kIntrGeneralFault: helResult.observation = kHelObserveGeneralFault; break;
+		case kIntrIllegalInstruction: helResult.observation = kHelObserveIllegalInstruction; break;
+		default:if(interrupt >= kIntrSuperCall) {
+				helResult.observation = kHelObserveSuperCall + (interrupt - kIntrSuperCall);
+			}else{
+				thor::panicLogger() << "Unexpected interrupt" << frg::endlog;
+				__builtin_unreachable();
+			}
 		}
 		QueueSource ipcSource{&helResult, sizeof(HelObserveResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
@@ -1749,7 +1744,8 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 
 	// TODO: Make sure that the thread is actually suspenend!
 
-	if(set == kHelRegsProgram) {
+	switch(set) {
+	case kHelRegsProgram: {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
@@ -1758,7 +1754,9 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[1] = *thread->_executor.sp();
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
-	}else if(set == kHelRegsGeneral) {
+		break;
+	}
+	case kHelRegsGeneral: {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
@@ -1781,16 +1779,19 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[14] = thread->_executor.general()->rbp;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15))
 			return kHelErrFault;
+		break;
 #elif defined(__aarch64__)
 		uintptr_t regs[31];
 		for (int i = 0; i < 31; i++)
 			regs[i] = thread->_executor.general()->x[i];
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 31))
 			return kHelErrFault;
+		break;
 #else
 		return kHelErrUnsupportedOperation;
 #endif
-	}else if(set == kHelRegsThread) {
+	}
+	case kHelRegsThread: {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
@@ -1800,34 +1801,43 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[1] = thread->_executor.general()->clientGs;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
+		break;
 #elif defined(__aarch64__)
 		uintptr_t regs[1];
 		regs[0] = thread->_executor.general()->tpidr_el0;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 1))
 			return kHelErrFault;
+		break;
 #else
 		return kHelErrUnsupportedOperation;
 #endif
-	}else if(set == kHelRegsVirtualization) {
+	}
+	case kHelRegsVirtualization: {
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
 		}
+		break;
 #ifdef __x86_64__
 		HelX86VirtualizationRegs regs;
 		memset(&regs, 0, sizeof(HelX86VirtualizationRegs));
 		vcpu.vcpu->loadRegs(&regs);
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
+		break;
 #endif
-	}else if(set == kHelRegsSimd) {
+	}
+	case kHelRegsSimd: {
 #if defined(__x86_64__)
 		if(!writeUserMemory(image, thread->_executor._fxState(), Executor::determineSimdSize()))
 			return kHelErrFault;
+		break;
 #elif defined(__aarch64__)
 		if(!writeUserMemory(image, &thread->_executor.general()->fp, sizeof(FpRegisters)))
 			return kHelErrFault;
+		break;
 #endif
-	}else{
+	}
+	default:
 		return kHelErrIllegalArgs;
 	}
 
@@ -1861,7 +1871,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 
 	// TODO: Make sure that the thread is actually suspenend!
 
-	if(set == kHelRegsProgram) {
+	switch(set) {
+	case kHelRegsProgram: {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
@@ -1870,7 +1881,9 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrFault;
 		*thread->_executor.ip() = regs[0];
 		*thread->_executor.sp() = regs[1];
-	}else if(set == kHelRegsGeneral) {
+		break;
+	}
+	case kHelRegsGeneral: {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
@@ -1893,16 +1906,19 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread->_executor.general()->r14 = regs[12];
 		thread->_executor.general()->r15 = regs[13];
 		thread->_executor.general()->rbp = regs[14];
+		break;
 #elif defined(__aarch64__)
 		uintptr_t regs[31];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 31))
 			return kHelErrFault;
 		for (int i = 0; i < 31; i++)
 			thread->_executor.general()->x[i] = regs[i];
+		break;
 #else
 		return kHelErrUnsupportedOperation;
 #endif
-	}else if(set == kHelRegsThread) {
+	}
+	case kHelRegsThread: {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
@@ -1921,14 +1937,17 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		return kHelErrUnsupportedOperation;
 
 #endif
-	}else if(set == kHelRegsDebug) {
+	}
+	case kHelRegsDebug: {
 #ifdef __x86_64__
 		// FIXME: Make those registers thread-specific.
 		uint32_t *reg;
 		readUserObject(reinterpret_cast<uint32_t *const *>(image), reg);
 		breakOnWrite(reg);
 #endif
-	}else if(set == kHelRegsVirtualization) {
+		break;
+	}
+	case kHelRegsVirtualization: {
 #ifdef __x86_64__
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
@@ -1938,7 +1957,9 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrFault;
 		vcpu.vcpu->storeRegs(&regs);
 #endif
-	}else if(set == kHelRegsSimd) {
+		break;
+	}
+	case kHelRegsSimd: {
 #if defined(__x86_64__)
 		if(!readUserMemory(thread->_executor._fxState(), image, Executor::determineSimdSize()))
 			return kHelErrFault;
@@ -1946,7 +1967,9 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserMemory(&thread->_executor.general()->fp, image, sizeof(FpRegisters)))
 			return kHelErrFault;
 #endif
-	}else{
+		break;
+	}
+	default:
 		return kHelErrIllegalArgs;
 	}
 
@@ -2250,11 +2273,14 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				HelAction *recipe = &item->recipe;
 				auto node = &item->transmit;
 
-				if(recipe->type == kHelActionDismiss) {
+				switch(recipe->type) {
+				case kHelActionDismiss: {
 					item->helSimpleResult = {translateError(node->error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionOffer) {
+					break;
+				}
+				case kHelActionOffer: {
 					HelHandle handle = kHelNullHandle;
 
 					if(node->error() == Error::success
@@ -2272,7 +2298,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->helHandleResult = {translateError(node->error()), 0, handle};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionAccept) {
+					break;
+				}
+				case kHelActionAccept: {
 					// TODO: This condition should be replaced. Just test if lane is valid.
 					HelHandle handle = kHelNullHandle;
 					if(node->error() == Error::success) {
@@ -2289,23 +2317,31 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->helHandleResult = {translateError(node->error()), 0, handle};
 					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionImbueCredentials) {
+					break;
+				}
+				case kHelActionImbueCredentials: {
 					item->helSimpleResult = {translateError(node->error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionExtractCredentials) {
+					break;
+				}
+				case kHelActionExtractCredentials: {
 					item->helCredentialsResult = {.error = translateError(node->error())};
 					memcpy(item->helCredentialsResult.credentials,
 							node->credentials().data(), 16);
 					item->mainSource.setup(&item->helCredentialsResult,
 							sizeof(HelCredentialsResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionSendFromBuffer
-						|| recipe->type == kHelActionSendFromBufferSg) {
+					break;
+				}
+				case kHelActionSendFromBuffer:
+				case kHelActionSendFromBufferSg: {
 					item->helSimpleResult = {translateError(node->error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionRecvInline) {
+					break;
+				}
+				case kHelActionRecvInline: {
 					item->helInlineResult = {translateError(node->error()),
 							0, node->_transmitBuffer.size()};
 					item->mainSource.setup(&item->helInlineResult, sizeof(HelInlineResultNoFlex));
@@ -2313,16 +2349,22 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 							node->_transmitBuffer.size());
 					link(&item->mainSource);
 					link(&item->dataSource);
-				}else if(recipe->type == kHelActionRecvToBuffer) {
+					break;
+				}
+				case kHelActionRecvToBuffer: {
 					item->helLengthResult = {translateError(node->error()),
 							0, node->actualLength()};
 					item->mainSource.setup(&item->helLengthResult, sizeof(HelLengthResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionPushDescriptor) {
+					break;
+				}
+				case kHelActionPushDescriptor: {
 					item->helSimpleResult = {translateError(node->error()), 0};
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
-				}else if(recipe->type == kHelActionPullDescriptor) {
+					break;
+				}
+				case kHelActionPullDescriptor: {
 					// TODO: This condition should be replaced. Just test if lane is valid.
 					HelHandle handle = kHelNullHandle;
 					if(node->error() == Error::success) {
@@ -2338,7 +2380,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->helHandleResult = {translateError(node->error()), 0, handle};
 					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
-				}else{
+					break;
+				}
+				default:
 					// This cannot happen since we validate recipes at submit time.
 					__builtin_trap();
 				}
@@ -2363,7 +2407,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		smarter::weak_ptr<Universe> weakUniverse;
 		smarter::shared_ptr<IpcQueue> ipcQueue;
 		frg::dyn_array<Item, KernelAlloc> items;
-	} *closure = frg::construct<Closure>(*kernelAlloc, std::move(items));
+	}
+
+	*closure = frg::construct<Closure>(*kernelAlloc, std::move(items));
 
 	closure->count = count;
 	closure->weakUniverse = thisUniverse.lock();
@@ -2797,12 +2843,18 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	}
 
 	Error error;
-	if(mode == kHelAckAcknowledge) {
+	switch(mode) {
+	case kHelAckAcknowledge:
 		error = IrqPin::ackSink(irq.get(), sequence);
-	}else if(mode == kHelAckNack) {
+		break;
+	case kHelAckNack:
 		error = IrqPin::nackSink(irq.get(), sequence);
-	}else{
- 		assert(mode == kHelAckKick);
+		break;
+	case kHelAckKick:
+		error = IrqPin::kickSink(irq.get());
+		break;
+	default:
+		assert(!"Unexpected acknowledge mode");
 		error = IrqPin::kickSink(irq.get());
 	}
 
@@ -3070,9 +3122,12 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		if(!readUserObject(data + i, d))
 			return kHelErrFault;
 
-		if(defn.type == KernletParameterType::offset) {
+		switch(defn.type) {
+		case KernletParameterType::offset: {
 			bound->setupOffsetBinding(i, d.handle);
-		}else if(defn.type == KernletParameterType::memoryView) {
+			break;
+		}
+		case KernletParameterType::memoryView: {
 			smarter::shared_ptr<MemoryView> memory;
 			{
 				auto irq_lock = frg::guard(&irqMutex());
@@ -3097,7 +3152,9 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 			}
 
 			bound->setupMemoryViewBinding(i, window);
-		}else{
+			break;
+		}
+		default: {
 			assert(defn.type == KernletParameterType::bitsetEvent);
 
 			smarter::shared_ptr<BitsetEvent> event;
@@ -3114,7 +3171,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 			}
 
 			bound->setupBitsetEventBinding(i, std::move(event));
-		}
+		}}
 	}
 
 	{

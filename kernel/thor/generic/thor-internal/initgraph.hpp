@@ -209,23 +209,31 @@ private:
 };
 
 inline void realizeNode(Node *node) {
-	if(node->type_ == NodeType::stage) {
+	switch(node->type_) {
+	case NodeType::stage:
 		infoLogger() << "thor: Registering stage " << node->displayName_
 				<< frg::endlog;
-	}else if(node->type_ == NodeType::task) {
+		break;
+	case NodeType::task:
 		infoLogger() << "thor: Registering task " << node->displayName_
 				<< frg::endlog;
+		break;
+	default:;
 	}
 
 	node->engine_->nodes_.push_back(node);
 
 	if(printDotAnnotations) {
-		if(node->type_ == NodeType::stage) {
+		switch(node->type_) {
+		case NodeType::stage:
 			infoLogger() << "thor, initgraph.dot: n" << node
 					<< " [label=\"" << node->displayName_ << "\", shape=box];" << frg::endlog;
-		}else if(node->type_ == NodeType::task) {
+			break;
+		case NodeType::task:
 			infoLogger() << "thor, initgraph.dot: n" << node
 					<< " [label=\"" << node->displayName_ << "\"];" << frg::endlog;
+			break;
+		default:;
 		}
 	}
 }
