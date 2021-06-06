@@ -155,81 +155,104 @@ async::result<void> uploadFile(const char *name) {
 // Freestanding mbus functions.
 // ----------------------------------------------------------------
 
-async::detached asyncMain(const char **args) {
+enum class Action: uint8_t {
+	runsvr,
+	run,
+	bind,
+	upload,
+};
+
+static const std::unordered_map<std::string_view, Action> actionMap {
+	{ { "runsvr",   6 }, Action::runsvr },
+	{ { "run",	  	3 }, Action::run	},
+	{ { "bind",	 	4 }, Action::bind   },
+	{ { "upload",   6 }, Action::upload },
+};
+
+async::detached asyncMain(const char *args[]) {
 	co_await enumerateSvrctl();
 
-	if(!strcmp(args[1], "runsvr")) {
-		if(!args[2])
-			throw std::runtime_error("Expected at least one argument");
+	auto it = actionMap.find(std::string_view(args[1], strlen(args[1])));
+	if (it != actionMap.end())
+		switch(it->second) {
+		case Action::runsvr: {
+			if(!args[2])
+				throw std::runtime_error("Expected at least one argument");
 
-		// TODO: Eventually remove the runsvr command in favor of run + bind.
-		std::cout << "svrctl: Running " << args[2] << std::endl;
+			// TODO: Eventually remove the runsvr command in favor of run + bind.
+			std::cout << "svrctl: Running " << args[2] << std::endl;
 
-		co_await runServer(args[2]);
-		exit(0);
-	}else if(!strcmp(args[1], "run")) {
-		if(!args[2])
-			throw std::runtime_error("Expected at least one argument");
-		auto buffer = readEntireFile(args[2]);
+			co_await runServer(args[2]);
+			break;
+		}
+		case Action::run: {
+			if(!args[2])
+				throw std::runtime_error("Expected at least one argument");
+			auto buffer = readEntireFile(args[2]);
 
-		managarm::svrctl::Description desc;
-		desc.ParseFromArray(buffer.data(), buffer.size());
+			managarm::svrctl::Description desc;
+			desc.ParseFromArray(buffer.data(), buffer.size());
 
-		std::cout << "svrctl: Running " << desc.name() << std::endl;
+			std::cout << "svrctl: Running " << desc.name() << std::endl;
 
-		for(const auto &file : desc.files())
-			co_await uploadFile(file.path().c_str());
+			for(const auto &file : desc.files())
+				co_await uploadFile(file.path().c_str());
 
-		co_await runServer(desc.exec().c_str());
-		exit(0);
-	}else if(!strcmp(args[1], "bind")) {
-		if(!args[2])
-			throw std::runtime_error("Expected at least one argument");
-		auto buffer = readEntireFile(args[2]);
+			co_await runServer(desc.exec().c_str());
+			break;
+		}
+		case Action::bind: {
+			if(!args[2])
+				throw std::runtime_error("Expected at least one argument");
+			auto buffer = readEntireFile(args[2]);
 
-		managarm::svrctl::Description desc;
-		desc.ParseFromArray(buffer.data(), buffer.size());
+			managarm::svrctl::Description desc;
+			desc.ParseFromArray(buffer.data(), buffer.size());
 
-		auto id_str = getenv("MBUS_ID");
-		std::cout << "svrctl: Binding driver " << desc.name()
-				<< " to mbus ID " << id_str << std::endl;
+			auto id_str = getenv("MBUS_ID");
+			std::cout << "svrctl: Binding driver " << desc.name()
+					<< " to mbus ID " << id_str << std::endl;
 
-		for(const auto &file : desc.files())
-			co_await uploadFile(file.path().c_str());
+			for(const auto &file : desc.files())
+				co_await uploadFile(file.path().c_str());
 
-		auto lane = co_await runServer(desc.exec().c_str());
+			auto lane = co_await runServer(desc.exec().c_str());
 
-		managarm::svrctl::CntRequest req;
-		req.set_req_type(managarm::svrctl::CntReqType::CTL_BIND);
-		req.set_mbus_id(std::stoi(id_str));
+			managarm::svrctl::CntRequest req;
+			req.set_req_type(managarm::svrctl::CntReqType::CTL_BIND);
+			req.set_mbus_id(std::stoi(id_str));
 
-		auto ser = req.SerializeAsString();
-		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-			lane,
-			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::recvInline())
-		);
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
+			auto ser = req.SerializeAsString();
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::offer(
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::recvInline())
+			);
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(recv_resp.error());
 
-		managarm::svrctl::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
+			managarm::svrctl::SvrResponse resp;
+			resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+			assert(resp.error() == managarm::svrctl::Error::SUCCESS);
+			break;
+		}
+		case Action::upload: {
+			if(!args[2])
+				throw std::runtime_error("Expected at least one argument");
 
-		exit(0);
-	}else if(!strcmp(args[1], "upload")) {
-		if(!args[2])
-			throw std::runtime_error("Expected at least one argument");
+			std::cout << "svrctl: Uploading " << args[2] << std::endl;
 
-		std::cout << "svrctl: Uploading " << args[2] << std::endl;
-
-		co_await uploadFile(args[2]);
-		exit(0);
-	}else{
+			co_await uploadFile(args[2]);
+			break;
+		}
+		default:;
+		}
+	else
 		throw std::runtime_error("Unexpected command for svrctl utility");
-	}
+
+	exit(0);
 }
 
 int main(int, const char **argv) {
