@@ -489,6 +489,12 @@ async::detached Controller::MouseDevice::processReports() {
 	while (true) {
 		uint8_t byte0, byte1, byte2, byte3 = 0;
 		byte0 = (co_await _port->pullByte()).value();
+
+		if (!(byte0 & 8)) {
+			printf("ps2-hid: Mouse desync; first byte is %02x\n", byte0);
+			continue;
+		}
+
 		byte1 = (co_await _port->pullByte()).value();
 		byte2 = (co_await _port->pullByte()).value();
 
@@ -502,12 +508,6 @@ async::detached Controller::MouseDevice::processReports() {
 		if (_deviceType.hasScrollWheel) {
 			movement_wheel = (int)(byte3 & 0x7) - (int)(byte3 & 0x8);
 		}
-
-		if (!(byte0 & 8)) {
-			printf("ps2-hid: desync? first byte is %02x\n", byte0);
-			continue;
-		}
-
 
 		if (byte0 & 0xC0) {
 			printf("ps2-hid: overflow\n");
