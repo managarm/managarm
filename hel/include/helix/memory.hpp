@@ -1,5 +1,4 @@
-#ifndef HELIX_MEMORY_HPP
-#define HELIX_MEMORY_HPP
+#pragma once
 
 #include <string.h>
 
@@ -34,7 +33,7 @@ struct Mapping {
 	}
 
 	Mapping(const Mapping &) = delete;
-	
+
 	Mapping(Mapping &&other)
 	: Mapping() {
 		swap(*this, other);
@@ -83,5 +82,3 @@ inline uintptr_t addressToPhysical(uintptr_t p) {
 }
 
 } // namespace helix
-
-#endif // HEL_MEMORY_HPP
