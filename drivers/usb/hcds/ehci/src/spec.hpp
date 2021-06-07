@@ -1,6 +1,4 @@
-
-#ifndef EHCI_SPEC_HPP
-#define EHCI_SPEC_HPP
+#pragma once
 
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
@@ -201,6 +199,3 @@ struct alignas(64) TransferDescriptor {
 	arch::scalar_variable<uint32_t> extendedPtr3;
 	arch::scalar_variable<uint32_t> extendedPtr4;
 };
-
-#endif // EHCI_SPEC_HPP
-

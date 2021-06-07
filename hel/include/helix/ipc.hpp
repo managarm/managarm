@@ -1,5 +1,4 @@
-#ifndef HELIX_HPP
-#define HELIX_HPP
+#pragma once
 
 #include <assert.h>
 #include <atomic>
@@ -1206,5 +1205,3 @@ inline auto awaitEvent(BorrowedDescriptor event, uint64_t sequence) {
 }
 
 } // namespace helix_ng
-
-#endif // HELIX_HPP

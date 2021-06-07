@@ -1,6 +1,4 @@
-
-#ifndef DRIVERS_GFX_VIRTIO_SPEC_HPP
-#define DRIVERS_GFX_VIRTIO_SPEC_HPP
+#pragma once
 
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
@@ -19,7 +17,7 @@ namespace cmd {
 	inline constexpr uint32_t resourceFlush = 0x104;
 	inline constexpr uint32_t xferToHost2d = 0x105;
 	inline constexpr uint32_t attachBacking = 0x106;
-	
+
 } //namespace cmd
 
 namespace resp {
@@ -99,6 +97,3 @@ namespace cfg {
 
 
 } //namespace spec
-
-#endif // DRIVERS_GFX_VIRTIO_SPEC_HPP
-

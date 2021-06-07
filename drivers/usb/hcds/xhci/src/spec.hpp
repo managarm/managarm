@@ -1,6 +1,4 @@
-
-#ifndef XHCI_SPEC_HPP
-#define XHCI_SPEC_HPP
+#pragma once
 
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
@@ -184,6 +182,3 @@ struct alignas(64) DeviceContext {
 	RawContext endpointContext[31];
 };
 static_assert (sizeof(DeviceContext) == 32 * 32, "invalid DeviceContext size");
-
-
-#endif // XHCI_SPEC_HPP

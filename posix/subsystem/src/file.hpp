@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_FILE_HPP
-#define POSIX_SUBSYSTEM_FILE_HPP
+#pragma once
 
 #include <variant>
 #include <string.h> // for hel.h
@@ -360,5 +359,3 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 };
-
-#endif // POSIX_SUBSYSTEM_FILE_HPP

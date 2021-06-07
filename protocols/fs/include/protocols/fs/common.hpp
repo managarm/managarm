@@ -1,5 +1,4 @@
-#ifndef LIBFS_COMMON_HPP
-#define LIBFS_COMMON_HPP
+#pragma once
 
 #include <optional>
 #include <variant>
@@ -52,5 +51,3 @@ using RecvResult = std::variant<Error, RecvData>;
 using SendResult = std::variant<Error, size_t>;
 
 } } // namespace protocols::fs
-
-#endif // LIBFS_COMMON_HPP

@@ -1,5 +1,4 @@
-#ifndef LIBSVRCTL_PROTOCOL_SERVER_HPP
-#define LIBSVRCTL_PROTOCOL_SERVER_HPP
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -30,5 +29,3 @@ async::result<void>
 serveControl(const ControlOperations *ops);
 
 } } // namespace protocols::svrctl
-
-#endif // LIBSVRCTL_PROTOCOL_SERVER_HPP

@@ -1,6 +1,4 @@
-
-#ifndef LIBUSB_SERVER_HPP
-#define LIBUSB_SERVER_HPP
+#pragma once
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
@@ -12,6 +10,3 @@ namespace usb {
 async::detached serve(Device device, helix::UniqueLane lane);
 
 } } // namespace protocols::usb
-
-#endif // LIBUSB_SERVER_HPP
-

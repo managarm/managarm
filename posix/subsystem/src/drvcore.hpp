@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_DRVCORE_HPP
-#define POSIX_SUBSYSTEM_DRVCORE_HPP
+#pragma once
 
 #include <string>
 #include <unordered_map>
@@ -127,5 +126,3 @@ uint32_t makeHotplugSeqnum();
 void emitHotplug(std::string buffer);
 
 } // namespace drvcore
-
-#endif // POSIX_SUBSYSTEM_DRVCORE_HPP

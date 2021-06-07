@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_PTS_HPP
-#define POSIX_SUBSYSTEM_PTS_HPP
+#pragma once
 
 #include "device.hpp"
 
@@ -10,5 +9,3 @@ std::shared_ptr<UnixDevice> createMasterDevice();
 std::shared_ptr<FsLink> getFsRoot();
 
 } // namespace pts
-
-#endif // POSIX_SUBSYSTEM_PTS_HPP

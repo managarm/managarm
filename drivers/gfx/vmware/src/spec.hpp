@@ -1,5 +1,4 @@
-#ifndef VMWARE_SPEC_HPP
-#define VMWARE_SPEC_HPP
+#pragma once
 
 namespace ports {
 	arch::scalar_register<uint32_t> register_port(0x00);
@@ -167,5 +166,3 @@ enum class caps : uint32_t {
 	fifo_reserve = (1<<6),
 	fifo_cursor_bypass_3 = (1<<4),
 };
-
-#endif
