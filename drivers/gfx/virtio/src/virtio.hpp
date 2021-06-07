@@ -1,5 +1,4 @@
-#ifndef DRIVERS_GFX_VIRTIO_VIRTIO_HPP
-#define DRIVERS_GFX_VIRTIO_VIRTIO_HPP
+#pragma once
 
 #include <queue>
 #include <map>
@@ -117,7 +116,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
 	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) override;
-	std::shared_ptr<drm_core::FrameBuffer> 
+	std::shared_ptr<drm_core::FrameBuffer>
 			createFrameBuffer(std::shared_ptr<drm_core::BufferObject> bo,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
 
@@ -137,5 +136,3 @@ private:
 	bool _claimedDevice;
 	id_allocator<uint32_t> _hwAllocator;
 };
-
-#endif // DRIVERS_GFX_VIRTIO_VIRTIO_HPP

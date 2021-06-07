@@ -1,6 +1,4 @@
-
-#ifndef UHCI_SPEC_HPP
-#define UHCI_SPEC_HPP
+#pragma once
 
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
@@ -48,6 +46,3 @@ namespace port_status_ctrl {
 	arch::field<uint16_t, bool> lowSpeed(8, 1);
 	arch::field<uint16_t, bool> portReset(9, 1);
 }
-
-#endif // UHCI_SPEC_HPP
-

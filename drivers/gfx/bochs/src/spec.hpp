@@ -1,6 +1,4 @@
-
-#ifndef BOCHS_SPEC_HPP
-#define BOCHS_SPEC_HPP
+#pragma once
 
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
@@ -32,6 +30,3 @@ namespace regs {
 	arch::scalar_register<uint16_t> index(0x01CE);
 	arch::scalar_register<uint16_t> data(0x01CF);
 }
-
-#endif // BOCHS_SPEC_HPP
-

@@ -1,6 +1,4 @@
-
-#ifndef UART_SPEC_HPP
-#define UART_SPEC_HPP
+#pragma once
 
 constexpr int COM1 = 0x3F8;
 constexpr int COM2 = 0x2F8;
@@ -50,7 +48,7 @@ enum class FifoCtrl {
 
 enum class IrqCtrl {
 	disable = 0,
-	enable = 1	
+	enable = 1
 };
 
 enum class IrqIds {
@@ -100,7 +98,3 @@ namespace irq_ident_register {
 	arch::field<uint8_t, bool> ignore(0, 1);
 	arch::field<uint8_t, IrqIds> id(1, 3);
 }
-
-#endif // UART_SPEC_HPP
-
-

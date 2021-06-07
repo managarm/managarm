@@ -1,6 +1,4 @@
-
-#ifndef LIBFS_HPP
-#define LIBFS_HPP
+#pragma once
 
 #include <async/result.hpp>
 
@@ -24,6 +22,3 @@ struct BlockDevice {
 async::detached runDevice(BlockDevice *device);
 
 } // namespace blockfs
-
-#endif // LIBFS_HPP
-
