@@ -23,6 +23,7 @@ namespace status_bits {
 	arch::field<uint8_t, bool> inBufferStatus(1, 1);
 	arch::field<uint8_t, bool> sysFlag(2, 1);
 	arch::field<uint8_t, bool> cmdData(3, 1);
+	arch::field<uint8_t, bool> secondPort(5, 1);
 	arch::field<uint8_t, bool> timeoutError(6, 1);
 	arch::field<uint8_t, bool> parityError(7, 1);
 }

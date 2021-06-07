@@ -22,6 +22,7 @@
 #include "ps2.hpp"
 
 namespace {
+	constexpr bool logInconsistencies = false;
 	constexpr bool logPackets = false;
 	constexpr bool logMouse = false;
 }
@@ -199,10 +200,19 @@ async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
 	}
 }
 
-bool Controller::processData(int port) {
+bool Controller::processData(int irqPort) {
 	size_t count = 0;
-	while (_space.load(kbd_register::status) & status_bits::outBufferStatus) {
+	while (true) {
+		auto status = _space.load(kbd_register::status);
+		if (!(status & status_bits::outBufferStatus))
+			break;
 		auto val = _space.load(kbd_register::data);
+
+		auto port = (status & status_bits::secondPort ? 1 : 0);
+		if (logInconsistencies && port != irqPort)
+			std::cout << "ps2-hid: Disparity between status register and IRQ "
+					<< " (IRQ on port " << irqPort << ", status reports " << port << ")"
+					<< std::endl;
 
 		if (logPackets)
 			printf("ps2-hid: received byte 0x%02x on port %d!\n", val, port);
