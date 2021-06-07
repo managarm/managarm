@@ -75,6 +75,10 @@ async::detached Controller::init() {
 	_portsOwnData = true;
 	handleIrqsFor(_irq1, 0);
 	handleIrqsFor(_irq12, 1);
+	// Firmware might have left ports enabled, and the user might have typed during boot.
+	// Reset the IRQ status to ensure that the following code works.
+	HEL_CHECK(helAcknowledgeIrq(_irq1.getHandle(), kHelAckKick, 0));
+	HEL_CHECK(helAcknowledgeIrq(_irq12.getHandle(), kHelAckKick, 0));
 
 	// Initialize devices.
 	printf("ps2-hid: Setting up first port\n");
