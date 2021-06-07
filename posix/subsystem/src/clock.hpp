@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_CLOCK_HPP
-#define POSIX_SUBSYSTEM_CLOCK_HPP
+#pragma once
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
@@ -13,5 +12,3 @@ async::result<void> enumerateTracker();
 struct timespec getRealtime();
 
 } // namespace clk
-
-#endif // POSIX_SUBSYSTEM_CLOCK_HPP
