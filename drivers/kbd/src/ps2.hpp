@@ -85,6 +85,10 @@ struct Controller {
 
 		async::result<void> init();
 
+		int getIndex() {
+			return _port;
+		}
+
 		bool isDead() {
 			return _dead;
 		}

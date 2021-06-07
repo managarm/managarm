@@ -717,7 +717,7 @@ Controller::Port::submitCommand(device_cmd::Identify tag) {
 	if (!cmdResp)
 		co_return Ps2Error::timeout;
 	if (*cmdResp != 0xFA) {
-		printf("ps2-hid: Expected ACK after identify command on port %d, got 0x%02x\n",
+		printf("ps2-hid: Expected ACK after Identify command on port %d, got 0x%02x\n",
 				_port, *cmdResp);
 		co_return Ps2Error::nack;
 	}
@@ -738,51 +738,105 @@ Controller::Port::submitCommand(device_cmd::Identify tag) {
 
 async::result<frg::expected<Ps2Error>>
 Controller::Port::submitCommand(device_cmd::DisableScan tag) {
-	if (co_await transferByte(0xF5) == std::nullopt)
+	auto cmdResp = co_await transferByte(0xF5);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after DisableScan command on port %d, got 0x%02x\n",
+				_port, *cmdResp);
 		co_return Ps2Error::nack;
+	}
 
 	co_return {};
 }
 
 async::result<frg::expected<Ps2Error>>
 Controller::Port::submitCommand(device_cmd::EnableScan tag) {
-	if (co_await transferByte(0xF4) == std::nullopt)
+	auto cmdResp = co_await transferByte(0xF4);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after EnableScan command on port %d, got 0x%02x\n",
+				_port, *cmdResp);
 		co_return Ps2Error::nack;
+	}
 
 	co_return {};
 }
 
 async::result<frg::expected<Ps2Error>>
 Controller::MouseDevice::submitCommand(device_cmd::SetReportRate tag, int rate) {
-	if (co_await _port->transferByte(0xF3) == std::nullopt)
+	auto cmdResp = co_await _port->transferByte(0xF3);
+	if (!cmdResp)
 		co_return Ps2Error::timeout;
-	if (co_await _port->transferByte(rate) == std::nullopt)
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetReportRate command on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	auto outResp = co_await _port->transferByte(rate);
+	if (!outResp)
 		co_return Ps2Error::timeout;
+	if (*outResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetReportRate output byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *outResp);
+		co_return Ps2Error::nack;
+	}
 
 	co_return {};
 }
 
 async::result<frg::expected<Ps2Error>>
 Controller::KbdDevice::submitCommand(device_cmd::SetScancodeSet tag, int set) {
-	if (co_await _port->transferByte(0xF0) == std::nullopt)
+	// If set == 0, this would be a GetScancodeSet command.
+	assert(set);
+
+	auto cmdResp = co_await _port->transferByte(0xF0);
+	if (!cmdResp)
 		co_return Ps2Error::timeout;
-	if (co_await _port->transferByte(set) == std::nullopt)
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetScancodeSet data byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	auto outResp = co_await _port->transferByte(set);
+	if (!outResp)
 		co_return Ps2Error::timeout;
+	if (*outResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after setScancodeSet output byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *outResp);
+		co_return Ps2Error::nack;
+	}
 
 	co_return {};
 }
 
 async::result<frg::expected<Ps2Error, int>>
 Controller::KbdDevice::submitCommand(device_cmd::GetScancodeSet tag) {
-	if (co_await _port->transferByte(0xF0) == std::nullopt)
+	auto cmdResp = co_await _port->transferByte(0xF0);
+	if (!cmdResp)
 		co_return Ps2Error::timeout;
-	if (co_await _port->transferByte(0) == std::nullopt)
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetScancodeSet data byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	auto outResp = co_await _port->transferByte(0);
+	if (!outResp)
 		co_return Ps2Error::timeout;
+	if (*outResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after setScancodeSet output byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *outResp);
+		co_return Ps2Error::nack;
+	}
 
-	auto set = co_await _port->recvResponseByte(default_timeout);
-	assert(set != std::nullopt);
-
-	co_return set.value();
+	auto setResp = co_await _port->recvResponseByte(default_timeout);
+	if (!setResp)
+		co_return Ps2Error::timeout;
+	co_return setResp.value();
 }
 
 void Controller::Port::sendByte(uint8_t byte) {
