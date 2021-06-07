@@ -264,14 +264,19 @@ async::result<void> Controller::Port::init() {
 }
 
 async::result<void> Controller::KbdDevice::run() {
-	//set scancode 1
-	auto res1 = co_await submitCommand(device_cmd::SetScancodeSet{}, 1);
+	// Set scancode set 2.
+	auto res1 = co_await submitCommand(device_cmd::SetScancodeSet{}, 2);
 	assert(res1);
 
-	// make sure it's used
+	// Make sure it is used.
 	auto res2 = co_await submitCommand(device_cmd::GetScancodeSet{});
 	assert(res2);
-	assert(res2.value() == 1);
+	if (res2.value() != 1 && res2.value() != 2) {
+		std::cout << "\e[31m" "ps2-hid: Keyboard does supports neither scancode set 1 nor 2"
+				"\e[39m" << std::endl;
+		co_return;
+	}
+	_codeSet = res2.value();
 
 	//setup evdev stuff
 	_evDev = std::make_shared<libevbackend::EventDevice>();
@@ -545,7 +550,7 @@ async::detached Controller::MouseDevice::processReports() {
 	}
 }
 
-int scanNormal(uint8_t data) {
+int scanSet1NoPrefix(uint8_t data) {
 	switch (data) {
 		case 0x01: return KEY_ESC;
 		case 0x02: return KEY_1;
@@ -636,7 +641,7 @@ int scanNormal(uint8_t data) {
 	}
 }
 
-int scanE0(uint8_t data) {
+int scanSet1E0(uint8_t data) {
 	switch (data) {
 		case 0x1C: return KEY_KPENTER;
 		case 0x1D: return KEY_RIGHTCTRL;
@@ -660,8 +665,131 @@ int scanE0(uint8_t data) {
 	}
 }
 
-int scanE1(uint8_t data1, uint8_t data2) {
-	if ((data1 & 0x7F) == 0x1D && (data2 & 0x7F) == 0x45) {
+int scanSet1E1(uint8_t data1, uint8_t data2) {
+	if (data1 == 0x1D && data2 == 0x45) {
+		return KEY_PAUSE;
+	} else {
+		return KEY_RESERVED;
+	}
+}
+
+int scanSet2NoPrefix(uint8_t data) {
+	switch (data) {
+		case 0x01: return KEY_F9;
+		case 0x03: return KEY_F5;
+		case 0x04: return KEY_F3;
+		case 0x05: return KEY_F1;
+		case 0x06: return KEY_F2;
+		case 0x07: return KEY_F12;
+		case 0x09: return KEY_F10;
+		case 0x0A: return KEY_F8;
+		case 0x0B: return KEY_F6;
+		case 0x0C: return KEY_F4;
+		case 0x0D: return KEY_TAB;
+		case 0x0E: return KEY_GRAVE;
+		case 0x11: return KEY_LEFTALT;
+		case 0x12: return KEY_LEFTSHIFT;
+		case 0x14: return KEY_LEFTCTRL;
+		case 0x15: return KEY_Q;
+		case 0x16: return KEY_1;
+		case 0x1A: return KEY_Z;
+		case 0x1B: return KEY_S;
+		case 0x1C: return KEY_A;
+		case 0x1D: return KEY_W;
+		case 0x1E: return KEY_2;
+		case 0x21: return KEY_C;
+		case 0x22: return KEY_X;
+		case 0x23: return KEY_D;
+		case 0x24: return KEY_E;
+		case 0x25: return KEY_4;
+		case 0x26: return KEY_3;
+		case 0x29: return KEY_SPACE;
+		case 0x2A: return KEY_V;
+		case 0x2B: return KEY_F;
+		case 0x2C: return KEY_T;
+		case 0x2D: return KEY_R;
+		case 0x2E: return KEY_5;
+		case 0x31: return KEY_N;
+		case 0x32: return KEY_B;
+		case 0x33: return KEY_H;
+		case 0x34: return KEY_G;
+		case 0x35: return KEY_Y;
+		case 0x36: return KEY_6;
+		case 0x3A: return KEY_M;
+		case 0x3B: return KEY_J;
+		case 0x3C: return KEY_U;
+		case 0x3D: return KEY_7;
+		case 0x3E: return KEY_8;
+		case 0x41: return KEY_COMMA;
+		case 0x42: return KEY_K;
+		case 0x76: return KEY_ESC;
+		case 0x43: return KEY_I;
+		case 0x44: return KEY_O;
+		case 0x45: return KEY_0;
+		case 0x46: return KEY_9;
+		case 0x49: return KEY_DOT;
+		case 0x4A: return KEY_SLASH;
+		case 0x4B: return KEY_L;
+		case 0x4C: return KEY_SEMICOLON;
+		case 0x4D: return KEY_P;
+		case 0x4E: return KEY_MINUS;
+		case 0x52: return KEY_APOSTROPHE;
+		case 0x54: return KEY_LEFTBRACE;
+		case 0x55: return KEY_EQUAL;
+		case 0x58: return KEY_CAPSLOCK;
+		case 0x59: return KEY_RIGHTSHIFT;
+		case 0x5A: return KEY_ENTER;
+		case 0x5B: return KEY_RIGHTBRACE;
+		case 0x5D: return KEY_BACKSLASH;
+		case 0x66: return KEY_BACKSPACE;
+		case 0x69: return KEY_KP1;
+		case 0x6B: return KEY_KP4;
+		case 0x6C: return KEY_KP7;
+		case 0x70: return KEY_KP0;
+		case 0x71: return KEY_KPDOT;
+		case 0x72: return KEY_KP2;
+		case 0x73: return KEY_KP5;
+		case 0x74: return KEY_KP6;
+		case 0x75: return KEY_KP8;
+		case 0x77: return KEY_NUMLOCK;
+		case 0x78: return KEY_F11;
+		case 0x79: return KEY_KPPLUS;
+		case 0x7A: return KEY_KP3;
+		case 0x7B: return KEY_KPMINUS;
+		case 0x7C: return KEY_KPASTERISK;
+		case 0x7D: return KEY_KP9;
+		case 0x7E: return KEY_SCROLLLOCK;
+		case 0x83: return KEY_F7;
+		default: return KEY_RESERVED;
+	}
+}
+
+int scanSet2E0(uint8_t data) {
+	switch (data) {
+		case 0x11: return KEY_RIGHTALT;
+		case 0x14: return KEY_RIGHTCTRL;
+		case 0x1F: return KEY_LEFTMETA;
+		case 0x27: return KEY_RIGHTMETA;
+		case 0x2F: return KEY_COMPOSE;
+		case 0x4A: return KEY_KPSLASH;
+		case 0x5A: return KEY_KPENTER;
+		case 0x69: return KEY_END;
+		case 0x6B: return KEY_LEFT;
+		case 0x6C: return KEY_HOME;
+		case 0x70: return KEY_INSERT;
+		case 0x71: return KEY_DELETE;
+		case 0x72: return KEY_DOWN;
+		case 0x74: return KEY_RIGHT;
+		case 0x75: return KEY_UP;
+		case 0x7A: return KEY_PAGEDOWN;
+		case 0x7C: return KEY_SYSRQ;
+		case 0x7D: return KEY_PAGEUP;
+		default: return KEY_RESERVED;
+	}
+}
+
+int scanSet2E1(uint8_t data1, uint8_t data2) {
+	if (data1 == 0x14 && data2 == 0x77) {
 		return KEY_PAUSE;
 	} else {
 		return KEY_RESERVED;
@@ -671,27 +799,60 @@ int scanE1(uint8_t data1, uint8_t data2) {
 async::detached Controller::KbdDevice::processReports() {
 	while (true) {
 		int key = -1;
-		bool pressed = false;
+		bool released = false;
 		uint8_t byte0, byte1, byte2;
 
 		byte0 = (co_await _port->pullByte()).value();
 
-		if (byte0 == 0xE0) {
-			byte1 = (co_await _port->pullByte()).value();
-			key = scanE0(byte1 & 0x7F);
-			pressed = !(byte1 & 0x80);
-		} else if (byte0 == 0xE1) {
-			byte1 = (co_await _port->pullByte()).value();
-			byte2 = (co_await _port->pullByte()).value();
-			key = scanE1(byte1, byte2);
-			pressed = !(byte1 & 0x80);
-			assert((byte1 & 0x80) == (byte2 & 0x80));
+		if (_codeSet == 1) {
+			if (byte0 == 0xE0) {
+				byte1 = (co_await _port->pullByte()).value();
+				key = scanSet1E0(byte1 & 0x7F);
+				released = byte1 & 0x80;
+			} else if (byte0 == 0xE1) {
+				byte1 = (co_await _port->pullByte()).value();
+				byte2 = (co_await _port->pullByte()).value();
+				key = scanSet1E1(byte1 & 0x7F, byte2 & 0x7F);
+				released = byte1 & 0x80;
+				assert((byte1 & 0x80) == (byte2 & 0x80));
+			} else {
+				key = scanSet1NoPrefix(byte0 & 0x7F);
+				released = byte0 & 0x80;
+			}
 		} else {
-			key = scanNormal(byte0 & 0x7F);
-			pressed = !(byte0 & 0x80);
+			assert(_codeSet == 2);
+
+			if (byte0 == 0xE0) {
+				byte1 = (co_await _port->pullByte()).value();
+				if (byte1 == 0xF0) {
+					released = true;
+					byte1 = (co_await _port->pullByte()).value();
+				}
+				key = scanSet2E0(byte1);
+			} else if (byte0 == 0xE1) {
+				byte1 = (co_await _port->pullByte()).value();
+				if (byte1 == 0xF0) {
+					released = true;
+					byte1 = (co_await _port->pullByte()).value();
+				}
+				byte2 = (co_await _port->pullByte()).value();
+				if (byte2 == 0xF0) {
+					if(!released)
+						std::cout << "ps2: Got inconsistent E1 release codes" << std::endl;
+					released = true;
+					byte2 = (co_await _port->pullByte()).value();
+				}
+				key = scanSet2E1(byte1, byte2);
+			} else {
+				if (byte0 == 0xF0) {
+					released = true;
+					byte0 = (co_await _port->pullByte()).value();
+				}
+				key = scanSet2NoPrefix(byte0);
+			}
 		}
 
-		_evDev->emitEvent(EV_KEY, key, pressed);
+		_evDev->emitEvent(EV_KEY, key, !released);
 		_evDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 		_evDev->notify();
 	}

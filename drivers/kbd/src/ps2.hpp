@@ -140,6 +140,7 @@ struct Controller {
 
 		Port *_port;
 		std::shared_ptr<libevbackend::EventDevice> _evDev;
+		int _codeSet = 0;
 	};
 
 	struct MouseDevice final : Device {
