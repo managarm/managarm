@@ -897,6 +897,10 @@ Controller *_controller;
 int main() {
 	std::cout << "ps2-hid: Starting driver" << std::endl;
 
+	// Elevate out priority such that we can handle IRQs with less delay
+	// (since the buffer size of the controller is quite small).
+	HEL_CHECK(helSetPriority(kHelThisThread, 1));
+
 	_controller = new Controller;
 
 	{
