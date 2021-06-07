@@ -1,5 +1,4 @@
-#ifndef PROTOCOLS_CLOCK_DEFS_HPP
-#define PROTOCOLS_CLOCK_DEFS_HPP
+#pragma once
 
 #include <stdint.h>
 
@@ -10,5 +9,3 @@ struct TrackerPage {
 	int64_t refClock;
 	int64_t baseRealtime;
 };
-
-#endif // PROTOCOLS_CLOCK_DEFS_HPP

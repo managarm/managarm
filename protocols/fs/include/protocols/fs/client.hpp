@@ -1,5 +1,4 @@
-#ifndef LIBFS_CLIENT_HPP
-#define LIBFS_CLIENT_HPP
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -26,7 +25,7 @@ struct File {
 	helix::BorrowedDescriptor getLane() {
 		return _lane;
 	}
-	
+
 	async::result<void> seekAbsolute(int64_t offset);
 
 	async::result<size_t> readSome(void *data, size_t max_length);
@@ -49,5 +48,3 @@ private:
 using _detail::File;
 
 } } // namespace protocols::fs
-
-#endif // LIBFS_CLIENT_HPP
