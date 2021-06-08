@@ -42,7 +42,7 @@ these images are automatically compiled on [our build server](https://ci.managar
 and reflect the current state of Managarm development.
 To run the (uncompressed) image using qemu, we recommend the following flags:
 
-`qemu-system-x86_64 -enable-kvm -m 1024 -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga virtio -debugcon stdio`
+`qemu-system-x86_64 -enable-kvm -m 2048 -cpu host,migratable=off -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga virtio -debugcon stdio`
 
 ## Supported Software
 
