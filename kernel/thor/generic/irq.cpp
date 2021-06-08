@@ -169,9 +169,15 @@ void IrqPin::raise() {
 
 	// If the IRQ is already masked, we're encountering a hardware race.
 	if(_maskState) {
-		infoLogger() << "\e[31mthor: Ignoring masked IRQ " << _name
-				<< " (hardware race?).\e[39m" << frg::endlog;
-		dumpHardwareState();
+		++_maskedRaiseCtr;
+		// At least on x86, the IRQ controller may buffer up to one edge-triggered IRQ.
+		// If an IRQ is already buffered while we mask it, it will inevitably be raised again.
+		// Thus, we do not immediately complain about edge-triggered IRQs here.
+		if(_strategy != IrqStrategy::justEoi || _maskedRaiseCtr > 1) {
+			infoLogger() << "\e[35mthor: IRQ controller raised "
+					<< _name << " despite being masked\e[39m" << frg::endlog;
+			dumpHardwareState();
+		}
 		sendEoi();
 		return;
 	}
@@ -216,6 +222,7 @@ void IrqPin::_acknowledge() {
 		_callSinks();
 
 	_maskState &= ~maskedForService;
+	_maskedRaiseCtr = 0;
 	_updateMask();
 }
 
@@ -247,6 +254,7 @@ void IrqPin::_kick() {
 		_callSinks();
 
 	_maskState &= ~(maskedForService | maskedForNack);
+	_maskedRaiseCtr = 0;
 	unmask();
 }
 
