@@ -500,8 +500,27 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 			globalCpuFeatures.profileFlags |= CpuFeatures::profileAmdSupported;
 		}
 
-		// Check that both vmx and ept are supported.
-		bool vmxSupported = (common::x86::cpuid(0x1)[2] >> 5) & 1 && common::x86::rdmsr(0x0000048CU) * (1 << 6);
+		// Check that both VMX and EPT are supported.
+		bool vmxSupported = [] () -> bool {
+			// Test for VMX.
+			if(!(common::x86::cpuid(0x1)[2] & (1 << 5)))
+				return false;
+			// Test for secondary processor-based controls.
+			auto procBased = common::x86::rdmsr(0x482);
+			if(!((procBased >> 32) & (1 << 31)))
+				return false;
+			// Test for EPT support and unrestricted guests.
+			auto procBased2 = common::x86::rdmsr(0x48B);
+			if(!((procBased2 >> 32) & (1 << 1)))
+				return false;
+			if(!((procBased2 >> 32) & (1 << 7)))
+				return false;
+			// Test if page walks of length 4 are supported by EPT.
+			if(!(common::x86::rdmsr(0x48C) & (1 << 6)))
+				return false;
+			return true;
+		}(); // Immediately invoked.
+
 		if(vmxSupported) {
 			infoLogger() << "\e[37mthor: CPUs support VMX\e[39m"
 					<< frg::endlog;
