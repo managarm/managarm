@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_PROCFS_HPP
-#define POSIX_SUBSYSTEM_PROCFS_HPP
+#pragma once
 
 #include <protocols/fs/server.hpp>
 
@@ -133,5 +132,3 @@ private:
 } // namespace procfs
 
 std::shared_ptr<FsLink> getProcfs();
-
-#endif // POSIX_SUBSYSTEM_PROCFS_HPP

@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_SYSFS_HPP
-#define POSIX_SUBSYSTEM_SYSFS_HPP
+#pragma once
 
 #include <protocols/fs/server.hpp>
 
@@ -81,7 +80,7 @@ struct Link final : FsLink, std::enable_shared_from_this<Link> {
 
 	explicit Link(std::shared_ptr<FsNode> owner,
 			std::string name, std::shared_ptr<FsNode> target);
-	
+
 	std::shared_ptr<FsNode> getOwner() override;
 	std::string getName() override;
 	std::shared_ptr<FsNode> getTarget() override;
@@ -201,5 +200,3 @@ struct Hierarchy {
 } // namespace sysfs
 
 std::shared_ptr<FsLink> getSysfs();
-
-#endif // POSIX_SUBSYSTEM_SYSFS_HPP

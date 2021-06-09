@@ -1,6 +1,4 @@
-
-#ifndef LIBUSB_USB_HPP
-#define LIBUSB_USB_HPP
+#pragma once
 
 #include <optional>
 #include <assert.h>
@@ -49,7 +47,7 @@ namespace request_type {
 		setDescriptor = 0x07,
 		getConfig = 0x08,
 		setConfig = 0x09,
-		
+
 		// TODO: Move non-standard features to some other location.
 		getReport = 0x01
 	};
@@ -140,7 +138,7 @@ void walkConfiguration(std::string buffer, F functor) {
 	while(p < limit) {
 		auto base = (DescriptorBase *)p;
 		p += base->length;
-		
+    
 		switch(base->descriptorType) {
 		case descriptor_type::configuration: {
 			auto desc = (ConfigDescriptor *)base;
@@ -178,6 +176,3 @@ void walkConfiguration(std::string buffer, F functor) {
 		functor(base->descriptorType, base->length, base, info);
 	}
 }
-
-#endif // LIBUSB_USB_HPP
-

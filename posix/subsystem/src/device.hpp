@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_DEVICE_HPP
-#define POSIX_SUBSYSTEM_DEVICE_HPP
+#pragma once
 
 #include "vfs.hpp"
 
@@ -94,5 +93,3 @@ FutureMaybe<smarter::shared_ptr<File, FileHandle>> openExternalDevice(helix::Bor
 		SemanticFlags semantic_flags);
 
 FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane);
-
-#endif // POSIX_SUBSYSTEM_DEVICE_HPP

@@ -1,6 +1,4 @@
-
-#ifndef HID_HID_HPP
-#define HID_HID_HPP
+#pragma once
 
 #include <async/result.hpp>
 #include <libevbackend.hpp>
@@ -45,7 +43,7 @@ struct Element {
 
 	bool disabled;
 };
-	
+
 // -----------------------------------------------------
 // HidDevice.
 // -----------------------------------------------------
@@ -61,6 +59,3 @@ struct HidDevice {
 private:
 	std::shared_ptr<libevbackend::EventDevice> _eventDev;
 };
-
-#endif // HID_HID_HPP
-

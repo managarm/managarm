@@ -1,6 +1,4 @@
-
-#ifndef POSIX_SUBSYSTEM_TMP_FS_HPP
-#define POSIX_SUBSYSTEM_TMP_FS_HPP
+#pragma once
 
 #include "vfs.hpp"
 
@@ -11,6 +9,3 @@ std::shared_ptr<FsNode> createMemoryNode(std::string path);
 std::shared_ptr<FsLink> createRoot();
 
 } // namespace tmp_fs
-
-#endif // POSIX_SUBSYSTEM_TMP_FS_HPP
-

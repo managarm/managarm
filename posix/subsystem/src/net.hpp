@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_NET_HPP
-#define POSIX_SUBSYSTEM_NET_HPP
+#pragma once
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
@@ -10,5 +9,3 @@ async::result<void> enumerateNetserver();
 async::result<helix::BorrowedLane> getNetLane();
 
 } // namespace net
-
-#endif // POSIX_SUBSYSTEM_NET_HPP

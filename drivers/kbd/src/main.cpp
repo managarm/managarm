@@ -22,6 +22,7 @@
 #include "ps2.hpp"
 
 namespace {
+	constexpr bool logInconsistencies = false;
 	constexpr bool logPackets = false;
 	constexpr bool logMouse = false;
 }
@@ -75,6 +76,10 @@ async::detached Controller::init() {
 	_portsOwnData = true;
 	handleIrqsFor(_irq1, 0);
 	handleIrqsFor(_irq12, 1);
+	// Firmware might have left ports enabled, and the user might have typed during boot.
+	// Reset the IRQ status to ensure that the following code works.
+	HEL_CHECK(helAcknowledgeIrq(_irq1.getHandle(), kHelAckKick, 0));
+	HEL_CHECK(helAcknowledgeIrq(_irq12.getHandle(), kHelAckKick, 0));
 
 	// Initialize devices.
 	printf("ps2-hid: Setting up first port\n");
@@ -195,10 +200,19 @@ async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
 	}
 }
 
-bool Controller::processData(int port) {
+bool Controller::processData(int irqPort) {
 	size_t count = 0;
-	while (_space.load(kbd_register::status) & status_bits::outBufferStatus) {
+	while (true) {
+		auto status = _space.load(kbd_register::status);
+		if (!(status & status_bits::outBufferStatus))
+			break;
 		auto val = _space.load(kbd_register::data);
+
+		auto port = (status & status_bits::secondPort ? 1 : 0);
+		if (logInconsistencies && port != irqPort)
+			std::cout << "ps2-hid: Disparity between status register and IRQ "
+					<< " (IRQ on port " << irqPort << ", status reports " << port << ")"
+					<< std::endl;
 
 		if (logPackets)
 			printf("ps2-hid: received byte 0x%02x on port %d!\n", val, port);
@@ -225,17 +239,17 @@ Controller::Port::Port(Controller *controller, int port)
 
 async::result<void> Controller::Port::init() {
 	auto res1 = co_await submitCommand(device_cmd::DisableScan{});
-	if (std::holds_alternative<NoDevice>(res1)) {
+	if (!res1) {
 		_dead = true;
 		co_return;
 	}
 
 	auto res2 = co_await submitCommand(device_cmd::Identify{});
-	if (std::holds_alternative<NoDevice>(res1)) {
+	if (!res2) {
 		_dead = true;
 		co_return;
 	}
-	_deviceType = std::get<DeviceType>(res2);
+	_deviceType = res2.value();
 
 	if (_deviceType.keyboard)
 		_device = std::make_unique<KbdDevice>(this);
@@ -250,14 +264,19 @@ async::result<void> Controller::Port::init() {
 }
 
 async::result<void> Controller::KbdDevice::run() {
-	//set scancode 1
-	auto res1 = co_await submitCommand(device_cmd::SetScancodeSet{}, 1);
-	assert(std::holds_alternative<std::monostate>(res1));
+	// Set scancode set 2.
+	auto res1 = co_await submitCommand(device_cmd::SetScancodeSet{}, 2);
+	assert(res1);
 
-	// make sure it's used
+	// Make sure it is used.
 	auto res2 = co_await submitCommand(device_cmd::GetScancodeSet{});
-	assert(std::holds_alternative<int>(res2));
-	assert(std::get<int>(res2) == 1);
+	assert(res2);
+	if (res2.value() != 1 && res2.value() != 2) {
+		std::cout << "\e[31m" "ps2-hid: Keyboard does supports neither scancode set 1 nor 2"
+				"\e[39m" << std::endl;
+		co_return;
+	}
+	_codeSet = res2.value();
 
 	//setup evdev stuff
 	_evDev = std::make_shared<libevbackend::EventDevice>();
@@ -329,6 +348,34 @@ async::result<void> Controller::KbdDevice::run() {
 	_evDev->enableEvent(EV_KEY, KEY_RIGHTSHIFT);
 	_evDev->enableEvent(EV_KEY, KEY_RIGHTALT);
 	_evDev->enableEvent(EV_KEY, KEY_RIGHTMETA);
+	_evDev->enableEvent(EV_KEY, KEY_F1);
+	_evDev->enableEvent(EV_KEY, KEY_F2);
+	_evDev->enableEvent(EV_KEY, KEY_F3);
+	_evDev->enableEvent(EV_KEY, KEY_F4);
+	_evDev->enableEvent(EV_KEY, KEY_F5);
+	_evDev->enableEvent(EV_KEY, KEY_F6);
+	_evDev->enableEvent(EV_KEY, KEY_F7);
+	_evDev->enableEvent(EV_KEY, KEY_F8);
+	_evDev->enableEvent(EV_KEY, KEY_F9);
+	_evDev->enableEvent(EV_KEY, KEY_F10);
+	_evDev->enableEvent(EV_KEY, KEY_F11);
+	_evDev->enableEvent(EV_KEY, KEY_F12);
+	_evDev->enableEvent(EV_KEY, KEY_KP1);
+	_evDev->enableEvent(EV_KEY, KEY_KP2);
+	_evDev->enableEvent(EV_KEY, KEY_KP3);
+	_evDev->enableEvent(EV_KEY, KEY_KP4);
+	_evDev->enableEvent(EV_KEY, KEY_KP5);
+	_evDev->enableEvent(EV_KEY, KEY_KP6);
+	_evDev->enableEvent(EV_KEY, KEY_KP7);
+	_evDev->enableEvent(EV_KEY, KEY_KP8);
+	_evDev->enableEvent(EV_KEY, KEY_KP9);
+	_evDev->enableEvent(EV_KEY, KEY_KP0);
+	_evDev->enableEvent(EV_KEY, KEY_KPMINUS);
+	_evDev->enableEvent(EV_KEY, KEY_KPPLUS);
+	_evDev->enableEvent(EV_KEY, KEY_KPDOT);
+	_evDev->enableEvent(EV_KEY, KEY_KPASTERISK);
+	_evDev->enableEvent(EV_KEY, KEY_KPSLASH);
+	_evDev->enableEvent(EV_KEY, KEY_KPENTER);
 
 	// Create an mbus object for the partition.
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -352,7 +399,7 @@ async::result<void> Controller::KbdDevice::run() {
 
 	// Finalize the device initialization.
 	auto res3 = co_await _port->submitCommand(device_cmd::EnableScan{});
-	assert(std::holds_alternative<std::monostate>(res3));
+	assert(res3);
 
 	processReports();
 }
@@ -362,41 +409,41 @@ async::result<void> Controller::MouseDevice::run() {
 
 	// attempt to enable scroll wheel
 	auto res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
-	assert(std::holds_alternative<std::monostate>(res1));
+	assert(res1);
 
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 100);
-	assert(std::holds_alternative<std::monostate>(res1));
+	assert(res1);
 
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 80);
-	assert(std::holds_alternative<std::monostate>(res1));
+	assert(res1);
 
 	auto res2 = co_await _port->submitCommand(device_cmd::Identify{});
-	assert(std::holds_alternative<DeviceType>(res2));
+	assert(res2);
 
-	auto type = std::get<DeviceType>(res2);
+	auto type = res2.value();
 	assert(type.mouse); // ensure the mouse is still a mouse
 	_deviceType.hasScrollWheel = _deviceType.hasScrollWheel || type.hasScrollWheel;
 
 	// attempt to enable the 4th and 5th buttons
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
-	assert(std::holds_alternative<std::monostate>(res1));
+	assert(res1);
 
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
-	assert(std::holds_alternative<std::monostate>(res1));
+	assert(res1);
 
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 80);
-	assert(std::holds_alternative<std::monostate>(res1));
+	assert(res1);
 
 	res2 = co_await _port->submitCommand(device_cmd::Identify{});
-	assert(std::holds_alternative<DeviceType>(res2));
+	assert(res2);
 
-	type = std::get<DeviceType>(res2);
+	type = res2.value();
 	assert(type.mouse); // ensure the mouse is still a mouse
 	_deviceType.has5Buttons = _deviceType.has5Buttons || type.has5Buttons;
 
 	// set report rate to the default
 	res1 = co_await submitCommand(device_cmd::SetReportRate{}, 100);
-	assert(std::holds_alternative<std::monostate>(res1));
+	assert(res1);
 
 	// setup evdev stuff
 	_evDev = std::make_shared<libevbackend::EventDevice>();
@@ -438,7 +485,7 @@ async::result<void> Controller::MouseDevice::run() {
 
 	// Finalize the device initialization.
 	auto res3 = co_await _port->submitCommand(device_cmd::EnableScan{});
-	assert(std::holds_alternative<std::monostate>(res3));
+	assert(res3);
 
 	processReports();
 }
@@ -447,6 +494,12 @@ async::detached Controller::MouseDevice::processReports() {
 	while (true) {
 		uint8_t byte0, byte1, byte2, byte3 = 0;
 		byte0 = (co_await _port->pullByte()).value();
+
+		if (!(byte0 & 8)) {
+			printf("ps2-hid: Mouse desync; first byte is %02x\n", byte0);
+			continue;
+		}
+
 		byte1 = (co_await _port->pullByte()).value();
 		byte2 = (co_await _port->pullByte()).value();
 
@@ -460,12 +513,6 @@ async::detached Controller::MouseDevice::processReports() {
 		if (_deviceType.hasScrollWheel) {
 			movement_wheel = (int)(byte3 & 0x7) - (int)(byte3 & 0x8);
 		}
-
-		if (!(byte0 & 8)) {
-			printf("ps2-hid: desync? first byte is %02x\n", byte0);
-			continue;
-		}
-
 
 		if (byte0 & 0xC0) {
 			printf("ps2-hid: overflow\n");
@@ -503,7 +550,7 @@ async::detached Controller::MouseDevice::processReports() {
 	}
 }
 
-int scanNormal(uint8_t data) {
+int scanSet1NoPrefix(uint8_t data) {
 	switch (data) {
 		case 0x01: return KEY_ESC;
 		case 0x02: return KEY_1;
@@ -594,7 +641,7 @@ int scanNormal(uint8_t data) {
 	}
 }
 
-int scanE0(uint8_t data) {
+int scanSet1E0(uint8_t data) {
 	switch (data) {
 		case 0x1C: return KEY_KPENTER;
 		case 0x1D: return KEY_RIGHTCTRL;
@@ -618,38 +665,194 @@ int scanE0(uint8_t data) {
 	}
 }
 
-int scanE1(uint8_t data1, uint8_t data2) {
-	return ((data1 & 0x7F) == 0x1D && (data2 & 0x7F) == 0x45) ?
-		KEY_PAUSE : KEY_RESERVED;
+int scanSet1E1(uint8_t data1, uint8_t data2) {
+	if (data1 == 0x1D && data2 == 0x45) {
+		return KEY_PAUSE;
+	} else {
+		return KEY_RESERVED;
+	}
+}
+
+int scanSet2NoPrefix(uint8_t data) {
+	switch (data) {
+		case 0x01: return KEY_F9;
+		case 0x03: return KEY_F5;
+		case 0x04: return KEY_F3;
+		case 0x05: return KEY_F1;
+		case 0x06: return KEY_F2;
+		case 0x07: return KEY_F12;
+		case 0x09: return KEY_F10;
+		case 0x0A: return KEY_F8;
+		case 0x0B: return KEY_F6;
+		case 0x0C: return KEY_F4;
+		case 0x0D: return KEY_TAB;
+		case 0x0E: return KEY_GRAVE;
+		case 0x11: return KEY_LEFTALT;
+		case 0x12: return KEY_LEFTSHIFT;
+		case 0x14: return KEY_LEFTCTRL;
+		case 0x15: return KEY_Q;
+		case 0x16: return KEY_1;
+		case 0x1A: return KEY_Z;
+		case 0x1B: return KEY_S;
+		case 0x1C: return KEY_A;
+		case 0x1D: return KEY_W;
+		case 0x1E: return KEY_2;
+		case 0x21: return KEY_C;
+		case 0x22: return KEY_X;
+		case 0x23: return KEY_D;
+		case 0x24: return KEY_E;
+		case 0x25: return KEY_4;
+		case 0x26: return KEY_3;
+		case 0x29: return KEY_SPACE;
+		case 0x2A: return KEY_V;
+		case 0x2B: return KEY_F;
+		case 0x2C: return KEY_T;
+		case 0x2D: return KEY_R;
+		case 0x2E: return KEY_5;
+		case 0x31: return KEY_N;
+		case 0x32: return KEY_B;
+		case 0x33: return KEY_H;
+		case 0x34: return KEY_G;
+		case 0x35: return KEY_Y;
+		case 0x36: return KEY_6;
+		case 0x3A: return KEY_M;
+		case 0x3B: return KEY_J;
+		case 0x3C: return KEY_U;
+		case 0x3D: return KEY_7;
+		case 0x3E: return KEY_8;
+		case 0x41: return KEY_COMMA;
+		case 0x42: return KEY_K;
+		case 0x76: return KEY_ESC;
+		case 0x43: return KEY_I;
+		case 0x44: return KEY_O;
+		case 0x45: return KEY_0;
+		case 0x46: return KEY_9;
+		case 0x49: return KEY_DOT;
+		case 0x4A: return KEY_SLASH;
+		case 0x4B: return KEY_L;
+		case 0x4C: return KEY_SEMICOLON;
+		case 0x4D: return KEY_P;
+		case 0x4E: return KEY_MINUS;
+		case 0x52: return KEY_APOSTROPHE;
+		case 0x54: return KEY_LEFTBRACE;
+		case 0x55: return KEY_EQUAL;
+		case 0x58: return KEY_CAPSLOCK;
+		case 0x59: return KEY_RIGHTSHIFT;
+		case 0x5A: return KEY_ENTER;
+		case 0x5B: return KEY_RIGHTBRACE;
+		case 0x5D: return KEY_BACKSLASH;
+		case 0x66: return KEY_BACKSPACE;
+		case 0x69: return KEY_KP1;
+		case 0x6B: return KEY_KP4;
+		case 0x6C: return KEY_KP7;
+		case 0x70: return KEY_KP0;
+		case 0x71: return KEY_KPDOT;
+		case 0x72: return KEY_KP2;
+		case 0x73: return KEY_KP5;
+		case 0x74: return KEY_KP6;
+		case 0x75: return KEY_KP8;
+		case 0x77: return KEY_NUMLOCK;
+		case 0x78: return KEY_F11;
+		case 0x79: return KEY_KPPLUS;
+		case 0x7A: return KEY_KP3;
+		case 0x7B: return KEY_KPMINUS;
+		case 0x7C: return KEY_KPASTERISK;
+		case 0x7D: return KEY_KP9;
+		case 0x7E: return KEY_SCROLLLOCK;
+		case 0x83: return KEY_F7;
+		default: return KEY_RESERVED;
+	}
+}
+
+int scanSet2E0(uint8_t data) {
+	switch (data) {
+		case 0x11: return KEY_RIGHTALT;
+		case 0x14: return KEY_RIGHTCTRL;
+		case 0x1F: return KEY_LEFTMETA;
+		case 0x27: return KEY_RIGHTMETA;
+		case 0x2F: return KEY_COMPOSE;
+		case 0x4A: return KEY_KPSLASH;
+		case 0x5A: return KEY_KPENTER;
+		case 0x69: return KEY_END;
+		case 0x6B: return KEY_LEFT;
+		case 0x6C: return KEY_HOME;
+		case 0x70: return KEY_INSERT;
+		case 0x71: return KEY_DELETE;
+		case 0x72: return KEY_DOWN;
+		case 0x74: return KEY_RIGHT;
+		case 0x75: return KEY_UP;
+		case 0x7A: return KEY_PAGEDOWN;
+		case 0x7C: return KEY_SYSRQ;
+		case 0x7D: return KEY_PAGEUP;
+		default: return KEY_RESERVED;
+	}
+}
+
+int scanSet2E1(uint8_t data1, uint8_t data2) {
+	if (data1 == 0x14 && data2 == 0x77) {
+		return KEY_PAUSE;
+	} else {
+		return KEY_RESERVED;
+	}
 }
 
 async::detached Controller::KbdDevice::processReports() {
 	while (true) {
 		int key = -1;
-		bool pressed = false;
+		bool released = false;
 		uint8_t byte0, byte1, byte2;
 
 		byte0 = (co_await _port->pullByte()).value();
 
-		switch (byte0) {
-		case 0xE0:
-			byte1 = (co_await _port->pullByte()).value();
-			key = scanE0(byte1 & 0x7F);
-			pressed = !(byte1 & 0x80);
-			break;
-		case 0xE1:
-			byte1 = (co_await _port->pullByte()).value();
-			byte2 = (co_await _port->pullByte()).value();
-			key = scanE1(byte1, byte2);
-			pressed = !(byte1 & 0x80);
-			assert((byte1 & 0x80) == (byte2 & 0x80));
-			break;
-		default:
-			key = scanNormal(byte0 & 0x7F);
-			pressed = !(byte0 & 0x80);
+		if (_codeSet == 1) {
+			if (byte0 == 0xE0) {
+				byte1 = (co_await _port->pullByte()).value();
+				key = scanSet1E0(byte1 & 0x7F);
+				released = byte1 & 0x80;
+			} else if (byte0 == 0xE1) {
+				byte1 = (co_await _port->pullByte()).value();
+				byte2 = (co_await _port->pullByte()).value();
+				key = scanSet1E1(byte1 & 0x7F, byte2 & 0x7F);
+				released = byte1 & 0x80;
+				assert((byte1 & 0x80) == (byte2 & 0x80));
+			} else {
+				key = scanSet1NoPrefix(byte0 & 0x7F);
+				released = byte0 & 0x80;
+			}
+		} else {
+			assert(_codeSet == 2);
+
+			if (byte0 == 0xE0) {
+				byte1 = (co_await _port->pullByte()).value();
+				if (byte1 == 0xF0) {
+					released = true;
+					byte1 = (co_await _port->pullByte()).value();
+				}
+				key = scanSet2E0(byte1);
+			} else if (byte0 == 0xE1) {
+				byte1 = (co_await _port->pullByte()).value();
+				if (byte1 == 0xF0) {
+					released = true;
+					byte1 = (co_await _port->pullByte()).value();
+				}
+				byte2 = (co_await _port->pullByte()).value();
+				if (byte2 == 0xF0) {
+					if(!released)
+						std::cout << "ps2: Got inconsistent E1 release codes" << std::endl;
+					released = true;
+					byte2 = (co_await _port->pullByte()).value();
+				}
+				key = scanSet2E1(byte1, byte2);
+			} else {
+				if (byte0 == 0xF0) {
+					released = true;
+					byte0 = (co_await _port->pullByte()).value();
+				}
+				key = scanSet2NoPrefix(byte0);
+			}
 		}
 
-		_evDev->emitEvent(EV_KEY, key, pressed);
+		_evDev->emitEvent(EV_KEY, key, !released);
 		_evDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 		_evDev->notify();
 	}
@@ -687,15 +890,15 @@ static DeviceType determineTypeById(uint16_t id) {
 	}
 }
 
-async::result<std::variant<NoDevice, DeviceType>>
+async::result<frg::expected<Ps2Error, DeviceType>>
 Controller::Port::submitCommand(device_cmd::Identify tag) {
 	auto cmdResp = co_await transferByte(0xF2);
 	if (!cmdResp)
-		co_return NoDevice{};
+		co_return Ps2Error::timeout;
 	if (*cmdResp != 0xFA) {
-		printf("ps2-hid: Expected ACK after identify command on port %d, got 0x%02x\n",
+		printf("ps2-hid: Expected ACK after Identify command on port %d, got 0x%02x\n",
 				_port, *cmdResp);
-		co_return NoDevice{};
+		co_return Ps2Error::nack;
 	}
 
 	auto data0 = co_await recvResponseByte(default_timeout);
@@ -712,45 +915,107 @@ Controller::Port::submitCommand(device_cmd::Identify tag) {
 	}
 }
 
-async::result<std::variant<NoDevice, std::monostate>>
+async::result<frg::expected<Ps2Error>>
 Controller::Port::submitCommand(device_cmd::DisableScan tag) {
-	if (co_await transferByte(0xF5) == std::nullopt) co_return NoDevice{};
+	auto cmdResp = co_await transferByte(0xF5);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after DisableScan command on port %d, got 0x%02x\n",
+				_port, *cmdResp);
+		co_return Ps2Error::nack;
+	}
 
-	co_return std::monostate{};
+	co_return {};
 }
 
-async::result<std::variant<NoDevice, std::monostate>>
+async::result<frg::expected<Ps2Error>>
 Controller::Port::submitCommand(device_cmd::EnableScan tag) {
-	if (co_await transferByte(0xF4) == std::nullopt) co_return NoDevice{};
+	auto cmdResp = co_await transferByte(0xF4);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after EnableScan command on port %d, got 0x%02x\n",
+				_port, *cmdResp);
+		co_return Ps2Error::nack;
+	}
 
-	co_return std::monostate{};
+	co_return {};
 }
 
-async::result<std::variant<NoDevice, std::monostate>>
+async::result<frg::expected<Ps2Error>>
 Controller::MouseDevice::submitCommand(device_cmd::SetReportRate tag, int rate) {
-	if (co_await _port->transferByte(0xF3) == std::nullopt) co_return NoDevice{};
-	if (co_await _port->transferByte(rate) == std::nullopt) co_return NoDevice{};
+	auto cmdResp = co_await _port->transferByte(0xF3);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetReportRate command on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
 
-	co_return std::monostate{};
+	auto outResp = co_await _port->transferByte(rate);
+	if (!outResp)
+		co_return Ps2Error::timeout;
+	if (*outResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetReportRate output byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *outResp);
+		co_return Ps2Error::nack;
+	}
+
+	co_return {};
 }
 
-async::result<std::variant<NoDevice, std::monostate>>
+async::result<frg::expected<Ps2Error>>
 Controller::KbdDevice::submitCommand(device_cmd::SetScancodeSet tag, int set) {
-	if (co_await _port->transferByte(0xF0) == std::nullopt) co_return NoDevice{};
-	if (co_await _port->transferByte(set) == std::nullopt) co_return NoDevice{};
+	// If set == 0, this would be a GetScancodeSet command.
+	assert(set);
 
-	co_return std::monostate{};
+	auto cmdResp = co_await _port->transferByte(0xF0);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetScancodeSet data byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	auto outResp = co_await _port->transferByte(set);
+	if (!outResp)
+		co_return Ps2Error::timeout;
+	if (*outResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after setScancodeSet output byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *outResp);
+		co_return Ps2Error::nack;
+	}
+
+	co_return {};
 }
 
-async::result<std::variant<NoDevice, int>>
+async::result<frg::expected<Ps2Error, int>>
 Controller::KbdDevice::submitCommand(device_cmd::GetScancodeSet tag) {
-	if (co_await _port->transferByte(0xF0) == std::nullopt) co_return NoDevice{};
-	if (co_await _port->transferByte(0) == std::nullopt) co_return NoDevice{};
+	auto cmdResp = co_await _port->transferByte(0xF0);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after SetScancodeSet data byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
 
-	auto set = co_await _port->recvResponseByte(default_timeout);
-	assert(set != std::nullopt);
+	auto outResp = co_await _port->transferByte(0);
+	if (!outResp)
+		co_return Ps2Error::timeout;
+	if (*outResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after setScancodeSet output byte on port %d, got 0x%02x\n",
+				_port->getIndex(), *outResp);
+		co_return Ps2Error::nack;
+	}
 
-	co_return set.value();
+	auto setResp = co_await _port->recvResponseByte(default_timeout);
+	if (!setResp)
+		co_return Ps2Error::timeout;
+	co_return setResp.value();
 }
 
 void Controller::Port::sendByte(uint8_t byte) {
@@ -796,6 +1061,10 @@ Controller *_controller;
 
 int main() {
 	std::cout << "ps2-hid: Starting driver" << std::endl;
+
+	// Elevate out priority such that we can handle IRQs with less delay
+	// (since the buffer size of the controller is quite small).
+	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
 	_controller = new Controller;
 

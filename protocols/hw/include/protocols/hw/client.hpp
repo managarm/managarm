@@ -1,6 +1,4 @@
-
-#ifndef LIBHW_CLIENT_HPP
-#define LIBHW_CLIENT_HPP
+#pragma once
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
@@ -43,7 +41,7 @@ struct FbInfo {
 struct Device {
 	Device(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { };
-	
+
 	async::result<PciInfo> getPciInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
 	async::result<helix::UniqueDescriptor> accessIrq();
@@ -55,7 +53,7 @@ struct Device {
 	async::result<uint32_t> loadPciSpace(size_t offset, unsigned int size);
 	async::result<void> storePciSpace(size_t offset, unsigned int size, uint32_t word);
 	async::result<uint32_t> loadPciCapability(unsigned int index, size_t offset, unsigned int size);
-	
+
 	async::result<FbInfo> getFbInfo();
 	async::result<helix::UniqueDescriptor> accessFbMemory();
 
@@ -64,6 +62,3 @@ private:
 };
 
 } } // namespace protocols::hw
-
-#endif // LIBHW_CLIENT_HPP
-

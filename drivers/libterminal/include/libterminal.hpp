@@ -1,6 +1,4 @@
-
-#ifndef LIBTERMINAL_HPP
-#define LIBTERMINAL_HPP
+#pragma once
 
 #include <stdint.h>
 #include <stdio.h>
@@ -65,5 +63,3 @@ struct Emulator {
 };
 
 } // namespace libterminal
-
-#endif // LIBTERMINAL_HPP

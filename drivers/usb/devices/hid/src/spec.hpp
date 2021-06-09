@@ -1,6 +1,4 @@
-
-#ifndef HID_SPEC_HPP
-#define HID_SPEC_HPP
+#pragma once
 
 namespace pages {
 	constexpr int genericDesktop = 0x01;
@@ -38,6 +36,3 @@ struct HidDescriptor : public DescriptorBase {
 	uint8_t numDescriptors;
 	Entry entries[];
 };
-
-#endif // HID_SPEC_HPP
-

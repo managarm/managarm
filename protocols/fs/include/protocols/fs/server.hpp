@@ -1,5 +1,4 @@
-#ifndef LIBFS_SERVER_HPP
-#define LIBFS_SERVER_HPP
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -236,5 +235,3 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 
 
 } } // namespace protocols::fs
-
-#endif // LIBFS_SERVER_HPP

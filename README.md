@@ -22,7 +22,8 @@ While the managarm user space API supports many Linux APIs (e.g. epoll, timerfd,
 managarm does not share any source code (or binaries) with the Linux kernel.
 
 **Official Discord server:** https://discord.gg/7WB6Ur3. This is our primary real-time communication channel.
-**Official IRC channel:** `#managarm` on `irc.freenode.net`
+
+**Official IRC channel:** `#managarm` on `irc.libera.chat`, our former channel on freenode is no longer in use.
 
 ## Features
 
@@ -41,7 +42,7 @@ these images are automatically compiled on [our build server](https://ci.managar
 and reflect the current state of Managarm development.
 To run the (uncompressed) image using qemu, we recommend the following flags:
 
-`qemu-system-x86_64 -enable-kvm -m 1024 -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga virtio -debugcon stdio`
+`qemu-system-x86_64 -enable-kvm -m 2048 -cpu host,migratable=off -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga virtio -debugcon stdio`
 
 ## Supported Software
 
@@ -51,10 +52,10 @@ Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/w
 **General** USB (UHCI, EHCI)\
 **Graphics** Generic VBE graphics, Intel G45, virtio GPU, Bochs VBE interface, VMWare SVGA\
 **Input** USB human interface devices, PS/2 keyboard and mouse\
-**Storage** USB mass storage devices, AHCI, ATA, virtio block
+**Storage** USB mass storage devices, NVMe, AHCI, ATA, virtio block
 
 ## Building managarm
 
 While this repository contains managarm's kernel, its drivers and other core functionality,
 it is not enough to build a full managarm distribution. Instead, we refer to the
-[Managarm Handbook](https://docs.managarm.org/handbook/building.html) for build instructions.
+[Managarm Handbook](https://docs.managarm.org/handbook/building/index.html) for build instructions.

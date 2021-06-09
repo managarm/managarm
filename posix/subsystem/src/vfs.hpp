@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_VFS_HPP
-#define POSIX_SUBSYSTEM_VFS_HPP
+#pragma once
 
 #include <string.h>
 #include <iostream>
@@ -79,7 +78,7 @@ struct PathResolver {
 		assert(!_components.empty());
 		return _components.front();
 	}
-	
+
 	std::shared_ptr<MountView> currentView() {
 		return _currentPath.first;
 	}
@@ -106,5 +105,3 @@ async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath ro
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
 		ViewPath workdir, std::string name, ResolveFlags resolve_flags = 0,
 		SemanticFlags semantic_flags = 0);
-
-#endif // POSIX_SUBSYSTEM_VFS_HPP

@@ -1,6 +1,4 @@
 #pragma once
-#ifndef PROTOCOLS_FS_FILE_LOCKS_HPP
-#define PROTOCOLS_FS_FILE_LOCKS_HPP
 
 #include <protocols/fs/server.hpp>
 #include <boost/intrusive/list.hpp>
@@ -38,5 +36,3 @@ private:
 	};
 
 }
-
-#endif

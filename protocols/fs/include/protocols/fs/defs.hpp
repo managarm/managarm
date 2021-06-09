@@ -1,5 +1,4 @@
-#ifndef PROTOCOLS_FS_DEFS_HPP
-#define PROTOCOLS_FS_DEFS_HPP
+#pragma once
 
 #include <stdint.h>
 
@@ -13,5 +12,3 @@ struct StatusPage {
 };
 
 } // namespace protocols::fs
-
-#endif // PROTOCOLS_FS_DEFS_HPP

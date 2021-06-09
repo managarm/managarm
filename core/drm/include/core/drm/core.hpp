@@ -1,6 +1,5 @@
 
-#ifndef CORE_DRM_CORE_HPP
-#define CORE_DRM_CORE_HPP
+#pragma once
 
 #include <queue>
 #include <map>
@@ -49,7 +48,7 @@ struct ObjectPropertyType {
 };
 
 struct BlobPropertyType {
-		
+
 };
 
 using PropertyType = std::variant<
@@ -101,7 +100,7 @@ struct Blob {
 
 	size_t size();
 	const void *data();
-	
+
 private:
 	std::vector<char> _data;
 };
@@ -129,7 +128,7 @@ public:
 	const std::vector<Crtc *> &getCrtcs();
 	const std::vector<Encoder *> &getEncoders();
 	const std::vector<Connector *> &getConnectors();
-	
+
 	void registerObject(ModeObject *object);
 	std::shared_ptr<ModeObject> findObject(uint32_t);
 
@@ -142,7 +141,7 @@ public:
 	uint32_t getMinHeight();
 	uint32_t getMaxHeight();
 
-private:	
+private:
 	std::vector<Crtc *> _crtcs;
 	std::vector<Encoder *> _encoders;
 	std::vector<Connector *> _connectors;
@@ -194,7 +193,7 @@ struct File {
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
 	void detachFrameBuffer(FrameBuffer *frame_buffer);
 	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
-	
+
 	uint32_t createHandle(std::shared_ptr<BufferObject> bo);
 	BufferObject *resolveHandle(uint32_t handle);
 
@@ -251,7 +250,7 @@ private:
 struct ModeObject {
 	ModeObject(ObjectType type, uint32_t id)
 	: _type(type), _id(id) { };
-	
+
 	uint32_t id();
 	Encoder *asEncoder();
 	Connector *asConnector();
@@ -261,7 +260,7 @@ struct ModeObject {
 
 	void setupWeakPtr(std::weak_ptr<ModeObject> self);
 	std::shared_ptr<ModeObject> sharedModeObject();
-	
+
 private:
 	ObjectType _type;
 	uint32_t _id;
@@ -289,7 +288,7 @@ private:
 
 struct Encoder : ModeObject {
 	Encoder(uint32_t id);
-	
+
 	drm_core::Crtc *currentCrtc();
 	void setCurrentCrtc(drm_core::Crtc *crtc);
 	void setupEncoderType(uint32_t type);
@@ -313,16 +312,16 @@ struct Connector : ModeObject {
 
 	const std::vector<drm_mode_modeinfo> &modeList();
 	void setModeList(std::vector<drm_mode_modeinfo> mode_list);
-	
+
 	drm_core::Encoder *currentEncoder();
 	void setCurrentEncoder(drm_core::Encoder *encoder);
 
 	void setCurrentStatus(uint32_t status);
 	uint32_t getCurrentStatus();
-	
+
 	void setupPossibleEncoders(std::vector<Encoder *> encoders);
 	const std::vector<Encoder *> &getPossibleEncoders();
-	
+
 	void setupPhysicalDimensions(uint32_t width, uint32_t height);
 	uint32_t getPhysicalWidth();
 	uint32_t getPhysicalHeight();
@@ -352,7 +351,7 @@ public:
 };
 
 struct Plane : ModeObject {
-	Plane(uint32_t id);	
+	Plane(uint32_t id);
 };
 
 struct Assignment {
@@ -392,4 +391,3 @@ extern "C" void fastCopy16(void *, const void *, size_t);
 
 } //namespace drm_core
 
-#endif // CORE_DRM_CORE_HPP

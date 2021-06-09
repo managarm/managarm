@@ -1,6 +1,4 @@
-
-#ifndef KBD_SPEC_HPP
-#define KBD_SPEC_HPP
+#pragma once
 
 constexpr int DATA = 0x60;
 constexpr int STATUS = 0x64;
@@ -25,9 +23,7 @@ namespace status_bits {
 	arch::field<uint8_t, bool> inBufferStatus(1, 1);
 	arch::field<uint8_t, bool> sysFlag(2, 1);
 	arch::field<uint8_t, bool> cmdData(3, 1);
+	arch::field<uint8_t, bool> secondPort(5, 1);
 	arch::field<uint8_t, bool> timeoutError(6, 1);
 	arch::field<uint8_t, bool> parityError(7, 1);
 }
-
-#endif // KBD_SPEC_HPP
-

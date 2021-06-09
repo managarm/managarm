@@ -7,10 +7,15 @@
     - [Supported Hardware and Software](getting-started/supported/index.md)
         - [Supported Packages](getting-started/supported/package_index.md)
 
-- [Building](building.md)
+- [Building](building/index.md)
+	- [With `cbuildrt` (recommended)](building/index.md)
+	- [With Docker](building/with-docker.md)
+	- [Without Containers](building/without-containers.md)
+	- [Updating Packages](building/updating.md)
 
 - [Contributing](contributing/overview.md)
     - [Overview](contributing/overview.md)
+    - [xbstrap-Workflow](contributing/xbstrap.md)
     - [Commit messages](contributing/commit-messages.md)
     - [Coding style](contributing/coding-style.md)
 

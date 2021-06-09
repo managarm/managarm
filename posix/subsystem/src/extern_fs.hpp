@@ -1,6 +1,4 @@
-
-#ifndef POSIX_SUBSYSTEM_EXTERN_FS_HPP
-#define POSIX_SUBSYSTEM_EXTERN_FS_HPP
+#pragma once
 
 #include "vfs.hpp"
 
@@ -12,6 +10,3 @@ smarter::shared_ptr<File, FileHandle>
 createFile(helix::UniqueLane lane, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
 
 } // namespace extern_fs
-
-#endif // POSIX_SUBSYSTEM_EXTERN_FS_HPP
-

@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_SOCKUTIL_HPP
-#define POSIX_SUBSYSTEM_SOCKUTIL_HPP
+#pragma once
 
 #include <vector>
 
@@ -12,7 +11,7 @@ struct CtrlBuilder {
 	bool message(int layer, int type, size_t payload) {
 		if(_buffer.size() + CMSG_SPACE(payload) > _maxSize)
 			return false;
-		
+
 		_offset = _buffer.size();
 		_buffer.resize(_offset + CMSG_SPACE(payload));
 
@@ -43,5 +42,3 @@ private:
 	size_t _maxSize;
 	size_t _offset;
 };
-
-#endif // POSIX_SUBSYSTEM_SOCKUTIL_HPP

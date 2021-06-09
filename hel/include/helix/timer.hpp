@@ -1,5 +1,4 @@
-#ifndef HELIX_TIMEOUT_HPP
-#define HELIX_TIMEOUT_HPP
+#pragma once
 
 #include <helix/ipc.hpp>
 #include <async/cancellation.hpp>
@@ -121,5 +120,3 @@ bool busyWaitUntil(uint64_t timeoutNs, F cond) {
 }
 
 } // namespace helix
-
-#endif // HELIX_TIMEOUT_HPP

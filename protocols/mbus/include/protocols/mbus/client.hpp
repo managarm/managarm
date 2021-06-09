@@ -1,6 +1,4 @@
-
-#ifndef LIBMBUS_MBUS_HPP
-#define LIBMBUS_MBUS_HPP
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -205,6 +203,3 @@ using _detail::Entity;
 using _detail::Observer;
 
 } // namespace mbus
-
-#endif // LIBMBUS_MBUS_HPP
-

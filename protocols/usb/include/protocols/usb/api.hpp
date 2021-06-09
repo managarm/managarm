@@ -1,6 +1,4 @@
-
-#ifndef LIBUSB_API_HPP
-#define LIBUSB_API_HPP
+#pragma once
 
 #include <memory>
 
@@ -67,7 +65,7 @@ public:
 
 struct Endpoint {
 	Endpoint(std::shared_ptr<EndpointData> state);
-	
+
 	async::result<void> transfer(ControlTransfer info) const;
 	async::result<size_t> transfer(InterruptTransfer info) const;
 	async::result<size_t> transfer(BulkTransfer info) const;
@@ -90,7 +88,7 @@ public:
 
 struct Interface {
 	Interface(std::shared_ptr<InterfaceData> state);
-	
+
 	async::result<Endpoint> getEndpoint(PipeType type, int number) const;
 
 private:
@@ -112,7 +110,7 @@ public:
 
 struct Configuration {
 	Configuration(std::shared_ptr<ConfigurationData> state);
-	
+
 	async::result<Interface> useInterface(int number, int alternative) const;
 
 private:
@@ -149,6 +147,3 @@ struct Device {
 private:
 	std::shared_ptr<DeviceData> _state;
 };
-
-#endif // LIBUSB_API_HPP
-

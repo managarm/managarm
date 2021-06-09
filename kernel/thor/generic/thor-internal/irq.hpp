@@ -213,6 +213,7 @@ private:
 	bool _inService;
 	unsigned int _dueSinks;
 	int _maskState;
+	unsigned int _maskedRaiseCtr = 0;
 
 	// Timestamp of the last acknowledge() operation.
 	// Relative to currentNanos().
@@ -307,6 +308,9 @@ private:
 			&AwaitIrqNode::_queueNode
 		>
 	> _waitQueue;
+
+protected:
+	~IrqObject() = default;
 };
 
 struct GenericIrqObject final : IrqObject {

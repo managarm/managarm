@@ -7,7 +7,6 @@
 #include <vector>
 #include <memory>
 #include <functional>
-#include <variant>
 #include <type_traits>
 
 struct stl_allocator {
@@ -21,6 +20,12 @@ struct stl_allocator {
 };
 
 struct NoDevice {};
+
+enum class Ps2Error {
+	none,
+	timeout,
+	nack
+};
 
 namespace controller_cmd {
 	struct DisablePort {};
@@ -80,6 +85,10 @@ struct Controller {
 
 		async::result<void> init();
 
+		int getIndex() {
+			return _port;
+		}
+
 		bool isDead() {
 			return _dead;
 		}
@@ -91,13 +100,13 @@ struct Controller {
 		void pushByte(uint8_t byte);
 		async::result<std::optional<uint8_t>> pullByte(async::cancellation_token ct = {});
 
-		async::result<std::variant<NoDevice, std::monostate>>
+		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::DisableScan tag);
 
-		async::result<std::variant<NoDevice, std::monostate>>
+		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::EnableScan tag);
 
-		async::result<std::variant<NoDevice, DeviceType>>
+		async::result<frg::expected<Ps2Error, DeviceType>>
 		submitCommand(device_cmd::Identify tag);
 
 		void sendByte(uint8_t byte);
@@ -121,16 +130,17 @@ struct Controller {
 		virtual async::result<void> run() override;
 
 	private:
-		async::result<std::variant<NoDevice, std::monostate>>
+		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::SetScancodeSet tag, int set);
 
-		async::result<std::variant<NoDevice, int>>
+		async::result<frg::expected<Ps2Error, int>>
 		submitCommand(device_cmd::GetScancodeSet tag);
 
 		async::detached processReports();
 
 		Port *_port;
 		std::shared_ptr<libevbackend::EventDevice> _evDev;
+		int _codeSet = 0;
 	};
 
 	struct MouseDevice final : Device {
@@ -140,7 +150,7 @@ struct Controller {
 		virtual async::result<void> run() override;
 
 	private:
-		async::result<std::variant<NoDevice, std::monostate>>
+		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::SetReportRate tag, int rate);
 
 		async::detached processReports();

@@ -1,5 +1,4 @@
-#ifndef POSIX_SUBSYSTEM_COMMON_HPP
-#define POSIX_SUBSYSTEM_COMMON_HPP
+#pragma once
 
 #include <iostream>
 #include <unordered_map>
@@ -26,5 +25,3 @@ private:
 	const char *_type;
 	uint64_t _id;
 };
-
-#endif // POSIX_SUBSYSTEM_COMMON_HPP
