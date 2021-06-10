@@ -150,23 +150,28 @@ struct Path {
 		while(it != string.end()) {
 			auto start = std::exchange(it, std::find(it, string.end(), '/'));
 			auto component = string.substr(start - string.begin(), it - start);
-			components.push_back(std::move(component));
+			if (component.size())
+				components.push_back(std::move(component));
 
 			// finally we need to skip the slash we found.
 			if(it != string.end())
 				++it;
 		}
 
-		return Path(relative, std::move(components));
+		return Path{relative, std::move(components), !string.empty() && string.back() == '/'};
 	}
 
 	using Iterator = std::vector<std::string>::iterator;
 
-	explicit Path(bool relative, std::vector<std::string> components)
-	: _relative(relative), _components(std::move(components)) { }
+	explicit Path(bool relative, std::vector<std::string> components, bool trailingSlash)
+	: _relative(relative), _trailingSlash{trailingSlash}, _components(std::move(components)) { }
 
 	bool isRelative() {
 		return _relative;
+	}
+
+	bool trailingSlash() {
+		return _trailingSlash;
 	}
 
 	bool empty() {
@@ -182,6 +187,7 @@ struct Path {
 
 private:
 	bool _relative;
+	bool _trailingSlash;
 	std::vector<std::string> _components;
 };
 
@@ -190,6 +196,7 @@ void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string) {
 
 	auto path = Path::decompose(std::move(string));
 	_components = std::deque<std::string>(path.begin(), path.end());
+	_trailingSlash = path.trailingSlash();
 	if(path.isRelative()) {
 		_currentPath = std::move(workdir);
 	}else{
@@ -209,13 +216,11 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 		std::cout << "'" << std::endl;
 	}
 
-	while(true) {
-		// Strip trailing empty components if necessary.
-		if(flags & resolveIgnoreEmptyTrail) {
-			while(!_components.empty() && _components.back().empty())
-				_components.pop_back();
-		}
+	// TODO: This should return EISDIR, not ENODIR.
+	if((flags & resolveNoTrailingSlash) && _trailingSlash)
+		co_return protocols::fs::Error::notDirectory;
 
+	while(true) {
 		if(_components.empty()
 				|| ((flags & resolvePrefix) && _components.size() == 1))
 			break;
@@ -226,7 +231,8 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 			std::cout << "posix " << sn << ":     Resolving '" << name << "'" << std::endl;
 
 		// Resolve the link into the directory.
-		if(name.empty() || name == ".") {
+		assert(!name.empty()); // This is ensured by the path decomposition algorithm.
+		if(name == ".") {
 			// Ignore the component.
 		}else if(name == "..") {
 			if(_currentPath == _rootPath) {
@@ -380,6 +386,21 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 			}
 		}
 	}
+
+	if(flags & resolvePrefix) {
+		// If we are resolving a prefix, an empty path is not a valid input.
+		if(!_components.size())
+			co_return protocols::fs::Error::fileNotFound;
+		assert(_components.size() == 1);
+	}else{
+		assert(!_components.size());
+
+		// If the syntax of the path implies that the path refers to a directory
+		// (with a trailing slash), we fail if the node is not actually a directory.
+		if(_trailingSlash && _currentPath.second->getTarget()->getType() != VfsType::directory)
+			co_return protocols::fs::Error::notDirectory;
+	}
+
 	co_return {};
 }
 

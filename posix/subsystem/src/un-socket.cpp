@@ -341,7 +341,7 @@ public:
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
 					process->fsContext()->getWorkingDirectory(), std::move(path));
-			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
 				co_return resolveResult.error();
 			}

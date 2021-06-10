@@ -1353,7 +1353,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req.path());
-			auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveIgnoreEmptyTrail);
+			auto resolveResult = co_await resolver.resolve(resolvePrefix);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
@@ -1447,7 +1447,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
-			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
@@ -1555,7 +1555,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->target_path());
-			auto new_resolveResult = co_await new_resolver.resolve(resolvePrefix);
+			auto new_resolveResult = co_await new_resolver.resolve(
+					resolvePrefix | resolveNoTrailingSlash);
 			if(!new_resolveResult) {
 				if(new_resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
@@ -1623,7 +1624,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relativeTo, req->path());
-			auto resolveResult = co_await resolver.resolve(resolvePrefix);
+			auto resolveResult = co_await resolver.resolve(
+					resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
@@ -1724,6 +1726,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				relative_to = {file->associatedMount(), file->associatedLink()};
 			}
 
+			// TODO: Add resolveNoTrailingSlash if source is not a directory?
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->target_path());
@@ -2005,7 +2008,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
 						relativeTo, req->path());
-				auto resolveResult = co_await resolver.resolve(resolvePrefix);
+				auto resolveResult = co_await resolver.resolve();
 				if(!resolveResult) {
 					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
 						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
@@ -2166,7 +2169,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());
 			if(req->flags() & managarm::posix::OpenFlags::OF_CREATE) {
-				auto resolveResult = co_await resolver.resolve(resolvePrefix);
+				auto resolveResult = co_await resolver.resolve(
+						resolvePrefix | resolveNoTrailingSlash);
 				if(!resolveResult) {
 					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
 						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
@@ -3429,6 +3433,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				relative_to = {file->associatedMount(), file->associatedLink()};
 			}
 
+			// TODO: Add resolveNoTrailingSlash if not making a directory?
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path());

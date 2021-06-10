@@ -14,10 +14,9 @@
 
 using ResolveFlags = uint32_t;
 inline constexpr ResolveFlags resolvePrefix = (1 << 4);
+// The path must not refer to a directory (not trailing slash allowed).
+inline constexpr ResolveFlags resolveNoTrailingSlash = (1 << 2);
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
-// Ignore empty trailing components.
-// Useful for operations that work on non-existant directories (mkdir).
-inline constexpr ResolveFlags resolveIgnoreEmptyTrail = (1 << 2);
 
 //! Represents a virtual view of the file system.
 //! We handle all mount point related logic in this class.
@@ -91,6 +90,7 @@ private:
 	ViewPath _rootPath;
 
 	std::deque<std::string> _components;
+	bool _trailingSlash;
 	ViewPath _currentPath;
 };
 
