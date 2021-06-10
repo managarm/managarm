@@ -43,7 +43,7 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     curl https://mirrors.managarm.org/cbuildrt/rootfs/managarm-buildenv.tar.gz -o managarm-rootfs.tar.gz
     tar xvf managarm-rootfs.tar.gz
     ```
-1.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents (replace the `container.rootfs` key as appropriate):
+1.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents:
     ```yml
     pkg_management:
       format: xbps
@@ -58,34 +58,37 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
       allow_containerless: true
     ```
     > Note: you must keep the `src_mount` and `build_mount` values as shown above if you want to be able to use pre-built tools from our build server. These paths refer to locations on the *container*, not on your host machine. Also note that these paths cannot be changed after starting the build; doing so will likely result in a broken directory tree.
+1.  In the `build/bootstrap-site.yml` file you just created, replace the `container.rootfs` key with the path to your `rootfs`.
 
 
 ### Building
 1.  Initialize the build directory with
-    ```bash
-    cd build
-    xbstrap init ../src
-    ```
-1.  There are several meta-packages available which control what software is built, this means that the build can be started using one of the following commands:
+	```bash
+	cd build
+	xbstrap init ../src
+	```
 
-    If you want the full managarm experience with a selection of terminal and gui software available to try out use
-    ```bash
-    xbstrap install weston-desktop
-    ```
-    If you want to boot into `kmscon` and have some functional commands to play around with use
-    ```bash
-    xbstrap install base
-    ```
-    If you want some development tools in addition to the functionality of `base` use
-    ```bash
-    xbstrap install base-devel
-    ```
-    If you only want to build the bare minimum to boot into `kmscon` use
-    ```bash
-    xbstrap install --all
-    ```
-    Note that this command can take multiple hours, depending on your machine.
+1.  Decide which software you want to include in the image you create. There are several meta-packages available which help you decide this:
+    * `base`: just enough to boot into `kmscon` plus some functional commands to play with (such as `less` and `grep`)
+    * `base-devel`: same as `base` plus some extra development tools (such as `gcc` and `binutils`)
+    * `weston-desktop`: full managarm experience with a selection of terminal and GUI software
 
+1.  To actually execute the build, we recommend that you install the necessary tools and packages as binaries from our build server.
+	This can save you multiple hours of compilation, depending on your machine.
+
+	> Note: **this only works if you build in a container** (though this is untested with Docker). Containerless builds must do a full build from source (see below).
+
+	```bash
+	xbstrap pull-pack --deps-of <meta-package> # e.g xbstrap pull-pack --deps-of base
+	xbstrap install --deps-of <meta-package>
+
+	# The following two commands fetch managarm and mlibc (plus their required tools) to enable local development:
+	xbstrap download-tool-archive --build-deps-of managarm-system --build-deps-of managarm-kernel --build-deps-of mlibc
+	xbstrap install --rebuild managarm-system managarm-kernel mlibc mlibc-headers
+	```
+
+	If instead you want to build everything from source, simply run `xbstrap install <group>`, e.g `xbstrap install weston-desktop`.
+	Note that this can take multiple hours, depending on your machine.
 
 ### Creating Images
 > Note: if using a Docker container the following command are meant to be ran **outside** the Docker container, in the `build` directory on the host. Adding to the aforementioned commands, one would `exit` from the container once the build finishes, enter the `build` directory, and proceed as follows.
