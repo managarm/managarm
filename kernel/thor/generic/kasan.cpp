@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <stdint.h>
+#include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/debug.hpp>
 
@@ -95,6 +96,14 @@ namespace {
 	(void)pointer;
 	(void)size;
 #endif // THOR_KASAN
+}
+
+void scrubStackFrom(uintptr_t top, Continuation cont) {
+	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
+	assert(top >= bottom);
+	cleanKasanShadow(cont.sp, top - bottom);
+	// Perform some sanity checking.
+	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)), bottom & (kPageSize - 1));
 }
 
 } // namespace thor

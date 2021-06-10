@@ -35,6 +35,18 @@ bool FaultImageAccessor::allowUserPages() {
 // Executor
 // --------------------------------------------------------
 
+static constexpr uint16_t fcwInitializer =
+	(1 << 0) |    // IM
+	(1 << 1) |    // DM
+	(1 << 2) |    // ZM
+	(1 << 3) |    // OM
+	(1 << 4) |    // UM
+	(1 << 5) |    // PM
+	(0b11 << 8);  // PC
+
+static constexpr uint32_t mxcsrInitializer = 0b1111110000000;
+
+
 size_t Executor::determineSimdSize() {
 	assert(cpuFeaturesKnown);
 	if(getGlobalCpuFeatures()->haveXsave){
@@ -60,20 +72,8 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 	assert(!((uintptr_t)_pointer & 0x3F));
 	assert(!((uintptr_t)this->_fxState() & 0x3F));
 
-	_fxState()->mxcsr |= 1 << 7;
-	_fxState()->mxcsr |= 1 << 8;
-	_fxState()->mxcsr |= 1 << 9;
-	_fxState()->mxcsr |= 1 << 10;
-	_fxState()->mxcsr |= 1 << 11;
-	_fxState()->mxcsr |= 1 << 12;
-
-	_fxState()->fcw |= 1 << 0; // IM
-	_fxState()->fcw |= 1 << 1; // DM
-	_fxState()->fcw |= 1 << 2; // ZM
-	_fxState()->fcw |= 1 << 3; // OM
-	_fxState()->fcw |= 1 << 4; // UM
-	_fxState()->fcw |= 1 << 5; // PM
-	_fxState()->fcw |= 0b11 << 8; // PC
+	_fxState()->mxcsr |= mxcsrInitializer;
+	_fxState()->fcw |= fcwInitializer;
 
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
@@ -94,20 +94,8 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	assert(!((uintptr_t)_pointer & 0x3F));
 	assert(!((uintptr_t)this->_fxState() & 0x3F));
 
-	_fxState()->mxcsr |= 1 << 7;
-	_fxState()->mxcsr |= 1 << 8;
-	_fxState()->mxcsr |= 1 << 9;
-	_fxState()->mxcsr |= 1 << 10;
-	_fxState()->mxcsr |= 1 << 11;
-	_fxState()->mxcsr |= 1 << 12;
-
-	_fxState()->fcw |= 1 << 0; // IM
-	_fxState()->fcw |= 1 << 1; // DM
-	_fxState()->fcw |= 1 << 2; // ZM
-	_fxState()->fcw |= 1 << 3; // OM
-	_fxState()->fcw |= 1 << 4; // UM
-	_fxState()->fcw |= 1 << 5; // PM
-	_fxState()->fcw |= 0b11 << 8; // PC
+	_fxState()->mxcsr |= mxcsrInitializer;
+	_fxState()->fcw |= fcwInitializer;
 
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
@@ -286,43 +274,19 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 // --------------------------------------------------------
 
 void scrubStack(FaultImageAccessor accessor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
-	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
-	assert(top >= bottom);
-	cleanKasanShadow(cont.sp, top - bottom);
-	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	scrubStackFrom(reinterpret_cast<uintptr_t>(accessor.frameBase()), cont);;
 }
 
 void scrubStack(IrqImageAccessor accessor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
-	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
-	assert(top >= bottom);
-	cleanKasanShadow(cont.sp, top - bottom);
-	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	scrubStackFrom(reinterpret_cast<uintptr_t>(accessor.frameBase()), cont);;
 }
 
 void scrubStack(SyscallImageAccessor accessor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(accessor.frameBase());
-	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
-	assert(top >= bottom);
-	cleanKasanShadow(cont.sp, top - bottom);
-	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	scrubStackFrom(reinterpret_cast<uintptr_t>(accessor.frameBase()), cont);;
 }
 
 void scrubStack(Executor *executor, Continuation cont) {
-	auto top = reinterpret_cast<uintptr_t>(*executor->sp());
-	auto bottom = reinterpret_cast<uintptr_t>(cont.sp);
-	assert(top >= bottom);
-	cleanKasanShadow(cont.sp, top - bottom);
-	// Perform some sanity checking.
-	validateKasanClean(reinterpret_cast<void *>(bottom & ~(kPageSize - 1)),
-			bottom & (kPageSize - 1));
+	scrubStackFrom(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
 }
 
 // --------------------------------------------------------
@@ -809,10 +773,11 @@ void secondaryMain(StatusBlock *statusBlock) {
 
 	Scheduler::resume(cpuContext->wqFiber);
 
-	localScheduler()->update();
-	localScheduler()->reschedule();
-	localScheduler()->commit();
-	localScheduler()->invoke();
+	auto scheduler = localScheduler();
+	scheduler->update();
+	scheduler->reschedule();
+	scheduler->commit();
+	scheduler->invoke();
 }
 
 void bootSecondary(unsigned int apic_id) {
