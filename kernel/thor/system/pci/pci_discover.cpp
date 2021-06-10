@@ -470,97 +470,44 @@ namespace {
 	// mbus object creation and management.
 	// ------------------------------------------------------------------------
 
+	void addStringProperty(managarm::mbus::CntRequest<KernelAlloc> &req, const char *name,
+		frg::string<KernelAlloc> text) {
+		managarm::mbus::Property<KernelAlloc> property(*kernelAlloc);
+		property.set_name(frg::string<KernelAlloc>(*kernelAlloc, name));
+		auto &mutable_item = property.mutable_item().mutable_string_item();
+		mutable_item.set_value(std::move(text));
+		req.add_properties(std::move(property));
+	}
+
+	void addHexStringProperty(managarm::mbus::CntRequest<KernelAlloc> &req, const char *name,
+		unsigned int value, int padding) {
+		addStringProperty(req, name, frg::to_allocated_string(*kernelAlloc, value, 16, padding));
+	}
+
 	coroutine<LaneHandle> createObject(LaneHandle mbusLane, smarter::shared_ptr<PciDevice> device) {
 		auto [offerError, conversation] = co_await OfferSender{mbusLane};
 		// TODO: improve error handling here.
 		assert(offerError == Error::success);
 
-		managarm::mbus::Property<KernelAlloc> subsystem_prop(*kernelAlloc);
-		subsystem_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "unix.subsystem"));
-		auto &subsystem_item = subsystem_prop.mutable_item().mutable_string_item();
-		subsystem_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "pci"));
-
-		managarm::mbus::Property<KernelAlloc> bus_prop(*kernelAlloc);
-		bus_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-bus"));
-		auto &bus_item = bus_prop.mutable_item().mutable_string_item();
-		bus_item.set_value(frg::to_allocated_string(*kernelAlloc, device->bus, 16, 2));
-
-		managarm::mbus::Property<KernelAlloc> slot_prop(*kernelAlloc);
-		slot_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-slot"));
-		auto &slot_item = slot_prop.mutable_item().mutable_string_item();
-		slot_item.set_value(frg::to_allocated_string(*kernelAlloc, device->slot, 16, 2));
-
-		managarm::mbus::Property<KernelAlloc> function_prop(*kernelAlloc);
-		function_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-function"));
-		auto &function_item = function_prop.mutable_item().mutable_string_item();
-		function_item.set_value(frg::to_allocated_string(*kernelAlloc, device->function, 16, 1));
-
-		managarm::mbus::Property<KernelAlloc> vendor_prop(*kernelAlloc);
-		vendor_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-vendor"));
-		auto &vendor_item = vendor_prop.mutable_item().mutable_string_item();
-		vendor_item.set_value(frg::to_allocated_string(*kernelAlloc, device->vendor, 16, 4));
-
-		managarm::mbus::Property<KernelAlloc> dev_prop(*kernelAlloc);
-		dev_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-device"));
-		auto &dev_item = dev_prop.mutable_item().mutable_string_item();
-		dev_item.set_value(frg::to_allocated_string(*kernelAlloc, device->deviceId, 16, 4));
-
-		managarm::mbus::Property<KernelAlloc> rev_prop(*kernelAlloc);
-		rev_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-revision"));
-		auto &rev_item = rev_prop.mutable_item().mutable_string_item();
-		rev_item.set_value(frg::to_allocated_string(*kernelAlloc, device->revision, 16, 2));
-
-		managarm::mbus::Property<KernelAlloc> class_prop(*kernelAlloc);
-		class_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-class"));
-		auto &class_item = class_prop.mutable_item().mutable_string_item();
-		class_item.set_value(frg::to_allocated_string(*kernelAlloc, device->classCode, 16, 2));
-
-		managarm::mbus::Property<KernelAlloc> subclass_prop(*kernelAlloc);
-		subclass_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-subclass"));
-		auto &subclass_item = subclass_prop.mutable_item().mutable_string_item();
-		subclass_item.set_value(frg::to_allocated_string(*kernelAlloc, device->subClass, 16, 2));
-
-		managarm::mbus::Property<KernelAlloc> if_prop(*kernelAlloc);
-		if_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "pci-interface"));
-		auto &if_item = if_prop.mutable_item().mutable_string_item();
-		if_item.set_value(frg::to_allocated_string(*kernelAlloc, device->interface, 16, 2));
-
-		managarm::mbus::Property<KernelAlloc> subsystem_vendor_prop(*kernelAlloc);
-		subsystem_vendor_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc,
-				"pci-subsystem-vendor"));
-		auto &subsystem_vendor_item = subsystem_vendor_prop.mutable_item().mutable_string_item();
-		subsystem_vendor_item.set_value(frg::to_allocated_string(*kernelAlloc,
-				device->subsystemVendor, 16, 2));
-
-		managarm::mbus::Property<KernelAlloc> subsystem_device_prop(*kernelAlloc);
-		subsystem_device_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc,
-				"pci-subsystem-device"));
-		auto &subsystem_device_item = subsystem_device_prop.mutable_item().mutable_string_item();
-		subsystem_device_item.set_value(frg::to_allocated_string(*kernelAlloc,
-				device->subsystemDevice, 16, 2));
-
 		managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 		req.set_parent_id(1);
-		req.add_properties(std::move(subsystem_prop));
-		req.add_properties(std::move(bus_prop));
-		req.add_properties(std::move(slot_prop));
-		req.add_properties(std::move(function_prop));
-		req.add_properties(std::move(vendor_prop));
-		req.add_properties(std::move(dev_prop));
-		req.add_properties(std::move(rev_prop));
-		req.add_properties(std::move(class_prop));
-		req.add_properties(std::move(subclass_prop));
-		req.add_properties(std::move(if_prop));
-		req.add_properties(std::move(subsystem_vendor_prop));
-		req.add_properties(std::move(subsystem_device_prop));
+
+		addStringProperty(req, "unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
+		addHexStringProperty(req, "pci-bus", device->bus, 2);
+		addHexStringProperty(req, "pci-slot", device->slot, 2);
+		addHexStringProperty(req, "pci-function", device->function, 1);
+		addHexStringProperty(req, "pci-vendor", device->vendor, 4);
+		addHexStringProperty(req, "pci-device", device->deviceId, 4);
+		addHexStringProperty(req, "pci-revision", device->revision, 2);
+		addHexStringProperty(req, "pci-class", device->classCode, 2);
+		addHexStringProperty(req, "pci-subclass", device->subClass, 2);
+		addHexStringProperty(req, "pci-interface", device->interface, 2);
+		addHexStringProperty(req, "pci-subsystem-vendor", device->subsystemVendor, 2);
+		addHexStringProperty(req, "pci-subsystem-device", device->subsystemDevice, 2);
 
 		if(device->associatedFrameBuffer) {
-			managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
-			cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
-			auto &cls_item = cls_prop.mutable_item().mutable_string_item();
-			cls_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "framebuffer"));
-			req.add_properties(std::move(cls_prop));
+			addStringProperty(req, "class", frg::string<KernelAlloc>(*kernelAlloc, "framebuffer"));
 		}
 
 		frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -951,7 +898,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 							<< frg::hex_fmt((int)type) << frg::endlog;
 				}
 
-				// TODO: 
+				// TODO:
 				size_t size = -1;
 				if(type == 0x09)
 					size = io->readConfigByte(bus, slot, function, offset + 2);
