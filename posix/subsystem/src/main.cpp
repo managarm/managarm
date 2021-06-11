@@ -1095,10 +1095,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto resolveResult = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req->target_path());
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -1126,10 +1123,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto sourceResult = co_await resolve(self->fsContext()->getRoot(),
 						self->fsContext()->getWorkingDirectory(), req->path());
 				if(!sourceResult) {
-					if(sourceResult.error() == protocols::fs::Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-						continue;
-					} else if(sourceResult.error() == protocols::fs::Error::fileNotFound) {
+					if(sourceResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					} else if(sourceResult.error() == protocols::fs::Error::notDirectory) {
@@ -1169,10 +1163,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(!pathResult) {
-				if(pathResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(pathResult.error() == protocols::fs::Error::fileNotFound) {
+				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
@@ -1203,10 +1194,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path());
 			if(!pathResult) {
-				if(pathResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(pathResult.error() == protocols::fs::Error::fileNotFound) {
+				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
@@ -1293,10 +1281,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
 					relative_to, req.path());
 			if(!pathResult) {
-				if(pathResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(pathResult.error() == protocols::fs::Error::fileNotFound) {
+				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
@@ -1355,10 +1340,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					relative_to, req.path());
 			auto resolveResult = co_await resolver.resolve(resolvePrefix);
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -1449,10 +1431,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					relative_to, req->path());
 			auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -1524,10 +1503,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					relative_to, req->path());
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -1627,10 +1603,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto resolveResult = co_await resolver.resolve(
 					resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -1698,8 +1671,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					relative_to, req->path());
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+				if(resolveResult.error() == protocols::fs::Error::isDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::IS_DIRECTORY);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1732,8 +1705,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					relative_to, req->target_path());
 			auto new_resolveResult = co_await new_resolver.resolve(resolvePrefix);
 			if(!new_resolveResult) {
-				if(new_resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+				if(new_resolveResult.error() == protocols::fs::Error::isDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::IS_DIRECTORY);
 					continue;
 				} else if(new_resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1807,10 +1780,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				auto resolveResult = co_await resolver.resolve(resolveFlags);
 				if(!resolveResult) {
-					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-						continue;
-					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -1938,10 +1908,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto resolveResult = co_await resolver.resolve();
 
 				if(!resolveResult) {
-					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-						continue;
-					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -2010,10 +1977,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						relativeTo, req->path());
 				auto resolveResult = co_await resolver.resolve();
 				if(!resolveResult) {
-					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-						continue;
-					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -2041,18 +2005,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path(), resolveDontFollow);
 			if(!pathResult) {
-				if(pathResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					managarm::posix::SvrResponse resp;
-					resp.set_error(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-
-					auto ser = resp.SerializeAsString();
-					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-							helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-							helix::action(&send_data, nullptr, 0));
-					co_await transmit.async_wait();
-					HEL_CHECK(send_resp.error());
-					continue;
-				} else if(pathResult.error() == protocols::fs::Error::fileNotFound) {
+				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					managarm::posix::SvrResponse resp;
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
@@ -2172,8 +2125,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto resolveResult = co_await resolver.resolve(
 						resolvePrefix | resolveNoTrailingSlash);
 				if(!resolveResult) {
-					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+					if(resolveResult.error() == protocols::fs::Error::isDirectory) {
+						// TODO: Verify additional constraints for sending EISDIR.
+						co_await sendErrorResponse(managarm::posix::Errors::IS_DIRECTORY);
 						continue;
 					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -2224,8 +2178,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else{
 				auto resolveResult = co_await resolver.resolve();
 				if(!resolveResult) {
-					if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+					if(resolveResult.error() == protocols::fs::Error::isDirectory) {
+						// TODO: Verify additional constraints for sending EISDIR.
+						co_await sendErrorResponse(managarm::posix::Errors::IS_DIRECTORY);
 						continue;
 					} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -2534,8 +2489,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+				if(resolveResult.error() == protocols::fs::Error::isDirectory) {
+					// TODO: Only when AT_REMOVEDIR is not specified, fix this when flag handling is implemented.
+					co_await sendErrorResponse(managarm::posix::Errors::IS_DIRECTORY);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -2595,10 +2551,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -3332,10 +3285,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					self->fsContext()->getWorkingDirectory(), req->path());
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -3439,10 +3389,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					relative_to, req->path());
 			auto resolveResult = co_await resolver.resolve(resolvePrefix);
 			if(!resolveResult) {
-				if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-					continue;
-				} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
@@ -3483,6 +3430,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				type = VfsType::null;
 			}
 
+			// TODO: Verify the proper error return here.
 			if(type == VfsType::charDevice || type == VfsType::blockDevice) {
 				dev.first = major(req->device());
 				dev.second = minor(req->device());
@@ -3490,7 +3438,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto result = co_await parent->mkdev(resolver.nextComponent(), type, dev);
 				if(!result) {
 					if(result.error() == Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 						continue;
 					} else {
 						std::cout << "posix: Unexpected failure from mkdev()" << std::endl;
@@ -3501,7 +3449,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto result = co_await parent->mkfifo(resolver.nextComponent(), req->mode());
 				if(!result) {
 					if(result.error() == Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 						continue;
 					} else {
 						std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
@@ -3512,7 +3460,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto result = co_await parent->mksocket(resolver.nextComponent());
 				if(!result) {
 					if(result.error() == Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 						continue;
 					} else {
 						std::cout << "posix: Unexpected failure from mksocket()" << std::endl;
