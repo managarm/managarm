@@ -2146,9 +2146,19 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				ipcSize += ipcSourceSize(sizeof(HelCredentialsResult));
 				break;
 			case kHelActionSendFromBuffer:
-				node->_tag = kTagSendFlow;
-				node->_maxLength = recipe->length;
-				++numFlows;
+				if(recipe->length <= kPageSize) {
+					frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
+					if(!readUserMemory(reinterpret_cast<char *>(buffer.data()),
+							reinterpret_cast<char *>(recipe->buffer), recipe->length))
+						return kHelErrFault;
+
+					node->_tag = kTagSendKernelBuffer;
+					node->_inBuffer = std::move(buffer);
+				}else{
+					node->_tag = kTagSendFlow;
+					node->_maxLength = recipe->length;
+					++numFlows;
+				}
 				ipcSize += ipcSourceSize(sizeof(HelSimpleResult));
 				break;
 			case kHelActionSendFromBufferSg: {
@@ -2421,6 +2431,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			}
 
 			if(recipe->type == kHelActionSendFromBuffer
+					&& node->tag() == kTagSendFlow
 					&& peer->tag() == kTagRecvKernelBuffer) {
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
 
@@ -2441,6 +2452,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				peer->complete();
 				node->complete();
 			}else if(recipe->type == kHelActionSendFromBuffer
+					&& node->tag() == kTagSendFlow
 					&& peer->tag() == kTagRecvFlow) {
 				// Empty packets are handled by the generic stream code.
 				assert(recipe->length);
