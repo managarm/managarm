@@ -2,6 +2,8 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/physical.hpp>
+#include <arch/mem_space.hpp>
+#include <arch/register.hpp>
 
 namespace thor::pci {
 
