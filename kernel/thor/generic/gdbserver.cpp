@@ -111,6 +111,10 @@ struct ParseView {
 		return true;
 	}
 
+	bool matchFullString(const char *s) {
+		return matchString(s) && fullyConsumed();
+	}
+
 	bool splitDelimiter(ParseView &out, char c) {
 		for(size_t n = 0; n < bs_.size(); ++n) {
 			if(bs_[n] != c)
@@ -369,6 +373,7 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 	}else if(req.matchString("q")) { // General query.
 		if(req.matchString("Supported")) {
 			resp.appendString("qXfer:exec-file:read+;");
+			resp.appendString("qXfer:features:read+;");
 		}else if(req.matchString("Xfer")) {
 			ParseView object, annex;
 			uint64_t offset, length;
@@ -383,10 +388,22 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 
 			frg::optional<frg::span<const uint8_t>> s;
 
-			if(object.matchString("exec-file") && object.fullyConsumed()) {
+			if(object.matchFullString("exec-file")) {
 				// TODO: consider the annex (= process ID).
 				s = frg::span<const uint8_t>{reinterpret_cast<const uint8_t *>(path_.data()),
 						path_.size()};
+			}else if(object.matchFullString("features") && annex.matchFullString("target.xml")) {
+				const char *xml = "<target version=\"1.0\">"
+#if defined(__x86_64__)
+					"<architecture>i386:x86-64</architecture>"
+#elif defined(__aarch64__)
+					"<architecture>aarch64</architecture>"
+#else
+#	error Unknown architecture
+#endif
+					"</target>";
+				s = frg::span<const uint8_t>{reinterpret_cast<const uint8_t *>(xml),
+						strlen(xml)};
 			}
 
 			if(s) {
