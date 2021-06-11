@@ -95,10 +95,16 @@ void armPreemption(uint64_t nanos) {
 	uint64_t compare = getRawTimestampCounter() + ticksPerSecond * nanos / 1000000000;
 
 	asm volatile ("msr cntp_cval_el0, %0" :: "r"(compare));
+	getCpuData()->preemptionIsArmed = true;
 }
 
 void disarmPreemption() {
 	asm volatile ("msr cntp_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
+	getCpuData()->preemptionIsArmed = false;
+}
+
+bool preemptionIsArmed() {
+	return getCpuData()->preemptionIsArmed;
 }
 
 static bool timersFound = false;

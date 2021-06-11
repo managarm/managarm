@@ -320,6 +320,8 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	uint32_t profileFlags = 0;
 
+	bool preemptionIsArmed = false;
+
 	GicCpuInterface *gicCpuInterface = nullptr;
 
 	// TODO: This is not really arch-specific!
