@@ -30,7 +30,6 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "physical-generic-timer-irq"}} { }
 
 	IrqStatus raise() override {
-		localScheduler()->forcePreemptionUpdate();
 		disarmPreemption();
 		return IrqStatus::acked;
 	}

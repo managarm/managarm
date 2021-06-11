@@ -113,7 +113,6 @@ private:
 
 public:
 	void update();
-	void forcePreemptionUpdate();
 
 	bool maybeReschedule();
 	void forceReschedule();

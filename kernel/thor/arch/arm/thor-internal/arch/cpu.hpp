@@ -396,4 +396,6 @@ void setupCpuContext(AssemblyCpuData *context);
 
 initgraph::Stage *getBootProcessorReadyStage();
 
+bool preemptionIsArmed();
+
 } // namespace thor
