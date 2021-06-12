@@ -386,12 +386,14 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		std::vector<uint8_t> mem;
 		mem.resize(length);
 
-		auto loadMemory = co_await helix_ng::readMemory(process_->vmContext()->getSpace(),
-				address, length, mem.data());
-		HEL_CHECK(loadMemory.error());
-
-		for(size_t i = 0; i < length; ++i)
+		for(size_t i = 0; i < length; ++i) {
+			// We load the memory byte for byte until we fail, readMemory does not support partial reads yet.
+			auto loadMemory = co_await helix_ng::readMemory(process_->vmContext()->getSpace(),
+					address + i, 1, mem.data() + i);
+			if(loadMemory.error())
+				break;
 			resp.appendHexByte(mem[i]);
+		}
 	}else if(req.matchString("q")) { // General query.
 		if(req.matchString("Supported")) {
 			resp.appendString("qXfer:exec-file:read+;");

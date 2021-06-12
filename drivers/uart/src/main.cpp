@@ -61,7 +61,7 @@ void completeRecvs() {
 
 	while(!recvRequests.empty() && !recvBuffer.empty()) {
 		auto req = &recvRequests.front();
-	
+
 		size_t chunk = std::min(req->maxLength, recvBuffer.size());
 		assert(chunk);
 		for(size_t i = 0; i < chunk; i++) {
@@ -170,7 +170,7 @@ async::detached handleIrqs() {
 		sequence = await.sequence();
 		if(logIrqs)
 			std::cout << "uart: IRQ fired." << std::endl;
-		
+
 		// The 8250's status register always reports the reason for one IRQ at a time.
 		// Drain IRQs until the IRQ status register does not report any IRQs anymore.
 		while(true) {
@@ -219,7 +219,7 @@ async::detached handleIrqs() {
 		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, sequence));
 	}
 }
-	
+
 async::result<protocols::fs::ReadResult>
 read(void *, const char *, void *buffer, size_t length) {
 	if(!length)
@@ -270,7 +270,7 @@ async::detached serveTerminal(helix::UniqueLane lane) {
 		);
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 
 		managarm::fs::CntRequest req;
@@ -296,14 +296,14 @@ async::detached serveTerminal(helix::UniqueLane lane) {
 		}
 	}
 }
-	
+
 async::detached runTerminal() {
 	// Create an mbus object for the partition.
 	auto root = co_await mbus::Instance::global().getRoot();
-	
+
 	mbus::Properties descriptor{
-		{"unix.devtype", mbus::StringItem{"block"}},
-		{"unix.devname", mbus::StringItem{"ttyS0"}}
+		{"generic.devtype", mbus::StringItem{"block"}},
+		{"generic.devname", mbus::StringItem{"ttyS0"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}
@@ -332,14 +332,14 @@ int main() {
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 8, &handle));
 	HEL_CHECK(helEnableIo(handle));
-	
+
 	base = arch::global_io.subspace(COM1);
 
 	// Perform general initialization.
 	base.store(uart_register::fifoControl,
 			fifo_control::fifoEnable(FifoCtrl::enable)
 			| fifo_control::fifoIrqLvl(FifoCtrl::triggerLvl14));
-	
+
 	// Wait for the FIFO to become empty.
 	while(!(base.load(uart_register::lineStatus) & line_status::txReady))
 		; // Busy spin for now.
@@ -368,7 +368,6 @@ int main() {
 	}
 
 	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-	
+
 	return 0;
 }
-

@@ -29,6 +29,7 @@ src = [
 	'src/signalfd.cpp',
 	'src/subsystem/block.cpp',
 	'src/subsystem/drm.cpp',
+	'src/subsystem/generic.cpp',
 	'src/subsystem/input.cpp',
 	'src/subsystem/pci.cpp',
 	'src/sysfs.cpp',

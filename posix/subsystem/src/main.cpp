@@ -45,6 +45,7 @@
 #include "signalfd.hpp"
 #include "subsystem/block.hpp"
 #include "subsystem/drm.hpp"
+#include "subsystem/generic.hpp"
 #include "subsystem/input.hpp"
 #include "subsystem/pci.hpp"
 #include "sysfs.hpp"
@@ -3795,6 +3796,7 @@ int main() {
 		charRegistry.install(createZeroDevice());
 		block_subsystem::run();
 		drm_subsystem::run();
+		generic_subsystem::run();
 		input_subsystem::run();
 		pci_subsystem::run();
 
