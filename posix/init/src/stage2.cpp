@@ -15,7 +15,19 @@
 int main() {
 	std::cout << "init: Entering stage2" << std::endl;
 
+	// We need a PATH for scripts run by xbps-reconfigure.
+	setenv("PATH", "/usr/local/bin:/usr/bin:/bin", 1);
+
+	std::cout << "init: Running xbps-reconfigure" << std::endl;
+	auto xbps_reconfigure = fork();
+	if(!xbps_reconfigure) {
+		execl("/usr/bin/xbps-reconfigure", "xbps-reconfigure", "-a", "-v", nullptr);
+	}else assert(xbps_reconfigure != -1);
+
+	waitpid(xbps_reconfigure, nullptr, 0);
+
 	// Start udev which loads the remaining drivers.
+	std::cout << "init: Starting udevd" << std::endl;
 	auto udev = fork();
 	if(!udev) {
 		execl("/usr/sbin/udevd", "udevd", nullptr);
@@ -129,7 +141,6 @@ int main() {
 	auto desktop = fork();
 	if(!desktop) {
 //		setenv("MLIBC_DEBUG_MALLOC", "1", 1);
-		setenv("PATH", "/usr/local/bin:/usr/bin:/bin", 1);
 		setenv("HOME", "/root", 1);
 		setenv("XDG_RUNTIME_DIR", "/run", 1);
 		setenv("MESA_GLSL_CACHE_DISABLE", "1", 1);
