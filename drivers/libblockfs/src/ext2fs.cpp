@@ -941,13 +941,13 @@ async::result<uint32_t> FileSystem::allocateBlock() {
 				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-		// TODO: Update the block group descriptor table.
-
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
 		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
+				if(i * 32 + j >= blocksPerGroup)
+					break;
 				if(words[i] & (static_cast<uint32_t>(1) << j))
 					continue;
 				// TODO: Make sure we never return reserved blocks.
@@ -984,13 +984,13 @@ async::result<uint32_t> FileSystem::allocateInode() {
 				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
-		// TODO: Update the block group descriptor table.
-
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
 		for(unsigned int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
 			for(int j = 0; j < 32; j++) {
+				if(i * 32 + j >= inodesPerGroup)
+					break;
 				if(words[i] & (static_cast<uint32_t>(1) << j))
 					continue;
 				// TODO: Make sure we never return reserved inodes.
