@@ -102,7 +102,7 @@ For all methods, the image creation and updation commands shown below require th
 	1. **Via Docker container** (only works with the Docker build method). This is handy in case the user is in the `docker` group since it does not require additional root authentication. We discourage this because it uses `docker run --privileged` (which is not safer than giving root access) and [currently has some bugs](https://github.com/managarm/bootstrap-managarm/issues/103).
 
 	Going with method 1 will require `libguestfs` to be installed on the host.
-	After installing `libguestfs` it might be necessary to run the following:
+	After installing `libguestfs`, if you encounter errors while making the image it might be necessary to run the following:
 	```bash
 	sudo install -d /usr/lib/guestfs
 	sudo update-libguestfs-appliance
