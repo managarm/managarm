@@ -88,7 +88,8 @@ struct IrqConfiguration {
 // ----------------------------------------------------------------------------
 
 enum class IrqStatus {
-	null,
+	standBy,
+	indefinite,
 	acked,
 	nacked
 };
@@ -135,8 +136,7 @@ private:
 	// The following fields are protected by pin->_mutex and _mutex.
 private:
 	uint64_t _currentSequence;
-	uint64_t _responseSequence;
-	IrqStatus _status;
+	IrqStatus _status = IrqStatus::standBy;
 };
 
 enum class IrqStrategy {
@@ -150,13 +150,14 @@ enum class IrqStrategy {
 struct IrqPin {
 private:
 	static constexpr int maskedForService = 1;
-	static constexpr int maskedForNack = 2;
+	static constexpr int maskedWhileBuffered = 2;
+	static constexpr int maskedForNack = 4;
 
 public:
 	static void attachSink(IrqPin *pin, IrqSink *sink);
 	static Error ackSink(IrqSink *sink, uint64_t sequence);
 	static Error nackSink(IrqSink *sink, uint64_t sequence);
-	static Error kickSink(IrqSink *sink);
+	static Error kickSink(IrqSink *sink, bool wantClear);
 
 public:
 	IrqPin(frg::string<KernelAlloc> name);
@@ -177,7 +178,8 @@ public:
 private:
 	void _acknowledge();
 	void _nack();
-	void _kick();
+	void _kick(bool doClear);
+	void _dispatch();
 
 public:
 	void warnIfPending();
@@ -196,7 +198,7 @@ protected:
 	~IrqPin() = default;
 
 private:
-	void _callSinks();
+	void _doService();
 	void _updateMask();
 
 	frg::string<KernelAlloc> _name;
@@ -208,9 +210,13 @@ private:
 
 	IrqStrategy _strategy;
 
-	uint64_t _raiseSequence;
-	uint64_t _sinkSequence;
 	bool _inService;
+	// Whether we should immediately re-raise an IRQ if it goes out of service.
+	// This is used by edge triggered IRQs to "buffer" (at most one) edge.
+	bool _raiseBuffered = false;
+	// _dispatchAcks and _dispatchKicks determine how _dispatch() clears the IRQ.
+	bool _dispatchAcks = false;
+	bool _dispatchKicks = false;
 	unsigned int _dueSinks;
 	int _maskState;
 	unsigned int _maskedRaiseCtr = 0;

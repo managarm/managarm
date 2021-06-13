@@ -514,7 +514,8 @@ enum HelIrqFlags {
 enum HelAckFlags {
 	kHelAckAcknowledge = 2,
 	kHelAckNack = 3,
-	kHelAckKick = 1
+	kHelAckKick = 1,
+	kHelAckClear = 0x100,
 };
 
 union HelKernletData {

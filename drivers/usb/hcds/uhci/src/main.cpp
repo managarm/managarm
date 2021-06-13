@@ -536,6 +536,9 @@ async::detached Controller::_handleIrqs() {
 
 	co_await _hwDevice.enableBusIrq();
 
+	// Clear the IRQ in case it was pending while we attached the kernlet.
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick | kHelAckClear, 0));
+
 	uint64_t sequence = 0;
 	while(true) {
 		auto await = co_await helix_ng::awaitEvent(event, sequence);

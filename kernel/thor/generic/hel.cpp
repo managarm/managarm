@@ -2786,7 +2786,8 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 }
 
 HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) {
-	assert(!(flags & ~(kHelAckAcknowledge | kHelAckNack | kHelAckKick)));
+	if(flags & ~(kHelAckAcknowledge | kHelAckNack | kHelAckKick | kHelAckClear))
+		return kHelErrIllegalArgs;
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -2815,7 +2816,7 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 		error = IrqPin::nackSink(irq.get(), sequence);
 	}else{
  		assert(mode == kHelAckKick);
-		error = IrqPin::kickSink(irq.get());
+		error = IrqPin::kickSink(irq.get(), flags & kHelAckClear);
 	}
 
 	if(error == Error::illegalArgs) {

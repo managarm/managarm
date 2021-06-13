@@ -451,8 +451,8 @@ async::detached Controller::handleIrqs() {
 
 	co_await _hwDevice.enableBusIrq();
 
-	// TODO: We should not need this kick anymore.
-	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
+	// Clear the IRQ in case it was pending while we attached the kernlet.
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick | kHelAckClear, 0));
 
 	uint64_t sequence = 0;
 	while(true) {

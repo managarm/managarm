@@ -485,8 +485,8 @@ async::detached StandardPciTransport::_processIrqs() {
 
 	co_await _hwDevice.enableBusIrq();
 
-	// TODO: The kick here should not be required.
-	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
+	// Clear the IRQ in case it was pending while we attached the kernlet.
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick | kHelAckClear, 0));
 
 	//std::cout << "core-virtio " << getpid() << ": Starting IRQ loop" << std::endl;
 	uint64_t sequence = 0;
@@ -495,11 +495,7 @@ async::detached StandardPciTransport::_processIrqs() {
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
-		if(!(await.bitset() & 3)) {
-			std::cout << "core-virtio: IRQ #" << await.sequence()
-					<< " reports non-relevant flags " << await.bitset() << std::endl;
-			continue;
-		}
+		assert(!(await.bitset() & ~3U));
 
 		if(await.bitset() & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;
@@ -524,10 +520,9 @@ async::detached StandardPciTransport::_processIrqs() {
 		sequence = await.sequence();
 
 		auto isr = _isrSpace().load(PCI_ISR);
+		assert(!(isr & ~3U));
 
 		if(!(isr & 3)) {
-			std::cout << "core-virtio: IRQ #" << await.sequence()
-					<< " reports non-relevant flags " << await.bitset() << std::endl;
 			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
 		}
