@@ -79,7 +79,7 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
 	> Note: **this only works if you build in a container** (though this is untested with Docker). Containerless builds must do a full build from source (see below).
 
 	```bash
-	xbstrap pull-pack --deps-of <meta-package> # e.g xbstrap pull-pack --deps-of base
+	xbstrap pull-pack --deps-of <meta-package> mlibc mlibc-headers # e.g xbstrap pull-pack --deps-of base mlibc mlibc-headers
 	xbstrap install --deps-of <meta-package>
 
 	# The following two commands fetch managarm and mlibc (plus their required tools) to enable local development:
