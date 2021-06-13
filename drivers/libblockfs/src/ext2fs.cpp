@@ -123,15 +123,18 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		memcpy(diskEntry->name, name.data(), name.length() + 1);
 
 		// Flush the data to disk.
-		auto syncInode = co_await helix_ng::synchronizeSpace(
+		// TODO: It would be enough to flush only one or two pages here.
+		auto syncDir = co_await helix_ng::synchronizeSpace(
 				helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
-		HEL_CHECK(syncInode.error());
+		HEL_CHECK(syncDir.error());
 
-		// Flush the target inode to disk.
+		// Increment the target's link count.
 		auto target = fs.accessInode(ino);
 		co_await target->readyJump.wait();
 		target->diskInode()->linksCount++;
-		syncInode = co_await helix_ng::synchronizeSpace(
+
+		// Flush the target inode to disk.
+		auto syncInode = co_await helix_ng::synchronizeSpace(
 				helix::BorrowedDescriptor{kHelNullHandle},
 				target->diskMapping.get(), fs.inodeSize);
 		HEL_CHECK(syncInode.error());
@@ -237,6 +240,12 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 			// we can assume that a previous entry exists.
 			assert(previous_entry);
 			previous_entry->recordLength += disk_entry->recordLength;
+
+			// Flush the data to disk.
+			// TODO: It would be enough to flush only one or two pages here.
+			auto syncDir = co_await helix_ng::synchronizeSpace(
+					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+			HEL_CHECK(syncDir.error());
 
 			// Decrement the inode's link count
 			auto target = fs.accessInode(disk_entry->inode);
