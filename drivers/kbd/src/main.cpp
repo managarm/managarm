@@ -873,17 +873,21 @@ Controller::Port::pullByte(async::cancellation_token ct) {
 }
 
 static DeviceType determineTypeById(uint16_t id) {
-	if (id == 0)
+	switch(id) {
+	case 0:
 		return DeviceType{.mouse = true};
-	if (id == 0x3)
+	case 3:
 		return DeviceType{.mouse = true, .hasScrollWheel = true};
-	if (id == 0x4)
+	case 4:
 		return DeviceType{.mouse = true, .has5Buttons = true};
-	if (id == 0xAB41 || id == 0xABC1 || id == 0xAB83)
+	case 0xAB41:
+	case 0xABC1:
+	case 0xAB83:
 		return DeviceType{.keyboard = true};
-
-	printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
-	return DeviceType{}; // we assume nothing
+	default:
+		printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
+		return DeviceType{}; // we assume nothing
+	}
 }
 
 async::result<frg::expected<Ps2Error, DeviceType>>

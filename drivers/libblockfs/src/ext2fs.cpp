@@ -362,7 +362,7 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 
 async::result<protocols::fs::Error> Inode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
 	std::cout << "\e[31m" "ext2fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
-	
+
 	co_await readyJump.wait();
 
 	if(atime_sec != UTIME_NOW || atime_nsec != UTIME_NOW || mtime_sec != UTIME_NOW || mtime_nsec != UTIME_NOW) {
@@ -761,13 +761,17 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	auto disk_inode = inode->diskInode();
 //	printf("Inode %u: file size: %u\n", inode->number, disk_inode.size);
 
-	if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
+	switch(disk_inode->mode & EXT2_S_IFMT) {
+	case EXT2_S_IFREG:
 		inode->fileType = kTypeRegular;
-	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFLNK) {
+		break;
+	case EXT2_S_IFLNK:
 		inode->fileType = kTypeSymlink;
-	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFDIR) {
+		break;
+	case EXT2_S_IFDIR:
 		inode->fileType = kTypeDirectory;
-	}else{
+		break;
+	default:
 		std::cerr << "ext2fs: Unexpected inode type " << (disk_inode->mode & EXT2_S_IFMT)
 				<< " for inode " << inode->number << std::endl;
 		abort();

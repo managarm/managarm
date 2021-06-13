@@ -89,15 +89,19 @@ int main(int argc, char **argv) {
 			auto &record = maybeRecord.value();
 
 			if(record.id() == filteredEventId) {
-				if(mode == ExtractMode::eventOnly) {
+				switch(mode) {
+				case ExtractMode::eventOnly:
 					ts.push_back(record.ts());
-				}else if(mode == ExtractMode::specificItem) {
+					break:
+				case ExtractMode::specificItem:
 					for(size_t i = 0; i < record.ctrs_size(); ++i) {
 						if(record.ctrs(i).id() != desiredItemId)
 							continue;
 						ts.push_back(record.ts());
 						value.push_back(record.ctrs(i).value());
 					}
+					break;
+				default:;
 				}
 			}
 		} break;

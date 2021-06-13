@@ -174,7 +174,8 @@ async::result<void>
 File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation) {
 	auto self = static_cast<File *>(object);
-	if(req.command() == EVIOCGBIT(0, 0)) {
+	switch(req.command()) {
+	case EVIOCGBIT(0, 0): {
 		assert(req.size());
 		if(logRequests)
 			std::cout << "EVIOCGBIT()" << std::endl;
@@ -192,7 +193,9 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
-	}else if(req.command() == EVIOCGBIT(1, 0)) {
+		break;
+	}
+	case EVIOCGBIT(1, 0): {
 		assert(req.size());
 		if(logRequests)
 			std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
@@ -200,16 +203,20 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		managarm::fs::SvrResponse resp;
 
 		std::pair<const uint8_t *, size_t> p;
-		if(req.input_type() == EV_KEY) {
+		switch(req.input_type()) {
+		case EV_KEY:
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {self->_device->_keyBits.data(), self->_device->_keyBits.size()};
-		}else if(req.input_type() == EV_REL) {
+			break;
+		case EV_REL:
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {self->_device->_relBits.data(), self->_device->_relBits.size()};
-		}else if(req.input_type() == EV_ABS) {
+			break;
+		case EV_ABS:
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {self->_device->_absBits.data(), self->_device->_absBits.size()};
-		}else{
+			break;
+		default:
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {nullptr, 0};
 		}
@@ -223,7 +230,9 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
-	}else if(req.command() == EVIOSCLOCKID) {
+		break;
+	}
+	case EVIOSCLOCKID: {
 		managarm::fs::SvrResponse resp;
 
 		// TODO: Does this setting affect already queued events in Linux?
@@ -243,7 +252,9 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.command() == EVIOCGABS(0)) {
+		break;
+	}
+	case EVIOCGABS(0): {
 		managarm::fs::SvrResponse resp;
 		if(logRequests)
 			std::cout << "EVIOCGABS(" << req.input_type() << ")" << std::endl;
@@ -264,7 +275,9 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else{
+		break;
+	}
+	default:
 		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
 	}
 }
@@ -366,13 +379,17 @@ void EventDevice::enableEvent(int type, int code) {
 		std::cout << "drivers/libevbackend: Enabling event " << type << "." << code
 				<< std::endl;
 
-	if(type == EV_KEY) {
+	switch(type) {
+	case EV_KEY:
 		setBit(_keyBits.data(), _keyBits.size(), code);
-	}else if(type == EV_REL) {
+		break;
+	case EV_REL:
 		setBit(_relBits.data(), _relBits.size(), code);
-	}else if(type == EV_ABS) {
+		break;
+	case EV_ABS:
 		setBit(_absBits.data(), _absBits.size(), code);
-	}else{
+		break;
+	default:
 		throw std::runtime_error("Unexpected event type");
 	}
 	setBit(_typeBits.data(), _typeBits.size(), type);
@@ -390,18 +407,31 @@ void EventDevice::emitEvent(int type, int code, int value) {
 	};
 
 	// Filter out events that do not update the device state.
-	if(type == EV_KEY && getBit(_currentKeys.data(), _currentKeys.size(), code) == value)
-		return;
-	if(type == EV_REL && !value)
-		return;
-	if(type == EV_ABS && value == _absoluteSlots[code].value)
-		return;
+	switch(type) {
+	case EV_KEY:
+		if (getBit(_currentKeys.data(), _currentKeys.size(), code) == value)
+			return;
+		break;
+	case EV_REL:
+		if (!value)
+			return;
+		break;
+	case EV_ABS:
+		if (value == _absoluteSlots[code].value)
+			return;
+		break;
+	default:;
+	}
 
 	// Update the device state.
-	if(type == EV_KEY) {
+	switch(type) {
+	case EV_KEY:
 		putBit(_currentKeys.data(), _currentKeys.size(), code, value);
-	}else if(type == EV_ABS) {
-		_absoluteSlots[code].value = value;
+		break;
+	case EV_ABS:
+		_absoluteSlots[code].value = value; 
+		break;
+	default:;
 	}
 
 	// Handle magic key sequences in the driver.  This ensure that all devices implement

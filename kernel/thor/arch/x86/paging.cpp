@@ -621,14 +621,21 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		new_entry |= kPageWrite;
 	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
-	if(caching_mode == CachingMode::writeThrough) {
+
+	switch(caching_mode) {
+	case CachingMode::writeThrough:
 		new_entry |= kPagePwt;
-	}else if(caching_mode == CachingMode::writeCombine) {
+		break;
+	case CachingMode::writeCombine:
 		new_entry |= kPagePat | kPagePwt;
-	}else if(caching_mode == CachingMode::uncached) {
-		new_entry |= kPagePwt | kPagePcd | kPagePat;
-	}else{
-		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
+		break;
+	case CachingMode::uncached:
+		new_entry |=  kPagePwt | kPagePcd | kPagePat;
+		break;
+	case CachingMode::null:
+	case CachingMode::writeBack:
+		break;
+	default: assert(!"Unexpected caching mode");
 	}
 	pt_pointer[pt_index] = new_entry;
 }
@@ -820,12 +827,18 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		new_entry |= kPageWrite;
 	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
-	if(caching_mode == CachingMode::writeThrough) {
-		new_entry |= kPagePwt;
-	}else if(caching_mode == CachingMode::writeCombine) {
-		new_entry |= kPagePat | kPagePwt;
-	}else{
-		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
+
+	switch(caching_mode) {
+	case CachingMode::writeThrough:
+		new_entry |=  kPagePwt;
+		break;
+	case CachingMode::writeCombine:
+		new_entry |=  kPagePat | kPagePwt;
+		break;
+	case CachingMode::null:
+	case CachingMode::writeBack:
+		break;
+	default: assert(!"Unexpected caching mode");
 	}
 	tbl1[index1].store(new_entry);
 }

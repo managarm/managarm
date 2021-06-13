@@ -253,15 +253,20 @@ async::result<void> StandardHub::initialize() {
 
 	auto cfg_descriptor = co_await _device.configurationDescriptor();
 	walkConfiguration(cfg_descriptor, [&] (int type, size_t, void *, const auto &info) {
-		if(type == descriptor_type::configuration) {
+		switch(type) {
+		case descriptor_type::configuration:
 			assert(!cfg_number);
 			cfg_number = info.configNumber.value();
-		}else if(type == descriptor_type::interface) {
+			break;
+		case descriptor_type::interface:
 			assert(!intf_number);
 			intf_number = info.interfaceNumber.value();
-		}else if(type == descriptor_type::endpoint) {
+			break;
+		case descriptor_type::endpoint:
 			assert(!end_number);
 			end_number = info.endpointNumber.value();
+			break;
+		default:;
 		}
 	});
 

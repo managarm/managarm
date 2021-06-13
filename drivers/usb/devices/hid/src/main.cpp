@@ -35,7 +35,8 @@ void setupInputTranslation(Element *element) {
 		element->inputCode = code;
 	};
 
-	if(element->usagePage == pages::genericDesktop) {
+	switch(element->usagePage) {
+	case pages::genericDesktop:
 		// TODO: Distinguish between absolute and relative controls.
 		if(element->isAbsolute) {
 			switch(element->usageId) {
@@ -58,7 +59,8 @@ void setupInputTranslation(Element *element) {
 								<< " in Generic Desktop Page" << std::endl;
 			}
 		}
-	}else if(element->usagePage == pages::keyboard) {
+		break;
+	case pages::keyboard:
 //		assert(element->isAbsolute);
 		switch(element->usageId) {
 			case 0x04: setInput(EV_KEY, KEY_A); break;
@@ -169,7 +171,8 @@ void setupInputTranslation(Element *element) {
 					std::cout << "usb-hid: Unknown usage " << element->usageId
 							<< " in Keyboard Page" << std::endl;
 		}
-	}else if(element->usagePage == pages::button) {
+		break;
+	case pages::button:
 //		assert(element->isAbsolute);
 		switch(element->usageId) {
 			case 0x01: setInput(EV_KEY, BTN_LEFT); break;
@@ -180,7 +183,8 @@ void setupInputTranslation(Element *element) {
 					std::cout << "usb-hid: Unknown usage " << element->usageId
 							<< " in Button Page" << std::endl;
 		}
-	}else{
+		break;
+	default:
 		if(logUnknownCodes)
 			std::cout << "usb-hid: Unkown usage page " << element->usagePage << std::endl;
 	}

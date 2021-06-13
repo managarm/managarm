@@ -83,57 +83,82 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 		Scope *scope = comp->activeScopes.back();
 
 		auto opcode = extractUint();
-		if(opcode == FNR_OP_DUP) {
+		switch(opcode) {
+		case FNR_OP_DUP: {
 			auto index = extractUint();
 			assert(comp->opstack.size() > index);
 			comp->opstack.push_back(comp->opstack[comp->opstack.size() - index - 1]);
-		}else if(opcode == FNR_OP_DROP) {
+			break;
+		}
+		case FNR_OP_DROP: {
 			comp->opstack.pop_back();
-		}else if(opcode == FNR_OP_LITERAL) {
+			break;
+		}
+		case FNR_OP_LITERAL: {
 			auto operand = extractUint();
 
 			auto inst = scope->insertBb->insertNewInstruction<lewis::LoadConstInstruction>(operand);
 			auto result = inst->result.setNew<lewis::LocalValue>();
 			result->setType(lewis::globalInt32Type());
 			comp->opstack.push_back(result);
-		}else if(opcode == FNR_OP_BINDING) {
+			break;
+		}
+		case FNR_OP_BINDING: {
 			auto index = extractUint();
 			assert(index < comp->bindings.size());
 
-			if(comp->bindings[index].type == BindType::offset) {
+			switch(comp->bindings[index].type) {
+			case BindType::offset: {
 				auto inst = scope->insertBb->insertNewInstruction<lewis::LoadOffsetInstruction>(
 						scope->instance, comp->bindings[index].disp);
 				auto result = inst->result.setNew<lewis::LocalValue>();
 				result->setType(lewis::globalInt32Type());
 				comp->opstack.push_back(result);
-			}else if(comp->bindings[index].type == BindType::memoryView) {
+				break;
+			}
+			case BindType::memoryView: {
 				auto inst = scope->insertBb->insertNewInstruction<lewis::LoadOffsetInstruction>(
 						scope->instance, comp->bindings[index].disp);
 				auto result = inst->result.setNew<lewis::LocalValue>();
 				result->setType(lewis::globalPointerType());
 				comp->opstack.push_back(result);
-			}else if(comp->bindings[index].type == BindType::bitsetEvent) {
+				break;
+			}
+			case BindType::bitsetEvent: {
 				auto inst = scope->insertBb->insertNewInstruction<lewis::LoadOffsetInstruction>(
 						scope->instance, comp->bindings[index].disp);
 				auto result = inst->result.setNew<lewis::LocalValue>();
 				result->setType(lewis::globalPointerType());
 				comp->opstack.push_back(result);
-			}else assert(!"Unexpected binding type");
-		}else if(opcode == FNR_OP_S_DEFINE) {
+				break;
+			}
+			default:
+				assert(!"Unexpected binding type");
+			}
+
+			break;
+		}
+		case FNR_OP_S_DEFINE: {
 			assert(comp->opstack.size());
 			auto operand = comp->opstack.back();
 			comp->opstack.pop_back();
 
 			scope->sstack.push_back(operand);
-		}else if(opcode == FNR_OP_S_VALUE) {
+			break;
+		}
+		case FNR_OP_S_VALUE: {
 			auto index = extractUint();
 			assert(index < scope->sstack.size());
 
 			comp->opstack.push_back(scope->sstack[index]);
-		}else if(opcode == FNR_OP_CHECK_IF) {
+			break;
+		}
+		case FNR_OP_CHECK_IF: {
 			assert(comp->opstack.empty());
 			comp->activeBlocks.push_back(Ite{});
-		}else if(opcode == FNR_OP_THEN) {
+			break;
+		}
+		case FNR_OP_THEN: {
 			assert(comp->opstack.size() == 1);
 			assert(!comp->activeBlocks.empty());
 
@@ -173,7 +198,9 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 
 			comp->activeBlocks.back().ifScope = inner;
 			comp->activeScopes.push_back(inner);
-		}else if(opcode == FNR_OP_ELSE_THEN) {
+			break;
+		}
+		case FNR_OP_ELSE_THEN: {
 			assert(comp->opstack.empty());
 			assert(!comp->activeBlocks.empty());
 			assert(comp->activeScopes.size() >= 2);
@@ -211,7 +238,9 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 
 			comp->activeBlocks.back().elseScope = inner;
 			comp->activeScopes.push_back(inner);
-		}else if(opcode == FNR_OP_END) {
+			break;
+		}
+		case FNR_OP_END: {
 			assert(comp->opstack.empty());
 			assert(!comp->activeBlocks.empty());
 			assert(comp->activeScopes.size() >= 2);
@@ -273,7 +302,9 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			}
 
 			comp->activeBlocks.pop_back();
-		}else if(opcode == FNR_OP_BITWISE_AND) {
+			break;
+		}
+		case FNR_OP_BITWISE_AND: {
 			assert(comp->opstack.size() >= 2);
 			auto right = comp->opstack.back();
 			comp->opstack.pop_back();
@@ -285,7 +316,9 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			auto result = inst->result.setNew<lewis::LocalValue>();
 			result->setType(lewis::globalInt32Type());
 			comp->opstack.push_back(result);
-		}else if(opcode == FNR_OP_ADD) {
+			break;
+		}
+		case FNR_OP_ADD: {
 			assert(comp->opstack.size() >= 2);
 			auto right = comp->opstack.back();
 			comp->opstack.pop_back();
@@ -297,7 +330,9 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 			auto result = inst->result.setNew<lewis::LocalValue>();
 			result->setType(lewis::globalInt32Type());
 			comp->opstack.push_back(result);
-		}else if(opcode == FNR_OP_INTRIN) {
+			break;
+		}
+		case FNR_OP_INTRIN: {
 			int nargs = extractUint();
 			int nrvs = extractUint();
 			auto function = extractString();
@@ -315,7 +350,10 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
 				result->setType(lewis::globalInt32Type());
 				comp->opstack.push_back(result);
 			}
-		}else{
+
+			break;
+		}
+		default:
 			std::cerr << "FNR opcode: " << opcode << std::endl;
 			assert(!"Unexpected fafnir opcode");
 		}

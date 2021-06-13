@@ -595,15 +595,17 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			auto bar = co_await hw_device.accessBar(bir);
 			Mapping mapping{std::move(bar), info.barInfo[bir].offset + offset, length};
 
-			if(subtype == 1) {
-				common_mapping = std::move(mapping);
-			}else if(subtype == 2) {
-				notify_mapping = std::move(mapping);
+			switch(subtype) {
+			case 1: common_mapping = std::move(mapping);
+				break;
+			case 2: notify_mapping = std::move(mapping);
 				notify_multiplier = co_await hw_device.loadPciCapability(i, 16, 4);
-			}else if(subtype == 3) {
-				isr_mapping = std::move(mapping);
-			}else if(subtype == 4) {
-				device_mapping = std::move(mapping);
+				break;
+			case 3: isr_mapping = std::move(mapping);
+				break;
+			case 4: device_mapping = std::move(mapping);
+				break;
+			default:;
 			}
 		}
 

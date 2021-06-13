@@ -74,7 +74,8 @@ struct PciIrqRouter {
 	virtual ~PciIrqRouter() {}
 
 	IrqPin *resolveIrqRoute(uint32_t slot, IrqIndex index) {
-		if (routingModel == RoutingModel::rootTable) {
+		switch (routingModel) {
+		case RoutingModel::rootTable: {
 			auto entry = std::find_if(routingTable.begin(), routingTable.end(),
 					[&] (const auto &ref) { return ref.slot == slot && ref.index == index; });
 
@@ -83,9 +84,11 @@ struct PciIrqRouter {
 
 			assert(entry->pin);
 			return entry->pin;
-		} else if(routingModel == RoutingModel::expansionBridge) {
+		}
+		case RoutingModel::expansionBridge: {
 			return bridgeIrqs[(static_cast<int>(index) - 1 + slot) % 4];
-		} else {
+		}
+		default:
 			return nullptr;
 		}
 	}

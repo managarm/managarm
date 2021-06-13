@@ -348,11 +348,13 @@ namespace thor::vmx {
 			}
 
 			auto reason = vmread(VM_EXIT_REASON);
-			if(reason == VMEXIT_HLT) {
+			switch(reason) {
+			case VMEXIT_HLT: {
 				infoLogger() << "vmx: hlt" << frg::endlog;
 				exitInfo.exitReason = khelVmexitHlt;
 				return exitInfo;
-			} else if(reason == VMEXIT_EPT_VIOLATION) {
+			}
+			case VMEXIT_EPT_VIOLATION: {
 				size_t address = vmread(EPT_VIOLATION_ADDRESS);
 				size_t exitFlags = vmread(EPT_VIOLATION_FLAGS);
 				uint32_t flags = 0;
@@ -369,8 +371,13 @@ namespace thor::vmx {
 					exitInfo.flags = exitFlags;
 					return exitInfo;
 				}
-			}else if(reason == VMEXIT_EXTERNAL_INTERRUPT) {
+				break;
+			}
+			case VMEXIT_EXTERNAL_INTERRUPT: {
 				infoLogger() << "vmx: external-interrupt exit" << frg::endlog;
+				break;
+			}
+			default:;
 			}
 		}
 	}

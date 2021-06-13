@@ -18,7 +18,8 @@ namespace {
 async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		const FileOperations *file_ops,
 		managarm::fs::CntRequest req, helix::UniqueLane conversation) {
-	if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
+	switch(req.req_type()) {
+	case managarm::fs::CntReqType::SEEK_ABS: {
 		if(!file_ops->seekAbs) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -43,7 +44,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+		break;
+	}
+	case managarm::fs::CntReqType::SEEK_REL: {
 		if(!file_ops->seekRel) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -74,7 +77,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
+		break;
+	}
+	case managarm::fs::CntReqType::SEEK_EOF: {
 		if(!file_ops->seekEof) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -99,7 +104,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
+		break;
+	}
+	case managarm::fs::CntReqType::READ: {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials()
@@ -157,7 +164,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_PREAD: {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials()
@@ -215,7 +224,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}
-	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+		break;
+	}
+	case managarm::fs::CntReqType::WRITE: {
 		std::vector<uint8_t> buffer;
 		buffer.resize(req.size());
 
@@ -245,14 +256,17 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		managarm::fs::SvrResponse resp;
 		if(!res) {
-			if(res.error() == Error::noSpaceLeft) {
+			switch(res.error()) {
+			case Error::noSpaceLeft:
 				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
-			} else if(res.error() == Error::wouldBlock) {
+				break;
+			case Error::wouldBlock:
 				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-			} else {
+				break;
+			default:
 				std::cout << "Unknown error from write()" << std::endl;
 				co_return;
-			}	
+			}
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -270,7 +284,10 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			);
 			HEL_CHECK(send_resp.error());
 		}
-	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
+
+		break;
+	}
+	case managarm::fs::CntReqType::FLOCK: {
 		if(!file_ops->flock) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -286,11 +303,14 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto result = co_await file_ops->flock(file.get(), req.flock_flags());
 
 		managarm::fs::SvrResponse resp;
-		if(result == protocols::fs::Error::illegalArguments) {
+		switch(result) {
+		case protocols::fs::Error::illegalArguments:
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-		} else if(result == protocols::fs::Error::wouldBlock) {
+			break;
+		case protocols::fs::Error::wouldBlock:
 			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-		} else {
+			break;
+		default:
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
 
@@ -300,7 +320,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_READ_ENTRIES: {
 		if(!file_ops->readEntries) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -328,7 +350,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			conversation,
 			helix_ng::sendBuffer(ser.data(), ser.size()));
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
+		break;
+	}
+	case managarm::fs::CntReqType::MMAP: {
 		if(!file_ops->accessMemory) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -355,7 +379,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(push_memory.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_TRUNCATE) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_TRUNCATE: {
 		if(!file_ops->truncate) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -383,7 +409,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_FALLOCATE) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_FALLOCATE: {
 		if(!file_ops->fallocate) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -407,7 +435,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_IOCTL: {
 		if(!file_ops->ioctl) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -422,7 +452,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		}
 
 		co_await file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_GET_OPTION: {
 		if(!file_ops->getOption) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -447,7 +479,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_OPTION) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_SET_OPTION: {
 		if(!file_ops->setOption) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -471,7 +505,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_WAIT) {
+		break;
+	}
+	case managarm::fs::CntReqType::FILE_POLL_WAIT: {
 		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::pullDescriptor()
@@ -520,7 +556,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_STATUS) {
+		break;
+	}
+	case managarm::fs::CntReqType::FILE_POLL_STATUS: {
 		if(!file_ops->pollStatus) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -561,7 +599,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_BIND: {
 		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials(),
@@ -596,7 +636,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_CONNECT: {
 		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials(),
@@ -631,7 +673,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_SOCKNAME: {
 		if(!file_ops->sockname) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -663,7 +707,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_PEERNAME) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_PEERNAME: {
 		if(!file_ops->peername) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -711,7 +757,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_GET_FILE_FLAGS: {
 		if(!file_ops->getFileFlags) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -737,7 +785,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_FILE_FLAGS) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_SET_FILE_FLAGS: {
 		if(!file_ops->setFileFlags) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -762,7 +812,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_LISTEN) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_LISTEN: {
 		if(!file_ops->listen) {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
@@ -787,7 +839,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_RECVMSG) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_RECVMSG: {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::extractCredentials()
@@ -848,7 +902,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_addr.error());
 		HEL_CHECK(send_data.error());
 		HEL_CHECK(send_ctrl.error());
-	} else if (req.req_type() == managarm::fs::CntReqType::PT_SENDMSG) {
+		break;
+	}
+	case managarm::fs::CntReqType::PT_SENDMSG: {
 		std::vector<uint8_t> buffer;
 		buffer.resize(req.size());
 
@@ -910,7 +966,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	} else {
+		break;
+	}
+	default:
 		throw std::runtime_error("libfs_protocol: Unexpected"
 				" request type in servePassthrough()");
 	}
@@ -1008,7 +1066,8 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
+		switch(req.req_type()) {
+		case managarm::fs::CntReqType::NODE_GET_STATS: {
 			assert(node_ops->getStats);
 			auto result = co_await node_ops->getStats(node);
 
@@ -1032,7 +1091,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_GET_LINK: {
 			auto result = co_await node_ops->getLink(node, req.path());
 			if(!result) {
 				managarm::fs::SvrResponse resp;
@@ -1088,7 +1149,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_TRAVERSE_LINKS) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_TRAVERSE_LINKS: {
 			auto result = co_await node_ops->traverseLinks(node, std::deque(req.path_segments().begin(), req.path_segments().end()));
 
 			if (!result) {
@@ -1158,7 +1221,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 
 				HEL_CHECK(push_node.error());
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_MKDIR) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_MKDIR: {
 			auto result = co_await node_ops->mkdir(node, req.path());
 
 			if (std::get<0>(result)) {
@@ -1189,7 +1254,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_SYMLINK) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_SYMLINK: {
 			std::string name;
 			std::string target;
 			name.resize(req.name_length());
@@ -1233,7 +1300,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(sendResp.error());
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_LINK) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_LINK: {
 			auto result = co_await node_ops->link(node, req.path(), req.fd());
 			if(std::get<0>(result)) {
 				helix::UniqueLane local_lane, remote_lane;
@@ -1276,7 +1345,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UNLINK) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_UNLINK: {
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
@@ -1298,7 +1369,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_RMDIR) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_RMDIR: {
 			// TODO: This should probably be it's own operation, for now, let it be
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
@@ -1321,7 +1394,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_OPEN: {
 			auto result = co_await node_ops->open(node);
 
 			managarm::fs::SvrResponse resp;
@@ -1337,7 +1412,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_file.error());
 			HEL_CHECK(push_pt.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_READ_SYMLINK) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_READ_SYMLINK: {
 			auto link = co_await node_ops->readSymlink(node);
 
 			managarm::fs::SvrResponse resp;
@@ -1351,7 +1428,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_link.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_CHMOD) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_CHMOD: {
 			co_await node_ops->chmod(node, req.mode());
 
 			managarm::fs::SvrResponse resp;
@@ -1363,7 +1442,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UTIMENSAT) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_UTIMENSAT: {
 			co_await node_ops->utimensat(node, req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
 
 			managarm::fs::SvrResponse resp;
@@ -1375,7 +1456,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OBSTRUCT_LINK) {
+			break;
+		}
+		case managarm::fs::CntReqType::NODE_OBSTRUCT_LINK: {
 			co_await node_ops->obstructLink(node, req.link_name());
 
 			managarm::fs::SvrResponse resp;
@@ -1387,7 +1470,9 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else{
+			break;
+		}
+		default:
 			throw std::runtime_error("libfs_protocol: Unexpected request type in serveNode");
 		}
 	}

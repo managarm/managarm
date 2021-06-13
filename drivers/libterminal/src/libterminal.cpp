@@ -21,7 +21,8 @@ void Emulator::setChar(int x, int y, char c, Attribute attribute) {
 }
 
 void Emulator::handleControlSeq(char character) {
-	if(character == 'A') {
+	switch(character)
+	case 'A': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
@@ -34,50 +35,58 @@ void Emulator::handleControlSeq(char character) {
 			cursorY = 0;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'B') {
+		break;
+	}
+	case 'B': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
 		if(n == 0)
 			n = 1;
-		
+
 		if(cursorY + n <= height) {
 			cursorY += n;
 		}else{
 			cursorY = height;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'C') {
+		break;
+	}
+	case 'C': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
 		if(n == 0)
 			n = 1;
-		
+
 		if(cursorX + n <= width) {
 			cursorX += n;
 		}else{
 			cursorX = width;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'D') {
+		break;
+	}
+	case 'D': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
 		if(n == 0)
 			n = 1;
-		
+
 		if(cursorX - n >= 0) {
 			cursorX -= n;
 		}else{
 			cursorX = 0;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'E') {
+		break;
+	}
+	case 'E': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
-		
+
 		if(cursorY + n <= height) {
 			cursorY += n;
 		}else{
@@ -85,11 +94,13 @@ void Emulator::handleControlSeq(char character) {
 		}
 		cursorX = 0;
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'F') {
+		break;
+	}
+	case 'F': {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
-		
+
 		if(cursorY - n >= 0) {
 			cursorY -= n;
 		}else{
@@ -97,22 +108,26 @@ void Emulator::handleControlSeq(char character) {
 		}
 		cursorX = 0;
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'G') {
+	}
+	case 'G': {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
-		
+
 		if(n >= 0 && n <= width){
 			cursorX = n;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(character == 'J') {
+		break;
+	}
+	case 'J': {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
-		
+
 		Attribute attribute;
-		if(n == 0) {
+		switch(n) {
+		case 0:
 			for(int i = cursorX; i <= width; i++) {
 				setChar(i, cursorY, ' ', attribute);
 			}
@@ -121,7 +136,9 @@ void Emulator::handleControlSeq(char character) {
 					setChar(i, cursorY, ' ', attribute);
 				}
 			}
-		}else if(n == 1) {
+			break;
+		}
+		case 1:
 			for(int i = cursorX; i >= 0; i--) {
 					setChar(i, cursorY, ' ', attribute);
 			}
@@ -130,40 +147,53 @@ void Emulator::handleControlSeq(char character) {
 					setChar(i, cursorY, ' ', attribute);
 				}
 			}
-		}else if(n == 2) {
+			break;
+		}
+		case 2:
 			for(int i = 0; i <= height; i++) {
 				for(int j = 0; j <= width; j++) {
 					setChar(i, cursorY, ' ', attribute);
 				}
 			}
+			break;
+		default:;
 		}
-	}else if(character == 'K') {
+		break;
+	}
+	case 'K': {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
 
 		Attribute attribute;
-		if(n == 0) {
+		switch(n) {
+		case 0:
 			for(int i = cursorX; i < width; i++) {
 				setChar(i, cursorY, ' ', attribute);
 			}
-		}else if(n == 1) {
+			break;
+		case 1:
 			for(int i = cursorX; i >= 0; i--) {
 				setChar(i, cursorY, ' ', attribute);
 			}
-		}else if(n == 2) {
+			break;
+		case 2:
 			for(int i = 0; i <= width; i++) {
 				setChar(i, cursorY, ' ', attribute);
 			}
+			break;
+		default:;
 		}
-	}else if(character == 'm') {
+		break;
+	}
+	case 'm': {
 		if(!params.empty())
 			params.push_back(0);
 
 		for(size_t i = 0; i < params.size(); i++) {
 			int n = params[i];
 			switch(n) {
-				case 30: 
+				case 30:
 					attribute.fgColor = kColorBlack;
 					break;
 				case 31:
@@ -187,7 +217,7 @@ void Emulator::handleControlSeq(char character) {
 				case 37:
 					attribute.fgColor = kColorWhite;
 					break;
-				case 40: 
+				case 40:
 					attribute.bgColor = kColorBlack;
 					break;
 				case 41:
@@ -217,46 +247,58 @@ void Emulator::handleControlSeq(char character) {
 }
 
 void Emulator::handleCsi(char character) {
-	if(character >= '0' && character <= '9') {
+	switch(character)
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9': {
 		if(currentNumber) {
 			currentNumber = *currentNumber * 10 + (character - '0');
 		}else{
 			currentNumber = character - '0';
 		}
-	}else if(character == ';') {
+		break;
+	case ';': {
 		if(currentNumber) {
 			params.push_back(*currentNumber);
 			currentNumber = std::experimental::nullopt;
 		}else{
 			params.push_back(0);
 		}
-	}else if(character >= 64 && character <= 126) {
-		if(currentNumber) {
-			params.push_back(*currentNumber);
-			currentNumber = std::experimental::nullopt;
-		}
+		break;
+	}
+	default: {
+		if(character >= 64 && character <= 126) {
+			if(currentNumber) {
+				params.push_back(*currentNumber);
+				currentNumber = std::experimental::nullopt;
+			}
 
-		handleControlSeq(character);
-		
-		params.clear();
-		status = kStatusNormal;
+			handleControlSeq(character);
+
+			params.clear();
+			status = kStatusNormal;
+		}
 	}
 }
 
 void Emulator::printChar(char character) {
+	switch (status) {
 	if(status == kStatusNormal) {
-		if(character == 27) { //ASCII for escape
+		switch(character) {
+		case 27: //ASCII for escape
 			status = kStatusEscape;
 			return;
-		}else if(character == '\a') {
+		case '\a':
 			// do nothing for now
-		}else if(character == '\b') {
+			break;
+		case '\b':
 			if(cursorX > 0)
 				cursorX--;
-		}else if(character == '\n') {
+			break;
+		case '\n':
 			cursorY++;
 			cursorX = 0;
-		}else{
+			break;
+		default: {
 			Attribute attribute;
 			setChar(cursorX, cursorY, character, attribute);
 			cursorX++;
@@ -264,7 +306,7 @@ void Emulator::printChar(char character) {
 				cursorX = 0;
 				cursorY++;
 			}
-		}
+		}}
 		if(cursorY >= height) {
 			for(int i = 1; i < height; i++) {
 				for(int j = 0; j < width; j++) {
@@ -281,23 +323,29 @@ void Emulator::printChar(char character) {
 			cursorY = height - 1;
 		}
 		display->setCursor(cursorX, cursorY);
-	}else if(status == kStatusEscape) {
+		break;
+	}
+	case kStatusEscape) {
 		if(character == '[') {
 			status = kStatusCsi;
 		}
-	}else if(status == kStatusCsi) {
+		break;
+	}
+	case kStatusCsi: {
 		handleCsi(character);
+	}
+	default:;
 	}
 }
 
-void Emulator::printString(std::string string){
-	for(unsigned int i = 0; i < string.size(); i++) {
+void Emulator::printString(const std::string &text){
+	char buffer[8];
+	for(char c : text) {
 		if(logSequences) {
-			char buffer[128];
-			sprintf(buffer, "U+%d", string[i]);
+			sprintf(buffer, "U+%d", c);
 			puts(buffer);
 		}
-		printChar(string[i]);
+		printChar(c);
 	}
 }
 

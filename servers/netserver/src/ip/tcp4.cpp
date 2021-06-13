@@ -634,7 +634,8 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 }
 
 void Tcp4Socket::handleInPacket_(TcpPacket packet) {
-	if(connectState_ == ConnectState::sendSyn) {
+	switch(connectState_) {
+	case ConnectState::sendSyn: {
 		if(localSettledSn_ == localFlushedSn_) {
 			std::cout << "netserver: Rejecting packet before SYN is sent [sendSyn]"
 					<< std::endl;
@@ -664,7 +665,9 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		connectState_ = ConnectState::connected;
 		flushEvent_.raise();
 		settleEvent_.raise();
-	}else if(connectState_ == ConnectState::connected) {
+		break;
+	}
+	case ConnectState::connected: {
 		if(packet.header.seqNumber.load() == remoteKnownSn_) {
 			bool gotUpdate = false;
 
@@ -713,6 +716,9 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 						<< std::endl;
 			}
 		}
+		break;
+	}
+	default:;
 	}
 }
 
