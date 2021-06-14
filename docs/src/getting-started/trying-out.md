@@ -15,7 +15,7 @@ Before running the downloaded nightly build you have to **uncompress** it.
 To run the nightly builds we recommend using [QEMU](https://www.qemu.org/) with the following options:
 
 ```bash
-$ qemu-system-x86_64 -enable-kvm -m 2048 -cpu host,migratable=off -device piix3-usb-uhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga virtio -debugcon stdio
+$ qemu-system-x86_64 -enable-kvm -m 2048 -cpu host,migratable=off -device qemu-xhci -device usb-kbd -device usb-tablet -drive id=hdd,file=image,format=raw,if=none -device virtio-blk-pci,drive=hdd -vga vmware -debugcon stdio
 ```
 
 Be aware that the `-enable-kvm` flags works only on systems that support KVM.
