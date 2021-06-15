@@ -91,13 +91,27 @@ int main() {
 
 	std::cout << "init: udev initialization is done" << std::endl;
 
-	// Wait until we have the devices required for weston.
-	bool have_drm = false;
-	bool have_kbd = false;
-	bool have_mouse = false;
+	// Determine what to launch.
+	std::string launch = "kmscon";
+
+	std::string token;
+	std::ifstream cmdline("/proc/cmdline");
+	while(cmdline >> token) {
+		if(token.compare(0, 12, "init.launch="))
+			continue;
+		launch = token.substr(12);
+	}
+
+	// Wait until we have the devices required for weston/kmscon.
+	bool need_drm = true;
+	bool need_kbd = true;
+	bool need_mouse = true;
+
+	if(launch == "kmscon")
+		need_mouse = false;
 
 	std::cout << "init: Waiting for devices to show up" << std::endl;
-	while(!have_drm || !have_kbd || !have_mouse) {
+	while(need_drm || need_kbd || need_mouse) {
 		auto dev = udev_monitor_receive_device(init_udev_mon);
 		if(!dev) {
 			std::cerr << "\e[31m" "init: udev_monitor_receive_device() failed"
@@ -111,30 +125,20 @@ int main() {
 
 		if(!strcmp(subsystem, "drm")) {
 			std::cout << "init: Found DRM device " << syspath << std::endl;
-			have_drm = true;
+			need_drm = false;
 		}
 		if(!strcmp(subsystem, "input")) {
 			if(udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD")) {
 				std::cout << "init: Found keyboard " << syspath << std::endl;
-				have_kbd = true;
+				need_kbd = false;
 			}
 			if(udev_device_get_property_value(dev, "ID_INPUT_MOUSE")) {
 				std::cout << "init: Found mouse " << syspath << std::endl;
-				have_mouse = true;
+				need_mouse = false;
 			}
 		}
 
 		udev_device_unref(dev);
-	}
-
-	std::string launch = "kmscon";
-
-	std::string token;
-	std::ifstream cmdline("/proc/cmdline");
-	while(cmdline >> token) {
-		if(token.compare(0, 12, "init.launch="))
-			continue;
-		launch = token.substr(12);
 	}
 
 	// Finally, launch into kmscon/Weston.
