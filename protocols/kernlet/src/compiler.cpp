@@ -1,6 +1,6 @@
-
 #include <string.h>
 
+#include <async/mutex.hpp>
 #include <async/oneshot-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/kernlet/compiler.hpp>
@@ -8,26 +8,37 @@
 
 #include "kernlet.pb.h"
 
-helix::UniqueLane kernletCompilerLane;
-async::oneshot_event foundKernletCompiler;
+namespace {
+	helix::UniqueLane kernletCompilerLane;
+	async::mutex enumerationMutex;
+	async::oneshot_event foundKernletCompiler;
+}
 
 async::result<void> connectKernletCompiler() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	co_await enumerationMutex.async_lock();
+	{
+		std::unique_lock lock{enumerationMutex, std::adopt_lock};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "kernletcc")
-	});
+		if(kernletCompilerLane)
+			co_return;
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
-		std::cout << "kernlet: Found kernletcc" << std::endl;
+		auto root = co_await mbus::Instance::global().getRoot();
 
-		kernletCompilerLane = helix::UniqueLane(co_await entity.bind());
-		foundKernletCompiler.raise();
-	});
+		auto filter = mbus::Conjunction({
+			mbus::EqualsFilter("class", "kernletcc")
+		});
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundKernletCompiler.wait();
+		auto handler = mbus::ObserverHandler{}
+		.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+			std::cout << "kernlet: Found kernletcc" << std::endl;
+
+			kernletCompilerLane = helix::UniqueLane(co_await entity.bind());
+			foundKernletCompiler.raise();
+		});
+
+		co_await root.linkObserver(std::move(filter), std::move(handler));
+		co_await foundKernletCompiler.wait();
+	}
 }
 
 async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
