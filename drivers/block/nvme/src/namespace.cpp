@@ -27,7 +27,7 @@ async::result<void> Namespace::readSectors(uint64_t sector, void *buffer, size_t
 	cmdBuf.length = convert_endian<endian::little, endian::native>((uint16_t)numSectors - 1);
 	cmd->setupBuffer(arch::dma_buffer_view{nullptr, buffer, numSectors << lbaShift_});
 
-	return async::make_result(controller_->submitIoCommand(std::move(cmd)));
+	co_await controller_->submitIoCommand(std::move(cmd));
 }
 
 async::result<void> Namespace::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
@@ -43,5 +43,5 @@ async::result<void> Namespace::writeSectors(uint64_t sector, const void *buffer,
 	cmdBuf.length = convert_endian<endian::little, endian::native>((uint16_t)numSectors - 1);
 	cmd->setupBuffer(arch::dma_buffer_view{nullptr, (char *)buffer, numSectors << lbaShift_});
 
-	return async::make_result(controller_->submitIoCommand(std::move(cmd)));
+	co_await controller_->submitIoCommand(std::move(cmd));
 }
