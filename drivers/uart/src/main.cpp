@@ -256,9 +256,17 @@ write(void *, const char *, const void *buffer, size_t length) {
 	co_return length;
 }
 
-constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withRead(&read)
-	.withWrite(&write);
+async::result<protocols::fs::SeekResult> seek(void *, int64_t) {
+	co_return protocols::fs::Error::seekOnPipe;
+}
+
+constexpr auto fileOperations = protocols::fs::FileOperations{
+	.seekAbs = &seek,
+	.seekRel = &seek,
+	.seekEof = &seek,
+	.read = &read,
+	.write = &write,
+};
 
 async::detached serveTerminal(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
