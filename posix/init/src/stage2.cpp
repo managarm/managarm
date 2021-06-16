@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -93,13 +94,16 @@ int main() {
 
 	// Determine what to launch.
 	std::string launch = "kmscon";
+	std::string command;
 
 	std::string token;
 	std::ifstream cmdline("/proc/cmdline");
 	while(cmdline >> token) {
-		if(token.compare(0, 12, "init.launch="))
-			continue;
-		launch = token.substr(12);
+		if(!token.compare(0, 12, "init.launch=")) {
+			launch = token.substr(12);
+		}else if(!token.compare(0, 13, "init.command=")) {
+			command = token.substr(13);
+		}
 	}
 
 	// Wait until we have the devices required for weston/kmscon.
@@ -109,6 +113,11 @@ int main() {
 
 	if(launch == "kmscon")
 		need_mouse = false;
+	if(launch == "headless") {
+		need_drm = false;
+		need_kbd = false;
+		need_mouse = false;
+	}
 
 	std::cout << "init: Waiting for devices to show up" << std::endl;
 	while(need_drm || need_kbd || need_mouse) {
@@ -165,11 +174,24 @@ int main() {
 			//execl("/usr/bin/weston", "weston", nullptr);
 			execl("/usr/bin/weston", "weston", "--xwayland", nullptr);
 			//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
+		}else if(launch == "headless") {
+			auto fd = open("/dev/ttyS0", O_RDWR);
+			if(fd < 0)
+				throw std::runtime_error("Could not open /dev/ttyS0");
+			if(dup2(fd, 0) < 0 || dup2(fd, 1) < 0 || dup2(fd, 2) < 0)
+				throw std::runtime_error("dup2() failed");
+			close(fd);
+			execl(command.c_str(), command.c_str(), nullptr);
 		}else{
 			std::cout << "init: init does not know how to launch " << launch << std::endl;
 		}
+		throw std::runtime_error("Could not execute desktop");
 		//execl("/usr/bin/kmscube", "kmscube", nullptr);
 	}else assert(desktop != -1);
+
+	if(waitpid(desktop, nullptr, 0) < 0)
+		throw std::runtime_error("waitpid() failed");
+	std::cout << "init: Launched process terminated" << std::endl;
 
 	while(true)
 		sleep(60);
