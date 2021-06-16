@@ -1,7 +1,10 @@
 .section .header
 	.int 0x1BADB002 # Magic
-	.int 0x4 # Enable graphic fields in the header
-	.int -0x1BADB006 # Checksum
+	# Flags.
+	# Bit 1: Enable memory map.
+	# Bit 2: Enable graphic fields in the header
+	.int 0x6
+	.int -0x1BADB008 # Checksum = -(magic + flags)
 	.int 0 # File format: header_addr
 	.int 0 # File format: load_addr
 	.int 0 # File format: load_end_addr

@@ -14,7 +14,7 @@ enum MbInfoFlags {
 	kMbInfoModules = 8,
 	kMbInfoFramebuffer = 12,
 	kMbInfoSymbols = 16,
-	kMbInfoMemoryMap = 32
+	kMbInfoMemoryMap = 64
 };
 
 struct MbModule {
