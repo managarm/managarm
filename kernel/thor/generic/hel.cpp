@@ -882,7 +882,10 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	}
 
 	auto outcome = Thread::asyncBlockCurrent(space->unmap((VirtualAddr)pointer, length));
-	assert(outcome); // unmap() cannot return errors right now.
+	if(!outcome) {
+		assert(outcome.error() == Error::illegalArgs);
+		return kHelErrIllegalArgs;
+	}
 
 	return kHelErrNone;
 }

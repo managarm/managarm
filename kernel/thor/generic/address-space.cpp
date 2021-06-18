@@ -594,16 +594,19 @@ bool VirtualSpace::protect(VirtualAddr address, size_t length,
 
 coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t length) {
 	smarter::shared_ptr<Mapping> mapping;
+	smarter::shared_ptr<Mapping> leftMapping = nullptr;
+	smarter::shared_ptr<Mapping> rightMapping = nullptr;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
 		mapping = _findMapping(address);
-		assert(mapping);
+		if(!mapping)
+			co_return Error::illegalArgs;
 
-		// TODO: Allow shrinking of the mapping.
-		assert(mapping->address == address);
-		assert(mapping->length == length);
+		assert(mapping->address <= address);
+		if(address + length > mapping->address + mapping->length)
+			co_return Error::illegalArgs;
 
 		assert(mapping->state == MappingState::active);
 		mapping->state = MappingState::zombie;
@@ -630,10 +633,71 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 		logRss(this);
 	}
 
+	// Create a mapping for the left part of the remaining mapping.
+	if(mapping->address != address) {
+		assert(mapping->address < address);
+
+		auto leftSize = address - mapping->address;
+		leftMapping = smarter::allocate_shared<Mapping>(Allocator{},
+				leftSize, mapping->flags, mapping->slice,
+				mapping->viewOffset);
+		leftMapping->selfPtr = leftMapping;
+
+		leftMapping->tie(selfPtr.lock(), mapping->address);
+	}
+
+	// Create a mapping for the right part of the remaining mapping.
+	if(address + length != mapping->address + mapping->length) {
+		assert(address + length < mapping->address + mapping->length);
+
+		auto rightOffset = address + length - mapping->address;
+		rightMapping = smarter::allocate_shared<Mapping>(Allocator{},
+				mapping->length - rightOffset, mapping->flags, mapping->slice,
+				mapping->viewOffset + rightOffset);
+		rightMapping->selfPtr = rightMapping;
+
+		rightMapping->tie(selfPtr.lock(), address + length);
+	}
+
 	co_await _ops->shootdown(address, length);
 
-	// Now remove the mapping.
-	_mappings.remove(mapping.get());
+	// Now remove the mapping and insert the new mappings.
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		_mappings.remove(mapping.get());
+
+		if(leftMapping) {
+			_mappings.insert(leftMapping.get());
+
+			assert(leftMapping->state == MappingState::null);
+			leftMapping->state = MappingState::active;
+		}
+		if(rightMapping) {
+			_mappings.insert(rightMapping.get());
+
+			assert(rightMapping->state == MappingState::null);
+			rightMapping->state = MappingState::active;
+		}
+	}
+
+	// Retire the old mapping and start using the new ones.
+
+	if(leftMapping) {
+		// We keep one reference until the detach the observer.
+		leftMapping.ctr()->increment();
+		leftMapping->view->addObserver(&leftMapping->observer);
+		if(leftMapping->view->canEvictMemory())
+			async::detach_with_allocator(*kernelAlloc, leftMapping->runEvictionLoop());
+	}
+	if(rightMapping) {
+		// We keep one reference until the detach the observer.
+		rightMapping.ctr()->increment();
+		rightMapping->view->addObserver(&rightMapping->observer);
+		if(rightMapping->view->canEvictMemory())
+			async::detach_with_allocator(*kernelAlloc, rightMapping->runEvictionLoop());
+	}
 
 	assert(mapping->state == MappingState::zombie);
 	mapping->state = MappingState::retired;

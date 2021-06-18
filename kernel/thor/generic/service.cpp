@@ -687,9 +687,14 @@ namespace posix {
 				auto address = *_thread->_executor.arg0();
 				auto size = *_thread->_executor.arg1();
 				auto space = _thread->getAddressSpace();
-				co_await space->unmap(address, size);
+				auto unmapOutcome = co_await space->unmap(address, size);
 
-				*_thread->_executor.result0() = kHelErrNone;
+				if(!unmapOutcome) {
+					assert(unmapOutcome.error() == Error::illegalArgs);
+					*_thread->_executor.result0() = kHelErrIllegalArgs;
+				}else{
+					*_thread->_executor.result0() = kHelErrNone;
+				}
 				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
