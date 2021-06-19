@@ -477,20 +477,6 @@ protected:
 	~SynchronizeNode() = default;
 };
 
-struct FaultNode {
-	friend struct VirtualSpace;
-
-	FaultNode() = default;
-
-	FaultNode(const FaultNode &) = delete;
-
-	FaultNode &operator= (const FaultNode &) = delete;
-
-protected:
-	virtual void complete(bool resolved) = 0;
-	~FaultNode() = default;
-};
-
 struct AddressProtectNode {
 	friend struct VirtualSpace;
 
@@ -542,8 +528,8 @@ public:
 	coroutine<frg::expected<Error>>
 	unmap(VirtualAddr address, size_t length);
 
-	frg::optional<bool> handleFault(VirtualAddr address, uint32_t flags,
-			smarter::shared_ptr<WorkQueue> wq, FaultNode *node);
+	coroutine<frg::expected<Error>>
+	handleFault(VirtualAddr address, uint32_t flags, smarter::shared_ptr<WorkQueue> wq);
 
 	size_t rss() {
 		return _residuentSize;
@@ -656,65 +642,6 @@ public:
 	friend async::sender_awaiter<ProtectSender>
 	operator co_await(ProtectSender sender) {
 		return {sender};
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for handleFault()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct HandleFaultOperation final : private FaultNode {
-		HandleFaultOperation(VirtualSpace *self, VirtualAddr address, uint32_t flags,
-				smarter::shared_ptr<WorkQueue> wq, R receiver)
-		: self_{self}, address_{address}, flags_{flags},
-				wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
-
-		HandleFaultOperation(const HandleFaultOperation &) = delete;
-
-		HandleFaultOperation &operator= (const HandleFaultOperation &) = delete;
-
-		bool start_inline() {
-			auto result = self_->handleFault(address_, flags_, std::move(wq_), this);
-			if(result) {
-				async::execution::set_value_inline(receiver_, *result);
-				return true;
-			}
-			return false;
-		}
-
-	private:
-		void complete(bool resolved) {
-			async::execution::set_value_noinline(receiver_, resolved);
-		}
-
-		VirtualSpace *self_;
-		VirtualAddr address_;
-		uint32_t flags_;
-		smarter::shared_ptr<WorkQueue> wq_;
-		R receiver_;
-	};
-
-	struct [[nodiscard]] HandleFaultSender {
-		using value_type = bool;
-
-		template<typename R>
-		HandleFaultOperation<R> connect(R receiver) {
-			return {self, address, flags, std::move(wq), std::move(receiver)};
-		}
-
-		async::sender_awaiter<HandleFaultSender, bool> operator co_await() {
-			return {*this};
-		}
-
-		VirtualSpace *self;
-		VirtualAddr address;
-		uint32_t flags;
-		smarter::shared_ptr<WorkQueue> wq;
-	};
-
-	HandleFaultSender handleFault(VirtualAddr address, uint32_t flags,
-			smarter::shared_ptr<WorkQueue> wq) {
-		return {this, address, flags, std::move(wq)};
 	}
 
 	// ----------------------------------------------------------------------------------

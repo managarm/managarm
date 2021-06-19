@@ -827,9 +827,9 @@ void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode
 	}(this, alignedAddress, alignedSize, node));
 }
 
-frg::optional<bool>
+coroutine<frg::expected<Error>>
 VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
-		smarter::shared_ptr<WorkQueue> wq, FaultNode *node) {
+		smarter::shared_ptr<WorkQueue> wq) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -838,37 +838,25 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 		mapping = _findMapping(address);
 	}
 	if(!mapping)
-		return false;
+		co_return Error::fault;
 
-	// Here we do the mapping-based fault handling.
-	if(faultFlags & VirtualSpace::kFaultWrite)
-		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
-			return true;
-		}
-	if(faultFlags & VirtualSpace::kFaultExecute)
-		if(!((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
-			return true;
-		}
+	// Check access attributes.
+	if((faultFlags & VirtualSpace::kFaultWrite)
+			&& !((mapping->flags & MappingFlags::protWrite)))
+		co_return Error::fault;
+	if((faultFlags & VirtualSpace::kFaultExecute)
+			&& !((mapping->flags & MappingFlags::protExecute)))
+		co_return Error::fault;
 
-	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<Mapping> mapping,
-			uintptr_t address,
-			smarter::shared_ptr<WorkQueue> wq, FaultNode *node) -> coroutine<void> {
-		auto faultPage = (address - mapping->address) & ~(kPageSize - 1);
-		auto outcome = co_await mapping->touchVirtualPage(faultPage, std::move(wq));
-		if(!outcome) {
-			node->complete(false);
-			co_return;
-		}
+	auto faultPage = (address - mapping->address) & ~(kPageSize - 1);
+	auto touchResult = FRG_CO_TRY(co_await mapping->touchVirtualPage(faultPage, std::move(wq)));
 
-		// Spurious page faults are the result of race conditions.
-		// They should be rare. If they happen too often, something is probably wrong!
-		if(outcome.value().spurious)
-				infoLogger() << "\e[33m" "thor: Spurious page fault"
-						"\e[39m" << frg::endlog;
-		node->complete(true);
-	}(std::move(mapping), address, std::move(wq), node));
+	// Spurious page faults are the result of race conditions.
+	// They should be rare. If they happen too often, something is probably wrong!
+	if(touchResult.spurious)
+		infoLogger() << "\e[33m" "thor: Spurious page fault" "\e[39m" << frg::endlog;
 
-	return {};
+	co_return {};
 }
 
 smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
@@ -1245,4 +1233,3 @@ PhysicalAddr AddressSpaceLockHandle::_resolvePhysical(VirtualAddr vaddr) {
 NamedMemoryViewLock::~NamedMemoryViewLock() { }
 
 } // namespace thor
-
