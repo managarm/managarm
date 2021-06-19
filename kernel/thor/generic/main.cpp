@@ -338,7 +338,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 	const Word kPfInstruction = 16;
 	assert(!(errorCode & kPfBadTable));
 
-	if(logEveryPageFault) {
+	auto logFault = [&] {
 		auto msg = infoLogger();
 		msg << "thor: Page fault at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
@@ -361,87 +361,62 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 			msg << " (Read)";
 		}
 		msg << frg::endlog;
+	};
+
+	if(logEveryPageFault)
+		logFault();
+
+	// Panic on SMAP violations.
+	if(image.inKernelDomain()) {
+		assert(!(errorCode & kPfUser));
+
+		if(!image.allowUserPages()) {
+			if(!logEveryPageFault)
+				logFault();
+			panicLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
+		}
+	}else{
+		assert(errorCode & kPfUser);
 	}
 
+	// Try to handle the page fault.
 	uint32_t flags = 0;
 	if(errorCode & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
 	if(errorCode & kPfInstruction)
 		flags |= AddressSpace::kFaultExecute;
 
-	bool handled = false;
-	if(image.inKernelDomain() && !image.allowUserPages()) {
-		infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
-	}else{
-		auto wq = this_thread->pagingWorkQueue();
-		handled = Thread::asyncBlockCurrent(
-				address_space->handleFault(address, flags, wq->take()),
-				wq);
-	}
-
-	if(handled)
+	auto wq = this_thread->pagingWorkQueue();
+	if(Thread::asyncBlockCurrent(
+			address_space->handleFault(address, flags, wq->take()), wq))
 		return;
 
-	if(image.inKernelDomain()) {
-		assert(!(errorCode & kPfUser));
-		if(handleUserAccessFault(address, errorCode & kPfWrite, image))
-			return;
-	}
+	// If we get here, the page fault could not be handled.
 
 	infoLogger() << "thor: Unhandled page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 
-	if(!(errorCode & kPfUser)) {
-		auto msg = panicLogger();
-		msg << "\e[31m" "thor: Page fault in kernel, at " << (void *)address
-				<< ", faulting ip: " << (void *)*image.ip() << "\n";
-		msg << "Errors:";
-		if(errorCode & kPfUser) {
-			msg << " (User)";
-		}else{
-			msg << " (Supervisor)";
-		}
-		if(errorCode & kPfAccess) {
-			msg << " (Access violation)";
-		}else{
-			msg << " (Page not present)";
-		}
-		if(errorCode & kPfWrite) {
-			msg << " (Write)";
-		}else if(errorCode & kPfInstruction) {
-			msg << " (Instruction fetch)";
-		}else{
-			msg << " (Read)";
-		}
-		msg << "\e[39m" << frg::endlog;
-	}else if(this_thread->flags & Thread::kFlagServer) {
-		auto msg = infoLogger();
-		msg << "\e[31m" "thor: Page fault in server, at " << (void *)address
-				<< ", faulting ip: " << (void *)*image.ip() << "\n";
-		msg << "Errors:";
-		if(errorCode & kPfUser) {
-			msg << " (User)";
-		}else{
-			msg << " (Supervisor)";
-		}
-		if(errorCode & kPfAccess) {
-			msg << " (Access violation)";
-		}else{
-			msg << " (Page not present)";
-		}
-		if(errorCode & kPfWrite) {
-			msg << " (Write)";
-		}else if(errorCode & kPfInstruction) {
-			msg << " (Instruction fetch)";
-		}else{
-			msg << " (Read)";
-		}
-		msg << "\e[39m" << frg::endlog;
-		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
-	}else{
-		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
+	// Let the UAR error out if it is active.
+	// Otherwise, panic on page faults in the kernel.
+	if(image.inKernelDomain()) {
+		if(handleUserAccessFault(address, errorCode & kPfWrite, image))
+			return;
+
+		if(!logEveryPageFault)
+			logFault();
+		panicLogger() << "\e[31m" "thor: Page fault in kernel, at " << (void *)address
+				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 	}
+
+	// Otherwise, interrupt the current thread.
+	if(this_thread->flags & Thread::kFlagServer) {
+		if(!logEveryPageFault)
+			logFault();
+		infoLogger() << "\e[31m" "thor: Page fault in server, at " << (void *)address
+				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
+	}
+	Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
 }
 
 void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
