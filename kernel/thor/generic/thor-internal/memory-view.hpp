@@ -3,6 +3,7 @@
 #include <cstddef>
 
 #include <async/algorithm.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
 #include <frg/rcu_radixtree.hpp>
@@ -128,11 +129,10 @@ using ManageList = frg::intrusive_list<
 >;
 
 struct MonitorNode {
-	void setup(ManageRequest type_, uintptr_t offset_, size_t length_, Worklet *worklet) {
+	void setup(ManageRequest type_, uintptr_t offset_, size_t length_) {
 		type = type_;
 		offset = offset_;
 		length = length_;
-		_worklet = worklet;
 	}
 
 	Error error() { return _error; }
@@ -141,18 +141,14 @@ struct MonitorNode {
 		_error = error;
 	}
 
-	void complete() {
-		WorkQueue::post(_worklet);
-	}
-
 	ManageRequest type;
 	uintptr_t offset;
 	size_t length;
+	async::oneshot_event event;
 
 private:
 	Error _error;
 
-	Worklet *_worklet;
 public:
 	frg::default_list_hook<MonitorNode> processQueueItem;
 
@@ -160,7 +156,7 @@ public:
 	size_t progress;
 };
 
-using InitiateList = frg::intrusive_list<
+using MonitorList = frg::intrusive_list<
 	MonitorNode,
 	frg::locate_member<
 		MonitorNode,
@@ -180,36 +176,7 @@ public:
 };
 
 using FetchFlags = uint32_t;
-
-struct FetchNode {
-	friend struct MemoryView;
-
-	static constexpr FetchFlags disallowBacking = 1;
-
-	void setup(Worklet *fetched, FetchFlags flags = 0) {
-		_fetched = fetched;
-		_flags = flags;
-	}
-
-	FetchFlags flags() {
-		return _flags;
-	}
-
-	Error error() {
-		return _error;
-	}
-
-	PhysicalRange range() {
-		return _range;
-	}
-
-private:
-	Worklet *_fetched;
-	uint32_t _flags;
-
-	Error _error;
-	PhysicalRange _range;
-};
+inline constexpr FetchFlags fetchDisallowBacking = 1;
 
 struct RangeToEvict {
 	uintptr_t offset;
@@ -294,19 +261,6 @@ private:
 // View on some pages of memory. This is the "frontend" part of a memory object.
 struct MemoryView {
 protected:
-	static void completeFetch(FetchNode *node, Error error) {
-		node->_error = error;
-	}
-	static void completeFetch(FetchNode *node, Error error,
-			PhysicalAddr physical, size_t size, CachingMode cm) {
-		node->_error = error;
-		node->_range = PhysicalRange{physical, size, cm};
-	}
-
-	static void callbackFetch(FetchNode *node) {
-		WorkQueue::post(node->_fetched);
-	}
-
 	MemoryView(EvictionQueue *associatedEvictionQueue = nullptr)
 	: associatedEvictionQueue_{associatedEvictionQueue} { }
 
@@ -351,8 +305,8 @@ public:
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
-	virtual bool fetchRange(uintptr_t offset,
-			smarter::shared_ptr<WorkQueue> wq, FetchNode *node) = 0;
+	virtual coroutine<frg::expected<Error, PhysicalRange>>
+	fetchRange(uintptr_t offset, FetchFlags flags, smarter::shared_ptr<WorkQueue> wq) = 0;
 
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
@@ -491,127 +445,15 @@ public:
 	}
 
 	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for fetchRange()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct [[nodiscard]] FetchRangeOperation {
-		FetchRangeOperation(MemoryView *self, uintptr_t offset,
-				smarter::shared_ptr<WorkQueue> wq, R receiver)
-		: self_{self}, offset_{offset}, wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
-
-		FetchRangeOperation(const FetchRangeOperation &) = delete;
-
-		FetchRangeOperation &operator= (const FetchRangeOperation &) = delete;
-
-		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &FetchRangeOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_,
-						frg::tuple<Error, PhysicalRange, uint32_t>{op->node_.error(),
-								op->node_.range(), op->node_.flags()});
-			}, wq_.get());
-			node_.setup(&worklet_);
-			if(self_->fetchRange(offset_, std::move(wq_), &node_)) {
-				async::execution::set_value_inline(receiver_,
-						frg::tuple<Error, PhysicalRange, uint32_t>{node_.error(),
-								node_.range(), node_.flags()});
-				return true;
-			}
-			return false;
-		}
-
-	private:
-		MemoryView *self_;
-		uintptr_t offset_;
-		smarter::shared_ptr<WorkQueue> wq_;
-		R receiver_;
-		FetchNode node_;
-		Worklet worklet_;
-	};
-
-	struct [[nodiscard]] FetchRangeSender {
-		using value_type = frg::tuple<Error, PhysicalRange, uint32_t>;
-
-		template<typename R>
-		friend FetchRangeOperation<R>
-		connect(FetchRangeSender sender, R receiver) {
-			return {sender.self, sender.offset, std::move(sender.wq), std::move(receiver)};
-		}
-
-		MemoryView *self;
-		uintptr_t offset;
-		smarter::shared_ptr<WorkQueue> wq;
-	};
-
-	FetchRangeSender fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq) {
-		return {this, offset, std::move(wq)};
-	}
-
-	friend async::sender_awaiter<FetchRangeSender, frg::tuple<Error, PhysicalRange, uint32_t>>
-	operator co_await(FetchRangeSender sender) {
-		return {sender};
-	}
-
-	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for submitInitiateLoad()
 	// ----------------------------------------------------------------------------------
 
-	template<typename R>
-	struct SubmitInitiateLoadOperation;
-
-	struct [[nodiscard]] SubmitInitiateLoadSender {
-		using value_type = Error;
-
-		template<typename R>
-		friend SubmitInitiateLoadOperation<R>
-		connect(SubmitInitiateLoadSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		MemoryView *self;
-		ManageRequest type;
-		uintptr_t offset;
-		size_t size;
-	};
-
-	SubmitInitiateLoadSender submitInitiateLoad(ManageRequest type, uintptr_t offset, size_t size) {
-		return {this, type, offset, size};
-	}
-
-	template<typename R>
-	struct SubmitInitiateLoadOperation {
-		SubmitInitiateLoadOperation(SubmitInitiateLoadSender s, R receiver)
-		: self_{s.self}, type_{s.type}, offset_{s.offset},
-		size_{s.size}, receiver_{std::move(receiver)} { }
-
-		SubmitInitiateLoadOperation(const SubmitInitiateLoadOperation &) = delete;
-		SubmitInitiateLoadOperation &operator= (const SubmitInitiateLoadOperation &) = delete;
-
-		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto op = frg::container_of(base, &SubmitInitiateLoadOperation::worklet_);
-				async::execution::set_value_noinline(op->receiver_,
-						op->node_.error());
-			}, WorkQueue::generalQueue());
-			node_.setup(type_, offset_, size_, &worklet_);
-			self_->submitInitiateLoad(&node_);
-			return false;
-		}
-
-	private:
-		MemoryView *self_;
-		ManageRequest type_;
-		uintptr_t offset_;
-		size_t size_;
-		R receiver_;
-		MonitorNode node_;
-		Worklet worklet_;
-	};
-
-	friend async::sender_awaiter<SubmitInitiateLoadSender, Error>
-	operator co_await(SubmitInitiateLoadSender sender) {
-		return {sender};
+	coroutine<Error> submitInitiateLoad(ManageRequest type, uintptr_t offset, size_t size) {
+		MonitorNode node;
+		node.setup(type, offset, size);
+		submitInitiateLoad(&node);
+		co_await node.event.wait();
+		co_return node.error();
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -767,10 +609,10 @@ inline auto copyToView(MemoryView *view, uintptr_t offset,
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
-								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
-							auto [error, range, flags] = result;
-							assert(error == Error::success);
+						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
+								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+							assert(resultOrError);
+							auto range = resultOrError.value();
 							assert(range.get<0>() != PhysicalAddr(-1));
 							assert(range.get<1>() >= kPageSize);
 							nd.physical = range.get<0>();
@@ -833,10 +675,10 @@ inline auto copyFromView(MemoryView *view, uintptr_t offset,
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, nd.wq),
-								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
-							auto [error, range, flags] = result;
-							assert(error == Error::success);
+						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
+								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+							assert(resultOrError);
+							auto range = resultOrError.value();
 							assert(range.get<0>() != PhysicalAddr(-1));
 							assert(range.get<1>() >= kPageSize);
 							nd.physical = range.get<0>();
@@ -903,17 +745,17 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 					auto destFetchOffset = (nd.destOffset + nd.progress) & ~(kPageSize - 1);
 					auto srcFetchOffset = (nd.srcOffset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.destView->fetchRange(destFetchOffset, nd.wq),
-								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
-							auto [error, range, flags] = result;
-							assert(error == Error::success);
+						async::transform(nd.destView->fetchRange(destFetchOffset, 0, nd.wq),
+								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+							assert(resultOrError);
+							auto range = resultOrError.value();
 							assert(range.get<1>() >= kPageSize);
 							nd.destRange = range;
 						}),
-						async::transform(nd.srcView->fetchRange(srcFetchOffset, nd.wq),
-								[&nd] (frg::tuple<Error, PhysicalRange, uint32_t> result) {
-							auto [error, range, flags] = result;
-							assert(error == Error::success);
+						async::transform(nd.srcView->fetchRange(srcFetchOffset, 0, nd.wq),
+								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+							assert(resultOrError);
+							auto range = resultOrError.value();
 							assert(range.get<1>() >= kPageSize);
 							nd.srcRange = range;
 						}),
@@ -1004,7 +846,9 @@ struct ImmediateMemory final : MemoryView, GlobalFutexSpace {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	coroutine<frg::expected<Error, PhysicalRange>>
+			fetchRange(uintptr_t offset, FetchFlags flags,
+			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
@@ -1071,7 +915,9 @@ struct HardwareMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	coroutine<frg::expected<Error, PhysicalRange>>
+			fetchRange(uintptr_t offset, FetchFlags flags,
+			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 private:
@@ -1095,7 +941,9 @@ struct AllocatedMemory final : MemoryView, GlobalFutexSpace {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	coroutine<frg::expected<Error, PhysicalRange>>
+			fetchRange(uintptr_t offset, FetchFlags flags,
+			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
@@ -1180,7 +1028,7 @@ struct ManagedSpace : CacheBundle {
 	void submitManagement(ManageNode *node);
 	void submitMonitor(MonitorNode *node);
 	void _progressManagement(ManageList &pending);
-	void _progressMonitors();
+	void _progressMonitors(MonitorList &pending);
 
 	smarter::borrowed_ptr<ManagedSpace> selfPtr;
 
@@ -1211,7 +1059,7 @@ struct ManagedSpace : CacheBundle {
 	> _writebackList;
 
 	ManageList _managementQueue;
-	InitiateList _monitorQueue;
+	MonitorList _monitorQueue;
 
 	DeferredWork<DeferredManagement> _deferredManagement{{this}};
 };
@@ -1232,7 +1080,9 @@ public:
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	coroutine<frg::expected<Error, PhysicalRange>>
+			fetchRange(uintptr_t offset, FetchFlags flags,
+			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 	void submitManage(ManageNode *handle) override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
@@ -1256,7 +1106,9 @@ public:
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	coroutine<frg::expected<Error, PhysicalRange>>
+			fetchRange(uintptr_t offset, FetchFlags flags,
+			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 	void submitInitiateLoad(MonitorNode *initiate) override;
 
@@ -1284,7 +1136,9 @@ struct IndirectMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	coroutine<frg::expected<Error, PhysicalRange>>
+			fetchRange(uintptr_t offset, FetchFlags flags,
+			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
@@ -1342,7 +1196,9 @@ public:
 			smarter::shared_ptr<WorkQueue> wq, LockRangeNode *node) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, smarter::shared_ptr<WorkQueue> wq, FetchNode *node) override;
+	coroutine<frg::expected<Error, PhysicalRange>>
+			fetchRange(uintptr_t offset, FetchFlags flags,
+			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,

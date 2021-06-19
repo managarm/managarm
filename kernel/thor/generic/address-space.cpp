@@ -192,15 +192,18 @@ void Mapping::touchVirtualPage(uintptr_t offset,
 			smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node) -> coroutine<void> {
 		FetchFlags fetchFlags = 0;
 		if(self->flags & MappingFlags::dontRequireBacking)
-			fetchFlags |= FetchNode::disallowBacking;
+			fetchFlags |= fetchDisallowBacking;
 
 		if(auto e = co_await self->view->asyncLockRange(
 				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize,
 				wq); e != Error::success)
 			assert(!"asyncLockRange() failed");
 
-		auto [error, range, rangeFlags] = co_await self->view->fetchRange(
-				self->viewOffset + offset, wq);
+		auto fetchOutcome = co_await self->view->fetchRange(
+				self->viewOffset + offset, fetchFlags, wq);
+		// TODO: Propagate this error by letting touchVirtualPage return frg::expected.
+		assert(fetchOutcome);
+		auto range = fetchOutcome.value();
 
 		// TODO: Update RSS, handle dirty pages, etc.
 		auto pageOffset = self->address + offset;

@@ -205,7 +205,7 @@ void MemoryView::submitManage(ManageNode *) {
 
 void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
 	initiate->setup(Error::success);
-	initiate->complete();
+	initiate->event.raise();
 }
 
 Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
@@ -284,21 +284,16 @@ frg::tuple<PhysicalAddr, CachingMode> ImmediateMemory::peekRange(uintptr_t offse
 	return {_physicalPages[index], CachingMode::null};
 }
 
-bool ImmediateMemory::fetchRange(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
+coroutine<frg::expected<Error, PhysicalRange>>
+ImmediateMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<WorkQueue>) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
 	auto index = offset >> kPageShift;
 	auto disp = offset & (kPageSize - 1);
-	if(index >= _physicalPages.size()) {
-		completeFetch(node, Error::fault,
-				PhysicalAddr(-1), kPageSize - disp, CachingMode::null);
-	}else{
-		completeFetch(node, Error::success,
-				_physicalPages[index] + disp, kPageSize - disp, CachingMode::null);
-	}
-	return true;
+	if(index >= _physicalPages.size())
+		co_return Error::fault;
+	co_return PhysicalRange{_physicalPages[index] + disp, kPageSize - disp, CachingMode::null};
 }
 
 void ImmediateMemory::markDirty(uintptr_t, size_t) {
@@ -357,12 +352,11 @@ frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset
 	return frg::tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
 }
 
-bool HardwareMemory::fetchRange(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
+coroutine<frg::expected<Error, PhysicalRange>>
+HardwareMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<WorkQueue>) {
 	assert(offset % kPageSize == 0);
 
-	completeFetch(node, Error::success, _base + offset, _length - offset, _cacheMode);
-	return true;
+	co_return PhysicalRange{_base + offset, _length - offset, _cacheMode};
 }
 
 void HardwareMemory::markDirty(uintptr_t, size_t) {
@@ -458,8 +452,8 @@ frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offse
 			CachingMode::null};
 }
 
-bool AllocatedMemory::fetchRange(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
+coroutine<frg::expected<Error, PhysicalRange>>
+AllocatedMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<WorkQueue>) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -480,9 +474,7 @@ bool AllocatedMemory::fetchRange(uintptr_t offset,
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	completeFetch(node, Error::success,
-			_physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null);
-	return true;
+	co_return PhysicalRange{_physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null};
 }
 
 void AllocatedMemory::markDirty(uintptr_t, size_t) {
@@ -499,9 +491,7 @@ size_t AllocatedMemory::getLength() {
 coroutine<frg::expected<Error, PhysicalAddr>> AllocatedMemory::takeGlobalFutex(uintptr_t offset,
 		smarter::shared_ptr<WorkQueue> wq) {
 	// TODO: This could be optimized further (by avoiding the coroutine call).
-	auto fetchResult = co_await MemoryView::fetchRange(offset & ~(kPageSize - 1), wq);
-	assert(fetchResult.get<0>() == Error::success);
-	auto range = fetchResult.get<1>();
+	auto range = FRG_CO_TRY(co_await fetchRange(offset & ~(kPageSize - 1), 0, wq));
 	assert(range.get<0>() != PhysicalAddr(-1));
 	co_return range.get<0>();
 }
@@ -633,15 +623,24 @@ void ManagedSpace::submitManagement(ManageNode *node) {
 void ManagedSpace::submitMonitor(MonitorNode *node) {
 	node->progress = 0;
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex);
+	MonitorList pending;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
 
-	assert(node->offset % kPageSize == 0);
-	assert(node->length % kPageSize == 0);
-	assert((node->offset + node->length) / kPageSize <= numPages);
+		assert(node->offset % kPageSize == 0);
+		assert(node->length % kPageSize == 0);
+		assert((node->offset + node->length) / kPageSize <= numPages);
 
-	_monitorQueue.push_back(node);
-	_progressMonitors();
+		_monitorQueue.push_back(node);
+		_progressMonitors(pending);
+	}
+
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->event.raise();
+	}
+
 }
 
 void ManagedSpace::_progressManagement(ManageList &pending) {
@@ -700,7 +699,7 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 	}
 }
 
-void ManagedSpace::_progressMonitors() {
+void ManagedSpace::_progressMonitors(MonitorList &pending) {
 	// TODO: Accelerate this by storing the monitors in a RB tree ordered by their progress.
 	auto progressNode = [&] (MonitorNode *node) -> bool {
 		while(node->progress < node->length) {
@@ -728,7 +727,7 @@ void ManagedSpace::_progressMonitors() {
 		if(progressNode(node)) {
 			_monitorQueue.erase(it_copy);
 			node->setup(Error::success);
-			node->complete();
+			pending.push_back(node);
 		}
 	}
 }
@@ -792,8 +791,8 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
-bool BackingMemory::fetchRange(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue>, FetchNode *node) {
+coroutine<frg::expected<Error, PhysicalRange>>
+BackingMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<WorkQueue>) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
@@ -812,9 +811,7 @@ bool BackingMemory::fetchRange(uintptr_t offset,
 		pit->physical = physical;
 	}
 
-	completeFetch(node, Error::success, pit->physical + misalign, kPageSize - misalign,
-			CachingMode::null);
-	return true;
+	co_return PhysicalRange{pit->physical + misalign, kPageSize - misalign, CachingMode::null};
 }
 
 void BackingMemory::markDirty(uintptr_t, size_t) {
@@ -834,50 +831,58 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	assert((offset % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_managed->mutex);
-	assert((offset + length) / kPageSize <= _managed->numPages);
+	MonitorList pending;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
+		assert((offset + length) / kPageSize <= _managed->numPages);
 
-/*	assert(length == kPageSize);
-	auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
-	auto log = infoLogger() << "dump";
-	for(size_t b = 0; b < kPageSize; b += 16) {
-		log << frg::hex_fmt(offset + b) << "   ";
-		for(size_t i = 0; i < 16; i++)
-			log << " " << frg::hex_fmt(inspect[b + i]);
-		log << "\n";
-	}
-	log << frg::endlog;*/
-
-	if(type == ManageRequest::initialize) {
-		for(size_t pg = 0; pg < length; pg += kPageSize) {
-			size_t index = (offset + pg) / kPageSize;
-			auto pit = _managed->pages.find(index);
-			assert(pit);
-			assert(pit->loadState == ManagedSpace::kStateInitialization);
-			pit->loadState = ManagedSpace::kStatePresent;
-			if(!pit->lockCount)
-				globalReclaimer->addPage(&pit->cachePage);
+	/*	assert(length == kPageSize);
+		auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
+		auto log = infoLogger() << "dump";
+		for(size_t b = 0; b < kPageSize; b += 16) {
+			log << frg::hex_fmt(offset + b) << "   ";
+			for(size_t i = 0; i < 16; i++)
+				log << " " << frg::hex_fmt(inspect[b + i]);
+			log << "\n";
 		}
-	}else{
-		for(size_t pg = 0; pg < length; pg += kPageSize) {
-			size_t index = (offset + pg) / kPageSize;
-			auto pit = _managed->pages.find(index);
-			assert(pit);
+		log << frg::endlog;*/
 
-			if(pit->loadState == ManagedSpace::kStateWriteback) {
+		if(type == ManageRequest::initialize) {
+			for(size_t pg = 0; pg < length; pg += kPageSize) {
+				size_t index = (offset + pg) / kPageSize;
+				auto pit = _managed->pages.find(index);
+				assert(pit);
+				assert(pit->loadState == ManagedSpace::kStateInitialization);
 				pit->loadState = ManagedSpace::kStatePresent;
 				if(!pit->lockCount)
 					globalReclaimer->addPage(&pit->cachePage);
-			}else{
-				assert(pit->loadState == ManagedSpace::kStateAnotherWriteback);
-				pit->loadState = ManagedSpace::kStateWantWriteback;
-				_managed->_writebackList.push_back(&pit->cachePage);
+			}
+		}else{
+			for(size_t pg = 0; pg < length; pg += kPageSize) {
+				size_t index = (offset + pg) / kPageSize;
+				auto pit = _managed->pages.find(index);
+				assert(pit);
+
+				if(pit->loadState == ManagedSpace::kStateWriteback) {
+					pit->loadState = ManagedSpace::kStatePresent;
+					if(!pit->lockCount)
+						globalReclaimer->addPage(&pit->cachePage);
+				}else{
+					assert(pit->loadState == ManagedSpace::kStateAnotherWriteback);
+					pit->loadState = ManagedSpace::kStateWantWriteback;
+					_managed->_writebackList.push_back(&pit->cachePage);
+				}
 			}
 		}
+
+		_managed->_progressMonitors(pending);
 	}
 
-	_managed->_progressMonitors();
+	while(!pending.empty()) {
+		auto node = pending.pop_front();
+		node->event.raise();
+	}
 
 	return Error::success;
 }
@@ -915,15 +920,18 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
-bool FrontalMemory::fetchRange(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
-	ManageList pending;
+coroutine<frg::expected<Error, PhysicalRange>>
+FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, smarter::shared_ptr<WorkQueue>) {
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
+	ManageList pendingManagement;
+	MonitorList pendingMonitors;
+	MonitorNode fetchMonitor;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
 
-		auto index = offset >> kPageShift;
-		auto misalign = offset & (kPageSize - 1);
 		assert(index < _managed->numPages);
 
 		// Try the fast-paths first.
@@ -946,20 +954,17 @@ bool FrontalMemory::fetchRange(uintptr_t offset,
 				globalReclaimer->addPage(&pit->cachePage);
 			}
 
-			completeFetch(node, Error::success,
-					physical + misalign, kPageSize - misalign, CachingMode::null);
-			return true;
+			co_return PhysicalRange{physical + misalign, kPageSize - misalign, CachingMode::null};
 		}else{
 			assert(pit->loadState == ManagedSpace::kStateMissing
 					|| pit->loadState == ManagedSpace::kStateWantInitialization
 					|| pit->loadState == ManagedSpace::kStateInitialization);
 		}
 
-		if(node->flags() & FetchNode::disallowBacking) {
+		if(flags & fetchDisallowBacking) {
 			infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
 					<< frg::endlog;
-			completeFetch(node, Error::fault);
-			return true;
+			co_return Error::fault;
 		}
 
 		// We have to take the slow-path, i.e., perform the fetch asynchronously.
@@ -967,61 +972,39 @@ bool FrontalMemory::fetchRange(uintptr_t offset,
 			pit->loadState = ManagedSpace::kStateWantInitialization;
 			_managed->_initializationList.push_back(&pit->cachePage);
 		}
-		_managed->_progressManagement(pending);
+		_managed->_progressManagement(pendingManagement);
 
-		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
-		struct Closure {
-			uintptr_t offset;
-			ManagedSpace::ManagedPage *page;
-			FetchNode *fetch;
-			ManagedSpace *bundle;
-
-			Worklet worklet;
-			MonitorNode initiate;
-		} *closure = frg::construct<Closure>(*kernelAlloc);
-
-		struct Ops {
-			static void initiated(Worklet *worklet) {
-				auto closure = frg::container_of(worklet, &Closure::worklet);
-				assert(closure->initiate.error() == Error::success);
-
-				auto irq_lock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&closure->bundle->mutex);
-
-				auto misalign = closure->offset & (kPageSize - 1);
-				assert(closure->page->loadState == ManagedSpace::kStatePresent);
-				auto physical = closure->page->physical;
-				assert(physical != PhysicalAddr(-1));
-
-				lock.unlock();
-				irq_lock.unlock();
-
-				completeFetch(closure->fetch, Error::success, physical + misalign, kPageSize - misalign,
-						CachingMode::null);
-				callbackFetch(closure->fetch);
-				frg::destruct(*kernelAlloc, closure);
-			}
-		};
-
-		closure->offset = offset;
-		closure->page = pit;
-		closure->fetch = node;
-		closure->bundle = _managed.get();
-
-		closure->worklet.setup(&Ops::initiated, wq.get());
-		closure->initiate.setup(ManageRequest::initialize,
-				offset, kPageSize, &closure->worklet);
-		closure->initiate.progress = 0;
-		_managed->_monitorQueue.push_back(&closure->initiate);
-		_managed->_progressMonitors();
+		fetchMonitor.setup(ManageRequest::initialize, offset, kPageSize);
+		fetchMonitor.progress = 0;
+		_managed->_monitorQueue.push_back(&fetchMonitor);
+		_managed->_progressMonitors(pendingMonitors);
 	}
 
-	while(!pending.empty()) {
-		auto node = pending.pop_front();
+	while(!pendingManagement.empty()) {
+		auto node = pendingManagement.pop_front();
 		node->complete();
 	}
+	while(!pendingMonitors.empty()) {
+		auto node = pendingMonitors.pop_front();
+		node->event.raise();
+	}
 
-	return false;
+	co_await fetchMonitor.event.wait();
+	assert(fetchMonitor.error() == Error::success);
+
+	PhysicalAddr physical;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
+
+		auto pit = _managed->pages.find(index);
+		assert(pit);
+		assert(pit->loadState == ManagedSpace::kStatePresent);
+		physical = pit->physical;
+		assert(physical != PhysicalAddr(-1));
+	}
+
+	co_return PhysicalRange{physical + misalign, kPageSize - misalign, CachingMode::null};
 }
 
 void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
@@ -1101,10 +1084,7 @@ coroutine<frg::expected<Error, PhysicalAddr>> FrontalMemory::takeGlobalFutex(uin
 	auto lockError = co_await MemoryView::asyncLockRange(offset & ~(kPageSize - 1), kPageSize, wq);
 	if(lockError != Error::success)
 		co_return Error::fault;
-	auto fetchResult = co_await MemoryView::fetchRange(offset & ~(kPageSize - 1), wq);
-	if(fetchResult.get<0>() != Error::success)
-		co_return Error::fault;
-	auto range = fetchResult.get<1>();
+	auto range = FRG_CO_TRY(co_await fetchRange(offset & ~(kPageSize - 1), 0, wq));
 	assert(range.get<0>() != PhysicalAddr(-1));
 	co_return range.get<0>();
 }
@@ -1181,8 +1161,8 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 			+ inSlotOffset);
 }
 
-bool IndirectMemory::fetchRange(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
+coroutine<frg::expected<Error, PhysicalRange>>
+IndirectMemory::fetchRange(uintptr_t offset, FetchFlags flags, smarter::shared_ptr<WorkQueue> wq) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 
@@ -1191,7 +1171,7 @@ bool IndirectMemory::fetchRange(uintptr_t offset,
 	assert(slot < indirections_.size()); // TODO: Return Error::fault.
 	assert(indirections_[slot]); // TODO: Return Error::fault.
 	return indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
-			+ inSlotOffset, std::move(wq), node);
+			+ inSlotOffset, flags, std::move(wq));
 }
 
 void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
@@ -1479,109 +1459,100 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
 }
 
-bool CopyOnWriteMemory::fetchRange(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue> wq, FetchNode *node) {
-	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t offset,
-			smarter::shared_ptr<WorkQueue> wq, FetchNode *node) -> coroutine<void> {
-		smarter::shared_ptr<CowChain> chain;
-		smarter::shared_ptr<MemoryView> view;
-		uintptr_t viewOffset;
-		CowPage *cowIt;
-		bool waitForCopy = false;
-		{
-			// If the page is present in our private chain, we just return it.
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&self->_mutex);
+coroutine<frg::expected<Error, PhysicalRange>>
+CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<WorkQueue> wq) {
+	smarter::shared_ptr<CowChain> chain;
+	smarter::shared_ptr<MemoryView> view;
+	uintptr_t viewOffset;
+	CowPage *cowIt;
+	bool waitForCopy = false;
+	{
+		// If the page is present in our private chain, we just return it.
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-			cowIt = self->_ownedPages.find(offset >> kPageShift);
-			if(cowIt) {
-				if(cowIt->state == CowState::hasCopy) {
-					assert(cowIt->physical != PhysicalAddr(-1));
+		cowIt = _ownedPages.find(offset >> kPageShift);
+		if(cowIt) {
+			if(cowIt->state == CowState::hasCopy) {
+				assert(cowIt->physical != PhysicalAddr(-1));
 
-					completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
-					callbackFetch(node);
-					co_return;
-				}else{
-					assert(cowIt->state == CowState::inProgress);
-					waitForCopy = true;
-				}
+				co_return PhysicalRange{cowIt->physical, kPageSize, CachingMode::null};
 			}else{
-				chain = self->_copyChain;
-				view = self->_view;
-				viewOffset = self->_viewOffset;
-
-				// Otherwise we need to copy from the chain or from the root view.
-				cowIt = self->_ownedPages.insert(offset >> kPageShift);
-				cowIt->state = CowState::inProgress;
+				assert(cowIt->state == CowState::inProgress);
+				waitForCopy = true;
 			}
+		}else{
+			chain = _copyChain;
+			view = _view;
+			viewOffset = _viewOffset;
+
+			// Otherwise we need to copy from the chain or from the root view.
+			cowIt = _ownedPages.insert(offset >> kPageShift);
+			cowIt->state = CowState::inProgress;
+		}
+	}
+
+	if(waitForCopy) {
+		bool stillWaiting;
+		do {
+			stillWaiting = co_await _copyEvent.async_wait_if([&] () -> bool {
+				// TODO: this could be faster if cowIt->state was atomic.
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_mutex);
+
+				if(cowIt->state == CowState::inProgress)
+					return true;
+				assert(cowIt->state == CowState::hasCopy);
+				return false;
+			});
+			co_await wq->schedule();
+		} while(stillWaiting);
+
+		co_return PhysicalRange{cowIt->physical, kPageSize, CachingMode::null};
+	}
+
+	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
+	assert(physical != PhysicalAddr(-1) && "OOM");
+	PageAccessor accessor{physical};
+
+	// Try to copy from a descendant CoW chain.
+	auto pageOffset = viewOffset + offset;
+	while(chain) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&chain->_mutex);
+
+		if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+			// We can just copy synchronously here -- the descendant is not evicted.
+			auto srcPhysical = it->load(std::memory_order_relaxed);
+			assert(srcPhysical != PhysicalAddr(-1));
+			auto srcAccessor = PageAccessor{srcPhysical};
+			memcpy(accessor.get(), srcAccessor.get(), kPageSize);
+			break;
 		}
 
-		if(waitForCopy) {
-			bool stillWaiting;
-			do {
-				stillWaiting = co_await self->_copyEvent.async_wait_if([&] () -> bool {
-					// TODO: this could be faster if cowIt->state was atomic.
-					auto irqLock = frg::guard(&irqMutex());
-					auto lock = frg::guard(&self->_mutex);
+		chain = chain->_superChain;
+	}
 
-					if(cowIt->state == CowState::inProgress)
-						return true;
-					assert(cowIt->state == CowState::hasCopy);
-					return false;
-				});
-				co_await wq->schedule();
-			} while(stillWaiting);
+	// Copy from the root view.
+	if(!chain) {
+		co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
+				accessor.get(), kPageSize, wq);
+	}
 
-			completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
-			callbackFetch(node);
-			co_return;
-		}
+	// To make CoW unobservable, we first need to evict the page here.
+	// TODO: enable read-only eviction.
+	co_await _evictQueue.evictRange(offset, kPageSize);
 
-		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != PhysicalAddr(-1) && "OOM");
-		PageAccessor accessor{physical};
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-		// Try to copy from a descendant CoW chain.
-		auto pageOffset = viewOffset + offset;
-		while(chain) {
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&chain->_mutex);
-
-			if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
-				// We can just copy synchronously here -- the descendant is not evicted.
-				auto srcPhysical = it->load(std::memory_order_relaxed);
-				assert(srcPhysical != PhysicalAddr(-1));
-				auto srcAccessor = PageAccessor{srcPhysical};
-				memcpy(accessor.get(), srcAccessor.get(), kPageSize);
-				break;
-			}
-
-			chain = chain->_superChain;
-		}
-
-		// Copy from the root view.
-		if(!chain) {
-			co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
-					accessor.get(), kPageSize, wq);
-		}
-
-		// To make CoW unobservable, we first need to evict the page here.
-		// TODO: enable read-only eviction.
-		co_await self->_evictQueue.evictRange(offset, kPageSize);
-
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&self->_mutex);
-
-			assert(cowIt->state == CowState::inProgress);
-			cowIt->state = CowState::hasCopy;
-			cowIt->physical = physical;
-		}
-		self->_copyEvent.raise();
-		completeFetch(node, Error::success, cowIt->physical, kPageSize, CachingMode::null);
-		callbackFetch(node);
-	}(this, offset, std::move(wq), node));
-	return false;
+		assert(cowIt->state == CowState::inProgress);
+		cowIt->state = CowState::hasCopy;
+		cowIt->physical = physical;
+	}
+	_copyEvent.raise();
+	co_return PhysicalRange{cowIt->physical, kPageSize, CachingMode::null};
 }
 
 void CopyOnWriteMemory::markDirty(uintptr_t, size_t) {
@@ -1594,10 +1565,7 @@ coroutine<frg::expected<Error, PhysicalAddr>> CopyOnWriteMemory::takeGlobalFutex
 	auto lockError = co_await MemoryView::asyncLockRange(offset & ~(kPageSize - 1), kPageSize, wq);
 	if(lockError != Error::success)
 		co_return Error::fault;
-	auto fetchResult = co_await MemoryView::fetchRange(offset & ~(kPageSize - 1), wq);
-	if(fetchResult.get<0>() != Error::success)
-		co_return Error::fault;
-	auto range = fetchResult.get<1>();
+	auto range = FRG_CO_TRY(co_await fetchRange(offset & ~(kPageSize - 1), 0, wq));
 	assert(range.get<0>() != PhysicalAddr(-1));
 	co_return range.get<0>();
 }
