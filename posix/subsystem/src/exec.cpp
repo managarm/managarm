@@ -179,7 +179,7 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-async::result<frg::expected<Error, helix::UniqueDescriptor>>
+async::result<frg::expected<Error, ExecuteResult>>
 execute(ViewPath root, ViewPath workdir,
 		std::string path,
 		std::vector<std::string> args, std::vector<std::string> env,
@@ -313,6 +313,7 @@ execute(ViewPath root, ViewPath workdir,
 	if(wordParity & 1)
 		pushWord(0);
 
+	void *auxEnd = reinterpret_cast<std::byte *>(stackBase) + d;
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
 		uintptr_t(execInfo.entryIp),
@@ -331,6 +332,7 @@ execute(ViewPath root, ViewPath workdir,
 		AT_NULL,
 		0
 	});
+	void *auxBegin = reinterpret_cast<std::byte *>(stackBase) + d;
 
 	// Push the environment pointers and arguments.
 	pushWord(0); // End of environment.
@@ -353,5 +355,9 @@ execute(ViewPath root, ViewPath workdir,
 			(void *)ldsoInfo.entryIp, (char *)stackBase + d,
 			kHelThreadStopped, &thread));
 
-	co_return helix::UniqueDescriptor{thread};
+	co_return ExecuteResult{
+		.thread = helix::UniqueDescriptor{thread},
+		.auxBegin = auxBegin,
+		.auxEnd = auxEnd
+	};
 }

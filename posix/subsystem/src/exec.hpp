@@ -2,7 +2,13 @@
 
 #include "process.hpp"
 
-async::result<frg::expected<Error, helix::UniqueDescriptor>>
+struct ExecuteResult {
+	helix::UniqueDescriptor thread;
+	void *auxBegin = nullptr;
+	void *auxEnd = nullptr;
+};
+
+async::result<frg::expected<Error, ExecuteResult>>
 execute(ViewPath root, ViewPath workdir,
 		std::string path,
 		std::vector<std::string> args, std::vector<std::string> env,

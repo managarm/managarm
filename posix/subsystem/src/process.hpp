@@ -503,6 +503,8 @@ public:
 	void *clientThreadPage() { return _clientThreadPage; }
 	void *clientFileTable() { return _clientFileTable; }
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
+	void *clientAuxBegin() { return _clientAuxBegin; }
+	void *clientAuxEnd() { return _clientAuxEnd; }
 
 	ThreadPage *accessThreadPage() {
 		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
@@ -552,11 +554,14 @@ private:
 	void *_clientThreadPage;
 	void *_clientFileTable;
 	void *_clientClkTrackerPage;
+	// Pointers to the aux vector in the client.
+	void *_clientAuxBegin = nullptr;
+	void *_clientAuxEnd = nullptr;
 
 	uint64_t _signalMask;
 	std::vector<std::shared_ptr<Process>> _children;
 
-	// The following intrusive queue stores notifications for wait(). 
+	// The following intrusive queue stores notifications for wait().
 	NotifyType _notifyType;
 	TerminationState _state;
 

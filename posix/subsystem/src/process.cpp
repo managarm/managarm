@@ -809,16 +809,19 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_hull->initializeProcess(process.get());
 
 	// TODO: Do not pass an empty argument vector?
-	auto threadResult = co_await execute(process->_fsContext->getRoot(),
+	auto execOutcome = co_await execute(process->_fsContext->getRoot(),
 			process->_fsContext->getWorkingDirectory(),
 			path, std::vector<std::string>{}, std::vector<std::string>{},
 			process->_vmContext,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
-	if(!threadResult)
+	if(!execOutcome)
 		throw std::logic_error("Could not execute() init process");
+	auto &execResult = execOutcome.value();
 
-	process->_threadDescriptor = std::move(threadResult.value());
+	process->_threadDescriptor = std::move(execResult.thread);
+	process->_clientAuxBegin = execResult.auxBegin;
+	process->_clientAuxEnd = execResult.auxEnd;
 	process->_posixLane = std::move(server_lane);
 	process->_didExecute = true;
 
@@ -867,6 +870,8 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
+	process->_clientAuxBegin = original->_clientAuxBegin;
+	process->_clientAuxEnd = original->_clientAuxEnd;
 	process->_uid = original->_uid;
 	process->_euid = original->_euid;
 	process->_gid = original->_gid;
@@ -922,6 +927,8 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_clientFileTable = original->_clientFileTable;
 	process->_clientClkTrackerPage = original->_clientClkTrackerPage;
 
+	process->_clientAuxBegin = original->_clientAuxBegin;
+	process->_clientAuxEnd = original->_clientAuxEnd;
 	process->_uid = original->_uid;
 	process->_euid = original->_euid;
 	process->_gid = original->_gid;
@@ -950,20 +957,11 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
-	auto threadResult = co_await execute(process->_fsContext->getRoot(),
+	auto execResult = FRG_CO_TRY(co_await execute(process->_fsContext->getRoot(),
 			process->_fsContext->getWorkingDirectory(),
 			path, std::move(args), std::move(env), exec_vm_context,
 			process->_fileContext->getUniverse(),
-			process->_fileContext->clientMbusLane());
-	if(!threadResult) {
-		switch(threadResult.error()) {
-		case Error::noSuchFile:
-		case Error::badExecutable:
-			co_return threadResult.error();
-		default:
-			throw std::logic_error("Unexpected error from execute()");
-		}
-	}
+			process->_fileContext->clientMbusLane()));
 
 	// Allocate resources.
 	HelHandle exec_posix_lane;
@@ -1004,13 +1002,15 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
 	process->_posixLane = std::move(server_lane);
-	process->_threadDescriptor = std::move(threadResult.value());
+	process->_threadDescriptor = std::move(execResult.thread);
 	process->_vmContext = std::move(exec_vm_context);
 	process->_signalContext->resetHandlers();
 	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
+	process->_clientAuxBegin = execResult.auxBegin;
+	process->_clientAuxEnd = execResult.auxEnd;
 	process->_didExecute = true;
 
 	auto generation = std::make_shared<Generation>();
