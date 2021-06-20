@@ -400,6 +400,7 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		}
 	}else if(req.matchString("q")) { // General query.
 		if(req.matchString("Supported")) {
+			resp.appendString("qXfer:auxv:read+;");
 			resp.appendString("qXfer:exec-file:read+;");
 			resp.appendString("qXfer:features:read+;");
 		}else if(req.matchString("Xfer")) {
@@ -416,7 +417,25 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 
 			std::optional<frg::span<const std::byte>> s;
 
-			if(object.matchFullString("exec-file")) {
+			// If we have to dynamically generate data, we use a buffer and make s point to it.
+			std::vector<std::byte> buffer;
+
+			if(object.matchFullString("auxv") && annex.fullyConsumed()) {
+				auto begin = reinterpret_cast<std::byte *>(process_->clientAuxBegin());
+				auto end = reinterpret_cast<std::byte *>(process_->clientAuxEnd());
+				for(auto it = begin; it != end; ++it) {
+					// We load the memory byte for byte until we fail,
+					// readMemory does not support partial reads yet.
+					std::byte b;
+					auto loadMemory = co_await helix_ng::readMemory(
+							process_->vmContext()->getSpace(),
+							reinterpret_cast<uintptr_t>(it), 1, &b);
+					if(loadMemory.error())
+						break;
+					buffer.push_back(b);
+				}
+				s = {buffer.data(), buffer.size()};
+			}else if(object.matchFullString("exec-file")) {
 				// TODO: consider the annex (= process ID).
 				s = frg::span<const std::byte>{reinterpret_cast<const std::byte *>(path_.data()),
 						path_.size()};
