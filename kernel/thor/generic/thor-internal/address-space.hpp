@@ -477,14 +477,6 @@ protected:
 	~SynchronizeNode() = default;
 };
 
-struct AddressProtectNode {
-	friend struct VirtualSpace;
-
-protected:
-	virtual void complete() = 0;
-	~AddressProtectNode() = default;
-};
-
 struct VirtualSpace {
 	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;
@@ -521,7 +513,8 @@ public:
 	map(smarter::borrowed_ptr<MemorySlice> view,
 			VirtualAddr address, size_t offset, size_t length, uint32_t flags);
 
-	bool protect(VirtualAddr address, size_t length, uint32_t flags, AddressProtectNode *node);
+	coroutine<frg::expected<Error>>
+	protect(VirtualAddr address, size_t length, uint32_t flags);
 
 	void synchronize(VirtualAddr address, size_t length, SynchronizeNode *node);
 
@@ -581,67 +574,6 @@ public:
 
 	SynchronizeSender synchronize(VirtualAddr address, size_t size) {
 		return {this, address, size};
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for protect()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct ProtectOperation;
-
-	struct [[nodiscard]] ProtectSender {
-		using value_type = void;
-
-		template<typename R>
-		friend ProtectOperation<R>
-		connect(ProtectSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		VirtualSpace *self;
-		VirtualAddr address;
-		size_t size;
-		uint32_t flags;
-	};
-
-	ProtectSender protect(VirtualAddr address, size_t size, uint32_t flags) {
-		return {this, address, size, flags};
-	}
-
-	template<typename R>
-	struct ProtectOperation final : private AddressProtectNode {
-		ProtectOperation(ProtectSender s, R receiver)
-		: self_{s.self}, address_{s.address}, size_{s.size},
-				flags_{s.flags}, receiver_{std::move(receiver)} { }
-
-		ProtectOperation(const ProtectOperation &) = delete;
-
-		ProtectOperation &operator= (const ProtectOperation &) = delete;
-
-		bool start_inline() {
-			if(self_->protect(address_, size_, flags_, this)) {
-				async::execution::set_value_inline(receiver_);
-				return true;
-			}
-			return false;
-		}
-
-	private:
-		void complete() override {
-			async::execution::set_value_noinline(receiver_);
-		}
-
-		VirtualSpace *self_;
-		VirtualAddr address_;
-		size_t size_;
-		uint32_t flags_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<ProtectSender>
-	operator co_await(ProtectSender sender) {
-		return {sender};
 	}
 
 	// ----------------------------------------------------------------------------------

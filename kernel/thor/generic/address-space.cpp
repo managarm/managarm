@@ -502,97 +502,91 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	co_return actualAddress;
 }
 
-bool VirtualSpace::protect(VirtualAddr address, size_t length,
-		uint32_t flags, AddressProtectNode *node) {
-	async::detach_with_allocator(*kernelAlloc, [] (VirtualSpace *self,
-			VirtualAddr address, size_t length,
-			uint32_t flags, AddressProtectNode *node) -> coroutine<void> {
-		std::underlying_type_t<MappingFlags> mappingFlags = 0;
+coroutine<frg::expected<Error>>
+VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
+	std::underlying_type_t<MappingFlags> mappingFlags = 0;
 
-		// TODO: The upgrading mechanism needs to be arch-specific:
-		// Some archs might only support RX, while other support X.
-		auto mask = kMapProtRead | kMapProtWrite | kMapProtExecute;
-		if((flags & mask) == (kMapProtRead | kMapProtWrite | kMapProtExecute)
-				|| (flags & mask) == (kMapProtWrite | kMapProtExecute)) {
-			// WX is upgraded to RWX.
-			mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite
-				| MappingFlags::protExecute;
-		}else if((flags & mask) == (kMapProtRead | kMapProtExecute)
-				|| (flags & mask) == kMapProtExecute) {
-			// X is upgraded to RX.
-			mappingFlags |= MappingFlags::protRead | MappingFlags::protExecute;
-		}else if((flags & mask) == (kMapProtRead | kMapProtWrite)
-				|| (flags & mask) == kMapProtWrite) {
-			// W is upgraded to RW.
-			mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite;
-		}else if((flags & mask) == kMapProtRead) {
-			mappingFlags |= MappingFlags::protRead;
-		}else{
-			assert(!(flags & mask));
-		}
+	// TODO: The upgrading mechanism needs to be arch-specific:
+	// Some archs might only support RX, while other support X.
+	auto mask = kMapProtRead | kMapProtWrite | kMapProtExecute;
+	if((flags & mask) == (kMapProtRead | kMapProtWrite | kMapProtExecute)
+			|| (flags & mask) == (kMapProtWrite | kMapProtExecute)) {
+		// WX is upgraded to RWX.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite
+			| MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtExecute)
+			|| (flags & mask) == kMapProtExecute) {
+		// X is upgraded to RX.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtWrite)
+			|| (flags & mask) == kMapProtWrite) {
+		// W is upgraded to RW.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite;
+	}else if((flags & mask) == kMapProtRead) {
+		mappingFlags |= MappingFlags::protRead;
+	}else{
+		assert(!(flags & mask));
+	}
 
-		smarter::shared_ptr<Mapping> mapping;
+	smarter::shared_ptr<Mapping> mapping;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto spaceGuard = frg::guard(&_mutex);
+
+		mapping = _findMapping(address);
+	}
+	assert(mapping);
+
+	// TODO: Allow shrinking of the mapping.
+	assert(mapping->address == address);
+	assert(mapping->length == length);
+	mapping->protect(static_cast<MappingFlags>(mappingFlags));
+
+	assert(mapping->state == MappingState::active);
+
+	uint32_t pageFlags = 0;
+	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+		pageFlags |= page_access::write;
+	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+		pageFlags |= page_access::execute;
+	// TODO: Allow inaccessible mappings.
+	assert((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead);
+
+	co_await mapping->evictionMutex.async_lock();
+
+	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
+		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
+
+		VirtualAddr vaddr = mapping->address + progress;
+
+		// Do not call into markDirty() with a lock held.
+		PageStatus status;
 		{
 			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&self->_mutex);
+			auto lock = frg::guard(&mapping->pagingMutex);
 
-			mapping = self->_findMapping(address);
-		}
-		assert(mapping);
-
-		// TODO: Allow shrinking of the mapping.
-		assert(mapping->address == address);
-		assert(mapping->length == length);
-		mapping->protect(static_cast<MappingFlags>(mappingFlags));
-
-		assert(mapping->state == MappingState::active);
-
-		uint32_t pageFlags = 0;
-		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
-			pageFlags |= page_access::write;
-		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
-			pageFlags |= page_access::execute;
-		// TODO: Allow inaccessible mappings.
-		assert((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead);
-
-		co_await mapping->evictionMutex.async_lock();
-
-		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
-			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
-
-			VirtualAddr vaddr = mapping->address + progress;
-
-			// Do not call into markDirty() with a lock held.
-			PageStatus status;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&mapping->pagingMutex);
-
-				status = self->_ops->unmapSingle4k(vaddr);
-				if(physicalRange.get<0>() != PhysicalAddr(-1))
-					self->_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
-							pageFlags, physicalRange.get<1>());
-			}
-
-			if(status & page_status::present) {
-				if(status & page_status::dirty)
-					mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
-				if(physicalRange.get<0>() == PhysicalAddr(-1))
-					self->_residuentSize -= kPageSize;
-			}else{
-				if(physicalRange.get<0>() != PhysicalAddr(-1))
-					self->_residuentSize += kPageSize;
-			}
-			logRss(self);
+			status = _ops->unmapSingle4k(vaddr);
+			if(physicalRange.get<0>() != PhysicalAddr(-1))
+				_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
+						pageFlags, physicalRange.get<1>());
 		}
 
-		mapping->evictionMutex.unlock();
+		if(status & page_status::present) {
+			if(status & page_status::dirty)
+				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
+			if(physicalRange.get<0>() == PhysicalAddr(-1))
+				_residuentSize -= kPageSize;
+		}else{
+			if(physicalRange.get<0>() != PhysicalAddr(-1))
+				_residuentSize += kPageSize;
+		}
+		logRss(this);
+	}
 
-		co_await self->_ops->shootdown(address, length);
-		node->complete();
-	}(this, address, length, flags, node));
+	mapping->evictionMutex.unlock();
 
-	return false;
+	co_await _ops->shootdown(address, length);
+	co_return {};
 }
 
 coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t length) {
