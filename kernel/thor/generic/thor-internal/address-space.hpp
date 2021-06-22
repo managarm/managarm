@@ -463,20 +463,6 @@ using MappingTree = frg::rbtree<
 	MappingLess
 >;
 
-struct SynchronizeNode {
-	friend struct VirtualSpace;
-
-	SynchronizeNode() = default;
-
-	SynchronizeNode(const SynchronizeNode &) = delete;
-
-	SynchronizeNode &operator= (const SynchronizeNode &) = delete;
-
-protected:
-	virtual void resume() = 0;
-	~SynchronizeNode() = default;
-};
-
 struct VirtualSpace {
 	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;
@@ -516,7 +502,8 @@ public:
 	coroutine<frg::expected<Error>>
 	protect(VirtualAddr address, size_t length, uint32_t flags);
 
-	void synchronize(VirtualAddr address, size_t length, SynchronizeNode *node);
+	coroutine<frg::expected<Error>>
+	synchronize(VirtualAddr address, size_t length);
 
 	coroutine<frg::expected<Error>>
 	unmap(VirtualAddr address, size_t length);
@@ -526,54 +513,6 @@ public:
 
 	size_t rss() {
 		return _residuentSize;
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for synchronize()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct SynchronizeOperation final : private SynchronizeNode {
-		SynchronizeOperation(VirtualSpace *self, VirtualAddr address, size_t size, R receiver)
-		: self_{self}, address_{address}, size_{size}, receiver_{std::move(receiver)} { }
-
-		SynchronizeOperation(const SynchronizeOperation &) = delete;
-
-		SynchronizeOperation &operator= (const SynchronizeOperation &) = delete;
-
-		void start() {
-			self_->synchronize(address_, size_, this);
-		}
-
-	private:
-		void resume() override {
-			async::execution::set_value(receiver_);
-		}
-
-		VirtualSpace *self_;
-		VirtualAddr address_;
-		size_t size_;
-		R receiver_;
-	};
-
-	struct [[nodiscard]] SynchronizeSender {
-		async::sender_awaiter<SynchronizeSender>
-		operator co_await() {
-			return {*this};
-		}
-
-		template<typename R>
-		SynchronizeOperation<R> connect(R receiver) {
-			return {self, address, size, std::move(receiver)};
-		}
-
-		VirtualSpace *self;
-		VirtualAddr address;
-		size_t size;
-	};
-
-	SynchronizeSender synchronize(VirtualAddr address, size_t size) {
-		return {this, address, size};
 	}
 
 	// ----------------------------------------------------------------------------------

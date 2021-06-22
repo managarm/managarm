@@ -770,55 +770,52 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 	co_return {};
 }
 
-void VirtualSpace::synchronize(VirtualAddr address, size_t size, SynchronizeNode *node) {
+coroutine<frg::expected<Error>>
+VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 	auto misalign = address & (kPageSize - 1);
 	auto alignedAddress = address & ~(kPageSize - 1);
 	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
 
-	async::detach_with_allocator(*kernelAlloc, [] (VirtualSpace *self,
-			VirtualAddr alignedAddress, size_t alignedSize,
-			SynchronizeNode *node) -> coroutine<void> {
-		size_t overallProgress = 0;
-		while(overallProgress < alignedSize) {
-			smarter::shared_ptr<Mapping> mapping;
+	size_t overallProgress = 0;
+	while(overallProgress < alignedSize) {
+		smarter::shared_ptr<Mapping> mapping;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto spaceGuard = frg::guard(&_mutex);
+
+			mapping = _findMapping(alignedAddress + overallProgress);
+		}
+		assert(mapping);
+
+		auto mappingOffset = alignedAddress + overallProgress - mapping->address;
+		auto mappingChunk = frg::min(alignedSize - overallProgress,
+				mapping->length - mappingOffset);
+		assert(mapping->state == MappingState::active);
+		assert(mappingOffset + mappingChunk <= mapping->length);
+
+		for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
+				chunkProgress += kPageSize) {
+			VirtualAddr vaddr = mapping->address + mappingOffset + chunkProgress;
+
+			// Do not call into markDirty() with a lock held.
+			PageStatus status;
 			{
 				auto irqLock = frg::guard(&irqMutex());
-				auto spaceGuard = frg::guard(&self->_mutex);
+				auto lock = frg::guard(&mapping->pagingMutex);
 
-				mapping = self->_findMapping(alignedAddress + overallProgress);
+				status = _ops->cleanSingle4k(vaddr);
 			}
-			assert(mapping);
 
-			auto mappingOffset = alignedAddress + overallProgress - mapping->address;
-			auto mappingChunk = frg::min(alignedSize - overallProgress,
-					mapping->length - mappingOffset);
-			assert(mapping->state == MappingState::active);
-			assert(mappingOffset + mappingChunk <= mapping->length);
-
-			for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
-					chunkProgress += kPageSize) {
-				VirtualAddr vaddr = mapping->address + mappingOffset + chunkProgress;
-
-				// Do not call into markDirty() with a lock held.
-				PageStatus status;
-				{
-					auto irqLock = frg::guard(&irqMutex());
-					auto lock = frg::guard(&mapping->pagingMutex);
-
-					status = self->_ops->cleanSingle4k(vaddr);
-				}
-
-				if(!(status & page_status::present))
-					continue;
-				if(status & page_status::dirty)
-					mapping->view->markDirty(mapping->viewOffset + chunkProgress, kPageSize);
-			}
-			overallProgress += mappingChunk;
+			if(!(status & page_status::present))
+				continue;
+			if(status & page_status::dirty)
+				mapping->view->markDirty(mapping->viewOffset + chunkProgress, kPageSize);
 		}
-		co_await self->_ops->shootdown(alignedAddress, alignedSize);
+		overallProgress += mappingChunk;
+	}
+	co_await _ops->shootdown(alignedAddress, alignedSize);
 
-		node->resume();
-	}(this, alignedAddress, alignedSize, node));
+	co_return {};
 }
 
 coroutine<frg::expected<Error>>
