@@ -4,8 +4,14 @@
 
 #include <arch/dma_structs.hpp>
 #include <async/result.hpp>
+#include <frg/expected.hpp>
 
 #include "usb.hpp"
+
+enum class UsbError {
+	none,
+	stall
+};
 
 enum XferFlags {
 	kXferToDevice = 1,
@@ -57,18 +63,18 @@ protected:
 	~EndpointData() = default;
 
 public:
-	virtual async::result<void> transfer(ControlTransfer info) = 0;
-	virtual async::result<size_t> transfer(InterruptTransfer info) = 0;
-	virtual async::result<size_t> transfer(BulkTransfer info) = 0;
+	virtual async::result<frg::expected<UsbError>> transfer(ControlTransfer info) = 0;
+	virtual async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) = 0;
+	virtual async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) = 0;
 };
 
 
 struct Endpoint {
 	Endpoint(std::shared_ptr<EndpointData> state);
 
-	async::result<void> transfer(ControlTransfer info) const;
-	async::result<size_t> transfer(InterruptTransfer info) const;
-	async::result<size_t> transfer(BulkTransfer info) const;
+	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) const;
+	async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) const;
+	async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) const;
 
 private:
 	std::shared_ptr<EndpointData> _state;
@@ -83,13 +89,15 @@ protected:
 	~InterfaceData() = default;
 
 public:
-	virtual async::result<Endpoint> getEndpoint(PipeType type, int number) = 0;
+	virtual async::result<frg::expected<UsbError, Endpoint>>
+	getEndpoint(PipeType type, int number) = 0;
 };
 
 struct Interface {
 	Interface(std::shared_ptr<InterfaceData> state);
 
-	async::result<Endpoint> getEndpoint(PipeType type, int number) const;
+	async::result<frg::expected<UsbError, Endpoint>>
+	getEndpoint(PipeType type, int number) const;
 
 private:
 	std::shared_ptr<InterfaceData> _state;
@@ -105,13 +113,15 @@ protected:
 	~ConfigurationData() = default;
 
 public:
-	virtual async::result<Interface> useInterface(int number, int alternative) = 0;
+	virtual async::result<frg::expected<UsbError, Interface>>
+	useInterface(int number, int alternative) = 0;
 };
 
 struct Configuration {
 	Configuration(std::shared_ptr<ConfigurationData> state);
 
-	async::result<Interface> useInterface(int number, int alternative) const;
+	async::result<frg::expected<UsbError, Interface>>
+	useInterface(int number, int alternative) const;
 
 private:
 	std::shared_ptr<ConfigurationData> _state;
@@ -129,9 +139,9 @@ public:
 	virtual arch::dma_pool *setupPool() = 0;
 	virtual arch::dma_pool *bufferPool() = 0;
 
-	virtual async::result<std::string> configurationDescriptor() = 0;
-	virtual async::result<Configuration> useConfiguration(int number) = 0;
-	virtual async::result<void> transfer(ControlTransfer info) = 0;
+	virtual async::result<frg::expected<UsbError, std::string>> configurationDescriptor() = 0;
+	virtual async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) = 0;
+	virtual async::result<frg::expected<UsbError>> transfer(ControlTransfer info) = 0;
 };
 
 struct Device {
@@ -140,9 +150,9 @@ struct Device {
 	arch::dma_pool *setupPool() const;
 	arch::dma_pool *bufferPool() const;
 
-	async::result<std::string> configurationDescriptor() const;
-	async::result<Configuration> useConfiguration(int number) const;
-	async::result<void> transfer(ControlTransfer info) const;
+	async::result<frg::expected<UsbError, std::string>> configurationDescriptor() const;
+	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) const;
+	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) const;
 
 private:
 	std::shared_ptr<DeviceData> _state;

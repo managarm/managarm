@@ -22,9 +22,9 @@ struct DeviceState final : DeviceData {
 	arch::dma_pool *setupPool() override;
 	arch::dma_pool *bufferPool() override;
 
-	async::result<std::string> configurationDescriptor() override;
-	async::result<Configuration> useConfiguration(int number) override;
-	async::result<void> transfer(ControlTransfer info) override;
+	async::result<frg::expected<UsbError, std::string>> configurationDescriptor() override;
+	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) override;
+	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -34,7 +34,8 @@ struct ConfigurationState final : ConfigurationData {
 	ConfigurationState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
-	async::result<Interface> useInterface(int number, int alternative) override;
+	async::result<frg::expected<UsbError, Interface>>
+	useInterface(int number, int alternative) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -44,7 +45,8 @@ struct InterfaceState final : InterfaceData {
 	InterfaceState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
-	async::result<Endpoint> getEndpoint(PipeType type, int number) override;
+	async::result<frg::expected<UsbError, Endpoint>>
+	getEndpoint(PipeType type, int number) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -55,9 +57,9 @@ struct EndpointState final : EndpointData {
 	EndpointState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 	
-	async::result<void> transfer(ControlTransfer info) override;
-	async::result<size_t> transfer(InterruptTransfer info) override;
-	async::result<size_t> transfer(BulkTransfer info) override;
+	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
+	async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) override;
+	async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -71,7 +73,7 @@ arch::dma_pool *DeviceState::bufferPool() {
 	return nullptr;
 }
 
-async::result<std::string> DeviceState::configurationDescriptor() {
+async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDescriptor() {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -101,7 +103,7 @@ async::result<std::string> DeviceState::configurationDescriptor() {
 	co_return std::move(data);
 }
 
-async::result<Configuration> DeviceState::useConfiguration(int number) {
+async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfiguration(int number) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -131,7 +133,7 @@ async::result<Configuration> DeviceState::useConfiguration(int number) {
 	co_return Configuration(std::move(state));
 }
 
-async::result<void> DeviceState::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError>> DeviceState::transfer(ControlTransfer info) {
 	if(info.flags == kXferToDevice) {
 		throw std::runtime_error("xfer to device not implemented");
 	}else{
@@ -164,10 +166,12 @@ async::result<void> DeviceState::transfer(ControlTransfer info) {
 		managarm::usb::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::usb::Errors::SUCCESS);
+		co_return {};
 	}
 }
 
-async::result<Interface> ConfigurationState::useInterface(int number, int alternative) {
+async::result<frg::expected<UsbError, Interface>>
+ConfigurationState::useInterface(int number, int alternative) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -198,7 +202,8 @@ async::result<Interface> ConfigurationState::useInterface(int number, int altern
 	co_return Interface(std::move(state));
 }
 
-async::result<Endpoint> InterfaceState::getEndpoint(PipeType type, int number) {
+async::result<frg::expected<UsbError, Endpoint>>
+InterfaceState::getEndpoint(PipeType type, int number) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -229,11 +234,11 @@ async::result<Endpoint> InterfaceState::getEndpoint(PipeType type, int number) {
 	co_return Endpoint(std::move(state));
 }
 
-async::result<void> EndpointState::transfer(ControlTransfer) {
+async::result<frg::expected<UsbError>> EndpointState::transfer(ControlTransfer) {
 	throw std::runtime_error("endpoint control transfer not implemented");
 }
 
-async::result<size_t> EndpointState::transfer(InterruptTransfer info) {
+async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(InterruptTransfer info) {
 	if(info.flags == kXferToDevice) {
 		throw std::runtime_error("xfer to device not implemented");
 	}else{
@@ -269,7 +274,7 @@ async::result<size_t> EndpointState::transfer(InterruptTransfer info) {
 	}
 }
 
-async::result<size_t> EndpointState::transfer(BulkTransfer info) {
+async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(BulkTransfer info) {
 	if(info.flags == kXferToDevice) {
 		assert(info.flags == kXferToDevice);
 		assert(!info.allowShortPackets);

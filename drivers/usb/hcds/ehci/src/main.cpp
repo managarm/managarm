@@ -104,17 +104,17 @@ arch::dma_pool *DeviceState::bufferPool() {
 	return &schedulePool;
 }
 
-async::result<std::string> DeviceState::configurationDescriptor() {
+async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDescriptor() {
 	return _controller->configurationDescriptor(_device);
 }
 
-async::result<Configuration> DeviceState::useConfiguration(int number) {
-	co_await _controller->useConfiguration(_device, number);
+async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfiguration(int number) {
+	FRG_CO_TRY(co_await _controller->useConfiguration(_device, number));
 	co_return Configuration{std::make_shared<ConfigurationState>(_controller,
 			_device, number)};
 }
 
-async::result<void> DeviceState::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError>> DeviceState::transfer(ControlTransfer info) {
 	return _controller->transfer(_device, 0, info);
 }
 
@@ -128,8 +128,9 @@ ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
 	(void)_configuration;
 }
 
-async::result<Interface> ConfigurationState::useInterface(int number, int alternative) {
-	co_await _controller->useInterface(_device, number, alternative);
+async::result<frg::expected<UsbError, Interface>>
+ConfigurationState::useInterface(int number, int alternative) {
+	FRG_CO_TRY(co_await _controller->useInterface(_device, number, alternative));
 	co_return Interface{std::make_shared<InterfaceState>(_controller, _device, number)};
 }
 
@@ -143,7 +144,8 @@ InterfaceState::InterfaceState(std::shared_ptr<Controller> controller,
 	(void)_interface;
 }
 
-async::result<Endpoint> InterfaceState::getEndpoint(PipeType type, int number) {
+async::result<frg::expected<UsbError, Endpoint>>
+InterfaceState::getEndpoint(PipeType type, int number) {
 	co_return Endpoint{std::make_shared<EndpointState>(_controller,
 			_device, type, number)};
 }
@@ -156,17 +158,17 @@ EndpointState::EndpointState(std::shared_ptr<Controller> controller,
 		int device, PipeType type, int endpoint)
 : _controller{std::move(controller)}, _device(device), _type(type), _endpoint(endpoint) { }
 
-async::result<void> EndpointState::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError>> EndpointState::transfer(ControlTransfer info) {
 	(void)info;
 	assert(!"FIXME: Implement this");
 	__builtin_unreachable();
 }
 
-async::result<size_t> EndpointState::transfer(InterruptTransfer info) {
+async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(InterruptTransfer info) {
 	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
-async::result<size_t> EndpointState::transfer(BulkTransfer info) {
+async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(BulkTransfer info) {
 	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
@@ -317,8 +319,8 @@ async::result<void> Controller::probeDevice() {
 	set_address->index = 0;
 	set_address->length = 0;
 
-	co_await _directTransfer(ControlTransfer{kXferToDevice,
-			set_address, arch::dma_buffer_view{}}, queue, 0);
+	(co_await _directTransfer(ControlTransfer{kXferToDevice,
+			set_address, arch::dma_buffer_view{}}, queue, 0)).unwrap();
 
 	queue->setAddress(address);
 
@@ -335,8 +337,8 @@ async::result<void> Controller::probeDevice() {
 	get_header->length = 8;
 
 	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};
-	co_await _directTransfer(ControlTransfer{kXferToHost,
-			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
+	(co_await _directTransfer(ControlTransfer{kXferToHost,
+			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8)).unwrap();
 
 	_activeDevices[address].controlStates[0].queueEntity = queue;
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
@@ -353,8 +355,8 @@ async::result<void> Controller::probeDevice() {
 	get_descriptor->index = 0;
 	get_descriptor->length = sizeof(DeviceDescriptor);
 
-	co_await transfer(address, 0, ControlTransfer{kXferToHost,
-			get_descriptor, descriptor.view_buffer()});
+	(co_await transfer(address, 0, ControlTransfer{kXferToHost,
+			get_descriptor, descriptor.view_buffer()})).unwrap();
 	assert(descriptor->length == sizeof(DeviceDescriptor));
 
 	// TODO: Read configuration descriptor from the device.
@@ -494,7 +496,8 @@ async::detached Controller::handleIrqs() {
 // Controller: Device management.
 // ------------------------------------------------------------------------
 
-async::result<std::string> Controller::configurationDescriptor(int address) {
+async::result<frg::expected<UsbError, std::string>>
+Controller::configurationDescriptor(int address) {
 	// Read the descriptor header that contains the hierachy size.
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
 	get_header->type = setup_type::targetDevice | setup_type::byStandard
@@ -505,8 +508,8 @@ async::result<std::string> Controller::configurationDescriptor(int address) {
 	get_header->length = sizeof(ConfigDescriptor);
 
 	arch::dma_object<ConfigDescriptor> header{&schedulePool};
-	co_await transfer(address, 0, ControlTransfer{kXferToHost,
-			get_header, header.view_buffer()});
+	FRG_CO_TRY(co_await transfer(address, 0, ControlTransfer{kXferToHost,
+			get_header, header.view_buffer()}));
 	assert(header->length == sizeof(ConfigDescriptor));
 
 	// Read the whole descriptor hierachy.
@@ -519,15 +522,16 @@ async::result<std::string> Controller::configurationDescriptor(int address) {
 	get_descriptor->length = header->totalLength;
 
 	arch::dma_buffer descriptor{&schedulePool, header->totalLength};
-	co_await transfer(address, 0, ControlTransfer{kXferToHost,
-			get_descriptor, descriptor});
+	FRG_CO_TRY(co_await transfer(address, 0, ControlTransfer{kXferToHost,
+			get_descriptor, descriptor}));
 
 	// TODO: This function should return a arch::dma_buffer!
 	std::string copy((char *)descriptor.data(), header->totalLength);
 	co_return std::move(copy);
 }
 
-async::result<void> Controller::useConfiguration(int address, int configuration) {
+async::result<frg::expected<UsbError>>
+Controller::useConfiguration(int address, int configuration) {
 	arch::dma_object<SetupPacket> set_config{&schedulePool};
 	set_config->type = setup_type::targetDevice | setup_type::byStandard
 			| setup_type::toDevice;
@@ -536,12 +540,14 @@ async::result<void> Controller::useConfiguration(int address, int configuration)
 	set_config->index = 0;
 	set_config->length = 0;
 
-	co_await transfer(address, 0, ControlTransfer{kXferToDevice,
-			set_config, arch::dma_buffer_view{}});
+	FRG_CO_TRY(co_await transfer(address, 0, ControlTransfer{kXferToDevice,
+			set_config, arch::dma_buffer_view{}}));
+	co_return {};
 }
 
-async::result<void> Controller::useInterface(int address, int interface, int alternative) {
-	auto descriptor = co_await configurationDescriptor(address);
+async::result<frg::expected<UsbError>>
+Controller::useInterface(int address, int interface, int alternative) {
+	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address));
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
 
@@ -578,6 +584,7 @@ async::result<void> Controller::useInterface(int address, int interface, int alt
 			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
 		}
 	});
+	co_return {};
 }
 
 // ------------------------------------------------------------------------
@@ -626,7 +633,8 @@ void Controller::QueueEntity::setAddress(int address) {
 // Transfer functions.
 // ------------------------------------------------------------------------
 
-async::result<void> Controller::transfer(int address, int pipe, ControlTransfer info) {
+async::result<frg::expected<UsbError>>
+Controller::transfer(int address, int pipe, ControlTransfer info) {
 	auto device = &_activeDevices[address];
 	auto endpoint = &device->controlStates[pipe];
 
@@ -636,7 +644,8 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	return transaction->voidPromise.async_get();
 }
 
-async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
+async::result<frg::expected<UsbError, size_t>>
+Controller::transfer(int address, PipeType type, int pipe,
 		InterruptTransfer info) {
 	// TODO: Ensure pipe type matches transfer direction.
 	auto device = &_activeDevices[address];
@@ -654,7 +663,8 @@ async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 	return transaction->promise.async_get();
 }
 
-async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
+async::result<frg::expected<UsbError, size_t>>
+Controller::transfer(int address, PipeType type, int pipe,
 		BulkTransfer info) {
 	// TODO: Ensure pipe type matches transfer direction.
 	auto device = &_activeDevices[address];
@@ -800,7 +810,7 @@ auto Controller::_buildInterruptOrBulk(XferFlags dir,
 }
 
 
-async::result<void> Controller::_directTransfer(ControlTransfer info,
+async::result<frg::expected<UsbError>> Controller::_directTransfer(ControlTransfer info,
 		QueueEntity *queue, size_t max_packet_size) {
 	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer, max_packet_size);
@@ -900,7 +910,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			std::cout << "ehci: Transfer complete!" << std::endl;
 		assert(active->fullSize >= active->lostSize);
 		active->promise.set_value(active->fullSize - active->lostSize);
-		active->voidPromise.set_value();
+		active->voidPromise.set_value({});
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();

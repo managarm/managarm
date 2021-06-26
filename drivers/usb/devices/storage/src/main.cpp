@@ -25,7 +25,7 @@ namespace {
 }
 
 async::detached StorageDevice::run(int config_num, int intf_num) {
-	auto descriptor = co_await _usbDevice.configurationDescriptor();
+	auto descriptor = (co_await _usbDevice.configurationDescriptor()).unwrap();
 
 	std::experimental::optional<int> in_endp_number;
 	std::experimental::optional<int> out_endp_number;
@@ -48,10 +48,10 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	if(logSteps)
 		std::cout << "block-usb: Setting up configuration" << std::endl;
 	
-	auto config = co_await _usbDevice.useConfiguration(config_num);
-	auto intf = co_await config.useInterface(intf_num, 0);
-	auto endp_in = co_await intf.getEndpoint(PipeType::in, in_endp_number.value());
-	auto endp_out = co_await intf.getEndpoint(PipeType::out, out_endp_number.value());
+	auto config = (co_await _usbDevice.useConfiguration(config_num)).unwrap();
+	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
+	auto endp_in = (co_await intf.getEndpoint(PipeType::in, in_endp_number.value())).unwrap();
+	auto endp_out = (co_await intf.getEndpoint(PipeType::out, out_endp_number.value())).unwrap();
 
 	if(logSteps)
 		std::cout << "block-usb: Device is ready" << std::endl;
@@ -134,8 +134,8 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 
 			if(logSteps)
 				std::cout << "block-usb: Sending CBW" << std::endl;
-			co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
-					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}});
+			(co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
+					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}})).unwrap();
 			
 			if(logSteps)
 				std::cout << "block-usb: Waiting for data" << std::endl;
@@ -145,18 +145,16 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 				// TODO: We want this to be lazy but that only works if can ensure that
 				// the next transaction is also posted to the queue.
 	//			data_info.lazyNotification = true;
-				auto data_xfer = endp_in.transfer(data_info);
-				co_await std::move(data_xfer);
+				(co_await endp_in.transfer(data_info)).unwrap();
 			}else{
-				co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
-						arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}});
+				(co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
+						arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}})).unwrap();
 			}
 
 			if(logSteps)
 				std::cout << "block-usb: Waiting for CSW" << std::endl;
-			auto csw_xfer = endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
-					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}});
-			co_await std::move(csw_xfer);
+			(co_await endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
+					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}})).unwrap();
 
 			if(logSteps)
 				std::cout << "block-usb: Request complete" << std::endl;
@@ -206,8 +204,13 @@ async::detached bindDevice(mbus::Entity entity) {
 	if(logEnumeration)
 		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
-	auto descriptor = co_await device.configurationDescriptor();
-	walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
+	auto descriptorOrError = co_await device.configurationDescriptor();
+	if(!descriptorOrError) {
+		std::cout << "usb-hid: Failed to get device descriptor" << std::endl;
+		co_return;
+	}
+
+	walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();

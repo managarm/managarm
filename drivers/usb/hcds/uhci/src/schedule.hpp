@@ -41,7 +41,7 @@ protected:
 public:
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
-	virtual async::result<bool> issueReset(int port, bool *low_speed) = 0;
+	virtual async::result<frg::expected<UsbError, bool>> issueReset(int port, bool *low_speed) = 0;
 };
 
 struct Enumerator {
@@ -71,7 +71,7 @@ struct Controller final : std::enable_shared_from_this<Controller>, BaseControll
 
 		size_t numPorts() override;
 		async::result<PortState> pollState(int port) override;
-		async::result<bool> issueReset(int port, bool *low_speed) override;
+		async::result<frg::expected<UsbError, bool>> issueReset(int port, bool *low_speed) override;
 
 	private:
 		Controller *_controller;
@@ -129,8 +129,8 @@ private:
 		size_t numComplete;
 		size_t lengthComplete;
 		bool allowShortPackets;
-		async::promise<size_t> promise;
-		async::promise<void> voidPromise;
+		async::promise<frg::expected<UsbError, size_t>> promise;
+		async::promise<frg::expected<UsbError>> voidPromise;
 	};
 
 	struct QueueEntity : ScheduleItem {
@@ -166,9 +166,13 @@ private:
 	DeviceSlot _activeDevices[128];
 
 public:
-	async::result<std::string> configurationDescriptor(int address);
-	async::result<void> useConfiguration(int address, int configuration);
-	async::result<void> useInterface(int address, int interface, int alternative);
+	async::result<frg::expected<UsbError, std::string>> configurationDescriptor(int address);
+
+	async::result<frg::expected<UsbError>>
+	useConfiguration(int address, int configuration);
+
+	async::result<frg::expected<UsbError>>
+	useInterface(int address, int interface, int alternative);
 
 	// ------------------------------------------------------------------------
 	// Transfer functions.
@@ -183,12 +187,17 @@ public:
 			bool allow_short_packets);
 
 public:
-	async::result<void> transfer(int address, int pipe, ControlTransfer info);
-	async::result<size_t> transfer(int address, PipeType type, int pipe, InterruptTransfer info);
-	async::result<size_t> transfer(int address, PipeType type, int pipe, BulkTransfer info);
+	async::result<frg::expected<UsbError>> transfer(int address, int pipe, ControlTransfer info);
+
+	async::result<frg::expected<UsbError, size_t>>
+	transfer(int address, PipeType type, int pipe, InterruptTransfer info);
+
+	async::result<frg::expected<UsbError, size_t>>
+	transfer(int address, PipeType type, int pipe, BulkTransfer info);
 
 private:
-	async::result<void> _directTransfer(int address, int pipe, ControlTransfer info,
+	async::result<frg::expected<UsbError>>
+	_directTransfer(int address, int pipe, ControlTransfer info,
 			QueueEntity *queue, bool low_speed, size_t max_packet_size);
 
 private:
@@ -233,9 +242,9 @@ struct DeviceState final : DeviceData {
 	arch::dma_pool *setupPool() override;
 	arch::dma_pool *bufferPool() override;
 
-	async::result<std::string> configurationDescriptor() override;
-	async::result<Configuration> useConfiguration(int number) override;
-	async::result<void> transfer(ControlTransfer info) override;
+	async::result<frg::expected<UsbError, std::string>> configurationDescriptor() override;
+	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) override;
+	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
 
 private:
 	std::shared_ptr<Controller> _controller;
@@ -250,7 +259,8 @@ struct ConfigurationState final : ConfigurationData {
 	explicit ConfigurationState(std::shared_ptr<Controller> controller,
 			int device, int configuration);
 
-	async::result<Interface> useInterface(int number, int alternative) override;
+	async::result<frg::expected<UsbError, Interface>>
+	useInterface(int number, int alternative) override;
 
 private:
 	std::shared_ptr<Controller> _controller;
@@ -266,7 +276,8 @@ struct InterfaceState final : InterfaceData {
 	explicit InterfaceState(std::shared_ptr<Controller> controller,
 			int device, int configuration);
 
-	async::result<Endpoint> getEndpoint(PipeType type, int number) override;
+	async::result<frg::expected<UsbError, Endpoint>>
+	getEndpoint(PipeType type, int number) override;
 
 private:
 	std::shared_ptr<Controller> _controller;
@@ -282,9 +293,9 @@ struct EndpointState final : EndpointData {
 	explicit EndpointState(std::shared_ptr<Controller> controller,
 			int device, PipeType type, int endpoint);
 
-	async::result<void> transfer(ControlTransfer info) override;
-	async::result<size_t> transfer(InterruptTransfer info) override;
-	async::result<size_t> transfer(BulkTransfer info) override;
+	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
+	async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) override;
+	async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) override;
 
 private:
 	std::shared_ptr<Controller> _controller;

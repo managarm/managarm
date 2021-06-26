@@ -903,7 +903,8 @@ arch::dma_pool *Controller::Device::bufferPool() {
 	return &_controller->_memoryPool;
 }
 
-async::result<std::string> Controller::Device::configurationDescriptor() {
+async::result<frg::expected<UsbError, std::string>>
+Controller::Device::configurationDescriptor() {
 	arch::dma_object<ConfigDescriptor> header{&_controller->_memoryPool};
 	co_await readDescriptor(header.view_buffer(), 0x0200);
 
@@ -912,8 +913,9 @@ async::result<std::string> Controller::Device::configurationDescriptor() {
 	co_return std::string{(char *)descriptor.data(), descriptor.size()};
 }
 
-async::result<Configuration> Controller::Device::useConfiguration(int number) {
-	auto descriptor = co_await configurationDescriptor();
+async::result<frg::expected<UsbError, Configuration>>
+Controller::Device::useConfiguration(int number) {
+	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor());
 
 	struct EndpointInfo {
 		int pipe;
@@ -975,7 +977,8 @@ async::result<Configuration> Controller::Device::useConfiguration(int number) {
 	co_return Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
 }
 
-async::result<void> Controller::Device::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError>>
+Controller::Device::transfer(ControlTransfer info) {
 	RawTrb setup_stage = {{
 		0, static_cast<uint32_t>(info.buffer.size() << 16), 8,
 		((info.flags == kXferToDevice ? 2 : 3) << 16) 
@@ -1022,6 +1025,7 @@ async::result<void> Controller::Device::transfer(ControlTransfer info) {
 	if (ev.event.completionCode != 1)
 		printf("xhci: failed to perform a control transfer, completion code: '%s'\n",
 			completionCodeNames[ev.event.completionCode]);
+	co_return {};
 }
 
 void Controller::Device::submit(int endpoint) {
@@ -1216,7 +1220,8 @@ Controller::ConfigurationState::ConfigurationState(Controller *controller,
 :_controller{controller}, _device{device} {
 }
 
-async::result<Interface> Controller::ConfigurationState::useInterface(int number, int alternative) {
+async::result<frg::expected<UsbError, Interface>>
+Controller::ConfigurationState::useInterface(int number, int alternative) {
 	assert(!alternative);
 	co_return Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
 }
@@ -1230,7 +1235,8 @@ Controller::InterfaceState::InterfaceState(Controller *controller,
 : _controller{controller}, _device{device} {
 }
 
-async::result<Endpoint> Controller::InterfaceState::getEndpoint(PipeType type, int number) {
+async::result<frg::expected<UsbError, Endpoint>>
+Controller::InterfaceState::getEndpoint(PipeType type, int number) {
 	co_return Endpoint{std::make_shared<Controller::EndpointState>(_controller, _device, number, type)};
 }
 
@@ -1243,12 +1249,14 @@ Controller::EndpointState::EndpointState(Controller *,
 : _device{device}, _endpoint{endpoint}, _type{type} {
 }
 
-async::result<void> Controller::EndpointState::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError>>
+Controller::EndpointState::transfer(ControlTransfer info) {
 	assert(!"TODO: implement this");
-	co_return;
+	co_return {};
 }
 
-async::result<size_t> Controller::EndpointState::transfer(InterruptTransfer info) {
+async::result<frg::expected<UsbError, size_t>>
+Controller::EndpointState::transfer(InterruptTransfer info) {
 	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
 
 	Controller::TransferRing::TransferEvent ev;
@@ -1283,7 +1291,8 @@ async::result<size_t> Controller::EndpointState::transfer(InterruptTransfer info
 	co_return info.buffer.size() - ev.event.transferLen;
 }
 
-async::result<size_t> Controller::EndpointState::transfer(BulkTransfer info) {
+async::result<frg::expected<UsbError, size_t>>
+Controller::EndpointState::transfer(BulkTransfer info) {
 	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
 
 	Controller::TransferRing::TransferEvent ev;

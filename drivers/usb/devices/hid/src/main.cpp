@@ -513,7 +513,7 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 }
 
 async::detached HidDevice::run(Device device, int config_num, int intf_num) {
-	auto descriptor = co_await device.configurationDescriptor();
+	auto descriptor = (co_await device.configurationDescriptor()).unwrap();
 
 	std::vector<size_t> report_descs;
 	std::experimental::optional<int> in_endp_number;
@@ -563,8 +563,8 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 
 		arch::dma_buffer buffer{device.bufferPool(), report_descs[i]};
 
-		co_await device.transfer(ControlTransfer{kXferToHost,
-				get_descriptor, buffer});
+		(co_await device.transfer(ControlTransfer{kXferToHost,
+				get_descriptor, buffer})).unwrap();
 		
 		auto p = reinterpret_cast<uint8_t *>(buffer.data());
 		auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + report_descs[i];
@@ -610,9 +610,9 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 
 	co_await root.createObject("input_hid", mbus_descriptor, std::move(handler));
 	
-	auto config = co_await device.useConfiguration(config_num);
-	auto intf = co_await config.useInterface(intf_num, 0);
-	auto endp = co_await intf.getEndpoint(PipeType::in, in_endp_number.value());
+	auto config = (co_await device.useConfiguration(config_num)).unwrap();
+	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
+	auto endp = (co_await intf.getEndpoint(PipeType::in, in_endp_number.value())).unwrap();
 
 	// Read reports from the USB device.
 	std::cout << "usb-hid: Entering report loop" << std::endl;
@@ -624,7 +624,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
 		InterruptTransfer transfer{XferFlags::kXferToHost, report};
 		transfer.allowShortPackets = true;
-		auto length = co_await endp.transfer(transfer);
+		auto length = (co_await endp.transfer(transfer)).unwrap();
 
 		// Some devices (e.g. bochs) send empty packets instead of NAKs.
 		if(!length)
@@ -679,12 +679,17 @@ async::detached bindDevice(mbus::Entity entity) {
 	auto lane = helix::UniqueLane(co_await entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
 
-	auto descriptor = co_await device.configurationDescriptor();
+	auto descriptorOrError = co_await device.configurationDescriptor();
+	if(!descriptorOrError) {
+		std::cout << "usb-hid: Failed to get device descriptor" << std::endl;
+		co_return;
+	}
+
 	std::experimental::optional<int> config_number;
 	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> intf_alternative;
 	
-	walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
+	walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();

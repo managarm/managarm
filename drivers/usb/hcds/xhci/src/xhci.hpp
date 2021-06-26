@@ -208,9 +208,9 @@ private:
 		// Public API inherited from DeviceData.
 		arch::dma_pool *setupPool() override;
 		arch::dma_pool *bufferPool() override;
-		async::result<std::string> configurationDescriptor() override;
-		async::result<Configuration> useConfiguration(int number) override;
-		async::result<void> transfer(ControlTransfer info) override;
+		async::result<frg::expected<UsbError, std::string>> configurationDescriptor() override;
+		async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) override;
+		async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
 
 		void submit(int endpoint);
 		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
@@ -261,7 +261,8 @@ private:
 	struct ConfigurationState final : ConfigurationData {
 		explicit ConfigurationState(Controller *controller, std::shared_ptr<Device> device, int number);
 
-		async::result<Interface> useInterface(int number, int alternative) override;
+		async::result<frg::expected<UsbError, Interface>>
+		useInterface(int number, int alternative) override;
 
 	private:
 		Controller *_controller;
@@ -271,7 +272,8 @@ private:
 	struct InterfaceState final : InterfaceData {
 		explicit InterfaceState(Controller *controller, std::shared_ptr<Device> device, int interface);
 
-		async::result<Endpoint> getEndpoint(PipeType type, int number) override;
+		async::result<frg::expected<UsbError, Endpoint>>
+		getEndpoint(PipeType type, int number) override;
 
 	private:
 		Controller *_controller;
@@ -281,9 +283,9 @@ private:
 	struct EndpointState final : EndpointData {
 		explicit EndpointState(Controller *controller, std::shared_ptr<Device> device, int endpoint, PipeType type);
 
-		async::result<void> transfer(ControlTransfer info) override;
-		async::result<size_t> transfer(InterruptTransfer info) override;
-		async::result<size_t> transfer(BulkTransfer info) override;
+		async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
+		async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) override;
+		async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) override;
 
 	private:
 		std::shared_ptr<Device> _device;

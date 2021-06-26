@@ -22,12 +22,12 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 
 		managarm::usb::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-	
+
 		if(req.req_type() == managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST) {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
@@ -37,7 +37,9 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 			InterruptTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
 			transfer.lazyNotification = req.lazy_notification();
-			auto length = co_await endpoint.transfer(transfer);
+			auto outcome = co_await endpoint.transfer(transfer);
+			assert(outcome);
+			auto length = outcome.value();
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -52,22 +54,24 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE) {
 			helix::RecvBuffer recv_buffer;
 			helix::SendBuffer send_resp;
-		
+
 			// FIXME: Fill in the correct DMA pool.
 			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
 			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&recv_buffer, buffer.data(), buffer.size()));
 			co_await payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
-		
+
 			BulkTransfer transfer{XferFlags::kXferToDevice, buffer};
 			transfer.lazyNotification = req.lazy_notification();
-			auto length = co_await endpoint.transfer(transfer);
+			auto outcome = co_await endpoint.transfer(transfer);
+			assert(outcome);
+			auto length = outcome.value();
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 			resp.set_size(length);
-			
+
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
@@ -82,7 +86,9 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 			BulkTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
 			transfer.lazyNotification = req.lazy_notification();
-			auto length = co_await endpoint.transfer(transfer);
+			auto outcome = co_await endpoint.transfer(transfer);
+			assert(outcome);
+			auto length = outcome.value();
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -123,21 +129,24 @@ async::detached serveInterface(Interface interface, helix::UniqueLane lane) {
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 
 		managarm::usb::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-	
+
 		if(req.req_type() == managarm::usb::CntReqType::GET_ENDPOINT) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto endpoint = co_await interface.getEndpoint(static_cast<PipeType>(req.pipetype()), req.number());
-			
+			auto outcome = co_await interface.getEndpoint(static_cast<PipeType>(req.pipetype()),
+					req.number());
+			assert(outcome);
+			auto endpoint = std::move(outcome.value());
+
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			
+
 			serveEndpoint(std::move(endpoint), std::move(local_lane));
 
 			managarm::usb::SvrResponse resp;
@@ -179,19 +188,21 @@ async::detached serveConfiguration(Configuration configuration, helix::UniqueLan
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 
 		managarm::usb::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-		
+
 		if(req.req_type() == managarm::usb::CntReqType::USE_INTERFACE) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto interface = co_await configuration.useInterface(req.number(),
+			auto outcome = co_await configuration.useInterface(req.number(),
 					req.alternative());
-			
+			assert(outcome);
+			auto interface = std::move(outcome.value());
+
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			serveInterface(std::move(interface), std::move(local_lane));
@@ -235,17 +246,19 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
-		
+
 		auto conversation = accept.descriptor();
 
 		managarm::usb::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-		
+
 		if(req.req_type() == managarm::usb::CntReqType::GET_CONFIGURATION_DESCRIPTOR) {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
-			auto data = co_await device.configurationDescriptor();
+			auto outcome = co_await device.configurationDescriptor();
+			assert(outcome);
+			auto data = std::move(outcome.value());
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -261,14 +274,16 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			helix::RecvBuffer recv_buffer;
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
-			
+
 			arch::dma_object<SetupPacket> setup(nullptr);
 			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&recv_buffer, setup.data(), sizeof(SetupPacket)));
 			co_await payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
 			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req.length())};
-			co_await device.transfer(ControlTransfer{XferFlags::kXferToHost, setup, buffer});	
+			auto outcome = co_await device.transfer(ControlTransfer{
+					XferFlags::kXferToHost, setup, buffer});
+			assert(outcome);
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -284,8 +299,10 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;
 
-			auto configuration = co_await device.useConfiguration(req.number());
-			
+			auto outcome = co_await device.useConfiguration(req.number());
+			assert(outcome);
+			auto configuration = std::move(outcome.value());
+
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			serveConfiguration(std::move(configuration), std::move(local_lane));
