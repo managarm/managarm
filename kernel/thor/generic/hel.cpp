@@ -935,21 +935,20 @@ HelError helSubmitSynchronizeSpace(HelHandle spaceHandle, void *pointer, size_t 
 }
 
 HelError helPointerPhysical(const void *pointer, uintptr_t *physical) {
-	auto this_thread = getCurrentThread();
-
-	auto space = this_thread->getAddressSpace().lock();
+	auto thisThread = getCurrentThread();
+	auto space = thisThread->getAddressSpace().lock();
 
 	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
-	auto accessor = AddressSpaceLockHandle{std::move(space),
-			reinterpret_cast<char *>(const_cast<void *>(pointer)) - disp, kPageSize};
+	auto pageAddress = reinterpret_cast<VirtualAddr>(pointer) - disp;
 
-	// FIXME: The physical page can change after we destruct the accessor!
-	// We need a better hel API to properly handle that case.
-	Thread::asyncBlockCurrent(accessor.acquire(this_thread->mainWorkQueue()->take()));
+	auto physicalOrError = Thread::asyncBlockCurrent(space->retrievePhysical(pageAddress,
+			thisThread->mainWorkQueue()->take()));
+	if(!physicalOrError) {
+		assert(physicalOrError.error() == Error::fault);
+		return kHelErrFault;
+	}
 
-	auto page_physical = accessor.getPhysical(0);
-
-	*physical = page_physical + disp;
+	*physical = physicalOrError.value() + disp;
 
 	return kHelErrNone;
 }

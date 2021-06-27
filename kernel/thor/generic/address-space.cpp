@@ -850,6 +850,40 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 	co_return {};
 }
 
+coroutine<frg::expected<Error, PhysicalAddr>>
+VirtualSpace::retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueue> wq) {
+	smarter::shared_ptr<Mapping> mapping;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		auto space_guard = frg::guard(&_mutex);
+
+		mapping = _findMapping(address);
+	}
+	if(!mapping)
+		co_return Error::fault;
+
+	// TODO: Aligning should not be necessary here.
+	auto offset = (address - mapping->address) & ~(kPageSize - 1);
+
+	while(true) {
+		FetchFlags fetchFlags = 0;
+		if(mapping->flags & MappingFlags::dontRequireBacking)
+			fetchFlags |= fetchDisallowBacking;
+
+		FRG_CO_TRY(co_await mapping->view->fetchRange(
+				mapping->viewOffset + offset, fetchFlags, wq));
+
+		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset);
+		if(physicalRange.get<0>() == PhysicalAddr(-1)) {
+			infoLogger() << "\e[33m" "thor: Page still not available after"
+					" fetchRange()" "\e[39m" << frg::endlog;
+			continue;
+		}
+
+		co_return physicalRange.get<0>();
+	}
+}
+
 smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
 	auto current = _mappings.get_root();
 	while(current) {

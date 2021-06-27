@@ -511,6 +511,9 @@ public:
 	coroutine<frg::expected<Error>>
 	handleFault(VirtualAddr address, uint32_t flags, smarter::shared_ptr<WorkQueue> wq);
 
+	coroutine<frg::expected<Error, PhysicalAddr>>
+	retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueue> wq);
+
 	size_t rss() {
 		return _residuentSize;
 	}
