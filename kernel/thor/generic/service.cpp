@@ -706,16 +706,14 @@ namespace posix {
 					nullptr
 				};
 
-				{
-					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
-							reinterpret_cast<void *>(*_thread->_executor.arg0()),
-							sizeof(ManagarmProcessData)};
-					co_await spaceLock.acquire(WorkQueue::generalQueue()->take());
-
-					spaceLock.write(0, &data, sizeof(ManagarmProcessData));
+				auto outcome = co_await writeVirtualSpace(_thread->getAddressSpace().get(),
+						*_thread->_executor.arg0(), &data, sizeof(ManagarmProcessData),
+						WorkQueue::generalQueue()->take());
+				if(!outcome) {
+					*_thread->_executor.result0() = kHelErrFault;
+				}else{
+					*_thread->_executor.result0() = kHelErrNone;
 				}
-
-				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 64) {
@@ -723,16 +721,14 @@ namespace posix {
 					controlHandle
 				};
 
-				{
-					AddressSpaceLockHandle spaceLock{_thread->getAddressSpace().lock(),
-							reinterpret_cast<void *>(*_thread->_executor.arg0()),
-							sizeof(ManagarmServerData)};
-					co_await spaceLock.acquire(WorkQueue::generalQueue()->take());
-
-					spaceLock.write(0, &data, sizeof(ManagarmServerData));
+				auto outcome = co_await writeVirtualSpace(_thread->getAddressSpace().get(),
+						*_thread->_executor.arg0(), &data, sizeof(ManagarmServerData),
+						WorkQueue::generalQueue()->take());
+				if(!outcome) {
+					*_thread->_executor.result0() = kHelErrFault;
+				}else{
+					*_thread->_executor.result0() = kHelErrNone;
 				}
-
-				*_thread->_executor.result0() = kHelErrNone;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
