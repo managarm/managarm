@@ -849,7 +849,9 @@ HelError helSubmitProtectMemory(HelHandle space_handle,
 			VirtualAddr pointer, size_t length,
 			uint32_t protectFlags, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
-		co_await space->protect(pointer, length, protectFlags);
+		auto outcome = co_await space->protect(pointer, length, protectFlags);
+		// TODO: handle errors after propagating them through VirtualSpace::protect.
+		assert(outcome);
 
 		HelSimpleResult helResult{.error = kHelErrNone};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
@@ -924,7 +926,9 @@ HelError helSubmitSynchronizeSpace(HelHandle spaceHandle, void *pointer, size_t 
 			void *pointer, size_t length,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
-		co_await space->synchronize((VirtualAddr)pointer, length);
+		auto outcome = co_await space->synchronize((VirtualAddr)pointer, length);
+		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
+		assert(outcome);
 
 		HelSimpleResult helResult{.error = kHelErrNone};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
