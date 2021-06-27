@@ -464,7 +464,6 @@ using MappingTree = frg::rbtree<
 >;
 
 struct VirtualSpace {
-	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;
 
 public:
@@ -578,7 +577,6 @@ inline auto writeVirtualSpace(VirtualSpace *space,
 }
 
 struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {
-	friend struct AddressSpaceLockHandle;
 	friend struct Mapping;
 
 	// Silence Clang warning about hidden overloads.
@@ -694,147 +692,6 @@ private:
 	uintptr_t _offset = 0;
 	size_t _size = 0;
 	bool _active = false;
-};
-
-struct AcquireNode {
-	friend struct AddressSpaceLockHandle;
-
-	AcquireNode() = default;
-
-	AcquireNode(const AcquireNode &) = delete;
-
-	AcquireNode &operator= (const AcquireNode &) = delete;
-
-protected:
-	virtual void complete() = 0;
-	~AcquireNode() = default;
-};
-
-struct AddressSpaceLockHandle {
-public:
-	friend void swap(AddressSpaceLockHandle &a, AddressSpaceLockHandle &b) {
-		using std::swap;
-		swap(a._space, b._space);
-		swap(a._mapping, b._mapping);
-		swap(a._address, b._address);
-		swap(a._length, b._length);
-		swap(a._active, b._active);
-	}
-
-	AddressSpaceLockHandle() = default;
-
-	AddressSpaceLockHandle(smarter::shared_ptr<AddressSpace, BindableHandle> space,
-			void *pointer, size_t length);
-
-	AddressSpaceLockHandle(const AddressSpaceLockHandle &other) = delete;
-
-	AddressSpaceLockHandle(AddressSpaceLockHandle &&other)
-	: AddressSpaceLockHandle() {
-		swap(*this, other);
-	}
-
-	~AddressSpaceLockHandle();
-
-	AddressSpaceLockHandle &operator= (AddressSpaceLockHandle other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	explicit operator bool () {
-		return _active;
-	}
-
-	smarter::borrowed_ptr<AddressSpace, BindableHandle> space() {
-		return _space;
-	}
-	uintptr_t address() {
-		return _address;
-	}
-	size_t length() {
-		return _length;
-	}
-
-	bool acquire(smarter::shared_ptr<WorkQueue> wq, AcquireNode *node);
-
-	PhysicalAddr getPhysical(size_t offset);
-
-	void load(size_t offset, void *pointer, size_t size);
-	Error write(size_t offset, const void *pointer, size_t size);
-
-	template<typename T>
-	T read(size_t offset) {
-		T value;
-		load(offset, &value, sizeof(T));
-		return value;
-	}
-
-	template<typename T>
-	Error write(size_t offset, T value) {
-		return write(offset, &value, sizeof(T));
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for acquire()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct [[nodiscard]] AcquireOperation final : private AcquireNode {
-		AcquireOperation(AddressSpaceLockHandle *handle,
-				smarter::shared_ptr<WorkQueue> wq, R receiver)
-		: handle_{handle}, wq_{std::move(wq)}, receiver_{std::move(receiver)} { }
-
-		AcquireOperation(const AcquireOperation &) = delete;
-
-		AcquireOperation &operator= (const AcquireOperation &) = delete;
-
-		bool start_inline() {
-			if(handle_->acquire(wq_, this)) {
-				async::execution::set_value_inline(receiver_);
-				return true;
-			}
-			return false;
-		}
-
-	private:
-		void complete() override {
-			async::execution::set_value_noinline(receiver_);
-		}
-
-		AddressSpaceLockHandle *handle_;
-		smarter::shared_ptr<WorkQueue> wq_;
-		R receiver_;
-	};
-
-	struct [[nodiscard]] AcquireSender {
-		using value_type = void;
-
-		template<typename R>
-		AcquireOperation<R> connect(R receiver) {
-			return {handle, std::move(wq), std::move(receiver)};
-		}
-
-		async::sender_awaiter<AcquireSender> operator co_await() {
-			return {*this};
-		}
-
-		AddressSpaceLockHandle *handle;
-		smarter::shared_ptr<WorkQueue> wq;
-	};
-
-	AcquireSender acquire(smarter::shared_ptr<WorkQueue> wq) {
-		return {this, std::move(wq)};
-	}
-
-	// ----------------------------------------------------------------------------------
-
-private:
-	PhysicalAddr _resolvePhysical(VirtualAddr vaddr);
-
-	smarter::shared_ptr<AddressSpace, BindableHandle> _space;
-	smarter::shared_ptr<Mapping> _mapping;
-	uintptr_t _address = 0;
-	size_t _length = 0;
-	bool _active = false; // Whether the accessor is acquired successfully.
 };
 
 struct NamedMemoryViewLock {
