@@ -29,7 +29,6 @@ struct Region {
 
 static constexpr size_t numRegions = 64;
 extern Region regions[numRegions];
-extern address_t bootMemoryLimit;
 extern address_t allocatedMemory;
 
 uintptr_t bootReserve(size_t length, size_t alignment);

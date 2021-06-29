@@ -10,7 +10,6 @@
 
 namespace eir {
 
-address_t bootMemoryLimit;
 address_t allocatedMemory;
 
 // ----------------------------------------------------------------------------
@@ -33,8 +32,7 @@ Region *obtainRegion() {
 void createInitialRegion(address_t base, address_t size) {
 	auto limit = base + size;
 
-	// For now we do not touch memory that is required during boot.
-	address_t address = frg::max(base, bootMemoryLimit);
+	address_t address = base;
 
 	// Align address to 2 MiB.
 	// This ensures thor can allocate contiguous chunks of up to 2 MiB.
