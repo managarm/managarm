@@ -8,13 +8,13 @@
 namespace eir {
 
 enum MbInfoFlags {
-	kMbInfoPlainMemory = 1,
-	kMbInfoBootDevice = 2,
-	kMbInfoCommandLine = 4,
-	kMbInfoModules = 8,
-	kMbInfoFramebuffer = 12,
-	kMbInfoSymbols = 16,
-	kMbInfoMemoryMap = 64
+	kMbInfoPlainMemory = (1 << 0),
+	kMbInfoBootDevice = (1 << 1),
+	kMbInfoCommandLine = (1 << 2),
+	kMbInfoModules = (1 << 3),
+	kMbInfoSymbols = (1 << 5),
+	kMbInfoMemoryMap = (1 << 6),
+	kMbInfoFramebuffer = (1 << 12)
 };
 
 struct MbModule {
@@ -78,19 +78,19 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 
 	initProcessorEarly();
 
-	// Make sure we do not trash ourselfs or our boot modules.
-	bootMemoryLimit = (uintptr_t)&eirImageCeiling;
+	InitialRegion reservedRegions[32];
+	size_t nReservedRegions = 0;
+
+	uintptr_t eirEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
+	reservedRegions[nReservedRegions++] = {0, eirEnd};
 
 	if((mb_info->flags & kMbInfoModules) != 0) {
 		for(unsigned int i = 0; i < mb_info->numModules; i++) {
-			uintptr_t ceil = (uintptr_t)mb_info->modulesPtr[i].endAddress;
-			if(ceil > bootMemoryLimit)
-				bootMemoryLimit = ceil;
+			uintptr_t start = (uintptr_t)mb_info->modulesPtr[i].startAddress;
+			uintptr_t end = (uintptr_t)mb_info->modulesPtr[i].endAddress;
+			reservedRegions[nReservedRegions++] = {start, end - start};
 		}
 	}
-
-	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1))
-			& ~address_t(pageSize - 1);
 
 	// Walk the memory map and retrieve all useable regions.
 	assert(mb_info->flags & kMbInfoMemoryMap);
@@ -109,7 +109,7 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
 
 		if(map->type == 1)
-			createInitialRegion(map->baseAddress, map->length);
+			createInitialRegions({map->baseAddress, map->length}, {reservedRegions, nReservedRegions});
 
 		offset += map->size + 4;
 	}
