@@ -138,7 +138,11 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	if(magic != 0x36d76289)
 		eir::panicLogger() << "eir: Invalid multiboot2 signature, halting..." << frg::endlog;
 
-	bootMemoryLimit = (uintptr_t)&eirImageCeiling; // Check if any modules are higher during iteration
+	InitialRegion reservedRegions[32];
+	size_t nReservedRegions = 0;
+
+	uintptr_t eirEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
+	reservedRegions[nReservedRegions++] = {0, eirEnd};
 
 	Mb2Info* mb_info = reinterpret_cast<Mb2Info*>(info);
 	size_t add_size = 0;
@@ -193,9 +197,11 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 					kernel_module_start = (uintptr_t)module->start;
 				}
 
-				uintptr_t ceil = (uintptr_t)module->end;
-				if(ceil > bootMemoryLimit)
-					bootMemoryLimit = ceil;
+
+				uintptr_t start = (uintptr_t)module->start;
+				uintptr_t end = (uintptr_t)module->end;
+				reservedRegions[nReservedRegions++] = {start, end - start};
+
 				break;
 			}
 
@@ -240,9 +246,6 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		}
 	}
 
-	bootMemoryLimit = (bootMemoryLimit + address_t(pageSize - 1))
-			& ~address_t(pageSize - 1);
-
 	initProcessorEarly();
 
 	assert(mmap_start);
@@ -256,7 +259,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	eir::infoLogger() << "Command line: " << cmdline << frg::endlog;
 
 	eir::infoLogger() << "Memory map:" << frg::endlog;
-	for(Mb2MmapEntry* map = (Mb2MmapEntry*)mmap_start; map < (Mb2MmapEntry*)mmap_end; map++) {		
+	for(Mb2MmapEntry* map = (Mb2MmapEntry*)mmap_start; map < (Mb2MmapEntry*)mmap_end; map++) {
 		eir::infoLogger() << "    Type " << map->type << " mapping."
 				<< " Base: 0x" << frg::hex_fmt{map->base}
 				<< ", length: 0x" << frg::hex_fmt{map->length} << frg::endlog;
@@ -264,7 +267,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 
 	for(Mb2MmapEntry* map = (Mb2MmapEntry*)mmap_start; map < (Mb2MmapEntry*)mmap_end; map++) {
 		if(map->type == 1)
-			createInitialRegion(map->base, map->length);
+			createInitialRegions({map->base, map->length}, {reservedRegions, nReservedRegions});
 	}
 	setupRegionStructs();
 
