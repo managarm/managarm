@@ -5,6 +5,7 @@ This section explains how to build Managarm in a Docker environment.
 > Note: we recommend using `cbuildrt` instead of Docker as it is faster, requires less privileges and is better tested
 (we use `cbuildrt` on our continuous integration build server, so breakages are more noticeable).
 
+1.  Complete the [Preparations](index.md#preparations) section.
 1.  Install [Docker](https://docs.docker.com/get-docker/).
 1.  Build a Docker image from the provided Dockerfile:
     ```bash
