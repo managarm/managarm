@@ -33,6 +33,8 @@
         - [libblockfs](sys-arch/drivers/libblockfs/index.md)
 
 - [Implementation Notes](impl-notes/index.md)
+    - [Drivers](impl-notes/drivers/index.md)
+        - [IRQ Handling](impl-notes/drivers/irqs.md)
     - [Thor](impl-notes/thor/index.md)
         - [Initialization](impl-notes/thor/initialization.md)
         - [Scheduling](impl-notes/thor/scheduling.md)
