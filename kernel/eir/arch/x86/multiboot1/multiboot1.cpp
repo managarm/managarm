@@ -156,7 +156,7 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	info_ptr->moduleInfo = mapBootstrapData(modules);
 	
 	if((mb_info->flags & kMbInfoFramebuffer)
-			&& (mb_info->fbType == 2)) { // For now, only linear framebuffer is supported.
+			&& (mb_info->fbType == 1)) { // For now, only linear framebuffer is supported.
 		auto framebuf = &info_ptr->frameBuffer;
 		framebuf->fbAddress = mb_info->fbAddress;
 		framebuf->fbPitch = mb_info->fbPitch;
