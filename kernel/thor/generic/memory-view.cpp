@@ -914,10 +914,30 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 	auto index = offset / kPageSize;
 	assert(index < _managed->numPages);
 	auto pit = _managed->pages.find(index);
-
-	if(!pit || pit->loadState != ManagedSpace::kStatePresent)
+	if(!pit)
 		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
-	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
+
+	if(pit->loadState == ManagedSpace::kStatePresent
+			|| pit->loadState == ManagedSpace::kStateWantWriteback
+			|| pit->loadState == ManagedSpace::kStateWriteback
+			|| pit->loadState == ManagedSpace::kStateAnotherWriteback
+			|| pit->loadState == ManagedSpace::kStateEvicting) {
+		auto physical = pit->physical;
+		assert(physical != PhysicalAddr(-1));
+
+		if(pit->loadState == ManagedSpace::kStateEvicting) {
+			// Cancel evication -- the page is still needed.
+			pit->loadState = ManagedSpace::kStatePresent;
+			globalReclaimer->addPage(&pit->cachePage);
+		}
+
+		return frg::tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
+	}else{
+		assert(pit->loadState == ManagedSpace::kStateMissing
+				|| pit->loadState == ManagedSpace::kStateWantInitialization
+				|| pit->loadState == ManagedSpace::kStateInitialization);
+		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+	}
 }
 
 coroutine<frg::expected<Error, PhysicalRange>>
