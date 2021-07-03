@@ -34,6 +34,30 @@ namespace {
 	}
 }
 
+// --------------------------------------------------------
+// Generic VirtualOperation implementation.
+// --------------------------------------------------------
+
+frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va,
+		MemoryView *view, uintptr_t offset, PageFlags flags) {
+	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1));
+	if(physicalRange.get<0>() == PhysicalAddr(-1))
+		return Error::fault;
+
+	// TODO: detect spurious page faults.
+	PageStatus status = unmapSingle4k(va & ~(kPageSize - 1));
+	mapSingle4k(va & ~(kPageSize - 1), physicalRange.get<0>() & ~(kPageSize - 1),
+			flags, physicalRange.get<1>());
+
+	if(status & page_status::present) {
+		if(status & page_status::dirty)
+			view->markDirty(offset & ~(kPageSize - 1), kPageSize);
+	}
+	return {};
+}
+
+// --------------------------------------------------------
+
 MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size)
 : _view{std::move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
@@ -839,15 +863,38 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 			&& !((mapping->flags & MappingFlags::protExecute)))
 		co_return Error::fault;
 
-	auto faultPage = (address - mapping->address) & ~(kPageSize - 1);
-	auto touchResult = FRG_CO_TRY(co_await mapping->touchVirtualPage(faultPage, std::move(wq)));
+	// TODO: Aligning should not be necessary here.
+	auto offset = (address - mapping->address) & ~(kPageSize - 1);
 
-	// Spurious page faults are the result of race conditions.
-	// They should be rare. If they happen too often, something is probably wrong!
-	if(touchResult.spurious)
-		infoLogger() << "\e[33m" "thor: Spurious page fault" "\e[39m" << frg::endlog;
+	while(true) {
+		FetchFlags fetchFlags = 0;
+		if(mapping->flags & MappingFlags::dontRequireBacking)
+			fetchFlags |= fetchDisallowBacking;
 
-	co_return {};
+		FRG_CO_TRY(co_await mapping->view->fetchRange(
+				mapping->viewOffset + offset, fetchFlags, wq));
+
+		co_await mapping->evictionMutex.async_lock();
+		frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+
+		auto remapOutcome = _ops->faultPage(address & ~(kPageSize - 1),
+				mapping->view.get(), mapping->viewOffset + offset,
+				mapping->compilePageFlags());
+		if(!remapOutcome) {
+			if(remapOutcome.error() == Error::spuriousOperation) {
+				// Spurious page faults are the result of race conditions.
+				// They should be rare. If they happen too often, something is probably wrong!
+				infoLogger() << "\e[33m" "thor: Spurious page fault" "\e[39m" << frg::endlog;
+			}else{
+				assert(remapOutcome.error() == Error::fault);
+				infoLogger() << "\e[33m" "thor: Page still not available after"
+						" fetchRange()" "\e[39m" << frg::endlog;
+				continue;
+			}
+		}
+
+		co_return {};
+	}
 }
 
 coroutine<frg::expected<Error, PhysicalAddr>>
