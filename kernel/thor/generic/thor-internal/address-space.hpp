@@ -498,8 +498,6 @@ public:
 
 	void retire();
 
-	smarter::shared_ptr<Mapping> getMapping(VirtualAddr address);
-
 	void setupInitialHole(VirtualAddr address, size_t size);
 
 	coroutine<frg::expected<Error, VirtualAddr>>

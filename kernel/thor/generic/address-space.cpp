@@ -410,13 +410,6 @@ void VirtualSpace::retire() {
 	}(selfPtr.lock()));
 }
 
-smarter::shared_ptr<Mapping> VirtualSpace::getMapping(VirtualAddr address) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto space_guard = frg::guard(&_mutex);
-
-	return _findMapping(address);
-}
-
 coroutine<frg::expected<Error, VirtualAddr>>
 VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		VirtualAddr address, size_t offset, size_t length, uint32_t flags) {
