@@ -345,6 +345,9 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	if(offset + length > slice->length())
 		co_return Error::bufferTooSmall;
 
+	co_await _consistencyMutex.async_lock();
+	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
+
 	// The shared_ptr to the new Mapping needs to survive until the locks are released.
 	VirtualAddr actualAddress;
 	smarter::shared_ptr<Mapping> mapping;
@@ -471,6 +474,9 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		assert(!(flags & mask));
 	}
 
+	co_await _consistencyMutex.async_lock();
+	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
+
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -533,6 +539,9 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 }
 
 coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t length) {
+	co_await _consistencyMutex.async_lock();
+	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
+
 	smarter::shared_ptr<Mapping> mapping;
 	smarter::shared_ptr<Mapping> leftMapping = nullptr;
 	smarter::shared_ptr<Mapping> rightMapping = nullptr;
@@ -715,6 +724,9 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 
 coroutine<frg::expected<Error>>
 VirtualSpace::synchronize(VirtualAddr address, size_t size) {
+	co_await _consistencyMutex.async_lock_shared();
+	frg::shared_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
+
 	auto misalign = address & (kPageSize - 1);
 	auto alignedAddress = address & ~(kPageSize - 1);
 	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
@@ -764,6 +776,9 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 coroutine<frg::expected<Error>>
 VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 		smarter::shared_ptr<WorkQueue> wq) {
+	co_await _consistencyMutex.async_lock_shared();
+	frg::shared_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
+
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -818,6 +833,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 
 coroutine<frg::expected<Error, PhysicalAddr>>
 VirtualSpace::retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueue> wq) {
+	// We do not take _consistencyMutex here since we are only interested in a snapshot.
+
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -967,6 +984,8 @@ void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
+	// We do not take _consistencyMutex here since we are only interested in a snapshot.
+
 	size_t progress = 0;
 	while(progress < size) {
 		smarter::shared_ptr<Mapping> mapping;
@@ -1039,6 +1058,8 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 
 coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		const void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
+	// We do not take _consistencyMutex here since we are only interested in a snapshot.
+
 	size_t progress = 0;
 	while(progress < size) {
 		smarter::shared_ptr<Mapping> mapping;

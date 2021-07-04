@@ -426,6 +426,8 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	frg::expected<Error, FutexIdentity> resolveGlobalFutex(uintptr_t address) {
+		// We do not take _consistencyMutex here since we are only interested in a snapshot.
+
 		smarter::shared_ptr<Mapping> mapping;
 		{
 			auto irqLock = frg::guard(&irqMutex());
@@ -444,6 +446,8 @@ public:
 
 	coroutine<frg::expected<Error, GlobalFutex>> grabGlobalFutex(uintptr_t address,
 			smarter::shared_ptr<WorkQueue> wq) {
+		// We do not take _consistencyMutex here since we are only interested in a snapshot.
+
 		smarter::shared_ptr<Mapping> mapping;
 		{
 			auto irqLock = frg::guard(&irqMutex());
@@ -479,7 +483,17 @@ private:
 
 	VirtualOperations *_ops;
 
+	// Since changing memory mappings requires TLB shootdown, most mapping-related operations
+	// of VirtualSpace are async. Thus, we use an async mutex to serialize these operations.
+	async::shared_mutex _consistencyMutex;
+
+	// To avoid taking _consistencyMutex for operations that only need to look at the current
+	// state of the VirtualSpace (and that can run concurrently with mapping-related that
+	// perform TLB shootdown), we have another mutex that only protects _holes and _mappings.
+	// We make sure that we "commit" changes to _holes and _mappings before changing page
+	// tables and/or doing TLB shootdown.
 	frg::ticket_spinlock _mutex;
+
 	HoleTree _holes;
 	MappingTree _mappings;
 
