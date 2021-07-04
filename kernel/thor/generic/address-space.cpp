@@ -353,7 +353,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irqLock = frg::guard(&irqMutex());
-		auto spaceLock = frg::guard(&_mutex);
+		auto spaceLock = frg::guard(&_snapshotMutex);
 
 		if(flags & kMapFixed) {
 			assert(address);
@@ -480,7 +480,7 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irqLock = frg::guard(&irqMutex());
-		auto spaceGuard = frg::guard(&_mutex);
+		auto spaceGuard = frg::guard(&_snapshotMutex);
 
 		mapping = _findMapping(address);
 	}
@@ -547,7 +547,7 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 	smarter::shared_ptr<Mapping> rightMapping = nullptr;
 	{
 		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
+		auto lock = frg::guard(&_snapshotMutex);
 
 		mapping = _findMapping(address);
 		if(!mapping)
@@ -613,7 +613,7 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 	// Now remove the mapping and insert the new mappings.
 	{
 		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
+		auto lock = frg::guard(&_snapshotMutex);
 
 		_mappings.remove(mapping.get());
 
@@ -736,7 +736,7 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 		smarter::shared_ptr<Mapping> mapping;
 		{
 			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&_mutex);
+			auto spaceGuard = frg::guard(&_snapshotMutex);
 
 			mapping = _findMapping(alignedAddress + overallProgress);
 		}
@@ -782,7 +782,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
-		auto space_guard = frg::guard(&_mutex);
+		auto space_guard = frg::guard(&_snapshotMutex);
 
 		mapping = _findMapping(address);
 	}
@@ -838,7 +838,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueu
 	smarter::shared_ptr<Mapping> mapping;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
-		auto space_guard = frg::guard(&_mutex);
+		auto space_guard = frg::guard(&_snapshotMutex);
 
 		mapping = _findMapping(address);
 	}
@@ -991,7 +991,7 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		smarter::shared_ptr<Mapping> mapping;
 		{
 			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&_mutex);
+			auto spaceGuard = frg::guard(&_snapshotMutex);
 
 			mapping = _findMapping(address);
 		}
@@ -1065,7 +1065,7 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		smarter::shared_ptr<Mapping> mapping;
 		{
 			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&_mutex);
+			auto spaceGuard = frg::guard(&_snapshotMutex);
 
 			mapping = _findMapping(address);
 		}

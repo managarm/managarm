@@ -431,7 +431,7 @@ public:
 		smarter::shared_ptr<Mapping> mapping;
 		{
 			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&_mutex);
+			auto spaceGuard = frg::guard(&_snapshotMutex);
 
 			mapping = _findMapping(address);
 		}
@@ -451,7 +451,7 @@ public:
 		smarter::shared_ptr<Mapping> mapping;
 		{
 			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&_mutex);
+			auto spaceGuard = frg::guard(&_snapshotMutex);
 
 			mapping = _findMapping(address);
 		}
@@ -492,7 +492,7 @@ private:
 	// perform TLB shootdown), we have another mutex that only protects _holes and _mappings.
 	// We make sure that we "commit" changes to _holes and _mappings before changing page
 	// tables and/or doing TLB shootdown.
-	frg::ticket_spinlock _mutex;
+	frg::ticket_spinlock _snapshotMutex;
 
 	HoleTree _holes;
 	MappingTree _mappings;
