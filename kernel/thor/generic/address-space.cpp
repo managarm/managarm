@@ -144,29 +144,6 @@ void Mapping::protect(MappingFlags protectFlags) {
 	flags = static_cast<MappingFlags>(newFlags);
 }
 
-void Mapping::populateVirtualRange(uintptr_t offset, size_t size,
-		smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node) {
-	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self,
-			uintptr_t offset, size_t size,
-			smarter::shared_ptr<WorkQueue> wq, PopulateVirtualRangeNode *node) -> coroutine<void> {
-		size_t progress = 0;
-		while(progress < size) {
-			// Avoid stack overflows.
-			co_await wq->schedule();
-
-			auto outcome = co_await self->touchVirtualPage(offset + progress, wq);
-			if(!outcome) {
-				node->result = outcome.error();
-				node->resume();
-				co_return;
-			}
-			progress += outcome.value().range.get<1>();
-		}
-		node->result = frg::success;
-		node->resume();
-	}(this, offset, size, std::move(wq), node));
-}
-
 uint32_t Mapping::compilePageFlags() {
 	uint32_t pageFlags = 0;
 	// TODO: Allow inaccessible mappings.
