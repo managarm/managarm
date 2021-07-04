@@ -526,6 +526,47 @@ public:
 	}
 
 	// ----------------------------------------------------------------------------------
+	// GlobalFutex support.
+	// ----------------------------------------------------------------------------------
+
+	frg::expected<Error, FutexIdentity> resolveGlobalFutex(uintptr_t address) {
+		smarter::shared_ptr<Mapping> mapping;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto spaceGuard = frg::guard(&_mutex);
+
+			mapping = _findMapping(address);
+		}
+		if(!mapping)
+			return Error::fault;
+
+		auto offset = address - mapping->address;
+		auto [futexSpace, futexOffset] = FRG_TRY(mapping->view->resolveGlobalFutex(
+				mapping->viewOffset + offset));
+		return FutexIdentity{reinterpret_cast<uintptr_t>(futexSpace.get()), offset};
+	}
+
+	coroutine<frg::expected<Error, GlobalFutex>> grabGlobalFutex(uintptr_t address,
+			smarter::shared_ptr<WorkQueue> wq) {
+		smarter::shared_ptr<Mapping> mapping;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto spaceGuard = frg::guard(&_mutex);
+
+			mapping = _findMapping(address);
+		}
+		if(!mapping)
+			co_return Error::fault;
+
+		auto offset = address - mapping->address;
+		auto [futexSpace, futexOffset] = FRG_CO_TRY(mapping->view->resolveGlobalFutex(
+				mapping->viewOffset + offset));
+		auto futexPhysical = FRG_CO_TRY(co_await futexSpace->takeGlobalFutex(futexOffset,
+				std::move(wq)));
+		co_return GlobalFutex{std::move(futexSpace), futexOffset, futexPhysical};
+	}
+
+	// ----------------------------------------------------------------------------------
 
 	smarter::borrowed_ptr<VirtualSpace> selfPtr;
 
@@ -717,30 +758,5 @@ private:
 };
 
 void initializeReclaim();
-
-inline frg::expected<Error, FutexIdentity> resolveGlobalFutex(
-		AddressSpace *addressSpace, uintptr_t address) {
-	auto mapping = addressSpace->getMapping(address);
-	if(!mapping)
-		return Error::fault;
-	auto offset = address - mapping->address;
-	auto [futexSpace, futexOffset] = FRG_TRY(mapping->view->resolveGlobalFutex(
-			mapping->viewOffset + offset));
-	return FutexIdentity{reinterpret_cast<uintptr_t>(futexSpace.get()), offset};
-}
-
-inline coroutine<frg::expected<Error, GlobalFutex>> grabGlobalFutex(
-		AddressSpace *addressSpace, uintptr_t address,
-		smarter::shared_ptr<WorkQueue> wq) {
-	auto mapping = addressSpace->getMapping(address);
-	if(!mapping)
-		co_return Error::fault;
-	auto offset = address - mapping->address;
-	auto [futexSpace, futexOffset] = FRG_CO_TRY(mapping->view->resolveGlobalFutex(
-			mapping->viewOffset + offset));
-	auto futexPhysical = FRG_CO_TRY(co_await futexSpace->takeGlobalFutex(futexOffset,
-			std::move(wq)));
-	co_return GlobalFutex{std::move(futexSpace), futexOffset, futexPhysical};
-}
 
 } // namespace thor

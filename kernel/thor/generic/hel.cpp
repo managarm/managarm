@@ -2667,7 +2667,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 	auto space = thisThread->getAddressSpace();
 
 	auto futexOrError = Thread::asyncBlockCurrent(
-			grabGlobalFutex(space.get(), reinterpret_cast<uintptr_t>(pointer),
+			space->grabGlobalFutex(reinterpret_cast<uintptr_t>(pointer),
 					thisThread->mainWorkQueue()->take()));
 	if(!futexOrError)
 		return kHelErrFault;
@@ -2701,8 +2701,7 @@ HelError helFutexWake(int *pointer) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
-	auto identityOrError = resolveGlobalFutex(
-			space.get(), reinterpret_cast<uintptr_t>(pointer));
+	auto identityOrError = space->resolveGlobalFutex(reinterpret_cast<uintptr_t>(pointer));
 	if(!identityOrError)
 		return kHelErrFault;
 	getGlobalFutexRealm()->wake(identityOrError.value());
