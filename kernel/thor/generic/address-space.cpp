@@ -185,57 +185,6 @@ Mapping::resolveRange(ptrdiff_t offset) {
 	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
 }
 
-void Mapping::touchVirtualPage(uintptr_t offset,
-		smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node) {
-	assert(state == MappingState::active);
-
-	async::detach_with_allocator(*kernelAlloc, [] (Mapping *self, uintptr_t offset,
-			smarter::shared_ptr<WorkQueue> wq, TouchVirtualPageNode *node) -> coroutine<void> {
-		FetchFlags fetchFlags = 0;
-		if(self->flags & MappingFlags::dontRequireBacking)
-			fetchFlags |= fetchDisallowBacking;
-
-		if(auto e = co_await self->view->asyncLockRange(
-				(self->viewOffset + offset) & ~(kPageSize - 1), kPageSize,
-				wq); e != Error::success)
-			assert(!"asyncLockRange() failed");
-
-		auto fetchOutcome = co_await self->view->fetchRange(
-				self->viewOffset + offset, fetchFlags, wq);
-		// TODO: Propagate this error by letting touchVirtualPage return frg::expected.
-		assert(fetchOutcome);
-		auto range = fetchOutcome.value();
-
-		// TODO: Update RSS, handle dirty pages, etc.
-		auto pageOffset = self->address + offset;
-
-		// Do not call into markDirty() with a lock held.
-		PageStatus status;
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&self->pagingMutex);
-
-			status = self->owner->_ops->unmapSingle4k(pageOffset & ~(kPageSize - 1));
-			self->owner->_ops->mapSingle4k(pageOffset & ~(kPageSize - 1),
-					range.get<0>() & ~(kPageSize - 1),
-					self->compilePageFlags(), range.get<2>());
-		}
-
-		if(status & page_status::present) {
-			if(status & page_status::dirty)
-				self->view->markDirty(self->viewOffset + offset, kPageSize);
-		}else{
-			self->owner->_residuentSize += kPageSize;
-			logRss(self->owner.get());
-		}
-
-		self->view->unlockRange((self->viewOffset + offset) & ~(kPageSize - 1), kPageSize);
-
-		node->result = TouchVirtualResult{range, false};
-		node->resume();
-	}(this, offset, std::move(wq), node));
-}
-
 coroutine<void> Mapping::runEvictionLoop() {
 	while(true) {
 		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
@@ -1039,6 +988,10 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		if(!lockOutcome)
 			co_return progress;
 
+		FetchFlags fetchFlags = 0;
+		if(mapping->flags & MappingFlags::dontRequireBacking)
+			fetchFlags |= fetchDisallowBacking;
+
 		// This loop iterates until we hit the end of the mapping.
 		bool success = true;
 		while(progress < size) {
@@ -1049,9 +1002,9 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 
 			// Ensure that the page is available.
 			// TODO: there is no real reason why we need to page aligned here; however, the
-			//       touchVirtualPage() code does not handle the unaligned code correctly so far.
-			auto touchOutcome = co_await mapping->touchVirtualPage(
-					offsetInMapping & ~(kPageSize - 1), wq);
+			//       fetchRange() code does not handle the unaligned code correctly so far.
+			auto touchOutcome = co_await mapping->view->fetchRange(
+					(mapping->viewOffset + offsetInMapping) & ~(kPageSize - 1), fetchFlags, wq);
 			if(!touchOutcome) {
 				success = false;
 				break;
@@ -1107,6 +1060,10 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		if(!lockOutcome)
 			co_return progress;
 
+		FetchFlags fetchFlags = 0;
+		if(mapping->flags & MappingFlags::dontRequireBacking)
+			fetchFlags |= fetchDisallowBacking;
+
 		// This loop iterates until we hit the end of the mapping.
 		bool success = true;
 		while(progress < size) {
@@ -1117,9 +1074,9 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 
 			// Ensure that the page is available.
 			// TODO: there is no real reason why we need to page aligned here; however, the
-			//       touchVirtualPage() code does not handle the unaligned code correctly so far.
-			auto touchOutcome = co_await mapping->touchVirtualPage(
-					offsetInMapping & ~(kPageSize - 1), wq);
+			//       fetchRange() code does not handle the unaligned code correctly so far.
+			auto touchOutcome = co_await mapping->view->fetchRange(
+					(mapping->viewOffset + offsetInMapping) & ~(kPageSize - 1), fetchFlags, wq);
 			if(!touchOutcome) {
 				success = false;
 				break;
