@@ -365,7 +365,7 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 
 		frg::vector<uint8_t, KernelAlloc> mem{*kernelAlloc};
 		mem.resize(length);
-		auto actualLength = co_await readPartialVirtualSpace(thread_->getAddressSpace().get(),
+		auto actualLength = co_await thread_->getAddressSpace()->readPartialSpace(
 				address, mem.data(), length, wq_);
 
 		for(size_t i = 0; i < actualLength; ++i)

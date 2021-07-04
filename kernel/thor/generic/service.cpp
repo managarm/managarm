@@ -706,7 +706,7 @@ namespace posix {
 					nullptr
 				};
 
-				auto outcome = co_await writeVirtualSpace(_thread->getAddressSpace().get(),
+				auto outcome = co_await _thread->getAddressSpace()->writeSpace(
 						*_thread->_executor.arg0(), &data, sizeof(ManagarmProcessData),
 						WorkQueue::generalQueue()->take());
 				if(!outcome) {
@@ -721,7 +721,7 @@ namespace posix {
 					controlHandle
 				};
 
-				auto outcome = co_await writeVirtualSpace(_thread->getAddressSpace().get(),
+				auto outcome = co_await _thread->getAddressSpace()->writeSpace(
 						*_thread->_executor.arg0(), &data, sizeof(ManagarmServerData),
 						WorkQueue::generalQueue()->take());
 				if(!outcome) {

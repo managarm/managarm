@@ -1045,8 +1045,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{128});
 
-				auto outcome = co_await readVirtualSpace(space.get(),
-						address + progress, temp, chunk,
+				auto outcome = co_await space->readSpace(address + progress, temp, chunk,
 						submitThread->mainWorkQueue()->take());
 				if(!outcome) {
 					error = Error::fault;
@@ -1208,8 +1207,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 					break;
 				}
 
-				auto outcome = co_await writeVirtualSpace(space.get(),
-						address + progress, temp, chunk,
+				auto outcome = co_await space->writeSpace(address + progress, temp, chunk,
 						submitThread->mainWorkQueue()->take());
 				if(!outcome) {
 					error = Error::fault;
