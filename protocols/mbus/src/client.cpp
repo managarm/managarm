@@ -3,20 +3,39 @@
 #include <iostream>
 
 #include <protocols/mbus/client.hpp>
+#include <protocols/posix/data.hpp>
 #include "mbus.pb.h"
 
+namespace {
+	HelHandle getMbusClientLane() {
+		posix::ManagarmProcessData data;
+
+		HEL_CHECK(helSyscall1(kHelCallSuper + 1, reinterpret_cast<HelWord>(&data)));
+
+		return data.mbusLane;
+	}
+
+	bool recreateInstance = false;
+} // namespace anonymous
+
 namespace mbus {
+
+void recreateInstance() {
+	::recreateInstance = true;
+}
+
 namespace _detail {
 
 static Instance makeGlobal() {
-	unsigned long server;
-	if(peekauxval(AT_MBUS_SERVER, &server))
-		throw std::runtime_error("No AT_MBUS_SERVER specified");
-	return Instance(helix::BorrowedLane(server).dup());
+	return Instance(helix::BorrowedLane(getMbusClientLane()).dup());
 }
 
 Instance Instance::global() {
-	static Instance instance(makeGlobal());
+	static Instance instance{makeGlobal()};
+
+	if (::recreateInstance)
+		instance = makeGlobal();
+
 	return instance;
 }
 

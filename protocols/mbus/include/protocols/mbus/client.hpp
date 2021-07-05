@@ -202,4 +202,6 @@ using _detail::Instance;
 using _detail::Entity;
 using _detail::Observer;
 
+void recreateInstance();
+
 } // namespace mbus

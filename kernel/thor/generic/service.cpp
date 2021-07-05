@@ -9,21 +9,11 @@
 #include <thor-internal/gdbserver.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>
+#include <protocols/posix/data.hpp>
 
 namespace thor {
 
-namespace {
-	struct ManagarmProcessData {
-		HelHandle posixLane;
-		void *threadPage;
-		HelHandle *fileTable;
-		void *clockTrackerPage;
-	};
-
-	struct ManagarmServerData {
-		HelHandle controlLane;
-	};
-}
+extern frg::manual_box<LaneHandle> mbusClient;
 
 struct OpenFile {
 	OpenFile()
@@ -310,6 +300,9 @@ namespace posix {
 
 			posixHandle = _thread->getUniverse()->attachDescriptor(universeLock,
 					LaneDescriptor{std::move(posixStream.get<1>())});
+
+			mbusHandle = _thread->getUniverse()->attachDescriptor(universeLock,
+					LaneDescriptor{*mbusClient});
 		}
 
 		coroutine<void> setupAddressSpace() {
@@ -367,6 +360,7 @@ namespace posix {
 		smarter::shared_ptr<Thread, ActiveHandle> _thread;
 
 		Handle posixHandle;
+		Handle mbusHandle;
 		Handle controlHandle;
 		LaneHandle posixLane;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
@@ -699,15 +693,16 @@ namespace posix {
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 1) {
-				ManagarmProcessData data = {
+				::posix::ManagarmProcessData data = {
 					posixHandle,
+					mbusHandle,
 					nullptr,
 					reinterpret_cast<HelHandle *>(clientFileTable),
 					nullptr
 				};
 
 				auto outcome = co_await _thread->getAddressSpace()->writeSpace(
-						*_thread->_executor.arg0(), &data, sizeof(ManagarmProcessData),
+						*_thread->_executor.arg0(), &data, sizeof(::posix::ManagarmProcessData),
 						WorkQueue::generalQueue()->take());
 				if(!outcome) {
 					*_thread->_executor.result0() = kHelErrFault;
@@ -717,12 +712,12 @@ namespace posix {
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + 64) {
-				ManagarmServerData data = {
+				::posix::ManagarmServerData data = {
 					controlHandle
 				};
 
 				auto outcome = co_await _thread->getAddressSpace()->writeSpace(
-						*_thread->_executor.arg0(), &data, sizeof(ManagarmServerData),
+						*_thread->_executor.arg0(), &data, sizeof(::posix::ManagarmServerData),
 						WorkQueue::generalQueue()->take());
 				if(!outcome) {
 					*_thread->_executor.result0() = kHelErrFault;

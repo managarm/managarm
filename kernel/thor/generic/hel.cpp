@@ -22,7 +22,7 @@
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
 #endif
-#include "../../hel/include/hel.h"
+#include <hel.h>
 
 using namespace thor;
 

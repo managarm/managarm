@@ -57,6 +57,7 @@
 #include <bragi/helpers-std.hpp>
 #include <posix.bragi.hpp>
 #include <frg/std_compat.hpp>
+#include <protocols/posix/data.hpp>
 
 namespace {
 	constexpr bool logRequests = false;
@@ -216,15 +217,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 1) {
-			struct ManagarmProcessData {
-				HelHandle posixLane;
-				void *threadPage;
-				HelHandle *fileTable;
-				void *clockTrackerPage;
-			};
-
-			ManagarmProcessData data = {
+			posix::ManagarmProcessData data = {
 				self->clientPosixLane(),
+				self->fileContext()->clientMbusLane(),
 				self->clientThreadPage(),
 				static_cast<HelHandle *>(self->clientFileTable()),
 				self->clientClkTrackerPage()
@@ -235,7 +230,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto storeData = co_await helix_ng::writeMemory(thread, gprs[kHelRegArg0],
-					sizeof(ManagarmProcessData), &data);
+					sizeof(posix::ManagarmProcessData), &data);
 			HEL_CHECK(storeData.error());
 			gprs[kHelRegError] = kHelErrNone;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
