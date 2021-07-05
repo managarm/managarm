@@ -905,8 +905,14 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	} else {
-		throw std::runtime_error("libfs_protocol: Unexpected"
-				" request type in servePassthrough()");
+		std::cout << "protocols/fs: Unexpected request "
+			<< static_cast<unsigned int>(req.req_type())
+			<< " in servePassthrough()" << std::endl;
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::dismiss()
+		);
+		HEL_CHECK(dismiss.error());
 	}
 }
 
