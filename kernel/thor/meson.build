@@ -82,7 +82,9 @@ inc += include_directories(
 	'../common',
 	'../../subprojects/libarch/include',
 	'../../subprojects/libasync/include',
-	'../../tools/pb2frigg/include'
+	'../../tools/pb2frigg/include',
+	'../../protocols/posix/include',
+	'../../hel/include'
 )
 
 # For now, we only use static initializers for initgraph stages.

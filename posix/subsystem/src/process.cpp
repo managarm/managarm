@@ -1,12 +1,13 @@
 
 #include <signal.h>
 #include <string.h>
-#include <sys/auxv.h>
 
 #include "common.hpp"
 #include "clock.hpp"
 #include "exec.hpp"
 #include "process.hpp"
+
+#include <protocols/posix/data.hpp>
 
 static bool logFileAttach = false;
 static bool logCleanup = false;
@@ -244,6 +245,14 @@ void FsContext::changeWorkingDirectory(ViewPath workdir) {
 // FileContext.
 // ----------------------------------------------------------------------------
 
+static HelHandle posixMbusClient = [] {
+	posix::ManagarmProcessData data;
+
+	HEL_CHECK(helSyscall1(kHelCallSuper + 1, reinterpret_cast<HelWord>(&data)));
+
+	return data.mbusLane;
+}();
+
 std::shared_ptr<FileContext> FileContext::create() {
 	auto context = std::make_shared<FileContext>();
 
@@ -259,10 +268,7 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
-	unsigned long mbus_upstream;
-	if(peekauxval(AT_MBUS_SERVER, &mbus_upstream))
-		throw std::runtime_error("No AT_MBUS_SERVER specified");
-	HEL_CHECK(helTransferDescriptor(mbus_upstream,
+	HEL_CHECK(helTransferDescriptor(posixMbusClient,
 			context->_universe.getHandle(), &context->_clientMbusLane));
 
 	return context;
@@ -288,10 +294,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 		context->attachFile(entry.first, entry.second.file, entry.second.closeOnExec);
 	}
 
-	unsigned long mbus_upstream;
-	if(peekauxval(AT_MBUS_SERVER, &mbus_upstream))
-		throw std::runtime_error("No AT_MBUS_SERVER specified");
-	HEL_CHECK(helTransferDescriptor(mbus_upstream,
+	HEL_CHECK(helTransferDescriptor(posixMbusClient,
 			context->_universe.getHandle(), &context->_clientMbusLane));
 
 	return context;

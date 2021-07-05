@@ -250,7 +250,7 @@ uintptr_t copyToStack(frg::string<KernelAlloc> &stack_image, const T &data) {
 
 coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 		LaneHandle control_lane,
-		LaneHandle xpipe_lane, LaneHandle mbus_lane,
+		LaneHandle xpipe_lane,
 		Scheduler *scheduler) {
 	auto space = AddressSpace::create();
 
@@ -287,16 +287,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	auto universe = smarter::allocate_shared<Universe>(*kernelAlloc);
 
 	Handle xpipe_handle = 0;
-	Handle mbus_handle = 0;
 	if(xpipe_lane) {
 		auto lock = frg::guard(&universe->lock);
 		xpipe_handle = universe->attachDescriptor(lock,
 				LaneDescriptor(xpipe_lane));
-	}
-	if(mbus_lane) {
-		auto lock = frg::guard(&universe->lock);
-		mbus_handle = universe->attachDescriptor(lock,
-				LaneDescriptor(mbus_lane));
 	}
 
 	enum {
@@ -305,13 +299,12 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 		AT_PHENT = 4,
 		AT_PHNUM = 5,
 		AT_ENTRY = 9,
-		
+
 		AT_XPIPE = 0x1000,
-		AT_MBUS_SERVER = 0x1103
 	};
 
 	frg::string<KernelAlloc> tail_area(*kernelAlloc);
-	
+
 	// Setup the stack with argc, argv and environment.
 	copyToStack<uintptr_t>(tail_area, 0); // argc.
 	copyToStack<uintptr_t>(tail_area, 0); // End of args.
@@ -329,10 +322,6 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	if(xpipe_lane) {
 		copyToStack<uintptr_t>(tail_area, AT_XPIPE);
 		copyToStack<uintptr_t>(tail_area, xpipe_handle);
-	}
-	if(mbus_lane) {
-		copyToStack<uintptr_t>(tail_area, AT_MBUS_SERVER);
-		copyToStack<uintptr_t>(tail_area, mbus_handle);
 	}
 	copyToStack<uintptr_t>(tail_area, AT_NULL);
 	copyToStack<uintptr_t>(tail_area, 0);
@@ -388,7 +377,7 @@ coroutine<void> runMbus() {
 	assert(module && module->type == MfsType::regular);
 	co_await executeModule("/sbin/mbus", static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
-			std::move(*futureMbusServer), LaneHandle{}, localScheduler());
+			std::move(*futureMbusServer), localScheduler());
 }
 
 coroutine<LaneHandle> runServer(frg::string_view name) {
@@ -413,7 +402,7 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 
 	co_await executeModule(name, static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
-			LaneHandle{}, *mbusClient, localScheduler());
+			LaneHandle{}, localScheduler());
 
 	co_return controlStream.get<1>();
 }
