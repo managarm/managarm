@@ -157,6 +157,7 @@ if build_drivers
 
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
+	cli11_dep = dependency('CLI11')
 
 	# this produces the helix dependency which
 	# all protocols depend on
