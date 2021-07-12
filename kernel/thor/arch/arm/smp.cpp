@@ -82,14 +82,21 @@ namespace {
 	}
 }
 
-void bootSecondary(DeviceTreeNode *node) {
+extern frg::manual_box<GicDistributor> dist;
+
+bool bootSecondary(DeviceTreeNode *node) {
 	infoLogger() << "thor: Starting CPU \"" << node->path() << "\"" << frg::endlog;
+	uint8_t id = node->reg()[0].addr;
+
+	// TODO: We assume CPU 0 is the boot CPU, but potentially it could be some other one
+	if (id == 0)
+		return false;
 
 	using EnableMethod = DeviceTreeNode::EnableMethod;
 
 	if (node->enableMethod() == EnableMethod::unknown) {
 		infoLogger() << "thor: We don't know how to start this CPU" << frg::endlog;
-		return;
+		return false;
 	}
 
 	// Allocate a stack for the initialization code.
@@ -106,21 +113,28 @@ void bootSecondary(DeviceTreeNode *node) {
 	}
 
 	auto codePhysPtr = physicalAllocator->allocate(kPageSize);
-	PageAccessor codeAccessor{codePhysPtr};
+	auto codeVirtPtr = KernelVirtualMemory::global().allocate(kPageSize);
+
+	KernelPageSpace::global().mapSingle4k(VirtualAddr(codeVirtPtr), codePhysPtr,
+			page_access::write, CachingMode::uncached);
 
 	// We use a ClientPageSpace here to create an identity mapping for the trampoline
 	ClientPageSpace lowMapping;
 	lowMapping.mapSingle4k(codePhysPtr, codePhysPtr, false, page_access::execute, CachingMode::null);
 
-	// Copy the trampoline code into the new stack
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;
 	assert(imageSize <= kPageSize);
 
-	memcpy(codeAccessor.get(), _binary_kernel_thor_arch_arm_trampoline_bin_start, imageSize);
+	memcpy(codeVirtPtr, _binary_kernel_thor_arch_arm_trampoline_bin_start, imageSize);
+
+	asm volatile ("dc civac, %0; dsb sy"
+			:
+			: "r"(codeVirtPtr)
+			: "memory");
 
 	// Setup a status block to communicate information to the AP.
-	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(codeAccessor.get())
+	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(codeVirtPtr)
 			+ (kPageSize - sizeof(StatusBlock)));
 
 	statusBlock->self = statusBlock;
@@ -130,33 +144,40 @@ void bootSecondary(DeviceTreeNode *node) {
 	statusBlock->stack = (uintptr_t)stackPtr + stackSize;
 	statusBlock->main = &secondaryMain;
 	statusBlock->cpuContext = context;
-
-	uint8_t id = node->reg()[0].addr;
 	statusBlock->cpuId = id;
 
-	// TODO: We assume CPU 0 is the boot CPU, but potentially it could be some other one
-	bool alreadyUp = (id == 0);
-	bool dead = false;
+	bool dontWait = false;
 
 	switch(node->enableMethod()) {
 		case EnableMethod::spintable: {
 			infoLogger() << "thor: This CPU uses a spin-table" << frg::endlog;
 
-			if (!alreadyUp) {
-				auto ptr = node->cpuReleaseAddr();
+			auto ptr = node->cpuReleaseAddr();
 
-				infoLogger() << "thor: Release address is " << frg::hex_fmt{ptr} << frg::endlog;
+			infoLogger() << "thor: Release address is " << frg::hex_fmt{ptr} << frg::endlog;
 
-				auto page = ptr & ~(kPageSize - 1);
-				auto offset = ptr & (kPageSize - 1);
+			auto page = ptr & ~(kPageSize - 1);
+			auto offset = ptr & (kPageSize - 1);
 
-				PageAccessor releaseAccessor{page};
+			auto virtPtr = KernelVirtualMemory::global().allocate(kPageSize);
 
-				auto space = arch::mem_space{releaseAccessor.get()};
-				arch::scalar_store<uintptr_t>(space, offset, codePhysPtr);
+			KernelPageSpace::global().mapSingle4k(VirtualAddr(virtPtr), page,
+					page_access::write, CachingMode::uncached);
 
-				asm volatile ("sev" ::: "memory");
-			}
+			auto space = arch::mem_space{virtPtr};
+
+			arch::scalar_store<uintptr_t>(space, offset, codePhysPtr);
+
+			asm volatile ("dc civac, %0; dsb sy"
+					:
+					: "r"(reinterpret_cast<uintptr_t>(virtPtr) + offset)
+					: "memory");
+
+			asm volatile ("sev" ::: "memory");
+
+			KernelPageSpace::global().unmapSingle4k(VirtualAddr(virtPtr));
+
+			KernelVirtualMemory::global().deallocate(virtPtr, kPageSize);
 
 			break;
 		}
@@ -165,27 +186,25 @@ void bootSecondary(DeviceTreeNode *node) {
 			infoLogger() << "thor: This CPU uses PSCI" << frg::endlog;
 			if (!psci_) {
 				infoLogger() << "thor: PSCI was not detected" << frg::endlog;
-				return;
+				return false;
 			}
 
-			if (!alreadyUp) {
-				int res = psci_->turnOnCpu(id, codePhysPtr);
-				if (res < 0) {
-					constexpr const char *errors[] = {
-						"Success",
-						"Not supported",
-						"Invalid parameters",
-						"Denied",
-						"Already on",
-						"On pending",
-						"Internal failure",
-						"Not present",
-						"Disabled",
-						"Invalid address"
-					};
-					infoLogger() << "thor: Booting AP failed with " << errors[-res] << frg::endlog;
-					dead = true;
-				}
+			int res = psci_->turnOnCpu(id, codePhysPtr);
+			if (res < 0) {
+				constexpr const char *errors[] = {
+					"Success",
+					"Not supported",
+					"Invalid parameters",
+					"Denied",
+					"Already on",
+					"On pending",
+					"Internal failure",
+					"Not present",
+					"Disabled",
+					"Invalid address"
+				};
+				infoLogger() << "thor: Booting AP failed with " << errors[-res] << frg::endlog;
+				dontWait = true;
 			}
 
 			break;
@@ -196,16 +215,21 @@ void bootSecondary(DeviceTreeNode *node) {
 	}
 
 	// Wait for AP to leave the stub so we can free it and the mapping it used
-	if (!alreadyUp && !dead) {
+	if (!dontWait) {
 		while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) == 0)
 			;
 	}
 
+	KernelPageSpace::global().unmapSingle4k(VirtualAddr(codeVirtPtr));
+	// FIXME: This requires shootdown (which is broken on real HW)
+	//KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
 	physicalAllocator->free(codePhysPtr, kPageSize);
 
-	if (dead || alreadyUp) {
+	if (dontWait) {
 		kernelAlloc->deallocate(stackPtr, stackSize);
 	}
+
+	return !dontWait;
 }
 
 static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
@@ -221,7 +245,7 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 		});
 
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-			if (node->isCompatible<2>({"arm,cortex-a72", "arm,cortex-a53"})) {
+			if (node->isCompatible<3>({"arm,cortex-a72", "arm,cortex-a53", "arm,arm-v8"})) {
 				bootSecondary(node);
 			}
 
