@@ -153,11 +153,14 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 
 	auto [cpu, irq] = cpuInterface->get();
 
+	asm volatile ("isb" ::: "memory");
+
 	if (irq < 16) {
 		if constexpr (logSGIs)
-			infoLogger() << "thor: onPlatformIrq: got a SGI (no. " << irq << ") that originated from cpu " << cpu << frg::endlog;
+			infoLogger() << "thor: onPlatformIrq: on CPU " << getCpuData()->cpuIndex << ", got a SGI (no. " << irq << ") that originated from CPU " << cpu << frg::endlog;
 
 		cpuInterface->eoi(cpu, irq);
+
 		if (irq == 0) {
 			handlePreemption(image);
 		} else {
@@ -167,18 +170,16 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 
 			for(int i = 0; i < maxAsid; i++)
 				getCpuData()->asidBindings[i].shootdown();
+
+			getCpuData()->globalBinding.shootdown();
 		}
-		return;
-	}
-
-	if (irq >= 1020) {
+	} else if (irq >= 1020) {
 		if constexpr (logSpurious)
-			infoLogger() << "thor: spurious irq " << irq << " occured" << frg::endlog;
+			infoLogger() << "thor: on CPU " << getCpuData()->cpuIndex << ", spurious IRQ " << irq << " occured" << frg::endlog;
 		// no need to EOI spurious irqs
-		return;
+	} else {
+		handleIrq(image, irq);
 	}
-
-	handleIrq(image, irq);
 }
 
 extern "C" void onPlatformWork() {
