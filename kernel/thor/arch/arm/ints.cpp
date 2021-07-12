@@ -24,7 +24,7 @@ void suspendSelf() {
 extern frg::manual_box<GicDistributor> dist;
 
 void sendPingIpi(int id) {
-	dist->sendIpi(getCpuData(id)->archCpuIndex, 0);
+	dist->sendIpi(getCpuData(id)->gicCpuInterface->interfaceNumber(), 0);
 }
 
 void sendShootdownIpi() {

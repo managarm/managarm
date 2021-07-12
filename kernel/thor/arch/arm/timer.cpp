@@ -155,10 +155,12 @@ bool haveTimer() {
 // Sets up the proper interrupt trigger and polarity for the PPI
 void initTimerOnThisCpu() {
 	auto irqPhys = timerNode->irqs()[1];
-	auto irqVirt = timerNode->irqs()[2];
+	auto physPin = dist->getPin(irqPhys.id);
+	physPin->setMode(irqPhys.trigger, irqPhys.polarity);
 
-	dist->configureTrigger(irqPhys.id, irqPhys.trigger);
-	dist->configureTrigger(irqVirt.id, irqVirt.trigger);
+	auto irqVirt = timerNode->irqs()[2];
+	auto virtPin = dist->getPin(irqVirt.id);
+	virtPin->setMode(irqVirt.trigger, irqVirt.polarity);
 }
 
 } // namespace thor
