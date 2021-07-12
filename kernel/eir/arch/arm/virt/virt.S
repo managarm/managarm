@@ -5,6 +5,17 @@ eirEntry:
 	ldr x1, =eirStackTop
 	mov sp, x1
 
+	mov x2, xzr
+	orr x2, x2, #(1 << 29)
+	orr x2, x2, #(1 << 28)
+	orr x2, x2, #(1 << 23)
+	orr x2, x2, #(1 << 22)
+	orr x2, x2, #(1 << 20)
+	orr x2, x2, #(1 << 11)
+	orr x2, x2, #(1 << 12)
+	orr x2, x2, #(1 << 2)
+	msr sctlr_el1, x2
+
 	// Load vector table
 	.extern eirExcVectors
 	ldr x1, =eirExcVectors

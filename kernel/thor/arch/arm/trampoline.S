@@ -28,17 +28,6 @@ apEntryPoint:
 .L_inEL2:
 	// Drop to EL1
 
-	mov x0, xzr
-	orr x0, x0, #(1 << 29)
-	orr x0, x0, #(1 << 28)
-	orr x0, x0, #(1 << 23)
-	orr x0, x0, #(1 << 22)
-	orr x0, x0, #(1 << 20)
-	orr x0, x0, #(1 << 11)
-	orr x0, x0, #(1 << 12)
-	orr x0, x0, #(1 << 2)
-	msr sctlr_el1, x0
-
 	// Enable access to counters
 	mrs x0, cnthctl_el2
 	orr x0, x0, #3
@@ -64,6 +53,17 @@ apEntryPoint:
 	eret
 
 .L_inEL1:
+	mov x0, xzr
+	orr x0, x0, #(1 << 29)
+	orr x0, x0, #(1 << 28)
+	orr x0, x0, #(1 << 23)
+	orr x0, x0, #(1 << 22)
+	orr x0, x0, #(1 << 20)
+	orr x0, x0, #(1 << 11)
+	orr x0, x0, #(1 << 12)
+	orr x0, x0, #(1 << 2)
+	msr sctlr_el1, x0
+
 	add x0, x1, statusTTBR0
 	ldp x0, x2, [x0]
 	msr ttbr0_el1, x0
