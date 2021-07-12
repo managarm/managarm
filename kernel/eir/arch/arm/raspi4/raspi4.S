@@ -1,6 +1,18 @@
 .section .text.init
 .global eirEntry
 eirEntry:
+	b .L1
+	nop
+	.quad 0x80000 // Image offset
+	.quad 0 // Image size (0 = unbounded)
+	.quad 2 // 4K pages
+	.quad 0 // Reserved
+	.quad 0 // Reserved
+	.quad 0 // Reserved
+	.quad 0x644d5241 // Magic
+	.quad 0 // Reserved
+
+.L1:
 	mov x7, x0
 
 	.extern eirStackTop
