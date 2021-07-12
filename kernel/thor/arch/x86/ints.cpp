@@ -458,6 +458,8 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 	for(int i = 0; i < maxPcidCount; i++)
 		getCpuData()->pcidBindings[i].shootdown();
 
+	getCpuData()->globalBinding.shootdown();
+
 	acknowledgeIpi();
 }
 
