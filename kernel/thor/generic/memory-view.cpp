@@ -189,6 +189,128 @@ void MemoryView::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<
 	receiver.set_value({Error::illegalObject, nullptr});
 }
 
+// In addition to what copyFrom() does, we also have to mark the memory as dirty.
+coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
+		const void *pointer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq) {
+	struct Node {
+		MemoryView *view;
+		uintptr_t offset;
+		const void *pointer;
+		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
+
+		uintptr_t progress = 0;
+		PhysicalAddr physical;
+	};
+
+	co_await async::let([=] {
+		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
+	}, [] (Node &nd) {
+		return async::sequence(
+			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
+					nd.wq), [] (Error e) {
+				// TODO: properly propagate the error.
+				assert(e == Error::success);
+			}),
+			async::repeat_while([&nd] { return nd.progress < nd.size; },
+				[&nd] {
+					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
+					return async::sequence(
+						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
+								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+							assert(resultOrError);
+							auto range = resultOrError.value();
+							assert(range.get<0>() != PhysicalAddr(-1));
+							assert(range.get<1>() >= kPageSize);
+							nd.physical = range.get<0>();
+						}),
+						// Do heavy copying on the WQ.
+						// TODO: This could use wq->enter() but we want to keep stack depth low.
+						nd.wq->schedule(),
+						async::invocable([&nd] {
+							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
+							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
+
+							PageAccessor accessor{nd.physical};
+							memcpy(reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
+									reinterpret_cast<const uint8_t *>(nd.pointer) + nd.progress,
+									chunk);
+							nd.progress += chunk;
+						})
+					);
+				}
+			),
+			async::invocable([&nd] {
+				auto misalign = nd.offset & (kPageSize - 1);
+				nd.view->markDirty(nd.offset & ~(kPageSize - 1),
+						(nd.size + misalign + kPageSize - 1) & ~(kPageSize - 1));
+
+				nd.view->unlockRange(nd.offset, nd.size);
+			})
+		);
+	});
+	co_return {};
+}
+
+coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
+		void *pointer, size_t size,
+		smarter::shared_ptr<WorkQueue> wq) {
+	struct Node {
+		MemoryView *view;
+		uintptr_t offset;
+		void *pointer;
+		size_t size;
+		smarter::shared_ptr<WorkQueue> wq;
+
+		uintptr_t progress = 0;
+		PhysicalAddr physical;
+	};
+
+	co_await async::let([=] {
+		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
+	}, [] (Node &nd) {
+		return async::sequence(
+			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
+					nd.wq), [] (Error e) {
+				// TODO: properly propagate the error.
+				assert(e == Error::success);
+			}),
+			async::repeat_while([&nd] { return nd.progress < nd.size; },
+				[&nd] {
+					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
+					return async::sequence(
+						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
+								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+							assert(resultOrError);
+							auto range = resultOrError.value();
+							assert(range.get<0>() != PhysicalAddr(-1));
+							assert(range.get<1>() >= kPageSize);
+							nd.physical = range.get<0>();
+						}),
+						// Do heavy copying on the WQ.
+						// TODO: This could use wq->enter() but we want to keep stack depth low.
+						nd.wq->schedule(),
+						async::invocable([&nd] {
+							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
+							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
+
+							PageAccessor accessor{nd.physical};
+							memcpy(reinterpret_cast<uint8_t *>(nd.pointer) + nd.progress,
+									reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
+							nd.progress += chunk;
+						})
+					);
+				}
+			),
+			async::invocable([&nd] {
+				nd.view->unlockRange(nd.offset, nd.size);
+			})
+		);
+	});
+	co_return {};
+}
+
 bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
 		smarter::shared_ptr<WorkQueue>, LockRangeNode *node) {
 	node->result = lockRange(offset, size);
@@ -1427,8 +1549,10 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 
 			// Copy from the root view.
 			if(!chain) {
-				co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
+				// TODO: Handle errors here -- we need to drop the lock again.
+				auto copyOutcome = co_await view->copyFrom(pageOffset & ~(kPageSize - 1),
 						accessor.get(), kPageSize, wq);
+				assert(copyOutcome);
 			}
 
 			// To make CoW unobservable, we first need to evict the page here.
@@ -1555,8 +1679,8 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<
 
 	// Copy from the root view.
 	if(!chain) {
-		co_await copyFromView(view.get(), pageOffset & ~(kPageSize - 1),
-				accessor.get(), kPageSize, wq);
+		FRG_CO_TRY(co_await view->copyFrom(pageOffset & ~(kPageSize - 1),
+				accessor.get(), kPageSize, wq));
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.

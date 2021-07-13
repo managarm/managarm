@@ -250,8 +250,10 @@ extern "C" void thorMain() {
 					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					memory->selfPtr = memory;
-					KernelFiber::asyncBlockCurrent(copyToView(memory.get(), 0, data, file_size,
+					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(0,
+							data, file_size,
 							thisFiber()->associatedWorkQueue()->take()));
+					assert(copyOutcome);
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
 							path.sub_string(it - path.data(), end - it)};

@@ -290,6 +290,14 @@ public:
 
 	virtual void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver);
 
+	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
+			const void *pointer, size_t size,
+			smarter::shared_ptr<WorkQueue> wq);
+
+	virtual coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
+			void *pointer, size_t size,
+			smarter::shared_ptr<WorkQueue> wq);
+
 	// Acquire/release a lock on a memory range.
 	// While a lock is active, results of peekRange() and fetchRange() stay consistent.
 	// Locks do *not* force all pages to be available, but once a page is available
@@ -576,134 +584,6 @@ private:
 	smarter::shared_ptr<MemoryView> _view;
 	ptrdiff_t _viewOffset;
 	size_t _viewSize;
-};
-
-// ----------------------------------------------------------------------------------
-// copyToView().
-// ----------------------------------------------------------------------------------
-
-// In addition to what copyFromView() does, we also have to mark the memory as dirty.
-inline auto copyToView(MemoryView *view, uintptr_t offset,
-		const void *pointer, size_t size,
-		smarter::shared_ptr<WorkQueue> wq) {
-	struct Node {
-		MemoryView *view;
-		uintptr_t offset;
-		const void *pointer;
-		size_t size;
-		smarter::shared_ptr<WorkQueue> wq;
-
-		uintptr_t progress = 0;
-		PhysicalAddr physical;
-	};
-
-	return async::let([=] {
-		return Node{.view = view, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
-	}, [] (Node &nd) {
-		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
-			}),
-			async::repeat_while([&nd] { return nd.progress < nd.size; },
-				[&nd] {
-					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
-								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
-							assert(resultOrError);
-							auto range = resultOrError.value();
-							assert(range.get<0>() != PhysicalAddr(-1));
-							assert(range.get<1>() >= kPageSize);
-							nd.physical = range.get<0>();
-						}),
-						// Do heavy copying on the WQ.
-						// TODO: This could use wq->enter() but we want to keep stack depth low.
-						nd.wq->schedule(),
-						async::invocable([&nd] {
-							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
-
-							PageAccessor accessor{nd.physical};
-							memcpy(reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
-									reinterpret_cast<const uint8_t *>(nd.pointer) + nd.progress,
-									chunk);
-							nd.progress += chunk;
-						})
-					);
-				}
-			),
-			async::invocable([&nd] {
-				auto misalign = nd.offset & (kPageSize - 1);
-				nd.view->markDirty(nd.offset & ~(kPageSize - 1),
-						(nd.size + misalign + kPageSize - 1) & ~(kPageSize - 1));
-
-				nd.view->unlockRange(nd.offset, nd.size);
-			})
-		);
-	});
-};
-
-// ----------------------------------------------------------------------------------
-// copyFromView().
-// ----------------------------------------------------------------------------------
-
-inline auto copyFromView(MemoryView *view, uintptr_t offset,
-		void *pointer, size_t size,
-		smarter::shared_ptr<WorkQueue> wq) {
-	struct Node {
-		MemoryView *view;
-		uintptr_t offset;
-		void *pointer;
-		size_t size;
-		smarter::shared_ptr<WorkQueue> wq;
-
-		uintptr_t progress = 0;
-		PhysicalAddr physical;
-	};
-
-	return async::let([=] {
-		return Node{.view = view, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
-	}, [] (Node &nd) {
-		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
-			}),
-			async::repeat_while([&nd] { return nd.progress < nd.size; },
-				[&nd] {
-					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
-								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
-							assert(resultOrError);
-							auto range = resultOrError.value();
-							assert(range.get<0>() != PhysicalAddr(-1));
-							assert(range.get<1>() >= kPageSize);
-							nd.physical = range.get<0>();
-						}),
-						// Do heavy copying on the WQ.
-						// TODO: This could use wq->enter() but we want to keep stack depth low.
-						nd.wq->schedule(),
-						async::invocable([&nd] {
-							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
-
-							PageAccessor accessor{nd.physical};
-							memcpy(reinterpret_cast<uint8_t *>(nd.pointer) + nd.progress,
-									reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
-							nd.progress += chunk;
-						})
-					);
-				}
-			),
-			async::invocable([&nd] {
-				nd.view->unlockRange(nd.offset, nd.size);
-			})
-		);
-	});
 };
 
 // ----------------------------------------------------------------------------------
