@@ -381,16 +381,10 @@ async::result<void> File::ioctl(Process *, managarm::fs::CntRequest,
 		helix::UniqueLane conversation) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement ioctl()" << std::endl;
-	managarm::fs::SvrResponse resp;
 
-	resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-	auto ser = resp.SerializeAsString();
-	auto [send_resp] = co_await helix_ng::exchangeMsgs(
-		conversation,
-		helix_ng::sendBuffer(ser.data(), ser.size())
-	);
-	HEL_CHECK(send_resp.error());
+	auto [dismiss] = co_await helix_ng::exchangeMsgs(
+		conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
 	co_return;
 }
 
