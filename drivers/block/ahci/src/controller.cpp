@@ -1,3 +1,5 @@
+#include <bit> // For std::popcount
+
 #include <inttypes.h>
 
 #include <helix/timer.hpp>
