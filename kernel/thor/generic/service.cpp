@@ -587,10 +587,14 @@ namespace posix {
 
 				smarter::shared_ptr<MemoryView> fileMemory;
 				if(req->flags() & 8) { // MAP_ANONYMOUS.
-					// TODO: Use some always-zero memory for private anonymous mappings.
-					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, req->size());
-					memory->selfPtr = memory;
-					fileMemory = std::move(memory);
+					if(req->flags() & 1) { // MAP_PRIVATE.
+						fileMemory = getZeroMemory();
+					}else{
+						auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
+								req->size());
+						memory->selfPtr = memory;
+						fileMemory = std::move(memory);
+					}
 				}else{
 					// TODO: improve error handling here.
 					assert((size_t)req->fd() < openFiles.size());
