@@ -19,7 +19,7 @@ namespace {
 	// Minimum length of a preemption time slice in ns.
 	constexpr int64_t sliceGranularity = 10'000'000;
 
-	struct IdleTask : ScheduleEntity {
+	struct IdleTask final : ScheduleEntity {
 		IdleTask()
 		: ScheduleEntity{ScheduleType::idle} { }
 
