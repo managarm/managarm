@@ -48,6 +48,7 @@ bool WorkQueue::enter(Worklet *worklet) {
 
 		invokeWakeup = wq->_localQueue.empty();
 		wq->_localQueue.push_back(worklet);
+		wq->_localPosted.store(true, std::memory_order_relaxed);
 	}else{
 		// Same logic as in post().
 		auto irqLock = frg::guard(&irqMutex());
