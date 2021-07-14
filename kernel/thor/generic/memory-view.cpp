@@ -336,6 +336,88 @@ Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
 }
 
 // --------------------------------------------------------
+// getZeroMemory()
+// --------------------------------------------------------
+
+namespace {
+
+struct ZeroMemory final : MemoryView, GlobalFutexSpace {
+	ZeroMemory() = default;
+	ZeroMemory(const ZeroMemory &) = delete;
+	~ZeroMemory() = default;
+
+	ZeroMemory &operator= (const ZeroMemory &) = delete;
+
+	size_t getLength() override {
+		return size_t{1} << 46;
+	}
+
+	coroutine<frg::expected<Error>> copyFrom(uintptr_t, void *buffer, size_t size,
+			smarter::shared_ptr<WorkQueue> wq) override {
+		co_await wq->enter();
+		memset(buffer, 0, size);
+		co_return {};
+	}
+
+	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
+			resolveGlobalFutex(uintptr_t offset) override {
+		smarter::shared_ptr<GlobalFutexSpace> futexSpace{selfPtr.lock()};
+		return frg::make_tuple(std::move(futexSpace), offset);
+	}
+
+	Error lockRange(uintptr_t, size_t) override {
+		return Error::success;
+	}
+
+	void unlockRange(uintptr_t, size_t) override {
+		// Do nothing.
+	}
+
+	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t) override {
+		assert(!"ZeroMemory::peekRange() should not be called");
+		__builtin_unreachable();
+	}
+
+	coroutine<frg::expected<Error, PhysicalRange>>
+	fetchRange(uintptr_t, FetchFlags, smarter::shared_ptr<WorkQueue>) override {
+		assert(!"ZeroMemory::fetchRange() should not be called");
+		__builtin_unreachable();
+	}
+
+	void markDirty(uintptr_t, size_t) override {
+		infoLogger() << "\e[31m" "thor: ZeroMemory::markDirty() called,"
+				"" "\e[39m" << frg::endlog;
+	}
+
+	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t,
+			smarter::shared_ptr<WorkQueue>) override {
+		// TODO: Futexes are always read-write. What should we do here?
+		//       Add a "read-only" argument to takeGlobalFutex?
+		assert(!"ZeroMemory::takeGlobalFutex() should not be called");
+		__builtin_unreachable();
+	}
+
+	void retireGlobalFutex(uintptr_t) override {
+		// Do nothing.
+	}
+
+public:
+	// Contract: set by the code that constructs this object.
+	smarter::borrowed_ptr<ZeroMemory> selfPtr;
+};
+
+}
+
+smarter::shared_ptr<MemoryView> getZeroMemory() {
+	static frg::eternal<smarter::shared_ptr<ZeroMemory>> singleton = [] {
+		auto memory = smarter::allocate_shared<ZeroMemory>(*kernelAlloc);
+		memory->selfPtr = memory;
+		return memory;
+	}();
+	return singleton.get();
+}
+
+// --------------------------------------------------------
 // ImmediateMemory
 // --------------------------------------------------------
 

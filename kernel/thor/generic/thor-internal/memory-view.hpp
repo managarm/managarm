@@ -711,6 +711,8 @@ private:
 	PhysicalAddr physical_ = PhysicalAddr(-1);
 };
 
+smarter::shared_ptr<MemoryView> getZeroMemory();
+
 // Memory that is allocated by the kernel and never swapped out.
 // In contrast to most other memory objects, it can be accessed synchronously.
 struct ImmediateMemory final : MemoryView, GlobalFutexSpace {
