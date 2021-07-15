@@ -56,9 +56,11 @@ struct UniqueDescriptor {
 	}
 
 	UniqueDescriptor dup() const {
-		HelHandle new_handle;
-		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &new_handle));
-		return UniqueDescriptor(new_handle);
+		if(!_handle)
+			return {};
+		HelHandle newHandle;
+		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &newHandle));
+		return UniqueDescriptor(newHandle);
 	}
 
 private:
