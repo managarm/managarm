@@ -164,11 +164,24 @@ void IrqPin::raise() {
 		// Thus, we do not immediately complain about edge-triggered IRQs here.
 		if(_strategy != IrqStrategy::justEoi || _maskedRaiseCtr > 1) {
 			infoLogger() << "\e[35mthor: IRQ controller raised "
-					<< _name << " despite being masked\e[39m" << frg::endlog;
+					<< _name << " despite being masked (" << _maskedRaiseCtr
+					<< "x)" "\e[39m" << frg::endlog;
 			dumpHardwareState();
+
+			for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
+				auto lock = frg::guard(&(*it)->_mutex);
+				if((*it)->_status == IrqStatus::standBy) {
+					infoLogger() << "thor: IRQ sink " << (*it)->name()
+							<< " is in standBy state" << frg::endlog;
+				}else{
+					(*it)->dumpHardwareState();
+				}
+			}
 		}
 
+		infoLogger() << "thor: Sending end-of-interrupt" << frg::endlog;
 		sendEoi();
+		dumpHardwareState();
 		return;
 	}
 
