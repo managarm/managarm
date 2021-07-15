@@ -86,8 +86,11 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	void *pointer;
 	if(copyOnWrite) {
 		HelHandle handle;
-		HEL_CHECK(helCopyOnWrite(memory.getHandle(),
-				offset, alignedSize, &handle));
+		if(memory) {
+			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, alignedSize, &handle));
+		}else{
+			HEL_CHECK(helCopyOnWrite(kHelZeroMemory, offset, alignedSize, &handle));
+		}
 		copyView = helix::UniqueDescriptor{handle};
 
 		HEL_CHECK(helMapMemory(copyView.getHandle(), _space.getHandle(),

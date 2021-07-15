@@ -194,12 +194,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			size_t size = gprs[kHelRegArg0];
 
-			// TODO: this is a waste of memory. Use some always-zero memory instead.
-			HelHandle handle;
-			HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
-
 			void *address = co_await self->vmContext()->mapFile(0,
-					helix::UniqueDescriptor{handle}, nullptr,
+					{}, nullptr,
 					0, size, true, kHelMapProtRead | kHelMapProtWrite);
 
 			gprs[kHelRegError] = kHelErrNone;
@@ -976,17 +972,23 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(req->fd() == -1);
 				assert(!req->rel_offset());
 
-				// TODO: this is a waste of memory. Use some always-zero memory instead.
-				HelHandle handle;
-				HEL_CHECK(helAllocateMemory(req->size(), 0, nullptr, &handle));
+				if(copyOnWrite) {
+					address = co_await self->vmContext()->mapFile(hint,
+							{}, nullptr,
+							0, req->size(), true, nativeFlags);
+				}else{
+					HelHandle handle;
+					HEL_CHECK(helAllocateMemory(req->size(), 0, nullptr, &handle));
 
-				address = co_await self->vmContext()->mapFile(hint,
-						helix::UniqueDescriptor{handle}, nullptr,
-						0, req->size(), copyOnWrite, nativeFlags);
+					address = co_await self->vmContext()->mapFile(hint,
+							helix::UniqueDescriptor{handle}, nullptr,
+							0, req->size(), false, nativeFlags);
+				}
 			}else{
 				auto file = self->fileContext()->getFile(req->fd());
 				assert(file && "Illegal FD for VM_MAP");
 				auto memory = co_await file->accessMemory();
+				assert(memory);
 				address = co_await self->vmContext()->mapFile(hint,
 						std::move(memory), std::move(file),
 						req->rel_offset(), req->size(), copyOnWrite, nativeFlags);
