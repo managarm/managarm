@@ -26,6 +26,18 @@
 
 using namespace thor;
 
+namespace {
+	// TODO: Replace this by a function that returns the type of special descriptor.
+	bool isSpecialMemoryView(HelHandle handle) {
+		return handle == kHelZeroMemory;
+	}
+
+	smarter::shared_ptr<MemoryView> getSpecialMemoryView(HelHandle handle) {
+		assert(handle == kHelZeroMemory);
+		return getZeroMemory();
+	}
+}
+
 extern "C" int doCopyFromUser(void *dest, const void *src, size_t size);
 extern "C" int doCopyToUser(void *dest, const void *src, size_t size);
 extern "C" int doAtomicUserLoad(unsigned int *out, const unsigned int *p);
@@ -438,16 +450,25 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 	auto this_universe = this_thread->getUniverse();
 
 	smarter::shared_ptr<MemoryView> view;
+
+	if(memoryHandle < 0) {
+		if(!isSpecialMemoryView(memoryHandle))
+			return kHelErrBadDescriptor;
+		view = getSpecialMemoryView(memoryHandle);
+	}
+
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(this_universe->lock);
 
-		auto wrapper = this_universe->getDescriptor(universe_guard, memoryHandle);
-		if(!wrapper)
-			return kHelErrNoDescriptor;
-		if(!wrapper->is<MemoryViewDescriptor>())
-			return kHelErrBadDescriptor;
-		view = wrapper->get<MemoryViewDescriptor>().memory;
+		if(memoryHandle >= 0) {
+			auto wrapper = this_universe->getDescriptor(universe_guard, memoryHandle);
+			if(!wrapper)
+				return kHelErrNoDescriptor;
+			if(!wrapper->is<MemoryViewDescriptor>())
+				return kHelErrBadDescriptor;
+			view = wrapper->get<MemoryViewDescriptor>().memory;
+		}
 	}
 
 	auto slice = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, std::move(view),

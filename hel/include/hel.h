@@ -180,7 +180,8 @@ typedef int64_t HelNanotime;
 enum {
 	kHelNullHandle = 0,
 	kHelThisUniverse = -1,
-	kHelThisThread = -2
+	kHelThisThread = -2,
+	kHelZeroMemory = -3
 };
 
 enum {
