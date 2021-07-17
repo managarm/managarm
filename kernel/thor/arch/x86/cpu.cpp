@@ -572,6 +572,7 @@ void initializeThisProcessor() {
 	cpuData->dfStack = UniqueKernelStack::make();
 	cpuData->nmiStack = UniqueKernelStack::make();
 	cpuData->detachedStack = UniqueKernelStack::make();
+	cpuData->idleStack = UniqueKernelStack::make();
 
 	// We embed some data at the top of the NMI stack.
 	// The NMI handler needs this data to enter a consistent kernel state.

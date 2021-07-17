@@ -26,6 +26,8 @@ struct CpuData : public PlatformCpuData {
 	CpuData &operator= (const CpuData &) = delete;
 
 	IrqMutex irqMutex;
+	UniqueKernelStack detachedStack;
+	UniqueKernelStack idleStack;
 	Scheduler scheduler;
 	bool haveVirtualization;
 

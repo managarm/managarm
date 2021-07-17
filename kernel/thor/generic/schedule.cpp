@@ -24,9 +24,12 @@ namespace {
 		: ScheduleEntity{ScheduleType::idle} { }
 
 		[[noreturn]] void invoke() override {
-			if(logIdle)
-				infoLogger() << "System is idle" << frg::endlog;
-			suspendSelf();
+			runOnStack([] (Continuation) {
+				if(logIdle)
+					infoLogger() << "System is idle" << frg::endlog;
+				suspendSelf();
+				__builtin_trap();
+			}, getCpuData()->idleStack.base());
 			__builtin_trap();
 		}
 

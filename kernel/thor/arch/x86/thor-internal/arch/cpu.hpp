@@ -577,7 +577,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack irqStack;
 	UniqueKernelStack dfStack;
 	UniqueKernelStack nmiStack;
-	UniqueKernelStack detachedStack;
 
 	common::x86::Tss64 tss;
 

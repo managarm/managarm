@@ -282,6 +282,7 @@ void initializeThisProcessor() {
 
 	cpu_data->irqStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();
+	cpu_data->idleStack = UniqueKernelStack::make();
 
 	cpu_data->irqStackPtr = cpu_data->irqStack.basePtr();
 

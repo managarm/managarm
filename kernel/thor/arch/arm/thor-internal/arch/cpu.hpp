@@ -312,7 +312,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	int archCpuIndex;
 
 	UniqueKernelStack irqStack;
-	UniqueKernelStack detachedStack;
 
 	PageContext pageContext;
 	PageBinding asidBindings[maxAsid];
