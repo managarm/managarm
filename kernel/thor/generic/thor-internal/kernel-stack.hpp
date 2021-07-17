@@ -6,6 +6,10 @@
 
 namespace thor {
 
+struct StackBase {
+	void *sp;
+};
+
 struct UniqueKernelStack {
 	static constexpr size_t kSize = 0xF000;
 
@@ -33,7 +37,10 @@ struct UniqueKernelStack {
 		return *this;
 	}
 
-	void *base() {
+	StackBase base() {
+		return StackBase{_base};
+	}
+	void *basePtr() {
 		return _base;
 	}
 

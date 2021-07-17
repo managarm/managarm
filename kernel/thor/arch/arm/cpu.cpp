@@ -20,7 +20,7 @@ UserContext::UserContext()
 
 void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
-	cpu_data->exceptionStackPtr = kernelStack.base();
+	cpu_data->exceptionStackPtr = kernelStack.basePtr();
 }
 
 FiberContext::FiberContext(UniqueKernelStack stack)
@@ -51,7 +51,7 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 	general()->spsr = 0;
 	general()->domain = Domain::user;
 
-	_exceptionStack = context->kernelStack.base();
+	_exceptionStack = context->kernelStack.basePtr();
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi)
@@ -60,7 +60,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	memset(_pointer, 0, getStateSize());
 
 	general()->elr = abi.ip;
-	general()->sp = (uintptr_t)context->stack.base();
+	general()->sp = (uintptr_t)context->stack.basePtr();
 	general()->x[0] = abi.argument;
 	general()->spsr = 5;
 	general()->domain = Domain::fiber;
@@ -201,7 +201,7 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 
 	CpuData *cpuData = getCpuData();
 
-	uintptr_t stackPtr = (uintptr_t)cpuData->detachedStack.base();
+	uintptr_t stackPtr = (uintptr_t)cpuData->detachedStack.basePtr();
 	cleanKasanShadow(reinterpret_cast<void *>(stackPtr - UniqueKernelStack::kSize),
 			UniqueKernelStack::kSize);
 
@@ -286,7 +286,7 @@ void initializeThisProcessor() {
 	cpu_data->irqStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();
 
-	cpu_data->irqStackPtr = cpu_data->irqStack.base();
+	cpu_data->irqStackPtr = cpu_data->irqStack.basePtr();
 
 	cpu_data->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.

@@ -82,7 +82,7 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 	general()->ss = kSelClientUserData;
 
 	_tss = &context->tss;
-	_syscallStack = context->kernelStack.base();
+	_syscallStack = context->kernelStack.basePtr();
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi)
@@ -99,7 +99,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
-	general()->rsp = (uintptr_t)context->stack.base();
+	general()->rsp = (uintptr_t)context->stack.basePtr();
 	general()->rdi = abi.argument;
 	general()->cs = kSelSystemFiberCode;
 	general()->ss = kSelExecutorKernelData;
@@ -301,7 +301,7 @@ UserContext::UserContext()
 : kernelStack{UniqueKernelStack::make()} {
 	memset(&tss, 0, sizeof(common::x86::Tss64));
 	common::x86::initializeTss64(&tss);
-	tss.rsp0 = (Word)kernelStack.base();
+	tss.rsp0 = (Word)kernelStack.basePtr();
 }
 
 void UserContext::enableIoPort(uintptr_t port) {
@@ -310,9 +310,9 @@ void UserContext::enableIoPort(uintptr_t port) {
 
 void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
-	tss.ist1 = (Word)cpu_data->irqStack.base();
-	tss.ist2 = (Word)cpu_data->dfStack.base();
-	tss.ist3 = (Word)cpu_data->nmiStack.base();
+	tss.ist1 = (Word)cpu_data->irqStack.basePtr();
+	tss.ist2 = (Word)cpu_data->dfStack.basePtr();
+	tss.ist3 = (Word)cpu_data->nmiStack.basePtr();
 }
 
 smarter::borrowed_ptr<Thread> activeExecutor() {
@@ -514,7 +514,7 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 
 	CpuData *cpuData = getCpuData();
 
-	uintptr_t stackPtr = (uintptr_t)cpuData->detachedStack.base();
+	uintptr_t stackPtr = (uintptr_t)cpuData->detachedStack.basePtr();
 	cleanKasanShadow(reinterpret_cast<void *>(stackPtr - UniqueKernelStack::kSize),
 			UniqueKernelStack::kSize);
 	asm volatile (
@@ -586,9 +586,9 @@ void initializeThisProcessor() {
 	cpuData->nmiStack.embed<Embedded>(embedded);
 
 	// Setup our IST after the did the embedding.
-	cpuData->tss.ist1 = (uintptr_t)cpuData->irqStack.base();
-	cpuData->tss.ist2 = (uintptr_t)cpuData->dfStack.base();
-	cpuData->tss.ist3 = (uintptr_t)cpuData->nmiStack.base();
+	cpuData->tss.ist1 = (uintptr_t)cpuData->irqStack.basePtr();
+	cpuData->tss.ist2 = (uintptr_t)cpuData->dfStack.basePtr();
+	cpuData->tss.ist3 = (uintptr_t)cpuData->nmiStack.basePtr();
 
 	common::x86::Gdtr gdtr;
 	gdtr.limit = 14 * 8;
