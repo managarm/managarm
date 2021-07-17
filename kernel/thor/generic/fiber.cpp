@@ -32,12 +32,12 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		localScheduler()->forceReschedule();
 
 		forkExecutor([&] {
-			runDetached([] (Continuation cont, Executor *executor,
+			runOnStack([] (Continuation cont, Executor *executor,
 					frg::unique_lock<frg::ticket_spinlock> lock) {
 				scrubStack(executor, cont);
 				lock.unlock();
 				localScheduler()->commitReschedule();
-			}, &this_fiber->_executor, std::move(lock));
+			}, getCpuData()->detachedStack.base(), &this_fiber->_executor, std::move(lock));
 		}, &this_fiber->_executor);
 	}
 }

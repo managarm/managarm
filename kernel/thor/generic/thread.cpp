@@ -54,11 +54,11 @@ void Thread::migrateCurrent() {
 	localScheduler()->forceReschedule();
 
 	forkExecutor([&] {
-		runDetached([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
+		runOnStack([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
 			scrubStack(executor, cont);
 			lock.unlock();
 			localScheduler()->commitReschedule();
-		}, &this_thread->_executor, std::move(lock));
+		}, getCpuData()->detachedStack.base(), &this_thread->_executor, std::move(lock));
 	}, &this_thread->_executor);
 }
 
@@ -90,11 +90,11 @@ void Thread::blockCurrent() {
 	thisThread->_uninvoke();
 
 	forkExecutor([&] {
-		runDetached([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
+		runOnStack([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
 			scrubStack(executor, cont);
 			lock.unlock();
 			localScheduler()->commitReschedule();
-		}, &thisThread->_executor, std::move(lock));
+		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
 	}, &thisThread->_executor);
 }
 
@@ -114,10 +114,10 @@ void Thread::deferCurrent() {
 	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation, frg::unique_lock<Mutex> lock) {
+	runOnStack([] (Continuation, frg::unique_lock<Mutex> lock) {
 		lock.unlock();
 		localScheduler()->commitReschedule();
-	}, std::move(lock));
+	}, getCpuData()->detachedStack.base(), std::move(lock));
 }
 
 void Thread::deferCurrent(IrqImageAccessor image) {
@@ -136,11 +136,11 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
+	runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
 		lock.unlock();
 		localScheduler()->commitReschedule();
-	}, image, std::move(lock));
+	}, getCpuData()->detachedStack.base(), image, std::move(lock));
 }
 
 void Thread::suspendCurrent(IrqImageAccessor image) {
@@ -159,11 +159,11 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
+	runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
 		lock.unlock();
 		localScheduler()->commitReschedule();
-	}, image, std::move(lock));
+	}, getCpuData()->detachedStack.base(), image, std::move(lock));
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
@@ -185,7 +185,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation cont, FaultImageAccessor image,
+	runOnStack([] (Continuation cont, FaultImageAccessor image,
 			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
@@ -201,7 +201,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 		}
 
 		localScheduler()->commitReschedule();
-	}, image, interrupt, this_thread.get(), std::move(lock));
+	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
@@ -223,7 +223,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
 
-	runDetached([] (Continuation cont, SyscallImageAccessor image,
+	runOnStack([] (Continuation cont, SyscallImageAccessor image,
 			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
@@ -239,7 +239,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 		}
 
 		localScheduler()->commitReschedule();
-	}, image, interrupt, this_thread.get(), std::move(lock));
+	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
 }
 
 void Thread::raiseSignals(SyscallImageAccessor image) {
@@ -266,7 +266,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		getCpuData()->scheduler.forceReschedule();
 		this_thread->_uninvoke();
 
-		runDetached([] (Continuation cont, SyscallImageAccessor image,
+		runOnStack([] (Continuation cont, SyscallImageAccessor image,
 				Thread *thread, frg::unique_lock<Mutex> lock) {
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
@@ -281,7 +281,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			}
 
 			localScheduler()->commitReschedule();
-		}, image, this_thread.get(), std::move(lock));
+		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
 	}
 	
 	if(this_thread->_pendingSignal == kSigInterrupt) {
@@ -299,7 +299,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		getCpuData()->scheduler.forceReschedule();
 		this_thread->_uninvoke();
 
-		runDetached([] (Continuation cont, SyscallImageAccessor image,
+		runOnStack([] (Continuation cont, SyscallImageAccessor image,
 				Thread *thread, frg::unique_lock<Mutex> lock) {
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
@@ -315,7 +315,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			}
 
 			localScheduler()->commitReschedule();
-		}, image, this_thread.get(), std::move(lock));
+		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
 	}
 }
 
@@ -498,11 +498,11 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 		saveExecutor(&_executor, image);
 		_uninvoke();
 
-		runDetached([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
+		runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 			scrubStack(image, cont);
 			lock.unlock();
 			localScheduler()->commitReschedule();
-		}, image, std::move(lock));
+		}, getCpuData()->detachedStack.base(), image, std::move(lock));
 	}else{
 		localScheduler()->renewSchedule();
 	}

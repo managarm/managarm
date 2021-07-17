@@ -196,13 +196,10 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 	return true;
 }
 
-void doRunDetached(void (*function) (void *, void *), void *argument) {
+void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 	assert(!intsAreEnabled());
 
-	CpuData *cpuData = getCpuData();
-
-	uintptr_t stackPtr = (uintptr_t)cpuData->detachedStack.basePtr();
-	cleanKasanShadow(reinterpret_cast<void *>(stackPtr - UniqueKernelStack::kSize),
+	cleanKasanShadow(reinterpret_cast<std::byte *>(sp) - UniqueKernelStack::kSize,
 			UniqueKernelStack::kSize);
 
 	asm volatile (
@@ -213,7 +210,7 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 			"\tblr %1\n"
 			"\tmov sp, x28\n"
 			:
-			: "r" (argument), "r" (function), "r" (stackPtr)
+			: "r" (argument), "r" (function), "r" (sp)
 			: "x30", "x28", "x1", "x0", "memory");
 }
 

@@ -33,10 +33,10 @@ namespace {
 		void handlePreemption(IrqImageAccessor image) override {
 			localScheduler()->update();
 			if(localScheduler()->maybeReschedule()) {
-				runDetached([] (Continuation cont, IrqImageAccessor image) {
+				runOnStack([] (Continuation cont, IrqImageAccessor image) {
 					scrubStack(image, cont);
 					localScheduler()->commitReschedule();
-				}, image);
+				}, getCpuData()->detachedStack.base(), image);
 			}else{
 				localScheduler()->renewSchedule();
 			}

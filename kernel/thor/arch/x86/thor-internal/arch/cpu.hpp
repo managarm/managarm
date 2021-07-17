@@ -610,7 +610,7 @@ void disableUserAccess();
 bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor);
 
 template<typename F, typename... Args>
-void runDetached(F functor, Args... args) {
+void runOnStack(F functor, StackBase stack, Args... args) {
 	struct Context {
 		Context(F functor, Args... args)
 		: functor(std::move(functor)), args(std::move(args)...) { }
@@ -620,17 +620,15 @@ void runDetached(F functor, Args... args) {
 	};
 
 	Context original(std::move(functor), std::forward<Args>(args)...);
-	doRunDetached([] (void *context, void *sp) {
+	doRunOnStack([] (void *context, void *previousSp) {
 		Context stolen = std::move(*static_cast<Context *>(context));
 		frg::apply(std::move(stolen.functor),
-				frg::tuple_cat(frg::make_tuple(Continuation{sp}), std::move(stolen.args)));
-	}, &original);
+				frg::tuple_cat(frg::make_tuple(Continuation{previousSp}), std::move(stolen.args)));
+	}, stack.sp, &original);
 }
 
-// calls the given function on the per-cpu stack
-// this allows us to implement a save exit-this-thread function
-// that destroys the thread together with its kernel stack
-void doRunDetached(void (*function) (void *, void *), void *argument);
+// Calls the given function on the given stack.
+void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument);
 
 void setupBootCpuContext();
 void initializeThisProcessor();

@@ -509,13 +509,10 @@ int getCpuCount() {
 	return allCpuContexts->size();
 }
 
-void doRunDetached(void (*function) (void *, void *), void *argument) {
+void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 	assert(!intsAreEnabled());
 
-	CpuData *cpuData = getCpuData();
-
-	uintptr_t stackPtr = (uintptr_t)cpuData->detachedStack.basePtr();
-	cleanKasanShadow(reinterpret_cast<void *>(stackPtr - UniqueKernelStack::kSize),
+	cleanKasanShadow(reinterpret_cast<std::byte *>(sp) - UniqueKernelStack::kSize,
 			UniqueKernelStack::kSize);
 	asm volatile (
 			"xor %%rbp, %%rbp\n"
@@ -524,7 +521,7 @@ void doRunDetached(void (*function) (void *, void *), void *argument) {
 			"\tcall *%1\n"
 			"\tud2"
 			:
-			: "D" (argument), "r" (function), "r" (stackPtr)
+			: "D" (argument), "r" (function), "r" (sp)
 			: "rbp", "rsi", "memory");
 }
 
