@@ -409,15 +409,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
 		if(!file_ops->ioctl) {
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 			co_return;
 		}
 
