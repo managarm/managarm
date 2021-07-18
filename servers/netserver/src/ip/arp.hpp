@@ -3,6 +3,7 @@
 #include <async/recurring-event.hpp>
 #include <netserver/nic.hpp>
 #include <map>
+#include <optional>
 
 struct Neighbours {
 	static constexpr uint64_t staleTimeMs = 30'000;

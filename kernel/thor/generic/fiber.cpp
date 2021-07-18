@@ -101,7 +101,7 @@ void KernelFiber::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void KernelFiber::handlePreemption(IrqImageAccessor image) {
+void KernelFiber::handlePreemption(IrqImageAccessor) {
 	// Do nothing (do not preempt fibers for now).
 }
 
