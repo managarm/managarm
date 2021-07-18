@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/recurring-event.hpp>
 #include <frg/expected.hpp>
 #include <frg/list.hpp>
 #include <frg/string.hpp>
@@ -129,7 +130,7 @@ private:
 	frg::string<KernelAlloc> _name;
 
 	IrqPin *_pin;
-	
+
 	// Must be protected against IRQs.
 	frg::ticket_spinlock _mutex;
 
@@ -163,7 +164,7 @@ public:
 	IrqPin(frg::string<KernelAlloc> name);
 
 	IrqPin(const IrqPin &) = delete;
-	
+
 	IrqPin &operator= (const IrqPin &) = delete;
 
 	const frg::string<KernelAlloc> &name() {
@@ -224,8 +225,12 @@ private:
 	// Timestamp of the last acknowledge() operation.
 	// Relative to currentNanos().
 	uint64_t _raiseClock;
-	
+
 	bool _warnedAfterPending;
+
+	// Unstall logic to unmask an IRQ periodically after NACK.
+	int _unstallExponent = 0;
+	async::recurring_event _unstallEvent;
 
 	// TODO: This list should change rarely. Use a RCU list.
 	frg::intrusive_list<

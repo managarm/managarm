@@ -1,3 +1,4 @@
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/irq.hpp>
@@ -121,7 +122,47 @@ Error IrqPin::kickSink(IrqSink *sink, bool wantClear) {
 IrqPin::IrqPin(frg::string<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null},
 		_inService{false}, _dueSinks{0},
-		_maskState{0} { }
+		_maskState{0} {
+	[] (IrqPin *self, enable_detached_coroutine = {}) -> void {
+		while(true) {
+			co_await self->_unstallEvent.async_wait_if([&] () -> bool {
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->_mutex);
+
+				return !(self->_maskState & maskedForNack);
+			});
+
+			// Enter the WQ to avoid doing work in IRQ context,
+			// and also to avoid a deadlock if _unstallEvent is raised with locks held.
+			co_await WorkQueue::generalQueue()->schedule();
+
+			// Check if the IRQ is still NACKed.
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->_mutex);
+
+				if(!(self->_maskState & maskedForNack))
+					continue;
+			}
+
+			auto ms = static_cast<uint64_t>(50) * (1 << self->_unstallExponent);
+			co_await generalTimerEngine()->sleepFor(static_cast<uint64_t>(50'000'000)
+					* (1 << self->_unstallExponent));
+
+			// Kick the IRQ.
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->_mutex);
+
+				if(!(self->_maskState & maskedForNack))
+					continue;
+				infoLogger() << "\e[35m" "thor: Unstalling IRQ " << self->name()
+						<< " after " << ms << " ms" "\e[39m" << frg::endlog;
+				self->_kick(false);
+			}
+		}
+	}(this);
+}
 
 void IrqPin::configure(IrqConfiguration desired) {
 	assert(desired.specified());
@@ -232,7 +273,6 @@ void IrqPin::_kick(bool doClear) {
 			return;
 	}
 
-	_dispatchAcks = true;
 	_dispatchKicks = true;
 
 	// Re-dispatch to clear the IRQ.
@@ -245,10 +285,15 @@ void IrqPin::_kick(bool doClear) {
 // This function is called at the end of IRQ handling.
 // It unmasks IRQs that use maskThenEoi and checks for asynchronous NACK.
 void IrqPin::_dispatch() {
+	if(_dispatchAcks) {
+		if(_unstallExponent > 0)
+			--_unstallExponent;
+	}
+
 	if(_dispatchKicks)
 		_maskState &= ~maskedForNack;
 
-	if(_dispatchAcks) {
+	if(_dispatchAcks || _dispatchKicks) {
 		if(logService)
 			infoLogger() << "\e[37m" "thor: IRQ pin " << name()
 					<< " is acked (asynchronously)" "\e[39m" << frg::endlog;
@@ -278,6 +323,9 @@ void IrqPin::_dispatch() {
 			}
 		}
 		_maskState |= maskedForNack;
+		if(_unstallExponent < 8)
+			++_unstallExponent;
+		_unstallEvent.raise();
 	}
 
 	_updateMask();
@@ -348,13 +396,16 @@ void IrqPin::_doService() {
 	}
 
 	if(!numAsynchronous) {
-		_inService = false;
-		_maskState &= ~maskedForService;
-
 		if(anyAck) {
 			if(logService)
 				infoLogger() << "\e[37m" "thor: IRQ pin " << name()
 						<< " is acked (asynchronously)" "\e[39m" << frg::endlog;
+
+			if(_unstallExponent > 0)
+				--_unstallExponent;
+
+			_inService = false;
+			_maskState &= ~maskedForService;
 		}else{
 			infoLogger() << "\e[31mthor: IRQ " << _name
 					<< " was nacked (synchronously)!\e[39m" << frg::endlog;
@@ -365,6 +416,9 @@ void IrqPin::_doService() {
 			}
 
 			_maskState |= maskedForNack;
+			if(_unstallExponent < 8)
+				++_unstallExponent;
+			_unstallEvent.raise();
 		}
 		return;
 	}
