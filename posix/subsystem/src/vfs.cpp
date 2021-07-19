@@ -216,9 +216,8 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 		std::cout << "'" << std::endl;
 	}
 
-	// TODO: This should return EISDIR, not ENODIR.
 	if((flags & resolveNoTrailingSlash) && _trailingSlash)
-		co_return protocols::fs::Error::notDirectory;
+		co_return protocols::fs::Error::isDirectory;
 
 	while(true) {
 		if(_components.empty()
@@ -272,7 +271,8 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 							|| result.error() == Error::notDirectory);
 					_currentPath = ViewPath{_currentPath.first, nullptr};
 					if(result.error() == Error::illegalOperationTarget) {
-						co_return protocols::fs::Error::illegalOperationTarget;
+						std::cout << "\e[33mposix: Illegal operation target in PathResolver::resolve\e[39m" << std::endl;
+						co_return protocols::fs::Error::fileNotFound;
 					} else if(result.error() == Error::noSuchFile) {
 						co_return protocols::fs::Error::fileNotFound;
 					} else if(result.error() == Error::notDirectory) {
@@ -340,7 +340,8 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 					if(childResult.error() == Error::notDirectory) {
 						co_return protocols::fs::Error::notDirectory;
 					} else if(childResult.error() == Error::illegalOperationTarget) {
-						co_return protocols::fs::Error::illegalOperationTarget;
+						std::cout << "\e[33mposix: Illegal operation target in PathResolver::resolve\e[39m" << std::endl;
+						co_return protocols::fs::Error::fileNotFound;
 					}
 				}
 				auto child = childResult.value();
@@ -414,12 +415,9 @@ async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath ro
 	resolver.setup(std::move(root), std::move(workdir), std::move(name));
 	auto result = co_await resolver.resolve(flags);
 	if (!result) {
-		assert(result.error() == protocols::fs::Error::illegalOperationTarget
-				|| result.error() == protocols::fs::Error::fileNotFound
+		assert(result.error() == protocols::fs::Error::fileNotFound
 				|| result.error() == protocols::fs::Error::notDirectory);
-		if(result.error() == protocols::fs::Error::illegalOperationTarget) {
-			co_return protocols::fs::Error::illegalOperationTarget;
-		} else if(result.error() == protocols::fs::Error::fileNotFound) {
+		if(result.error() == protocols::fs::Error::fileNotFound) {
 			co_return protocols::fs::Error::fileNotFound;
 		} else if(result.error() == protocols::fs::Error::notDirectory) {
 			co_return protocols::fs::Error::notDirectory;
@@ -434,12 +432,9 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
 	auto resolveResult = co_await resolve(std::move(root), std::move(workdir),
 			std::move(name), resolve_flags);
 	if (!resolveResult) {
-		assert(resolveResult.error() == protocols::fs::Error::illegalOperationTarget
-				|| resolveResult.error() == protocols::fs::Error::fileNotFound
+		assert(resolveResult.error() == protocols::fs::Error::fileNotFound
 				|| resolveResult.error() == protocols::fs::Error::notDirectory);
-		if(resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-			co_return Error::illegalOperationTarget;
-		} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 			co_return Error::noSuchFile;
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
 			co_return Error::notDirectory;

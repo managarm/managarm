@@ -55,7 +55,10 @@ enum class Error {
 	noBackingDevice,
 
 	// Corresponds with ENOSPC
-	noSpaceLeft
+	noSpaceLeft,
+
+	// Corresponds with EISDIR
+	isDirectory
 };
 
 // TODO: Rename this enum as is not part of the VFS.

@@ -23,7 +23,8 @@ enum Errors {
 	NOT_DIRECTORY = 20,
 	NO_SPACE_LEFT = 21,
 	NOT_A_TERMINAL = 22,
-	NO_BACKING_DEVICE = 23
+	NO_BACKING_DEVICE = 23,
+	IS_DIRECTORY = 24
 }
 
 consts FileType int64 {

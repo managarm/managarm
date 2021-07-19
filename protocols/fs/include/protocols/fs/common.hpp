@@ -29,8 +29,9 @@ enum class Error {
 	notConnected = 17,
 	alreadyExists = 18,
 	illegalOperationTarget = 19,
-	noSpaceLeft = 20,
+	noSpaceLeft = 21,
 	noBackingDevice = 23,
+	isDirectory = 22,
 };
 
 using ReadResult = std::variant<Error, size_t>;
