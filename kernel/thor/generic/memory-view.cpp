@@ -317,6 +317,17 @@ bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
 	return true;
 }
 
+coroutine<frg::expected<Error>>
+MemoryView::touchRange(uintptr_t offset, size_t size,
+		FetchFlags flags, smarter::shared_ptr<WorkQueue> wq) {
+	size_t progress = 0;
+	while(progress < size) {
+		FRG_CO_TRY(co_await fetchRange(offset + progress, flags, wq));
+		progress += kPageSize;
+	}
+	co_return {};
+}
+
 Error MemoryView::updateRange(ManageRequest, size_t, size_t) {
 	return Error::illegalObject;
 }

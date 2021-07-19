@@ -1440,13 +1440,21 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 			uintptr_t offset, size_t size,
 			uintptr_t context, smarter::shared_ptr<WorkQueue> wq,
 			enable_detached_coroutine = {}) -> void {
-		auto initiateError = co_await memory->submitInitiateLoad(ManageRequest::initialize, offset, size);
-
-		MemoryViewLockHandle lock_handle{memory, offset, size};
-		co_await lock_handle.acquire(wq);
-		if(!lock_handle) {
+		MemoryViewLockHandle lockHandle{memory, offset, size};
+		co_await lockHandle.acquire(wq);
+		if(!lockHandle) {
 			// TODO: Return a better error.
 			HelHandleResult helResult{kHelErrFault, 0, 0};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+
+		// Touch the memory range.
+		// TODO: this should be optional (it is only really useful for no-backing mappings).
+		auto touchOutcome = co_await memory->touchRange(offset, size, 0, wq);
+		if(!touchOutcome) {
+			HelHandleResult helResult{translateError(touchOutcome.error()), 0, kHelNullHandle};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
@@ -1461,10 +1469,10 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 			handle = universe->attachDescriptor(lock,
 					MemoryViewLockDescriptor{
 						smarter::allocate_shared<NamedMemoryViewLock>(
-							*kernelAlloc, std::move(lock_handle))});
+							*kernelAlloc, std::move(lockHandle))});
 		}
 
-		HelHandleResult helResult{translateError(initiateError), 0, handle};
+		HelHandleResult helResult{kHelErrNone, 0, handle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(this_universe), std::move(memory), std::move(queue),

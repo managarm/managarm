@@ -311,6 +311,10 @@ public:
 	// Result stays valid until the range is evicted.
 	virtual frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) = 0;
 
+	// Makes a range of memory available for peekRange().
+	virtual coroutine<frg::expected<Error>>
+	touchRange(uintptr_t offset, size_t size, FetchFlags flags, smarter::shared_ptr<WorkQueue> wq);
+
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
