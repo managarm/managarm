@@ -326,9 +326,6 @@ public:
 
 	virtual void submitManage(ManageNode *handle);
 
-	// TODO: InitiateLoad does more or less the same as fetchRange(). Remove it.
-	virtual void submitInitiateLoad(MonitorNode *initiate);
-
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
 
@@ -455,18 +452,6 @@ public:
 	friend async::sender_awaiter<LockRangeSender, Error>
 	operator co_await(LockRangeSender sender) {
 		return {sender};
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for submitInitiateLoad()
-	// ----------------------------------------------------------------------------------
-
-	coroutine<Error> submitInitiateLoad(ManageRequest type, uintptr_t offset, size_t size) {
-		MonitorNode node;
-		node.setup(type, offset, size);
-		submitInitiateLoad(&node);
-		co_await node.event.wait();
-		co_return node.error();
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -997,7 +982,6 @@ public:
 			fetchRange(uintptr_t offset, FetchFlags flags,
 			smarter::shared_ptr<WorkQueue> wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
-	void submitInitiateLoad(MonitorNode *initiate) override;
 
 	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t offset,
 			smarter::shared_ptr<WorkQueue> wq) override;

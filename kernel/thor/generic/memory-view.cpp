@@ -336,11 +336,6 @@ void MemoryView::submitManage(ManageNode *) {
 	panicLogger() << "MemoryView does not support management!" << frg::endlog;
 }
 
-void MemoryView::submitInitiateLoad(MonitorNode *initiate) {
-	initiate->setup(Error::success);
-	initiate->event.raise();
-}
-
 Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
 		uintptr_t, size_t) {
 	return Error::illegalObject;
@@ -1281,36 +1276,6 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 size_t FrontalMemory::getLength() {
 	// Size is constant so we do not need to lock.
 	return _managed->numPages << kPageShift;
-}
-
-void FrontalMemory::submitInitiateLoad(MonitorNode *node) {
-	ManageList pending;
-	{
-		// TODO: This assumes that we want to load the range (which might not be true).
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_managed->mutex);
-
-		assert(node->offset % kPageSize == 0);
-		assert(node->length % kPageSize == 0);
-		for(size_t pg = 0; pg < node->length; pg += kPageSize) {
-			auto index = (node->offset + pg) >> kPageShift;
-			auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
-			assert(pit);
-			if(pit->loadState == ManagedSpace::kStateMissing) {
-				pit->loadState = ManagedSpace::kStateWantInitialization;
-				_managed->_initializationList.push_back(&pit->cachePage);
-			}
-		}
-
-		_managed->_progressManagement(pending);
-	}
-
-	_managed->submitMonitor(node);
-
-	while(!pending.empty()) {
-		auto node = pending.pop_front();
-		node->complete();
-	}
 }
 
 coroutine<frg::expected<Error, PhysicalAddr>> FrontalMemory::takeGlobalFutex(uintptr_t offset,
