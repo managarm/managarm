@@ -37,6 +37,9 @@ struct VirtualOperations {
 	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view, uintptr_t offset,
 			PageFlags flags);
 
+	virtual frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size);
+
 	virtual frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size);
 

@@ -100,6 +100,23 @@ frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va,
 	return {};
 }
 
+frg::expected<Error> VirtualOperations::cleanPages(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, size_t size) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	for(size_t progress = 0; progress < size; progress += kPageSize) {
+		auto status = cleanSingle4k(va + progress);
+		if(!(status & page_status::present))
+			continue;
+
+		if(status & page_status::dirty)
+			view->markDirty(offset + progress, kPageSize);
+	}
+	return {};
+}
+
 frg::expected<Error> VirtualOperations::unmapPages(VirtualAddr va,
 		MemoryView *view, uintptr_t offset, size_t size) {
 	assert(!(va & (kPageSize - 1)));
@@ -724,24 +741,10 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 		assert(mapping->state == MappingState::active);
 		assert(mappingOffset + mappingChunk <= mapping->length);
 
-		for(size_t chunkProgress = 0; chunkProgress < mappingChunk;
-				chunkProgress += kPageSize) {
-			VirtualAddr vaddr = mapping->address + mappingOffset + chunkProgress;
+		auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mapping->view.get(),
+				mapping->viewOffset + mappingOffset, mappingChunk);
+		assert(cleanOutcome);
 
-			// Do not call into markDirty() with a lock held.
-			PageStatus status;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&mapping->pagingMutex);
-
-				status = _ops->cleanSingle4k(vaddr);
-			}
-
-			if(!(status & page_status::present))
-				continue;
-			if(status & page_status::dirty)
-				mapping->view->markDirty(mapping->viewOffset + chunkProgress, kPageSize);
-		}
 		overallProgress += mappingChunk;
 	}
 	co_await _ops->shootdown(alignedAddress, alignedSize);
