@@ -76,6 +76,23 @@ frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va,
 	return {};
 }
 
+frg::expected<Error> VirtualOperations::unmapPages(VirtualAddr va,
+		MemoryView *view, uintptr_t offset, size_t size) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	for(size_t progress = 0; progress < size; progress += kPageSize) {
+		auto status = unmapSingle4k(va + progress);
+		if(!(status & page_status::present))
+			continue;
+
+		if(status & page_status::dirty)
+			view->markDirty(offset + progress, kPageSize);
+	}
+	return {};
+}
+
 // --------------------------------------------------------
 
 MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
@@ -231,23 +248,9 @@ coroutine<void> Mapping::runEvictionLoop() {
 		assert(!(shootSize & (kPageSize - 1)));
 
 		// Unmap the memory range.
-		for(size_t pg = 0; pg < shootSize; pg += kPageSize) {
-			// Do not call into markDirty() with a lock held.
-			PageStatus status;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&pagingMutex);
-
-				status = owner->_ops->unmapSingle4k(address + shootOffset + pg);
-			}
-
-			if(!(status & page_status::present))
-				continue;
-			if(status & page_status::dirty)
-				view->markDirty(viewOffset + shootOffset + pg, kPageSize);
-			owner->_residuentSize -= kPageSize;
-			logRss(owner.get());
-		}
+		auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset,
+				view.get(), viewOffset + shootOffset, shootSize);
+		assert(unmapOutcome);
 
 		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
 
@@ -311,25 +314,9 @@ void VirtualSpace::retire() {
 		assert(mapping->state == MappingState::active);
 		mapping->state = MappingState::zombie;
 
-		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
-			VirtualAddr vaddr = mapping->address + progress;
-
-			// Do not call into markDirty() with a lock held.
-			PageStatus status;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&mapping->pagingMutex);
-
-				status = _ops->unmapSingle4k(vaddr);
-			}
-
-			if(!(status & page_status::present))
-				continue;
-			if(status & page_status::dirty)
-				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
-			_residuentSize -= kPageSize;
-			logRss(this);
-		}
+		auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->view.get(),
+				mapping->viewOffset, mapping->length);
+		assert(unmapOutcome);
 
 		mapping = MappingTree::successor(mapping);
 	}
@@ -569,25 +556,9 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 	}
 
 	// Mark pages as dirty and unmap without holding a lock.
-	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
-		VirtualAddr vaddr = mapping->address + progress;
-
-		// Do not call into markDirty() with a lock held.
-		PageStatus status;
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&mapping->pagingMutex);
-
-			status = _ops->unmapSingle4k(vaddr);
-		}
-
-		if(!(status & page_status::present))
-			continue;
-		if(status & page_status::dirty)
-			mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
-		_residuentSize -= kPageSize;
-		logRss(this);
-	}
+	auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->view.get(),
+				mapping->viewOffset, mapping->length);
+	assert(unmapOutcome);
 
 	// Create a mapping for the left part of the remaining mapping.
 	if(mapping->address != address) {
