@@ -38,6 +38,26 @@ namespace {
 // Generic VirtualOperation implementation.
 // --------------------------------------------------------
 
+frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, size_t size, PageFlags flags) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	for(size_t progress = 0; progress < size; progress += kPageSize) {
+		auto physicalRange = view->peekRange(offset + progress);
+
+		assert(!isMapped(va + progress));
+		if(physicalRange.get<0>() == PhysicalAddr(-1))
+			continue;
+		assert(!(physicalRange.get<0>() & (kPageSize - 1)));
+
+		mapSingle4k(va + progress, physicalRange.get<0>(),
+				flags, physicalRange.get<1>());
+	}
+	return {};
+}
+
 frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va,
 		MemoryView *view, uintptr_t offset, PageFlags flags) {
 	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1));
@@ -421,22 +441,9 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		// TODO: Allow inaccessible mappings.
 		assert((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-		for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
-			auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
-
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&mapping->pagingMutex);
-
-			VirtualAddr vaddr = mapping->address + progress;
-			assert(!_ops->isMapped(vaddr));
-			if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-				_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
-						pageFlags, physicalRange.get<1>());
-				_residuentSize += kPageSize;
-				logRss(this);
-			}
-		}
-
+		auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
+				mapping->viewOffset, mapping->length, pageFlags);
+		assert(mapOutcome);
 	}
 
 	// Only enable eviction after the peekRange() loop above.

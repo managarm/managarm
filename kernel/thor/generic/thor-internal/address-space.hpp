@@ -28,6 +28,9 @@ struct VirtualOperations {
 	// The following API is based on MemoryView and will replace the legacy API above.
 	// The advantage of this approach is that we do not need on virtual call per page anymore.
 
+	virtual frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags);
+
 	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view, uintptr_t offset,
 			PageFlags flags);
 
