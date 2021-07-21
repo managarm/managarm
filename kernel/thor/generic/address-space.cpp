@@ -58,6 +58,30 @@ frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryVi
 	return {};
 }
 
+frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, size_t size, PageFlags flags) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	for(size_t progress = 0; progress < size; progress += kPageSize) {
+		auto physicalRange = view->peekRange(offset + progress);
+
+		auto status = unmapSingle4k(va + progress);
+		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
+			assert(!(physicalRange.get<0>() & (kPageSize - 1)));
+			mapSingle4k(va + progress, physicalRange.get<0>(),
+					flags, physicalRange.get<1>());
+		}
+
+		if(status & page_status::present) {
+			if(status & page_status::dirty)
+				view->markDirty(offset + progress, kPageSize);
+		}
+	}
+	return {};
+}
+
 frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va,
 		MemoryView *view, uintptr_t offset, PageFlags flags) {
 	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1));
@@ -496,37 +520,11 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 	assert((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	co_await mapping->evictionMutex.async_lock();
+	frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
-	for(size_t progress = 0; progress < mapping->length; progress += kPageSize) {
-		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + progress);
-
-		VirtualAddr vaddr = mapping->address + progress;
-
-		// Do not call into markDirty() with a lock held.
-		PageStatus status;
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&mapping->pagingMutex);
-
-			status = _ops->unmapSingle4k(vaddr);
-			if(physicalRange.get<0>() != PhysicalAddr(-1))
-				_ops->mapSingle4k(vaddr, physicalRange.get<0>(),
-						pageFlags, physicalRange.get<1>());
-		}
-
-		if(status & page_status::present) {
-			if(status & page_status::dirty)
-				mapping->view->markDirty(mapping->viewOffset + progress, kPageSize);
-			if(physicalRange.get<0>() == PhysicalAddr(-1))
-				_residuentSize -= kPageSize;
-		}else{
-			if(physicalRange.get<0>() != PhysicalAddr(-1))
-				_residuentSize += kPageSize;
-		}
-		logRss(this);
-	}
-
-	mapping->evictionMutex.unlock();
+	auto remapOutcome = _ops->remapPresentPages(mapping->address, mapping->view.get(),
+			mapping->viewOffset, mapping->length, pageFlags);
+	assert(remapOutcome);
 
 	co_await _ops->shootdown(address, length);
 	co_return {};
