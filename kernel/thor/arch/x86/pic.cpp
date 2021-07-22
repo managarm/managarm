@@ -509,11 +509,78 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 }
 
 // --------------------------------------------------------
-// I/O APIC management
+// MSI management
 // --------------------------------------------------------
 
 // TODO: Replace this by proper IRQ allocation.
 extern frg::manual_box<IrqSlot> globalIrqSlots[64];
+
+namespace {
+	struct ApicMsiPin final : MsiPin {
+		ApicMsiPin(frg::string<KernelAlloc> name, unsigned int vector)
+		: MsiPin{std::move(name)}, vector_{vector} { }
+
+		IrqStrategy program(TriggerMode mode, Polarity) override {
+			assert(mode == TriggerMode::edge);
+			return IrqStrategy::justEoi;
+		}
+
+		void mask() override {
+			// TODO: Support this.
+			infoLogger() << "\e[31m" "thor: Masking of APIC-MSIs is not implemented" "\e[39m"
+					<< frg::endlog;
+		}
+
+		void unmask() override {
+			// TODO: Implement this when mask() is implemented.
+		}
+
+		void sendEoi() override {
+			acknowledgeIrq(0);
+		}
+
+		uint64_t getMessageAddress() override {
+			return 0xFEE00000;
+		}
+
+		uint32_t getMessageData() override {
+			return vector_;
+		}
+
+	private:
+		unsigned int vector_;
+	};
+}
+
+MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
+	int slotIndex = -1;
+	for(int i = 0; i < 64; i++) {
+		if(!globalIrqSlots[i]->isAvailable())
+			continue;
+		slotIndex = i;
+		break;
+	}
+	if(slotIndex == -1)
+		return nullptr;
+
+	// Create an IRQ pin for the MSI.
+	auto pin = frg::construct<ApicMsiPin>(*kernelAlloc,
+			std::move(name), 64 + slotIndex);
+	pin->configure(IrqConfiguration{
+		.trigger = TriggerMode::edge,
+		.polarity = Polarity::high
+	});
+
+	infoLogger() << "thor: Allocating IRQ slot " << slotIndex
+			<< " to " << pin->name() << frg::endlog;
+	globalIrqSlots[slotIndex]->link(pin);
+
+	return pin;
+}
+
+// --------------------------------------------------------
+// I/O APIC management
+// --------------------------------------------------------
 
 inline constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
 inline constexpr arch::scalar_register<uint32_t> apicData(0x10);

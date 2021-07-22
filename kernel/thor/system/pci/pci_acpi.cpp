@@ -194,6 +194,16 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 			infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
 
 			PciMsiController *msiController = nullptr;
+			#ifdef __x86_64__
+				struct ApicMsiController final : PciMsiController {
+					MsiPin *allocateMsiPin(frg::string<KernelAlloc> name) override {
+						return allocateApicMsi(std::move(name));
+					}
+				};
+
+				msiController = frg::construct<ApicMsiController>(*kernelAlloc);
+			#endif
+
 			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr,
 					getConfigIoFor(0, 0), msiController, 0, 0);
 			rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, handle);
