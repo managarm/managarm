@@ -38,6 +38,7 @@ inline constexpr arch::scalar_register<uint32_t> PCI_DRIVER_FEATURE_WINDOW(12);
 inline constexpr arch::scalar_register<uint8_t> PCI_DEVICE_STATUS(20);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_SELECT(22);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_SIZE(24);
+inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_MSIX_VECTOR(26);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_ENABLE(28);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_NOTIFY(30);
 inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_TABLE[] = {

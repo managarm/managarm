@@ -273,9 +273,11 @@ struct StandardPciTransport : Transport {
 	friend struct StandardPciQueue;
 
 	StandardPciTransport(protocols::hw::Device hw_device,
+			bool useMsi,
 			Mapping common_mapping, Mapping notify_mapping,
 			Mapping isr_mapping, Mapping device_mapping,
-			unsigned int notify_multiplier, helix::UniqueDescriptor irq);
+			unsigned int notify_multiplier, helix::UniqueDescriptor irq,
+			helix::UniqueDescriptor queueMsi);
 
 	protocols::hw::Device &hwDevice() override {
 		return _hwDevice;
@@ -301,14 +303,18 @@ private:
 	arch::mem_space _deviceSpace() { return arch::mem_space{_deviceMapping.get()}; }
 
 	async::detached _processIrqs();
+	async::detached _processQueueMsi();
 
 	protocols::hw::Device _hwDevice;
+	bool _useMsi;
 	Mapping _commonMapping;
 	Mapping _notifyMapping;
 	Mapping _isrMapping;
 	Mapping _deviceMapping;
 	unsigned int _notifyMultiplier;
 	helix::UniqueDescriptor _irq;
+	helix::UniqueDescriptor _queueMsi;
+
 
 	std::vector<std::unique_ptr<StandardPciQueue>> _queues;
 };
@@ -328,13 +334,17 @@ private:
 };
 
 StandardPciTransport::StandardPciTransport(protocols::hw::Device hw_device,
+		bool useMsi,
 		Mapping common_mapping, Mapping notify_mapping,
 		Mapping isr_mapping, Mapping device_mapping,
-		unsigned int notify_multiplier, helix::UniqueDescriptor irq)
+		unsigned int notify_multiplier, helix::UniqueDescriptor irq,
+		helix::UniqueDescriptor queueMsi)
 : _hwDevice{std::move(hw_device)},
+		_useMsi{useMsi},
 		_commonMapping{std::move(common_mapping)}, _notifyMapping{std::move(notify_mapping)},
 		_isrMapping{std::move(isr_mapping)}, _deviceMapping{std::move(device_mapping)},
-		_notifyMultiplier{notify_multiplier}, _irq{std::move(irq)} { }
+		_notifyMultiplier{notify_multiplier}, _irq{std::move(irq)},
+		_queueMsi{std::move(queueMsi)} { }
 
 uint8_t StandardPciTransport::loadConfig8(size_t offset) {
 	return _deviceSpace().load(arch::scalar_register<uint8_t>(offset));
@@ -426,6 +436,14 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 	_commonSpace().store(PCI_QUEUE_AVAILABLE[1], available_physical >> 32);
 	_commonSpace().store(PCI_QUEUE_USED[0], used_physical);
 	_commonSpace().store(PCI_QUEUE_USED[1], used_physical >> 32);
+
+	// Setup MSI-X.
+	if(_useMsi) {
+		_commonSpace().store(PCI_QUEUE_MSIX_VECTOR, 0);
+		if(_commonSpace().load(PCI_QUEUE_MSIX_VECTOR) != 0)
+			throw std::runtime_error("Device failed to allocate MSI-X interrupt");
+	}
+
 	_commonSpace().store(PCI_QUEUE_ENABLE, 1);
 
 	return _queues[queue_index].get();
@@ -435,6 +453,8 @@ void StandardPciTransport::runDevice() {
 	// Finally set the DRIVER_OK bit to finish the configuration.
 	_commonSpace().store(PCI_DEVICE_STATUS, _commonSpace().load(PCI_DEVICE_STATUS) | DRIVER_OK);
 
+	if(_useMsi)
+		_processQueueMsi();
 	_processIrqs();
 }
 
@@ -542,6 +562,20 @@ async::detached StandardPciTransport::_processIrqs() {
 #endif
 }
 
+async::detached StandardPciTransport::_processQueueMsi() {
+	uint64_t sequence = 0;
+	while(true) {
+		auto await = co_await helix_ng::awaitEvent(_queueMsi, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
+
+		HEL_CHECK(helAcknowledgeIrq(_queueMsi.getHandle(), kHelAckAcknowledge, sequence));
+
+		for(auto &queue : _queues)
+			queue->processInterrupt();
+	}
+}
+
 StandardPciQueue::StandardPciQueue(StandardPciTransport *transport,
 		unsigned int queue_index, size_t queue_size,
 		spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used,
@@ -608,6 +642,10 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			common_space.store(PCI_DEVICE_STATUS, 0);
 			assert(!common_space.load(PCI_DEVICE_STATUS));
 
+			// Enable MSI-X.
+			co_await hw_device.enableMsi();
+			auto queueMsi = co_await hw_device.installMsi(0);
+
 			// Set the ACKNOWLEDGE and DRIVER bits.
 			// The specification says this should be done in two steps
 			common_space.store(PCI_DEVICE_STATUS,
@@ -617,9 +655,10 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 
 			std::cout << "virtio: Using standard PCI transport" << std::endl;
 			co_return std::make_unique<StandardPciTransport>(std::move(hw_device),
+					true,
 					std::move(*common_mapping), std::move(*notify_mapping),
 					std::move(*isr_mapping), std::move(*device_mapping),
-					notify_multiplier, std::move(irq));
+					notify_multiplier, std::move(irq), std::move(queueMsi));
 		}
 	}
 
