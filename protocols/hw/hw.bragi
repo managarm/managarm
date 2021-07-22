@@ -3,7 +3,8 @@ namespace "managarm::hw";
 enum Errors {
 	SUCCESS = 0,
 	OUT_OF_BOUNDS,
-	ILLEGAL_ARGUMENTS
+	ILLEGAL_ARGUMENTS,
+	RESOURCE_EXHAUSTION
 }
 
 enum IoType {
@@ -39,11 +40,20 @@ message AccessIrqRequest 3 {
 head(128):
 }
 
+message InstallMsiRequest 14 {
+head(128):
+	uint32 index;
+}
+
 message ClaimDeviceRequest 4 {
 head(128):
 }
 
 message EnableBusIrqRequest 5 {
+head(128):
+}
+
+message EnableMsiRequest 15 {
 head(128):
 }
 
@@ -90,6 +100,7 @@ tail:
 	tags {
 		tag(1) PciBar[] bars;
 		tag(2) PciCapability[] capabilities;
+		tag(9) uint32 num_msis;
 
 		tag(3) uint32 word;
 

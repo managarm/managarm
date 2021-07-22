@@ -48,7 +48,9 @@ async::result<PciInfo> Device::getPciInfo() {
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
-	PciInfo info;
+	PciInfo info{
+		.numMsis = resp.num_msis()
+	};
 
 	for(size_t i = 0; i < resp.capabilities_size(); i++)
 		info.caps.push_back({resp.capabilities(i).type()});
@@ -155,6 +157,43 @@ async::result<helix::UniqueDescriptor> Device::accessIrq() {
 	co_return pull_irq.descriptor();
 }
 
+async::result<helix::UniqueDescriptor> Device::installMsi(int index) {
+	managarm::hw::InstallMsiRequest req;
+	req.set_index(index);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_msi] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
+	HEL_CHECK(pull_msi.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	co_return pull_msi.descriptor();
+}
+
 async::result<void> Device::claimDevice() {
 	managarm::hw::ClaimDeviceRequest req;
 
@@ -189,6 +228,38 @@ async::result<void> Device::claimDevice() {
 
 async::result<void> Device::enableBusIrq() {
 	managarm::hw::EnableBusIrqRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+}
+
+async::result<void> Device::enableMsi() {
+	managarm::hw::EnableMsiRequest req;
 
 	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
 			_lane,

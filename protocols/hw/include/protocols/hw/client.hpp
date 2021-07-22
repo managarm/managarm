@@ -28,6 +28,7 @@ struct Capability {
 struct PciInfo {
 	BarInfo barInfo[6];
 	std::vector<Capability> caps;
+	unsigned int numMsis;
 };
 
 struct FbInfo {
@@ -45,9 +46,11 @@ struct Device {
 	async::result<PciInfo> getPciInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
 	async::result<helix::UniqueDescriptor> accessIrq();
+	async::result<helix::UniqueDescriptor> installMsi(int index);
 
 	async::result<void> claimDevice();
 	async::result<void> enableBusIrq();
+	async::result<void> enableMsi();
 	async::result<void> enableBusmaster();
 
 	async::result<uint32_t> loadPciSpace(size_t offset, unsigned int size);
