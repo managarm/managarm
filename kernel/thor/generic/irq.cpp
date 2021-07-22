@@ -203,7 +203,9 @@ void IrqPin::raise() {
 		// At least on x86, the IRQ controller may buffer up to one edge-triggered IRQ.
 		// If an IRQ is already buffered while we mask it, it will inevitably be raised again.
 		// Thus, we do not immediately complain about edge-triggered IRQs here.
-		if(_strategy != IrqStrategy::justEoi || _maskedRaiseCtr > 1) {
+		auto complain = _strategy != IrqStrategy::justEoi || _maskedRaiseCtr > 1;
+
+		if(complain) {
 			infoLogger() << "\e[35mthor: IRQ controller raised "
 					<< _name << " despite being masked (" << _maskedRaiseCtr
 					<< "x)" "\e[39m" << frg::endlog;
@@ -218,11 +220,13 @@ void IrqPin::raise() {
 					(*it)->dumpHardwareState();
 				}
 			}
+
+			infoLogger() << "thor: Sending end-of-interrupt" << frg::endlog;
 		}
 
-		infoLogger() << "thor: Sending end-of-interrupt" << frg::endlog;
 		sendEoi();
-		dumpHardwareState();
+		if(complain)
+			dumpHardwareState();
 		return;
 	}
 
