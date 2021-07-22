@@ -21,6 +21,10 @@ namespace pci {
 initgraph::Stage *getBus0AvailableStage();
 initgraph::Stage *getDevicesEnumeratedStage();
 
+inline constexpr arch::scalar_register<uint64_t> msixMessageAddress{0};
+inline constexpr arch::scalar_register<uint32_t> msixMessageData{8};
+inline constexpr arch::scalar_register<uint32_t> msixVectorControl{12};
+
 enum class IrqIndex {
 	null, inta, intb, intc, intd
 };
@@ -102,6 +106,7 @@ protected:
 };
 
 struct PciConfigIo;
+struct PciMsiController;
 
 struct PciBusResource {
 	static constexpr uint32_t io = 1;
@@ -161,8 +166,10 @@ private:
 
 struct PciBus {
 	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_, PciConfigIo *io,
+			PciMsiController *msiController_,
 			uint32_t segId_, uint32_t busId_)
 	: associatedBridge{associatedBridge_}, irqRouter{irqRouter_}, io{io},
+		msiController{msiController_},
 		childDevices{*kernelAlloc}, childBridges{*kernelAlloc},
 		resources{*kernelAlloc},
 		segId{segId_}, busId{busId_} { }
@@ -171,7 +178,8 @@ struct PciBus {
 	PciBus &operator=(const PciBus &) = delete;
 
 	PciBus *makeDownstreamBus(PciBridge *bridge, uint32_t downstreamId) {
-		auto newBus = frg::construct<PciBus>(*kernelAlloc, bridge, nullptr, io, segId, downstreamId);
+		auto newBus = frg::construct<PciBus>(*kernelAlloc,
+				bridge, nullptr, io, msiController, segId, downstreamId);
 
 		auto router = irqRouter->makeDownstreamRouter(newBus);
 		newBus->irqRouter = router;
@@ -182,6 +190,7 @@ struct PciBus {
 	PciBridge *associatedBridge;
 	PciIrqRouter *irqRouter;
 	PciConfigIo *io;
+	PciMsiController *msiController;
 	frg::vector<PciDevice *, KernelAlloc> childDevices;
 	frg::vector<PciBridge *, KernelAlloc> childBridges;
 
@@ -301,6 +310,11 @@ struct PciDevice final : PciEntity {
 
 	frg::vector<Capability, KernelAlloc> caps;
 
+	// MSI / MSI-X support.
+	unsigned int numMsis = 0;
+	int msixIndex = -1;
+	void *msixMapping = nullptr;
+
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
 	BootScreen *associatedScreen;
@@ -409,6 +423,13 @@ struct PciConfigIo {
 
 protected:
 	~PciConfigIo() = default;
+};
+
+struct PciMsiController {
+	virtual MsiPin *allocateMsiPin(frg::string<KernelAlloc> name) = 0;
+
+protected:
+	~PciMsiController() = default;
 };
 
 void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io);

@@ -243,6 +243,17 @@ private:
 	> _sinkList;
 };
 
+struct MsiPin : IrqPin {
+	MsiPin(frg::string<KernelAlloc> name)
+	: IrqPin{std::move(name)} { }
+
+	virtual uint64_t getMessageAddress() = 0;
+	virtual uint32_t getMessageData() = 0;
+
+protected:
+	~MsiPin() = default;
+};
+
 // ----------------------------------------------------------------------------
 
 // This class implements the user-visible part of IRQ handling.

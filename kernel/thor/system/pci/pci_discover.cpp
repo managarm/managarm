@@ -95,6 +95,7 @@ namespace {
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
+			resp.set_num_msis(device->numMsis);
 
 			for(size_t i = 0; i < device->caps.size(); i++) {
 				managarm::hw::PciCapability<KernelAlloc> msg(*kernelAlloc);
@@ -188,6 +189,81 @@ namespace {
 			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::InstallMsiRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::InstallMsiRequest>(
+					reqBuffer, *kernelAlloc);
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
+			if(device->msixIndex < 0
+					|| !device->parentBus->msiController
+					|| req->index() >= device->numMsis) {
+				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+
+				auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+				// TODO: improve error handling here.
+				assert(headError == Error::success);
+				assert(tailError == Error::success);
+				co_return true;
+			}
+
+			// Allocate the MSI.
+			auto interrupt = device->parentBus->msiController->allocateMsiPin(
+					frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
+					+ frg::to_allocated_string(*kernelAlloc, device->bus)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, device->slot)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, device->function)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "."}
+					+ frg::to_allocated_string(*kernelAlloc, req->index()));
+			if(!interrupt) {
+				infoLogger() << "thor: Could not allocate interrupt vector for MSI" << frg::endlog;
+
+				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+				resp.set_error(managarm::hw::Errors::RESOURCE_EXHAUSTION);
+
+				auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+				// TODO: improve error handling here.
+				assert(headError == Error::success);
+				assert(tailError == Error::success);
+				co_return true;
+			}
+
+			// Obtain an IRQ object for the interrupt.
+			auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+					frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
+					+ frg::to_allocated_string(*kernelAlloc, device->bus)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, device->slot)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, device->function)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "."}
+					+ frg::to_allocated_string(*kernelAlloc, req->index()));
+			IrqPin::attachSink(interrupt, object.get());
+
+			// Setup the MSI-X table.
+			auto space = arch::mem_space{device->msixMapping}.subspace(req->index() * 16);
+			space.store(msixMessageAddress, interrupt->getMessageAddress());
+			space.store(msixMessageData, interrupt->getMessageData());
+			space.store(msixVectorControl,
+					space.load(msixVectorControl) & ~uint32_t{1});
+
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+
+			// TODO: improve error handling here.
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+
+			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}else if(preamble.id() == bragi::message_id<managarm::hw::ClaimDeviceRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::ClaimDeviceRequest>(reqBuffer, *kernelAlloc);
 
@@ -226,6 +302,44 @@ namespace {
 
 			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
 
+			// TODO: improve error handling here.
+			assert(headError == Error::success);
+			assert(tailError == Error::success);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableMsiRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::EnableMsiRequest>(
+					reqBuffer, *kernelAlloc);
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return true;
+			}
+
+			if(device->msixIndex < 0
+					|| !device->parentBus->msiController) {
+				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+
+				auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
+				// TODO: improve error handling here.
+				assert(headError == Error::success);
+				assert(tailError == Error::success);
+				co_return true;
+			}
+
+			auto io = device->parentBus->io;
+			auto offset = device->caps[device->msixIndex].offset;
+
+			device->enableIrq();
+			auto msgControl = io->readConfigHalf(device->parentBus,
+					device->slot, device->function, offset + 2);
+			msgControl |= 0x8000; // Enable MSI-X.
+			msgControl &= ~uint16_t{0x4000}; // Disable the overall mask.
+			io->writeConfigHalf(device->parentBus,
+					device->slot, device->function, offset + 2, msgControl);
+
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
 			// TODO: improve error handling here.
 			assert(headError == Error::success);
 			assert(tailError == Error::success);
@@ -886,7 +1000,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		if(status & 0x10) {
 			// The bottom two bits of each capability offset must be masked!
 			uint8_t offset = io->readConfigByte(bus, slot, function, kPciRegularCapabilities) & 0xFC;
-			while(offset != 0) {
+			unsigned int index = 0;
+			while(offset) {
 				auto type = io->readConfigByte(bus, slot, function, offset);
 
 				auto name = nameOfCapability(type);
@@ -898,6 +1013,9 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 							<< frg::hex_fmt((int)type) << frg::endlog;
 				}
 
+				if(type == 0x11)
+					device->msixIndex = index;
+
 				// TODO:
 				size_t size = -1;
 				if(type == 0x09)
@@ -907,6 +1025,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 
 				uint8_t successor = io->readConfigByte(bus, slot, function, offset + 1);
 				offset = successor & 0xFC;
+				++index;
 			}
 		}
 
@@ -925,6 +1044,43 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			}else{
 				infoLogger() << "\e[31m" "            Interrupt routing not available!"
 					"\e[39m" << frg::endlog;
+			}
+		}
+
+		// Setup MSI-X.
+		if(device->msixIndex >= 0) {
+			auto offset = device->caps[device->msixIndex].offset;
+
+			auto msgControl = io->readConfigHalf(bus, slot, function, offset + 2);
+			device->numMsis = (msgControl & 0x7F) + 1;
+			infoLogger() << "            " << device->numMsis
+					<< " MSI vectors available" << frg::endlog;
+
+			// Map the MSI-X BAR.
+			auto tableInfo = io->readConfigWord(bus, slot, function, offset + 4);
+			auto tableBar = tableInfo & 0x7;
+			auto tableOffset = tableInfo & 0xFFFF'FFF8;
+			assert(tableBar < 6);
+
+			auto bar = device->bars[tableBar];
+			assert(bar.type == PciBar::kBarMemory);
+			auto mappingDisp = (bar.address + tableOffset) & (kPageSize - 1);
+			auto mappingSize = (mappingDisp + device->numMsis * 16 + kPageSize - 1)
+					& ~(kPageSize - 1);
+
+			auto window = KernelVirtualMemory::global().allocate(0x10000);
+			for(uintptr_t page = 0; page < mappingSize; page += kPageSize)
+				KernelPageSpace::global().mapSingle4k(
+						reinterpret_cast<uintptr_t>(window) + page,
+						(bar.address + tableOffset + page) & ~(kPageSize - 1),
+						page_access::write, CachingMode::null);
+			device->msixMapping = reinterpret_cast<std::byte *>(window) + mappingDisp;
+
+			// Mask all MSIs.
+			for(unsigned int i = 0; i < device->numMsis; ++i) {
+				auto space = arch::mem_space{device->msixMapping}.subspace(i * 16);
+				space.store(msixVectorControl,
+						space.load(msixVectorControl) | 1);
 			}
 		}
 

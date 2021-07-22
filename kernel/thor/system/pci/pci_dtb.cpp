@@ -120,7 +120,7 @@ void initPciNode(DeviceTreeNode *node) {
 		return;
 	}
 
-	auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, io, 0, 0);
+	auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, io, nullptr, 0, 0);
 	rootBus->irqRouter = frg::construct<DtbPciIrqRouter>(*kernelAlloc, nullptr, rootBus, node);
 
 	for (auto &r : node->ranges()) {

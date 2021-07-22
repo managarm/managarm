@@ -192,7 +192,10 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 			// TODO: parse _SEG and _BUS to get the segment and bus numbers
 
 			infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
-			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, getConfigIoFor(0, 0), 0, 0);
+
+			PciMsiController *msiController = nullptr;
+			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr,
+					getConfigIoFor(0, 0), msiController, 0, 0);
 			rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, handle);
 			addRootBus(rootBus);
 		}
