@@ -108,6 +108,8 @@ struct StorageDevice : blockfs::BlockDevice {
 	async::result<void> writeSectors(uint64_t sector,
 			const void *buffer, size_t numSectors) override;
 
+	async::result<size_t> getSize() override;
+
 private:
 	struct Request {
 		Request(bool isWrite, uint64_t sector, void *buffer, size_t numSectors)

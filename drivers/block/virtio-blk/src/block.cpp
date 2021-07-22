@@ -22,7 +22,7 @@ UserRequest::UserRequest(bool write_, uint64_t sector_, void *buffer_, size_t nu
 
 Device::Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent_id)
 : blockfs::BlockDevice{512, parent_id}, _transport{std::move(transport)},
-		_requestQueue{nullptr} { }
+		_requestQueue{nullptr}, _size{0} { }
 
 void Device::runDevice() {
 	_transport->finalizeFeatures();
@@ -32,6 +32,7 @@ void Device::runDevice() {
 	auto size = static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[0]))
 			| (static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[1])) << 32);
 	std::cout << "virtio: Disk size: " << size << " sectors" << std::endl;
+	_size = size;
 
 	_transport->runDevice();
 
@@ -88,6 +89,10 @@ async::result<void> Device::writeSectors(uint64_t sector,
 		co_await request->event.wait();
 		delete request;
 	}
+}
+
+async::result<size_t> Device::getSize() {
+	co_return _size * 512;
 }
 
 async::detached Device::_processRequests() {

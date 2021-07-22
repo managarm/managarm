@@ -84,5 +84,9 @@ async::result<void> Partition::writeSectors(uint64_t sector, const void *buffer,
 			buffer, count);
 }
 
+async::result<size_t> Partition::getSize() {
+	co_return _numSectors * sectorSize;
+}
+
 } } // namespace blockfs::gpt
 

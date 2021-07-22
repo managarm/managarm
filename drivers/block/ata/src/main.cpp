@@ -70,6 +70,8 @@ public:
 	async::result<void> writeSectors(uint64_t sector, const void *buffer,
 			size_t num_sectors) override;
 
+	async::result<size_t> getSize() override;
+
 private:
 	enum Commands {
 		kCommandReadSectors = 0x20,
@@ -234,6 +236,11 @@ async::result<void> Controller::writeSectors(uint64_t sector,
 	_doorbell.raise();
 
 	co_await request.event.wait();
+}
+
+async::result<size_t> Controller::getSize() {
+	std::cout << "ata: Controller::getSize() is a stub!" << std::endl;
+	co_return 0;
 }
 
 async::result<bool> Controller::_detectDevice() {

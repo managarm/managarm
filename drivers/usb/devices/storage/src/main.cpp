@@ -29,7 +29,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 
 	std::experimental::optional<int> in_endp_number;
 	std::experimental::optional<int> out_endp_number;
-	
+
 	walkConfiguration(descriptor, [&] (int type, size_t, void *, const auto &info) {
 		if(type == descriptor_type::endpoint) {
 			if(info.endpointIn.value()) {
@@ -47,7 +47,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 
 	if(logSteps)
 		std::cout << "block-usb: Setting up configuration" << std::endl;
-	
+
 	auto config = (co_await _usbDevice.useConfiguration(config_num)).unwrap();
 	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
 	auto endp_in = (co_await intf.getEndpoint(PipeType::in, in_endp_number.value())).unwrap();
@@ -60,7 +60,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 		if(!_queue.empty()) {
 			auto req = &_queue.front();
 			_queue.pop_front();
-			
+
 			if(logRequests)
 				std::cout << "block-usb: Reading " << req->numSectors << " sectors" << std::endl;
 			assert(req->numSectors);
@@ -136,7 +136,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 				std::cout << "block-usb: Sending CBW" << std::endl;
 			(co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
 					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}})).unwrap();
-			
+
 			if(logSteps)
 				std::cout << "block-usb: Waiting for data" << std::endl;
 			if(!req->isWrite) {
@@ -191,16 +191,21 @@ async::result<void> StorageDevice::writeSectors(uint64_t sector,
 	co_await req.event.wait();
 }
 
+async::result<size_t> StorageDevice::getSize() {
+	std::cout << "usb: StorageDevice::getSize() is a stub!" << std::endl;
+	co_return 0;
+}
+
 async::detached bindDevice(mbus::Entity entity) {
 	auto lane = helix::UniqueLane(co_await entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
-	
+
 	std::experimental::optional<int> config_number;
 	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> intf_class;
 	std::experimental::optional<int> intf_subclass;
 	std::experimental::optional<int> intf_protocol;
-	
+
 	if(logEnumeration)
 		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
@@ -224,7 +229,7 @@ async::detached bindDevice(mbus::Entity entity) {
 				std::cout << "block-usb: Found interface: " << info.interfaceNumber.value()
 						<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
 			intf_number = info.interfaceNumber.value();
-			
+
 			assert(!intf_class);
 			assert(!intf_subclass);
 			assert(!intf_protocol);
@@ -279,6 +284,8 @@ int main() {
 
 	observeDevices();
 	async::run_forever(helix::currentDispatcher);
+
+	return 0;
 }
 
 

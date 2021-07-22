@@ -102,6 +102,8 @@ struct Partition : public BlockDevice {
 	async::result<void> writeSectors(uint64_t sector, const void *buffer,
 			size_t num_sectors) override;
 
+	async::result<size_t> getSize() override;
+
 	Guid id();
 
 	Guid type();

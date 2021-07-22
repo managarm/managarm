@@ -62,6 +62,8 @@ struct Device : blockfs::BlockDevice {
 	async::result<void> writeSectors(uint64_t sector,
 			const void *buffer, size_t num_sectors) override;
 
+	async::result<size_t> getSize() override;
+
 private:
 	// Submits requests from _pendingQueue to the device.
 	async::detached _processRequests();
@@ -79,6 +81,9 @@ private:
 	// they are indexed by the index of the request's first descriptor
 	VirtRequest *virtRequestBuffer;
 	uint8_t *statusBuffer;
+
+	// The size of the disk
+	size_t _size;
 };
 
 } } // namespace block::virtio

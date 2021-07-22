@@ -45,3 +45,8 @@ async::result<void> Namespace::writeSectors(uint64_t sector, const void *buffer,
 
 	co_await controller_->submitIoCommand(std::move(cmd));
 }
+
+async::result<size_t> Namespace::getSize() {
+	std::cout << "nvme: Namespace::getSize() is a stub!" << std::endl;
+	co_return 1;
+}

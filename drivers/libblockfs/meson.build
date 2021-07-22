@@ -1,4 +1,4 @@
-src = [ 'src/libblockfs.cpp', 'src/gpt.cpp', 'src/ext2fs.cpp' ]
+src = [ 'src/libblockfs.cpp', 'src/gpt.cpp', 'src/ext2fs.cpp' , 'src/raw.cpp' ]
 inc = [ 'include' ]
 deps = [ fs_proto_dep, mbus_proto_dep, ostrace_proto_dep ]
 

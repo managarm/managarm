@@ -289,3 +289,8 @@ async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }
+
+async::result<size_t> Port::getSize() {
+	std::cout << "ahci: Port::getSize() is a stub!" << std::endl;
+	co_return 0;
+}

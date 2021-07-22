@@ -12,6 +12,7 @@ struct Namespace : blockfs::BlockDevice {
 
 	async::result<void> readSectors(uint64_t sector, void *buf, size_t numSectors) override;
 	async::result<void> writeSectors(uint64_t sector, const void *buf, size_t numSectors) override;
+	async::result<size_t> getSize() override;
 
 private:
 	Controller *controller_;
