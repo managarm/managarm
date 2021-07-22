@@ -179,6 +179,8 @@ struct FileOperations {
 			void *addr_buf, size_t addr_size,
 			std::vector<uint32_t> fds);
 	async::result<frg::expected<Error, size_t>> (*peername)(void *object, void *addr_ptr, size_t max_addr_length);
+
+	bool logRequests = false;
 };
 
 struct StatusPageProvider {

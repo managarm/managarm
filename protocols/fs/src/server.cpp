@@ -18,6 +18,10 @@ namespace {
 async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		const FileOperations *file_ops,
 		managarm::fs::CntRequest req, helix::UniqueLane conversation) {
+	if(file_ops->logRequests)
+		std::cout << "handlePassThrough(): serving request of type " <<
+			(int)req.req_type() << std::endl;
+
 	if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
 		if(!file_ops->seekAbs) {
 			managarm::fs::SvrResponse resp;
@@ -252,7 +256,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			} else {
 				std::cout << "Unknown error from write()" << std::endl;
 				co_return;
-			}	
+			}
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
