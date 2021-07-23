@@ -447,9 +447,9 @@ async::result<void> FileSystem::init() {
 	HelHandle block_bitmap_frontal, inode_bitmap_frontal;
 	HelHandle block_bitmap_backing, inode_bitmap_backing;
 	HEL_CHECK(helCreateManagedMemory(numBlockGroups << blockPagesShift,
-			kHelAllocBacked, &block_bitmap_backing, &block_bitmap_frontal));
+			0, &block_bitmap_backing, &block_bitmap_frontal));
 	HEL_CHECK(helCreateManagedMemory(numBlockGroups << blockPagesShift,
-			kHelAllocBacked, &inode_bitmap_backing, &inode_bitmap_frontal));
+			0, &inode_bitmap_backing, &inode_bitmap_frontal));
 	blockBitmap = helix::UniqueDescriptor{block_bitmap_frontal};
 	inodeBitmap = helix::UniqueDescriptor{inode_bitmap_frontal};
 
@@ -461,7 +461,7 @@ async::result<void> FileSystem::init() {
 	HelHandle inode_table_frontal;
 	HelHandle inode_table_backing;
 	HEL_CHECK(helCreateManagedMemory(inodesPerGroup * inodeSize * numBlockGroups,
-			kHelAllocBacked, &inode_table_backing, &inode_table_frontal));
+			0, &inode_table_backing, &inode_table_frontal));
 	inodeTable = helix::UniqueDescriptor{inode_table_frontal};
 
 	manageInodeTable(helix::UniqueDescriptor{inode_table_backing});
@@ -788,7 +788,7 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 
 	// Allocate a page cache for the file.
 	auto cache_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
-	HEL_CHECK(helCreateManagedMemory(cache_size, kHelAllocBacked,
+	HEL_CHECK(helCreateManagedMemory(cache_size, 0,
 			&inode->backingMemory, &inode->frontalMemory));
 
 	if (inode->fileType == kTypeDirectory) {
@@ -801,9 +801,9 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	HelHandle frontalOrder1, frontalOrder2;
 	HelHandle backingOrder1, backingOrder2;
 	HEL_CHECK(helCreateManagedMemory(3 << blockPagesShift,
-			kHelAllocBacked, &backingOrder1, &frontalOrder1));
+			0, &backingOrder1, &frontalOrder1));
 	HEL_CHECK(helCreateManagedMemory((blockSize / 4) << blockPagesShift,
-			kHelAllocBacked, &backingOrder2, &frontalOrder2));
+			0, &backingOrder2, &frontalOrder2));
 	inode->indirectOrder1 = helix::UniqueDescriptor{frontalOrder1};
 	inode->indirectOrder2 = helix::UniqueDescriptor{frontalOrder2};
 
