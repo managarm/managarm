@@ -10,9 +10,9 @@ namespace thor {
 namespace {
 	constexpr bool logUsage = false;
 	constexpr bool logUncaching = false;
-	constexpr bool tortureUncaching = false;
 
 	// The following flags are debugging options to debug the correctness of various components.
+	constexpr bool tortureUncaching = false;
 	constexpr bool disableUncaching = false;
 }
 
@@ -137,7 +137,7 @@ struct MemoryReclaimer {
 		KernelFiber::run([=] {
 			while(true) {
 				if(logUncaching) {
-					auto irq_lock = frg::guard(&irqMutex());
+					auto irqLock = frg::guard(&irqMutex());
 					auto lock = frg::guard(&_mutex);
 					infoLogger() << "thor: " << (_cachedSize / 1024)
 							<< " KiB of cached pages" << frg::endlog;
@@ -145,7 +145,11 @@ struct MemoryReclaimer {
 
 				while(checkReclaim())
 					;
-				KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(1'000'000'000));
+				if(tortureUncaching) {
+					KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(10'000'000));
+				}else{
+					KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(1'000'000'000));
+				}
 			}
 		});
 	}
