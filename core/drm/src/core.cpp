@@ -1009,19 +1009,12 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{
-		helix::SendBuffer send_resp;
-		managarm::fs::SvrResponse resp;
-
 		std::cout << "\e[31m" "core/drm: Unknown ioctl() with ID "
 				<< req.command() << "\e[39m" << std::endl;
 
-		resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-
-		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
-		co_await transmit.async_wait();
-		HEL_CHECK(send_resp.error());
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
 	}
 }
 
