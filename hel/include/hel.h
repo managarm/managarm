@@ -248,6 +248,10 @@ struct HelAllocRestrictions {
 	int addressBits;
 };
 
+enum HelManagedFlags {
+	kHelManagedReadahead = 1
+};
+
 enum HelManageRequests {
 	kHelManageInitialize = 1,
 	kHelManageWriteback = 2

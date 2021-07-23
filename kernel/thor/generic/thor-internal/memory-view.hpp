@@ -887,7 +887,7 @@ struct ManagedSpace : CacheBundle {
 		ManagedSpace *self;
 	};
 
-	ManagedSpace(size_t length);
+	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
 
 	bool uncachePage(CachePage *page, ReclaimNode *node) override;
@@ -909,6 +909,7 @@ struct ManagedSpace : CacheBundle {
 	frg::rcu_radixtree<ManagedPage, KernelAlloc> pages;
 
 	size_t numPages;
+	bool readahead;
 
 	EvictionQueue _evictQueue;
 

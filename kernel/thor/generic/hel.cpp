@@ -419,26 +419,29 @@ HelError helResizeMemory(HelHandle handle, size_t newSize) {
 
 HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle) {
-	(void)flags;
-	assert(!(size & (kPageSize - 1)));
+	if(flags & ~uint32_t{kHelManagedReadahead})
+		return kHelErrIllegalArgs;
+	if(size & (kPageSize - 1))
+		return kHelErrIllegalArgs;
 
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
-	auto managed = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, size);
+	auto managed = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, size,
+			flags & kHelManagedReadahead);
 	managed->selfPtr = managed;
-	auto backing_memory = smarter::allocate_shared<BackingMemory>(*kernelAlloc, managed);
-	auto frontal_memory = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, std::move(managed));
-	frontal_memory->selfPtr = frontal_memory;
+	auto backingMemory = smarter::allocate_shared<BackingMemory>(*kernelAlloc, managed);
+	auto frontalMemory = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, std::move(managed));
+	frontalMemory->selfPtr = frontalMemory;
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
+		Universe::Guard universe_guard(thisUniverse->lock);
 
-		*backing_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(std::move(backing_memory)));
-		*frontal_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(std::move(frontal_memory)));
+		*backing_handle = thisUniverse->attachDescriptor(universe_guard,
+				MemoryViewDescriptor(std::move(backingMemory)));
+		*frontal_handle = thisUniverse->attachDescriptor(universe_guard,
+				MemoryViewDescriptor(std::move(frontalMemory)));
 	}
 
 	return kHelErrNone;

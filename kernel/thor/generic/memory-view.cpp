@@ -713,8 +713,8 @@ void AllocatedMemory::retireGlobalFutex(uintptr_t) {
 // ManagedSpace
 // --------------------------------------------------------
 
-ManagedSpace::ManagedSpace(size_t length)
-: pages{*kernelAlloc}, numPages{length >> kPageShift} {
+ManagedSpace::ManagedSpace(size_t length, bool readahead)
+: pages{*kernelAlloc}, numPages{length >> kPageShift}, readahead{readahead} {
 	assert(!(length & (kPageSize - 1)));
 }
 
@@ -1202,6 +1202,21 @@ FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, smarter::shared_pt
 			pit->loadState = ManagedSpace::kStateWantInitialization;
 			_managed->_initializationList.push_back(&pit->cachePage);
 		}
+
+		// Perform readahead.
+		if(_managed->readahead)
+			for(size_t i = 1; i < 4; ++i) {
+				if(!(index + i < _managed->numPages))
+					break;
+				auto [pit, wasInserted] = _managed->pages.find_or_insert(
+						index + i, _managed.get(), index + i);
+				assert(pit);
+				if(pit->loadState == ManagedSpace::kStateMissing) {
+					pit->loadState = ManagedSpace::kStateWantInitialization;
+					_managed->_initializationList.push_back(&pit->cachePage);
+				}
+			}
+
 		_managed->_progressManagement(pendingManagement);
 
 		fetchMonitor.setup(ManageRequest::initialize, offset, kPageSize);
