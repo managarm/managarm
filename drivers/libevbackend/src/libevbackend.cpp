@@ -265,7 +265,10 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		);
 		HEL_CHECK(send_resp.error());
 	}else{
-		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
+		std::cout << "Unknown ioctl() with ID " << std::to_string(req.command()) << std::endl;
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
 	}
 }
 
