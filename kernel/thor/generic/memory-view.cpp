@@ -932,7 +932,8 @@ void ManagedSpace::_progressMonitors(MonitorList &pending) {
 			size_t index = (node->offset + node->progress) >> kPageShift;
 			auto pit = pages.find(index);
 			assert(pit);
-			if(pit->loadState == kStateWantInitialization
+			if(pit->loadState == kStateMissing
+					|| pit->loadState == kStateWantInitialization
 					|| pit->loadState == kStateInitialization)
 				return false;
 
