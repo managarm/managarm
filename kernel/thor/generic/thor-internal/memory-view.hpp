@@ -27,38 +27,17 @@ struct Mapping;
 struct AddressSpace;
 struct AddressSpaceLockHandle;
 struct FaultNode;
+struct MemoryReclaimer;
 
-struct CachePage;
-
-struct ReclaimNode {
-	void setup(Worklet *worklet) {
-		_worklet = worklet;
-	}
-
-	void complete() {
-		WorkQueue::post(_worklet);
-	}
-
-private:
-	Worklet *_worklet;
-};
-
-// This is the "backend" part of a memory object.
-struct CacheBundle {
-	virtual ~CacheBundle() = default;
-
-	virtual bool uncachePage(CachePage *page, ReclaimNode *node) = 0;
-
-	// Called once the reference count of a CachePage reaches zero.
-	virtual void retirePage(CachePage *page) = 0;
-};
+struct CacheBundle;
 
 struct CachePage {
-	static constexpr uint32_t reclaimStateMask = 0x03;
-	// Page is clean and evicatable (part of LRU list).
-	static constexpr uint32_t reclaimCached    = 0x01;
-	// Page is currently being evicted (not in LRU list).
-	static constexpr uint32_t reclaimUncaching  = 0x02;
+	// Page is registered with the reclaim mechanism.
+	static constexpr uint32_t reclaimRegistered = 0x01;
+	// Page is currently being evicted (not in LRU list, but in bundle list).
+	static constexpr uint32_t reclaimPosted = 0x02;
+	// Page has been evicted (neither in the LRU, nor in the bundle list).
+	static constexpr uint32_t reclaimInflight = 0x04;
 
 	// CacheBundle that owns this page.
 	CacheBundle *bundle = nullptr;
@@ -70,11 +49,24 @@ struct CachePage {
 	// Hooks for LRU lists.
 	frg::default_list_hook<CachePage> listHook;
 
-	// To coordinate memory reclaim and the CacheBundle that owns this page,
-	// we need a reference counter. This is not related to memory locking.
-	std::atomic<uint32_t> refcount = 0;
-
 	uint32_t flags = 0;
+};
+
+// This is the "backend" part of a memory object.
+struct CacheBundle {
+	friend struct MemoryReclaimer;
+
+private:
+	frg::intrusive_list<
+		CachePage,
+		frg::locate_member<
+			CachePage,
+			frg::default_list_hook<CachePage>,
+			&CachePage::listHook
+		>
+	> _reclaimList;
+
+	async::recurring_event _reclaimEvent;
 };
 
 struct GlobalFutexSpace {
@@ -889,10 +881,6 @@ struct ManagedSpace : CacheBundle {
 
 	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
-
-	bool uncachePage(CachePage *page, ReclaimNode *node) override;
-
-	void retirePage(CachePage *page) override;
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);

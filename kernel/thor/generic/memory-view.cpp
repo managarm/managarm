@@ -22,54 +22,86 @@ namespace {
 
 struct MemoryReclaimer {
 	void addPage(CachePage *page) {
-		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frg::guard(&irqMutex());
+		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		// The reclaimer owns one reference to the page.
-		// This ensures that it can safely initiate uncaching operations.
-		page->refcount.fetch_add(1, std::memory_order_acq_rel);
+		assert(!(page->flags & CachePage::reclaimRegistered));
 
-		assert(!(page->flags & CachePage::reclaimStateMask));
 		_lruList.push_back(page);
-		page->flags |= CachePage::reclaimCached;
+		page->flags |= CachePage::reclaimRegistered;
 		_cachedSize += kPageSize;
 	}
 
-	void bumpPage(CachePage *page) {
-		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frg::guard(&irqMutex());
+	void removePage(CachePage *page) {
+		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
+		assert(page->flags & CachePage::reclaimRegistered);
+
+		if(page->flags & CachePage::reclaimPosted) {
+			if(!(page->flags & CachePage::reclaimInflight)) {
+				auto it = page->bundle->_reclaimList.iterator_to(page);
+				page->bundle->_reclaimList.erase(it);
+			}
+
+			page->flags &= ~(CachePage::reclaimPosted | CachePage::reclaimInflight);
+		}else{
 			auto it = _lruList.iterator_to(page);
 			_lruList.erase(it);
-		}else {
-			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimUncaching);
-			page->flags &= ~CachePage::reclaimStateMask;
-			page->flags |= CachePage::reclaimCached;
+			_cachedSize -= kPageSize;
+		}
+		page->flags &= ~CachePage::reclaimRegistered;
+	}
+
+	void bumpPage(CachePage *page) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		assert(page->flags & CachePage::reclaimRegistered);
+
+		if(page->flags & CachePage::reclaimPosted) {
+			if(!(page->flags & CachePage::reclaimInflight)) {
+				auto it = page->bundle->_reclaimList.iterator_to(page);
+				page->bundle->_reclaimList.erase(it);
+			}
+
+			page->flags &= ~(CachePage::reclaimPosted | CachePage::reclaimInflight);
 			_cachedSize += kPageSize;
+		}else{
+			auto it = _lruList.iterator_to(page);
+			_lruList.erase(it);
 		}
 
 		_lruList.push_back(page);
 	}
 
-	void removePage(CachePage *page) {
-		// TODO: Do we need the IRQ lock here?
-		auto irq_lock = frg::guard(&irqMutex());
+	auto awaitReclaim(CacheBundle *bundle, async::cancellation_token ct = {}) {
+		return async::sequence(
+			async::transform(
+				bundle->_reclaimEvent.async_wait(ct),
+				[] (auto) { }
+			),
+			// TODO: Use the reclaim fiber, not WorkQueue::generalQueue().
+			WorkQueue::generalQueue()->schedule()
+		);
+	}
+
+	CachePage *reclaimPage(CacheBundle *bundle) {
+		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		if((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimCached) {
-			auto it = _lruList.iterator_to(page);
-			_lruList.erase(it);
-			_cachedSize -= kPageSize;
-		}else{
-			assert((page->flags & CachePage::reclaimStateMask) == CachePage::reclaimUncaching);
-		}
-		page->flags &= ~CachePage::reclaimStateMask;
+		if(bundle->_reclaimList.empty())
+			return nullptr;
 
-		if(page->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
-			page->bundle->retirePage(page);
+		auto page = bundle->_reclaimList.pop_front();
+
+		assert(page->flags & CachePage::reclaimRegistered);
+		assert(page->flags & CachePage::reclaimPosted);
+		assert(!(page->flags & CachePage::reclaimInflight));
+
+		page->flags |= CachePage::reclaimInflight;
+
+		return page;
 	}
 
 	void runReclaimFiber() {
@@ -77,59 +109,36 @@ struct MemoryReclaimer {
 			if(disableUncaching)
 				return false;
 
-			// Take a single page out of the LRU list.
-			// TODO: We have to acquire a refcount here.
-			CachePage *page;
-			{
-				auto irq_lock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&_mutex);
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
 
-				if(_lruList.empty())
+			if(_lruList.empty())
+				return false;
+
+			if(!tortureUncaching) {
+				auto pagesWatermark = physicalAllocator->numTotalPages() * 3 / 4;
+				auto usedPages = physicalAllocator->numUsedPages();
+				if(usedPages < pagesWatermark) {
 					return false;
-
-				if(!tortureUncaching) {
-					auto pagesWatermark = physicalAllocator->numTotalPages() * 3 / 4;
-					auto usedPages = physicalAllocator->numUsedPages();
-					if(usedPages < pagesWatermark) {
-						return false;
-					}else{
-						if(logUncaching)
-							infoLogger() << "thor: Uncaching page. " << usedPages
-									<< " pages are in use (watermark: " << pagesWatermark << ")"
-									<< frg::endlog;
-					}
+				}else{
+					if(logUncaching)
+						infoLogger() << "thor: Uncaching page. " << usedPages
+								<< " pages are in use (watermark: " << pagesWatermark << ")"
+								<< frg::endlog;
 				}
-
-				page = _lruList.pop_front();
-
-				// Take another reference while we do the uncaching. (removePage() could be
-				// called concurrently and release the reclaimer's reference).
-				page->refcount.fetch_add(1, std::memory_order_acq_rel);
-
-				page->flags &= ~CachePage::reclaimStateMask;
-				page->flags |= CachePage::reclaimUncaching;
-				_cachedSize -= kPageSize;
 			}
 
-			// Evict the page and wait until it is evicted.
-			struct Closure {
-				FiberBlocker blocker;
-				Worklet worklet;
-				ReclaimNode node;
-			} closure;
+			auto page = _lruList.pop_front();
 
-			closure.worklet.setup([] (Worklet *base) {
-				auto closure = frg::container_of(base, &Closure::worklet);
-				KernelFiber::unblockOther(&closure->blocker);
-			}, thisFiber()->associatedWorkQueue());
+			assert(page->flags & CachePage::reclaimRegistered);
+			assert(!(page->flags & CachePage::reclaimPosted));
+			assert(!(page->flags & CachePage::reclaimInflight));
 
-			closure.blocker.setup();
-			closure.node.setup(&closure.worklet);
-			if(!page->bundle->uncachePage(page, &closure.node))
-				KernelFiber::blockCurrent(&closure.blocker);
+			page->flags |= CachePage::reclaimPosted;
+			_cachedSize -= kPageSize;
 
-			if(page->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
-				page->bundle->retirePage(page);
+			page->bundle->_reclaimList.push_back(page);
+			page->bundle->_reclaimEvent.raise();
 
 			return true;
 		};
@@ -720,56 +729,59 @@ void AllocatedMemory::retireGlobalFutex(uintptr_t) {
 ManagedSpace::ManagedSpace(size_t length, bool readahead)
 : pages{*kernelAlloc}, numPages{length >> kPageShift}, readahead{readahead} {
 	assert(!(length & (kPageSize - 1)));
+
+	[] (ManagedSpace *self, enable_detached_coroutine = {}) -> void {
+		while(true) {
+			// TODO: Cancel awaitReclaim() when the ManagedSpace is destructed.
+			co_await globalReclaimer->awaitReclaim(self);
+
+			CachePage *page;
+			ManagedPage *pit;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+
+				page = globalReclaimer->reclaimPage(self);
+				if(!page)
+					continue;
+
+				size_t index = page->identity;
+				pit = self->pages.find(index);
+				assert(pit);
+				assert(pit->loadState == kStatePresent);
+				assert(!pit->lockCount);
+				pit->loadState = kStateEvicting;
+				globalReclaimer->removePage(&pit->cachePage);
+			}
+
+			co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
+
+			PhysicalAddr physical;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+
+				if(pit->loadState != kStateEvicting)
+					continue;
+				assert(!pit->lockCount);
+				assert(pit->physical != PhysicalAddr(-1));
+				physical = pit->physical;
+
+				pit->loadState = kStateMissing;
+				pit->physical = PhysicalAddr(-1);
+			}
+
+			if(logUncaching)
+				infoLogger() << "\e[33mEvicting physical page\e[39m" << frg::endlog;
+			physicalAllocator->free(physical, kPageSize);
+		}
+	}(this);
 }
 
 ManagedSpace::~ManagedSpace() {
 	// TODO: Free all physical memory.
 	// TODO: We also have to remove all Loaded/Evicting pages from the reclaimer.
 	assert(!"Implement this");
-}
-
-bool ManagedSpace::uncachePage(CachePage *page, ReclaimNode *continuation) {
-	ManagedPage *pit;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex);
-
-		size_t index = page->identity;
-		pit = pages.find(index);
-		assert(pit);
-		assert(pit->loadState == kStatePresent);
-		assert(!pit->lockCount);
-		pit->loadState = kStateEvicting;
-		globalReclaimer->removePage(&pit->cachePage);
-	}
-
-	async::detach_with_allocator(*kernelAlloc, [] (
-			ManagedSpace *self, CachePage *page, ManagedPage *pit,
-			ReclaimNode *continuation) -> coroutine<void> {
-		co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
-
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&self->mutex);
-
-		if(pit->loadState != kStateEvicting)
-			co_return;
-		assert(!pit->lockCount);
-
-		if(logUncaching)
-			infoLogger() << "\e[33mEvicting physical page\e[39m" << frg::endlog;
-		assert(pit->physical != PhysicalAddr(-1));
-		physicalAllocator->free(pit->physical, kPageSize);
-		pit->loadState = kStateMissing;
-		pit->physical = PhysicalAddr(-1);
-		continuation->complete();
-	}(this, page, pit, continuation));
-	return false;
-}
-
-void ManagedSpace::retirePage(CachePage *) {
-	// TODO: Take a reference to the CachePage when it is first used.
-	//       Take a reference to the ManagedSpace for each CachePage in use (so that it is not
-	//       destructed until all CachePages are retired).
 }
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
