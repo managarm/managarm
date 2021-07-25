@@ -287,11 +287,20 @@ void PageBinding::shootdown() {
 					// Perform the actual shootdown.
 					if(!getCpuData()->havePcids) {
 						assert(!_pcid);
-						for(size_t pg = 0; pg < current->size; pg += kPageSize)
-							invalidatePage(reinterpret_cast<void *>(current->address + pg));
+						if((current->size >> kPageShift) >= 64) {
+							invalidateFullTlb();
+						}else{
+							for(size_t pg = 0; pg < current->size; pg += kPageSize)
+								invalidatePage(reinterpret_cast<void *>(current->address + pg));
+						}
 					}else{
-						for(size_t pg = 0; pg < current->size; pg += kPageSize)
-							invalidatePage(_pcid, reinterpret_cast<void *>(current->address + pg));
+						if((current->size >> kPageShift) >= 64) {
+							invalidatePcid(_pcid);
+						}else{
+							for(size_t pg = 0; pg < current->size; pg += kPageSize)
+								invalidatePage(_pcid,
+										reinterpret_cast<void *>(current->address + pg));
+						}
 					}
 
 					// Signal completion of the shootdown.
@@ -463,8 +472,12 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 			if(bindings[0].boundSpace().get() == this) {
 				assert(unshot_bindings);
 
-				for(size_t pg = 0; pg < node->size; pg += kPageSize)
-					invalidatePage(reinterpret_cast<void *>(node->address + pg));
+				if((node->size >> kPageShift) >= 64) {
+					invalidateFullTlb();
+				}else{
+					for(size_t pg = 0; pg < node->size; pg += kPageSize)
+						invalidatePage(reinterpret_cast<void *>(node->address + pg));
+				}
 				unshot_bindings--;
 			}
 		}else{
@@ -473,9 +486,13 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 					continue;
 				assert(unshot_bindings);
 
-				for(size_t pg = 0; pg < node->size; pg += kPageSize)
-					invalidatePage(bindings[i].getPcid(),
-							reinterpret_cast<void *>(node->address + pg));
+				if((node->size >> kPageShift) >= 64) {
+					invalidatePcid(bindings[i].getPcid());
+				}else{
+					for(size_t pg = 0; pg < node->size; pg += kPageSize)
+						invalidatePage(bindings[i].getPcid(),
+								reinterpret_cast<void *>(node->address + pg));
+				}
 				unshot_bindings--;
 			}
 		}
