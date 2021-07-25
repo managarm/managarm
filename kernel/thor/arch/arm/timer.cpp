@@ -29,6 +29,8 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 	PhysicalGenericTimer()
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "physical-generic-timer-irq"}} { }
 
+	virtual ~PhysicalGenericTimer() = default;
+
 	IrqStatus raise() override {
 		disarmPreemption();
 		return IrqStatus::acked;
@@ -45,6 +47,8 @@ extern PrecisionTimerEngine *globalTimerEngine;
 struct VirtualGenericTimer : IrqSink, AlarmTracker {
 	VirtualGenericTimer()
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "virtual-generic-timer-irq"}} { }
+
+	virtual ~VirtualGenericTimer() = default;
 
 	using AlarmTracker::fireAlarm;
 

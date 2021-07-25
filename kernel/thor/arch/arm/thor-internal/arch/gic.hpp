@@ -23,6 +23,8 @@ struct GicDistributor {
 	frg::string<KernelAlloc> buildPinName(uint32_t irq);
 
 	struct Pin : IrqPin {
+		virtual ~Pin() = default;
+
 		friend struct GicDistributor;
 
 		Pin(GicDistributor *parent, uint32_t irq)

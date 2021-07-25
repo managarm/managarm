@@ -73,6 +73,9 @@ struct RetireNode {
 	friend struct PageBinding;
 
 	virtual void complete() = 0;
+
+protected:
+	virtual ~RetireNode() = default;
 };
 
 struct ShootNode {
@@ -85,6 +88,9 @@ struct ShootNode {
 	size_t size;
 
 	virtual void complete() = 0;
+
+protected:
+	virtual ~ShootNode() = default;
 
 private:
 	// This CPU already performed synchronous shootdown,
