@@ -247,11 +247,6 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	// the device tree pointer is 32-bit and the upper bits are undefined
 	deviceTreePtr &= 0x00000000FFFFFFFF;
 
-	// FIXME: delay to slow the code down enough so we don't change the resolution
-	// while the QEMU window didn't open yet (avoid a crash in framebuffer_update_display)
-	for (size_t i = 0; i < 10000000; i++)
-		asm volatile ("" ::: "memory");
-
 	debugUart.initialize(mmioBase + 0x201000, 4000000);
 	debugUart->disable();
 	Gpio::configUart0Gpio();
