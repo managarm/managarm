@@ -10,6 +10,7 @@
 #include <thor-internal/framebuffer/boot-screen.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/stream.hpp>
+#include <arch/mem_space.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>

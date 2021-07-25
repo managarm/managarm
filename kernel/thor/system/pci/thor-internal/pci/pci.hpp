@@ -8,6 +8,7 @@
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/initgraph.hpp>
 #include <thor-internal/irq.hpp>
+#include <arch/register.hpp>
 
 namespace thor {
 
