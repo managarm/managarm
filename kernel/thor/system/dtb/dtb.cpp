@@ -129,6 +129,9 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 			method_ = reinterpret_cast<const char *>(prop.data());
 		} else if (pn == "cpu_on") {
 			cpuOn_ = prop.asU32();
+		} else if (pn == "bus-range") {
+			busRange_.from = prop.asPropArrayEntry(1, 0);
+			busRange_.to = prop.asPropArrayEntry(1, 4);
 		}
 	}
 

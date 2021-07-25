@@ -101,15 +101,15 @@ void initPciNode(DeviceTreeNode *node) {
 
 	PciConfigIo *io = nullptr;
 
+	auto range = node->busRange();
+
 	if (node->isCompatible<1>({"pci-host-ecam-generic"})) {
 		infoLogger() << "thor:\tIt's a generic controller with ECAM IO." << frg::endlog;
 		assert(node->reg().size() == 1);
 
-		// TODO: parse bus-range to get the bus number
-
 		io = frg::construct<EcamPcieConfigIo>(*kernelAlloc,
 			node->reg()[0].addr, 0,
-			0, 0xFF);
+			range.from, range.to);
 
 	} else if (node->isCompatible<1>({"brcm,bcm2711-pcie"})) {
 		infoLogger() << "thor:\tIt's a Broadcom STB PCIe controller." << frg::endlog;
@@ -120,7 +120,7 @@ void initPciNode(DeviceTreeNode *node) {
 		return;
 	}
 
-	auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, io, nullptr, 0, 0);
+	auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, io, nullptr, 0, range.from);
 	rootBus->irqRouter = frg::construct<DtbPciIrqRouter>(*kernelAlloc, nullptr, rootBus, node);
 
 	for (auto &r : node->ranges()) {

@@ -23,7 +23,7 @@ struct DeviceTreeNode {
 	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
 	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
 	interruptMapRaw_{nullptr, 0}, interruptController_{false},
-	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0},
+	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF},
 	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0}, method_{} { }
 
 	void initializeWith(::DeviceTreeNode dtNode);
