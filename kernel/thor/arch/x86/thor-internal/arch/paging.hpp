@@ -261,6 +261,8 @@ enum class CachingMode {
 	writeCombine,
 	writeThrough,
 	writeBack,
+	mmio = uncached,
+	mmioNonPosted = uncached
 };
 
 struct KernelPageSpace {

@@ -69,7 +69,7 @@ apEntryPoint:
 	msr ttbr0_el1, x0
 	msr ttbr1_el1, x2
 
-	mov x0, #0x0CFF
+	ldr x0, =0x4404000CFF
 	msr mair_el1, x0
 
 	ldr x0, =0x5a5102510

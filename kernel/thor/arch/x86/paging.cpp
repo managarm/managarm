@@ -824,6 +824,8 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		new_entry |= kPagePwt;
 	}else if(caching_mode == CachingMode::writeCombine) {
 		new_entry |= kPagePat | kPagePwt;
+	}else if(caching_mode == CachingMode::uncached) {
+		new_entry |= kPagePwt | kPagePcd | kPagePat;
 	}else{
 		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
 	}

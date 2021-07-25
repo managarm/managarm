@@ -257,6 +257,8 @@ enum class CachingMode {
 	writeCombine,
 	writeThrough,
 	writeBack,
+	mmio,
+	mmioNonPosted
 };
 
 struct KernelPageSpace {
@@ -309,6 +311,8 @@ public:
 	struct ShootdownOperation : private ShootNode {
 		ShootdownOperation(ShootdownSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
+
+		virtual ~ShootdownOperation() = default;
 
 		ShootdownOperation(const ShootdownOperation &) = delete;
 

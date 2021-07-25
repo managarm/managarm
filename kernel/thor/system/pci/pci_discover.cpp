@@ -819,7 +819,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 					bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 							hostAddress & ~(kPageSize - 1),
 							(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-							CachingMode::uncached);
+							CachingMode::mmioNonPosted);
 				} else {
 					bars[i].hostType = PciBar::kBarIo;
 					bars[i].allocated = true;
@@ -865,7 +865,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
 						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::null);
+						CachingMode::mmio);
 				bars[i].offset = offset;
 
 				infoLogger() << "            32-bit memory BAR #" << i
@@ -912,7 +912,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
 						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::null);
+						CachingMode::mmio);
 				bars[i].offset = offset;
 
 				infoLogger() << "            64-bit memory BAR #" << i
@@ -1500,7 +1500,9 @@ void allocateBars(PciBus *bus) {
 			bar.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 					hostBase & ~(kPageSize - 1),
 					(req.size + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-					CachingMode::uncached);
+					flags == PciBusResource::io
+						? CachingMode::mmioNonPosted
+						: CachingMode::mmio);
 			bar.offset = offset;
 
 			// Enable address decoding

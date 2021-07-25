@@ -24,7 +24,7 @@ arch::mem_space EcamPcieConfigIo::spaceForBus_(uint32_t bus) {
 	for (size_t i = 0; i < size; i += 0x1000) {
 		KernelPageSpace::global().mapSingle4k(
 				VirtualAddr(ptr) + i, mmioBase_ + i + offset,
-				page_access::write, CachingMode::uncached);
+				page_access::write, CachingMode::mmio);
 	}
 
 	busMappings_.insert(bus, ptr);

@@ -489,7 +489,9 @@ static inline constexpr uint64_t kPageInnerSh = (3 << 8);
 static inline constexpr uint64_t kPageOuterSh = (2 << 8);
 static inline constexpr uint64_t kPageWb = (0 << 2);
 static inline constexpr uint64_t kPageGRE = (1 << 2);
-static inline constexpr uint64_t kPagenGnRnE = (1 << 2);
+static inline constexpr uint64_t kPagenGnRnE = (2 << 2);
+static inline constexpr uint64_t kPagenGnRE = (3 << 2);
+static inline constexpr uint64_t kPageUc = (4 << 2);
 static inline constexpr uint64_t kPageAddress = 0xFFFFFFFFF000;
 
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
@@ -575,9 +577,12 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		new_entry |= kPageXN | kPagePXN;
 
 	if (caching_mode == CachingMode::writeCombine)
-		new_entry |= kPageGRE | kPageOuterSh;
+		new_entry |= kPageUc | kPageOuterSh;
 	else if (caching_mode == CachingMode::uncached)
-		// This is not really uncached...
+		new_entry |= kPagenGnRnE | kPageOuterSh;
+	else if (caching_mode == CachingMode::mmio)
+		new_entry |= kPagenGnRE | kPageOuterSh;
+	else if (caching_mode == CachingMode::mmioNonPosted)
 		new_entry |= kPagenGnRnE | kPageOuterSh;
 	else {
 		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
@@ -751,9 +756,12 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bo
 	if (user_page)
 		new_entry |= kPageUser;
 	if (caching_mode == CachingMode::writeCombine)
-		new_entry |= kPageGRE | kPageOuterSh;
+		new_entry |= kPageUc | kPageOuterSh;
 	else if (caching_mode == CachingMode::uncached)
-		// This is not really uncached...
+		new_entry |= kPagenGnRnE | kPageOuterSh;
+	else if (caching_mode == CachingMode::mmio)
+		new_entry |= kPagenGnRE | kPageOuterSh;
+	else if (caching_mode == CachingMode::mmioNonPosted)
 		new_entry |= kPagenGnRnE | kPageOuterSh;
 	else {
 		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
