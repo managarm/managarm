@@ -128,11 +128,6 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	memcpy(codeVirtPtr, _binary_kernel_thor_arch_arm_trampoline_bin_start, imageSize);
 
-	asm volatile ("dc civac, %0; dsb sy"
-			:
-			: "r"(codeVirtPtr)
-			: "memory");
-
 	// Setup a status block to communicate information to the AP.
 	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(codeVirtPtr)
 			+ (kPageSize - sizeof(StatusBlock)));
@@ -167,11 +162,6 @@ bool bootSecondary(DeviceTreeNode *node) {
 			auto space = arch::mem_space{virtPtr};
 
 			arch::scalar_store<uintptr_t>(space, offset, codePhysPtr);
-
-			asm volatile ("dc civac, %0; dsb sy"
-					:
-					: "r"(reinterpret_cast<uintptr_t>(virtPtr) + offset)
-					: "memory");
 
 			asm volatile ("sev" ::: "memory");
 
@@ -221,8 +211,8 @@ bool bootSecondary(DeviceTreeNode *node) {
 	}
 
 	KernelPageSpace::global().unmapSingle4k(VirtualAddr(codeVirtPtr));
-	// FIXME: This requires shootdown (which is broken on real HW)
-	//KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
+	KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
+	KernelFiber::asyncBlockCurrent(KernelPageSpace::global().shootdown(VirtualAddr(codeVirtPtr), kPageSize));
 	physicalAllocator->free(codePhysPtr, kPageSize);
 
 	if (dontWait) {
