@@ -43,6 +43,8 @@ struct VirtualOperations {
 	virtual frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size);
 
+	virtual size_t getRss();
+
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for retire()
 	// ----------------------------------------------------------------------------------
@@ -395,7 +397,7 @@ public:
 	retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueue> wq);
 
 	size_t rss() {
-		return _residuentSize;
+		return _ops->getRss();
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -508,8 +510,6 @@ private:
 
 	HoleTree _holes;
 	MappingTree _mappings;
-
-	int64_t _residuentSize = 0;
 };
 
 struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {

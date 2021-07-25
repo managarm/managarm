@@ -134,6 +134,12 @@ frg::expected<Error> VirtualOperations::unmapPages(VirtualAddr va,
 	return {};
 }
 
+size_t VirtualOperations::getRss() {
+	// Derived classes should track RSS; the generic implementaton does not.
+	// TODO: As soon as all derived classes implement this, we should make it pure virtual.
+	return 0;
+}
+
 // --------------------------------------------------------
 
 MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
