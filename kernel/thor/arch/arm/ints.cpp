@@ -139,7 +139,65 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 }
 
 extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
-	infoLogger() << "onPlatformAsyncFault" << frg::endlog;
+	urgentLogger() << "thor: On CPU " << getCpuData()->cpuIndex << frg::endlog;
+	urgentLogger() << "thor: An asynchronous fault has occured!" << frg::endlog;
+
+	auto code = *image.code();
+	auto ec = code >> 26;
+
+	bool recoverable = false;
+
+	if (ec == 0x2F) {
+		bool ids = code & (1 << 24);
+		bool iesb = code & (1 << 13);
+		uint8_t aet = (code >> 10) & 7;
+		bool ea = code & (1 << 9);
+		uint8_t dfsc = code & 0x3F;
+
+		constexpr const char *aet_str[] = {
+			"Uncontainable",
+			"Unrecoverable state",
+			"Restartable state",
+			"Recoverable state",
+			"Reserved",
+			"Reserved",
+			"Corrected",
+			"Reserved"
+		};
+
+		if (ids) {
+			urgentLogger() << "thor: SError with implementation defined information: ESR = 0x"
+				<< frg::hex_fmt{code} << frg::endlog;
+		} else {
+			auto log = urgentLogger();
+			log << "thor: ";
+
+			if (dfsc == 0x11)
+				log << aet_str[aet] << " ";
+
+			log << "SError ";
+
+			log << " (EA = " << (ea ? "true" : "false")
+				<< ", IESB = " << (iesb ? "true" : "false") << ")";
+
+			if (dfsc != 0x11)
+				log << " with DFSC = " << dfsc;
+
+			log << frg::endlog;
+
+			if (aet == 2 || aet == 12)
+				recoverable = true;
+		}
+	} else {
+		urgentLogger() << "thor: unexpectec EC " << ec << " (ESR = 0x"
+			<< frg::hex_fmt{code} << ")" << frg::endlog;
+	}
+
+	urgentLogger() << "thor: IP = 0x" << frg::hex_fmt{*image.ip()}
+			<< ", SP = 0x" << frg::hex_fmt{*image.sp()} << frg::endlog;
+
+	if (!recoverable)
+		panicLogger() << "thor: Panic due to unrecoverable error" << frg::endlog;
 }
 
 void handleIrq(IrqImageAccessor image, int number);
