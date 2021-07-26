@@ -642,9 +642,13 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			common_space.store(PCI_DEVICE_STATUS, 0);
 			assert(!common_space.load(PCI_DEVICE_STATUS));
 
+			helix::UniqueDescriptor queueMsi;
+
 			// Enable MSI-X.
-			co_await hw_device.enableMsi();
-			auto queueMsi = co_await hw_device.installMsi(0);
+			if (info.numMsis) {
+				co_await hw_device.enableMsi();
+				queueMsi = co_await hw_device.installMsi(0);
+			}
 
 			// Set the ACKNOWLEDGE and DRIVER bits.
 			// The specification says this should be done in two steps
@@ -655,7 +659,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 
 			std::cout << "virtio: Using standard PCI transport" << std::endl;
 			co_return std::make_unique<StandardPciTransport>(std::move(hw_device),
-					true,
+					info.numMsis,
 					std::move(*common_mapping), std::move(*notify_mapping),
 					std::move(*isr_mapping), std::move(*device_mapping),
 					notify_multiplier, std::move(irq), std::move(queueMsi));
