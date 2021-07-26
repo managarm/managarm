@@ -96,7 +96,9 @@ namespace {
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
-			resp.set_num_msis(device->numMsis);
+
+			if (device->parentBus->msiController)
+				resp.set_num_msis(device->numMsis);
 
 			for(size_t i = 0; i < device->caps.size(); i++) {
 				managarm::hw::PciCapability<KernelAlloc> msg(*kernelAlloc);
