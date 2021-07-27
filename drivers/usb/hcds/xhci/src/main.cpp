@@ -70,12 +70,12 @@ constexpr const char *completionCodeNames[256] = {
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
-		helix::UniqueDescriptor mmio, helix::UniqueIrq irq)
+		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, bool useMsis)
 : _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
 		_space{_mapping.get()}, _memoryPool{},
 		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
-		_eventRing{this} { 
+		_eventRing{this}, _useMsis{useMsis} {
 	auto op_offset = _space.load(cap_regs::caplength);
 	auto runtime_offset = _space.load(cap_regs::rtsoff);
 	auto doorbell_offset = _space.load(cap_regs::dboff);
@@ -307,8 +307,12 @@ async::detached Controller::initialize() {
 	_interrupters[0]->setEventRing(&_eventRing);
 	_interrupters[0]->setEnable(true);
 
-	co_await _hw_device.enableBusIrq();
-	handleIrqs();
+	if (_useMsis) {
+		handleMsis();
+	} else {
+		co_await _hw_device.enableBusIrq();
+		handleIrqs();
+	}
 
 	_ports.resize(_numPorts);
 
@@ -340,6 +344,26 @@ async::detached Controller::handleIrqs() {
 		}
 
 		_interrupters[0]->clearPending();
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
+
+		_eventRing.processRing();
+	}
+
+	printf("xhci: interrupt coroutine should not exit...\n");
+}
+
+async::detached Controller::handleMsis() {
+	uint64_t sequence = 0;
+
+	while(1) {
+		auto await = co_await helix_ng::awaitEvent(_irq, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
+
+		// XXX: In theory, ERDP.EHB should always be set on MSI entry,
+		// but if we check it, and nack if it's unset, the driver nacks
+		// an IRQ from the device and essentially stalls the driver.
+
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		_eventRing.processRing();
@@ -1340,13 +1364,22 @@ async::detached bindController(mbus::Entity entity) {
 	auto info = co_await device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = co_await device.accessBar(0);
-	auto irq = co_await device.accessIrq();
+
+	helix::UniqueDescriptor irq;
+
+	if (info.numMsis) {
+		co_await device.enableMsi();
+		irq = co_await device.installMsi(0);
+	} else {
+		irq = co_await device.accessIrq();
+	}
+
 	co_await device.enableBusmaster();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
 	auto controller = std::make_shared<Controller>(std::move(device), std::move(mapping),
-			std::move(bar), std::move(irq));
+			std::move(bar), std::move(irq), info.numMsis > 0);
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }

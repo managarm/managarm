@@ -18,10 +18,12 @@
 struct Controller : std::enable_shared_from_this<Controller> {
 	Controller(protocols::hw::Device hw_device,
 			helix::Mapping mapping,
-			helix::UniqueDescriptor mmio, helix::UniqueIrq irq);
+			helix::UniqueDescriptor mmio,
+			helix::UniqueIrq irq, bool useMsis);
 
 	async::detached initialize();
 	async::detached handleIrqs();
+	async::detached handleMsis();
 
 private:
 	struct Event {
@@ -323,6 +325,8 @@ private:
 
 	int _numPorts;
 	int _maxDeviceSlots;
+
+	bool _useMsis;
 };
 
 
