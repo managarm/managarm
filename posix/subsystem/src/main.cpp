@@ -374,6 +374,18 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = former;
 			gprs[kHelRegOut1] = self->enteredSignalSeq();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			bool killed = false;
+			if(self->checkOrRequestSignalRaise()) {
+				auto active = co_await self->signalContext()->fetchSignal(
+						~self->signalMask(), true);
+				if(active) {
+					co_await self->signalContext()->raiseContext(active, self.get(), killed);
+				}
+			}
+			if(killed)
+				break;
+
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 8) {
 			if(logRequests || logSignals)
