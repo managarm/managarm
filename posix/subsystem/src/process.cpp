@@ -609,7 +609,15 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	}
 
 	// Setup the stack frame.
-	uintptr_t nsp = sf.pcrs[kHelRegSp] - redZoneSize;
+	uintptr_t threadSp = sf.pcrs[kHelRegSp];
+
+	if (handler.flags & signalOnStack && process->isAltStackEnabled()) {
+		if (!process->isOnAltStack(threadSp)) {
+			threadSp = process->altStackSp() + process->altStackSize();
+		}
+	}
+
+	uintptr_t nsp = threadSp - redZoneSize;
 
 	auto alignFrame = [&] (size_t size) -> uintptr_t {
 		nsp = ((nsp - size) & ~uintptr_t(15)) - stackCallMisalign;

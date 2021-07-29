@@ -444,6 +444,56 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + 12) {
+			// sigaltstack is implemented as a supercall because it
+			// needs to access the thread's registers.
+
+			if(logRequests || logSignals)
+				std::cout << "posix: SIGALTSTACK supercall" << std::endl;
+
+			uintptr_t gprs[kHelNumGprs];
+			uintptr_t pcrs[2];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
+
+			auto ss = gprs[kHelRegArg0];
+			auto oss = gprs[kHelRegArg1];
+
+			if (oss) {
+				stack_t st{};
+				st.ss_sp = reinterpret_cast<void *>(self->altStackSp());
+				st.ss_size = self->altStackSize();
+				st.ss_flags = (self->isOnAltStack(pcrs[kHelRegSp]) ? SS_ONSTACK : 0)
+						| (self->isAltStackEnabled() ? 0 : SS_DISABLE);
+
+				auto store = co_await helix_ng::writeMemory(self->vmContext()->getSpace(),
+						oss, sizeof(stack_t), &st);
+				HEL_CHECK(store.error());
+			}
+
+			int error = 0;
+
+			if (ss) {
+				stack_t st{};
+
+				auto load = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
+						ss, sizeof(stack_t), &st);
+				HEL_CHECK(load.error());
+
+				if (st.ss_flags & ~SS_DISABLE) {
+					error = EINVAL;
+				} else if (self->isOnAltStack(pcrs[kHelRegSp])) {
+					error = EPERM;
+				} else {
+					self->setAltStackSp(reinterpret_cast<uint64_t>(st.ss_sp), st.ss_size);
+					self->setAltStackEnabled(!(st.ss_flags & SS_DISABLE));
+				}
+			}
+
+			gprs[kHelRegError] = 0;
+			gprs[kHelRegOut0] = error;
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			bool killed = false;
@@ -2742,7 +2792,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(req.flags() & SA_NODEFER)
 					handler.flags |= signalReentrant;
 				if(req.flags() & SA_ONSTACK)
-					std::cout << "\e[31mposix: Ignoring SA_ONSTACK\e[39m" << std::endl;
+					handler.flags |= signalOnStack;
 				if(req.flags() & SA_RESTART)
 					std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
 				if(req.flags() & SA_NOCLDSTOP)
@@ -2760,6 +2810,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				saved_flags |= SA_RESETHAND;
 			if(saved_handler.flags & signalReentrant)
 				saved_flags |= SA_NODEFER;
+			if(saved_handler.flags & signalOnStack)
+				saved_flags |= SA_ONSTACK;
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_flags(saved_flags);
