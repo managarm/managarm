@@ -372,6 +372,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			gprs[kHelRegError] = 0;
 			gprs[kHelRegOut0] = former;
+			gprs[kHelRegOut1] = self->enteredSignalSeq();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 8) {
@@ -492,6 +493,25 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			gprs[kHelRegError] = 0;
 			gprs[kHelRegOut0] = error;
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + 13) {
+			if(logRequests || logSignals)
+				std::cout << "posix: SIGSUSPEND supercall" << std::endl;
+
+			uintptr_t gprs[kHelNumGprs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			auto seq = gprs[kHelRegArg0];
+
+			if (seq == self->enteredSignalSeq()) {
+				auto check = self->signalContext()->checkSignal();
+
+				if (!std::get<1>(check))
+					co_await self->signalContext()->pollSignal(std::get<0>(check), UINT64_C(-1));
+			}
+
+			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {

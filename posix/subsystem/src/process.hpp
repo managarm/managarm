@@ -552,6 +552,14 @@ public:
 		_altStackEnabled = en;
 	}
 
+	uint64_t enteredSignalSeq() {
+		return _enteredSignalSeq;
+	}
+
+	void enterSignal() {
+		_enteredSignalSeq++;
+	}
+
 private:
 	Process *_parent;
 
@@ -612,6 +620,10 @@ private:
 	bool _altStackEnabled = false;
 	uint64_t _altStackSp = 0;
 	size_t _altStackSize = 0;
+
+	// Used for tracking signals that happened between sigprocmask and
+	// a call that resumes on a signal.
+	uint64_t _enteredSignalSeq = 0;
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);

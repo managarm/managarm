@@ -565,6 +565,8 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 
 	SignalHandler handler = _handlers[item->signalNumber - 1];
 
+	process->enterSignal();
+
 	// Implement SA_RESETHAND by resetting the signal disposition to default.
 	if(handler.flags & signalOnce)
 		_handlers[item->signalNumber].disposition = SignalDisposition::none;
