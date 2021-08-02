@@ -40,7 +40,7 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
 
 1.  Download and unpack the latest Managarm `rootfs` somewhere:
     ```bash
-    curl https://mirrors.managarm.org/cbuildrt/rootfs/managarm-buildenv.tar.gz -o managarm-rootfs.tar.gz
+    curl https://repos.managarm.org/buildenv/managarm-buildenv.tar.gz -o managarm-rootfs.tar.gz
     tar xvf managarm-rootfs.tar.gz
     ```
 1.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents:

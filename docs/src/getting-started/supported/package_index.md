@@ -1,6 +1,6 @@
 # Supported packages
 
-For an always up-to-date package list please look [here](https://ci.managarm.org/project/managarm/packages).
+For an always up-to-date package list please look [here](https://builds.managarm.org/project/managarm/packages).
 
 Managarm uses `xbps` for it's package management, users can use this to fetch packages from within managarm.
 
