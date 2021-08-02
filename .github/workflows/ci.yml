@@ -59,7 +59,7 @@ jobs:
           - name: Download rootfs
             run: |
                 set -x
-                curl -o rootfs.tar.gz https://mirrors.managarm.org/cbuildrt/rootfs/managarm-buildenv.tar.gz
+                curl -o rootfs.tar.gz https://repos.managarm.org/buildenv/managarm-buildenv.tar.gz
                 tar -xzf rootfs.tar.gz
           - name: Prepare src/ and build/
             run: |
@@ -98,7 +98,7 @@ jobs:
           - name: Generate image
             run: |
                 set -x
-                curl -o image.xz https://ci.managarm.org/repos/files/managarm/latest/image.xz
+                curl -o image.xz https://builds.managarm.org/repos/files/managarm/latest/image.xz
                 unxz image.xz
                 ../src/scripts/update-image.py -m loopback mount
                 # For now we need root because the mount point is owned by root

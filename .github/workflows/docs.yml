@@ -47,10 +47,10 @@ jobs:
             env:
                 RSYNC_PASSWORD: ${{ secrets.RSYNC_DOCUMENTATION_PASSWD }}
             run:
-                rsync-ssl -a --delete build/docs/ docs@docs.managarm.org::docs/handbook
-          - name: Upload hel reference to docs.managarm.org
+                rsync-ssl -a --delete build/docs/ docs@rsync.managarm.org::docs/handbook
+          - name: Upload hel reference to rsync.managarm.org
             if: github.ref == 'refs/heads/master'
             env:
                 RSYNC_PASSWORD: ${{ secrets.RSYNC_DOCUMENTATION_PASSWD }}
             run:
-                rsync-ssl -a --delete build/hel-api/html/ docs@docs.managarm.org::docs/hel-api
+                rsync-ssl -a --delete build/hel-api/html/ docs@rsync.managarm.org::docs/hel-api
