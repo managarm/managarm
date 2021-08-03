@@ -12,6 +12,121 @@ namespace thor {
 
 struct VirtualSpace;
 
+template<typename Cursor, typename PageSpace>
+frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
+		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	Cursor c{ps, va};
+	while(c.virtualAddress() < va + size) {
+		auto progress = c.virtualAddress() - va;
+		auto physicalRange = view->peekRange(offset + progress);
+		if(physicalRange.template get<0>() == PhysicalAddr(-1)) {
+			c.advance4k();
+			continue;
+		}
+		assert(!(physicalRange.template get<0>() & (kPageSize - 1)));
+
+		c.map4k(physicalRange.template get<0>(), flags, physicalRange.template get<1>());
+		c.advance4k();
+	}
+	return {};
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
+		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	Cursor c{ps, va};
+	while(c.virtualAddress() < va + size) {
+		auto progress = c.virtualAddress() - va;
+
+		auto status = c.unmap4k();
+		assert(status & page_status::present);
+		if(status & page_status::dirty)
+			view->markDirty(offset + progress, kPageSize);
+
+		auto physicalRange = view->peekRange(offset + progress);
+		if(physicalRange.template get<0>() == PhysicalAddr(-1)) {
+			c.advance4k();
+			continue;
+		}
+		assert(!(physicalRange.template get<0>() & (kPageSize - 1)));
+
+		c.map4k(physicalRange.template get<0>(), flags, physicalRange.template get<1>());
+		c.advance4k();
+	}
+	return {};
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
+		MemoryView *view, uintptr_t offset, PageFlags flags) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+
+	Cursor c{ps, va};
+
+	auto physicalRange = view->peekRange(offset);
+	if(physicalRange.get<0>() == PhysicalAddr(-1))
+		return Error::fault;
+
+	auto status = c.remap4k(physicalRange.template get<0>(), flags, physicalRange.template get<1>());
+	if(status & page_status::present) {
+		if(status & page_status::dirty)
+			view->markDirty(offset, kPageSize);
+	}
+
+	return {};
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va,
+		MemoryView *view, uintptr_t offset, size_t size) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	Cursor c{ps, va};
+	while(c.findDirty(va + size)) {
+		auto progress = c.virtualAddress() - va;
+
+		auto status = c.clean4k();
+		assert(status & page_status::present);
+		assert(status & page_status::dirty);
+		view->markDirty(offset + progress, kPageSize);
+
+		c.advance4k();
+	}
+	return {};
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va,
+		MemoryView *view, uintptr_t offset, size_t size) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(offset & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	Cursor c{ps, va};
+	while(c.findPresent(va + size)) {
+		auto progress = c.virtualAddress() - va;
+
+		auto status = c.unmap4k();
+		assert(status & page_status::present);
+		if(status & page_status::dirty)
+			view->markDirty(offset + progress, kPageSize);
+
+		c.advance4k();
+	}
+	return {};
+}
+
 struct VirtualOperations {
 	virtual void retire(RetireNode *node) = 0;
 
@@ -34,8 +149,8 @@ struct VirtualOperations {
 	virtual frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags);
 
-	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view, uintptr_t offset,
-			PageFlags flags);
+	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, PageFlags flags);
 
 	virtual frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size);
@@ -546,6 +661,38 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 		bool isMapped(VirtualAddr pointer) override {
 			return space_->pageSpace_.isMapped(pointer);
 		}
+
+#ifdef __x86_64__
+		frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
+				uintptr_t offset, size_t size, PageFlags flags) override {
+			return mapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
+					va, view, offset, size, flags);
+		}
+
+		frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
+				uintptr_t offset, size_t size, PageFlags flags) override {
+			return remapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
+					va, view, offset, size, flags);
+		}
+
+		frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
+				uintptr_t offset, PageFlags flags) override {
+			return faultPageByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
+					va, view, offset, flags);
+		}
+
+		frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
+				uintptr_t offset, size_t size) override {
+			return cleanPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
+					va, view, offset, size);
+		}
+
+		frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
+				uintptr_t offset, size_t size) override {
+			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
+					va, view, offset, size);
+		}
+#endif
 
 	private:
 		AddressSpace *space_;

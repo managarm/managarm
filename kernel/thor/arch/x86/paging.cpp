@@ -1077,5 +1077,52 @@ void ClientPageSpace::Walk::_update() {
 	_accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
 }
 
+void ClientPageSpace::Cursor::realizePts() {
+	auto doRealize = [&] <int S> (PageAccessor &subPt, PageAccessor &pt,
+			std::integral_constant<int, S>) {
+		auto ptPtr = reinterpret_cast<uint64_t *>(pt.get())
+				+ ((va_ >> S) & 0x1FF);
+		auto ptEnt = __atomic_load_n(ptPtr, __ATOMIC_RELAXED);
+		if(ptEnt & ptePresent) {
+			subPt = PageAccessor{ptEnt & pteAddress};
+			return;
+		}
+
+		PhysicalAddr subPtPage = physicalAllocator->allocate(kPageSize);
+		assert(subPtPage != static_cast<PhysicalAddr>(-1) && "OOM");
+
+		subPt = PageAccessor{subPtPage};
+		for(int i = 0; i < 512; i++) {
+			auto subPtPtr = reinterpret_cast<uint64_t *>(subPt.get()) + i;
+			*subPtPtr = 0;
+		}
+
+		ptEnt = subPtPage | ptePresent | pteWrite | pteUser;
+		__atomic_store_n(ptPtr, ptEnt, __ATOMIC_RELEASE);
+	};
+
+	auto realize3 = [&] {
+		if(_accessor3) /* [[likely]] */
+			return;
+		doRealize(_accessor3, _accessor4, std::integral_constant<int, 39>{});
+	};
+	auto realize2 = [&] {
+		if(_accessor2) /* [[likely]] */
+			return;
+		realize3();
+		doRealize(_accessor2, _accessor3, std::integral_constant<int, 30>{});
+	};
+
+	// This function is called after cachePts() if not all PTs are present.
+	assert(!_accessor1);
+
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&space_->_mutex);
+	{
+		realize2();
+		doRealize(_accessor1, _accessor2, std::integral_constant<int, 21>{});
+	}
+}
+
 } // namespace thor
 
