@@ -44,6 +44,9 @@ frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryVi
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
+	if (!flags)
+		return {};
+
 	for(size_t progress = 0; progress < size; progress += kPageSize) {
 		auto physicalRange = view->peekRange(offset + progress);
 
@@ -63,6 +66,9 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
+
+	if (!flags)
+		return {};
 
 	for(size_t progress = 0; progress < size; progress += kPageSize) {
 		auto physicalRange = view->peekRange(offset + progress);
@@ -230,8 +236,8 @@ void Mapping::protect(MappingFlags protectFlags) {
 
 uint32_t Mapping::compilePageFlags() {
 	uint32_t pageFlags = 0;
-	// TODO: Allow inaccessible mappings.
-	assert(flags & MappingFlags::protRead);
+	if(flags & MappingFlags::protRead)
+		pageFlags |= page_access::read;
 	if(flags & MappingFlags::protWrite)
 		pageFlags |= page_access::write;
 	if(flags & MappingFlags::protExecute)
@@ -472,8 +478,8 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			pageFlags |= page_access::write;
 		if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
 			pageFlags |= page_access::execute;
-		// TODO: Allow inaccessible mappings.
-		assert((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead);
+		if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
+			pageFlags |= page_access::read;
 
 		auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
 				mapping->viewOffset, mapping->length, pageFlags);
@@ -539,8 +545,8 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		pageFlags |= page_access::write;
 	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
 		pageFlags |= page_access::execute;
-	// TODO: Allow inaccessible mappings.
-	assert((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead);
+	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead)
+		pageFlags |= page_access::read;
 
 	co_await mapping->evictionMutex.async_lock();
 	frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
