@@ -115,8 +115,6 @@ enum CntReqType {
 
 	FLOCK = 73,
 
-	RENAME = 36,
-
 	PT_PREAD = 37,
 
 	NODE_CHMOD = 38,
@@ -165,12 +163,6 @@ head(128):
 		// used by NODE_SYMLINK
 		tag(61) uint32 name_length;
 		tag(62) uint32 target_length;
-
-		// used by RENAME
-		tag(54) uint64 inode_source;
-		tag(55) uint64 inode_target;
-		tag(56) string old_name;
-		tag(57) string new_name;
 
 		// used by SEEK_ABS, SEEK_REL and SEEK_EOF
 		tag(7) int64 rel_offset;
@@ -382,4 +374,13 @@ head(128):
 		tag(79) uint64 links_traversed;
 		tag(80) int64[] ids;
 	}
+}
+
+message RenameRequest 3 {
+head(128):
+	uint64 inode_source;
+	uint64 inode_target;
+tail:
+	string old_name;
+	string new_name;
 }

@@ -14,6 +14,7 @@
 #include "gpt.hpp"
 #include "ext2fs.hpp"
 #include "fs.bragi.hpp"
+#include <bragi/helpers-std.hpp>
 
 namespace blockfs {
 
@@ -489,18 +490,29 @@ async::detached servePartition(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
-		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
-			lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
+		auto [accept, recv_head] = co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::accept(
+					helix_ng::recvInline()
+				)
+			);
+
 		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
+		HEL_CHECK(recv_head.error());
 
 		auto conversation = accept.descriptor();
 
+		auto preamble = bragi::read_preamble(recv_head);
+		assert(!preamble.error());
+
 		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
+		if (preamble.id() == managarm::fs::CntRequest::message_id) {
+			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_head);
+			assert(o);
+
+			req = *o;
+		}
+
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -539,12 +551,26 @@ async::detached servePartition(helix::UniqueLane lane) {
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::RENAME) {
-			auto oldInode = fs->accessInode(req.inode_source());
-			auto newInode = fs->accessInode(req.inode_target());
+		}else if(preamble.id() == managarm::fs::RenameRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
 
-			assert(!req.old_name().empty() && req.old_name() != "." && req.old_name() != "..");
-			auto old_result = co_await oldInode->findEntry(req.old_name());
+			auto req = bragi::parse_head_tail<managarm::fs::RenameRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto oldInode = fs->accessInode(req->inode_source());
+			auto newInode = fs->accessInode(req->inode_target());
+
+			assert(!req->old_name().empty() && req->old_name() != "." && req->old_name() != "..");
+			auto old_result = co_await oldInode->findEntry(req->old_name());
 			if(!old_result) {
 				managarm::fs::SvrResponse resp;
 				assert(old_result.error() == protocols::fs::Error::notDirectory);
@@ -560,12 +586,12 @@ async::detached servePartition(helix::UniqueLane lane) {
 			auto old_file = old_result.value();
 			managarm::fs::SvrResponse resp;
 			if(old_file) {
-				auto result = co_await newInode->unlink(req.new_name());
+				auto result = co_await newInode->unlink(req->new_name());
 				if(!result) {
 					assert(result.error() == protocols::fs::Error::fileNotFound);
 					// Ignored
 				}
-				co_await newInode->link(req.new_name(), old_file.value().inode, old_file.value().fileType);
+				co_await newInode->link(req->new_name(), old_file.value().inode, old_file.value().fileType);
 			} else {
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
@@ -576,7 +602,7 @@ async::detached servePartition(helix::UniqueLane lane) {
 				continue;
 			}
 
-			auto result = co_await oldInode->unlink(req.old_name());
+			auto result = co_await oldInode->unlink(req->old_name());
 			if(!result) {
 				assert(result.error() == protocols::fs::Error::fileNotFound);
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);

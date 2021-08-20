@@ -1,6 +1,7 @@
 #include <sys/epoll.h>
 #include <map>
 
+#include <frg/std_compat.hpp>
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
 #include "extern_fs.hpp"
@@ -821,8 +822,7 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createSocket() {
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 		Superblock::rename(FsLink *source, FsNode *directory, std::string name) {
 
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::RENAME);
+	managarm::fs::RenameRequest req;
 	Link *slink = static_cast<Link *>(source);
 	Node *source_node = static_cast<Node *>(slink->getOwner().get());
 	Node *target_node = static_cast<Node *>(directory);
@@ -832,17 +832,17 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	req.set_old_name(source->getName());
 	req.set_new_name(name);
 
-	auto ser = req.SerializeAsString();
-	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+	auto [offer, send_head, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 		_lane,
 		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 			helix_ng::recvInline()
 		)
 	);
 
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
+	HEL_CHECK(send_head.error());
+	HEL_CHECK(send_tail.error());
 	HEL_CHECK(recv_resp.error());
 
 	managarm::fs::SvrResponse resp;
