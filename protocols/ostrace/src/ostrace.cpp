@@ -31,6 +31,7 @@ async::result<EventId> Context::announceEvent(std::string_view name) {
 	HEL_CHECK(recvResp.error());
 
 	auto maybeResp = bragi::parse_head_only<managarm::ostrace::Response>(recvResp);
+	recvResp.reset();
 	assert(maybeResp);
 	auto &resp = maybeResp.value();
 	assert(resp.error() == managarm::ostrace::Error::SUCCESS);
@@ -56,6 +57,7 @@ async::result<ItemId> Context::announceItem(std::string_view name) {
 	HEL_CHECK(recvResp.error());
 
 	auto maybeResp = bragi::parse_head_only<managarm::ostrace::Response>(recvResp);
+	recvResp.reset();
 	assert(maybeResp);
 	auto &resp = maybeResp.value();
 	assert(resp.error() == managarm::ostrace::Error::SUCCESS);
@@ -97,6 +99,7 @@ async::result<void> Event::emit() {
 	HEL_CHECK(recvResp.error());
 
 	auto maybeResp = bragi::parse_head_only<managarm::ostrace::Response>(recvResp);
+	recvResp.reset();
 	assert(maybeResp);
 	auto &resp = maybeResp.value();
 	assert(resp.error() == managarm::ostrace::Error::SUCCESS);
@@ -144,6 +147,7 @@ async::result<Context> createContext() {
 	HEL_CHECK(recvResp.error());
 
 	auto maybeResp = bragi::parse_head_only<managarm::ostrace::Response>(recvResp);
+	recvResp.reset();
 	assert(maybeResp);
 	auto &resp = maybeResp.value();
 
