@@ -41,6 +41,7 @@ serveControl(const ControlOperations *ops) {
 
 		managarm::svrctl::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 		if(req.req_type() == managarm::svrctl::CntReqType::CTL_BIND) {
 			assert(ops->bind);
 			auto error = co_await ops->bind(req.mbus_id());
