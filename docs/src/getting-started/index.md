@@ -14,4 +14,4 @@ If you want to try out Managarm without building the system yourself.
 ## I want to contribute to Managarm
 If you want to contribute to Managarm or develop for it.
 
-[Contributing](contributing.md)
+[Contributing](../contributing/overview.md)
