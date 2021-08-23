@@ -78,6 +78,7 @@ async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 
 	managarm::kernlet::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 
 	co_return pull_kernlet.descriptor();
