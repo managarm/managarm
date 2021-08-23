@@ -580,6 +580,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto error = co_await file_ops->bind(file.get(),
 			extract_creds.credentials(),
 			recv_addr.data(), recv_addr.length());
+		recv_addr.reset();
 
 		managarm::fs::SvrResponse resp;
 		resp.set_error(static_cast<managarm::fs::Errors>(error));
@@ -615,6 +616,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto error = co_await file_ops->connect(file.get(),
 			extract_creds.credentials(),
 			recv_addr.data(), recv_addr.length());
+		recv_addr.reset();
 
 		managarm::fs::SvrResponse resp;
 		resp.set_error(static_cast<managarm::fs::Errors>(error));
@@ -870,6 +872,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				buffer.data(), recv_data.actualLength(),
 				recv_addr.data(), recv_addr.length(),
 				std::move(files));
+		recv_addr.reset();
 
 		managarm::fs::SvrResponse resp;
 
@@ -954,6 +957,7 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 		handlePassthrough(file, file_ops, std::move(req), std::move(conversation));
 	}
 }
@@ -1002,6 +1006,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
 			assert(node_ops->getStats);
 			auto result = co_await node_ops->getStats(node);
