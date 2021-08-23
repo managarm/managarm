@@ -634,6 +634,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 		auto preamble = bragi::read_preamble(recv_head);
 		assert(!preamble.error());
+		recv_head.reset();
 
 		managarm::posix::CntRequest req;
 		if (preamble.id() == managarm::posix::CntRequest::message_id) {

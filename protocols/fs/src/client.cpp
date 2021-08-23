@@ -96,6 +96,7 @@ async::result<size_t> File::writeSome(const void *data, size_t maxLength) {
 
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recvResp.data(), recvResp.length());
+	recvResp.reset();
 	if(resp.error() == managarm::fs::Errors::END_OF_FILE)
 		co_return 0;
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
