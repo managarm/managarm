@@ -319,6 +319,10 @@ struct RecvInlineResult {
 		_valid = true;
 	}
 
+	void reset() {
+		_element = {};
+	}
+
 private:
 	bool _valid;
 	HelError _error;
