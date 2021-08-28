@@ -8,7 +8,8 @@ src = [
 	'src/signal.cpp',
 	'src/signalfd.cpp',
 	'src/stat.cpp',
-	'src/unixnames.cpp'
+	'src/unixnames.cpp',
+	'src/sigaltstack.cpp'
 ]
 
 executable('posix-tests', src, install : true)

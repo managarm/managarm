@@ -207,6 +207,7 @@ using SignalFlags = uint32_t;
 inline constexpr SignalFlags signalInfo = (1 << 0);
 inline constexpr SignalFlags signalOnce = (1 << 1);
 inline constexpr SignalFlags signalReentrant = (1 << 2);
+inline constexpr SignalFlags signalOnStack = (1 << 3);
 
 enum class SignalDisposition {
 	none,
@@ -526,6 +527,39 @@ public:
 		return _childrenUsage;
 	}
 
+	bool isOnAltStack(uint64_t sp) {
+		return sp >= _altStackSp && sp <= (_altStackSp + _altStackSize);
+	}
+
+	uint64_t altStackSp() {
+		return _altStackSp;
+	}
+
+	size_t altStackSize() {
+		return _altStackSize;
+	}
+
+	void setAltStackSp(uint64_t ptr, size_t size) {
+		_altStackSp = ptr;
+		_altStackSize = size;
+	}
+
+	bool isAltStackEnabled() {
+		return _altStackEnabled;
+	}
+
+	void setAltStackEnabled(bool en) {
+		_altStackEnabled = en;
+	}
+
+	uint64_t enteredSignalSeq() {
+		return _enteredSignalSeq;
+	}
+
+	void enterSignal() {
+		_enteredSignalSeq++;
+	}
+
 private:
 	Process *_parent;
 
@@ -582,6 +616,14 @@ private:
 	ResourceUsage _generationUsage = {};
 	// Resource usage accumulated from children.
 	ResourceUsage _childrenUsage = {};
+
+	bool _altStackEnabled = false;
+	uint64_t _altStackSp = 0;
+	size_t _altStackSize = 0;
+
+	// Used for tracking signals that happened between sigprocmask and
+	// a call that resumes on a signal.
+	uint64_t _enteredSignalSeq = 0;
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);

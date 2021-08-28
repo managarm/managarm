@@ -248,6 +248,7 @@ using PageFlags = uint32_t;
 namespace page_access {
 	static constexpr uint32_t write = 1;
 	static constexpr uint32_t execute = 2;
+	static constexpr uint32_t read = 4;
 }
 
 using PageStatus = uint32_t;
