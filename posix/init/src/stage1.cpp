@@ -96,6 +96,10 @@ int main() {
 		throw std::runtime_error("mkdir() failed");
 	if(mount("", "/realfs/dev/pts", "devpts", 0, ""))
 		throw std::runtime_error("mount() failed");
+	if(mkdir("/dev/shm", 1777)) // Seems to be the same as linux
+		throw std::runtime_error("mkdir() failed");
+	if(mount("", "/realfs/dev/shm", "tmpfs", 0, ""))
+		throw std::runtime_error("mount() failed");
 
 	if(chroot("/realfs"))
 		throw std::runtime_error("chroot() failed");
