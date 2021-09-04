@@ -74,6 +74,46 @@ VmContext::~VmContext() {
 		std::cout << "\e[33mposix: VmContext is destructed\e[39m" << std::endl;
 }
 
+auto VmContext::splitAreaOn_(uintptr_t addr, size_t size) ->
+		std::pair<
+			std::map<uintptr_t, Area>::iterator,
+			std::map<uintptr_t, Area>::iterator
+		> {
+	// Avoid accessing out of bounds iterators
+	if (!_areaTree.size())
+		return {_areaTree.end(), _areaTree.end()};
+
+	auto performSingleSplit = [this] (uintptr_t addr) {
+		auto it = _areaTree.upper_bound(addr);
+		if (it != _areaTree.begin())
+			it = std::prev(it);
+
+		auto &[base, area] = *it;
+
+		if (base < addr && (base + area.areaSize) > addr) {
+			Area right;
+			right.copyOnWrite = area.copyOnWrite;
+			right.areaSize = area.areaSize - (addr - base);
+			right.nativeFlags = area.nativeFlags;
+			right.fileView = area.fileView.dup();
+			right.copyView = area.copyView.dup();
+			right.file = area.file;
+			right.offset = area.offset + (addr - base);
+
+			_areaTree.emplace(addr, std::move(right));
+
+			area.areaSize = (addr - base);
+		}
+
+		return it;
+	};
+
+	return {
+		performSingleSplit(addr),
+		std::next(performSingleSplit(addr + size))
+	};
+}
+
 async::result<void *>
 VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		smarter::shared_ptr<File, FileHandle> file,
@@ -104,12 +144,16 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	//std::cout << "posix: VM_MAP returns " << pointer
 	//		<< " (size: " << (void *)size << ")" << std::endl;
 
-	// Perform some sanity checking.
 	auto address = reinterpret_cast<uintptr_t>(pointer);
-	auto succ = _areaTree.lower_bound(address + alignedSize);
-	if(succ != _areaTree.begin()) {
-		auto pred = std::prev(succ);
-		assert(pred->first + pred->second.areaSize <= address);
+
+	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
+
+	for (auto it = startIt; it != endIt;) {
+		const auto &[addr, area] = *it;
+		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize))
+			it = _areaTree.erase(it);
+		else
+			++it;
 	}
 
 	// Construct the new area.
@@ -177,33 +221,41 @@ async::result<void *> VmContext::remapFile(void *oldPointer,
 
 async::result<void> VmContext::protectFile(void *pointer, size_t size, uint32_t protectionFlags) {
 	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
-
-	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(pointer));
-	assert(it != _areaTree.end());
-	assert(it->second.areaSize == alignedSize);
+	auto address = reinterpret_cast<uintptr_t>(pointer);
 
 	helix::ProtectMemory protect;
 	auto &&submit = helix::submitProtectMemory(_space, &protect,
-			pointer, size, protectionFlags, helix::Dispatcher::global());
+			pointer, alignedSize, protectionFlags, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(protect.error());
-	it->second.nativeFlags &= ~(kHelMapProtRead | kHelMapProtWrite | kHelMapProtExecute);
-	it->second.nativeFlags |= protectionFlags;
 
-	co_return;
+	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
+
+	for (auto it = startIt; it != endIt; ++it) {
+		auto &[addr, area] = *it;
+		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			area.nativeFlags &= ~(kHelMapProtRead | kHelMapProtWrite | kHelMapProtExecute);
+			area.nativeFlags |= protectionFlags;
+		}
+	}
 }
 
 void VmContext::unmapFile(void *pointer, size_t size) {
-	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
+	auto address = reinterpret_cast<uintptr_t>(pointer);
 
-	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(pointer));
-	assert(it != _areaTree.end());
-	assert(it->second.areaSize == aligned_size);
+	HEL_CHECK(helUnmapMemory(_space.getHandle(), pointer, alignedSize));
 
-	HEL_CHECK(helUnmapMemory(_space.getHandle(), pointer, aligned_size));
+	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
 
-	// Update our idea of the process' VM space.
-	_areaTree.erase(it);
+	for (auto it = startIt; it != endIt;) {
+		auto &[addr, area] = *it;
+		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			it = _areaTree.erase(it);
+		} else {
+			++it;
+		}
+	}
 }
 
 // ----------------------------------------------------------------------------
