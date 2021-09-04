@@ -407,6 +407,13 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 
 	co_await _consistencyMutex.async_lock();
 	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
+	bool needsShootdown = false;
+
+	if (flags & kMapFixed) {
+		auto [start, end] = co_await _splitMappings(address, length);
+		assert(start || (!start && !end));
+		needsShootdown = co_await _unmapMappings(address, length, start, end);
+	}
 
 	// The shared_ptr to the new Mapping needs to survive until the locks are released.
 	VirtualAddr actualAddress;
@@ -418,6 +425,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		if(flags & kMapFixed) {
 			assert(address);
 			assert((address % kPageSize) == 0);
+
 			actualAddress = _allocateAt(address, length);
 		}else{
 			actualAddress = _allocate(length, flags);
@@ -486,6 +494,9 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		assert(mapOutcome);
 	}
 
+	if (needsShootdown)
+		co_await _ops->shootdown(actualAddress, length);
+
 	// Only enable eviction after the peekRange() loop above.
 	// Since eviction is not yet enabled in that loop, we do not have
 	// to take the evictionMutex.
@@ -524,36 +535,33 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 	co_await _consistencyMutex.async_lock();
 	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
 
-	smarter::shared_ptr<Mapping> mapping;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto spaceGuard = frg::guard(&_snapshotMutex);
+	auto [start, end] = co_await _splitMappings(address, length);
+	assert(start || (!start && !end));
+	for (auto it = start; it != end;) {
+		auto mapping = it->selfPtr.lock();
+		it = MappingTree::successor(it);
 
-		mapping = _findMapping(address);
+		if (address >= mapping->address && (address + length) <= (mapping->address + mapping->length)) {
+			mapping->protect(static_cast<MappingFlags>(mappingFlags));
+
+			assert(mapping->state == MappingState::active);
+
+			uint32_t pageFlags = 0;
+			if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+				pageFlags |= page_access::write;
+			if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+				pageFlags |= page_access::execute;
+			if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead)
+				pageFlags |= page_access::read;
+
+			co_await mapping->evictionMutex.async_lock();
+			frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+
+			auto remapOutcome = _ops->remapPresentPages(mapping->address, mapping->view.get(),
+					mapping->viewOffset, mapping->length, pageFlags);
+			assert(remapOutcome);
+		}
 	}
-	assert(mapping);
-
-	// TODO: Allow shrinking of the mapping.
-	assert(mapping->address == address);
-	assert(mapping->length == length);
-	mapping->protect(static_cast<MappingFlags>(mappingFlags));
-
-	assert(mapping->state == MappingState::active);
-
-	uint32_t pageFlags = 0;
-	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
-		pageFlags |= page_access::write;
-	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
-		pageFlags |= page_access::execute;
-	if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead)
-		pageFlags |= page_access::read;
-
-	co_await mapping->evictionMutex.async_lock();
-	frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
-
-	auto remapOutcome = _ops->remapPresentPages(mapping->address, mapping->view.get(),
-			mapping->viewOffset, mapping->length, pageFlags);
-	assert(remapOutcome);
 
 	co_await _ops->shootdown(address, length);
 	co_return {};
@@ -563,166 +571,12 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 	co_await _consistencyMutex.async_lock();
 	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
 
-	smarter::shared_ptr<Mapping> mapping;
-	smarter::shared_ptr<Mapping> leftMapping = nullptr;
-	smarter::shared_ptr<Mapping> rightMapping = nullptr;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_snapshotMutex);
+	auto [start, end] = co_await _splitMappings(address, length);
+	assert(start || (!start && !end));
+	auto needsShootdown = co_await _unmapMappings(address, length, start, end);
 
-		mapping = _findMapping(address);
-		if(!mapping)
-			co_return Error::illegalArgs;
-
-		assert(mapping->address <= address);
-		if(address + length > mapping->address + mapping->length)
-			co_return Error::illegalArgs;
-
-		assert(mapping->state == MappingState::active);
-		mapping->state = MappingState::zombie;
-	}
-
-	// Mark pages as dirty and unmap without holding a lock.
-	auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->view.get(),
-				mapping->viewOffset, mapping->length);
-	assert(unmapOutcome);
-
-	// Create a mapping for the left part of the remaining mapping.
-	if(mapping->address != address) {
-		assert(mapping->address < address);
-
-		auto leftSize = address - mapping->address;
-		leftMapping = smarter::allocate_shared<Mapping>(Allocator{},
-				leftSize, mapping->flags, mapping->slice,
-				mapping->viewOffset);
-		leftMapping->selfPtr = leftMapping;
-
-		leftMapping->tie(selfPtr.lock(), mapping->address);
-	}
-
-	// Create a mapping for the right part of the remaining mapping.
-	if(address + length != mapping->address + mapping->length) {
-		assert(address + length < mapping->address + mapping->length);
-
-		auto rightOffset = address + length - mapping->address;
-		rightMapping = smarter::allocate_shared<Mapping>(Allocator{},
-				mapping->length - rightOffset, mapping->flags, mapping->slice,
-				mapping->viewOffset + rightOffset);
-		rightMapping->selfPtr = rightMapping;
-
-		rightMapping->tie(selfPtr.lock(), address + length);
-	}
-
-	co_await _ops->shootdown(address, length);
-
-	// Now remove the mapping and insert the new mappings.
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_snapshotMutex);
-
-		_mappings.remove(mapping.get());
-
-		if(leftMapping) {
-			_mappings.insert(leftMapping.get());
-
-			assert(leftMapping->state == MappingState::null);
-			leftMapping->state = MappingState::active;
-		}
-		if(rightMapping) {
-			_mappings.insert(rightMapping.get());
-
-			assert(rightMapping->state == MappingState::null);
-			rightMapping->state = MappingState::active;
-		}
-	}
-
-	// Retire the old mapping and start using the new ones.
-
-	if(leftMapping) {
-		// We keep one reference until the detach the observer.
-		leftMapping.ctr()->increment();
-		leftMapping->view->addObserver(&leftMapping->observer);
-		if(leftMapping->view->canEvictMemory())
-			async::detach_with_allocator(*kernelAlloc, leftMapping->runEvictionLoop());
-	}
-	if(rightMapping) {
-		// We keep one reference until the detach the observer.
-		rightMapping.ctr()->increment();
-		rightMapping->view->addObserver(&rightMapping->observer);
-		if(rightMapping->view->canEvictMemory())
-			async::detach_with_allocator(*kernelAlloc, rightMapping->runEvictionLoop());
-	}
-
-	assert(mapping->state == MappingState::zombie);
-	mapping->state = MappingState::retired;
-
-	if(mapping->view->canEvictMemory()) {
-		mapping->cancelEviction.cancel();
-		co_await mapping->evictionDoneEvent.wait();
-	}
-	mapping->view->removeObserver(&mapping->observer);
-	mapping->selfPtr.ctr()->decrement();
-
-	// Finally, coalesce the hole in the hole tree.
-
-	// Find the holes that preceede/succeede mapping.
-	Hole *pre;
-	Hole *succ;
-
-	auto current = _holes.get_root();
-	while(true) {
-		assert(current);
-		if(address < current->address()) {
-			if(HoleTree::get_left(current)) {
-				current = HoleTree::get_left(current);
-			}else{
-				pre = HoleTree::predecessor(current);
-				succ = current;
-				break;
-			}
-		}else{
-			assert(address >= current->address() + current->length());
-			if(HoleTree::get_right(current)) {
-				current = HoleTree::get_right(current);
-			}else{
-				pre = current;
-				succ = HoleTree::successor(current);
-				break;
-			}
-		}
-	}
-
-	// Try to merge the new hole and the existing ones.
-	if(pre && pre->address() + pre->length() == address
-			&& succ && address + length == succ->address()) {
-		auto hole = frg::construct<Hole>(*kernelAlloc, pre->address(),
-				pre->length() + length + succ->length());
-
-		_holes.remove(pre);
-		_holes.remove(succ);
-		_holes.insert(hole);
-		frg::destruct(*kernelAlloc, pre);
-		frg::destruct(*kernelAlloc, succ);
-	}else if(pre && pre->address() + pre->length() == address) {
-		auto hole = frg::construct<Hole>(*kernelAlloc,
-				pre->address(), pre->length() + length);
-
-		_holes.remove(pre);
-		_holes.insert(hole);
-		frg::destruct(*kernelAlloc, pre);
-	}else if(succ && address + length == succ->address()) {
-		auto hole = frg::construct<Hole>(*kernelAlloc,
-				address, length + succ->length());
-
-		_holes.remove(succ);
-		_holes.insert(hole);
-		frg::destruct(*kernelAlloc, succ);
-	}else{
-		auto hole = frg::construct<Hole>(*kernelAlloc,
-				address, length);
-
-		_holes.insert(hole);
-	}
+	if (needsShootdown)
+		co_await _ops->shootdown(address, length);
 
 	co_return {};
 }
@@ -971,6 +825,222 @@ void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	}
 
 	frg::destruct(*kernelAlloc, hole);
+}
+
+coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr_t address, size_t size) {
+	// _consistencyMutex is held here by the caller
+
+	auto left = _mappings.get_root();
+	while (left) {
+		if (auto next = MappingTree::get_left(left))
+			left = next;
+		else
+			break;
+	}
+
+	Mapping *start = nullptr, *end = nullptr;
+	for (auto it = left; it;) {
+		if ((it->address + it->length) <= address) {
+			it = MappingTree::successor(it);
+			start = it;
+			continue;
+		}
+
+		if (it->address >= (address + size)) {
+			// If no mapping fell into the range, don't set the end iterator
+			if (start)
+				end = it;
+
+			break;
+		}
+
+		if (!start)
+			start = it;
+
+		auto mapping = it->selfPtr.lock();
+		auto at = address;
+
+		// Starting split not within mapping, consider end split
+		if (at <= mapping->address)
+			at = address + size;
+
+		if (at > mapping->address && at < (mapping->address + mapping->length)) {
+			// Split mapping into left and right part
+			smarter::shared_ptr<Mapping> leftMapping = nullptr;
+			smarter::shared_ptr<Mapping> rightMapping = nullptr;
+
+			assert(mapping->state == MappingState::active);
+			mapping->state = MappingState::zombie;
+
+			{
+				auto leftSize = at - mapping->address;
+				leftMapping = smarter::allocate_shared<Mapping>(Allocator{},
+						leftSize, mapping->flags, mapping->slice,
+						mapping->viewOffset);
+				leftMapping->selfPtr = leftMapping;
+
+				leftMapping->tie(selfPtr.lock(), mapping->address);
+			}
+
+			{
+				auto rightOffset = at - mapping->address;
+				rightMapping = smarter::allocate_shared<Mapping>(Allocator{},
+						mapping->length - rightOffset, mapping->flags, mapping->slice,
+						mapping->viewOffset + rightOffset);
+				rightMapping->selfPtr = rightMapping;
+
+				rightMapping->tie(selfPtr.lock(), at);
+			}
+
+			assert(leftMapping && rightMapping);
+
+			// Now remove the mapping and insert the new mappings.
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_snapshotMutex);
+
+				_mappings.remove(mapping.get());
+
+				_mappings.insert(leftMapping.get());
+				assert(leftMapping->state == MappingState::null);
+				leftMapping->state = MappingState::active;
+
+				_mappings.insert(rightMapping.get());
+				assert(rightMapping->state == MappingState::null);
+				rightMapping->state = MappingState::active;
+			}
+
+			// Retire the old mapping and start using the new ones.
+			// We keep one reference until the detach the observer.
+			leftMapping.ctr()->increment();
+			leftMapping->view->addObserver(&leftMapping->observer);
+			if (leftMapping->view->canEvictMemory())
+				async::detach_with_allocator(*kernelAlloc, leftMapping->runEvictionLoop());
+
+			// We keep one reference until the detach the observer.
+			rightMapping.ctr()->increment();
+			rightMapping->view->addObserver(&rightMapping->observer);
+			if (rightMapping->view->canEvictMemory())
+				async::detach_with_allocator(*kernelAlloc, rightMapping->runEvictionLoop());
+
+			assert(mapping->state == MappingState::zombie);
+			mapping->state = MappingState::retired;
+
+			if (mapping->view->canEvictMemory()) {
+				mapping->cancelEviction.cancel();
+				co_await mapping->evictionDoneEvent.wait();
+			}
+			mapping->view->removeObserver(&mapping->observer);
+			mapping->selfPtr.ctr()->decrement();
+
+			// If start pointed to the freshly-removed mapping,
+			// point it to the left side of the split instead
+			if (start == it)
+				start = leftMapping.get();
+
+			it = rightMapping.get();
+		} else {
+			it = MappingTree::successor(it);
+		}
+	}
+
+	co_return frg::make_tuple(start, end);
+}
+
+coroutine<bool> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end) {
+	bool needsShootdown = false;
+
+	for (auto it = start; it != end;) {
+		auto mapping = it->selfPtr.lock();
+		it = MappingTree::successor(it);
+
+		if (mapping->address >= address && (mapping->address + mapping->length) <= (address + length)) {
+			needsShootdown = true;
+
+			assert(mapping->state == MappingState::active);
+			mapping->state = MappingState::zombie;
+
+			// Mark pages as dirty and unmap without holding a lock.
+			auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->view.get(),
+						mapping->viewOffset, mapping->length);
+			assert(unmapOutcome);
+
+			_mappings.remove(mapping.get());
+
+			assert(mapping->state == MappingState::zombie);
+			mapping->state = MappingState::retired;
+
+			if(mapping->view->canEvictMemory()) {
+				mapping->cancelEviction.cancel();
+				co_await mapping->evictionDoneEvent.wait();
+			}
+			mapping->view->removeObserver(&mapping->observer);
+			mapping->selfPtr.ctr()->decrement();
+
+			// Finally, coalesce the hole in the hole tree.
+
+			// Find the holes that preceede/succeede mapping.
+			Hole *pre;
+			Hole *succ;
+
+			auto current = _holes.get_root();
+			while(true) {
+				assert(current);
+				if(mapping->address < current->address()) {
+					if(HoleTree::get_left(current)) {
+						current = HoleTree::get_left(current);
+					}else{
+						pre = HoleTree::predecessor(current);
+						succ = current;
+						break;
+					}
+				}else{
+					assert(mapping->address >= current->address() + current->length());
+					if(HoleTree::get_right(current)) {
+						current = HoleTree::get_right(current);
+					}else{
+						pre = current;
+						succ = HoleTree::successor(current);
+						break;
+					}
+				}
+			}
+
+			// Try to merge the new hole and the existing ones.
+			if(pre && pre->address() + pre->length() == mapping->address
+					&& succ && mapping->address + mapping->length == succ->address()) {
+				auto hole = frg::construct<Hole>(*kernelAlloc, pre->address(),
+						pre->length() + mapping->length + succ->length());
+
+				_holes.remove(pre);
+				_holes.remove(succ);
+				_holes.insert(hole);
+				frg::destruct(*kernelAlloc, pre);
+				frg::destruct(*kernelAlloc, succ);
+			}else if(pre && pre->address() + pre->length() == mapping->address) {
+				auto hole = frg::construct<Hole>(*kernelAlloc,
+						pre->address(), pre->length() + mapping->length);
+
+				_holes.remove(pre);
+				_holes.insert(hole);
+				frg::destruct(*kernelAlloc, pre);
+			}else if(succ && mapping->address + mapping->length == succ->address()) {
+				auto hole = frg::construct<Hole>(*kernelAlloc,
+						mapping->address, mapping->length + succ->length());
+
+				_holes.remove(succ);
+				_holes.insert(hole);
+				frg::destruct(*kernelAlloc, succ);
+			}else{
+				auto hole = frg::construct<Hole>(*kernelAlloc,
+						mapping->address, mapping->length);
+
+				_holes.insert(hole);
+			}
+		}
+	}
+
+	co_return needsShootdown;
 }
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,

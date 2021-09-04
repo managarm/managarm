@@ -495,6 +495,15 @@ private:
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
 
+	// Potentially splits mappings into two parts at (address) and (address + size).
+	// Returns the start and end mappings that are within the specified range.
+	coroutine<frg::tuple<Mapping *, Mapping *>> _splitMappings(uintptr_t address, size_t size);
+
+	// Used in conjunction with _splitMappings.
+	// Unmaps and removes all mappings between start and end that fall within the specified range.
+	// Returns whether shootdown needs to be performed (any of the mappings got unmapped).
+	coroutine<bool> _unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end);
+
 	VirtualOperations *_ops;
 
 	// Since changing memory mappings requires TLB shootdown, most mapping-related operations
