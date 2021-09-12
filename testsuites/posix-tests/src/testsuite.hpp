@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <utility>
 
 #define DEFINE_TEST(s, f) \
@@ -43,3 +47,14 @@ struct test_case : abstract_test_case {
 private:
 	F functor_;
 };
+
+#define assert_errno(fail_func, expr) ((void)(((expr) ? 1 : 0) || (assert_errno_fail(fail_func, #expr, __FILE__, __PRETTY_FUNCTION__, __LINE__), 0)))
+
+inline void assert_errno_fail(const char *fail_func, const char *expr,
+		const char *file, const char *func, int line) {
+	int err = errno;
+	fprintf(stderr, "In function %s, file %s:%d: Function %s failed with error '%s'; failing assertion: '%s'\n",
+			func, file, line, fail_func, strerror(err), expr);
+	abort();
+	__builtin_unreachable();
+}

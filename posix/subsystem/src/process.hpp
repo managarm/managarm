@@ -53,6 +53,11 @@ private:
 		intptr_t offset;
 	};
 
+	std::pair<
+		std::map<uintptr_t, Area>::iterator,
+		std::map<uintptr_t, Area>::iterator
+	> splitAreaOn_(uintptr_t addr, size_t size);
+
 	helix::UniqueDescriptor _space;
 
 	std::map<uintptr_t, Area> _areaTree;
