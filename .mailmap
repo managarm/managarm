@@ -1,0 +1,4 @@
+# git mailmap (see gitmailmap(5))
+# format: New Name <new@email> Old Name <old@email>
+
+Arsen Arsenović <arsen@aarsen.me> Arsen <arsenarsentmc@outlook.com>
