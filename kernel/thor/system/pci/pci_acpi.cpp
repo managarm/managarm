@@ -167,6 +167,22 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	}
 };
 
+static uint64_t evaluateAmlOr0(lai_state_t *state, lai_nsnode_t *node, const char *path) {
+	uint64_t result = 0;
+	LAI_CLEANUP_VAR lai_variable_t var = LAI_VAR_INITIALIZER;
+
+	lai_nsnode_t *handle = lai_resolve_path(node, path);
+	if (handle) {
+		if (lai_eval(&var, handle, state)) {
+			infoLogger() << "thor: Failed to evaluate " << path << frg::endlog;
+			return 0;
+		}
+
+		lai_obj_get_integer(&var, &result);
+	}
+
+	return result;
+}
 
 static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-acpi-root-buses",
 	initgraph::Requires{getTaskingAvailableStage(), acpi::getNsAvailableStage()},
@@ -189,9 +205,11 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 					&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &laiState))
 				continue;
 
-			// TODO: parse _SEG and _BUS to get the segment and bus numbers
+			auto seg = evaluateAmlOr0(&laiState, handle, "_SEG");
+			auto bus = evaluateAmlOr0(&laiState, handle, "_BBN");
 
-			infoLogger() << "thor: Found PCI host bridge" << frg::endlog;
+			infoLogger() << "thor: Found PCI host bridge " << frg::hex_fmt{seg} << ":"
+				<< frg::hex_fmt{bus} << frg::endlog;
 
 			PciMsiController *msiController = nullptr;
 			#ifdef __x86_64__
@@ -205,7 +223,7 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 			#endif
 
 			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr,
-					getConfigIoFor(0, 0), msiController, 0, 0);
+					getConfigIoFor(seg, bus), msiController, seg, bus);
 			rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, handle);
 			addRootBus(rootBus);
 		}
