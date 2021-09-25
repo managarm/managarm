@@ -9,6 +9,7 @@
 #include <arch/mem_space.hpp>
 #include <async/cancellation.hpp>
 #include <async/recurring-event.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
@@ -233,18 +234,18 @@ struct Configuration {
 	virtual void dispose() = 0;
 	virtual void commit() = 0;
 
-	async::result<void> waitForCompletion() {
-		return _promise.async_get();
+	auto waitForCompletion() {
+		return _ev.wait();
 	}
 
 protected:
-	// TODO: Let derive classes handle the promise?
+	// TODO: Let derive classes handle the event?
 	void complete() {
-		_promise.set_value();
+		_ev.raise();
 	}
 
 private:
-	async::promise<void> _promise;
+	async::oneshot_event _ev;
 };
 
 struct ModeObject {
