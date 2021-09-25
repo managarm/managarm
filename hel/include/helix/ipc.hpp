@@ -8,7 +8,7 @@
 #include <array>
 #include <stdexcept>
 
-#include <async/result.hpp>
+#include <async/oneshot-event.hpp>
 
 // This is here since ipc-structs.hpp needs ElementHandle
 namespace helix {
@@ -719,8 +719,8 @@ struct Submission : private Context {
 
 	Submission &operator= (Submission &other) = delete;
 
-	async::result<void> async_wait() {
-		return _pledge.async_get();
+	auto async_wait() {
+		return _ev.wait();
 	}
 
 private:
@@ -734,12 +734,12 @@ private:
 		_result->_element = _element.data();
 		if(_completeOperation)
 			_completeOperation(_result);
-		_pledge.set_value();
+		_ev.raise();
 	}
 
 	Operation *_result;
 	void (*_completeOperation)(Operation *) = nullptr;
-	async::promise<void> _pledge;
+	async::oneshot_event _ev;
 	ElementHandle _element;
 };
 
@@ -835,8 +835,8 @@ struct Transmission : private Context {
 
 	Transmission &operator= (Transmission &other) = delete;
 
-	async::result<void> async_wait() {
-		return _pledge.async_get();
+	auto async_wait() {
+		return _ev.wait();
 	}
 
 private:
@@ -846,11 +846,11 @@ private:
 		auto ptr = _element.data();
 		for(size_t i = 0; i < sizeof...(I); ++i)
 			_results[i]->parse(ptr);
-		_pledge.set_value();
+		_ev.raise();
 	}
 
 	std::array<Operation *, sizeof...(I)> _results;
-	async::promise<void> _pledge;
+	async::oneshot_event _ev;
 	ElementHandle _element;
 };
 
