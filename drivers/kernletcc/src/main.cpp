@@ -169,9 +169,7 @@ async::result<void> createCompilerObject() {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		serveCompiler(std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject("kernletcc", descriptor, std::move(handler));
