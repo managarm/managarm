@@ -603,9 +603,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(_eventDev, std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject("input_hid", mbus_descriptor, std::move(handler));

@@ -1,5 +1,6 @@
 
 #include <async/recurring-event.hpp>
+#include <async/oneshot-event.hpp>
 #include <async/result.hpp>
 #include <blockfs.hpp>
 #include <boost/intrusive/list.hpp>
@@ -115,7 +116,7 @@ private:
 		uint64_t sector;
 		void *buffer;
 		size_t numSectors;
-		async::promise<void> promise;
+		async::oneshot_event event;
 		boost::intrusive::list_member_hook<> requestHook;
 	};
 

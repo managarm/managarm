@@ -168,7 +168,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 				throw std::runtime_error("block-usb: Giving up");
 			}
 
-			req->promise.set_value();
+			req->event.raise();
 		}else{
 			co_await _doorbell.async_wait();
 		}
@@ -180,7 +180,7 @@ async::result<void> StorageDevice::readSectors(uint64_t sector,
 	Request req{false, sector, buffer, numSectors};
 	_queue.push_back(req);
 	_doorbell.raise();
-	co_await req.promise.async_get();
+	co_await req.event.wait();
 }
 
 async::result<void> StorageDevice::writeSectors(uint64_t sector,
@@ -188,7 +188,7 @@ async::result<void> StorageDevice::writeSectors(uint64_t sector,
 	Request req{true, sector, const_cast<void *>(buffer), numSectors};
 	_queue.push_back(req);
 	_doorbell.raise();
-	co_await req.promise.async_get();
+	co_await req.event.wait();
 }
 
 async::detached bindDevice(mbus::Entity entity) {
