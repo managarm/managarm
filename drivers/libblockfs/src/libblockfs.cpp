@@ -647,8 +647,7 @@ async::detached runDevice(BlockDevice *device) {
 		auto handler = mbus::ObjectHandler{}
 		.withBind([] () -> async::result<helix::UniqueDescriptor> {
 			std::cout << "\e[31mlibblockfs: Disks don't currently serve requests\e[39m" << std::endl;
-			async::promise<helix::UniqueDescriptor> promise;
-			return promise.async_get();
+			co_return {};
 		});
 
 		auto obj = co_await root.createObject("disk", descriptor, std::move(handler));
@@ -686,9 +685,7 @@ async::detached runDevice(BlockDevice *device) {
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			servePartition(std::move(local_lane));
 
-			async::promise<helix::UniqueDescriptor> promise;
-			promise.set_value(std::move(remote_lane));
-			return promise.async_get();
+			co_return std::move(remote_lane);
 		});
 
 		co_await root.createObject("partition", descriptor, std::move(handler));
