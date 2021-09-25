@@ -935,7 +935,7 @@ private:
 };
 
 template <typename Results, typename Actions>
-struct ExchangeMsgsSender {
+struct [[nodiscard]] ExchangeMsgsSender {
 	using value_type = Results;
 
 	ExchangeMsgsSender(BorrowedDescriptor lane, Results, Actions actions)
@@ -995,7 +995,7 @@ private:
 	Receiver receiver_;
 };
 
-struct AsyncNopSender {
+struct [[nodiscard]] AsyncNopSender {
 	using value_type = AsyncNopResult;
 
 	AsyncNopSender() = default;
@@ -1035,113 +1035,191 @@ private:
 	HelError error_;
 };
 
-struct [[nodiscard]] SynchronizeSpaceOperation : private Context {
-	SynchronizeSpaceOperation(helix::BorrowedDescriptor spaceDescriptor,
-			void *pointer, size_t size) {
+template <typename Receiver>
+struct SynchronizeSpaceOperation : private Context {
+	SynchronizeSpaceOperation(BorrowedDescriptor space,
+			void *pointer, size_t size, Receiver r)
+	: space_{std::move(space)}, pointer_{pointer}, size_{size}, r_{std::move(r)} {}
+
+	void start() {
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitSynchronizeSpace(spaceDescriptor.getHandle(),
-				pointer, size,
+		HEL_CHECK(helSubmitSynchronizeSpace(space_.getHandle(),
+				pointer_, size_,
 				Dispatcher::global().acquire(),
 				reinterpret_cast<uintptr_t>(context)));
 	}
 
 	SynchronizeSpaceOperation(const SynchronizeSpaceOperation &) = delete;
-
 	SynchronizeSpaceOperation &operator= (const SynchronizeSpaceOperation &) = delete;
-
-	auto operator co_await() {
-		using async::operator co_await;
-		return operator co_await(promise_.async_get());
-	}
 
 private:
 	void complete(ElementHandle element) override {
 		SynchronizeSpaceResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		promise_.set_value(std::move(result));
+		async::execution::set_value_noinline(r_, std::move(result));
 	}
 
-	async::promise<SynchronizeSpaceResult> promise_;
+	BorrowedDescriptor space_;
+	void *pointer_;
+	size_t size_;
+	Receiver r_;
 };
 
-inline SynchronizeSpaceOperation synchronizeSpace(helix::BorrowedDescriptor spaceDescriptor,
-		void *pointer, size_t size) {
-	return {spaceDescriptor, pointer, size};
+struct [[nodiscard]] SynchronizeSpaceSender {
+	using value_type = SynchronizeSpaceResult;
+
+	SynchronizeSpaceSender(BorrowedDescriptor space, void *pointer, size_t size)
+	: space_{std::move(space)}, pointer_{pointer}, size_{size} { }
+
+	template<typename Receiver>
+	SynchronizeSpaceOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(space_), pointer_, size_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor space_;
+	void *pointer_;
+	size_t size_;
+};
+
+inline async::sender_awaiter<SynchronizeSpaceSender, SynchronizeSpaceResult>
+operator co_await (SynchronizeSpaceSender sender) {
+	return {std::move(sender)};
+}
+
+inline auto synchronizeSpace(BorrowedDescriptor space, void *pointer, size_t size) {
+	return SynchronizeSpaceSender{std::move(space), pointer, size};
 }
 
 // --------------------------------------------------------------------
-// Load/WriteMemory
+// Read/WriteMemory
 // --------------------------------------------------------------------
 
-struct [[nodiscard]] ReadMemoryOperation : private Context {
-	ReadMemoryOperation(helix::BorrowedDescriptor descriptor,
-			uintptr_t address, size_t length, void *buffer) {
+template <typename Receiver>
+struct ReadMemoryOperation : private Context {
+	ReadMemoryOperation(BorrowedDescriptor descriptor,
+			uintptr_t address, size_t length, void *buffer, Receiver r)
+	: descriptor_{std::move(descriptor)}, address_{address}, length_{length},
+		buffer_{buffer}, r_{std::move(r)} {}
+
+	void start() {
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitReadMemory(descriptor.getHandle(),
-				address, length, buffer,
+		HEL_CHECK(helSubmitReadMemory(descriptor_.getHandle(),
+				address_, length_, buffer_,
 				Dispatcher::global().acquire(),
 				reinterpret_cast<uintptr_t>(context)));
 	}
 
 	ReadMemoryOperation(const ReadMemoryOperation &) = delete;
-
 	ReadMemoryOperation &operator= (const ReadMemoryOperation &) = delete;
-
-	auto operator co_await() {
-		using async::operator co_await;
-		return operator co_await(promise_.async_get());
-	}
 
 private:
 	void complete(ElementHandle element) override {
 		SynchronizeSpaceResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		promise_.set_value(std::move(result));
+		async::execution::set_value_noinline(r_, std::move(result));
 	}
 
-	async::promise<SynchronizeSpaceResult> promise_;
+	BorrowedDescriptor descriptor_;
+	uintptr_t address_;
+	size_t length_;
+	void *buffer_;
+	Receiver r_;
 };
 
-inline ReadMemoryOperation readMemory(helix::BorrowedDescriptor descriptor,
-		uintptr_t address, size_t length, void *buffer) {
-	return {descriptor, address, length, buffer};
+struct [[nodiscard]] ReadMemorySender {
+	using value_type = SynchronizeSpaceResult;
+
+	ReadMemorySender(BorrowedDescriptor descriptor, uintptr_t address,
+			size_t length, void *buffer)
+	: descriptor_{std::move(descriptor)}, address_{address},
+		length_{length}, buffer_{buffer} { }
+
+	template<typename Receiver>
+	ReadMemoryOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(descriptor_), address_, length_, buffer_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor descriptor_;
+	uintptr_t address_;
+	size_t length_;
+	void *buffer_;
+};
+
+inline async::sender_awaiter<ReadMemorySender, SynchronizeSpaceResult>
+operator co_await (ReadMemorySender sender) {
+	return {std::move(sender)};
 }
 
-struct [[nodiscard]] WriteMemoryOperation : private Context {
-	WriteMemoryOperation(helix::BorrowedDescriptor descriptor,
-			uintptr_t address, size_t length, const void *buffer) {
+inline auto readMemory(BorrowedDescriptor descriptor,
+		uintptr_t address, size_t length, void *buffer) {
+	return ReadMemorySender{descriptor, address, length, buffer};
+}
+
+template <typename Receiver>
+struct WriteMemoryOperation : private Context {
+	WriteMemoryOperation(BorrowedDescriptor descriptor,
+			uintptr_t address, size_t length, const void *buffer, Receiver r)
+	: descriptor_{std::move(descriptor)}, address_{address}, length_{length},
+		buffer_{buffer}, r_{std::move(r)} { }
+
+	void start() {
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitWriteMemory(descriptor.getHandle(),
-				address, length, buffer,
+		HEL_CHECK(helSubmitWriteMemory(descriptor_.getHandle(),
+				address_, length_, buffer_,
 				Dispatcher::global().acquire(),
 				reinterpret_cast<uintptr_t>(context)));
 	}
 
 	WriteMemoryOperation(const WriteMemoryOperation &) = delete;
-
 	WriteMemoryOperation &operator= (const WriteMemoryOperation &) = delete;
-
-	auto operator co_await() {
-		using async::operator co_await;
-		return operator co_await(promise_.async_get());
-	}
 
 private:
 	void complete(ElementHandle element) override {
 		SynchronizeSpaceResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		promise_.set_value(std::move(result));
+		async::execution::set_value_noinline(r_, std::move(result));
 	}
 
-	async::promise<SynchronizeSpaceResult> promise_;
+	BorrowedDescriptor descriptor_;
+	uintptr_t address_;
+	size_t length_;
+	const void *buffer_;
+	Receiver r_;
 };
 
-inline WriteMemoryOperation writeMemory(helix::BorrowedDescriptor descriptor,
+struct [[nodiscard]] WriteMemorySender {
+	using value_type = SynchronizeSpaceResult;
+
+	WriteMemorySender(BorrowedDescriptor descriptor, uintptr_t address,
+			size_t length, const void *buffer)
+	: descriptor_{std::move(descriptor)}, address_{address},
+		length_{length}, buffer_{buffer} { }
+
+	template<typename Receiver>
+	WriteMemoryOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(descriptor_), address_, length_, buffer_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor descriptor_;
+	uintptr_t address_;
+	size_t length_;
+	const void *buffer_;
+};
+
+inline async::sender_awaiter<WriteMemorySender, SynchronizeSpaceResult>
+operator co_await (WriteMemorySender sender) {
+	return {std::move(sender)};
+}
+
+inline auto writeMemory(BorrowedDescriptor descriptor,
 		uintptr_t address, size_t length, const void *buffer) {
-	return {descriptor, address, length, buffer};
+	return WriteMemorySender{descriptor, address, length, buffer};
 }
 
 // --------------------------------------------------------------------
@@ -1176,7 +1254,7 @@ private:
 	Receiver receiver_;
 };
 
-struct AwaitEventSender {
+struct [[nodiscard]] AwaitEventSender {
 	using value_type = AwaitEventResult;
 
 	AwaitEventSender(BorrowedDescriptor event, uint64_t sequence)
