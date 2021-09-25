@@ -5,6 +5,8 @@
 #include "console.hpp"
 
 #include <async/oneshot-event.hpp>
+#include <async/promise.hpp>
+#include <frg/std_compat.hpp>
 #include <protocols/mbus/client.hpp>
 #include <kerncfg.pb.h>
 
@@ -16,18 +18,18 @@ async::result<helix::UniqueLane> enumerateKerncfgByteRing(const char *purpose) {
 		mbus::EqualsFilter("purpose", purpose)
 	});
 
-	// TODO: this is quite dirty and we are leaking this async::promise.
-	auto p = new async::promise<helix::UniqueLane>{};
+	async::promise<helix::UniqueLane, frg::stl_allocator> promise;
+	auto future = promise.get_future();
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([p] (mbus::Entity entity,
+	.withAttach([&promise] (mbus::Entity entity,
 			mbus::Properties properties) mutable -> async::detached {
 		std::cout << "virtio-console: Found kerncfg" << std::endl;
-		p->set_value(helix::UniqueLane(co_await entity.bind()));
+		promise.set_value(helix::UniqueLane(co_await entity.bind()));
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_return co_await p->async_get();
+	co_return std::move(*(co_await future.get()));
 }
 
 async::result<std::tuple<size_t, uint64_t, uint64_t>>
