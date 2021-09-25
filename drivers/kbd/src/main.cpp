@@ -390,9 +390,7 @@ async::result<void> Controller::KbdDevice::run() {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(_evDev, std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject("ps2kbd", descriptor, std::move(handler));
@@ -476,9 +474,7 @@ async::result<void> Controller::MouseDevice::run() {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(_evDev, std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject("ps2mouse", descriptor, std::move(handler));
