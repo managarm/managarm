@@ -120,5 +120,5 @@ async::result<Command::Result> Queue::submitCommand(std::unique_ptr<Command> cmd
 	auto future = cmd->getFuture();
 
 	pendingCmdQueue_.put(std::move(cmd));
-	return future;
+	co_return *(co_await future.get());
 }
