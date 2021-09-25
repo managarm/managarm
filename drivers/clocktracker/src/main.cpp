@@ -154,9 +154,7 @@ async::detached initializeDriver() {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		serve(std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject("clocktracker", descriptor, std::move(handler));
