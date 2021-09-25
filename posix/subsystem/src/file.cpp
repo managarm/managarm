@@ -286,9 +286,7 @@ async::result<void> File::allocate(int64_t, size_t) {
 
 async::result<frg::expected<Error, off_t>> File::seek(off_t, VfsSeek) {
 	if(_defaultOps & defaultPipeLikeSeek) {
-		async::promise<frg::expected<Error, off_t>> promise;
-		promise.set_value(Error::seekOnPipe);
-		return promise.async_get();
+		co_return Error::seekOnPipe;
 	}else{
 		std::cout << "posix \e[1;34m" << structName()
 				<< "\e[0m: Object does not implement seek()" << std::endl;

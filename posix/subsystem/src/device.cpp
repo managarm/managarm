@@ -153,7 +153,7 @@ private:
 		if(!_statusMapping) {
 			std::cout << "posix: No file status page. DeviceFile::pollStatus()"
 					" falls back to slower IPC request" << std::endl;
-			return pollOverIpc();
+			co_return co_await pollOverIpc();
 		}
 
 		auto page = reinterpret_cast<protocols::fs::StatusPage *>(_statusMapping.get());
@@ -164,7 +164,7 @@ private:
 			if(logStatusSeqlock)
 				std::cout << "posix: Status page update in progess;"
 						" falling back to IPC request." << std::endl;
-			return pollOverIpc();
+			co_return co_await pollOverIpc();
 		}
 
 		// Perform the actual loads.
@@ -177,13 +177,11 @@ private:
 			if(logStatusSeqlock)
 				std::cout << "posix: Stale data from status page;"
 						" falling back to IPC request." << std::endl;
-			return pollOverIpc();
+			co_return co_await pollOverIpc();
 		}
 
 		// TODO: Return a full edge mask or edges since sequence zero.
-		async::promise<frg::expected<Error, PollStatusResult>> promise;
-		promise.set_value(PollStatusResult{sequence, status});
-		return promise.async_get();
+		co_return PollStatusResult{sequence, status};
 	}
 
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override {
