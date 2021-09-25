@@ -13,7 +13,7 @@ namespace {
 
 Command::Command(uint64_t sector, size_t numSectors, size_t numBytes, void *buffer,
 		CommandType type) : sector_{sector}, numSectors_{numSectors}, numBytes_{numBytes},
-	buffer_{buffer}, type_{type}, promise_{} {
+	buffer_{buffer}, type_{type}, event_{} {
 
 	// TODO: Requests larger than 64k need to be split
 	assert(numBytes < 65536);
@@ -30,7 +30,7 @@ void Command::notifyCompletion() {
 		printf("block/ahci: completed %s to %p", cmdTypeToString(type_), buffer_);
 	}
 
-	return promise_.set_value();
+	event_.raise();
 }
 
 void Command::prepare(commandTable& table, commandHeader& header) {

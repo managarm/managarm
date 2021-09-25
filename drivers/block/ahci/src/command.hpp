@@ -1,6 +1,6 @@
 #pragma once
 
-#include <async/result.hpp>
+#include <async/oneshot-event.hpp>
 
 #include "spec.hpp"
 
@@ -26,7 +26,7 @@ public:
 	void notifyCompletion(); 
 
 	auto getFuture() {
-		return promise_.async_get();
+		return event_.wait();
 	}
 
 private:
@@ -38,7 +38,7 @@ private:
 	size_t numBytes_;
 	void *buffer_;
 	CommandType type_;
-	async::promise<void> promise_;
+	async::oneshot_event event_;
 };
 
 constexpr const char *cmdTypeToString(CommandType type) {
