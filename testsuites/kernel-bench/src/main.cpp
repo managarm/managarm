@@ -1,5 +1,6 @@
 #include <math.h>
 
+#include <async/result.hpp>
 #include <async/algorithm.hpp>
 #include <helix/ipc.hpp>
 
