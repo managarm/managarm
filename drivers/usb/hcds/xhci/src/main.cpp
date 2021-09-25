@@ -495,7 +495,7 @@ void Controller::EventRing::processEvent(Controller::Event ev) {
 		_controller->_cmdRing._commandEvents[commandIndex] = nullptr;
 		if (cmdEv) {
 			cmdEv->event = ev;
-			cmdEv->promise.set_value();
+			cmdEv->completion.raise();
 		}
 	} else if (ev.type == TrbType::portStatusChangeEvent) {
 		printf("xhci: port %lu changed state\n", ev.portId);
@@ -510,7 +510,7 @@ void Controller::EventRing::processEvent(Controller::Event ev) {
 		transferRing->_transferEvents[commandIndex] = nullptr;
 		if (transferEv) {
 			transferEv->event = ev;
-			transferEv->promise.set_value();
+			transferEv->completion.raise();
 		}
 
 		transferRing->updateDequeue(commandIndex);
@@ -845,9 +845,7 @@ async::detached Controller::Port::initPort() {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		protocols::usb::serve(::Device{_device}, std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject(name, mbus_desc, std::move(handler));
@@ -990,7 +988,7 @@ Controller::Device::useConfiguration(int number) {
 	pushRawTransfer(0, status_stage, &ev);
 	submit(1);
 
-	co_await ev.promise.async_get();
+	co_await ev.completion.wait();
 
 	if (ev.event.completionCode != 1)
 		printf("xhci: failed to use configuration, completion code: '%s'\n",
@@ -1044,7 +1042,7 @@ Controller::Device::transfer(ControlTransfer info) {
 	pushRawTransfer(0, status_stage, &ev);
 	submit(1);
 
-	co_await ev.promise.async_get();
+	co_await ev.completion.wait();
 
 	if (ev.event.completionCode != 1)
 		printf("xhci: failed to perform a control transfer, completion code: '%s'\n",
@@ -1065,7 +1063,7 @@ async::result<void> Controller::Device::allocSlot(int slotType, int packetSize) 
 	_controller->_cmdRing.pushRawCommand(enable_slot, &ev);
 	_controller->_cmdRing.submit();
 
-	co_await ev.promise.async_get();
+	co_await ev.completion.wait();
 
 	assert(ev.event.completionCode != 9); // TODO: handle running out of device slots
 	assert(ev.event.completionCode == 1); // success
@@ -1120,7 +1118,7 @@ async::result<void> Controller::Device::allocSlot(int slotType, int packetSize) 
 	_controller->_cmdRing.pushRawCommand(address_device, &ev2);
 	_controller->_cmdRing.submit();
 
-	co_await ev2.promise.async_get();
+	co_await ev2.completion.wait();
 
 	if (ev2.event.completionCode != 1)
 		printf("xhci: failed to address device, completion code: '%s'\n",
@@ -1159,7 +1157,7 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view des
 	pushRawTransfer(0, status_stage, &ev);
 	submit(1);
 
-	co_await ev.promise.async_get();
+	co_await ev.completion.wait();
 
 	if (ev.event.completionCode != 1)
 		printf("xhci: failed to read descriptor, completion code: '%s'\n",
@@ -1224,7 +1222,7 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 	_controller->_cmdRing.pushRawCommand(configure_endpoint, &ev);
 	_controller->_cmdRing.submit();
 
-	co_await ev.promise.async_get();
+	co_await ev.completion.wait();
 
 	if (ev.event.completionCode != 1)
 		printf("xhci: failed to configure endpoint, completion code: '%s'\n",
@@ -1308,7 +1306,7 @@ Controller::EndpointState::transfer(InterruptTransfer info) {
 
 	_device->submit(endpointId);
 
-	co_await ev.promise.async_get();
+	co_await ev.completion.wait();
 
 	assert(ev.event.completionCode == 1 || ev.event.completionCode == 13); // success
 
@@ -1344,7 +1342,7 @@ Controller::EndpointState::transfer(BulkTransfer info) {
 
 	_device->submit(endpointId);
 
-	co_await ev.promise.async_get();
+	co_await ev.completion.wait();
 
 	if (ev.event.completionCode != 1) {
 		printf("xhci: completion code is %s instead of success\n", completionCodeNames[ev.event.completionCode]);

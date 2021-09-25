@@ -64,7 +64,7 @@ private:
 		constexpr static size_t commandRingSize = 128;
 
 		struct CommandEvent {
-			async::promise<void> promise;
+			async::oneshot_event completion;
 			Event event;
 		};
 
@@ -129,7 +129,7 @@ private:
 		constexpr static size_t transferRingSize = 128;
 
 		struct TransferEvent {
-			async::promise<void> promise;
+			async::oneshot_event completion;
 			Event event;
 		};
 
