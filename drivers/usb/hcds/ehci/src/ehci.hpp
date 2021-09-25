@@ -3,9 +3,11 @@
 
 #include <arch/mem_space.hpp>
 #include <async/recurring-event.hpp>
+#include <async/promise.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
+#include <frg/std_compat.hpp>
 
 #include "spec.hpp"
 
@@ -69,8 +71,8 @@ struct Controller : std::enable_shared_from_this<Controller> {
 		size_t fullSize;
 		size_t numComplete;
 		size_t lostSize; // Size lost in short packets.
-		async::promise<frg::expected<UsbError, size_t>> promise;
-		async::promise<frg::expected<UsbError>> voidPromise;
+		async::promise<frg::expected<UsbError, size_t>, frg::stl_allocator> promise;
+		async::promise<frg::expected<UsbError>, frg::stl_allocator> voidPromise;
 	};
 
 	struct QueueEntity : AsyncItem {

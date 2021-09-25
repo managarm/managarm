@@ -392,9 +392,7 @@ async::result<void> Controller::probeDevice() {
 		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
 		protocols::usb::serve(Device{std::move(state)}, std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject(name, mbus_desc, std::move(handler));
@@ -640,8 +638,9 @@ Controller::transfer(int address, int pipe, ControlTransfer info) {
 
 	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer,  endpoint->maxPacketSize);
+	auto future = transaction->voidPromise.get_future();
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->voidPromise.async_get();
+	co_return *(co_await future.get());
 }
 
 async::result<frg::expected<UsbError, size_t>>
@@ -659,8 +658,9 @@ Controller::transfer(int address, PipeType type, int pipe,
 
 	auto transaction = _buildInterruptOrBulk(info.flags,
 			info.buffer, endpoint->maxPacketSize, info.lazyNotification);
+	auto future = transaction->promise.get_future();
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->promise.async_get();
+	co_return *(co_await future.get());
 }
 
 async::result<frg::expected<UsbError, size_t>>
@@ -678,8 +678,9 @@ Controller::transfer(int address, PipeType type, int pipe,
 
 	auto transaction = _buildInterruptOrBulk(info.flags,
 			info.buffer, endpoint->maxPacketSize, info.lazyNotification);
+	auto future = transaction->promise.get_future();
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->promise.async_get();
+	co_return *(co_await future.get());
 }
 
 
@@ -814,8 +815,9 @@ async::result<frg::expected<UsbError>> Controller::_directTransfer(ControlTransf
 		QueueEntity *queue, size_t max_packet_size) {
 	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer, max_packet_size);
+	auto future = transaction->voidPromise.get_future();
 	_linkTransaction(queue, transaction);
-	return transaction->voidPromise.async_get();
+	co_return *(co_await future.get());
 }
 
 // ------------------------------------------------------------------------
@@ -910,7 +912,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			std::cout << "ehci: Transfer complete!" << std::endl;
 		assert(active->fullSize >= active->lostSize);
 		active->promise.set_value(active->fullSize - active->lostSize);
-		active->voidPromise.set_value({});
+		active->voidPromise.set_value(UsbError{});
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();
