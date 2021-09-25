@@ -13,6 +13,7 @@
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
 #include <async/recurring-event.hpp>
+#include <async/oneshot-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 
@@ -316,19 +317,19 @@ public:
 	// Notifies the device that new descriptors have been posted.
 	void notify();
 
-	async::result<void> submitDescriptor(Handle descriptor) {
-		struct PromiseRequest : Request {
-			async::promise<void> promise;
-		} promise_req;
+	auto submitDescriptor(Handle descriptor) {
+		struct OneshotRequest : Request {
+			async::oneshot_event event;
+		} ev_req;
 
-		postDescriptor(descriptor, &promise_req,
+		postDescriptor(descriptor, &ev_req,
 				[] (virtio_core::Request *base_request) {
-			auto request = static_cast<PromiseRequest *>(base_request);
-			request->promise.set_value();
+			auto request = static_cast<OneshotRequest *>(base_request);
+			request->event.raise();
 		});
 		notify();
 
-		co_await promise_req.promise.async_get();
+		return ev_req.event.wait();
 	}
 
 	// Processes interrupts for this virtq.
