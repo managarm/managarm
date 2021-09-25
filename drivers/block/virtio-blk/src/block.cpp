@@ -64,7 +64,7 @@ async::result<void> Device::readSectors(uint64_t sector,
 				std::min(num_sectors - progress, max_sectors));
 		_pendingQueue.push(request);
 		_pendingDoorbell.raise();
-		co_await request->promise.async_get();
+		co_await request->event.wait();
 		delete request;
 	}
 }
@@ -85,7 +85,7 @@ async::result<void> Device::writeSectors(uint64_t sector,
 				std::min(num_sectors - progress, max_sectors));
 		_pendingQueue.push(request);
 		_pendingDoorbell.raise();
-		co_await request->promise.async_get();
+		co_await request->event.wait();
 		delete request;
 	}
 }
@@ -145,7 +145,7 @@ async::detached Device::_processRequests() {
 			if(logInitiateRetire)
 				std::cout << "Retiring " << request->numSectors
 						<< " data descriptors" << std::endl;
-			request->promise.set_value();
+			request->event.raise();
 		});
 		_requestQueue->notify();
 	}

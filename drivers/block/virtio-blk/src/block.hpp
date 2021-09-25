@@ -3,6 +3,7 @@
 
 #include <blockfs.hpp>
 #include <core/virtio/core.hpp>
+#include <async/oneshot-event.hpp>
 
 namespace block {
 namespace virtio {
@@ -43,7 +44,7 @@ struct UserRequest : virtio_core::Request {
 	void *buffer;
 	size_t numSectors;
 
-	async::promise<void> promise;
+	async::oneshot_event event;
 };
 
 // --------------------------------------------------------
