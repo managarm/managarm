@@ -695,9 +695,7 @@ async::result<void> setupDevice(mbus::Entity entity) {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		drm_core::serveDrmDevice(gfx_device, std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 	co_await root.createObject("gfx_vmware", descriptor, std::move(handler));
 }
