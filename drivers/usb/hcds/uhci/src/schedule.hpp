@@ -3,8 +3,11 @@
 #include <arch/dma_pool.hpp>
 #include <arch/io_space.hpp>
 #include <async/recurring-event.hpp>
+#include <async/promise.hpp>
 #include <async/mutex.hpp>
 #include <protocols/hw/client.hpp>
+
+#include <frg/std_compat.hpp>
 
 struct DeviceState;
 struct ConfigurationState;
@@ -129,8 +132,8 @@ private:
 		size_t numComplete;
 		size_t lengthComplete;
 		bool allowShortPackets;
-		async::promise<frg::expected<UsbError, size_t>> promise;
-		async::promise<frg::expected<UsbError>> voidPromise;
+		async::promise<frg::expected<UsbError, size_t>, frg::stl_allocator> promise;
+		async::promise<frg::expected<UsbError>, frg::stl_allocator> voidPromise;
 	};
 
 	struct QueueEntity : ScheduleItem {

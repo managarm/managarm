@@ -791,9 +791,7 @@ async::result<void> Controller::enumerateDevice(bool low_speed) {
 		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
 		protocols::usb::serve(Device{std::move(state)}, std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject(name, mbus_desc, std::move(handler));
@@ -899,8 +897,9 @@ Controller::transfer(int address, int pipe, ControlTransfer info) {
 	
 	auto transaction = _buildControl(address, pipe, info.flags,
 			info.setup, info.buffer, device->lowSpeed, endpoint->maxPacketSize);
+	auto future = transaction->voidPromise.get_future();
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->voidPromise.async_get();
+	co_return *(co_await future.get());
 }
 
 async::result<frg::expected<UsbError, size_t>>
@@ -919,8 +918,9 @@ Controller::transfer(int address, PipeType type, int pipe,
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
 			info.buffer, device->lowSpeed, endpoint->maxPacketSize, info.allowShortPackets);
+	auto future = transaction->promise.get_future();
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->promise.async_get();
+	co_return *(co_await future.get());
 }
 
 async::result<frg::expected<UsbError, size_t>>
@@ -941,8 +941,9 @@ Controller::transfer(int address, PipeType type, int pipe,
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
 			info.buffer, device->lowSpeed, endpoint->maxPacketSize, info.allowShortPackets);
+	auto future = transaction->promise.get_future();
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->promise.async_get();
+	co_return *(co_await future.get());
 }
 
 auto Controller::_buildControl(int address, int pipe, XferFlags dir,
@@ -1025,8 +1026,9 @@ Controller::_directTransfer(int address, int pipe, ControlTransfer info,
 		QueueEntity *queue, bool low_speed, size_t max_packet_size) {
 	auto transaction = _buildControl(address, pipe, info.flags,
 			info.setup, info.buffer, low_speed, max_packet_size);
+	auto future = transaction->voidPromise.get_future();
 	_linkTransaction(queue, transaction);
-	return transaction->voidPromise.async_get();
+	co_return *(co_await future.get());
 }
 
 // ----------------------------------------------------------------
@@ -1190,7 +1192,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 
 	//printf("Transfer complete!\n");
 	front->promise.set_value(front->lengthComplete);
-	front->voidPromise.set_value({});
+	front->voidPromise.set_value(UsbError{});
 
 	// Schedule the next transaction.
 	entity->transactions.pop_front();
