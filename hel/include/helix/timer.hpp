@@ -2,6 +2,8 @@
 
 #include <helix/ipc.hpp>
 #include <async/cancellation.hpp>
+#include <async/result.hpp>
+#include <async/oneshot-event.hpp>
 
 namespace helix {
 
@@ -16,9 +18,9 @@ struct TimeoutCallback {
 
 	TimeoutCallback &operator= (const TimeoutCallback &other) = delete;
 
-	async::result<void> retire() {
+	auto retire() {
 		_cancelTimer.cancel();
-		return _promise.async_get();
+		return _ev.wait();
 	}
 
 private:
@@ -44,12 +46,12 @@ private:
 			_function();
 		}
 
-		_promise.set_value();
+		_ev.raise();
 	}
 
 	F _function;
 	async::cancellation_event _cancelTimer;
-	async::promise<void> _promise;
+	async::oneshot_event _ev;
 };
 
 struct TimeoutCancellation {
@@ -57,7 +59,7 @@ struct TimeoutCancellation {
 	:_tb{duration, Functor{&ev}} {
 	}
 
-	async::result<void> retire() {
+	auto retire() {
 		return _tb.retire();
 	}
 
