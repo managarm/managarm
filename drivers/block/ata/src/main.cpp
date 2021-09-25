@@ -6,6 +6,7 @@
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
+#include <async/oneshot-event.hpp>
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
 #include <helix/ipc.hpp>
@@ -94,7 +95,7 @@ private:
 		uint64_t sector;
 		size_t numSectors;
 		void *buffer;
-		async::promise<void> promise;
+		async::oneshot_event event;
 	};
 
 	async::result<void> _performRequest(Request *request);
@@ -147,7 +148,7 @@ async::detached Controller::_doRequestLoop() {
 		auto request = _requestQueue.front();
 		_requestQueue.pop();
 		co_await _performRequest(request);
-		request->promise.set_value();
+		request->event.raise();
 	}
 }
 
@@ -218,7 +219,7 @@ async::result<void> Controller::readSectors(uint64_t sector,
 	_requestQueue.push(&request);
 	_doorbell.raise();
 
-	co_await request.promise.async_get();
+	co_await request.event.wait();
 }
 
 async::result<void> Controller::writeSectors(uint64_t sector,
@@ -232,7 +233,7 @@ async::result<void> Controller::writeSectors(uint64_t sector,
 	_requestQueue.push(&request);
 	_doorbell.raise();
 
-	co_await request.promise.async_get();
+	co_await request.event.wait();
 }
 
 async::result<bool> Controller::_detectDevice() {
