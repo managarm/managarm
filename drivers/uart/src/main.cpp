@@ -10,6 +10,7 @@
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
+#include <async/oneshot-event.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -31,7 +32,7 @@ struct ReadRequest {
 	void *buffer;
 	size_t maxLength;
 	size_t progress = 0;
-	async::promise<void> promise;
+	async::oneshot_event event;
 	boost::intrusive::list_member_hook<> hook;
 };
 
@@ -81,7 +82,7 @@ void completeRecvs() {
 	while(!pending.empty()) {
 		auto req = &pending.front();
 		pending.pop_front();
-		req->promise.set_value();
+		req->event.raise();
 	}
 }
 
@@ -92,7 +93,7 @@ struct WriteRequest {
 	const void *buffer;
 	size_t length;
 	size_t progress;
-	async::promise<void> promise;
+	async::oneshot_event event;
 	boost::intrusive::list_member_hook<> hook;
 };
 
@@ -158,7 +159,7 @@ void flushSends() {
 	while(!pending.empty()) {
 		auto req = &pending.front();
 		pending.pop_front();
-		req->promise.set_value();
+		req->event.raise();
 	}
 }
 
@@ -231,7 +232,7 @@ read(void *, const char *, void *buffer, size_t length) {
 	if(!recvBuffer.empty())
 		completeRecvs();
 
-	co_await req.promise.async_get();
+	co_await req.event.wait();
 	co_return req.progress;
 }
 
@@ -249,7 +250,7 @@ write(void *, const char *, const void *buffer, size_t length) {
 	if(!txInFlight)
 		flushSends();
 
-	co_await req.promise.async_get();
+	co_await req.event.wait();
 
 	if(logTx)
 		std::cout << "uart: TX request done" << std::endl;
@@ -320,9 +321,7 @@ async::detached runTerminal() {
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		serveTerminal(std::move(local_lane));
 
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
+		co_return std::move(remote_lane);
 	});
 
 	co_await root.createObject("uart0", descriptor, std::move(handler));
