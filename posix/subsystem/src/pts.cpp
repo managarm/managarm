@@ -193,6 +193,9 @@ public:
 		return _passthrough;
 	}
 
+	async::result<frg::expected<Error, std::string>>
+	ttyname() override;
+
 private:
 	helix::UniqueLane _passthrough;
 
@@ -792,6 +795,19 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req.command()
 				<< "\e[39m" << std::endl;
 	}
+}
+
+async::result<frg::expected<Error, std::string>>
+SlaveFile::ttyname() {
+	std::shared_ptr<FsLink> me = associatedLink();
+	std::string name;
+	if(!isTerminal())
+		co_return Error::notTerminal;
+
+	name = me->getName();
+	std::shared_ptr<FsNode> owner = me->getOwner();
+
+	co_return name;
 }
 
 //-----------------------------------------------------------------------------

@@ -61,12 +61,12 @@
 #include <protocols/posix/data.hpp>
 
 namespace {
-	constexpr bool logRequests = false;
+	constexpr bool logRequests = true;
 	constexpr bool logPaths = false;
 	constexpr bool logSignals = false;
 	constexpr bool logCleanup = false;
 
-	constexpr bool debugFaults = false;
+	constexpr bool debugFaults = true;
 }
 
 std::map<
@@ -2472,7 +2472,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
-			resp.set_path("/dev/ttyS0");
+			//resp.set_path("/dev/ttyS0");
+
+			auto file = self->fileContext()->getFile(req.fd());
+			if(!file) {
+			    co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
+			    continue;
+			}
+			
+			auto ttynameResult = co_await file->ttyname();
+			if(!ttynameResult) {
+			    assert(ttynameResult.error() == Error::notTerminal);
+			    // This error can be named better, but will do for now
+			    co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+			    continue;
+			}
+			resp.set_path(ttynameResult.value());
+
+			std::cout << "\e[31mposix: ttynameResult: " << ttynameResult.value() << "\e[39m" << std::endl;
+
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();

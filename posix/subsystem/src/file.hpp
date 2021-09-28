@@ -51,6 +51,8 @@ enum class Error {
 
 	alreadyExists,
 
+	notTerminal,
+
 	// Corresponds with ENXIO
 	noBackingDevice,
 
@@ -337,6 +339,8 @@ public:
 
 	virtual async::result<frg::expected<protocols::fs::Error, int>> getSeals();
 	virtual async::result<frg::expected<protocols::fs::Error, int>> addSeals(int flags);
+
+	virtual async::result<frg::expected<Error, std::string>> ttyname();
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;
