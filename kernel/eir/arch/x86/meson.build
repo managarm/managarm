@@ -1,6 +1,8 @@
 eir_x86_sources = files(
 	'arch.cpp')
 
+eir_cpp_args += ['-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2']
+eir_c_args += ['-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2']
 eir_includes += include_directories('.')
 
 eir32_sources = [

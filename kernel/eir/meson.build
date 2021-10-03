@@ -10,8 +10,8 @@ eir_includes = [include_directories(
 	'../../subprojects/lai/include',
 	'generic')]
 
-eir_cpp_args = ['-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2']
-eir_c_args = ['-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2']
+eir_c_args = []
+eir_cpp_args = []
 eir_link_args = ['-nostdlib']
 eir_dependencies = [cxxshim_dep, frigg, libarch]
 
@@ -29,6 +29,8 @@ endif
 
 if arch == 'aarch64'
 	subdir('arch/arm')
+elif arch == 'riscv64'
+	subdir('arch/riscv')
 elif arch == 'x86_64'
 	subdir('arch/x86')
 endif

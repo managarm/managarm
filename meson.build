@@ -78,7 +78,12 @@ ubsan = get_option('kernel_ubsan')
 log_alloc = get_option('kernel_log_allocations')
 frame_pointers = get_option('kernel_frame_pointers')
 
-if arch != 'aarch64' and arch != 'x86_64'
+supported_archs = [
+	'aarch64',
+	'riscv64',
+	'x86_64'
+]
+if not supported_archs.contains(arch)
 	error('unknown architecture ' + arch)
 endif
 

@@ -71,6 +71,9 @@ src += files(
 	'system/pci/pcie_ecam.cpp'
 )
 
+klibc_inc = include_directories('../klibc')
+
+inc += klibc_inc
 inc += include_directories(
 	'generic',
 	'system/acpi',
@@ -78,7 +81,6 @@ inc += include_directories(
 	'system/framebuffer',
 	'system/legacy-pc',
 	'system/pci',
-	'../klibc',
 	'../common',
 	'../../subprojects/libarch/include',
 	'../../subprojects/libasync/include',
@@ -142,7 +144,7 @@ if want_acpi
 endif
 
 link_with += static_library('cralgo', cralgo_sources,
-	include_directories : cralgo_includes,
+	include_directories : [klibc_inc, cralgo_includes],
 	cpp_args : cpp_args + args,
 	dependencies : cxxshim_dep,
 	pic : false
@@ -150,12 +152,15 @@ link_with += static_library('cralgo', cralgo_sources,
 
 deps = [ coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep ]
 
-executable('thor', src,
-	include_directories : inc,
-	dependencies : deps,
-	cpp_args : cpp_args + args,
-	link_with : link_with,
-	link_args : link_args,
-	link_depends : link_depends,
-	install : true
-)
+# TODO: also build thor on RISC-V.
+if arch != 'riscv64'
+	executable('thor', src,
+		include_directories : inc,
+		dependencies : deps,
+		cpp_args : cpp_args + args,
+		link_with : link_with,
+		link_args : link_args,
+		link_depends : link_depends,
+		install : true
+	)
+endif
