@@ -36,7 +36,7 @@ struct Device final : UnixDevice, drvcore::ClassDevice {
 		return "dri/card" + std::to_string(_index);
 	}
 
-	FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);

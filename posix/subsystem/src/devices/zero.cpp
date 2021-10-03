@@ -52,9 +52,12 @@ struct ZeroDevice final : UnixDevice {
 		return "zero";
 	}
 	
-	FutureMaybe<SharedFilePtr> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+		if(semantic_flags & ~(semanticRead | semanticWrite))
+			co_return Error::illegalArguments;
+
 		auto file = smarter::make_shared<ZeroFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		ZeroFile::serve(file);
