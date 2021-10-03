@@ -46,9 +46,9 @@ std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 	return *it;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> openDevice(VfsType type,
-		DeviceId id, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags) {
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+openDevice(VfsType type, DeviceId id, std::shared_ptr<MountView> mount,
+	std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	if(type == VfsType::charDevice) {
 		auto device = charRegistry.get(id);
 		if(device == nullptr)
@@ -222,10 +222,12 @@ private:
 // External device helpers.
 // --------------------------------------------------------
 
-FutureMaybe<SharedFilePtr> openExternalDevice(helix::BorrowedLane lane,
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)));
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite))
+		co_return Error::illegalArguments;
 
 	uint32_t open_flags = 0;
 	if(semantic_flags & semanticNonBlock)
