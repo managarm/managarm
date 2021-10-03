@@ -97,7 +97,7 @@ struct MasterDevice final : UnixDevice {
 		return "ptmx";
 	}
 
-	async::result<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 };
@@ -109,7 +109,7 @@ struct SlaveDevice final : UnixDevice {
 		return std::string{};
 	}
 
-	async::result<SharedFilePtr>
+	async::result<frg::expected<Error, SharedFilePtr>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 
@@ -277,7 +277,8 @@ public:
 		return _id;
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
@@ -432,10 +433,12 @@ Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::Uniq
 // MasterDevice implementation.
 //-----------------------------------------------------------------------------
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)));
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite))
+		co_return Error::illegalArguments;
+
 	auto file = smarter::make_shared<MasterFile>(std::move(mount), std::move(link),
 			semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
@@ -592,10 +595,12 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 	assignId({136, _channel->ptsIndex});
 }
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, SharedFilePtr>>
 SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+	if(semantic_flags & ~(semanticRead | semanticWrite))
+		co_return Error::illegalArguments;
+
 	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel);
 	file->setupWeakFile(file);
 	SlaveFile::serve(file);
@@ -804,10 +809,10 @@ SlaveFile::ttyname() {
 	if(!isTerminal())
 		co_return Error::notTerminal;
 
-	name = me->getName();
-	std::shared_ptr<FsNode> owner = me->getOwner();
+	name = me->getName();;
 
-	co_return name;
+	//TODO: dynamically resolve absolute path?
+	co_return std::string("/dev/pts/").append(name);
 }
 
 //-----------------------------------------------------------------------------
