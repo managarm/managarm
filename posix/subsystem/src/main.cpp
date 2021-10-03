@@ -2292,6 +2292,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						if(fileResult.error() == Error::noBackingDevice) {
 							co_await sendErrorResponse(managarm::posix::Errors::NO_BACKING_DEVICE);
 							continue;
+						} else if(fileResult.error() == Error::illegalArguments) {
+							co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+							continue;
 						} else {
 							std::cout << "posix: Unexpected failure from open()" << std::endl;
 							co_return;
