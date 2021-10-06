@@ -7,6 +7,8 @@
 #include "extern_fs.hpp"
 #include "fs.bragi.hpp"
 
+#include <bitset>
+
 namespace extern_fs {
 
 namespace {
@@ -256,7 +258,13 @@ private:
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
 
-		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+		if(semantic_flags & ~(semanticRead | semanticWrite)){
+			std::cout << "\e[31mposix: open() received illegal arguments:"
+				<< std::bitset<32>(semantic_flags)
+				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< std::endl;
+			co_return Error::illegalArguments;
+		}
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -727,7 +735,13 @@ private:
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
 
-		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+		if(semantic_flags & ~(semanticRead | semanticWrite)){
+			std::cout << "\e[31mposix: open() received illegal arguments:"
+				<< std::bitset<32>(semantic_flags)
+				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< std::endl;
+			co_return Error::illegalArguments;
+		}
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
