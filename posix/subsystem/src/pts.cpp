@@ -10,6 +10,8 @@
 #include "pts.hpp"
 #include "fs.bragi.hpp"
 
+#include <bitset>
+
 namespace pts {
 
 namespace {
@@ -436,8 +438,14 @@ Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::Uniq
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite))
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+		//std::cout << "\e[31mposix: open() received illegal arguments \e[39m" << std::endl;
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+				<< std::bitset<32>(semantic_flags)
+				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< std::endl;
 		co_return Error::illegalArguments;
+	}
 
 	auto file = smarter::make_shared<MasterFile>(std::move(mount), std::move(link),
 			semantic_flags & semanticNonBlock);
@@ -598,8 +606,13 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 async::result<frg::expected<Error, SharedFilePtr>>
 SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	if(semantic_flags & ~(semanticRead | semanticWrite))
+	if(semantic_flags & ~(semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+			<< std::bitset<32>(semantic_flags)
+			<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< std::endl;
 		co_return Error::illegalArguments;
+	}
 
 	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel);
 	file->setupWeakFile(file);
