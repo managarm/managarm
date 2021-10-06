@@ -173,7 +173,7 @@ public:
 	}
 
 	SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			std::shared_ptr<Channel> channel);
+			std::shared_ptr<Channel> channel, bool nonBlock);
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override;
@@ -202,6 +202,8 @@ private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
+
+	bool nonBlock_;
 };
 
 //-----------------------------------------------------------------------------
@@ -439,7 +441,6 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-		//std::cout << "\e[31mposix: open() received illegal arguments \e[39m" << std::endl;
 		std::cout << "\e[31mposix: open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
 				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
@@ -606,25 +607,26 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 async::result<frg::expected<Error, SharedFilePtr>>
 SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	if(semantic_flags & ~(semanticRead | semanticWrite)){
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
-			<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;
 		co_return Error::illegalArguments;
 	}
 
-	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel);
+	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel,
+			semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
 	SlaveFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
 SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		std::shared_ptr<Channel> channel)
+		std::shared_ptr<Channel> channel, bool nonBlock)
 : File{StructName::get("pts.slave"), std::move(mount), std::move(link),
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
-		_channel{std::move(channel)} { }
+		_channel{std::move(channel)}, nonBlock_{nonBlock} { }
 
 async::result<frg::expected<Error, size_t>>
 SlaveFile::readSome(Process *, void *data, size_t maxLength) {
@@ -633,8 +635,14 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 	if(!maxLength)
 		co_return 0;
 
-	while(_channel->slaveQueue.empty())
+	while(_channel->slaveQueue.empty()){
+		if(nonBlock_){
+			if(logReadWrite)
+				std::cout << "posix: tty would block" << std::endl;
+			co_return Error::wouldBlock;
+		}
 		co_await _channel->statusBell.async_wait();
+	}
 
 	auto packet = &_channel->slaveQueue.front();
 	auto chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
