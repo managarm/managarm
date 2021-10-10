@@ -2,4 +2,5 @@
 eir_sources = [files('entry64.S')]
 eir_includes += include_directories('.')
 
+subdir('platform/allwinner-d1')
 subdir('platform/virt')
