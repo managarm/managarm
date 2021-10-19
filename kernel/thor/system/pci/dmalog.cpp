@@ -4,6 +4,7 @@
 #include <thor-internal/physical.hpp>
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
+#include <async/sequenced-event.hpp>
 
 namespace thor::pci {
 
@@ -29,13 +30,15 @@ constexpr arch::bit_register<uint32_t> isrRegister{0x10};
 constexpr arch::field<uint32_t, bool> isrOutStatus{0, 1};
 constexpr arch::field<uint32_t, bool> isrInStatus{1, 1};
 
-struct DmalogDevice final : KernelIoChannel {
+struct DmalogDevice final : IrqSink, KernelIoChannel {
 	static constexpr size_t ringSize = kPageSize;
 
-	DmalogDevice(frg::string<KernelAlloc> tag, frg::string<KernelAlloc> descriptiveTag,
-			void *mmioPtr, smarter::shared_ptr<IrqObject> irqObject)
-	: KernelIoChannel{std::move(tag), std::move(descriptiveTag)},
-			mmioSpace_{mmioPtr}, irqObject_{std::move(irqObject)} {
+	DmalogDevice(frg::string<KernelAlloc> tag, frg::string<KernelAlloc> descriptiveTag, void *mmioPtr)
+	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "dmalog-"}
+				+ tag
+				+ frg::string<KernelAlloc>{*kernelAlloc, "-irq"}},
+			KernelIoChannel{std::move(tag), std::move(descriptiveTag)},
+			mmioSpace_{mmioPtr} {
 		ctrlPhysical_ = physicalAllocator->allocate(kPageSize);
 		outPhysical_ = physicalAllocator->allocate(kPageSize);
 		inPhysical_ = physicalAllocator->allocate(kPageSize);
@@ -161,33 +164,28 @@ struct DmalogDevice final : KernelIoChannel {
 		if(!outPending_ && !inPending_)
 			co_return {};
 
-		bool outIrq;
-		bool inIrq;
-		while(true) {
-			auto irqOutcome = co_await irqObject_->awaitIrq(irqSeq_, WorkQueue::generalQueue());
-			assert(irqOutcome);
-			irqSeq_ = irqOutcome.value();
+		bool inIrq = false, outIrq = false;
+		while (true) {
+			irqSeq_ = co_await irqEvent_.async_wait(irqSeq_);
 
-			auto isrBits = mmioSpace_.load(isrRegister);
+			// Schedule on the work queue in order to return from the IRQ handler
+			co_await WorkQueue::generalQueue()->schedule();
 
-			// Clear the ISR.
-			outIrq = isrBits & isrOutStatus;
-			inIrq = isrBits & isrInStatus;
-			mmioSpace_.store(isrRegister, isrOutStatus(outIrq) | isrInStatus(inIrq));
-			if(outIrq || inIrq)
+			auto inSeq = inSeq_.load(std::memory_order_acquire);
+			auto outSeq = outSeq_.load(std::memory_order_acquire);
+
+			inIrq = inIrq || (inSeq == irqSeq_);
+			outIrq = outIrq || (outSeq == irqSeq_);
+
+			if (inIrq && (flags & ioProgressInput))
 				break;
 
-			auto nackError = IrqPin::nackSink(irqObject_.get(), irqSeq_);
-			assert(nackError == Error::success);
+			if (outIrq && (flags & ioProgressOutput))
+				break;
 		}
-
-		auto ackError = IrqPin::ackSink(irqObject_.get(), irqSeq_);
-		assert(ackError == Error::success);
 
 		// Process output/input.
 
-		if(!outPending_)
-			assert(!outIrq);
 		if(outIrq) {
 			assert(outDesc_->status);
 			assert(outDesc_->actualLength);
@@ -198,8 +196,6 @@ struct DmalogDevice final : KernelIoChannel {
 			outPending_ = false;
 		}
 
-		if(!inPending_)
-			assert(!inIrq);
 		if(inIrq) {
 			assert(inDesc_->status);
 			assert(inDesc_->actualLength);
@@ -210,6 +206,29 @@ struct DmalogDevice final : KernelIoChannel {
 		}
 
 		co_return {};
+	}
+
+	IrqStatus raise() override {
+		auto isrBits = mmioSpace_.load(isrRegister);
+		bool outIrq = isrBits & isrOutStatus;
+		bool inIrq = isrBits & isrInStatus;
+
+		if (outIrq || inIrq) {
+			// Clear the ISR.
+			mmioSpace_.store(isrRegister, isrOutStatus(outIrq) | isrInStatus(inIrq));
+			auto seq = irqEvent_.next_sequence();
+
+			if (outIrq)
+				outSeq_.store(seq, std::memory_order_release);
+			if (inIrq)
+				inSeq_.store(seq, std::memory_order_release);
+
+			irqEvent_.raise();
+
+			return IrqStatus::acked;
+		} else {
+			return IrqStatus::nacked;
+		}
 	}
 
 private:
@@ -225,6 +244,8 @@ private:
 	uint64_t outTail_ = 0, outHead_ = 0;
 	uint64_t inTail_ = 0, inHead_ = 0;
 	uint64_t irqSeq_ = 0;
+	std::atomic_uint64_t inSeq_ = 0, outSeq_ = 0;
+	async::sequenced_event irqEvent_;
 	bool outPending_ = false, inPending_ = false;
 };
 
@@ -255,13 +276,12 @@ static initgraph::Task enumerateDmalog{&globalInitEngine, "pci.enumerate-dmalog"
 					<< pciDevice->bus << ":" << pciDevice->slot
 					<< ", tag: " << tag << frg::endlog;
 
-			auto irqObject = pciDevice->obtainIrqObject();
-			pciDevice->enableIrq();
-
 			auto dmalog = smarter::allocate_shared<DmalogDevice>(*kernelAlloc,
 					frg::string<KernelAlloc>{*kernelAlloc, tag},
 					frg::string<KernelAlloc>{*kernelAlloc, tag},
-					mmioPtr, std::move(irqObject));
+					mmioPtr);
+			IrqPin::attachSink(pciDevice->getIrqPin(), dmalog.get());
+			pciDevice->enableIrq();
 			publishIoChannel(std::move(dmalog));
 		}
 	}
