@@ -574,9 +574,6 @@ namespace posix {
 					continue;
 				}
 
-				if(!(req->flags() & 4)) // MAP_FIXED.
-					assert(!"TODO: implement non-fixed mappings");
-
 				uint32_t protFlags = 0;
 				if(req->mode() & 1)
 					protFlags |= AddressSpace::kMapProtRead;
@@ -584,6 +581,25 @@ namespace posix {
 					protFlags |= AddressSpace::kMapProtWrite;
 				if(req->mode() & 4)
 					protFlags |= AddressSpace::kMapProtExecute;
+				if(req->flags() & 4) // MAP_FIXED.
+					protFlags |= AddressSpace::kMapFixed;
+				else
+					protFlags |= AddressSpace::kMapPreferTop;
+
+				if (req->flags() & ~(8 | 4 | 1)) {
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+
+					continue;
+				}
 
 				smarter::shared_ptr<MemoryView> fileMemory;
 				if(req->flags() & 8) { // MAP_ANONYMOUS.
@@ -616,8 +632,7 @@ namespace posix {
 
 				auto space = _thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),
-						req->address_hint(), 0, req->size(),
-						AddressSpace::kMapFixed | protFlags);
+						req->address_hint(), 0, req->size(), protFlags);
 				// TODO: improve error handling here.
 				assert(mapResult);
 
