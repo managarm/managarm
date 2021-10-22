@@ -313,7 +313,6 @@ int main(int argc, const char **argv) {
 		mbus::recreateInstance();
 	}
 
-	async::queue_scope scope{helix::globalQueue()};
-	async::run(asyncMain(act, std::move(path)), helix::globalQueue()->run_token(), helix::currentDispatcher);
+	async::run(asyncMain(act, std::move(path)), helix::currentDispatcher);
 }
 
