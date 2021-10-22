@@ -346,10 +346,7 @@ private:
 	int _refCounts[16];
 };
 
-async::run_queue *globalQueue();
-
 inline void CurrentDispatcherToken::wait() {
-	async::queue_scope qs{globalQueue()};
 	Dispatcher::global().wait();
 }
 

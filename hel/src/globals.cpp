@@ -12,10 +12,5 @@ Dispatcher &Dispatcher::global() {
 	return dispatcher;
 }
 
-async::run_queue *globalQueue() {
-	thread_local static async::run_queue queue;
-	return &queue;
-}
-
 } // namespace helix
 
