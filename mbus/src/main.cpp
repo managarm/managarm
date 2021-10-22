@@ -467,11 +467,7 @@ int main() {
 	if(peekauxval(AT_XPIPE, &xpipe))
 		throw std::runtime_error("No AT_XPIPE specified");
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		serve(helix::UniqueLane(xpipe));
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
+	serve(helix::UniqueLane(xpipe));
+	async::run_forever(helix::currentDispatcher);
 }
 
