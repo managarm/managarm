@@ -186,14 +186,8 @@ async::detached asyncMain(const char **args) {
 
 int main(int, const char **argv) {
 	std::cout << "kernletcc: Starting up" << std::endl;
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		asyncMain(argv);
-	}
 
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-
-	return 0;
+	asyncMain(argv);
+	async::run_forever(helix::currentDispatcher);
 }
-
 

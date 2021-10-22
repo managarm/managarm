@@ -1279,14 +1279,8 @@ int main() {
 	printf("uhci: Starting driver\n");
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
-	
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		observeControllers();
-	}
 
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-	
-	return 0;
+	observeControllers();
+	async::run_forever(helix::currentDispatcher);
 }
 

@@ -1407,13 +1407,7 @@ async::detached observeControllers() {
 int main() {
 	printf("xhci: starting driver\n");
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		observeControllers();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-
-	return 0;
+	observeControllers();
+	async::run_forever(helix::currentDispatcher);
 }
  

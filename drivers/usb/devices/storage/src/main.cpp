@@ -277,14 +277,8 @@ async::detached observeDevices() {
 int main() {
 	std::cout << "block-usb: Starting driver" << std::endl;
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		observeDevices();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-	
-	return 0;
+	observeDevices();
+	async::run_forever(helix::currentDispatcher);
 }
 
 

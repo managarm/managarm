@@ -618,13 +618,7 @@ static constexpr protocols::svrctl::ControlOperations controlOps = {
 int main() {
 	std::cout << "gfx/virtio: Starting driver" << std::endl;
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		async::detach(protocols::svrctl::serveControl(&controlOps));
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-
-	return 0;
+	async::detach(protocols::svrctl::serveControl(&controlOps));
+	async::run_forever(helix::currentDispatcher);
 }
 
