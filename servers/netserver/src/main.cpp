@@ -178,11 +178,7 @@ int main() {
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 3));
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		async::detach(protocols::svrctl::serveControl(&controlOps));
-		advertise();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
+	async::detach(protocols::svrctl::serveControl(&controlOps));
+	advertise();
+	async::run_forever(helix::currentDispatcher);
 }
