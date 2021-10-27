@@ -23,7 +23,7 @@ managarm does not share any source code (or binaries) with the Linux kernel.
 
 **Official Discord server:** https://discord.gg/7WB6Ur3. This is our primary real-time communication channel.
 
-**Official IRC channel:** `#managarm` on `irc.libera.chat`, our former channel on freenode is no longer in use.
+**Official IRC channel:** `#managarm` on `irc.libera.chat`, with many more available! Type `/msg alis list managarm` to find them.
 
 ## Features
 
