@@ -744,13 +744,7 @@ int main() {
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		observeDevices();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-	
-	return 0;
+	observeDevices();
+	async::run_forever(helix::currentDispatcher);
 }
 

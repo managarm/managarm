@@ -164,11 +164,10 @@ int main() {
 	std::cout << "drivers/clocktracker: Starting driver" << std::endl;
 
 	{
-		async::queue_scope scope{helix::globalQueue()};
 		initializeDriver();
 	}
 
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
+	async::run_forever(helix::currentDispatcher);
 
 	return 0;
 }

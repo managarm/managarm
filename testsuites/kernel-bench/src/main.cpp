@@ -250,24 +250,16 @@ async::result<void> doSendRecvBufferBenchmark(size_t size) {
 int main() {
 	doNopBenchmark();
 	doFutexBenchmark();
-	async::run(doAsyncNopBenchmark(),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
+	async::run(doAsyncNopBenchmark(), helix::currentDispatcher);
 	doAllocateBenchmark(1 << 20);
 	doMapBenchmark(1 << 20);
 	doMapPopulatedBenchmark(1 << 20);
 	doPageFaultBenchmark(1 << 20);
-	async::run(doSendRecvBufferBenchmark(1),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(32),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(128),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(4096),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(16 * 1024),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(64 * 1024),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(1024 * 1024),
-			helix::globalQueue()->run_token(), helix::currentDispatcher);
+	async::run(doSendRecvBufferBenchmark(1), helix::currentDispatcher);
+	async::run(doSendRecvBufferBenchmark(32), helix::currentDispatcher);
+	async::run(doSendRecvBufferBenchmark(128), helix::currentDispatcher);
+	async::run(doSendRecvBufferBenchmark(4096), helix::currentDispatcher);
+	async::run(doSendRecvBufferBenchmark(16 * 1024), helix::currentDispatcher);
+	async::run(doSendRecvBufferBenchmark(64 * 1024), helix::currentDispatcher);
+	async::run(doSendRecvBufferBenchmark(1024 * 1024), helix::currentDispatcher);
 }

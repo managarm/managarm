@@ -281,6 +281,7 @@ struct PciDevice final : PciEntity {
 			associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
 
 	smarter::shared_ptr<IrqObject> obtainIrqObject();
+	IrqPin *getIrqPin();
 
 	void enableIrq();
 

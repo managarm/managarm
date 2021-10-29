@@ -119,7 +119,7 @@ void Controller::sendDataByte(uint8_t byte) {
 	});
 	if(!inEmpty)
 		printf("ps2-hid: Controller failed to empty input buffer\n");
-	// There is not a load that we can do if the controller misbehaves; for now we just abort.
+	// There is not a lot that we can do if the controller misbehaves; for now we just abort.
 	assert(inEmpty);
 
 	_space.store(kbd_register::data, byte);
@@ -1060,13 +1060,6 @@ int main() {
 
 	_controller = new Controller;
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-
-		_controller->init();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-
-	return 0;
+	_controller->init();
+	async::run_forever(helix::currentDispatcher);
 }

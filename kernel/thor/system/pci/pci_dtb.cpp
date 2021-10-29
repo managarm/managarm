@@ -3,11 +3,13 @@
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/pci/pci.hpp>
-#include <thor-internal/pci/pcie_ecam.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/system.hpp>
+
+#include <thor-internal/pci/pcie_ecam.hpp>
+#include <thor-internal/pci/pcie_brcmstb.hpp>
 
 namespace thor {
 
@@ -113,6 +115,10 @@ void initPciNode(DeviceTreeNode *node) {
 
 	} else if (node->isCompatible<1>({"brcm,bcm2711-pcie"})) {
 		infoLogger() << "thor:\tIt's a Broadcom STB PCIe controller." << frg::endlog;
+
+		io = frg::construct<BrcmStbPcie>(*kernelAlloc,
+			node, 0,
+			range.from, range.to);
 	}
 
 	if (!io) {

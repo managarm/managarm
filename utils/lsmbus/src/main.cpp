@@ -36,10 +36,6 @@ async::detached enumerateBus() {
 }
 
 int main() {
-	{
-		async::queue_scope scope { helix::globalQueue() };
-		enumerateBus();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
+	enumerateBus();
+	async::run_forever(helix::currentDispatcher);
 }

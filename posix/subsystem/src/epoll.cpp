@@ -36,10 +36,10 @@ private:
 
 		void set_value_noinline(frg::expected<Error, PollWaitResult> outcome) {
 			item->pollOutcome.emplace(std::move(outcome));
-			_awaitPoll(item);
+			_awaitPoll(item.get());
 		}
 
-		Item *item;
+		smarter::shared_ptr<Item> item;
 	};
 
 	struct Item : boost::intrusive::list_base_hook<> {
@@ -67,6 +67,8 @@ private:
 		> pollOperation;
 
 		std::optional<frg::expected<Error, PollWaitResult>> pollOutcome;
+
+		smarter::borrowed_ptr<Item> self;
 	};
 
 	static void _awaitPoll(Item *item) {
@@ -82,7 +84,6 @@ private:
 			item->state &= ~statePolling;
 			// TODO: We might have polling + pending items in the future.
 			assert(!item->state);
-			delete item;
 			return;
 		}
 
@@ -91,8 +92,6 @@ private:
 		if(!resultOrError) {
 			assert(resultOrError.error() == Error::fileClosed);
 			item->state &= ~statePolling;
-			if(!item->state)
-				delete item;
 			return;
 		}
 
@@ -112,6 +111,7 @@ private:
 			if(!(item->state & statePending)) {
 				item->state |= statePending;
 
+				item->self.lock().ctr()->increment();
 				self->_pendingQueue.push_back(*item);
 				self->_currentSeq++;
 				self->_statusBell.raise();
@@ -130,7 +130,7 @@ private:
 				return async::execution::connect(
 					item->file->pollWait(item->process, std::get<0>(result),
 							item->eventMask | EPOLLERR | EPOLLHUP, item->cancelPoll),
-					Receiver{item}
+					Receiver{item->self.lock()}
 				);
 			});
 			// Poll should not return immediately; we use an ugly goto here in favor of wrapping
@@ -155,12 +155,15 @@ public:
 			return Error::alreadyExists;
 		}
 
-		auto item = new Item{smarter::static_pointer_cast<OpenFile>(weakFile().lock()),
-				process, std::move(file), mask, cookie};
+		auto item = smarter::make_shared<Item>(smarter::static_pointer_cast<OpenFile>(weakFile().lock()),
+				process, std::move(file), mask, cookie);
+		item->self = item;
+
 		item->state |= statePending;
 
 		_fileMap.insert({{item->file.get(), fd}, item});
 
+		item.ctr()->increment();
 		_pendingQueue.push_back(*item);
 		_currentSeq++;
 		_statusBell.raise();
@@ -186,6 +189,7 @@ public:
 		if(!(item->state & statePending)) {
 			item->state |= statePending;
 
+			item.ctr()->increment();
 			_pendingQueue.push_back(*item);
 			_currentSeq++;
 			_statusBell.raise();
@@ -208,8 +212,6 @@ public:
 
 		_fileMap.erase(it);
 		item->state &= ~stateActive;
-		if(!item->state)
-			delete item;
 		return Error::success;
 	}
 
@@ -231,8 +233,9 @@ public:
 			assert(isOpen());
 
 			while(!_pendingQueue.empty()) {
-				auto item = &_pendingQueue.front();
+				auto item = _pendingQueue.front().self.lock();
 				_pendingQueue.pop_front();
+				item.ctr()->decrement();
 				assert(item->state & statePending);
 
 				// Discard non-alive items without returning them.
@@ -242,8 +245,6 @@ public:
 								" inactive item \e[1;34m" << item->file->structName() << "\e[0m"
 								<< std::endl;
 					item->state &= ~statePending;
-					if(!item->state)
-						delete item;
 					continue;
 				}
 
@@ -260,8 +261,6 @@ public:
 								" closed item \e[1;34m" << item->file->structName() << "\e[0m"
 								<< std::endl;
 					item->state &= ~statePending;
-					if(!item->state)
-						delete item;
 					continue;
 				}
 
@@ -289,7 +288,7 @@ public:
 							);
 						});
 						if(async::execution::start_inline(*item->pollOperation))
-							_awaitPoll(item);
+							_awaitPoll(item.get());
 					}
 					continue;
 				}
@@ -297,6 +296,7 @@ public:
 				// We have to increment the sequence again as concurrent waiters
 				// might have seen an empty _pendingQueue.
 				// TODO: Edge-triggered watches should not be requeued here.
+				item.ctr()->increment();
 				repoll_queue.push_back(*item);
 
 				assert(k < max_events);
@@ -353,9 +353,6 @@ public:
 				_pendingQueue.erase(qit);
 				item->state &= ~statePending;
 			}
-
-			if(!item->state)
-				delete item;
 		}
 
 		_statusBell.raise();
@@ -414,7 +411,7 @@ private:
 		}
 	};
 
-	std::unordered_map<Key, Item *, KeyHash> _fileMap;
+	std::unordered_map<Key, smarter::shared_ptr<Item>, KeyHash> _fileMap;
 
 	boost::intrusive::list<Item> _pendingQueue;
 	async::recurring_event _statusBell;

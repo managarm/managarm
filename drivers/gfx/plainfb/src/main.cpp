@@ -396,13 +396,7 @@ async::detached observeControllers() {
 int main() {
 	std::cout << "gfx/plainfb: Starting driver" << std::endl;
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		observeControllers();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-	
-	return 0;
+	observeControllers();
+	async::run_forever(helix::currentDispatcher);
 }
 

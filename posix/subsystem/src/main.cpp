@@ -3812,26 +3812,22 @@ int main() {
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
+	drvcore::initialize();
 
-		drvcore::initialize();
+	charRegistry.install(createHeloutDevice());
+	charRegistry.install(pts::createMasterDevice());
+	charRegistry.install(createNullDevice());
+	charRegistry.install(createFullDevice());
+	charRegistry.install(createRandomDevice());
+	charRegistry.install(createUrandomDevice());
+	charRegistry.install(createZeroDevice());
+	block_subsystem::run();
+	drm_subsystem::run();
+	generic_subsystem::run();
+	input_subsystem::run();
+	pci_subsystem::run();
 
-		charRegistry.install(createHeloutDevice());
-		charRegistry.install(pts::createMasterDevice());
-		charRegistry.install(createNullDevice());
-		charRegistry.install(createFullDevice());
-		charRegistry.install(createRandomDevice());
-		charRegistry.install(createUrandomDevice());
-		charRegistry.install(createZeroDevice());
-		block_subsystem::run();
-		drm_subsystem::run();
-		generic_subsystem::run();
-		input_subsystem::run();
-		pci_subsystem::run();
+	runInit();
 
-		runInit();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
+	async::run_forever(helix::currentDispatcher);
 }

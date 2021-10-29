@@ -728,13 +728,7 @@ static constexpr protocols::svrctl::ControlOperations controlOps = {
 int main() {
 	printf("gfx/vmware: starting driver\n");
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		async::detach(protocols::svrctl::serveControl(&controlOps));
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-
-	return 0;
+	async::detach(protocols::svrctl::serveControl(&controlOps));
+	async::run_forever(helix::currentDispatcher);
 }
 

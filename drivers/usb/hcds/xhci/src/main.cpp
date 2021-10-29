@@ -316,16 +316,16 @@ async::detached Controller::initialize() {
 
 	_ports.resize(_numPorts);
 
+	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1)); // enable interrupts and start hcd
+
+	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
+
 	for (auto &p : _supportedProtocols) {
 		for (size_t i = p.compatiblePortStart; i < (p.compatiblePortStart + p.compatiblePortCount); i++) {
 			_ports[i - 1] = std::make_unique<Port>(i, this, &p);
 			_ports[i - 1]->initPort();
 		}
 	}
-
-	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1)); // enable interrupts and start hcd
-
-	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
 
 	printf("xhci: init done\n");
 }
@@ -1407,13 +1407,7 @@ async::detached observeControllers() {
 int main() {
 	printf("xhci: starting driver\n");
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		observeControllers();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
-
-	return 0;
+	observeControllers();
+	async::run_forever(helix::currentDispatcher);
 }
  

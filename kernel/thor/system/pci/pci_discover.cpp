@@ -734,6 +734,10 @@ smarter::shared_ptr<IrqObject> PciDevice::obtainIrqObject() {
 	return object;
 }
 
+IrqPin *PciDevice::getIrqPin() {
+	return interrupt;
+}
+
 void PciDevice::enableIrq() {
 	auto io = parentBus->io;
 

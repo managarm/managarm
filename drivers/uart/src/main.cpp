@@ -368,13 +368,9 @@ int main() {
 			| line_control::parityBits(Parity::none)
 			| line_control::dlab(false));
 
-	{
-		async::queue_scope scope{helix::globalQueue()};
-		runTerminal();
-		handleIrqs();
-	}
-
-	async::run_forever(helix::globalQueue()->run_token(), helix::currentDispatcher);
+	runTerminal();
+	handleIrqs();
+	async::run_forever(helix::currentDispatcher);
 
 	return 0;
 }
