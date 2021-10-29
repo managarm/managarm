@@ -68,8 +68,7 @@ src += files(
 	'system/pci/dmalog.cpp',
 	'system/pci/pci_discover.cpp',
 	'system/pci/pci_legacy.cpp',
-	'system/pci/pcie_ecam.cpp',
-	'system/pci/pcie_brcmstb.cpp'
+	'system/pci/pcie_ecam.cpp'
 )
 
 klibc_inc = include_directories('../klibc')
