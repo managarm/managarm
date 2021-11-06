@@ -1153,7 +1153,7 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 						indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
 						kHelMapProtRead | kHelMapDontRequireBacking};
 
-				issue = fuse(num_blocks - progress,
+				issue = fuse(remaining,
 						reinterpret_cast<uint32_t *>(indirect_map.get()) + indirect_index,
 						per_indirect - indirect_index);
 			} else {
@@ -1167,6 +1167,7 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 			}
 		}else if(index >= i_range) { // Use the single indirect block.
 			auto remaining = num_blocks - progress;
+			auto indirect_index = index - i_range;
 
 			if (remaining > indirectBufferSize) {
 				helix::LockMemoryView lock_indirect;
@@ -1180,12 +1181,10 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 						0, size_t{1} << blockPagesShift,
 						kHelMapProtRead | kHelMapDontRequireBacking};
 
-				auto indirect_index = index - i_range;
 				issue = fuse(remaining,
 						reinterpret_cast<uint32_t *>(indirect_map.get()) + indirect_index,
 						per_indirect - indirect_index);
 			} else {
-				auto indirect_index = index - i_range;
 				auto readMemory = co_await helix_ng::readMemory(
 						helix::BorrowedDescriptor{inode->indirectOrder1},
 						indirect_index * 4, remaining * 4, indirectBuffer.data());
@@ -1203,10 +1202,13 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 //		std::cout << "Issuing read of " << issue.second
 //				<< " blocks, starting at " << issue.first << std::endl;
 
-		assert(issue.first);
-		co_await device->readSectors(issue.first * sectorsPerBlock,
-				(uint8_t *)buffer + progress * blockSize,
-				issue.second * sectorsPerBlock);
+		if (issue.first) {
+			co_await device->readSectors(issue.first * sectorsPerBlock,
+					(uint8_t *)buffer + progress * blockSize,
+					issue.second * sectorsPerBlock);
+		} else {
+			memset((uint8_t *)buffer + progress * blockSize, 0, issue.second * blockSize);
+		}
 		progress += issue.second;
 	}
 }
