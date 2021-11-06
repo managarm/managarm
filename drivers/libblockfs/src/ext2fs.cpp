@@ -1101,7 +1101,7 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 	auto fuse = [] (size_t remaining, uint32_t *list, size_t limit) {
 		size_t n = 1;
 		while(n < remaining && n < limit) {
-			if(list[n] != list[0] + n)
+			if ((list[0] && (list[n] != list[0] + n)) || (!list[0] && list[n]))
 				break;
 			n++;
 		}
