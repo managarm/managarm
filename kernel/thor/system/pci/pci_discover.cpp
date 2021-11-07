@@ -1325,43 +1325,47 @@ frg::vector<SpaceRequirement, KernelAlloc> getRequiredSpaceForBus(PciBus *bus) {
 			processBar(bridge, i);
 		}
 
-		// Check requirements below bridge
 		assert(bridge->associatedBus);
-		auto bridgeReq = getRequiredSpaceForBus(bridge->associatedBus);
 
-		size_t requiredIo = 0, requiredMem = 0, requiredPrefMemory = 0;
+		// Only require memory allocations if this bus doesn't already have any resources.
+		if (!bridge->associatedBus->resources.size()) {
+			// Check requirements below bridge
+			auto bridgeReq = getRequiredSpaceForBus(bridge->associatedBus);
 
-		for (auto req : bridgeReq) {
-			if (req.flags == PciBusResource::io) {
-				requiredIo += req.size;
-			} else if (req.flags == PciBusResource::prefMemory) {
-				requiredPrefMemory += req.size;
-			} else {
-				assert(req.flags == PciBusResource::memory);
-				requiredMem += req.size;
+			size_t requiredIo = 0, requiredMem = 0, requiredPrefMemory = 0;
+
+			for (auto req : bridgeReq) {
+				if (req.flags == PciBusResource::io) {
+					requiredIo += req.size;
+				} else if (req.flags == PciBusResource::prefMemory) {
+					requiredPrefMemory += req.size;
+				} else {
+					assert(req.flags == PciBusResource::memory);
+					requiredMem += req.size;
+				}
 			}
-		}
 
-		if (requiredIo) {
-			// IO decoded by bridge has 256 byte granularity,
-			// but the spec requires it to be 4K aligned
-			required.push_back({(requiredIo + 0xFFF) & ~0xFFF,
-					PciBusResource::io,
-					0, nullptr, bridge});
-		}
+			if (requiredIo) {
+				// IO decoded by bridge has 256 byte granularity,
+				// but the spec requires it to be 4K aligned
+				required.push_back({(requiredIo + 0xFFF) & ~0xFFF,
+						PciBusResource::io,
+						0, nullptr, bridge});
+			}
 
-		// Memory decoded by bridge has 1 MiB granularity
+			// Memory decoded by bridge has 1 MiB granularity
 
-		if (requiredMem) {
-			required.push_back({(requiredMem + 0xFFFFF) & ~0xFFFFF,
-					PciBusResource::memory,
-					0, nullptr, bridge});
-		}
+			if (requiredMem) {
+				required.push_back({(requiredMem + 0xFFFFF) & ~0xFFFFF,
+						PciBusResource::memory,
+						0, nullptr, bridge});
+			}
 
-		if (requiredPrefMemory) {
-			required.push_back({(requiredPrefMemory + 0xFFFFF) & ~0xFFFFF,
-					PciBusResource::prefMemory,
-					0, nullptr, bridge});
+			if (requiredPrefMemory) {
+				required.push_back({(requiredPrefMemory + 0xFFFFF) & ~0xFFFFF,
+						PciBusResource::prefMemory,
+						0, nullptr, bridge});
+			}
 		}
 	}
 
@@ -1489,26 +1493,26 @@ void allocateBars(PciBus *bus) {
 
 			switch (req.flags) {
 				case PciBusResource::io:
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					io->writeConfigByte(entity->parentBus, entity->slot, entity->function,
 							kPciBridgeIoBase, childBase >> 8);
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					io->writeConfigByte(entity->parentBus, entity->slot, entity->function,
 							kPciBridgeIoLimit, (childBase + req.size - 0x100) >> 8);
 					break;
 				case PciBusResource::memory:
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
 							kPciBridgeMemBase, childBase >> 16);
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
 							kPciBridgeMemLimit, (childBase + req.size - 0x100000) >> 16);
 					break;
 				case PciBusResource::prefMemory:
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
 							kPciBridgePrefetchMemBase, childBase >> 16);
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
+					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
 							kPciBridgePrefetchMemLimit, (childBase + req.size - 0x100000) >> 16);
 					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
 							kPciBridgePrefetchMemBaseUpper, childBase >> 32);
 					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
-							kPciBridgePrefetchMemLimitUpper, (childBase + req.size) >> 32);
+							kPciBridgePrefetchMemLimitUpper, (childBase + req.size - 0x100000) >> 32);
 					break;
 			}
 
