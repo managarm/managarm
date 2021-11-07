@@ -1201,6 +1201,129 @@ void addRootBus(PciBus *bus) {
 	addToEnumerationQueue(bus);
 }
 
+void checkForBridgeResources(PciBridge *bridge) {
+	auto io = bridge->parentBus->io;
+
+	{
+		uint32_t base, limit;
+		base = io->readConfigByte(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgeIoBase);
+		limit = io->readConfigByte(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgeIoLimit);
+
+		uint64_t hostBase = 0;
+		bool isHostMmio = false;
+		auto addr = base << 8;
+		auto size = (limit << 8) + 0x100 - addr;
+
+		// Try to look up the host base address in our parent's resources
+		for (auto &res : bridge->parentBus->resources) {
+			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)) {
+				isHostMmio = res.isHostMmio();
+				hostBase = res.hostBase() + (addr - res.base());
+				break;
+			}
+		}
+
+		// If not found, assume PCIe and host address space are the same
+		if (!hostBase) {
+			hostBase = addr;
+		}
+
+		if (size) {
+			infoLogger() << "thor: Discovered existing I/O window of bridge "
+					<< frg::hex_fmt{bridge->seg} << ":"
+					<< frg::hex_fmt{bridge->bus} << ":"
+					<< frg::hex_fmt{bridge->slot} << "."
+					<< frg::hex_fmt{bridge->function}
+					<< " address: " << frg::hex_fmt{addr} << " size: " << size
+					<< " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
+
+			bridge->associatedBus->resources.push_back({addr, size, hostBase, PciBusResource::io, isHostMmio});
+		}
+	}
+
+	{
+		uint32_t base, limit;
+
+		base = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgeMemBase);
+		limit = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgeMemLimit);
+
+		uint64_t hostBase = 0;
+		auto addr = base << 16;
+		auto size = (limit << 16) + 0x100000 - addr;
+
+		// Try to look up the host base address in our parent's resources
+		for (auto &res : bridge->parentBus->resources) {
+			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)) {
+				hostBase = res.hostBase() + (addr - res.base());
+				break;
+			}
+		}
+
+		// If not found, assume PCIe and host address space are the same
+		if (!hostBase) {
+			hostBase = addr;
+		}
+
+		if (size) {
+			infoLogger() << "thor: Discovered existing memory window of bridge "
+					<< frg::hex_fmt{bridge->seg} << ":"
+					<< frg::hex_fmt{bridge->bus} << ":"
+					<< frg::hex_fmt{bridge->slot} << "."
+					<< frg::hex_fmt{bridge->function}
+					<< " address: " << frg::hex_fmt{addr} << " size: " << size
+					<< " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
+
+			bridge->associatedBus->resources.push_back({addr, size, hostBase, PciBusResource::memory, true});
+		}
+	}
+
+	{
+		uint64_t base, limit, baseUpper, limitUpper;
+		base = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgePrefetchMemBase);
+		limit = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgePrefetchMemLimit);
+
+		baseUpper = io->readConfigWord(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgePrefetchMemBaseUpper);
+		limitUpper = io->readConfigWord(bridge->parentBus, bridge->slot, bridge->function,
+			kPciBridgePrefetchMemLimitUpper);
+
+		uint64_t hostBase = 0;
+		auto addr = (base << 16) | (baseUpper << 32);
+		auto size = ((limit << 16) | (limitUpper << 32)) + 0x100000 - addr;
+
+		// Try to look up the host base address in our parent's resources
+		for (auto &res : bridge->parentBus->resources) {
+			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)) {
+				hostBase = res.hostBase() + (addr - res.base());
+				break;
+			}
+		}
+
+		// If not found, assume PCIe and host address space are the same
+		if (!hostBase) {
+			hostBase = addr;
+		}
+
+		if (size) {
+			infoLogger() << "thor: Discovered existing prefetch memory window of bridge "
+					<< frg::hex_fmt{bridge->seg} << ":"
+					<< frg::hex_fmt{bridge->bus} << ":"
+					<< frg::hex_fmt{bridge->slot} << "."
+					<< frg::hex_fmt{bridge->function}
+					<< " address: " << frg::hex_fmt{addr} << " size: " << size
+					<< " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
+
+			bridge->associatedBus->resources.push_back({addr, size, hostBase, PciBusResource::prefMemory, true});
+		}
+	}
+}
+
 void configureBridges(PciBus *root, PciBus *bus, uint32_t &highestId) {
 	for (size_t i = 0; i < bus->childBridges.size(); i++) {
 		auto bridge = bus->childBridges[i];
@@ -1266,6 +1389,10 @@ void configureBridges(PciBus *root, PciBus *bus, uint32_t &highestId) {
 		}
 
 		assert(bridge->associatedBus && "Bridge has no associated bus");
+
+		// Look for any existing bridge resources
+		checkForBridgeResources(bridge);
+
 		configureBridges(root, bridge->associatedBus, highestId);
 	}
 }
