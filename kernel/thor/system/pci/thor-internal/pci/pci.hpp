@@ -242,6 +242,17 @@ struct PciEntity {
 	uint32_t slot;
 	uint32_t function;
 
+	bool isPcie = false;
+	bool isDownstreamPort = false;
+
+	struct Capability {
+		unsigned int type;
+		ptrdiff_t offset;
+		size_t length;
+	};
+
+	frg::vector<Capability, KernelAlloc> caps{*kernelAlloc};
+
 protected:
 	~PciEntity() = default;
 };
@@ -264,11 +275,6 @@ struct PciBridge final : PciEntity {
 };
 
 struct PciDevice final : PciEntity {
-	struct Capability {
-		unsigned int type;
-		ptrdiff_t offset;
-		size_t length;
-	};
 
 	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
 			uint16_t vendor, uint16_t device_id, uint8_t revision,
@@ -277,8 +283,7 @@ struct PciDevice final : PciEntity {
 			vendor{vendor}, deviceId{device_id}, revision{revision},
 			classCode{class_code}, subClass{sub_class}, interface{interface},
 			subsystemVendor{subsystem_vendor}, subsystemDevice{subsystem_device},
-			interrupt{nullptr}, caps{*kernelAlloc},
-			associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
+			interrupt{nullptr}, associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
 
 	smarter::shared_ptr<IrqObject> obtainIrqObject();
 	IrqPin *getIrqPin();
@@ -309,8 +314,6 @@ struct PciDevice final : PciEntity {
 	PciBar *getBars() override {
 		return bars;
 	}
-
-	frg::vector<Capability, KernelAlloc> caps;
 
 	// MSI / MSI-X support.
 	unsigned int numMsis = 0;

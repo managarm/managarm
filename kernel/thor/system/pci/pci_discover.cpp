@@ -936,6 +936,53 @@ void readEntityBars(PciEntity *entity, int nBars) {
 	}
 }
 
+void findPciCaps(PciEntity *entity) {
+	auto io = entity->parentBus->io;
+
+	auto status = io->readConfigByte(entity->parentBus, entity->slot, entity->function, kPciStatus);
+
+	// Find all capabilities.
+	if(status & 0x10) {
+		// The bottom two bits of each capability offset must be masked!
+		uint8_t offset = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, kPciRegularCapabilities) & 0xFC;
+		unsigned int index = 0;
+		while(offset) {
+			auto ent = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset);
+			uint8_t type = ent & 0xFF;
+
+			auto name = nameOfCapability(type);
+			if(name) {
+				infoLogger() << "            " << name << " capability"
+						<< frg::endlog;
+			}else{
+				infoLogger() << "            Capability of type 0x"
+						<< frg::hex_fmt((int)type) << frg::endlog;
+			}
+
+			if(type == 0x10) {
+				entity->isPcie = true;
+
+				auto flags = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset + 2);
+				auto type = (flags >> 4) & 0xF;
+				entity->isDownstreamPort =
+					type == 4 // Root port
+					|| type == 6 // Downstream
+					|| type == 8; // PCI/-X to PCIe bridge
+			}
+
+			// TODO:
+			size_t size = -1;
+			if(type == 0x09)
+				size = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset + 2);
+
+			entity->caps.push({type, offset, size});
+
+			offset = (ent >> 8) & 0xFC;
+			++index;
+		}
+	}
+}
+
 template <typename EnumFunc>
 void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		EnumFunc &&enumerateDownstream) {
@@ -1003,37 +1050,11 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		auto device = smarter::allocate_shared<PciDevice>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface, subsystem_vendor, subsystem_device);
 
-		// Find all capabilities.
-		if(status & 0x10) {
-			// The bottom two bits of each capability offset must be masked!
-			uint8_t offset = io->readConfigByte(bus, slot, function, kPciRegularCapabilities) & 0xFC;
-			unsigned int index = 0;
-			while(offset) {
-				auto type = io->readConfigByte(bus, slot, function, offset);
+		findPciCaps(device.get());
 
-				auto name = nameOfCapability(type);
-				if(name) {
-					infoLogger() << "            " << name << " capability"
-							<< frg::endlog;
-				}else{
-					infoLogger() << "            Capability of type 0x"
-							<< frg::hex_fmt((int)type) << frg::endlog;
-				}
-
-				if(type == 0x11)
-					device->msixIndex = index;
-
-				// TODO:
-				size_t size = -1;
-				if(type == 0x09)
-					size = io->readConfigByte(bus, slot, function, offset + 2);
-
-				device->caps.push({type, offset, size});
-
-				uint8_t successor = io->readConfigByte(bus, slot, function, offset + 1);
-				offset = successor & 0xFC;
-				++index;
-			}
+		for (size_t i = 0; i < device->caps.size(); i++) {
+			if (device->caps[i].type == 0x11)
+				device->msixIndex = i;
 		}
 
 		readEntityBars(device.get(), 6);
@@ -1097,6 +1118,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function);
 		bus->childBridges.push_back(bridge);
 
+		findPciCaps(bridge);
+
 		readEntityBars(bridge, 2);
 
 		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
@@ -1142,7 +1165,17 @@ void checkPciDevice(PciBus *bus, uint32_t slot, EnumFunc &&enumerateDownstream) 
 
 template <typename EnumFunc>
 void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
-	for(uint32_t slot = 0; slot < 32; slot++)
+	auto bridge = bus->associatedBridge;
+	uint32_t nSlots = 32;
+
+	// A PCIe downstream port has only one device (slot 0) attached.
+	// In theory, this is only an optimization, in practice however omitting
+	// this causes a SError on the BCM2711 when trying to access the vendor ID
+	// of a non-existant device.
+	if (bridge && bridge->isPcie && bridge->isDownstreamPort)
+		nSlots = 1;
+
+	for(uint32_t slot = 0; slot < nSlots; slot++)
 		checkPciDevice(bus, slot, enumerateDownstream);
 }
 
