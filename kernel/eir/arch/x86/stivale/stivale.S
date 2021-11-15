@@ -3,7 +3,7 @@
 eirStivaleHeader:
 	.quad 0
 	.quad eirStackTop
-	.quad 0
+	.quad (1 << 4) // Bit 4: disable deprecated feature, always set
 	.quad eirStivaleFbTag
 
 .section .rodata
@@ -13,13 +13,3 @@ eirStivaleFbTag:
 	.word 0
 	.word 0
 	.word 0
-
-.section .text
-.global eirEntry
-eirEntry:
-	.extern eirStivaleMain
-	xor %rbp, %rbp
-	jmp eirStivaleMain
-.L1:
-	hlt
-	jmp .L1

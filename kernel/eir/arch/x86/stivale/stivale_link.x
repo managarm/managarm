@@ -1,4 +1,4 @@
-ENTRY(eirEntry)
+ENTRY(eirStivaleMain)
 
 SECTIONS {
 	. = 0x100000;
