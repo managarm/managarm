@@ -127,10 +127,14 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	std::shared_ptr<Link> directMkregular(std::string name,
 			std::shared_ptr<RegularNode> regular);
 	std::shared_ptr<Link> directMkdir(std::string name);
+	std::shared_ptr<Link> createProcDirectory(std::string name, Process *process);
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
+
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
+			std::shared_ptr<FsNode> target) override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -149,6 +153,18 @@ struct SelfLink final : FsNode, std::enable_shared_from_this<SelfLink> {
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+};
+
+struct ExeLink final : FsNode, std::enable_shared_from_this<ExeLink> {
+	ExeLink(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+	VfsType getType() override;
+	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+private:
+	Process *_process;
 };
 
 } // namespace procfs

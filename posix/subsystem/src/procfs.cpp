@@ -237,8 +237,24 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
+std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
+		Process *process) {
+	auto link = directMkdir(name);
+	auto proc_dir = link->getTarget();
+
+	auto exe_link = std::make_shared<Link>(proc_dir, "exe", std::make_shared<ExeLink>(process));
+	static_cast<DirectoryNode*>(proc_dir.get())->_entries.insert(exe_link);
+
+	return link;
+}
+
 VfsType DirectoryNode::getType() {
 	return VfsType::directory;
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string name,
+		std::shared_ptr<FsNode> target) {
+	co_return Error::noSuchFile;
 }
 
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
@@ -287,6 +303,19 @@ expected<std::string> SelfLink::readSymlink(FsLink *link, Process *process) {
 
 async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs SelfLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+VfsType ExeLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> ExeLink::readSymlink(FsLink *link, Process *process) {
+	co_return _process->path();
+}
+
+async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs ExeLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }
 

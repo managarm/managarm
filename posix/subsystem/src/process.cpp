@@ -894,7 +894,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_didExecute = true;
 
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
-	process->_procfs_dir = procfs_root->directMkdir(std::to_string(process->_hull->getPid()));
+	process->_procfs_dir = procfs_root->createProcDirectory(std::to_string(process->_hull->getPid()), process.get());
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
@@ -952,7 +952,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_didExecute = false;
 
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
-	process->_procfs_dir = procfs_root->directMkdir(std::to_string(process->_hull->getPid()));
+	process->_procfs_dir = procfs_root->createProcDirectory(std::to_string(process->_hull->getPid()), process.get());
 
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
