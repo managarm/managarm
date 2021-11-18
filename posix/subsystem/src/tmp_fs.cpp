@@ -9,6 +9,7 @@
 #include "device.hpp"
 #include "tmp_fs.hpp"
 #include "fifo.hpp"
+#include "process.hpp"
 #include <sys/stat.h>
 
 // TODO: Remove dependency on those functions.
@@ -120,7 +121,7 @@ private:
 		return VfsType::symlink;
 	}
 
-	expected<std::string> readSymlink(FsLink *) override {
+	expected<std::string> readSymlink(FsLink *, Process *) override {
 		co_return _link;
 	}
 

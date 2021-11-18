@@ -173,7 +173,7 @@ VfsType AttributeNode::getType() {
 async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 	// TODO: Store a file creation time.
 	auto now = clk::getRealtime();
-	
+
 	FileStats stats;
 	stats.inodeNumber = 0; // FIXME
 	stats.numLinks = 1;
@@ -216,10 +216,10 @@ async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
 	co_return FileStats{};
 }
 
-expected<std::string> SymlinkNode::readSymlink(FsLink *link) {
+expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *process) {
 	auto object = _target.lock();
 	assert(object);
-	
+
 	std::string path;
 
 	// Walk from the target to the root to discover the path.

@@ -1174,7 +1174,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						<< " to " << req->target_path() << std::endl;
 
 			auto resolveResult = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req->target_path());
+					self->fsContext()->getWorkingDirectory(), req->target_path(), self.get());
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1202,7 +1202,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else{
 				assert(req->fs_type() == "ext2");
 				auto sourceResult = co_await resolve(self->fsContext()->getRoot(),
-						self->fsContext()->getWorkingDirectory(), req->path());
+						self->fsContext()->getWorkingDirectory(), req->path(), self.get());
 				if(!sourceResult) {
 					if(sourceResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1242,7 +1242,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
+					self->fsContext()->getWorkingDirectory(), req.path(), self.get());
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1273,7 +1273,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path());
+					self->fsContext()->getWorkingDirectory(), req.path(), self.get());
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1360,7 +1360,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					relative_to, req.path());
+					relative_to, req.path(), self.get());
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -1418,7 +1418,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.path());
+					relative_to, req.path(), self.get());
 			auto resolveResult = co_await resolver.resolve(resolvePrefix);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
@@ -1509,7 +1509,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->path());
+					relative_to, req->path(), self.get());
 			auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
@@ -1581,7 +1581,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->path());
+					relative_to, req->path(), self.get());
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
@@ -1611,7 +1611,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->target_path());
+					relative_to, req->target_path(), self.get());
 			auto new_resolveResult = co_await new_resolver.resolve(
 					resolvePrefix | resolveNoTrailingSlash);
 			if(!new_resolveResult) {
@@ -1680,7 +1680,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relativeTo, req->path());
+					relativeTo, req->path(), self.get());
 			auto resolveResult = co_await resolver.resolve(
 					resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
@@ -1749,7 +1749,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->path());
+					relative_to, req->path(), self.get());
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::isDirectory) {
@@ -1783,7 +1783,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			// TODO: Add resolveNoTrailingSlash if source is not a directory?
 			PathResolver new_resolver;
 			new_resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->target_path());
+					relative_to, req->target_path(), self.get());
 			auto new_resolveResult = co_await new_resolver.resolve(resolvePrefix);
 			if(!new_resolveResult) {
 				if(new_resolveResult.error() == protocols::fs::Error::isDirectory) {
@@ -1853,7 +1853,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			} else {
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
-						relative_to, req->path());
+						relative_to, req->path(), self.get());
 
 				ResolveFlags resolveFlags = 0;
 				if (req->flags() & AT_SYMLINK_NOFOLLOW)
@@ -1984,7 +1984,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			} else {
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->path());
+					relative_to, req->path(), self.get());
 
 				auto resolveResult = co_await resolver.resolve();
 
@@ -2055,7 +2055,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
-						relativeTo, req->path());
+						relativeTo, req->path(), self.get());
 				auto resolveResult = co_await resolver.resolve();
 				if(!resolveResult) {
 					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
@@ -2084,7 +2084,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			helix::SendBuffer send_data;
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path(), resolveDontFollow);
+					self->fsContext()->getWorkingDirectory(), req.path(), self.get(), resolveDontFollow);
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					managarm::posix::SvrResponse resp;
@@ -2115,7 +2115,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 			auto path = pathResult.value();
 
-			auto result = co_await path.second->getTarget()->readSymlink(path.second.get());
+			auto result = co_await path.second->getTarget()->readSymlink(path.second.get(), self.get());
 			if(auto error = std::get_if<Error>(&result); error) {
 				assert(*error == Error::illegalOperationTarget);
 
@@ -2201,7 +2201,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->path());
+					relative_to, req->path(), self.get());
 			if(req->flags() & managarm::posix::OpenFlags::OF_CREATE) {
 				auto resolveResult = co_await resolver.resolve(
 						resolvePrefix | resolveNoTrailingSlash);
@@ -2244,6 +2244,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}else{
 					assert(directory->superblock());
 					auto node = co_await directory->superblock()->createRegular();
+					if (!node) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					}
 					// Due to races, link() can fail here.
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
@@ -2549,7 +2553,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req->flags() << std::endl;
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				}
-			} 
+			}
 
 			if(req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
@@ -2566,7 +2570,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->path());
+					relative_to, req->path(), self.get());
 
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
@@ -2628,7 +2632,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
-					req->path());
+					req->path(), self.get());
 
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
@@ -3365,7 +3369,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req->path());
+					self->fsContext()->getWorkingDirectory(), req->path(), self.get());
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
@@ -3469,7 +3473,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			// TODO: Add resolveNoTrailingSlash if not making a directory?
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req->path());
+					relative_to, req->path(), self.get());
 			auto resolveResult = co_await resolver.resolve(resolvePrefix);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {

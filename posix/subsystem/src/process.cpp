@@ -882,7 +882,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 			path, std::vector<std::string>{}, std::vector<std::string>{},
 			process->_vmContext,
 			process->_fileContext->getUniverse(),
-			process->_fileContext->clientMbusLane());
+			process->_fileContext->clientMbusLane(), process.get());
 	if(!execOutcome)
 		throw std::logic_error("Could not execute() init process");
 	auto &execResult = execOutcome.value();
@@ -892,6 +892,9 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_clientAuxEnd = execResult.auxEnd;
 	process->_posixLane = std::move(server_lane);
 	process->_didExecute = true;
+
+	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	process->_procfs_dir = procfs_root->directMkdir(std::to_string(process->_hull->getPid()));
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
@@ -947,6 +950,9 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	original->_children.push_back(process);
 	process->_hull->initializeProcess(process.get());
 	process->_didExecute = false;
+
+	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	process->_procfs_dir = procfs_root->directMkdir(std::to_string(process->_hull->getPid()));
 
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
@@ -1029,7 +1035,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 			process->_fsContext->getWorkingDirectory(),
 			path, std::move(args), std::move(env), exec_vm_context,
 			process->_fileContext->getUniverse(),
-			process->_fileContext->clientMbusLane()));
+			process->_fileContext->clientMbusLane(), process.get()));
 
 	// Allocate resources.
 	HelHandle exec_posix_lane;
@@ -1118,6 +1124,7 @@ async::result<void> Process::terminate(TerminationState state) {
 	_fileContext = nullptr;
 	//_signalContext = nullptr; // TODO: Migrate the notifications to PID 1.
 	_currentGeneration = nullptr;
+	assert(co_await _procfs_dir->getOwner()->unlink(_procfs_dir->getName()));
 
 	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);

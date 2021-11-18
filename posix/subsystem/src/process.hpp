@@ -10,6 +10,7 @@
 #include <boost/intrusive/list.hpp>
 
 #include "vfs.hpp"
+#include "procfs.hpp"
 
 struct Generation;
 struct Process;
@@ -582,6 +583,7 @@ private:
 	std::shared_ptr<FsContext> _fsContext;
 	std::shared_ptr<FileContext> _fileContext;
 	std::shared_ptr<SignalContext> _signalContext;
+	std::shared_ptr<procfs::Link> _procfs_dir;
 
 	std::shared_ptr<ProcessGroup> _pgPointer;
 	boost::intrusive::list_member_hook<> _pgHook;

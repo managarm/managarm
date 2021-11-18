@@ -4,6 +4,8 @@
 
 #include "vfs.hpp"
 
+struct Process;
+
 namespace sysfs {
 
 struct LinkCompare;
@@ -112,7 +114,7 @@ struct SymlinkNode final : FsNode, std::enable_shared_from_this<SymlinkNode> {
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	expected<std::string> readSymlink(FsLink *link) override;
+	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 
 private:
 	std::weak_ptr<Object> _target;

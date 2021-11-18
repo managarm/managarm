@@ -4,8 +4,11 @@
 #include "common.hpp"
 #include "device.hpp"
 #include "procfs.hpp"
+#include "process.hpp"
 
 namespace procfs {
+
+SuperBlock procfs_superblock;
 
 // ----------------------------------------------------------------------------
 // LinkCompare implementation.
@@ -185,6 +188,19 @@ RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 	co_return File::constructHandle(std::move(file));
 }
 
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular() {
+	co_return nullptr;
+}
+
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createSocket() {
+	co_return nullptr;
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+SuperBlock::rename(FsLink *source, FsNode *directory, std::string name) {
+	co_return Error::noSuchFile;
+};
+
 // ----------------------------------------------------------------------------
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
@@ -194,11 +210,14 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
+
+	auto self_link = std::make_shared<Link>(the_node->shared_from_this(), "self", std::make_shared<SelfLink>());
+	the_node->_entries.insert(std::move(self_link));
 	return link;
 }
 
 DirectoryNode::DirectoryNode()
-: _treeLink{nullptr} { }
+: FsNode{&procfs_superblock}, _treeLink{nullptr} { }
 
 std::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
 		std::shared_ptr<RegularNode> regular) {
@@ -248,6 +267,27 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getL
 	if(it != _entries.end())
 		co_return *it;
 	co_return nullptr; // TODO: Return an error code.
+}
+
+async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
+	auto it = _entries.find(name);
+	if (it == _entries.end())
+		co_return Error::noSuchFile;
+	_entries.erase(it);
+	co_return frg::expected<Error>{};
+}
+
+VfsType SelfLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> SelfLink::readSymlink(FsLink *link, Process *process) {
+	co_return "/proc/" + std::to_string(process->pid());
+}
+
+async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs SelfLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
 }
 
 } // namespace procfs

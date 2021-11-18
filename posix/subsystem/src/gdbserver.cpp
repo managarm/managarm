@@ -491,7 +491,7 @@ void launchGdbServer(Process *process) {
 		std::cout << "posix: Starting GDB server" << std::endl;
 
 		auto root = rootPath();
-		auto fileOrError = co_await open(root, root, "dev/ttyS0");
+		auto fileOrError = co_await open(root, root, "dev/ttyS0", process);
 		if(!fileOrError) {
 			std::cout << "posix, gdbserver: Could not open /dev/ttyS0" << std::endl;
 			co_return;
