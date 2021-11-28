@@ -68,16 +68,16 @@ public:
 
 using KernelAlloc = frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock>;
 
-extern frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
+extern constinit frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
 
-extern frg::manual_box<
+extern constinit frg::manual_box<
 	frg::slab_pool<
 		KernelVirtualAlloc,
 		IrqSpinlock
 	>
 > kernelHeap;
 
-extern frg::manual_box<KernelAlloc> kernelAlloc;
+extern constinit frg::manual_box<KernelAlloc> kernelAlloc;
 
 struct Allocator {
 	void *allocate(size_t size) {

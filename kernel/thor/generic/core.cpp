@@ -222,18 +222,18 @@ void KernelVirtualAlloc::output_trace(void *buffer, size_t size) {
 	allocLog->enqueue(buffer, size);
 }
 
-frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
+constinit frg::manual_box<PhysicalChunkAllocator> physicalAllocator = {};
 
-frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
+constinit frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc = {};
 
-frg::manual_box<
+constinit frg::manual_box<
 	frg::slab_pool<
 		KernelVirtualAlloc,
 		IrqSpinlock
 	>
-> kernelHeap;
+> kernelHeap = {};
 
-frg::manual_box<KernelAlloc> kernelAlloc;
+constinit frg::manual_box<KernelAlloc> kernelAlloc = {};
 
 // --------------------------------------------------------
 // CpuData
