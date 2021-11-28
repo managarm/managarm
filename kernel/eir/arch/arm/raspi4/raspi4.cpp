@@ -107,8 +107,8 @@ namespace PropertyMbox {
 
 	void setClockFreq(Clock clock, uint32_t freq, bool turbo = false) {
 		constexpr uint32_t req_size = 9 * 4;
-		frg::aligned_storage<req_size, 16> stor;
-		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
+		alignas(16) volatile uint32_t stor[req_size];
+		auto *ptr = stor;
 
 		*ptr++ = req_size;
 		*ptr++ = 0x00000000; // Process request
@@ -120,7 +120,7 @@ namespace PropertyMbox {
 		*ptr++ = turbo;
 		*ptr++ = 0x00000000;
 
-		auto val = reinterpret_cast<uint64_t>(stor.buffer);
+		auto val = reinterpret_cast<uint64_t>(std::addressof(stor[0]));
 		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
 		Mbox::write(Mbox::Channel::property, val);
 
@@ -130,8 +130,8 @@ namespace PropertyMbox {
 
 	frg::tuple<int, int, void *, size_t> setupFb(int width, int height, int bpp) {
 		constexpr uint32_t req_size = 36 * 4;
-		frg::aligned_storage<req_size, 16> stor;
-		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
+		alignas(16) volatile uint32_t stor[req_size];
+		auto *ptr = stor;
 
 		*ptr++ = req_size;
 		*ptr++ = 0x00000000; // Process request
@@ -179,7 +179,7 @@ namespace PropertyMbox {
 
 		*ptr++ = 0x00000000;
 
-		auto val = reinterpret_cast<uint64_t>(stor.buffer);
+		auto val = reinterpret_cast<uint64_t>(std::addressof(stor[0]));
 		assert(!(val & ~(uint64_t(0xFFFFFFF0))));
 		Mbox::write(Mbox::Channel::property, val);
 
