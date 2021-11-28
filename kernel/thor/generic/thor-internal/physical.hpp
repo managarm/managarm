@@ -63,6 +63,6 @@ private:
 	std::atomic<size_t> _freePages{0};
 };
 
-extern frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
+extern constinit frg::manual_box<PhysicalChunkAllocator> physicalAllocator;
 
 } // namespace thor
