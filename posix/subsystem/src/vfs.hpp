@@ -62,7 +62,16 @@ private:
 	std::set<std::shared_ptr<MountView>, Compare> _mounts;
 };
 
-using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
+using ViewPathPair = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
+
+struct ViewPath : public ViewPathPair {
+	ViewPath() = default;
+
+	ViewPath(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: ViewPathPair(mount, link) {}
+
+	std::string getPath(ViewPath root) const;
+};
 
 struct PathResolver {
 	void setup(ViewPath root, ViewPath workdir, std::string string, Process *process);

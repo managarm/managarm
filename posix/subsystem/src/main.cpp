@@ -2483,31 +2483,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: GETCWD" << std::endl;
 
-			auto dir = self->fsContext()->getWorkingDirectory();
-
-			std::string path = "/";
-			while(true) {
-				if(dir == self->fsContext()->getRoot())
-					break;
-
-				// If we are at the origin of a mount point, traverse that mount point.
-				ViewPath traversed;
-				if(dir.second == dir.first->getOrigin()) {
-					if(!dir.first->getParent())
-						break;
-					auto anchor = dir.first->getAnchor();
-					assert(anchor); // Non-root mounts must have anchors in their parents.
-					traversed = ViewPath{dir.first->getParent(), anchor};
-				}else{
-					traversed = dir;
-				}
-
-				auto owner = traversed.second->getOwner();
-				assert(owner); // Otherwise, we would have been at the root.
-				path = "/" + traversed.second->getName() + path;
-
-				dir = ViewPath{traversed.first, owner->treeLink()};
-			}
+			std::string path = self->fsContext()->getWorkingDirectory().getPath(
+					self->fsContext()->getRoot());
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_path;

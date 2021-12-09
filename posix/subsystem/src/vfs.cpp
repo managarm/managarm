@@ -302,7 +302,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				if(auto mount = _currentPath.first->getMount(child); mount) {
 					if(debugResolve)
 						std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
-					next = ViewPath{std::move(mount), mount->getOrigin()};
+					next = ViewPath{mount, mount->getOrigin()};
 				}else{
 					next = ViewPath{_currentPath.first, std::move(child)};
 				}
@@ -357,7 +357,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				if(auto mount = _currentPath.first->getMount(child); mount) {
 					if(debugResolve)
 						std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
-					next = ViewPath{std::move(mount), mount->getOrigin()};
+					next = ViewPath{mount, mount->getOrigin()};
 				}else{
 					next = ViewPath{_currentPath.first, std::move(child)};
 				}
@@ -404,6 +404,35 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 	}
 
 	co_return {};
+}
+
+std::string ViewPath::getPath(ViewPath root) const {
+	std::string path = "/";
+	auto dir = *this;
+	while(true) {
+		if(dir == root)
+			break;
+
+		// If we are at the origin of a mount point, traverse that mount point.
+		ViewPath traversed;
+		if(dir.second == dir.first->getOrigin()) {
+			if(!dir.first->getParent())
+				break;
+			auto anchor = dir.first->getAnchor();
+			assert(anchor); // Non-root mounts must have anchors in their parents.
+			traversed = ViewPath{dir.first->getParent(), anchor};
+		}else{
+			traversed = dir;
+		}
+
+		auto owner = traversed.second->getOwner();
+		assert(owner); // Otherwise, we would have been at the root.
+		path = "/" + traversed.second->getName() + path;
+
+		dir = ViewPath{traversed.first, owner->treeLink()};
+	}
+
+	return path;
 }
 
 ViewPath rootPath() {
