@@ -1,4 +1,6 @@
 #include <string.h>
+#include <sstream>
+#include <iomanip>
 
 #include "clock.hpp"
 #include "common.hpp"
@@ -237,13 +239,20 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
+std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_ptr<FsNode> node) {
+	assert(_entries.find(name) == _entries.end());
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	_entries.insert(link);
+	return link;
+}
+
 std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 		Process *process) {
 	auto link = directMkdir(name);
-	auto proc_dir = link->getTarget();
+	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
-	auto exe_link = std::make_shared<Link>(proc_dir, "exe", std::make_shared<ExeLink>(process));
-	static_cast<DirectoryNode*>(proc_dir.get())->_entries.insert(exe_link);
+	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
+	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 
 	return link;
 }
@@ -317,6 +326,49 @@ expected<std::string> ExeLink::readSymlink(FsLink *link, Process *process) {
 async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs ExeLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+async::result<std::string> MapNode::show() {
+	auto vmContext = _process->vmContext();
+	std::stringstream stream;
+	for (auto area : *vmContext) {
+		stream << std::hex << area.baseAddress();
+		stream << "-";
+		stream << std::hex << area.baseAddress() + area.size();
+		stream << " ";
+		stream << (area.isReadable() ? "r" : "-");
+		stream << (area.isWritable() ? "w" : "-");
+		stream << (area.isExecutable() ? "x" : "-");
+		stream << (area.isPrivate() ? "p" : "-");
+		stream << " ";
+		auto backingFile = area.backingFile();
+		if (!backingFile) {
+			stream << "00000000 00:00 0";
+		} else {
+			stream << std::setfill('0') << std::setw(8) << area.backingFileOffset();
+			stream << " ";
+			auto fsNode = backingFile->associatedLink()->getTarget();
+			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
+			auto fileStats = co_await fsNode->getStats();
+			DeviceId deviceId{};
+			if (fsNode->getType() == VfsType::charDevice || fsNode->getType() == VfsType::blockDevice)
+				deviceId = fsNode->readDevice();
+			assert(fileStats);
+
+			stream << std::dec << std::setfill('0') << std::setw(2) << deviceId.first << ":" << deviceId.second;
+			stream << " ";
+			stream << std::setw(0) << fileStats.value().inodeNumber;
+			stream << "    ";
+			stream << viewPath.getPath(_process->fsContext()->getRoot());
+		}
+		stream << "\n";
+	}
+	co_return stream.str();
+}
+
+async::result<void> MapNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Can't store to a /proc/maps file!");
 }
 
 } // namespace procfs

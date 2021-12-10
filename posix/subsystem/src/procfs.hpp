@@ -126,6 +126,8 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 
 	std::shared_ptr<Link> directMkregular(std::string name,
 			std::shared_ptr<RegularNode> regular);
+	std::shared_ptr<Link> directMknode(std::string name,
+			std::shared_ptr<FsNode> node);
 	std::shared_ptr<Link> directMkdir(std::string name);
 	std::shared_ptr<Link> createProcDirectory(std::string name, Process *process);
 
@@ -163,6 +165,17 @@ struct ExeLink final : FsNode, std::enable_shared_from_this<ExeLink> {
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+private:
+	Process *_process;
+};
+
+struct MapNode final : RegularNode {
+	MapNode(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
 private:
 	Process *_process;
 };
