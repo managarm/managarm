@@ -15,33 +15,22 @@
 struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	struct FrameBuffer;
 
-	struct ScanoutState {
-		ScanoutState()
-		: fb{nullptr}, width(0), height(0) { };
-
-		GfxDevice::FrameBuffer *fb;
-		std::shared_ptr<drm_core::Blob> mode;
-		int width;
-		int height;
-	};
-
 	struct Configuration : drm_core::Configuration {
 		Configuration(GfxDevice *device)
 		: _device(device) { };
 
-		bool capture(std::vector<drm_core::Assignment> assignment) override;
+		bool capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> &state) override;
 		void dispose() override;
-		void commit() override;
+		void commit(std::unique_ptr<drm_core::AtomicState> &state) override;
 
 	private:
-		async::detached _dispatch();
+		async::detached _dispatch(std::unique_ptr<drm_core::AtomicState> &state);
 
 		GfxDevice *_device;
-		std::optional<ScanoutState> _state;
 	};
 
 	struct Plane : drm_core::Plane {
-		Plane(GfxDevice *device);
+		Plane(GfxDevice *device, PlaneType type);
 	};
 
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
@@ -72,13 +61,13 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	};
 
 	struct Crtc final : drm_core::Crtc {
-		Crtc(GfxDevice *device, std::shared_ptr<Plane> plane);
+		Crtc(GfxDevice *device);
 
 		drm_core::Plane *primaryPlane() override;
 		// cursorPlane
 
 	private:
-		std::shared_ptr<Plane> _primaryPlane;
+		GfxDevice *_device;
 	};
 
 	struct FrameBuffer final : drm_core::FrameBuffer {
@@ -120,6 +109,7 @@ private:
 	size_t _screenPitch;
 	helix::Mapping _fbMapping;
 
+	std::shared_ptr<Plane> _plane;
 	std::shared_ptr<Crtc> _theCrtc;
 	std::shared_ptr<Encoder> _theEncoder;
 	std::shared_ptr<Connector> _theConnector;
