@@ -86,27 +86,54 @@ async::detached GfxDevice::initialize() {
 
 	// device should be working from this point forward
 
+	std::vector<drm_core::Assignment> assignments;
+
 	_crtc = std::make_shared<Crtc>(this);
 	_crtc->setupWeakPtr(_crtc);
+	_crtc->setupState(_crtc);
 	_encoder = std::make_shared<Encoder>(this);
 	_encoder->setupWeakPtr(_encoder);
 	_connector = std::make_shared<Connector>(this);
 	_connector->setupWeakPtr(_connector);
-	_primaryPlane = std::make_shared<Plane>(this);
+	_connector->setupState(_connector);
+	_primaryPlane = std::make_shared<Plane>(this, Plane::PlaneType::PRIMARY);
 	_primaryPlane->setupWeakPtr(_primaryPlane);
+	_primaryPlane->setupState(_primaryPlane);
+
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, planeTypeProperty(), 1));
 
 	if (hasCapability(caps::cursor)) {
-		_cursorPlane = std::make_shared<Plane>(this);
+		_cursorPlane = std::make_shared<Plane>(this, Plane::PlaneType::CURSOR);
 		_cursorPlane->setupWeakPtr(_cursorPlane);
+		_cursorPlane->setupState(_cursorPlane);
+
+		assignments.push_back(drm_core::Assignment::with_int(_cursorPlane, planeTypeProperty(), 2));
 	}
+
+	assignments.push_back(drm_core::Assignment::with_int(_connector, dpmsProperty(), 3));
+	assignments.push_back(drm_core::Assignment::with_blob(_crtc, modeIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::with_int(_crtc, activeProperty(), 0));
 
 	registerObject(_crtc.get());
 	registerObject(_encoder.get());
 	registerObject(_connector.get());
 	registerObject(_primaryPlane.get());
 
-	if (hasCapability(caps::cursor))
+	if (hasCapability(caps::cursor)) {
 		registerObject(_cursorPlane.get());
+	}
+
+	assignments.push_back(drm_core::Assignment::with_modeobj(_connector, crtcIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, crtcIdProperty(), _crtc));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, fbIdProperty(), nullptr));
 
 	_encoder->setCurrentCrtc(_crtc.get());
 	_connector->setupPossibleEncoders({_encoder.get()});
@@ -114,6 +141,14 @@ async::detached GfxDevice::initialize() {
 	_connector->setCurrentStatus(1);
 	_encoder->setupPossibleCrtcs({_crtc.get()});
 	_encoder->setupPossibleClones({_encoder.get()});
+	_primaryPlane->setupPossibleCrtcs({_crtc.get()});
+
+	if (hasCapability(caps::cursor)) {
+		_cursorPlane->setupPossibleCrtcs({_crtc.get()});
+
+		assignments.push_back(drm_core::Assignment::with_modeobj(_cursorPlane, crtcIdProperty(), _crtc));
+		assignments.push_back(drm_core::Assignment::with_modeobj(_cursorPlane, fbIdProperty(), nullptr));
+	}
 
 	setupCrtc(_crtc.get());
 	setupEncoder(_encoder.get());
@@ -131,6 +166,14 @@ async::detached GfxDevice::initialize() {
 
 	_connector->setupPhysicalDimensions(306, 230);
 	_connector->setupSubpixel(0);
+	_connector->setConnectorType(DRM_MODE_CONNECTOR_VIRTUAL);
+
+	auto config = createConfiguration();
+	auto state = atomicState();
+	auto valid = config->capture(assignments, state);
+	assert(valid);
+	config->commit(state);
+	co_await config->waitForCompletion();
 }
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
@@ -435,74 +478,75 @@ async::result<void> GfxDevice::DeviceFifo::updateRectangle(int x, int y, int w, 
 // GfxDevice::Configuration
 // ----------------------------------------------------------------
 
-bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment) {
+bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> & state) {
 	drm_mode_modeinfo current_mode;
 	memset(&current_mode, 0, sizeof(drm_mode_modeinfo));
-	if (_device->_crtc->currentMode())
-		memcpy(&current_mode, _device->_crtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
 
-	_width = current_mode.hdisplay;
-	_height = current_mode.vdisplay;
+	if (_device->_crtc->drm_state()->mode() != nullptr) {
+		memcpy(&current_mode, _device->_crtc->drm_state()->mode()->data(), sizeof(drm_mode_modeinfo));
+	}
+
+	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
 
 	for (auto &assign : assignment) {
-		if (assign.property == _device->srcWProperty()) {
-			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-				_cursorWidth = assign.intValue;
-				_cursorUpdate = true;
-			} else if (assign.object == _device->_primaryPlane) {
-				_width = assign.intValue;
-			}
-		} else if (assign.property == _device->srcHProperty()) {
-			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-				_cursorHeight = assign.intValue;
-				_cursorUpdate = true;
-			} else if (assign.object == _device->_primaryPlane) {
-				_height = assign.intValue;
-			}
-		} else if (assign.property == _device->crtcXProperty()) {
-			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-				_cursorX = assign.intValue;
-				_cursorMove = true;
-			}
-		} else if (assign.property == _device->crtcYProperty()) {
-			assert(assign.property->validate(assign));
-			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-				_cursorY = assign.intValue;
-				_cursorMove = true;
-			}
-		} else if (assign.property == _device->fbIdProperty()) {
-			assert(assign.property->validate(assign));
-			if (assign.objectValue) {
-			auto fb = assign.objectValue->asFrameBuffer();
+		assert(assign.property->validate(assign));
+		assign.property->writeToState(assign, state);
+		using namespace drm_core;
+
+		switch(assign.property->id()) {
+			case srcW: {
 				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-					_cursorFb = static_cast<GfxDevice::FrameBuffer *>(fb);
 					_cursorUpdate = true;
-				} else if (assign.object == _device->_primaryPlane) {
-					_fb = static_cast<GfxDevice::FrameBuffer *>(fb);
 				}
+				break;
 			}
-		} else if (assign.property == _device->modeIdProperty()) {
-			assert(assign.property->validate(assign));
-			_mode = assign.blobValue;
-			if (_mode) {
-				drm_mode_modeinfo mode_info;
-				memcpy(&mode_info, _mode->data(), sizeof(drm_mode_modeinfo));
-				_height = mode_info.vdisplay;
-				_width = mode_info.hdisplay;
+			case srcH: {
+				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+					_cursorUpdate = true;
+				}
+				break;
 			}
-		} else {
-			return false;
+			case crtcX: {
+				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+					_cursorMove = true;
+				}
+				break;
+			}
+			case crtcY: {
+				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+					_cursorMove = true;
+				}
+				break;
+			}
+			case fbId: {
+				if (assign.objectValue && assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+					_cursorUpdate = true;
+				}
+				break;
+			}
+			case modeId: {
+				if(assign.blobValue) {
+					drm_mode_modeinfo new_mode;
+					memcpy(&new_mode, assign.blobValue->data(), sizeof(drm_mode_modeinfo));
+					primary_plane_state->src_w(new_mode.hdisplay);
+					primary_plane_state->src_h(new_mode.vdisplay);
+				}
+				break;
+			}
+			// Ignore any property that is unsupported by this driver
+			default: {
+				break;
+			}
 		}
 	}
 
-	if (_mode) {
-		if (_width <= 0 || _height <= 0 || _width > 1024 || _height > 768)
+	auto crtc_state = state->crtc(_device->_crtc->id());
+
+	if(crtc_state->mode() != nullptr) {
+		if (primary_plane_state->src_w() <= 0 || primary_plane_state->src_h() <= 0 ||
+			primary_plane_state->src_w() > 1024 || primary_plane_state->src_h() > 768) {
 			return false;
-		if (!_fb)
-			return false;
+		}
 	}
 
 	return true;
@@ -512,21 +556,29 @@ void GfxDevice::Configuration::dispose() {
 
 }
 
-void GfxDevice::Configuration::commit() {
-	commitConfiguration();
+void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> & state) {
+	commitConfiguration(state);
+
+	_device->_crtc->set_drm_state(state->crtc(_device->_crtc->id()));
+	_device->_primaryPlane->set_drm_state(state->plane(_device->_primaryPlane->id()));
+	_device->_cursorPlane->set_drm_state(state->plane(_device->_cursorPlane->id()));
 }
 
-async::detached GfxDevice::Configuration::commitConfiguration() {
+async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<drm_core::AtomicState> & state) {
+	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
+	auto cursor_plane_state = state->plane(_device->_cursorPlane->id());
+	auto crtc_state = state->crtc(_device->_crtc->id());
+
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-	if (_device->_crtc->currentMode())
-		memcpy(&last_mode, _device->_crtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
+	if (_device->_crtc->drm_state()->mode() != nullptr)
+		memcpy(&last_mode, _device->_crtc->drm_state()->mode()->data(), sizeof(drm_mode_modeinfo));
 
-	auto switch_mode = last_mode.hdisplay != _width || last_mode.vdisplay != _height;
+	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w() || last_mode.vdisplay != primary_plane_state->src_h();
 
-	_device->_crtc->setCurrentMode(_mode);
+	_device->_primaryPlane->setCurrentFrameBuffer(primary_plane_state->fb_id().get());
 
-	if (_mode) {
+	if(crtc_state->mode() != nullptr) {
 		if (!_device->_isClaimed) {
 			co_await _device->_hwDev.claimDevice();
 			_device->_isClaimed = true;
@@ -535,17 +587,18 @@ async::detached GfxDevice::Configuration::commitConfiguration() {
 
 		if (switch_mode) {
 			_device->writeRegister(register_index::enable, 0); // prevent weird inbetween modes
-			_device->writeRegister(register_index::width, _width);
-			_device->writeRegister(register_index::height, _height);
+			_device->writeRegister(register_index::width, primary_plane_state->src_w());
+			_device->writeRegister(register_index::height, primary_plane_state->src_h());
 			_device->writeRegister(register_index::bits_per_pixel, 32);
 			_device->writeRegister(register_index::enable, 1);
 		}
 	}
 
 	if (_cursorUpdate) {
-		if (_cursorWidth != 0 && _cursorHeight != 0) {
+		if (cursor_plane_state->src_w() != 0 && cursor_plane_state->src_h() != 0) {
 			_device->_fifo.setCursorState(true);
-			co_await _device->_fifo.defineCursor(_cursorWidth, _cursorHeight, _cursorFb->getBufferObject());
+			auto cursor_fb = static_pointer_cast<GfxDevice::FrameBuffer>(cursor_plane_state->fb_id());
+			co_await _device->_fifo.defineCursor(cursor_plane_state->src_w(), cursor_plane_state->src_h(), cursor_fb->getBufferObject());
 			_device->_fifo.setCursorState(true);
 		} else {
 			_device->_fifo.setCursorState(false);
@@ -553,12 +606,13 @@ async::detached GfxDevice::Configuration::commitConfiguration() {
 	}
 
 	if (_cursorMove) {
-		_device->_fifo.moveCursor(_cursorX, _cursorY);
+		_device->_fifo.moveCursor(cursor_plane_state->src_x(), cursor_plane_state->src_y());
 	}
 
-	if (_fb) {
-		helix::Mapping user_fb{_fb->getBufferObject()->getMemory().first, 0, _fb->getBufferObject()->getSize()};
-		drm_core::fastCopy16(_device->_fbMapping.get(), user_fb.get(), _fb->getBufferObject()->getSize());
+	if (primary_plane_state->fb_id() != nullptr) {
+		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb_id());
+		helix::Mapping user_fb{fb->getBufferObject()->getMemory().first, 0, fb->getBufferObject()->getSize()};
+		drm_core::fastCopy16(_device->_fbMapping.get(), user_fb.get(), fb->getBufferObject()->getSize());
 		int w = _device->readRegister(register_index::width),
 			h = _device->readRegister(register_index::height);
 
@@ -629,8 +683,8 @@ void GfxDevice::FrameBuffer::notifyDirty() {
 // GfxDevice::Plane
 // ----------------------------------------------------------------
 
-GfxDevice::Plane::Plane(GfxDevice *dev)
-	:drm_core::Plane { dev->allocator.allocate() } {
+GfxDevice::Plane::Plane(GfxDevice *dev, PlaneType type)
+	:drm_core::Plane { dev->allocator.allocate(), type } {
 }
 
 // ----------------------------------------------------------------
