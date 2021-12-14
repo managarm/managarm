@@ -410,6 +410,9 @@ head(128):
 		// used by NODE_TRAVERSE_LINKS
 		tag(79) uint64 links_traversed;
 		tag(80) int64[] ids;
+
+		// returned by FIONREAD
+		tag(94) uint32 fionread_count;
 	}
 }
 
