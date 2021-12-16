@@ -31,20 +31,18 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		Configuration(GfxDevice *device)
 		: _device(device) { };
 
-		bool capture(std::vector<drm_core::Assignment> assignment) override;
+		bool capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> &state) override;
 		void dispose() override;
-		void commit() override;
+		void commit(std::unique_ptr<drm_core::AtomicState> &state) override;
 
 	private:
-		async::detached _dispatch();
+		async::detached _dispatch(std::unique_ptr<drm_core::AtomicState> &state);
 
-		std::array<std::optional<ScanoutState>, 16> _state;
 		GfxDevice *_device;
-		std::shared_ptr<drm_core::Blob> _mode;
 	};
 
 	struct Plane : drm_core::Plane {
-		Plane(GfxDevice *device, int id);
+		Plane(GfxDevice *device, int id, PlaneType type);
 
 		int scanoutId();
 
