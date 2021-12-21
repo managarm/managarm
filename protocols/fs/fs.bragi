@@ -207,11 +207,28 @@ head(128):
 
 		tag(28) uint32 drm_crtc_id;
 
+		tag(73) uint32 drm_plane_id;
+
 		tag(29) uint32[] drm_connector_ids;
 		tag(30) uint32 drm_x;
 		tag(31) uint32 drm_y;
 		tag(33) uint32 drm_fb_id;
 		tag(34) uint32 drm_mode_valid;
+
+		tag(70) uint32 drm_obj_id;
+		tag(71) uint32 drm_obj_type;
+		tag(72) uint32 drm_count_props;
+
+		tag(74) uint32 drm_property_id;
+		tag(76) uint64 drm_property_value;
+
+		tag(75) uint32 drm_blob_id;
+		tag(77) uint32 drm_blob_size;
+
+		tag(78) uint32[] drm_obj_ids;
+		tag(79) uint32[] drm_prop_counts;
+		tag(80) uint32[] drm_props;
+		tag(81) uint64[] drm_prop_values;
 
 		tag(35) uint32 drm_color;
 		tag(36) Rect[] drm_clips;
@@ -360,6 +377,26 @@ head(128):
 		tag(57) string drm_driver_name;
 		tag(58) string drm_driver_date;
 		tag(59) string drm_driver_desc;
+
+		tag(81) uint32 drm_count_props;
+
+		tag(82) uint32[] drm_obj_property_ids;
+		tag(83) uint32[] drm_obj_property_values;
+
+		tag(84) uint8[] drm_property_blob;
+
+		tag(85) uint32[] drm_plane_res;
+
+		tag(86) string drm_property_name;
+		tag(88) uint32[] drm_property_vals;
+		tag(89) uint32 drm_property_flags;
+
+		tag(90) uint32[] drm_format_type;
+
+		tag(91) uint64[] drm_enum_value;
+		tag(92) string[] drm_enum_name;
+
+		tag(93) uint32 drm_blob_id;
 
 		tag(65) int32 input_value;
 		tag(66) int32 input_min;
