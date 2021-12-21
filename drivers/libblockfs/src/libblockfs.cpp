@@ -62,7 +62,8 @@ async::result<protocols::fs::Error> flock(void *object, int flags) {
 
 async::result<protocols::fs::ReadResult> read(void *object, const char *,
 		void *buffer, size_t length) {
-	assert(length);
+	if (!length)
+		co_return size_t{0};
 
 	uint64_t start;
 	HEL_CHECK(helGetClock(&start));
