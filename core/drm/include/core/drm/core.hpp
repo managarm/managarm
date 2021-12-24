@@ -29,8 +29,10 @@ struct Connector;
 struct Configuration;
 struct FrameBuffer;
 struct Plane;
+struct PlaneState;
 struct Assignment;
 struct Blob;
+struct AtomicState;
 
 enum struct ObjectType {
 	encoder,
@@ -110,6 +112,10 @@ struct Property {
 	void add_enum_info(uint64_t value, std::string name);
 	const std::unordered_map<uint64_t, std::string>& enum_info();
 
+	virtual void writeToState(const Assignment assignment, std::unique_ptr<drm_core::AtomicState> &state);
+	virtual uint32_t intFromState(std::shared_ptr<ModeObject> obj);
+	virtual std::shared_ptr<ModeObject> modeobjFromState(std::shared_ptr<ModeObject> obj);
+
 private:
 	PropertyId _id;
 	uint32_t _flags;
@@ -183,6 +189,8 @@ public:
 	uint32_t registerBlob(std::shared_ptr<Blob> blob);
 	bool deleteBlob(uint32_t id);
 	std::shared_ptr<Blob> findBlob(uint32_t id);
+
+	std::unique_ptr<AtomicState> atomicState();
 
 	uint64_t installMapping(drm_core::BufferObject *bo);
 
@@ -320,9 +328,9 @@ private:
 struct Configuration {
 	virtual ~Configuration() = default;
 
-	virtual bool capture(std::vector<Assignment> assignment) = 0;
+	virtual bool capture(std::vector<Assignment> assignment, std::unique_ptr<AtomicState> &state) = 0;
 	virtual void dispose() = 0;
-	virtual void commit() = 0;
+	virtual void commit(std::unique_ptr<AtomicState> &state) = 0;
 
 	auto waitForCompletion() {
 		return _ev.wait();
@@ -346,6 +354,8 @@ struct ModeObject {
 	ModeObject(ObjectType type, uint32_t id)
 	: _type(type), _id(id) { };
 
+	virtual ~ModeObject() = default;
+
 	uint32_t id();
 	ObjectType type();
 
@@ -358,10 +368,39 @@ struct ModeObject {
 	void setupWeakPtr(std::weak_ptr<ModeObject> self);
 	std::shared_ptr<ModeObject> sharedModeObject();
 
+	virtual std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 private:
 	ObjectType _type;
 	uint32_t _id;
 	std::weak_ptr<ModeObject> _self;
+};
+
+struct CrtcState {
+	CrtcState(std::weak_ptr<Crtc> crtc);
+
+	std::weak_ptr<Crtc> crtc(void);
+
+	std::shared_ptr<Blob> mode();
+	void mode(std::shared_ptr<Blob> mode);
+
+	bool active();
+	void active(bool active);
+
+	bool mode_changed();
+
+private:
+	std::weak_ptr<Crtc> _crtc;
+	bool _active;
+
+	bool _planesChanged;
+	bool _modeChanged;
+	bool _activeChanged;
+	bool _connectorsChanged;
+	uint32_t _planeMask;
+	uint32_t _connectorMask;
+	uint32_t _encoderMask;
+
+	std::shared_ptr<Blob> _mode;
 };
 
 struct Crtc : ModeObject {
@@ -371,16 +410,24 @@ protected:
 	~Crtc() = default;
 
 public:
+	void setupState(std::shared_ptr<Crtc> crtc);
+
 	virtual Plane *primaryPlane() = 0;
 	virtual Plane *cursorPlane();
 
+	std::shared_ptr<drm_core::CrtcState> drm_state();
+	void set_drm_state(std::shared_ptr<drm_core::CrtcState> new_state);
+
 	std::shared_ptr<Blob> currentMode();
+	[[deprecated("This is ignored on updated drivers, use atomic state instead.")]]
 	void setCurrentMode(std::shared_ptr<Blob> mode);
+
+	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 
 	int index;
 
 private:
-	std::shared_ptr<Blob> _curMode;
+	std::shared_ptr<CrtcState> _drmState;
 };
 
 /**
@@ -408,12 +455,31 @@ private:
 	std::vector<Encoder *> _possibleClones;
 };
 
+struct ConnectorState {
+	ConnectorState(std::weak_ptr<Connector> connector) : _connector(connector) {};
+
+	std::shared_ptr<Connector> connector();
+	std::shared_ptr<Crtc> crtc();
+	void crtc(std::shared_ptr<Crtc> crtc);
+	std::shared_ptr<Encoder> encoder();
+	uint32_t dpms();
+	void dpms(uint32_t val);
+
+private:
+	std::shared_ptr<Connector> _connector;
+	std::shared_ptr<Crtc> _crtc;
+	std::shared_ptr<Encoder> _encoder;
+	uint32_t _dpms;
+};
+
 /**
  * Represents a display connector.
  * It transmits the signal to the display, detects display connection and removal and exposes the display's supported modes.
  */
 struct Connector : ModeObject {
 	Connector(uint32_t id);
+
+	void setupState(std::shared_ptr<drm_core::Connector> connector);
 
 	const std::vector<drm_mode_modeinfo> &modeList();
 	void setModeList(std::vector<drm_mode_modeinfo> mode_list);
@@ -435,6 +501,11 @@ struct Connector : ModeObject {
 	void setConnectorType(uint32_t type);
 	uint32_t connectorType();
 
+	std::shared_ptr<drm_core::ConnectorState> drm_state();
+	void set_drm_state(std::shared_ptr<drm_core::ConnectorState> new_state);
+
+	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
+
 private:
 	std::vector<drm_mode_modeinfo> _modeList;
 	drm_core::Encoder *_currentEncoder;
@@ -444,6 +515,8 @@ private:
 	uint32_t _physicalHeight;
 	uint32_t _subpixel;
 	uint32_t _connectorType;
+
+	std::shared_ptr<ConnectorState> _drmState;
 };
 
 /**
@@ -468,6 +541,10 @@ struct Plane : ModeObject {
 
 	Plane(uint32_t id, PlaneType type);
 
+	void setupState(std::shared_ptr<Plane> plane);
+
+	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
+
 	PlaneType type();
 
 	void setCurrentFrameBuffer(drm_core::FrameBuffer *crtc);
@@ -475,13 +552,85 @@ struct Plane : ModeObject {
 
 	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
 	const std::vector<Crtc *> &getPossibleCrtcs();
+
+	std::shared_ptr<drm_core::PlaneState> drm_state();
+	void set_drm_state(std::shared_ptr<drm_core::PlaneState> new_state);
+
 private:
 	PlaneType _type;
 	drm_core::FrameBuffer *_fb;
 	std::vector<Crtc *> _possibleCrtcs;
+	std::shared_ptr<PlaneState> _drmState;
+};
+
+struct PlaneState {
+	PlaneState(std::weak_ptr<Plane> plane) : _plane(plane) {};
+
+	std::shared_ptr<Plane> plane(void);
+
+	Plane::PlaneType type(void);
+
+	void crtc_w(uint32_t value);
+	uint32_t crtc_w();
+	void crtc_h(uint32_t value);
+	uint32_t crtc_h();
+	void crtc_x(uint32_t value);
+	uint32_t crtc_x();
+	void crtc_y(uint32_t value);
+	uint32_t crtc_y();
+	void src_w(uint32_t value);
+	uint32_t src_w();
+	void src_h(uint32_t value);
+	uint32_t src_h();
+	void src_x(uint32_t value);
+	uint32_t src_x();
+	void src_y(uint32_t value);
+	uint32_t src_y();
+	void crtc(std::shared_ptr<Crtc> value);
+	std::shared_ptr<Crtc> crtc();
+	void fb_id(std::shared_ptr<FrameBuffer>);
+	std::shared_ptr<FrameBuffer> fb_id();
+
+private:
+	std::shared_ptr<Plane> _plane;
+	std::shared_ptr<Crtc> _crtc;
+	std::shared_ptr<FrameBuffer> _fb;
+	int32_t _crtcX;
+	int32_t _crtcY;
+	uint32_t _crtcW;
+	uint32_t _crtcH;
+	uint32_t _srcX;
+	uint32_t _srcY;
+	uint32_t _srcW;
+	uint32_t _srcH;
+};
+
+/**
+ * Holds the changes prepared during a atomic transactions that are to be
+ * committed to CRTCs, Planes and Connectors.
+ */
+struct AtomicState {
+	AtomicState(Device *device) : _device(device) {};
+
+	std::shared_ptr<CrtcState> crtc(uint32_t id);
+	std::shared_ptr<PlaneState> plane(uint32_t id);
+	std::shared_ptr<ConnectorState> connector(uint32_t id);
+
+	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>>& crtc_states(void);
+
+private:
+	Device *_device;
+
+	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>> _crtc_states;
+	std::unordered_map<uint32_t, std::shared_ptr<PlaneState>> _plane_states;
+	std::unordered_map<uint32_t, std::shared_ptr<ConnectorState>> _connector_states;
 };
 
 struct Assignment {
+	static Assignment with_int(std::shared_ptr<ModeObject>, Property *property, uint64_t val);
+	static Assignment with_modeobj(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<ModeObject>);
+	static Assignment with_blob(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<Blob>);
+
 	std::shared_ptr<ModeObject> object;
 	Property *property;
 	uint64_t intValue;
