@@ -41,13 +41,15 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
 	HEL_CHECK(helEnableIo(handle));
-	
+
 	_operational = arch::global_io;
 }
 
 async::detached GfxDevice::initialize() {
+	std::vector<drm_core::Assignment> assignments;
+
 	_operational.store(regs::index, (uint16_t)RegisterIndex::id);
-	auto version = _operational.load(regs::data); 
+	auto version = _operational.load(regs::data);
 	if(version < 0xB0C2) {
 		std::cout << "gfx/bochs: Device version 0x" << std::hex << version << std::dec
 				<< " may be unsupported!" << std::endl;
@@ -55,18 +57,38 @@ async::detached GfxDevice::initialize() {
 
 	_theCrtc = std::make_shared<Crtc>(this);
 	_theCrtc->setupWeakPtr(_theCrtc);
+	_theCrtc->setupState(_theCrtc);
 	_theEncoder = std::make_shared<Encoder>(this);
 	_theEncoder->setupWeakPtr(_theEncoder);
 	_theConnector = std::make_shared<Connector>(this);
 	_theConnector->setupWeakPtr(_theConnector);
-	_primaryPlane = std::make_shared<Plane>(this);
+	_theConnector->setupState(_theConnector);
+	_primaryPlane = std::make_shared<Plane>(this, Plane::PlaneType::PRIMARY);
 	_primaryPlane->setupWeakPtr(_primaryPlane);
-	
+	_primaryPlane->setupState(_primaryPlane);
+
 	registerObject(_theCrtc.get());
 	registerObject(_theEncoder.get());
 	registerObject(_theConnector.get());
 	registerObject(_primaryPlane.get());
-	
+
+	assignments.push_back(drm_core::Assignment::with_int(_theCrtc, activeProperty(), 0));
+
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, planeTypeProperty(), 1));
+	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, fbIdProperty(), nullptr));
+
+	assignments.push_back(drm_core::Assignment::with_int(_theConnector, dpmsProperty(), 3));
+	assignments.push_back(drm_core::Assignment::with_modeobj(_theConnector, crtcIdProperty(), _theCrtc));
+
 	_theEncoder->setCurrentCrtc(_theCrtc.get());
 	_theConnector->setupPossibleEncoders({_theEncoder.get()});
 	_theConnector->setCurrentEncoder(_theEncoder.get());
@@ -78,18 +100,26 @@ async::detached GfxDevice::initialize() {
 	setupEncoder(_theEncoder.get());
 	attachConnector(_theConnector.get());
 
-	std::vector<drm_mode_modeinfo> supported_modes;	
+	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, 1024, 768);
 	_theConnector->setModeList(supported_modes);
-	
+
 	setupMinDimensions(640, 480);
 	setupMaxDimensions(1024, 768);
-		
+
 	_theConnector->setupPhysicalDimensions(306, 230);
 	_theConnector->setupSubpixel(0);
+	_theConnector->setConnectorType(DRM_MODE_CONNECTOR_VIRTUAL);
+
+	auto config = createConfiguration();
+	auto state = atomicState();
+	assert(config->capture(assignments, state));
+	config->commit(state);
+	co_await config->waitForCompletion();
+
 	co_return;
 }
-	
+
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
@@ -97,10 +127,10 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
 		uint32_t width, uint32_t height, uint32_t, uint32_t pitch) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
-		
+
 	assert(pitch % 4 == 0);
 	auto pixel_pitch = pitch / 4;
-	
+
 	assert(pixel_pitch >= width);
 	assert(bo->getAlignment() % pitch == 0);
 	assert(bo->getSize() >= pitch * height);
@@ -110,7 +140,7 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	registerObject(fb.get());
 	return fb;
 }
-	
+
 std::tuple<int, int, int> GfxDevice::driverVersion() {
 	return {1, 0, 0};
 }
@@ -171,76 +201,55 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 // GfxDevice::Configuration.
 // ----------------------------------------------------------------
 
-bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment) {
-	drm_mode_modeinfo current_mode;
-	memset(&current_mode, 0, sizeof(drm_mode_modeinfo));
-	if(_device->_theCrtc->currentMode())
-		memcpy(&current_mode, _device->_theCrtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
-	
-	_width = current_mode.hdisplay;
-	_height = current_mode.vdisplay;
-	_mode = _device->_theCrtc->currentMode();
-
+bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> &state) {
 	for(auto &assign: assignment) {
-		if(assign.property == _device->srcWProperty()) {
-			assert(assign.property->validate(assign));
+		assert(assign.property->validate(assign));
+		assign.property->writeToState(assign, state);
+	}
 
-			_width = assign.intValue;
-		}else if(assign.property == _device->srcHProperty()) {
-			assert(assign.property->validate(assign));
+	auto plane_state = state->plane(_device->_primaryPlane->id());
+	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
-			_height = assign.intValue;
-		}else if(assign.property == _device->fbIdProperty()) {
-			assert(assign.property->validate(assign));
+	if(crtc_state->mode() != nullptr) {
+		// TODO: Consider current width/height if FB did not change.
+		drm_mode_modeinfo mode_info;
+		memcpy(&mode_info, crtc_state->mode()->data(), sizeof(drm_mode_modeinfo));
+		plane_state->src_h(mode_info.vdisplay);
+		plane_state->src_w(mode_info.hdisplay);
 
-			auto fb = assign.objectValue->asFrameBuffer();
-			_fb = static_cast<GfxDevice::FrameBuffer *>(fb);
-		}else if(assign.property == _device->modeIdProperty()) {
-			assert(assign.property->validate(assign));
-
-			_mode = assign.blobValue; 
-			if(_mode) {
-				drm_mode_modeinfo mode_info;
-				memcpy(&mode_info, _mode->data(), sizeof(drm_mode_modeinfo));
-				_height = mode_info.vdisplay;
-				_width = mode_info.hdisplay;
-			}
-		}else{
+		// TODO: Check max dimensions: plane_state->width > 1024 || plane_state->height > 768
+		if(plane_state->src_w() <= 0 || plane_state->src_h() <= 0) {
+			std::cout << "\e[31m" "gfx/bochs: invalid state width of height" << "\e[39m" << std::endl;
 			return false;
 		}
 	}
 
-		
-	if(_mode) {
-		if(_width <= 0 || _height <= 0 || _width > 1024 || _height > 768)
-			return false;
-		if(!_fb)
-			return false;
-	}
-	return true;	
+	return true;
 }
 
 void GfxDevice::Configuration::dispose() {
 
 }
 
-void GfxDevice::Configuration::commit() {
-	_doCommit();
+void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
+	_doCommit(state);
 }
 
-async::detached GfxDevice::Configuration::_doCommit() {
+async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::AtomicState> &state) {
 	if(logCommits)
 		std::cout << "gfx-bochs: Committing configuration" << std::endl;
+
+	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
+	auto crtc_state = state->crtc(_device->_theCrtc->id());
+
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-	if(_device->_theCrtc->currentMode())
-		memcpy(&last_mode, _device->_theCrtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
-	
-	auto switch_mode = last_mode.hdisplay != _width || last_mode.vdisplay != _height;
+	if(_device->_theCrtc->drm_state()->mode())
+		memcpy(&last_mode, _device->_theCrtc->drm_state()->mode()->data(), sizeof(drm_mode_modeinfo));
 
-	_device->_theCrtc->setCurrentMode(_mode);
+	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w() || last_mode.vdisplay != primary_plane_state->src_h();
 
-	if(_mode) {
+	if(crtc_state->mode() != nullptr) {
 		if(!_device->_claimedDevice) {
 			co_await _device->_hwDevice.claimDevice();
 			_device->_claimedDevice = true;
@@ -252,32 +261,34 @@ async::detached GfxDevice::Configuration::_doCommit() {
 			_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
 
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resX);
-			_device->_operational.store(regs::data, _width);
+			_device->_operational.store(regs::data, primary_plane_state->src_w());
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resY);
-			_device->_operational.store(regs::data, _height);
+			_device->_operational.store(regs::data, primary_plane_state->src_h());
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
 			_device->_operational.store(regs::data, 32);
-			
+
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
-			_device->_operational.store(regs::data, enable_bits::enable 
+			_device->_operational.store(regs::data, enable_bits::enable
 					| enable_bits::noMemClear | enable_bits::lfb);
-			
+
 		}
+
+		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb_id());
 
 		// We do not have to write the virtual height.
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
-		_device->_operational.store(regs::data, _fb->getPixelPitch());
+		_device->_operational.store(regs::data, fb->getPixelPitch());
 
 		// The offset registers have to be written while the device is enabled!
-		assert(!(_fb->getBufferObject()->getAddress() % (_fb->getPixelPitch() * 4)));
+		assert(!(fb->getBufferObject()->getAddress() % (fb->getPixelPitch() * 4)));
 		if(logCommits)
 			std::cout << "gfx-bochs: Flip to buffer at "
-					<< (void *)_fb->getBufferObject()->getAddress() << std::endl;
+					<< (void *)fb->getBufferObject()->getAddress() << std::endl;
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
-		_device->_operational.store(regs::data, 0);	
+		_device->_operational.store(regs::data, 0);
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
-		_device->_operational.store(regs::data, _fb->getBufferObject()->getAddress()
-				/ (_fb->getPixelPitch() * 4));
+		_device->_operational.store(regs::data, fb->getBufferObject()->getAddress()
+				/ (fb->getPixelPitch() * 4));
 	}else{
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
 		_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
@@ -313,7 +324,7 @@ GfxDevice::Crtc::Crtc(GfxDevice *device)
 }
 
 drm_core::Plane *GfxDevice::Crtc::primaryPlane() {
-	return _device->_primaryPlane.get(); 
+	return _device->_primaryPlane.get();
 }
 
 // ----------------------------------------------------------------
@@ -336,15 +347,15 @@ uint32_t GfxDevice::FrameBuffer::getPixelPitch() {
 }
 
 void GfxDevice::FrameBuffer::notifyDirty() {
-	
+
 }
 
 // ----------------------------------------------------------------
 // GfxDevice: Plane.
 // ----------------------------------------------------------------
 
-GfxDevice::Plane::Plane(GfxDevice *device)
-	:drm_core::Plane { device->allocator.allocate() } {
+GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type)
+	:drm_core::Plane { device->allocator.allocate(), type } {
 }
 
 // ----------------------------------------------------------------
@@ -371,7 +382,7 @@ std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObj
 size_t GfxDevice::BufferObject::getSize() {
 	return _size;
 }
-	
+
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
 	return std::make_pair(helix::BorrowedDescriptor{_memoryView}, 0);
 }
@@ -393,7 +404,7 @@ async::detached bindController(mbus::Entity entity) {
 	auto info = co_await pci_device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = co_await pci_device.accessBar(0);
-	
+
 	void *actual_pointer;
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
 			0, info.barInfo[0].length, kHelMapProtRead | kHelMapProtWrite,
@@ -405,7 +416,7 @@ async::detached bindController(mbus::Entity entity) {
 
 	// Create an mbus object for the device.
 	auto root = co_await mbus::Instance::global().getRoot();
-	
+
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
 		{"unix.subsystem", mbus::StringItem{"drm"}},
