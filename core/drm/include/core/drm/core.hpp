@@ -418,10 +418,6 @@ public:
 	std::shared_ptr<drm_core::CrtcState> drm_state();
 	void set_drm_state(std::shared_ptr<drm_core::CrtcState> new_state);
 
-	std::shared_ptr<Blob> currentMode();
-	[[deprecated("This is ignored on updated drivers, use atomic state instead.")]]
-	void setCurrentMode(std::shared_ptr<Blob> mode);
-
 	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 
 	int index;

@@ -627,14 +627,6 @@ void drm_core::Crtc::setupState(std::shared_ptr<drm_core::Crtc> crtc) {
 	crtc->_drmState = std::make_shared<drm_core::CrtcState>(drm_core::CrtcState(crtc));
 }
 
-std::shared_ptr<drm_core::Blob> drm_core::Crtc::currentMode() {
-	return _curMode;
-}
-
-void drm_core::Crtc::setCurrentMode(std::shared_ptr<drm_core::Blob> mode) {
-	_curMode = mode;
-}
-
 drm_core::Plane *drm_core::Crtc::cursorPlane() {
 	return nullptr;
 }
