@@ -28,28 +28,28 @@
 drm_core::Device::Device() {
 	struct SrcWProperty : drm_core::Property {
 		SrcWProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{srcW, drm_core::IntPropertyType{}, "SRC_W"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
-	_srcWProperty = std::make_shared<SrcWProperty>();
-	
+	registerProperty(_srcWProperty = std::make_shared<SrcWProperty>());
+
 	struct SrcHProperty : drm_core::Property {
 		SrcHProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{srcH, drm_core::IntPropertyType{}, "SRC_H"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
-	_srcHProperty = std::make_shared<SrcHProperty>();
+	registerProperty(_srcHProperty = std::make_shared<SrcHProperty>());
 
 	struct FbIdProperty : drm_core::Property {
 		FbIdProperty()
-		: drm_core::Property{drm_core::ObjectPropertyType{}} { }
-		
+		: drm_core::Property{fbId, drm_core::ObjectPropertyType{}, "FB_ID"} { }
+
 		bool validate(const Assignment& assignment) override {
 			if(!assignment.objectValue)
 				return true;
@@ -60,19 +60,20 @@ drm_core::Device::Device() {
 			return false;
 		};
 	};
-	_fbIdProperty = std::make_shared<FbIdProperty>();
+	registerProperty(_fbIdProperty = std::make_shared<FbIdProperty>());
 
 	struct ModeIdProperty : drm_core::Property {
 		ModeIdProperty()
-		: drm_core::Property{drm_core::BlobPropertyType{}} { }
+		: drm_core::Property{modeId, drm_core::BlobPropertyType{}, "MODE_ID"} { }
 
 		bool validate(const Assignment& assignment) override {
-			if(!assignment.blobValue)
+			if(!assignment.blobValue) {
 				return true;
+			}
 
 			if(assignment.blobValue->size() != sizeof(drm_mode_modeinfo))
 				return false;
-			
+
 			drm_mode_modeinfo mode_info;
 			memcpy(&mode_info, assignment.blobValue->data(), sizeof(drm_mode_modeinfo));
 			if(mode_info.hdisplay > mode_info.hsync_start)
@@ -92,29 +93,113 @@ drm_core::Device::Device() {
 			return true;
 		};
 	};
-	_modeIdProperty = std::make_shared<ModeIdProperty>();
+	registerProperty(_modeIdProperty = std::make_shared<ModeIdProperty>());
 
 	struct CrtcXProperty : drm_core::Property {
 		CrtcXProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{crtcX, drm_core::IntPropertyType{}, "CRTC_X"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
-	_crtcXProperty = std::make_shared<CrtcXProperty>();
-	
+	registerProperty(_crtcXProperty = std::make_shared<CrtcXProperty>());
+
 	struct CrtcYProperty : drm_core::Property {
 		CrtcYProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{crtcY, drm_core::IntPropertyType{}, "CRTC_Y"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
-	_crtcYProperty = std::make_shared<CrtcYProperty>();
+	registerProperty(_crtcYProperty = std::make_shared<CrtcYProperty>());
 
+	struct PlaneTypeProperty : drm_core::Property {
+		PlaneTypeProperty()
+		: drm_core::Property{planeType, drm_core::EnumPropertyType{}, "type"} {
+			add_enum_info(0, "Overlay");
+			add_enum_info(1, "Primary");
+			add_enum_info(2, "Cursor");
+		}
 
+		bool validate(const Assignment& assignment) override {
+			auto plane = assignment.object->asPlane();
+			assert(plane);
+			return (static_cast<uint64_t>(plane->type()) == assignment.intValue);
+		}
+	};
+	registerProperty(_planeTypeProperty = std::make_shared<PlaneTypeProperty>());
+
+	struct DpmsProperty : drm_core::Property {
+		DpmsProperty()
+		: drm_core::Property{dpms, drm_core::IntPropertyType{}, "DPMS"} { }
+
+		bool validate(const Assignment& assignment) override {
+			return (assignment.intValue < 4);
+		}
+	};
+	registerProperty(_dpmsProperty = std::make_shared<DpmsProperty>());
+
+	struct CrtcIdProperty : drm_core::Property {
+		CrtcIdProperty()
+		: drm_core::Property{crtcId, drm_core::ObjectPropertyType{}, "CRTC_ID"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_crtcIdProperty = std::make_shared<CrtcIdProperty>());
+
+	struct ActiveProperty : drm_core::Property {
+		ActiveProperty()
+		: drm_core::Property{active, drm_core::IntPropertyType{}, "ACTIVE"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_activeProperty = std::make_shared<ActiveProperty>());
+
+	struct SrcXProperty : drm_core::Property {
+		SrcXProperty()
+		: drm_core::Property{srcX, drm_core::IntPropertyType{}, "SRC_X"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_srcXProperty = std::make_shared<SrcXProperty>());
+
+	struct SrcYProperty : drm_core::Property {
+		SrcYProperty()
+		: drm_core::Property{srcY, drm_core::IntPropertyType{}, "SRC_Y"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_srcYProperty = std::make_shared<SrcYProperty>());
+
+	struct CrtcWProperty : drm_core::Property {
+		CrtcWProperty()
+		: drm_core::Property{crtcW, drm_core::IntPropertyType{}, "CRTC_W"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_crtcWProperty = std::make_shared<CrtcWProperty>());
+
+	struct CrtcHProperty : drm_core::Property {
+		CrtcHProperty()
+		: drm_core::Property{crtcH, drm_core::IntPropertyType{}, "CRTC_H"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_crtcHProperty = std::make_shared<CrtcHProperty>());
 }
 
 void drm_core::Device::setupCrtc(drm_core::Crtc *crtc) {
@@ -154,11 +239,34 @@ std::shared_ptr<drm_core::ModeObject> drm_core::Device::findObject(uint32_t id) 
 	return it->second->sharedModeObject();
 }
 
+uint32_t drm_core::Device::registerBlob(std::shared_ptr<drm_core::Blob> blob) {
+	uint32_t id = _blob_id_allocator.allocate();
+	_blobs.insert({id, blob});
+
+	return id;
+}
+
+bool drm_core::Device::deleteBlob(uint32_t id) {
+	if(_blobs.contains(id)) {
+		_blobs.erase(id);
+		return true;
+	}
+
+	return false;
+}
+
+std::shared_ptr<drm_core::Blob> drm_core::Device::findBlob(uint32_t id) {
+	auto it = _blobs.find(id);
+	if(it == _blobs.end())
+		return nullptr;
+	return it->second;
+}
+
 uint64_t drm_core::Device::installMapping(drm_core::BufferObject *bo) {
 	assert(bo->getSize() < (UINT64_C(1) << 32));
 	return static_cast<uint64_t>(_memorySlotAllocator.allocate()) << 32;
 }
-	
+
 void drm_core::Device::setupMinDimensions(uint32_t width, uint32_t height) {
 	_minWidth = width;
 	_minHeight = height;
@@ -184,7 +292,7 @@ uint32_t drm_core::Device::getMinHeight() {
 uint32_t drm_core::Device::getMaxHeight() {
 	return _maxHeight;
 }
-	
+
 drm_core::Property *drm_core::Device::srcWProperty() {
 	return _srcWProperty.get();
 }
@@ -208,7 +316,57 @@ drm_core::Property *drm_core::Device::crtcXProperty() {
 drm_core::Property *drm_core::Device::crtcYProperty() {
 	return _crtcYProperty.get();
 }
-	
+
+drm_core::Property *drm_core::Device::planeTypeProperty() {
+	return _planeTypeProperty.get();
+}
+
+drm_core::Property *drm_core::Device::dpmsProperty() {
+	return _dpmsProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcIdProperty() {
+	return _crtcIdProperty.get();
+}
+
+drm_core::Property *drm_core::Device::activeProperty() {
+	return _activeProperty.get();
+}
+
+drm_core::Property *drm_core::Device::srcXProperty() {
+	return _srcXProperty.get();
+}
+
+drm_core::Property *drm_core::Device::srcYProperty() {
+	return _srcYProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcWProperty() {
+	return _crtcWProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcHProperty() {
+	return _crtcHProperty.get();
+}
+
+void drm_core::Device::registerProperty(std::shared_ptr<drm_core::Property> p) {
+	_properties.insert({p->id(), p});
+}
+
+std::shared_ptr<drm_core::Property> drm_core::Device::getProperty(uint32_t id) {
+	auto it = _properties.find(id);
+
+	if(it == _properties.end()) {
+		return nullptr;
+	}
+
+	return it->second;
+}
+
+const std::unordered_map<uint32_t, std::shared_ptr<drm_core::Property>>& drm_core::Device::getProperties() {
+	return _properties;
+}
+
 // ----------------------------------------------------------------
 // Property
 // ----------------------------------------------------------------
@@ -217,8 +375,29 @@ bool drm_core::Property::validate(const Assignment&) {
 	return true;
 }
 
+drm_core::PropertyId drm_core::Property::id() {
+	return _id;
+}
+
+uint32_t drm_core::Property::flags() {
+	return _flags;
+}
+
 drm_core::PropertyType drm_core::Property::propertyType() {
 	return _propertyType;
+}
+
+std::string drm_core::Property::name() {
+	return _name;
+}
+
+void drm_core::Property::add_enum_info(uint64_t value, std::string name) {
+	assert(std::holds_alternative<EnumPropertyType>(_propertyType));
+	_enum_info.insert({value, name});
+}
+
+const std::unordered_map<uint64_t, std::string>& drm_core::Property::enum_info() {
+	return _enum_info;
 }
 
 // ----------------------------------------------------------------
@@ -250,27 +429,27 @@ drm_core::Crtc *drm_core::Encoder::currentCrtc() {
 void drm_core::Encoder::setCurrentCrtc(drm_core::Crtc *crtc) {
 	_currentCrtc = crtc;
 }
-	
+
 void drm_core::Encoder::setupEncoderType(uint32_t type) {
 	_encoderType = type;
 }
-	
+
 uint32_t drm_core::Encoder::getEncoderType() {
 	return _encoderType;
 }
-	
+
 void drm_core::Encoder::setupPossibleCrtcs(std::vector<drm_core::Crtc *> crtcs) {
 	_possibleCrtcs = crtcs;
 }
-	
+
 const std::vector<drm_core::Crtc *> &drm_core::Encoder::getPossibleCrtcs() {
 	return _possibleCrtcs;
 }
-	
+
 void drm_core::Encoder::setupPossibleClones(std::vector<drm_core::Encoder *> clones) {
 	_possibleClones = clones;
 }
-	
+
 const std::vector<drm_core::Encoder *> &drm_core::Encoder::getPossibleClones() {
 	return _possibleClones;
 }
@@ -281,6 +460,10 @@ const std::vector<drm_core::Encoder *> &drm_core::Encoder::getPossibleClones() {
 
 uint32_t drm_core::ModeObject::id() {
 	return _id;
+}
+
+drm_core::ObjectType drm_core::ModeObject::type() {
+	return _type;
 }
 
 drm_core::Encoder *drm_core::ModeObject::asEncoder() {
@@ -333,7 +516,7 @@ drm_core::Crtc::Crtc(uint32_t id)
 std::shared_ptr<drm_core::Blob> drm_core::Crtc::currentMode() {
 	return _curMode;
 }
-	
+
 void drm_core::Crtc::setCurrentMode(std::shared_ptr<drm_core::Blob> mode) {
 	_curMode = mode;
 }
@@ -354,8 +537,28 @@ drm_core::FrameBuffer::FrameBuffer(uint32_t id)
 // Plane
 // ----------------------------------------------------------------
 
-drm_core::Plane::Plane(uint32_t id)
-	:drm_core::ModeObject { ObjectType::plane, id } {
+drm_core::Plane::Plane(uint32_t id, PlaneType type)
+	:drm_core::ModeObject { ObjectType::plane, id }, _type(type) {
+}
+
+drm_core::Plane::PlaneType drm_core::Plane::type() {
+	return _type;
+}
+
+void drm_core::Plane::setCurrentFrameBuffer(drm_core::FrameBuffer *fb) {
+	_fb = fb;
+}
+
+drm_core::FrameBuffer *drm_core::Plane::getFrameBuffer() {
+	return _fb;
+}
+
+void drm_core::Plane::setupPossibleCrtcs(std::vector<drm_core::Crtc *> crtcs) {
+	_possibleCrtcs = crtcs;
+}
+
+const std::vector<drm_core::Crtc *> &drm_core::Plane::getPossibleCrtcs() {
+	return _possibleCrtcs;
 }
 
 // ----------------------------------------------------------------
@@ -375,15 +578,15 @@ const std::vector<drm_mode_modeinfo> &drm_core::Connector::modeList() {
 void drm_core::Connector::setModeList(std::vector<drm_mode_modeinfo> mode_list) {
 	_modeList = mode_list;
 }
-	
+
 void drm_core::Connector::setCurrentStatus(uint32_t status) {
 	_currentStatus = status;
 }
-	
+
 void drm_core::Connector::setCurrentEncoder(drm_core::Encoder *encoder) {
 	_currentEncoder = encoder;
 }
-	
+
 drm_core::Encoder *drm_core::Connector::currentEncoder() {
 	return _currentEncoder;
 }
@@ -391,7 +594,7 @@ drm_core::Encoder *drm_core::Connector::currentEncoder() {
 uint32_t drm_core::Connector::getCurrentStatus() {
 	return _currentStatus;
 }
-	
+
 void drm_core::Connector::setupPossibleEncoders(std::vector<drm_core::Encoder *> encoders) {
 	_possibleEncoders = encoders;
 }
@@ -399,7 +602,7 @@ void drm_core::Connector::setupPossibleEncoders(std::vector<drm_core::Encoder *>
 const std::vector<drm_core::Encoder *> &drm_core::Connector::getPossibleEncoders() {
 	return _possibleEncoders;
 }
-	
+
 void drm_core::Connector::setupPhysicalDimensions(uint32_t width, uint32_t height) {
 	_physicalWidth = width;
 	_physicalHeight = height;
@@ -421,6 +624,10 @@ uint32_t drm_core::Connector::getSubpixel() {
 	return _subpixel;
 }
 
+void drm_core::Connector::setConnectorType(uint32_t type) {
+	_connectorType = type;
+}
+
 uint32_t drm_core::Connector::connectorType() {
 	return _connectorType;
 }
@@ -432,7 +639,7 @@ uint32_t drm_core::Connector::connectorType() {
 size_t drm_core::Blob::size() {
 	return _data.size();
 }
-	
+
 const void *drm_core::Blob::data() {
 	return _data.data();
 }
@@ -457,7 +664,7 @@ void drm_core::File::setBlocking(bool blocking) {
 void drm_core::File::attachFrameBuffer(std::shared_ptr<drm_core::FrameBuffer> frame_buffer) {
 	_frameBuffers.push_back(frame_buffer);
 }
-	
+
 void drm_core::File::detachFrameBuffer(drm_core::FrameBuffer *frame_buffer) {
 	auto it = std::find_if(_frameBuffers.begin(), _frameBuffers.end(),
 			([&](std::shared_ptr<drm_core::FrameBuffer> fb) {
@@ -466,11 +673,11 @@ void drm_core::File::detachFrameBuffer(drm_core::FrameBuffer *frame_buffer) {
 	assert(it != _frameBuffers.end());
 	_frameBuffers.erase(it);
 }
-	
+
 const std::vector<std::shared_ptr<drm_core::FrameBuffer>> &drm_core::File::getFrameBuffers() {
 	return _frameBuffers;
 }
-	
+
 uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 	auto handle = _allocator.allocate();
 	_buffers.insert({handle, bo});
@@ -482,7 +689,7 @@ uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 
 	return handle;
 }
-	
+
 drm_core::BufferObject *drm_core::File::resolveHandle(uint32_t handle) {
 	auto it = _buffers.find(handle);
 	if(it == _buffers.end())
@@ -519,12 +726,13 @@ drm_core::File::read(void *object, const char *,
 	out.base.type = DRM_EVENT_FLIP_COMPLETE;
 	out.base.length = sizeof(drm_event_vblank);
 	out.user_data = ev->cookie;
+	out.crtc_id = ev->crtcId;
 	out.tv_sec = ev->timestamp / 1000000000;
 	out.tv_usec = (ev->timestamp % 1000000000) / 1000;
 
 	assert(length >= sizeof(drm_event_vblank));
 	memcpy(buffer, &out, sizeof(drm_event_vblank));
-	
+
 	self->_pendingEvents.pop_front();
 	if(self->_pendingEvents.empty())
 		self->_statusPage.update(self->_eventSequence, 0);
@@ -871,8 +1079,8 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		assert(valid);
 		config->commit();
 
-		self->_retirePageFlip(std::move(config), req.drm_cookie());
-			
+		self->_retirePageFlip(std::move(config), req.drm_cookie(), crtc->id());
+
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
@@ -1047,11 +1255,12 @@ drm_core::File::pollStatus(void *object) {
 
 async::detached
 drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
-			uint64_t cookie) {
+			uint64_t cookie, uint32_t crtc_id) {
 	co_await config->waitForCompletion();
 
 	Event event;
 	event.cookie = cookie;
+	event.crtcId = crtc_id;
 	postEvent(event);
 }
 
