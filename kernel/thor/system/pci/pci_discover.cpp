@@ -200,7 +200,7 @@ namespace {
 				co_return true;
 			}
 
-			if(device->msixIndex < 0
+			if ((device->msiIndex < 0 && device->msixIndex < 0)
 					|| !device->parentBus->msiController
 					|| req->index() >= device->numMsis) {
 				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -248,12 +248,7 @@ namespace {
 					+ frg::to_allocated_string(*kernelAlloc, req->index()));
 			IrqPin::attachSink(interrupt, object.get());
 
-			// Setup the MSI-X table.
-			auto space = arch::mem_space{device->msixMapping}.subspace(req->index() * 16);
-			space.store(msixMessageAddress, interrupt->getMessageAddress());
-			space.store(msixMessageData, interrupt->getMessageData());
-			space.store(msixVectorControl,
-					space.load(msixVectorControl) & ~uint32_t{1});
+			device->setupMsi(interrupt, req->index());
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -316,7 +311,7 @@ namespace {
 				co_return true;
 			}
 
-			if(device->msixIndex < 0
+			if ((device->msiIndex < 0 && device->msixIndex < 0)
 					|| !device->parentBus->msiController) {
 				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
@@ -328,16 +323,7 @@ namespace {
 				co_return true;
 			}
 
-			auto io = device->parentBus->io;
-			auto offset = device->caps[device->msixIndex].offset;
-
-			device->enableIrq();
-			auto msgControl = io->readConfigHalf(device->parentBus,
-					device->slot, device->function, offset + 2);
-			msgControl |= 0x8000; // Enable MSI-X.
-			msgControl &= ~uint16_t{0x4000}; // Disable the overall mask.
-			io->writeConfigHalf(device->parentBus,
-					device->slot, device->function, offset + 2, msgControl);
+			device->enableMsi();
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -746,6 +732,83 @@ void PciDevice::enableIrq() {
 			kPciCommand, command & ~uint16_t{0x400});
 }
 
+void PciDevice::setupMsi(MsiPin *msi, size_t index) {
+	auto io = parentBus->io;
+
+	if (msixIndex >= 0) {
+		// Setup the MSI-X table.
+		auto space = arch::mem_space{msixMapping}.subspace(index * 16);
+		space.store(msixMessageAddress, msi->getMessageAddress());
+		space.store(msixMessageData, msi->getMessageData());
+		space.store(msixVectorControl,
+				space.load(msixVectorControl) & ~uint32_t{1});
+	} else {
+		assert(msiIndex >= 0);
+
+		// TODO(qookie): support non-zero indices
+		assert(!index);
+		auto offset = caps[msiIndex].offset;
+
+		auto msgControl = io->readConfigHalf(parentBus,
+				slot, function, offset + 2);
+
+		bool is64Capable = msgControl & (1 << 7);
+
+		msgControl &= ~0x0071; // Disable MSI by default, enable only 1 message
+
+		io->writeConfigHalf(parentBus,
+				slot, function, offset + 2, msgControl);
+
+		io->writeConfigWord(parentBus,
+				slot, function, offset + 4, msi->getMessageAddress() & 0xFFFFFFFF);
+
+		if (is64Capable) {
+			io->writeConfigWord(parentBus,
+				slot, function, offset + 8, msi->getMessageAddress() >> 32);
+
+			io->writeConfigHalf(parentBus,
+				slot, function, offset + 12, msi->getMessageData());
+		} else {
+			assert(!(msi->getMessageAddress() >> 32));
+
+			io->writeConfigHalf(parentBus,
+				slot, function, offset + 8, msi->getMessageData());
+		}
+	}
+}
+
+void PciDevice::enableMsi() {
+	auto io = parentBus->io;
+
+	enableIrq();
+
+	if (msixIndex >= 0) {
+		auto offset = caps[msixIndex].offset;
+
+		auto msgControl = io->readConfigHalf(parentBus,
+				slot, function, offset + 2);
+
+		msgControl |= 0x8000; // Enable MSI-X.
+
+		msgControl &= ~uint16_t{0x4000}; // Disable the overall mask.
+		io->writeConfigHalf(parentBus,
+				slot, function, offset + 2, msgControl);
+
+	} else {
+		assert(msiIndex >= 0);
+
+		auto offset = caps[msiIndex].offset;
+
+		auto msgControl = io->readConfigHalf(parentBus,
+				slot, function, offset + 2);
+
+		msgControl |= 0x0001; // Enable MSI
+
+		io->writeConfigHalf(parentBus,
+				slot, function, offset + 2, msgControl);
+	}
+}
+
 // --------------------------------------------------------
 // Discovery functionality
 // --------------------------------------------------------
@@ -1053,6 +1116,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		findPciCaps(device.get());
 
 		for (size_t i = 0; i < device->caps.size(); i++) {
+			if (device->caps[i].type == 0x5)
+				device->msiIndex = i;
 			if (device->caps[i].type == 0x11)
 				device->msixIndex = i;
 		}
@@ -1082,7 +1147,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			auto msgControl = io->readConfigHalf(bus, slot, function, offset + 2);
 			device->numMsis = (msgControl & 0x7F) + 1;
 			infoLogger() << "            " << device->numMsis
-					<< " MSI vectors available" << frg::endlog;
+					<< " MSI-X vectors available" << frg::endlog;
 
 			// Map the MSI-X BAR.
 			auto tableInfo = io->readConfigWord(bus, slot, function, offset + 4);
@@ -1110,6 +1175,17 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 				space.store(msixVectorControl,
 						space.load(msixVectorControl) | 1);
 			}
+		} else if (device->msiIndex >= 0) {
+			auto offset = device->caps[device->msiIndex].offset;
+
+			auto msgControl = io->readConfigHalf(bus, slot, function, offset + 2);
+			device->numMsis = 1; // TODO(qookie): 1 << ((msgControl >> 1) & 0b111)
+			infoLogger() << "            " << device->numMsis
+					<< " MSI vectors available" << frg::endlog;
+
+			msgControl &= ~0x0001; // Disable MSI
+
+			io->writeConfigHalf(bus, slot, function, offset + 2, msgControl);
 		}
 
 		allDevices->push_back(device);
