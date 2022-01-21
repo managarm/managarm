@@ -117,6 +117,7 @@ frg::string<KernelAlloc> GicDistributor::buildPinName(uint32_t irq) {
 }
 
 extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
+extern IrqSpinlock globalIrqSlotsLock;
 
 auto GicDistributor::setupIrq(uint32_t irq, TriggerMode trigger) -> Pin * {
 	if (irq >= irqPins_.size())
@@ -129,6 +130,8 @@ auto GicDistributor::setupIrq(uint32_t irq, TriggerMode trigger) -> Pin * {
 }
 
 IrqStrategy GicDistributor::Pin::program(TriggerMode mode, Polarity polarity) {
+	auto guard = frg::guard(&globalIrqSlotsLock);
+
 	bool success = setMode(mode, polarity);
 	assert(success);
 
