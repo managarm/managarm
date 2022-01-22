@@ -100,19 +100,19 @@ async::detached GfxDevice::initialize() {
 	_primaryPlane->setupWeakPtr(_primaryPlane);
 	_primaryPlane->setupState(_primaryPlane);
 
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, planeTypeProperty(), 1));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, planeTypeProperty(), 1));
 
 	if (hasCapability(caps::cursor)) {
 		_cursorPlane = std::make_shared<Plane>(this, Plane::PlaneType::CURSOR);
 		_cursorPlane->setupWeakPtr(_cursorPlane);
 		_cursorPlane->setupState(_cursorPlane);
 
-		assignments.push_back(drm_core::Assignment::with_int(_cursorPlane, planeTypeProperty(), 2));
+		assignments.push_back(drm_core::Assignment::withInt(_cursorPlane, planeTypeProperty(), 2));
 	}
 
-	assignments.push_back(drm_core::Assignment::with_int(_connector, dpmsProperty(), 3));
-	assignments.push_back(drm_core::Assignment::with_blob(_crtc, modeIdProperty(), nullptr));
-	assignments.push_back(drm_core::Assignment::with_int(_crtc, activeProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_connector, dpmsProperty(), 3));
+	assignments.push_back(drm_core::Assignment::withBlob(_crtc, modeIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::withInt(_crtc, activeProperty(), 0));
 
 	registerObject(_crtc.get());
 	registerObject(_encoder.get());
@@ -123,17 +123,17 @@ async::detached GfxDevice::initialize() {
 		registerObject(_cursorPlane.get());
 	}
 
-	assignments.push_back(drm_core::Assignment::with_modeobj(_connector, crtcIdProperty(), nullptr));
-	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, crtcIdProperty(), _crtc));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcWProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcHProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcWProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcHProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcXProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcYProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcXProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcYProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, fbIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::withModeObj(_connector, crtcIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _crtc));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, fbIdProperty(), nullptr));
 
 	_encoder->setCurrentCrtc(_crtc.get());
 	_connector->setupPossibleEncoders({_encoder.get()});
@@ -146,8 +146,8 @@ async::detached GfxDevice::initialize() {
 	if (hasCapability(caps::cursor)) {
 		_cursorPlane->setupPossibleCrtcs({_crtc.get()});
 
-		assignments.push_back(drm_core::Assignment::with_modeobj(_cursorPlane, crtcIdProperty(), _crtc));
-		assignments.push_back(drm_core::Assignment::with_modeobj(_cursorPlane, fbIdProperty(), nullptr));
+		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, crtcIdProperty(), _crtc));
+		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, fbIdProperty(), nullptr));
 	}
 
 	setupCrtc(_crtc.get());
@@ -482,8 +482,8 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 	drm_mode_modeinfo current_mode;
 	memset(&current_mode, 0, sizeof(drm_mode_modeinfo));
 
-	if (_device->_crtc->drm_state()->mode() != nullptr) {
-		memcpy(&current_mode, _device->_crtc->drm_state()->mode()->data(), sizeof(drm_mode_modeinfo));
+	if (_device->_crtc->drmState()->mode() != nullptr) {
+		memcpy(&current_mode, _device->_crtc->drmState()->mode()->data(), sizeof(drm_mode_modeinfo));
 	}
 
 	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
@@ -559,9 +559,9 @@ void GfxDevice::Configuration::dispose() {
 void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> & state) {
 	commitConfiguration(state);
 
-	_device->_crtc->set_drm_state(state->crtc(_device->_crtc->id()));
-	_device->_primaryPlane->set_drm_state(state->plane(_device->_primaryPlane->id()));
-	_device->_cursorPlane->set_drm_state(state->plane(_device->_cursorPlane->id()));
+	_device->_crtc->setDrmState(state->crtc(_device->_crtc->id()));
+	_device->_primaryPlane->setDrmState(state->plane(_device->_primaryPlane->id()));
+	_device->_cursorPlane->setDrmState(state->plane(_device->_cursorPlane->id()));
 }
 
 async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<drm_core::AtomicState> & state) {
@@ -571,8 +571,8 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-	if (_device->_crtc->drm_state()->mode() != nullptr)
-		memcpy(&last_mode, _device->_crtc->drm_state()->mode()->data(), sizeof(drm_mode_modeinfo));
+	if (_device->_crtc->drmState()->mode() != nullptr)
+		memcpy(&last_mode, _device->_crtc->drmState()->mode()->data(), sizeof(drm_mode_modeinfo));
 
 	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w() || last_mode.vdisplay != primary_plane_state->src_h();
 

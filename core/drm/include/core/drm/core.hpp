@@ -109,12 +109,12 @@ struct Property {
 	uint32_t flags();
 	PropertyType propertyType();
 	std::string name();
-	void add_enum_info(uint64_t value, std::string name);
-	const std::unordered_map<uint64_t, std::string>& enum_info();
+	void addEnumInfo(uint64_t value, std::string name);
+	const std::unordered_map<uint64_t, std::string>& enumInfo();
 
 	virtual void writeToState(const Assignment assignment, std::unique_ptr<drm_core::AtomicState> &state);
 	virtual uint32_t intFromState(std::shared_ptr<ModeObject> obj);
-	virtual std::shared_ptr<ModeObject> modeobjFromState(std::shared_ptr<ModeObject> obj);
+	virtual std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj);
 
 private:
 	PropertyId _id;
@@ -208,7 +208,7 @@ private:
 	std::unordered_map<uint32_t, ModeObject *> _objects;
 	std::unordered_map<uint32_t, std::shared_ptr<Blob>> _blobs;
 
-	id_allocator<uint32_t> _blob_id_allocator;
+	id_allocator<uint32_t> _blobIdAllocator;
 
 	/**
 	 * Holds (property_id, property) pairs for this device.
@@ -244,7 +244,6 @@ public:
 
 	void registerProperty(std::shared_ptr<drm_core::Property> p);
 	std::shared_ptr<drm_core::Property> getProperty(uint32_t id);
-	const std::unordered_map<uint32_t, std::shared_ptr<drm_core::Property>>& getProperties();
 
 	Property *srcWProperty();
 	Property *srcHProperty();
@@ -311,6 +310,7 @@ private:
 
 	// BufferObjects associated with this file.
 	std::unordered_map<uint32_t, std::shared_ptr<BufferObject>> _buffers;
+	// id allocator for mapping BufferObjects
 	id_allocator<uint32_t> _allocator;
 
 	// Event queuing structures.
@@ -415,8 +415,8 @@ public:
 	virtual Plane *primaryPlane() = 0;
 	virtual Plane *cursorPlane();
 
-	std::shared_ptr<drm_core::CrtcState> drm_state();
-	void set_drm_state(std::shared_ptr<drm_core::CrtcState> new_state);
+	std::shared_ptr<drm_core::CrtcState> drmState();
+	void setDrmState(std::shared_ptr<drm_core::CrtcState> new_state);
 
 	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 
@@ -497,8 +497,8 @@ struct Connector : ModeObject {
 	void setConnectorType(uint32_t type);
 	uint32_t connectorType();
 
-	std::shared_ptr<drm_core::ConnectorState> drm_state();
-	void set_drm_state(std::shared_ptr<drm_core::ConnectorState> new_state);
+	std::shared_ptr<drm_core::ConnectorState> drmState();
+	void setDrmState(std::shared_ptr<drm_core::ConnectorState> new_state);
 
 	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 
@@ -549,8 +549,8 @@ struct Plane : ModeObject {
 	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
 	const std::vector<Crtc *> &getPossibleCrtcs();
 
-	std::shared_ptr<drm_core::PlaneState> drm_state();
-	void set_drm_state(std::shared_ptr<drm_core::PlaneState> new_state);
+	std::shared_ptr<drm_core::PlaneState> drmState();
+	void setDrmState(std::shared_ptr<drm_core::PlaneState> new_state);
 
 private:
 	PlaneType _type;
@@ -617,15 +617,15 @@ struct AtomicState {
 private:
 	Device *_device;
 
-	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>> _crtc_states;
-	std::unordered_map<uint32_t, std::shared_ptr<PlaneState>> _plane_states;
-	std::unordered_map<uint32_t, std::shared_ptr<ConnectorState>> _connector_states;
+	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>> _crtcStates;
+	std::unordered_map<uint32_t, std::shared_ptr<PlaneState>> _planeStates;
+	std::unordered_map<uint32_t, std::shared_ptr<ConnectorState>> _connectorStates;
 };
 
 struct Assignment {
-	static Assignment with_int(std::shared_ptr<ModeObject>, Property *property, uint64_t val);
-	static Assignment with_modeobj(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<ModeObject>);
-	static Assignment with_blob(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<Blob>);
+	static Assignment withInt(std::shared_ptr<ModeObject>, Property *property, uint64_t val);
+	static Assignment withModeObj(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<ModeObject>);
+	static Assignment withBlob(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<Blob>);
 
 	std::shared_ptr<ModeObject> object;
 	Property *property;

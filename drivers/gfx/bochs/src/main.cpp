@@ -72,22 +72,22 @@ async::detached GfxDevice::initialize() {
 	registerObject(_theConnector.get());
 	registerObject(_primaryPlane.get());
 
-	assignments.push_back(drm_core::Assignment::with_int(_theCrtc, activeProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_theCrtc, activeProperty(), 0));
 
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, planeTypeProperty(), 1));
-	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, crtcIdProperty(), _theCrtc));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcHProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcWProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcHProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcWProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcXProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, srcYProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcXProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_int(_primaryPlane, crtcYProperty(), 0));
-	assignments.push_back(drm_core::Assignment::with_modeobj(_primaryPlane, fbIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, planeTypeProperty(), 1));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, fbIdProperty(), nullptr));
 
-	assignments.push_back(drm_core::Assignment::with_int(_theConnector, dpmsProperty(), 3));
-	assignments.push_back(drm_core::Assignment::with_modeobj(_theConnector, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::withInt(_theConnector, dpmsProperty(), 3));
+	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc));
 
 	_theEncoder->setCurrentCrtc(_theCrtc.get());
 	_theConnector->setupPossibleEncoders({_theEncoder.get()});
@@ -244,8 +244,8 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-	if(_device->_theCrtc->drm_state()->mode())
-		memcpy(&last_mode, _device->_theCrtc->drm_state()->mode()->data(), sizeof(drm_mode_modeinfo));
+	if(_device->_theCrtc->drmState()->mode())
+		memcpy(&last_mode, _device->_theCrtc->drmState()->mode()->data(), sizeof(drm_mode_modeinfo));
 
 	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w() || last_mode.vdisplay != primary_plane_state->src_h();
 
