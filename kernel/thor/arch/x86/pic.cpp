@@ -514,6 +514,7 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 
 // TODO: Replace this by proper IRQ allocation.
 extern frg::manual_box<IrqSlot> globalIrqSlots[64];
+extern IrqSpinlock globalIrqSlotsLock;
 
 namespace {
 	struct ApicMsiPin final : MsiPin {
@@ -553,6 +554,8 @@ namespace {
 }
 
 MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
+	auto guard = frg::guard(&globalIrqSlotsLock);
+
 	int slotIndex = -1;
 	for(int i = 0; i < 64; i++) {
 		if(!globalIrqSlots[i]->isAvailable())
@@ -707,7 +710,9 @@ namespace {
 		}
 
 		// Allocate an IRQ vector for the I/O APIC pin.
-		if(_vector == -1)
+		if(_vector == -1) {
+			auto guard = frg::guard(&globalIrqSlotsLock);
+
 			for(int i = 0; i < 64; i++) {
 				if(!globalIrqSlots[i]->isAvailable())
 					continue;
@@ -717,6 +722,7 @@ namespace {
 				_vector = 64 + i;
 				break;
 			}
+		}
 		if(_vector == -1)
 			panicLogger() << "thor: Could not allocate interrupt vector for "
 					<< name() << frg::endlog;

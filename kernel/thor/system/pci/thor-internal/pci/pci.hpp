@@ -290,6 +290,9 @@ struct PciDevice final : PciEntity {
 
 	void enableIrq();
 
+	void setupMsi(MsiPin *msi, size_t index);
+	void enableMsi();
+
 	// mbus object ID of the device
 	int64_t mbusId;
 
@@ -319,6 +322,7 @@ struct PciDevice final : PciEntity {
 	unsigned int numMsis = 0;
 	int msixIndex = -1;
 	void *msixMapping = nullptr;
+	int msiIndex = -1;
 
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
