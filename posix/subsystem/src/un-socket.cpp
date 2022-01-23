@@ -1,12 +1,14 @@
 
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <iostream>
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
+#include "fs.bragi.hpp"
 #include "sockutil.hpp"
 #include "un-socket.hpp"
 #include "process.hpp"
@@ -445,6 +447,40 @@ public:
 		if(nonBlock_)
 			co_return O_NONBLOCK;
 		co_return 0;
+	}
+
+	async::result<void>
+	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override {
+		managarm::fs::SvrResponse resp;
+
+		switch(req.command()) {
+			case FIONREAD: {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				if(_currentState != State::connected) {
+					resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
+				} else if(_recvQueue.empty()) {
+					resp.set_fionread_count(0);
+				} else {
+					auto packet = &_recvQueue.front();
+					resp.set_fionread_count(packet->buffer.size() - packet->offset);
+				}
+				break;
+			}
+			default: {
+				std::cout << "Invalid ioctl for un-socket" << std::endl;
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				break;
+			}
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+		co_return;
 	}
 
 private:
