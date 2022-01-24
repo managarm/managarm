@@ -380,27 +380,18 @@ struct CrtcState {
 
 	std::weak_ptr<Crtc> crtc(void);
 
-	std::shared_ptr<Blob> mode();
-	void mode(std::shared_ptr<Blob> mode);
-
-	bool active();
-	void active(bool active);
-
-	bool mode_changed();
-
-private:
 	std::weak_ptr<Crtc> _crtc;
-	bool _active;
+	bool active;
 
-	bool _planesChanged;
-	bool _modeChanged;
-	bool _activeChanged;
-	bool _connectorsChanged;
-	uint32_t _planeMask;
-	uint32_t _connectorMask;
-	uint32_t _encoderMask;
+	bool planesChanged;
+	bool modeChanged;
+	bool activeChanged;
+	bool connectorsChanged;
+	uint32_t planeMask;
+	uint32_t connectorMask;
+	uint32_t encoderMask;
 
-	std::shared_ptr<Blob> _mode;
+	std::shared_ptr<Blob> mode;
 };
 
 struct Crtc : ModeObject {
@@ -452,20 +443,12 @@ private:
 };
 
 struct ConnectorState {
-	ConnectorState(std::weak_ptr<Connector> connector) : _connector(connector) {};
+	ConnectorState(std::weak_ptr<Connector> connector) : connector(connector) {};
 
-	std::shared_ptr<Connector> connector();
-	std::shared_ptr<Crtc> crtc();
-	void crtc(std::shared_ptr<Crtc> crtc);
-	std::shared_ptr<Encoder> encoder();
-	uint32_t dpms();
-	void dpms(uint32_t val);
-
-private:
-	std::shared_ptr<Connector> _connector;
-	std::shared_ptr<Crtc> _crtc;
-	std::shared_ptr<Encoder> _encoder;
-	uint32_t _dpms;
+	std::shared_ptr<Connector> connector;
+	std::shared_ptr<Crtc> crtc;
+	std::shared_ptr<Encoder> encoder;
+	uint32_t dpms;
 };
 
 /**
@@ -560,45 +543,21 @@ private:
 };
 
 struct PlaneState {
-	PlaneState(std::weak_ptr<Plane> plane) : _plane(plane) {};
-
-	std::shared_ptr<Plane> plane(void);
+	PlaneState(std::weak_ptr<Plane> plane) : plane(plane) {};
 
 	Plane::PlaneType type(void);
 
-	void crtc_w(uint32_t value);
-	uint32_t crtc_w();
-	void crtc_h(uint32_t value);
-	uint32_t crtc_h();
-	void crtc_x(uint32_t value);
-	uint32_t crtc_x();
-	void crtc_y(uint32_t value);
-	uint32_t crtc_y();
-	void src_w(uint32_t value);
-	uint32_t src_w();
-	void src_h(uint32_t value);
-	uint32_t src_h();
-	void src_x(uint32_t value);
-	uint32_t src_x();
-	void src_y(uint32_t value);
-	uint32_t src_y();
-	void crtc(std::shared_ptr<Crtc> value);
-	std::shared_ptr<Crtc> crtc();
-	void fb_id(std::shared_ptr<FrameBuffer>);
-	std::shared_ptr<FrameBuffer> fb_id();
-
-private:
-	std::shared_ptr<Plane> _plane;
-	std::shared_ptr<Crtc> _crtc;
-	std::shared_ptr<FrameBuffer> _fb;
-	int32_t _crtcX;
-	int32_t _crtcY;
-	uint32_t _crtcW;
-	uint32_t _crtcH;
-	uint32_t _srcX;
-	uint32_t _srcY;
-	uint32_t _srcW;
-	uint32_t _srcH;
+	std::shared_ptr<Plane> plane;
+	std::shared_ptr<Crtc> crtc;
+	std::shared_ptr<FrameBuffer> fb;
+	int32_t crtc_x;
+	int32_t crtc_y;
+	uint32_t crtc_w;
+	uint32_t crtc_h;
+	uint32_t src_x;
+	uint32_t src_y;
+	uint32_t src_w;
+	uint32_t src_h;
 };
 
 /**

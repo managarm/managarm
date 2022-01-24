@@ -482,8 +482,8 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 	drm_mode_modeinfo current_mode;
 	memset(&current_mode, 0, sizeof(drm_mode_modeinfo));
 
-	if (_device->_crtc->drmState()->mode() != nullptr) {
-		memcpy(&current_mode, _device->_crtc->drmState()->mode()->data(), sizeof(drm_mode_modeinfo));
+	if (_device->_crtc->drmState()->mode != nullptr) {
+		memcpy(&current_mode, _device->_crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 	}
 
 	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
@@ -528,8 +528,8 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 				if(assign.blobValue) {
 					drm_mode_modeinfo new_mode;
 					memcpy(&new_mode, assign.blobValue->data(), sizeof(drm_mode_modeinfo));
-					primary_plane_state->src_w(new_mode.hdisplay);
-					primary_plane_state->src_h(new_mode.vdisplay);
+					primary_plane_state->src_w = new_mode.hdisplay;
+					primary_plane_state->src_h = new_mode.vdisplay;
 				}
 				break;
 			}
@@ -542,9 +542,9 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 
 	auto crtc_state = state->crtc(_device->_crtc->id());
 
-	if(crtc_state->mode() != nullptr) {
-		if (primary_plane_state->src_w() <= 0 || primary_plane_state->src_h() <= 0 ||
-			primary_plane_state->src_w() > 1024 || primary_plane_state->src_h() > 768) {
+	if(crtc_state->mode != nullptr) {
+		if (primary_plane_state->src_w <= 0 || primary_plane_state->src_h <= 0 ||
+			primary_plane_state->src_w > 1024 || primary_plane_state->src_h > 768) {
 			return false;
 		}
 	}
@@ -571,14 +571,14 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-	if (_device->_crtc->drmState()->mode() != nullptr)
-		memcpy(&last_mode, _device->_crtc->drmState()->mode()->data(), sizeof(drm_mode_modeinfo));
+	if (_device->_crtc->drmState()->mode != nullptr)
+		memcpy(&last_mode, _device->_crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 
-	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w() || last_mode.vdisplay != primary_plane_state->src_h();
+	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w || last_mode.vdisplay != primary_plane_state->src_h;
 
-	_device->_primaryPlane->setCurrentFrameBuffer(primary_plane_state->fb_id().get());
+	_device->_primaryPlane->setCurrentFrameBuffer(primary_plane_state->fb.get());
 
-	if(crtc_state->mode() != nullptr) {
+	if(crtc_state->mode != nullptr) {
 		if (!_device->_isClaimed) {
 			co_await _device->_hwDev.claimDevice();
 			_device->_isClaimed = true;
@@ -587,18 +587,18 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 
 		if (switch_mode) {
 			_device->writeRegister(register_index::enable, 0); // prevent weird inbetween modes
-			_device->writeRegister(register_index::width, primary_plane_state->src_w());
-			_device->writeRegister(register_index::height, primary_plane_state->src_h());
+			_device->writeRegister(register_index::width, primary_plane_state->src_w);
+			_device->writeRegister(register_index::height, primary_plane_state->src_h);
 			_device->writeRegister(register_index::bits_per_pixel, 32);
 			_device->writeRegister(register_index::enable, 1);
 		}
 	}
 
 	if (_cursorUpdate) {
-		if (cursor_plane_state->src_w() != 0 && cursor_plane_state->src_h() != 0) {
+		if (cursor_plane_state->src_w != 0 && cursor_plane_state->src_h != 0) {
 			_device->_fifo.setCursorState(true);
-			auto cursor_fb = static_pointer_cast<GfxDevice::FrameBuffer>(cursor_plane_state->fb_id());
-			co_await _device->_fifo.defineCursor(cursor_plane_state->src_w(), cursor_plane_state->src_h(), cursor_fb->getBufferObject());
+			auto cursor_fb = static_pointer_cast<GfxDevice::FrameBuffer>(cursor_plane_state->fb);
+			co_await _device->_fifo.defineCursor(cursor_plane_state->src_w, cursor_plane_state->src_h, cursor_fb->getBufferObject());
 			_device->_fifo.setCursorState(true);
 		} else {
 			_device->_fifo.setCursorState(false);
@@ -606,11 +606,11 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 	}
 
 	if (_cursorMove) {
-		_device->_fifo.moveCursor(cursor_plane_state->src_x(), cursor_plane_state->src_y());
+		_device->_fifo.moveCursor(cursor_plane_state->src_x, cursor_plane_state->src_y);
 	}
 
-	if (primary_plane_state->fb_id() != nullptr) {
-		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb_id());
+	if (primary_plane_state->fb != nullptr) {
+		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb);
 		helix::Mapping user_fb{fb->getBufferObject()->getMemory().first, 0, fb->getBufferObject()->getSize()};
 		drm_core::fastCopy16(_device->_fbMapping.get(), user_fb.get(), fb->getBufferObject()->getSize());
 		int w = _device->readRegister(register_index::width),

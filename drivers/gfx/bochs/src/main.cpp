@@ -210,15 +210,15 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 	auto plane_state = state->plane(_device->_primaryPlane->id());
 	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
-	if(crtc_state->mode() != nullptr) {
+	if(crtc_state->mode != nullptr) {
 		// TODO: Consider current width/height if FB did not change.
 		drm_mode_modeinfo mode_info;
-		memcpy(&mode_info, crtc_state->mode()->data(), sizeof(drm_mode_modeinfo));
-		plane_state->src_h(mode_info.vdisplay);
-		plane_state->src_w(mode_info.hdisplay);
+		memcpy(&mode_info, crtc_state->mode->data(), sizeof(drm_mode_modeinfo));
+		plane_state->src_h = mode_info.vdisplay;
+		plane_state->src_w = mode_info.hdisplay;
 
 		// TODO: Check max dimensions: plane_state->width > 1024 || plane_state->height > 768
-		if(plane_state->src_w() <= 0 || plane_state->src_h() <= 0) {
+		if(plane_state->src_w <= 0 || plane_state->src_h <= 0) {
 			std::cout << "\e[31m" "gfx/bochs: invalid state width of height" << "\e[39m" << std::endl;
 			return false;
 		}
@@ -244,12 +244,12 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-	if(_device->_theCrtc->drmState()->mode())
-		memcpy(&last_mode, _device->_theCrtc->drmState()->mode()->data(), sizeof(drm_mode_modeinfo));
+	if(_device->_theCrtc->drmState()->mode)
+		memcpy(&last_mode, _device->_theCrtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 
-	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w() || last_mode.vdisplay != primary_plane_state->src_h();
+	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w || last_mode.vdisplay != primary_plane_state->src_h;
 
-	if(crtc_state->mode() != nullptr) {
+	if(crtc_state->mode != nullptr) {
 		if(!_device->_claimedDevice) {
 			co_await _device->_hwDevice.claimDevice();
 			_device->_claimedDevice = true;
@@ -261,9 +261,9 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 			_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
 
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resX);
-			_device->_operational.store(regs::data, primary_plane_state->src_w());
+			_device->_operational.store(regs::data, primary_plane_state->src_w);
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resY);
-			_device->_operational.store(regs::data, primary_plane_state->src_h());
+			_device->_operational.store(regs::data, primary_plane_state->src_h);
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
 			_device->_operational.store(regs::data, 32);
 
@@ -273,7 +273,7 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 
 		}
 
-		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb_id());
+		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb);
 
 		// We do not have to write the virtual height.
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);

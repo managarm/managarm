@@ -35,13 +35,13 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_w(assignment.intValue >> 16);
+			state->plane(assignment.object->id())->src_w = assignment.intValue >> 16;
 		}
 
 		uint32_t intFromState(std::shared_ptr<ModeObject> obj) override {
 			auto plane = obj->asPlane();
 			assert(plane);
-			return plane->drmState()->src_w();
+			return plane->drmState()->src_w;
 		}
 	};
 	registerProperty(_srcWProperty = std::make_shared<SrcWProperty>());
@@ -55,13 +55,13 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_h(assignment.intValue >> 16);
+			state->plane(assignment.object->id())->src_h = assignment.intValue >> 16;
 		}
 
 		uint32_t intFromState(std::shared_ptr<ModeObject> obj) override {
 			auto plane = obj->asPlane();
 			assert(plane);
-			return plane->drmState()->src_h();
+			return plane->drmState()->src_h;
 		}
 	};
 	registerProperty(_srcHProperty = std::make_shared<SrcHProperty>());
@@ -81,13 +81,13 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->fb_id(static_pointer_cast<FrameBuffer>(assignment.objectValue));
+			state->plane(assignment.object->id())->fb = static_pointer_cast<FrameBuffer>(assignment.objectValue);
 		}
 
 		std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj) override {
 			auto plane = obj->asPlane();
 			assert(plane);
-			return static_pointer_cast<ModeObject>(plane->drmState()->fb_id());
+			return static_pointer_cast<ModeObject>(plane->drmState()->fb);
 		}
 	};
 	registerProperty(_fbIdProperty = std::make_shared<FbIdProperty>());
@@ -124,7 +124,8 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->crtc(assignment.object->id())->mode(assignment.blobValue);
+			state->crtc(assignment.object->id())->mode = assignment.blobValue;
+			state->crtc(assignment.object->id())->modeChanged = true;
 		}
 	};
 	registerProperty(_modeIdProperty = std::make_shared<ModeIdProperty>());
@@ -174,7 +175,7 @@ drm_core::Device::Device() {
 		}
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->connector(assignment.object->id())->dpms(assignment.intValue);
+			state->connector(assignment.object->id())->dpms = assignment.intValue;
 		}
 	};
 	registerProperty(_dpmsProperty = std::make_shared<DpmsProperty>());
@@ -208,7 +209,7 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_x(assignment.intValue);
+			state->plane(assignment.object->id())->src_x = assignment.intValue;
 		}
 	};
 	registerProperty(_srcXProperty = std::make_shared<SrcXProperty>());
@@ -222,7 +223,7 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_y(assignment.intValue);
+			state->plane(assignment.object->id())->src_y = assignment.intValue;
 		}
 	};
 	registerProperty(_srcYProperty = std::make_shared<SrcYProperty>());
@@ -639,8 +640,8 @@ void drm_core::Crtc::setDrmState(std::shared_ptr<drm_core::CrtcState> new_state)
 std::vector<drm_core::Assignment> drm_core::Crtc::getAssignments(std::shared_ptr<drm_core::Device> dev) {
 	std::vector<drm_core::Assignment> assignments = std::vector<drm_core::Assignment>();
 
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->activeProperty(), drmState()->active()));
-	assignments.push_back(drm_core::Assignment::withBlob(this->sharedModeObject(), dev->modeIdProperty(), drmState()->mode()));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->activeProperty(), drmState()->active));
+	assignments.push_back(drm_core::Assignment::withBlob(this->sharedModeObject(), dev->modeIdProperty(), drmState()->mode));
 
 	return assignments;
 }
@@ -652,27 +653,6 @@ drm_core::CrtcState::CrtcState(std::weak_ptr<Crtc> crtc)
 
 std::weak_ptr<drm_core::Crtc> drm_core::CrtcState::crtc(void) {
 	return _crtc;
-}
-
-std::shared_ptr<drm_core::Blob> drm_core::CrtcState::mode() {
-	return _mode;
-}
-
-void drm_core::CrtcState::mode(std::shared_ptr<drm_core::Blob> mode) {
-	_mode = mode;
-	_modeChanged = true;
-}
-
-bool drm_core::CrtcState::mode_changed() {
-	return _modeChanged;
-}
-
-bool drm_core::CrtcState::active() {
-	return _active;
-}
-
-void drm_core::CrtcState::active(bool active) {
-	_active = active;
 }
 
 // ----------------------------------------------------------------
@@ -727,106 +707,22 @@ std::vector<drm_core::Assignment> drm_core::Plane::getAssignments(std::shared_pt
 	std::vector<drm_core::Assignment> assignments = std::vector<drm_core::Assignment>();
 
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->planeTypeProperty(), static_cast<uint64_t>(drmState()->type())));
-	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->crtcIdProperty(), drmState()->crtc()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcHProperty(), drmState()->src_h()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcWProperty(), drmState()->src_w()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcHProperty(), drmState()->crtc_h()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcWProperty(), drmState()->crtc_w()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcXProperty(), drmState()->src_x()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcYProperty(), drmState()->src_y()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcXProperty(), drmState()->crtc_x()));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcYProperty(), drmState()->crtc_y()));
-	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->fbIdProperty(), drmState()->fb_id()));
+	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->crtcIdProperty(), drmState()->crtc));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcHProperty(), drmState()->src_h));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcWProperty(), drmState()->src_w));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcHProperty(), drmState()->crtc_h));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcWProperty(), drmState()->crtc_w));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcXProperty(), drmState()->src_x));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcYProperty(), drmState()->src_y));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcXProperty(), drmState()->crtc_x));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcYProperty(), drmState()->crtc_y));
+	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->fbIdProperty(), drmState()->fb));
 
 	return assignments;
 }
 
-std::shared_ptr<drm_core::Plane> drm_core::PlaneState::plane(void) {
-	return _plane;
-}
-
 drm_core::Plane::PlaneType drm_core::PlaneState::type(void) {
-	return _plane->type();
-}
-
-void drm_core::PlaneState::src_w(uint32_t value) {
-	_srcW = value;
-}
-
-uint32_t drm_core::PlaneState::src_w() {
-	return _srcW;
-}
-
-void drm_core::PlaneState::src_h(uint32_t value) {
-	_srcH = value;
-}
-
-uint32_t drm_core::PlaneState::src_h() {
-	return _srcH;
-}
-
-void drm_core::PlaneState::src_x(uint32_t value) {
-	_srcX = value;
-}
-
-uint32_t drm_core::PlaneState::src_x() {
-	return _srcX;
-}
-
-void drm_core::PlaneState::src_y(uint32_t value) {
-	_srcY = value;
-}
-
-uint32_t drm_core::PlaneState::src_y() {
-	return _srcY;
-}
-
-void drm_core::PlaneState::crtc_w(uint32_t value) {
-	_crtcW = value;
-}
-
-uint32_t drm_core::PlaneState::crtc_w() {
-	return _crtcW;
-}
-
-void drm_core::PlaneState::crtc_h(uint32_t value) {
-	_crtcH = value;
-}
-
-uint32_t drm_core::PlaneState::crtc_h() {
-	return _crtcH;
-}
-
-void drm_core::PlaneState::crtc_x(uint32_t value) {
-	_crtcX = value;
-}
-
-uint32_t drm_core::PlaneState::crtc_x() {
-	return _crtcX;
-}
-
-void drm_core::PlaneState::crtc_y(uint32_t value) {
-	_crtcY = value;
-}
-
-uint32_t drm_core::PlaneState::crtc_y() {
-	return _crtcY;
-}
-
-void drm_core::PlaneState::crtc(std::shared_ptr<drm_core::Crtc> value) {
-	_crtc = value;
-}
-
-std::shared_ptr<drm_core::Crtc> drm_core::PlaneState::crtc() {
-	return _crtc;
-}
-
-void drm_core::PlaneState::fb_id(std::shared_ptr<drm_core::FrameBuffer> value) {
-	_fb = value;
-}
-
-std::shared_ptr<drm_core::FrameBuffer> drm_core::PlaneState::fb_id() {
-	return _fb;
+	return plane->type();
 }
 
 // ----------------------------------------------------------------
@@ -915,26 +811,10 @@ void drm_core::Connector::setDrmState(std::shared_ptr<drm_core::ConnectorState> 
 std::vector<drm_core::Assignment> drm_core::Connector::getAssignments(std::shared_ptr<drm_core::Device> dev) {
 	std::vector<drm_core::Assignment> assignments = std::vector<drm_core::Assignment>();
 
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->dpmsProperty(), drmState()->dpms()));
-	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->crtcIdProperty(), drmState()->crtc()));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->dpmsProperty(), drmState()->dpms));
+	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->crtcIdProperty(), drmState()->crtc));
 
 	return assignments;
-}
-
-std::shared_ptr<drm_core::Crtc> drm_core::ConnectorState::crtc(void) {
-	return _crtc;
-}
-
-void drm_core::ConnectorState::crtc(std::shared_ptr<drm_core::Crtc> val) {
-	_crtc = val;
-}
-
-uint32_t drm_core::ConnectorState::dpms(void) {
-	return _dpms;
-}
-
-void drm_core::ConnectorState::dpms(uint32_t val) {
-	_dpms = val;
 }
 
 // ----------------------------------------------------------------
@@ -1264,7 +1144,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		}
 		resp.set_drm_possible_crtcs(crtc_mask);
 
-		auto crtc = plane->drmState()->crtc();
+		auto crtc = plane->drmState()->crtc;
 		if(crtc != nullptr) {
 			resp.set_drm_crtc_id(crtc->id());
 		} else {
@@ -1368,9 +1248,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		assert(crtc);
 
 		drm_mode_modeinfo mode_info;
-		if(crtc->drmState()->mode()) {
+		if(crtc->drmState()->mode) {
 			/* TODO: Set x, y, fb_id, gamma_size */
-			memcpy(&mode_info, crtc->drmState()->mode()->data(), sizeof(drm_mode_modeinfo));
+			memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 			resp.set_drm_mode_valid(1);
 		}else{
 			memset(&mode_info, 0, sizeof(drm_mode_modeinfo));

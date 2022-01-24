@@ -166,15 +166,15 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 	auto plane_state = state->plane(_device->_plane->id());
 	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
-	if(crtc_state->mode() != nullptr) {
+	if(crtc_state->mode != nullptr) {
 		// TODO: Consider current width/height if FB did not change.
 		drm_mode_modeinfo mode_info;
-		memcpy(&mode_info, crtc_state->mode()->data(), sizeof(drm_mode_modeinfo));
-		plane_state->src_h(mode_info.vdisplay);
-		plane_state->src_w(mode_info.hdisplay);
+		memcpy(&mode_info, crtc_state->mode->data(), sizeof(drm_mode_modeinfo));
+		plane_state->src_h = mode_info.vdisplay;
+		plane_state->src_w = mode_info.hdisplay;
 
 		// TODO: Check max dimensions: plane_state->width > 1024 || plane_state->height > 768
-		if(plane_state->src_w() <= 0 || plane_state->src_h() <= 0) {
+		if(plane_state->src_w <= 0 || plane_state->src_h <= 0) {
 			std::cout << "\e[31m" "gfx/plainfb: invalid state width of height" << "\e[39m" << std::endl;
 			return false;
 		}
@@ -196,7 +196,7 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &st
 async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> &state) {
 	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
-	if(crtc_state->mode() != nullptr) {
+	if(crtc_state->mode != nullptr) {
 		if(!_device->_claimedDevice) {
 			co_await _device->_hwDevice.claimDevice();
 			_device->_claimedDevice = true;
@@ -204,8 +204,8 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 
 		auto plane_state = state->plane(_device->_plane->id());
 
-		if(plane_state->fb_id() != nullptr) {
-			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(plane_state->fb_id());
+		if(plane_state->fb != nullptr) {
+			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(plane_state->fb);
 
 			auto bo = fb->getBufferObject();
 			assert(bo->getWidth() == _device->_screenWidth);

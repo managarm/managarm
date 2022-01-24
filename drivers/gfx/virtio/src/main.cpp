@@ -230,14 +230,14 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 		auto cs = pair.second;
 		auto pps = state->plane(cs->crtc().lock()->primaryPlane()->id());
 
-		if(cs->mode_changed() && cs->mode() != nullptr) {
+		if(cs->modeChanged && cs->mode != nullptr) {
 			drm_mode_modeinfo mode_info;
-			memcpy(&mode_info, cs->mode()->data(), sizeof(drm_mode_modeinfo));
-			pps->src_h(mode_info.vdisplay);
-			pps->src_w(mode_info.hdisplay);
+			memcpy(&mode_info, cs->mode->data(), sizeof(drm_mode_modeinfo));
+			pps->src_h = mode_info.vdisplay;
+			pps->src_w = mode_info.hdisplay;
 
 			// TODO: Check max dimensions: _state[i]->width > 1024 || _state[i]->height > 768
-			if(pps->src_w() <= 0 || pps->src_h() <= 0) {
+			if(pps->src_w <= 0 || pps->src_h <= 0) {
 				return false;
 			}
 		}
@@ -267,7 +267,7 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 		auto crtc = cs->crtc().lock();
 		auto pps = state->plane(crtc->primaryPlane()->id());
 
-		if(cs->mode() == nullptr) {
+		if(cs->mode == nullptr) {
 			std::cout << "gfx/virtio: Disable scanout" << std::endl;
 			spec::SetScanout scanout;
 			memset(&scanout, 0, sizeof(spec::SetScanout));
@@ -286,8 +286,8 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 			continue;
 		}
 
-		if(pps->fb_id() != nullptr) {
-			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(pps->fb_id());
+		if(pps->fb != nullptr) {
+			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(pps->fb);
 
 			co_await fb->getBufferObject()->wait();
 
@@ -296,8 +296,8 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 			xfer.header.type = spec::cmd::xferToHost2d;
 			xfer.rect.x = 0;
 			xfer.rect.y = 0;
-			xfer.rect.width = pps->src_w();
-			xfer.rect.height = pps->src_h();
+			xfer.rect.width = pps->src_w;
+			xfer.rect.height = pps->src_h;
 			xfer.resourceId = fb->getBufferObject()->hardwareId();
 
 			spec::Header xfer_result;
@@ -316,9 +316,9 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 			scanout.header.type = spec::cmd::setScanout;
 			scanout.rect.x = 0;
 			scanout.rect.y = 0;
-			scanout.rect.width = pps->src_w();
-			scanout.rect.height = pps->src_h();
-			scanout.scanoutId = static_pointer_cast<GfxDevice::Plane>(pps->plane())->scanoutId();
+			scanout.rect.width = pps->src_w;
+			scanout.rect.height = pps->src_h;
+			scanout.scanoutId = static_pointer_cast<GfxDevice::Plane>(pps->plane)->scanoutId();
 			scanout.resourceId = fb->getBufferObject()->hardwareId();
 
 			spec::Header scanout_result;
@@ -337,8 +337,8 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 			flush.header.type = spec::cmd::resourceFlush;
 			flush.rect.x = 0;
 			flush.rect.y = 0;
-			flush.rect.width = pps->src_w();
-			flush.rect.height = pps->src_h();
+			flush.rect.width = pps->src_w;
+			flush.rect.height = pps->src_h;
 			flush.resourceId = fb->getBufferObject()->hardwareId();
 
 			spec::Header flush_result;
