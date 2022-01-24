@@ -28,28 +28,48 @@
 drm_core::Device::Device() {
 	struct SrcWProperty : drm_core::Property {
 		SrcWProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{srcW, drm_core::IntPropertyType{}, "SRC_W"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->src_w = assignment.intValue >> 16;
+		}
+
+		uint32_t intFromState(std::shared_ptr<ModeObject> obj) override {
+			auto plane = obj->asPlane();
+			assert(plane);
+			return plane->drmState()->src_w;
+		}
 	};
-	_srcWProperty = std::make_shared<SrcWProperty>();
-	
+	registerProperty(_srcWProperty = std::make_shared<SrcWProperty>());
+
 	struct SrcHProperty : drm_core::Property {
 		SrcHProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{srcH, drm_core::IntPropertyType{}, "SRC_H"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->src_h = assignment.intValue >> 16;
+		}
+
+		uint32_t intFromState(std::shared_ptr<ModeObject> obj) override {
+			auto plane = obj->asPlane();
+			assert(plane);
+			return plane->drmState()->src_h;
+		}
 	};
-	_srcHProperty = std::make_shared<SrcHProperty>();
+	registerProperty(_srcHProperty = std::make_shared<SrcHProperty>());
 
 	struct FbIdProperty : drm_core::Property {
 		FbIdProperty()
-		: drm_core::Property{drm_core::ObjectPropertyType{}} { }
-		
+		: drm_core::Property{fbId, drm_core::ObjectPropertyType{}, "FB_ID"} { }
+
 		bool validate(const Assignment& assignment) override {
 			if(!assignment.objectValue)
 				return true;
@@ -59,20 +79,31 @@ drm_core::Device::Device() {
 
 			return false;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->fb = static_pointer_cast<FrameBuffer>(assignment.objectValue);
+		}
+
+		std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj) override {
+			auto plane = obj->asPlane();
+			assert(plane);
+			return static_pointer_cast<ModeObject>(plane->drmState()->fb);
+		}
 	};
-	_fbIdProperty = std::make_shared<FbIdProperty>();
+	registerProperty(_fbIdProperty = std::make_shared<FbIdProperty>());
 
 	struct ModeIdProperty : drm_core::Property {
 		ModeIdProperty()
-		: drm_core::Property{drm_core::BlobPropertyType{}} { }
+		: drm_core::Property{modeId, drm_core::BlobPropertyType{}, "MODE_ID"} { }
 
 		bool validate(const Assignment& assignment) override {
-			if(!assignment.blobValue)
+			if(!assignment.blobValue) {
 				return true;
+			}
 
 			if(assignment.blobValue->size() != sizeof(drm_mode_modeinfo))
 				return false;
-			
+
 			drm_mode_modeinfo mode_info;
 			memcpy(&mode_info, assignment.blobValue->data(), sizeof(drm_mode_modeinfo));
 			if(mode_info.hdisplay > mode_info.hsync_start)
@@ -91,30 +122,131 @@ drm_core::Device::Device() {
 
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->crtc(assignment.object->id())->mode = assignment.blobValue;
+			state->crtc(assignment.object->id())->modeChanged = true;
+		}
 	};
-	_modeIdProperty = std::make_shared<ModeIdProperty>();
+	registerProperty(_modeIdProperty = std::make_shared<ModeIdProperty>());
 
 	struct CrtcXProperty : drm_core::Property {
 		CrtcXProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{crtcX, drm_core::IntPropertyType{}, "CRTC_X"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
-	_crtcXProperty = std::make_shared<CrtcXProperty>();
-	
+	registerProperty(_crtcXProperty = std::make_shared<CrtcXProperty>());
+
 	struct CrtcYProperty : drm_core::Property {
 		CrtcYProperty()
-		: drm_core::Property{drm_core::IntPropertyType{}} { }
+		: drm_core::Property{crtcY, drm_core::IntPropertyType{}, "CRTC_Y"} { }
 
 		bool validate(const Assignment&) override {
 			return true;
 		};
 	};
-	_crtcYProperty = std::make_shared<CrtcYProperty>();
+	registerProperty(_crtcYProperty = std::make_shared<CrtcYProperty>());
 
+	struct PlaneTypeProperty : drm_core::Property {
+		PlaneTypeProperty()
+		: drm_core::Property{planeType, drm_core::EnumPropertyType{}, "type"} {
+			addEnumInfo(0, "Overlay");
+			addEnumInfo(1, "Primary");
+			addEnumInfo(2, "Cursor");
+		}
 
+		bool validate(const Assignment& assignment) override {
+			auto plane = assignment.object->asPlane();
+			assert(plane);
+			return (static_cast<uint64_t>(plane->type()) == assignment.intValue);
+		}
+	};
+	registerProperty(_planeTypeProperty = std::make_shared<PlaneTypeProperty>());
+
+	struct DpmsProperty : drm_core::Property {
+		DpmsProperty()
+		: drm_core::Property{dpms, drm_core::IntPropertyType{}, "DPMS"} { }
+
+		bool validate(const Assignment& assignment) override {
+			return (assignment.intValue < 4);
+		}
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->connector(assignment.object->id())->dpms = assignment.intValue;
+		}
+	};
+	registerProperty(_dpmsProperty = std::make_shared<DpmsProperty>());
+
+	struct CrtcIdProperty : drm_core::Property {
+		CrtcIdProperty()
+		: drm_core::Property{crtcId, drm_core::ObjectPropertyType{}, "CRTC_ID"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_crtcIdProperty = std::make_shared<CrtcIdProperty>());
+
+	struct ActiveProperty : drm_core::Property {
+		ActiveProperty()
+		: drm_core::Property{active, drm_core::IntPropertyType{}, "ACTIVE"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_activeProperty = std::make_shared<ActiveProperty>());
+
+	struct SrcXProperty : drm_core::Property {
+		SrcXProperty()
+		: drm_core::Property{srcX, drm_core::IntPropertyType{}, "SRC_X"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->src_x = assignment.intValue;
+		}
+	};
+	registerProperty(_srcXProperty = std::make_shared<SrcXProperty>());
+
+	struct SrcYProperty : drm_core::Property {
+		SrcYProperty()
+		: drm_core::Property{srcY, drm_core::IntPropertyType{}, "SRC_Y"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->src_y = assignment.intValue;
+		}
+	};
+	registerProperty(_srcYProperty = std::make_shared<SrcYProperty>());
+
+	struct CrtcWProperty : drm_core::Property {
+		CrtcWProperty()
+		: drm_core::Property{crtcW, drm_core::IntPropertyType{}, "CRTC_W"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_crtcWProperty = std::make_shared<CrtcWProperty>());
+
+	struct CrtcHProperty : drm_core::Property {
+		CrtcHProperty()
+		: drm_core::Property{crtcH, drm_core::IntPropertyType{}, "CRTC_H"} { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		};
+	};
+	registerProperty(_crtcHProperty = std::make_shared<CrtcHProperty>());
 }
 
 void drm_core::Device::setupCrtc(drm_core::Crtc *crtc) {
@@ -154,11 +286,39 @@ std::shared_ptr<drm_core::ModeObject> drm_core::Device::findObject(uint32_t id) 
 	return it->second->sharedModeObject();
 }
 
+uint32_t drm_core::Device::registerBlob(std::shared_ptr<drm_core::Blob> blob) {
+	uint32_t id = _blobIdAllocator.allocate();
+	_blobs.insert({id, blob});
+
+	return id;
+}
+
+bool drm_core::Device::deleteBlob(uint32_t id) {
+	if(_blobs.contains(id)) {
+		_blobs.erase(id);
+		return true;
+	}
+
+	return false;
+}
+
+std::shared_ptr<drm_core::Blob> drm_core::Device::findBlob(uint32_t id) {
+	auto it = _blobs.find(id);
+	if(it == _blobs.end())
+		return nullptr;
+	return it->second;
+}
+
+std::unique_ptr<drm_core::AtomicState> drm_core::Device::atomicState() {
+	auto state = AtomicState(this);
+	return std::make_unique<drm_core::AtomicState>(state);
+}
+
 uint64_t drm_core::Device::installMapping(drm_core::BufferObject *bo) {
 	assert(bo->getSize() < (UINT64_C(1) << 32));
 	return static_cast<uint64_t>(_memorySlotAllocator.allocate()) << 32;
 }
-	
+
 void drm_core::Device::setupMinDimensions(uint32_t width, uint32_t height) {
 	_minWidth = width;
 	_minHeight = height;
@@ -184,7 +344,7 @@ uint32_t drm_core::Device::getMinHeight() {
 uint32_t drm_core::Device::getMaxHeight() {
 	return _maxHeight;
 }
-	
+
 drm_core::Property *drm_core::Device::srcWProperty() {
 	return _srcWProperty.get();
 }
@@ -208,17 +368,144 @@ drm_core::Property *drm_core::Device::crtcXProperty() {
 drm_core::Property *drm_core::Device::crtcYProperty() {
 	return _crtcYProperty.get();
 }
-	
+
+drm_core::Property *drm_core::Device::planeTypeProperty() {
+	return _planeTypeProperty.get();
+}
+
+drm_core::Property *drm_core::Device::dpmsProperty() {
+	return _dpmsProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcIdProperty() {
+	return _crtcIdProperty.get();
+}
+
+drm_core::Property *drm_core::Device::activeProperty() {
+	return _activeProperty.get();
+}
+
+drm_core::Property *drm_core::Device::srcXProperty() {
+	return _srcXProperty.get();
+}
+
+drm_core::Property *drm_core::Device::srcYProperty() {
+	return _srcYProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcWProperty() {
+	return _crtcWProperty.get();
+}
+
+drm_core::Property *drm_core::Device::crtcHProperty() {
+	return _crtcHProperty.get();
+}
+
+void drm_core::Device::registerProperty(std::shared_ptr<drm_core::Property> p) {
+	_properties.insert({p->id(), p});
+}
+
+std::shared_ptr<drm_core::Property> drm_core::Device::getProperty(uint32_t id) {
+	auto it = _properties.find(id);
+
+	if(it == _properties.end()) {
+		return nullptr;
+	}
+
+	return it->second;
+}
+
 // ----------------------------------------------------------------
 // Property
 // ----------------------------------------------------------------
+
+std::vector<drm_core::Assignment> drm_core::ModeObject::getAssignments(std::shared_ptr<Device> dev) {
+	switch(this->type()) {
+		case ObjectType::connector: {
+			auto connector = this->asConnector();
+			assert(connector);
+			return connector->getAssignments(dev);
+		}
+		case ObjectType::crtc: {
+			auto crtc = this->asCrtc();
+			assert(crtc);
+			return crtc->getAssignments(dev);
+		}
+		case ObjectType::plane: {
+			auto plane = this->asPlane();
+			assert(plane);
+			return plane->getAssignments(dev);
+		}
+		default: {
+			std::cout << "core/drm: ModeObj " << this->id() << " doesn't support querying DRM properties (yet)" << std::endl;
+			break;
+		}
+	}
+
+	std::vector<drm_core::Assignment> assignments = std::vector<drm_core::Assignment>();
+
+	return assignments;
+}
 
 bool drm_core::Property::validate(const Assignment&) {
 	return true;
 }
 
+drm_core::PropertyId drm_core::Property::id() {
+	return _id;
+}
+
+uint32_t drm_core::Property::flags() {
+	return _flags;
+}
+
 drm_core::PropertyType drm_core::Property::propertyType() {
 	return _propertyType;
+}
+
+std::string drm_core::Property::name() {
+	return _name;
+}
+
+void drm_core::Property::addEnumInfo(uint64_t value, std::string name) {
+	assert(std::holds_alternative<EnumPropertyType>(_propertyType));
+	_enum_info.insert({value, name});
+}
+
+const std::unordered_map<uint64_t, std::string>& drm_core::Property::enumInfo() {
+	return _enum_info;
+}
+
+void drm_core::Property::writeToState(const drm_core::Assignment assignment, std::unique_ptr<drm_core::AtomicState> &state) {
+	(void) assignment;
+	(void) state;
+	return;
+}
+
+uint32_t drm_core::Property::intFromState(std::shared_ptr<drm_core::ModeObject> obj) {
+	(void) obj;
+	return 0;
+}
+
+std::shared_ptr<drm_core::ModeObject> drm_core::Property::modeObjFromState(std::shared_ptr<drm_core::ModeObject> obj) {
+	(void) obj;
+	return nullptr;
+}
+
+// ----------------------------------------------------------------
+// Assignment
+// ----------------------------------------------------------------
+
+drm_core::Assignment drm_core::Assignment::withInt(std::shared_ptr<drm_core::ModeObject> obj, drm_core::Property *property, uint64_t val) {
+	return drm_core::Assignment{obj, property, val, nullptr, nullptr};
+}
+
+drm_core::Assignment drm_core::Assignment::withModeObj(std::shared_ptr<drm_core::ModeObject> obj, drm_core::Property *property, std::shared_ptr<drm_core::ModeObject> modeobj) {
+	return drm_core::Assignment{obj, property, 0, modeobj, nullptr};
+}
+
+drm_core::Assignment drm_core::Assignment::withBlob(std::shared_ptr<drm_core::ModeObject> obj, drm_core::Property *property, std::shared_ptr<drm_core::Blob> blob) {
+	return drm_core::Assignment{obj, property, 0, nullptr, blob};
 }
 
 // ----------------------------------------------------------------
@@ -250,27 +537,27 @@ drm_core::Crtc *drm_core::Encoder::currentCrtc() {
 void drm_core::Encoder::setCurrentCrtc(drm_core::Crtc *crtc) {
 	_currentCrtc = crtc;
 }
-	
+
 void drm_core::Encoder::setupEncoderType(uint32_t type) {
 	_encoderType = type;
 }
-	
+
 uint32_t drm_core::Encoder::getEncoderType() {
 	return _encoderType;
 }
-	
+
 void drm_core::Encoder::setupPossibleCrtcs(std::vector<drm_core::Crtc *> crtcs) {
 	_possibleCrtcs = crtcs;
 }
-	
+
 const std::vector<drm_core::Crtc *> &drm_core::Encoder::getPossibleCrtcs() {
 	return _possibleCrtcs;
 }
-	
+
 void drm_core::Encoder::setupPossibleClones(std::vector<drm_core::Encoder *> clones) {
 	_possibleClones = clones;
 }
-	
+
 const std::vector<drm_core::Encoder *> &drm_core::Encoder::getPossibleClones() {
 	return _possibleClones;
 }
@@ -281,6 +568,10 @@ const std::vector<drm_core::Encoder *> &drm_core::Encoder::getPossibleClones() {
 
 uint32_t drm_core::ModeObject::id() {
 	return _id;
+}
+
+drm_core::ObjectType drm_core::ModeObject::type() {
+	return _type;
 }
 
 drm_core::Encoder *drm_core::ModeObject::asEncoder() {
@@ -330,16 +621,38 @@ drm_core::Crtc::Crtc(uint32_t id)
 	index = -1;
 }
 
-std::shared_ptr<drm_core::Blob> drm_core::Crtc::currentMode() {
-	return _curMode;
-}
-	
-void drm_core::Crtc::setCurrentMode(std::shared_ptr<drm_core::Blob> mode) {
-	_curMode = mode;
+void drm_core::Crtc::setupState(std::shared_ptr<drm_core::Crtc> crtc) {
+	crtc->_drmState = std::make_shared<drm_core::CrtcState>(drm_core::CrtcState(crtc));
 }
 
 drm_core::Plane *drm_core::Crtc::cursorPlane() {
 	return nullptr;
+}
+
+std::shared_ptr<drm_core::CrtcState> drm_core::Crtc::drmState() {
+	return _drmState;
+}
+
+void drm_core::Crtc::setDrmState(std::shared_ptr<drm_core::CrtcState> new_state) {
+	_drmState = new_state;
+}
+
+std::vector<drm_core::Assignment> drm_core::Crtc::getAssignments(std::shared_ptr<drm_core::Device> dev) {
+	std::vector<drm_core::Assignment> assignments = std::vector<drm_core::Assignment>();
+
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->activeProperty(), drmState()->active));
+	assignments.push_back(drm_core::Assignment::withBlob(this->sharedModeObject(), dev->modeIdProperty(), drmState()->mode));
+
+	return assignments;
+}
+
+drm_core::CrtcState::CrtcState(std::weak_ptr<Crtc> crtc)
+	: _crtc(crtc) {
+
+}
+
+std::weak_ptr<drm_core::Crtc> drm_core::CrtcState::crtc(void) {
+	return _crtc;
 }
 
 // ----------------------------------------------------------------
@@ -354,8 +667,62 @@ drm_core::FrameBuffer::FrameBuffer(uint32_t id)
 // Plane
 // ----------------------------------------------------------------
 
-drm_core::Plane::Plane(uint32_t id)
-	:drm_core::ModeObject { ObjectType::plane, id } {
+drm_core::Plane::Plane(uint32_t id, PlaneType type)
+	:drm_core::ModeObject { ObjectType::plane, id }, _type(type) {
+}
+
+void drm_core::Plane::setupState(std::shared_ptr<drm_core::Plane> plane) {
+	plane->_drmState = std::make_shared<drm_core::PlaneState>(drm_core::PlaneState(plane));
+}
+
+drm_core::Plane::PlaneType drm_core::Plane::type() {
+	return _type;
+}
+
+void drm_core::Plane::setCurrentFrameBuffer(drm_core::FrameBuffer *fb) {
+	_fb = fb;
+}
+
+drm_core::FrameBuffer *drm_core::Plane::getFrameBuffer() {
+	return _fb;
+}
+
+void drm_core::Plane::setupPossibleCrtcs(std::vector<drm_core::Crtc *> crtcs) {
+	_possibleCrtcs = crtcs;
+}
+
+const std::vector<drm_core::Crtc *> &drm_core::Plane::getPossibleCrtcs() {
+	return _possibleCrtcs;
+}
+
+std::shared_ptr<drm_core::PlaneState> drm_core::Plane::drmState() {
+	return _drmState;
+}
+
+void drm_core::Plane::setDrmState(std::shared_ptr<drm_core::PlaneState> new_state) {
+	_drmState = new_state;
+}
+
+std::vector<drm_core::Assignment> drm_core::Plane::getAssignments(std::shared_ptr<drm_core::Device> dev) {
+	std::vector<drm_core::Assignment> assignments = std::vector<drm_core::Assignment>();
+
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->planeTypeProperty(), static_cast<uint64_t>(drmState()->type())));
+	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->crtcIdProperty(), drmState()->crtc));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcHProperty(), drmState()->src_h));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcWProperty(), drmState()->src_w));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcHProperty(), drmState()->crtc_h));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcWProperty(), drmState()->crtc_w));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcXProperty(), drmState()->src_x));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcYProperty(), drmState()->src_y));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcXProperty(), drmState()->crtc_x));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcYProperty(), drmState()->crtc_y));
+	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->fbIdProperty(), drmState()->fb));
+
+	return assignments;
+}
+
+drm_core::Plane::PlaneType drm_core::PlaneState::type(void) {
+	return plane->type();
 }
 
 // ----------------------------------------------------------------
@@ -368,6 +735,10 @@ drm_core::Connector::Connector(uint32_t id)
 	_connectorType = 0;
 }
 
+void drm_core::Connector::setupState(std::shared_ptr<drm_core::Connector> connector) {
+	connector->_drmState = std::make_shared<drm_core::ConnectorState>(drm_core::ConnectorState(connector));
+}
+
 const std::vector<drm_mode_modeinfo> &drm_core::Connector::modeList() {
 	return _modeList;
 }
@@ -375,15 +746,15 @@ const std::vector<drm_mode_modeinfo> &drm_core::Connector::modeList() {
 void drm_core::Connector::setModeList(std::vector<drm_mode_modeinfo> mode_list) {
 	_modeList = mode_list;
 }
-	
+
 void drm_core::Connector::setCurrentStatus(uint32_t status) {
 	_currentStatus = status;
 }
-	
+
 void drm_core::Connector::setCurrentEncoder(drm_core::Encoder *encoder) {
 	_currentEncoder = encoder;
 }
-	
+
 drm_core::Encoder *drm_core::Connector::currentEncoder() {
 	return _currentEncoder;
 }
@@ -391,7 +762,7 @@ drm_core::Encoder *drm_core::Connector::currentEncoder() {
 uint32_t drm_core::Connector::getCurrentStatus() {
 	return _currentStatus;
 }
-	
+
 void drm_core::Connector::setupPossibleEncoders(std::vector<drm_core::Encoder *> encoders) {
 	_possibleEncoders = encoders;
 }
@@ -399,7 +770,7 @@ void drm_core::Connector::setupPossibleEncoders(std::vector<drm_core::Encoder *>
 const std::vector<drm_core::Encoder *> &drm_core::Connector::getPossibleEncoders() {
 	return _possibleEncoders;
 }
-	
+
 void drm_core::Connector::setupPhysicalDimensions(uint32_t width, uint32_t height) {
 	_physicalWidth = width;
 	_physicalHeight = height;
@@ -421,8 +792,29 @@ uint32_t drm_core::Connector::getSubpixel() {
 	return _subpixel;
 }
 
+void drm_core::Connector::setConnectorType(uint32_t type) {
+	_connectorType = type;
+}
+
 uint32_t drm_core::Connector::connectorType() {
 	return _connectorType;
+}
+
+std::shared_ptr<drm_core::ConnectorState> drm_core::Connector::drmState() {
+	return _drmState;
+}
+
+void drm_core::Connector::setDrmState(std::shared_ptr<drm_core::ConnectorState> new_state) {
+	_drmState = new_state;
+}
+
+std::vector<drm_core::Assignment> drm_core::Connector::getAssignments(std::shared_ptr<drm_core::Device> dev) {
+	std::vector<drm_core::Assignment> assignments = std::vector<drm_core::Assignment>();
+
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->dpmsProperty(), drmState()->dpms));
+	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->crtcIdProperty(), drmState()->crtc));
+
+	return assignments;
 }
 
 // ----------------------------------------------------------------
@@ -432,9 +824,52 @@ uint32_t drm_core::Connector::connectorType() {
 size_t drm_core::Blob::size() {
 	return _data.size();
 }
-	
+
 const void *drm_core::Blob::data() {
 	return _data.data();
+}
+
+std::shared_ptr<drm_core::CrtcState> drm_core::AtomicState::crtc(uint32_t id) {
+	if(_crtcStates.contains(id)) {
+		return _crtcStates.find(id)->second;
+	} else {
+		auto crtc = _device->findObject(id)->asCrtc();
+		assert(crtc->drmState());
+		auto crtc_state = CrtcState(*crtc->drmState());
+		auto crtc_state_shared = std::make_shared<drm_core::CrtcState>(crtc_state);
+		_crtcStates.insert({id, crtc_state_shared});
+		return crtc_state_shared;
+	}
+}
+
+std::shared_ptr<drm_core::PlaneState> drm_core::AtomicState::plane(uint32_t id) {
+	if(_planeStates.contains(id)) {
+		return _planeStates.find(id)->second;
+	} else {
+		auto plane = _device->findObject(id)->asPlane();
+		assert(plane->drmState());
+		auto plane_state = PlaneState(*plane->drmState());
+		auto plane_state_shared = std::make_shared<drm_core::PlaneState>(plane_state);
+		_planeStates.insert({id, plane_state_shared});
+		return plane_state_shared;
+	}
+}
+
+std::shared_ptr<drm_core::ConnectorState> drm_core::AtomicState::connector(uint32_t id) {
+	if(_connectorStates.contains(id)) {
+		return _connectorStates.find(id)->second;
+	} else {
+		auto connector = _device->findObject(id)->asConnector();
+		assert(connector->drmState());
+		auto connector_state = ConnectorState(*connector->drmState());
+		auto connector_state_shared = std::make_shared<drm_core::ConnectorState>(connector_state);
+		_connectorStates.insert({id, connector_state_shared});
+		return connector_state_shared;
+	}
+}
+
+std::unordered_map<uint32_t, std::shared_ptr<drm_core::CrtcState>>& drm_core::AtomicState::crtc_states(void) {
+	return _crtcStates;
 }
 
 // ----------------------------------------------------------------
@@ -457,7 +892,7 @@ void drm_core::File::setBlocking(bool blocking) {
 void drm_core::File::attachFrameBuffer(std::shared_ptr<drm_core::FrameBuffer> frame_buffer) {
 	_frameBuffers.push_back(frame_buffer);
 }
-	
+
 void drm_core::File::detachFrameBuffer(drm_core::FrameBuffer *frame_buffer) {
 	auto it = std::find_if(_frameBuffers.begin(), _frameBuffers.end(),
 			([&](std::shared_ptr<drm_core::FrameBuffer> fb) {
@@ -466,11 +901,11 @@ void drm_core::File::detachFrameBuffer(drm_core::FrameBuffer *frame_buffer) {
 	assert(it != _frameBuffers.end());
 	_frameBuffers.erase(it);
 }
-	
+
 const std::vector<std::shared_ptr<drm_core::FrameBuffer>> &drm_core::File::getFrameBuffers() {
 	return _frameBuffers;
 }
-	
+
 uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 	auto handle = _allocator.allocate();
 	_buffers.insert({handle, bo});
@@ -482,7 +917,7 @@ uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 
 	return handle;
 }
-	
+
 drm_core::BufferObject *drm_core::File::resolveHandle(uint32_t handle) {
 	auto it = _buffers.find(handle);
 	if(it == _buffers.end())
@@ -519,12 +954,13 @@ drm_core::File::read(void *object, const char *,
 	out.base.type = DRM_EVENT_FLIP_COMPLETE;
 	out.base.length = sizeof(drm_event_vblank);
 	out.user_data = ev->cookie;
+	out.crtc_id = ev->crtcId;
 	out.tv_sec = ev->timestamp / 1000000000;
 	out.tv_usec = (ev->timestamp % 1000000000) / 1000;
 
 	assert(length >= sizeof(drm_event_vblank));
 	memcpy(buffer, &out, sizeof(drm_event_vblank));
-	
+
 	self->_pendingEvents.pop_front();
 	if(self->_pendingEvents.empty())
 		self->_statusPage.update(self->_eventSequence, 0);
@@ -545,10 +981,10 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	if(req.command() == DRM_IOCTL_VERSION) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-	
+
 		auto version = self->_device->driverVersion();
 		auto info = self->_device->driverInfo();
-		
+
 		resp.set_drm_version_major(std::get<0>(version));
 		resp.set_drm_version_minor(std::get<1>(version));
 		resp.set_drm_version_patchlevel(std::get<2>(version));
@@ -558,7 +994,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		resp.set_drm_driver_date(std::get<2>(info));
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -567,19 +1003,25 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_GET_CAP) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-		
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
 		if(req.drm_capability() == DRM_CAP_TIMESTAMP_MONOTONIC) {
 			resp.set_drm_value(1);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}else if(req.drm_capability() == DRM_CAP_DUMB_BUFFER) {
 			resp.set_drm_value(1);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}else if(req.drm_capability() == DRM_CAP_CRTC_IN_VBLANK_EVENT) {
+			resp.set_drm_value(1);
+		}else if(req.drm_capability() == DRM_CAP_CURSOR_WIDTH) {
+			resp.set_drm_value(0);
+		}else if(req.drm_capability() == DRM_CAP_CURSOR_HEIGHT) {
+			resp.set_drm_value(0);
 		}else{
 			std::cout << "core/drm: Unknown capability " << req.drm_capability() << std::endl;
 			resp.set_drm_value(0);
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
-		
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -593,28 +1035,28 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		for(size_t i = 0; i < crtcs.size(); i++) {
 			resp.add_drm_crtc_ids(crtcs[i]->id());
 		}
-			
+
 		auto &encoders = self->_device->getEncoders();
 		for(size_t i = 0; i < encoders.size(); i++) {
 			resp.add_drm_encoder_ids(encoders[i]->id());
 		}
-	
+
 		auto &connectors = self->_device->getConnectors();
 		for(size_t i = 0; i < connectors.size(); i++) {
 			resp.add_drm_connector_ids(connectors[i]->id());
 		}
-		
+
 		auto &fbs = self->getFrameBuffers();
 		for(size_t i = 0; i < fbs.size(); i++) {
 			resp.add_drm_fb_ids(fbs[i]->id());
 		}
-	
+
 		resp.set_drm_min_width(self->_device->getMinWidth());
 		resp.set_drm_max_width(self->_device->getMaxWidth());
 		resp.set_drm_min_height(self->_device->getMinHeight());
 		resp.set_drm_max_height(self->_device->getMaxHeight());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -624,14 +1066,14 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		helix::SendBuffer send_list;
 		managarm::fs::SvrResponse resp;
-	
+
 		auto obj = self->_device->findObject(req.drm_connector_id());
 		assert(obj);
 		auto conn = obj->asConnector();
 		assert(conn);
-		
+
 		auto psbl_enc = conn->getPossibleEncoders();
-		for(size_t i = 0; i < psbl_enc.size(); i++) { 
+		for(size_t i = 0; i < psbl_enc.size(); i++) {
 			resp.add_drm_encoders(psbl_enc[i]->id());
 		}
 
@@ -644,7 +1086,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		resp.set_drm_subpixel(conn->getSubpixel());
 		resp.set_drm_num_modes(conn->modeList().size());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
@@ -665,13 +1107,13 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto enc = obj->asEncoder();
 		assert(enc);
 		resp.set_drm_crtc_id(enc->currentCrtc()->id());
-		
+
 		uint32_t crtc_mask = 0;
 		for(auto crtc : enc->getPossibleCrtcs()) {
 			crtc_mask |= 1 << crtc->index;
 		}
 		resp.set_drm_possible_crtcs(crtc_mask);
-		
+
 		uint32_t clone_mask = 0;
 		for(auto clone : enc->getPossibleClones()) {
 			clone_mask |= 1 << clone->index;
@@ -679,7 +1121,48 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		resp.set_drm_possible_clones(clone_mask);
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_GETPLANE) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		resp.set_drm_encoder_type(0);
+
+		auto obj = self->_device->findObject(req.drm_plane_id());
+		assert(obj);
+		auto plane = obj->asPlane();
+		assert(plane);
+
+		uint32_t crtc_mask = 0;
+		for(auto crtc : plane->getPossibleCrtcs()) {
+			crtc_mask |= 1 << crtc->index;
+		}
+		resp.set_drm_possible_crtcs(crtc_mask);
+
+		auto crtc = plane->drmState()->crtc;
+		if(crtc != nullptr) {
+			resp.set_drm_crtc_id(crtc->id());
+		} else {
+			resp.set_drm_crtc_id(0);
+		}
+
+		auto fb = plane->getFrameBuffer();
+		if(fb) {
+			resp.set_drm_fb_id(fb->id());
+		} else {
+			resp.set_drm_fb_id(0);
+		}
+
+		resp.set_drm_gamma_size(0);
+		resp.add_drm_format_type(DRM_FORMAT_XRGB8888);
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -696,7 +1179,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		resp.set_drm_pitch(pair.second);
 		resp.set_drm_size(pair.first->getSize());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -709,14 +1192,14 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto bo = self->resolveHandle(req.drm_handle());
 		assert(bo);
 		auto buffer = bo->sharedBufferObject();
-		
+
 		auto fourcc = convertLegacyFormat(req.drm_bpp(), req.drm_depth());
 		auto fb = self->_device->createFrameBuffer(buffer, req.drm_width(), req.drm_height(),
 				fourcc, req.drm_pitch());
 		self->attachFrameBuffer(fb);
 		resp.set_drm_fb_id(fb->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -725,14 +1208,14 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_RMFB) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-		
+
 		auto obj = self->_device->findObject(req.drm_fb_id());
 		assert(obj);
 		auto fb = obj->asFrameBuffer();
 		assert(fb);
 		self->detachFrameBuffer(fb);
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -745,10 +1228,10 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto bo = self->resolveHandle(req.drm_handle());
 		assert(bo);
 		auto buffer = bo->sharedBufferObject();
-	
+
 		resp.set_drm_offset(buffer->getMapping());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -765,17 +1248,17 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		assert(crtc);
 
 		drm_mode_modeinfo mode_info;
-		if(crtc->currentMode()) {
+		if(crtc->drmState()->mode) {
 			/* TODO: Set x, y, fb_id, gamma_size */
-			memcpy(&mode_info, crtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
+			memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 			resp.set_drm_mode_valid(1);
 		}else{
 			memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
 			resp.set_drm_mode_valid(0);
 		}
-			
+
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-	
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
@@ -792,49 +1275,32 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 				helix::action(&recv_buffer, mode_buffer.data(), sizeof(drm_mode_modeinfo)));
 		co_await buff.async_wait();
 		HEL_CHECK(recv_buffer.error());
-		
+
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-	
+
 		auto obj = self->_device->findObject(req.drm_crtc_id());
 		assert(obj);
 		auto crtc = obj->asCrtc();
 		assert(crtc);
-	
+
 		std::vector<drm_core::Assignment> assignments;
 		if(req.drm_mode_valid()) {
 			auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
-			assignments.push_back(Assignment{ 
-				crtc->sharedModeObject(),
-				self->_device->modeIdProperty(),
-				0,
-				nullptr,
-				mode_blob
-			});
-			
 			auto fb = self->_device->findObject(req.drm_fb_id());
 			assert(fb);
-			assignments.push_back(Assignment{ 
-				crtc->primaryPlane()->sharedModeObject(),
-				self->_device->fbIdProperty(),
-				0,
-				fb,
-				nullptr
-			});
+
+			assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), mode_blob));
+			assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 		}else{
-			assignments.push_back(Assignment{ 
-				crtc->sharedModeObject(),
-				self->_device->modeIdProperty(),
-				0,
-				nullptr,
-				nullptr
-			});
+			assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), nullptr));
 		}
 
 		auto config = self->_device->createConfiguration();
-		auto valid = config->capture(assignments);
+		auto state = self->_device->atomicState();
+		auto valid = config->capture(assignments, state);
 		assert(valid);
-		config->commit();
+		config->commit(state);
 
 		co_await config->waitForCompletion();
 
@@ -848,31 +1314,26 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_PAGE_FLIP) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-	
+
 		auto obj = self->_device->findObject(req.drm_crtc_id());
 		assert(obj);
 		auto crtc = obj->asCrtc();
 		assert(crtc);
-	
+
 		std::vector<drm_core::Assignment> assignments;
 
 		auto fb = self->_device->findObject(req.drm_fb_id());
 		assert(fb);
-		assignments.push_back(Assignment{ 
-			crtc->primaryPlane()->sharedModeObject(),
-			self->_device->fbIdProperty(),
-			0,
-			fb,
-			nullptr
-		});
+		assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 
 		auto config = self->_device->createConfiguration();
-		auto valid = config->capture(assignments);
+		auto state = self->_device->atomicState();
+		auto valid = config->capture(assignments, state);
 		assert(valid);
-		config->commit();
+		config->commit(state);
 
-		self->_retirePageFlip(std::move(config), req.drm_cookie());
-			
+		self->_retirePageFlip(std::move(config), req.drm_cookie(), crtc->id());
+
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
@@ -899,7 +1360,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_CURSOR) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-	
+
 		auto crtc_obj = self->_device->findObject(req.drm_crtc_id());
 		assert(crtc_obj);
 		auto crtc = crtc_obj->asCrtc();
@@ -922,71 +1383,34 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			auto bo = self->resolveHandle(req.drm_handle());
 			auto width = req.drm_width();
 			auto height = req.drm_height();
-			
-			assignments.push_back(Assignment{ 
-				cursor_plane->sharedModeObject(),
-				self->_device->srcWProperty(),
-				width,
-				nullptr,
-				nullptr
-			});
 
-			assignments.push_back(Assignment{
-				cursor_plane->sharedModeObject(),
-				self->_device->srcHProperty(),
-				height,
-				nullptr,
-				nullptr
-			});
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcWProperty(), width << 16));
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcHProperty(), height << 16));
 
-			if (bo) {	
+			if (bo) {
 				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
 				assert(fb);
-				assignments.push_back(Assignment{ 
-					cursor_plane->sharedModeObject(),
-					self->_device->fbIdProperty(),
-					0,
-					fb,
-					nullptr
-				});
+				assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 			} else {
-				assignments.push_back(Assignment{ 
-					cursor_plane->sharedModeObject(),
-					self->_device->fbIdProperty(),
-					0,
-					nullptr,
-					nullptr
-				});
+				assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), nullptr));
 			}
 		}else if (req.drm_flags() == DRM_MODE_CURSOR_MOVE) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			auto x = req.drm_x();
 			auto y = req.drm_y();
 
-			assignments.push_back(Assignment{
-				cursor_plane->sharedModeObject(),
-				self->_device->crtcXProperty(),
-				x,
-				nullptr,
-				nullptr
-			});
-
-			assignments.push_back(Assignment{
-				cursor_plane->sharedModeObject(),
-				self->_device->crtcYProperty(),
-				y,
-				nullptr,
-				nullptr
-			});
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->crtcXProperty(), x));
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->crtcYProperty(), y));
 		}else{
 			printf("\e[35mcore/drm: invalid request whilst handling DRM_IOCTL_MODE_CURSOR\e[39m\n");
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
 
 		auto config = self->_device->createConfiguration();
-		auto valid = config->capture(assignments);
+		auto state = self->_device->atomicState();
+		auto valid = config->capture(assignments, state);
 		assert(valid);
-		config->commit();
+		config->commit(state);
 
 		co_await config->waitForCompletion();
 
@@ -1003,6 +1427,252 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_SET_CLIENT_CAP) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		if(req.drm_capability() == DRM_CLIENT_CAP_STEREO_3D) {
+			std::cout << "\e[31mcore/drm: DRM client cap for stereo 3D unsupported\e[39m" << std::endl;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else if(req.drm_capability() == DRM_CLIENT_CAP_UNIVERSAL_PLANES) {
+			self->universalPlanes = true;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else if(req.drm_capability() == DRM_CLIENT_CAP_ATOMIC) {
+			self->atomic = true;
+			self->universalPlanes = true;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else {
+			std::cout << "\e[31mcore/drm: Attempt to set unknown client capability " << req.drm_capability() << "\e[39m" << std::endl;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_OBJ_GETPROPERTIES) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		auto obj = self->_device->findObject(req.drm_obj_id());
+		assert(obj);
+
+		for(auto ass : obj->getAssignments(self->_device)) {
+			resp.add_drm_obj_property_ids(ass.property->id());
+			resp.add_drm_obj_property_values(ass.intValue);
+		}
+
+		if(!resp.drm_obj_property_ids_size()) {
+			std::cout << "\e[31mcore/drm: No properties found for object id " << req.drm_obj_id() << "\e[39m" << std::endl;
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_GETPROPERTY) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		uint32_t prop_id = req.drm_property_id();
+		auto prop = self->_device->getProperty(prop_id);
+
+		if(prop) {
+			resp.set_drm_property_name(prop->name());
+			resp.add_drm_property_vals(1);
+			resp.set_drm_property_flags(prop->flags());
+
+			if(std::holds_alternative<EnumPropertyType>(prop->propertyType())) {
+				for(auto &[value, name] : prop->enumInfo()) {
+					resp.add_drm_enum_value(value);
+					resp.add_drm_enum_name(name);
+				}
+			}
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_SETPROPERTY) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		std::cout << "\e[31mcore/drm: DRM_IOCTL_MODE_SETPROPERTY is a no-op\e[39m"
+				<< std::endl;
+
+		resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_GETPLANERESOURCES) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		auto &crtcs = self->_device->getCrtcs();
+		for(size_t i = 0; i < crtcs.size(); i++) {
+			resp.add_drm_plane_res(crtcs[i]->primaryPlane()->id());
+
+			if(crtcs[i]->cursorPlane()) {
+				resp.add_drm_plane_res(crtcs[i]->cursorPlane()->id());
+			}
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_GETPROPBLOB) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		auto blob = self->_device->findBlob(req.drm_blob_id());
+
+		if(blob) {
+			auto data = reinterpret_cast<const uint8_t *>(blob->data());
+			for(size_t i = 0; i < blob->size(); i++) {
+				resp.add_drm_property_blob(data[i]);
+			}
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_CREATEPROPBLOB) {
+		std::vector<char> blob_data;
+		blob_data.resize(req.drm_blob_size());
+
+		helix::RecvBuffer recv_buffer;
+		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&recv_buffer, blob_data.data(), req.drm_blob_size()));
+		co_await buff.async_wait();
+		HEL_CHECK(recv_buffer.error());
+
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		if(!req.drm_blob_size()) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			auto blob = std::make_shared<Blob>(std::move(blob_data));
+			auto id = self->_device->registerBlob(blob);
+
+			resp.set_drm_blob_id(id);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_DESTROYPROPBLOB) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		if(!self->_device->deleteBlob(req.drm_blob_id())) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		co_await transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_ATOMIC) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		size_t prop_count = 0;
+		std::vector<drm_core::Assignment> assignments;
+
+		std::vector<uint32_t> crtc_ids;
+
+		auto config = self->_device->createConfiguration();
+		auto state = self->_device->atomicState();
+
+		if(!self->atomic || req.drm_flags() & ~DRM_MODE_ATOMIC_FLAGS || ((req.drm_flags() & DRM_MODE_ATOMIC_TEST_ONLY) && (req.drm_flags() & DRM_MODE_PAGE_FLIP_EVENT))) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			goto send;
+		}
+
+		for(size_t i = 0; i < req.drm_obj_ids_size(); i++) {
+			auto mode_obj = self->_device->findObject(req.drm_obj_ids(i));
+			assert(mode_obj);
+
+			if(mode_obj->type() == ObjectType::crtc) {
+				crtc_ids.push_back(mode_obj->id());
+			}
+
+			for(size_t j = 0; j < req.drm_prop_counts(i); j++) {
+				auto prop = self->_device->getProperty(req.drm_props(prop_count + j));
+				assert(prop);
+				auto value = req.drm_prop_values(prop_count + j);
+
+				auto prop_type = prop->propertyType();
+
+				if(std::holds_alternative<IntPropertyType>(prop_type)) {
+					assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+				} else if(std::holds_alternative<BlobPropertyType>(prop_type)) {
+					auto blob = self->_device->findBlob(value);
+
+					assignments.push_back(Assignment::withBlob(mode_obj, prop.get(), blob));
+				} else if(std::holds_alternative<ObjectPropertyType>(prop_type)) {
+					auto obj = self->_device->findObject(value);
+
+					assignments.push_back(Assignment::withModeObj(mode_obj, prop.get(), obj));
+				}
+			}
+
+			prop_count += req.drm_prop_counts(i);
+		}
+
+		{
+			auto valid = config->capture(assignments, state);
+			assert(valid);
+		}
+
+		if(!(req.drm_flags() & DRM_MODE_ATOMIC_TEST_ONLY)) {
+			config->commit(state);
+			co_await config->waitForCompletion();
+		}
+
+		if(req.drm_flags() & DRM_MODE_PAGE_FLIP_EVENT) {
+			assert(crtc_ids.size() == 1);
+			self->_retirePageFlip(std::move(config), req.drm_cookie(), crtc_ids.front());
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+send:
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -1047,11 +1717,12 @@ drm_core::File::pollStatus(void *object) {
 
 async::detached
 drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
-			uint64_t cookie) {
+			uint64_t cookie, uint32_t crtc_id) {
 	co_await config->waitForCompletion();
 
 	Event event;
 	event.cookie = cookie;
+	event.crtcId = crtc_id;
 	postEvent(event);
 }
 
@@ -1142,7 +1813,7 @@ uint32_t drm_core::convertLegacyFormat(uint32_t bpp, uint32_t depth) {
 		case 8:
 			assert(depth == 8);
 			return DRM_FORMAT_C8;
-		
+
 		case 16:
 			assert(depth == 15 || depth == 16);
 			if(depth == 15) {
@@ -1150,7 +1821,7 @@ uint32_t drm_core::convertLegacyFormat(uint32_t bpp, uint32_t depth) {
 			}else {
 				return DRM_FORMAT_RGB565;
 			}
-		
+
 		case 24:
 			assert(depth == 24);
 			return DRM_FORMAT_RGB888;

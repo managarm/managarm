@@ -29,8 +29,10 @@ struct Connector;
 struct Configuration;
 struct FrameBuffer;
 struct Plane;
+struct PlaneState;
 struct Assignment;
 struct Blob;
+struct AtomicState;
 
 enum struct ObjectType {
 	encoder,
@@ -52,28 +54,74 @@ struct BlobPropertyType {
 
 };
 
+struct EnumPropertyType {
+
+};
+
 using PropertyType = std::variant<
 	IntPropertyType,
 	ObjectPropertyType,
-	BlobPropertyType
+	BlobPropertyType,
+	EnumPropertyType
 >;
 
 struct Event {
 	uint64_t cookie;
+	uint32_t crtcId;
 	uint64_t timestamp;
 };
 
+enum PropertyId {
+	invalid,
+	srcW,
+	srcH,
+	fbId,
+	modeId,
+	crtcX,
+	crtcY,
+	planeType,
+	dpms,
+	crtcId,
+	active,
+	srcX,
+	srcY,
+	crtcW,
+	crtcH,
+};
+
 struct Property {
-	Property(PropertyType property_type)
-	: _propertyType(property_type) { }
+	Property(PropertyId id, PropertyType property_type, std::string name) : Property(id, property_type, name, 0) { }
+
+	Property(PropertyId id, PropertyType property_type, std::string name, uint32_t flags)
+	: _id(id), _flags(flags), _propertyType(property_type), _name(name) {
+		assert(name.length() < DRM_PROP_NAME_LEN);
+
+		if(std::holds_alternative<EnumPropertyType>(_propertyType)) {
+			_flags |= DRM_MODE_PROP_ENUM;
+		}
+	}
 
 	virtual ~Property() = default;
 
 	virtual bool validate(const Assignment& assignment);
+
+	PropertyId id();
+	uint32_t flags();
 	PropertyType propertyType();
+	std::string name();
+	void addEnumInfo(uint64_t value, std::string name);
+	const std::unordered_map<uint64_t, std::string>& enumInfo();
+
+	virtual void writeToState(const Assignment assignment, std::unique_ptr<drm_core::AtomicState> &state);
+	virtual uint32_t intFromState(std::shared_ptr<ModeObject> obj);
+	virtual std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj);
 
 private:
+	PropertyId _id;
+	uint32_t _flags;
 	PropertyType _propertyType;
+	std::string _name;
+	std::unordered_map<uint64_t, std::string> _enum_info;
 };
 
 struct BufferObject {
@@ -106,6 +154,11 @@ private:
 	std::vector<char> _data;
 };
 
+/**
+ * This is what gets instantiated as the DRM device, accessible as /dev/dri/card/[num].
+ * It represents a complete card that may or may not contain mutiple heads.
+ * It holds all the persistent properties that are not bound on a by-fd basis. (?)
+ */
 struct Device {
 	Device();
 
@@ -133,6 +186,12 @@ public:
 	void registerObject(ModeObject *object);
 	std::shared_ptr<ModeObject> findObject(uint32_t);
 
+	uint32_t registerBlob(std::shared_ptr<Blob> blob);
+	bool deleteBlob(uint32_t id);
+	std::shared_ptr<Blob> findBlob(uint32_t id);
+
+	std::unique_ptr<AtomicState> atomicState();
+
 	uint64_t installMapping(drm_core::BufferObject *bo);
 
 	void setupMinDimensions(uint32_t width, uint32_t height);
@@ -147,6 +206,18 @@ private:
 	std::vector<Encoder *> _encoders;
 	std::vector<Connector *> _connectors;
 	std::unordered_map<uint32_t, ModeObject *> _objects;
+	std::unordered_map<uint32_t, std::shared_ptr<Blob>> _blobs;
+
+	id_allocator<uint32_t> _blobIdAllocator;
+
+	/**
+	 * Holds (property_id, property) pairs for this device.
+	 *
+	 * This should not be confused with Assignments, which are attached to ModeObjects and hold
+	 * a value. This is only a property, not a property instance!
+	 */
+	std::unordered_map<uint32_t, std::shared_ptr<drm_core::Property>> _properties;
+
 	id_allocator<uint32_t> _memorySlotAllocator;
 	std::map<uint64_t, BufferObject *> _mappings;
 	uint32_t _minWidth;
@@ -159,17 +230,40 @@ private:
 	std::shared_ptr<Property> _modeIdProperty;
 	std::shared_ptr<Property> _crtcXProperty;
 	std::shared_ptr<Property> _crtcYProperty;
+	std::shared_ptr<Property> _planeTypeProperty;
+	std::shared_ptr<Property> _dpmsProperty;
+	std::shared_ptr<Property> _crtcIdProperty;
+	std::shared_ptr<Property> _activeProperty;
+	std::shared_ptr<Property> _srcXProperty;
+	std::shared_ptr<Property> _srcYProperty;
+	std::shared_ptr<Property> _crtcWProperty;
+	std::shared_ptr<Property> _crtcHProperty;
 
 public:
 	id_allocator<uint32_t> allocator;
+
+	void registerProperty(std::shared_ptr<drm_core::Property> p);
+	std::shared_ptr<drm_core::Property> getProperty(uint32_t id);
+
 	Property *srcWProperty();
 	Property *srcHProperty();
 	Property *fbIdProperty();
 	Property *modeIdProperty();
 	Property *crtcXProperty();
 	Property *crtcYProperty();
+	Property *planeTypeProperty();
+	Property *dpmsProperty();
+	Property *crtcIdProperty();
+	Property *activeProperty();
+	Property *srcXProperty();
+	Property *srcYProperty();
+	Property *crtcWProperty();
+	Property *crtcHProperty();
 };
 
+/**
+ * This structure tracks DRM state per open file descriptor.
+ */
 struct File {
 	File(std::shared_ptr<Device> device);
 
@@ -206,7 +300,7 @@ struct File {
 
 private:
 	async::detached _retirePageFlip(std::unique_ptr<Configuration> config,
-			uint64_t cookie);
+			uint64_t cookie, uint32_t crtc_id);
 
 	std::shared_ptr<Device> _device;
 
@@ -216,6 +310,7 @@ private:
 
 	// BufferObjects associated with this file.
 	std::unordered_map<uint32_t, std::shared_ptr<BufferObject>> _buffers;
+	// id allocator for mapping BufferObjects
 	id_allocator<uint32_t> _allocator;
 
 	// Event queuing structures.
@@ -225,14 +320,17 @@ private:
 	async::recurring_event _eventBell;
 
 	protocols::fs::StatusPageProvider _statusPage;
+
+	bool universalPlanes;
+	bool atomic;
 };
 
 struct Configuration {
 	virtual ~Configuration() = default;
 
-	virtual bool capture(std::vector<Assignment> assignment) = 0;
+	virtual bool capture(std::vector<Assignment> assignment, std::unique_ptr<AtomicState> &state) = 0;
 	virtual void dispose() = 0;
-	virtual void commit() = 0;
+	virtual void commit(std::unique_ptr<AtomicState> &state) = 0;
 
 	auto waitForCompletion() {
 		return _ev.wait();
@@ -248,11 +346,19 @@ private:
 	async::oneshot_event _ev;
 };
 
+/**
+ * A ModeObject represents modeset objects visible to userspace.
+ * It can represent Connectors, CRTCs, Encoders, Framebuffers and Planes.
+ */
 struct ModeObject {
 	ModeObject(ObjectType type, uint32_t id)
 	: _type(type), _id(id) { };
 
+	virtual ~ModeObject() = default;
+
 	uint32_t id();
+	ObjectType type();
+
 	Encoder *asEncoder();
 	Connector *asConnector();
 	Crtc *asCrtc();
@@ -262,10 +368,30 @@ struct ModeObject {
 	void setupWeakPtr(std::weak_ptr<ModeObject> self);
 	std::shared_ptr<ModeObject> sharedModeObject();
 
+	virtual std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 private:
 	ObjectType _type;
 	uint32_t _id;
 	std::weak_ptr<ModeObject> _self;
+};
+
+struct CrtcState {
+	CrtcState(std::weak_ptr<Crtc> crtc);
+
+	std::weak_ptr<Crtc> crtc(void);
+
+	std::weak_ptr<Crtc> _crtc;
+	bool active;
+
+	bool planesChanged;
+	bool modeChanged;
+	bool activeChanged;
+	bool connectorsChanged;
+	uint32_t planeMask;
+	uint32_t connectorMask;
+	uint32_t encoderMask;
+
+	std::shared_ptr<Blob> mode;
 };
 
 struct Crtc : ModeObject {
@@ -275,18 +401,26 @@ protected:
 	~Crtc() = default;
 
 public:
+	void setupState(std::shared_ptr<Crtc> crtc);
+
 	virtual Plane *primaryPlane() = 0;
 	virtual Plane *cursorPlane();
 
-	std::shared_ptr<Blob> currentMode();
-	void setCurrentMode(std::shared_ptr<Blob> mode);
+	std::shared_ptr<drm_core::CrtcState> drmState();
+	void setDrmState(std::shared_ptr<drm_core::CrtcState> new_state);
+
+	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 
 	int index;
 
 private:
-	std::shared_ptr<Blob> _curMode;
+	std::shared_ptr<CrtcState> _drmState;
 };
 
+/**
+ * The Encoder is responsible for converting a frame into the appropriate format for a connector.
+ * Together with a Connector, it forms what xrandr would understand as an output.
+ */
 struct Encoder : ModeObject {
 	Encoder(uint32_t id);
 
@@ -308,8 +442,23 @@ private:
 	std::vector<Encoder *> _possibleClones;
 };
 
+struct ConnectorState {
+	ConnectorState(std::weak_ptr<Connector> connector) : connector(connector) {};
+
+	std::shared_ptr<Connector> connector;
+	std::shared_ptr<Crtc> crtc;
+	std::shared_ptr<Encoder> encoder;
+	uint32_t dpms;
+};
+
+/**
+ * Represents a display connector.
+ * It transmits the signal to the display, detects display connection and removal and exposes the display's supported modes.
+ */
 struct Connector : ModeObject {
 	Connector(uint32_t id);
+
+	void setupState(std::shared_ptr<drm_core::Connector> connector);
 
 	const std::vector<drm_mode_modeinfo> &modeList();
 	void setModeList(std::vector<drm_mode_modeinfo> mode_list);
@@ -328,7 +477,13 @@ struct Connector : ModeObject {
 	uint32_t getPhysicalHeight();
 	void setupSubpixel(uint32_t subpixel);
 	uint32_t getSubpixel();
+	void setConnectorType(uint32_t type);
 	uint32_t connectorType();
+
+	std::shared_ptr<drm_core::ConnectorState> drmState();
+	void setDrmState(std::shared_ptr<drm_core::ConnectorState> new_state);
+
+	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 
 private:
 	std::vector<drm_mode_modeinfo> _modeList;
@@ -339,8 +494,13 @@ private:
 	uint32_t _physicalHeight;
 	uint32_t _subpixel;
 	uint32_t _connectorType;
+
+	std::shared_ptr<ConnectorState> _drmState;
 };
 
+/**
+ * Holds all info relating to a framebuffer, such as size and pixel format.
+ */
 struct FrameBuffer : ModeObject {
 	FrameBuffer(uint32_t id);
 
@@ -352,10 +512,80 @@ public:
 };
 
 struct Plane : ModeObject {
-	Plane(uint32_t id);
+	enum struct PlaneType {
+		OVERLAY = 0,
+		PRIMARY = 1,
+		CURSOR = 2,
+	};
+
+	Plane(uint32_t id, PlaneType type);
+
+	void setupState(std::shared_ptr<Plane> plane);
+
+	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
+
+	PlaneType type();
+
+	void setCurrentFrameBuffer(drm_core::FrameBuffer *crtc);
+	drm_core::FrameBuffer *getFrameBuffer();
+
+	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
+	const std::vector<Crtc *> &getPossibleCrtcs();
+
+	std::shared_ptr<drm_core::PlaneState> drmState();
+	void setDrmState(std::shared_ptr<drm_core::PlaneState> new_state);
+
+private:
+	PlaneType _type;
+	drm_core::FrameBuffer *_fb;
+	std::vector<Crtc *> _possibleCrtcs;
+	std::shared_ptr<PlaneState> _drmState;
+};
+
+struct PlaneState {
+	PlaneState(std::weak_ptr<Plane> plane) : plane(plane) {};
+
+	Plane::PlaneType type(void);
+
+	std::shared_ptr<Plane> plane;
+	std::shared_ptr<Crtc> crtc;
+	std::shared_ptr<FrameBuffer> fb;
+	int32_t crtc_x;
+	int32_t crtc_y;
+	uint32_t crtc_w;
+	uint32_t crtc_h;
+	uint32_t src_x;
+	uint32_t src_y;
+	uint32_t src_w;
+	uint32_t src_h;
+};
+
+/**
+ * Holds the changes prepared during a atomic transactions that are to be
+ * committed to CRTCs, Planes and Connectors.
+ */
+struct AtomicState {
+	AtomicState(Device *device) : _device(device) {};
+
+	std::shared_ptr<CrtcState> crtc(uint32_t id);
+	std::shared_ptr<PlaneState> plane(uint32_t id);
+	std::shared_ptr<ConnectorState> connector(uint32_t id);
+
+	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>>& crtc_states(void);
+
+private:
+	Device *_device;
+
+	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>> _crtcStates;
+	std::unordered_map<uint32_t, std::shared_ptr<PlaneState>> _planeStates;
+	std::unordered_map<uint32_t, std::shared_ptr<ConnectorState>> _connectorStates;
 };
 
 struct Assignment {
+	static Assignment withInt(std::shared_ptr<ModeObject>, Property *property, uint64_t val);
+	static Assignment withModeObj(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<ModeObject>);
+	static Assignment withBlob(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<Blob>);
+
 	std::shared_ptr<ModeObject> object;
 	Property *property;
 	uint64_t intValue;

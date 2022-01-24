@@ -15,34 +15,23 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 
 	struct Configuration : drm_core::Configuration {
 		Configuration(GfxDevice *device)
-		: _device(device), _width(0), _height(0), _fb(nullptr),
-		_cursorWidth(0), _cursorHeight(0), _cursorX(0), _cursorY(0),
-		_cursorFb(nullptr), _cursorUpdate(false), _cursorMove(false) { };
+		: _device(device), _cursorUpdate(false), _cursorMove(false) { };
 
-		bool capture(std::vector<drm_core::Assignment> assignment) override;
+		bool capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> & state) override;
 		void dispose() override;
-		void commit() override;
+		void commit(std::unique_ptr<drm_core::AtomicState> & state) override;
 
 	private:
-		async::detached commitConfiguration();
+		async::detached commitConfiguration(std::unique_ptr<drm_core::AtomicState> & state);
 
 		GfxDevice *_device;
-		int _width;
-		int _height;
-		GfxDevice::FrameBuffer *_fb;
-		std::shared_ptr<drm_core::Blob> _mode;
 
-		int _cursorWidth;
-		int _cursorHeight;
-		uint64_t _cursorX;
-		uint64_t _cursorY;
-		GfxDevice::FrameBuffer *_cursorFb;
 		bool _cursorUpdate;
 		bool _cursorMove;
 	};
 
 	struct Plane : drm_core::Plane {
-		Plane(GfxDevice *device);
+		Plane(GfxDevice *device, PlaneType type);
 	};
 
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {

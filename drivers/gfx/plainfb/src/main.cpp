@@ -38,13 +38,13 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 	}
 }
 
-async::detached GfxDevice::initialize() { 
+async::detached GfxDevice::initialize() {
 	// Setup planes, encoders and CRTCs (i.e. the static entities).
-	auto plane = std::make_shared<Plane>(this);
-	_theCrtc = std::make_shared<Crtc>(this, plane);
+	_plane = std::make_shared<Plane>(this, Plane::PlaneType::PRIMARY);
+	_theCrtc = std::make_shared<Crtc>(this);
 	_theEncoder = std::make_shared<Encoder>(this);
-	
-	plane->setupWeakPtr(plane);
+
+	_plane->setupWeakPtr(_plane);
 	_theCrtc->setupWeakPtr(_theCrtc);
 	_theEncoder->setupWeakPtr(_theEncoder);
 
@@ -52,9 +52,30 @@ async::detached GfxDevice::initialize() {
 	_theEncoder->setupPossibleClones({_theEncoder.get()});
 	_theEncoder->setCurrentCrtc(_theCrtc.get());
 
-	registerObject(plane.get());
+	_theCrtc->setupState(_theCrtc);
+	_plane->setupState(_plane);
+	_plane->setupPossibleCrtcs({_theCrtc.get()});
+
+	std::vector<drm_core::Assignment> assignments;
+
+	assignments.push_back(drm_core::Assignment::withInt(_theCrtc, activeProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, planeTypeProperty(), 1));
+
+	registerObject(_plane.get());
 	registerObject(_theCrtc.get());
 	registerObject(_theEncoder.get());
+
+	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::withModeObj(_plane, crtcIdProperty(), _theCrtc));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, srcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, srcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcHProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcWProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, srcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, srcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcXProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcYProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withModeObj(_plane, fbIdProperty(), nullptr));
 
 	setupCrtc(_theCrtc.get());
 	setupEncoder(_theEncoder.get());
@@ -62,14 +83,18 @@ async::detached GfxDevice::initialize() {
 	// Setup the connector.
 	_theConnector = std::make_shared<Connector>(this);
 	_theConnector->setupWeakPtr(_theConnector);
+	_theConnector->setupState(_theConnector);
 
 	_theConnector->setupPossibleEncoders({_theEncoder.get()});
 	_theConnector->setCurrentEncoder(_theEncoder.get());
 	_theConnector->setCurrentStatus(1);
-	
+
 	registerObject(_theConnector.get());
 	attachConnector(_theConnector.get());
-	
+
+	assignments.push_back(drm_core::Assignment::withInt(_theConnector, dpmsProperty(), 3));
+	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc));
+
 	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, _screenWidth, _screenHeight);
 	std::sort(supported_modes.begin(), supported_modes.end(),
@@ -77,7 +102,12 @@ async::detached GfxDevice::initialize() {
 		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
 	});
 	_theConnector->setModeList(supported_modes);
-	co_return;
+
+	auto config = createConfiguration();
+	auto state = atomicState();
+	assert(config->capture(assignments, state));
+	config->commit(state);
+	co_await config->waitForCompletion();
 }
 
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
@@ -87,9 +117,9 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
 		uint32_t width, uint32_t height, uint32_t, uint32_t pitch) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
-		
+
 	assert(pitch % 4 == 0);
-	
+
 	assert(pitch / 4 >= width);
 	assert(bo->getSize() >= pitch * height);
 
@@ -116,10 +146,10 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	auto bo = std::make_shared<BufferObject>(this, size,
 			helix::UniqueDescriptor(handle), width, height);
 	uint32_t pitch = width * bpp / 8;
-	
+
 	auto mapping = installMapping(bo.get());
 	bo->setupMapping(mapping);
-	
+
 	return std::make_pair(bo, pitch);
 }
 
@@ -127,59 +157,27 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 // GfxDevice::Configuration.
 // ----------------------------------------------------------------
 
-bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment) {
-	auto captureScanout = [&] () {
-		if(_state)
-			return;
-
-		_state.emplace();
-		// TODO: Capture FB, width and height.
-		_state->mode = _device->_theCrtc->currentMode();
-	};
-
-	for(auto &assign : assignment) {
-		if(assign.property == _device->srcWProperty()) {
-			//TODO: check this outside of capure
-			assert(assign.property->validate(assign));
-			
-			captureScanout();
-			_state->width = assign.intValue;
-		}else if(assign.property == _device->srcHProperty()) {
-			//TODO: check this outside of capure
-			assert(assign.property->validate(assign));
-
-			captureScanout();
-			_state->height = assign.intValue;
-		}else if(assign.property == _device->fbIdProperty()) {
-			//TODO: check this outside of capure
-			assert(assign.property->validate(assign));
-
-			auto fb = assign.objectValue->asFrameBuffer();
-			captureScanout();
-			_state->fb = static_cast<GfxDevice::FrameBuffer *>(fb);
-		}else if(assign.property == _device->modeIdProperty()) {
-			//TODO: check this outside of capture.
-			assert(assign.property->validate(assign));
-		
-			captureScanout();
-			_state->mode = assign.blobValue;
-		}else{
-			return false;
-		}
+bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignments, std::unique_ptr<drm_core::AtomicState> &state) {
+	for(auto &assign : assignments) {
+		assert(assign.property->validate(assign));
+		assign.property->writeToState(assign, state);
 	}
 
-	if(_state && _state->mode) {
+	auto plane_state = state->plane(_device->_plane->id());
+	auto crtc_state = state->crtc(_device->_theCrtc->id());
+
+	if(crtc_state->mode != nullptr) {
 		// TODO: Consider current width/height if FB did not change.
 		drm_mode_modeinfo mode_info;
-		memcpy(&mode_info, _state->mode->data(), sizeof(drm_mode_modeinfo));
-		_state->height = mode_info.vdisplay;
-		_state->width = mode_info.hdisplay;
-		
-		// TODO: Check max dimensions: _state->width > 1024 || _state->height > 768
-		if(_state->width <= 0 || _state->height <= 0)
+		memcpy(&mode_info, crtc_state->mode->data(), sizeof(drm_mode_modeinfo));
+		plane_state->src_h = mode_info.vdisplay;
+		plane_state->src_w = mode_info.hdisplay;
+
+		// TODO: Check max dimensions: plane_state->width > 1024 || plane_state->height > 768
+		if(plane_state->src_w <= 0 || plane_state->src_h <= 0) {
+			std::cout << "\e[31m" "gfx/plainfb: invalid state width of height" << "\e[39m" << std::endl;
 			return false;
-		if(!_state->fb)
-			return false;
+		}
 	}
 	return true;
 }
@@ -188,44 +186,48 @@ void GfxDevice::Configuration::dispose() {
 
 }
 
-void GfxDevice::Configuration::commit() {
-	if(_state)
-		_device->_theCrtc->setCurrentMode(_state->mode);
+void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
+	_dispatch(state);
 
-	_dispatch();
+	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
+	_device->_plane->setDrmState(state->plane(_device->_plane->id()));
 }
 
-async::detached GfxDevice::Configuration::_dispatch() {
-	if(_state && _state->mode) {
-//		std::cout << "Swap to framebuffer " << _state[i]->fb->id()
-//				<< " " << _state[i]->width << "x" << _state[i]->height << std::endl;
+async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> &state) {
+	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
+	if(crtc_state->mode != nullptr) {
 		if(!_device->_claimedDevice) {
 			co_await _device->_hwDevice.claimDevice();
 			_device->_claimedDevice = true;
 		}
 
-		auto bo = _state->fb->getBufferObject();
-		assert(bo->getWidth() == _device->_screenWidth);
-		assert(bo->getHeight() == _device->_screenHeight);
-		auto dest = reinterpret_cast<char *>(_device->_fbMapping.get());
-		auto src = reinterpret_cast<char *>(bo->accessMapping());
+		auto plane_state = state->plane(_device->_plane->id());
 
-		if(_state->fb->fastScanout()) {
-			for(unsigned int k = 0; k < bo->getHeight(); k++) {
-				drm_core::fastCopy16(dest, src, bo->getWidth() * 4);
-				dest += _device->_screenPitch;
-				src += _state->fb->getPitch();
-			}
-		}else{
-			for(unsigned int k = 0; k < bo->getHeight(); k++) {
-				memcpy(dest, src, bo->getWidth() * 4);
-				dest += _device->_screenPitch;
-				src += _state->fb->getPitch();
+		if(plane_state->fb != nullptr) {
+			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(plane_state->fb);
+
+			auto bo = fb->getBufferObject();
+			assert(bo->getWidth() == _device->_screenWidth);
+			assert(bo->getHeight() == _device->_screenHeight);
+			auto dest = reinterpret_cast<char *>(_device->_fbMapping.get());
+			auto src = reinterpret_cast<char *>(bo->accessMapping());
+
+			if(fb->fastScanout()) {
+				for(unsigned int k = 0; k < bo->getHeight(); k++) {
+					drm_core::fastCopy16(dest, src, bo->getWidth() * 4);
+					dest += _device->_screenPitch;
+					src += fb->getPitch();
+				}
+			}else{
+				for(unsigned int k = 0; k < bo->getHeight(); k++) {
+					memcpy(dest, src, bo->getWidth() * 4);
+					dest += _device->_screenPitch;
+					src += fb->getPitch();
+				}
 			}
 		}
-	}else if(_state) {
-		assert(!_state->mode);
+	} else {
 		std::cout << "gfx/plainfb: Disable scanout" << std::endl;
 	}
 
@@ -253,14 +255,13 @@ GfxDevice::Encoder::Encoder(GfxDevice *device)
 // GfxDevice::Crtc.
 // ----------------------------------------------------------------
 
-GfxDevice::Crtc::Crtc(GfxDevice *device, std::shared_ptr<Plane> plane)
-: drm_core::Crtc{device->allocator.allocate()},
-		_primaryPlane{std::move(plane)} {
-	(void)device;
+GfxDevice::Crtc::Crtc(GfxDevice *device)
+: drm_core::Crtc{device->allocator.allocate()} {
+	_device = device;
 }
 
 drm_core::Plane *GfxDevice::Crtc::primaryPlane() {
-	return _primaryPlane.get();
+	return _device->_plane.get();
 }
 
 // ----------------------------------------------------------------
@@ -297,8 +298,8 @@ void GfxDevice::FrameBuffer::notifyDirty() {
 // GfxDevice: Plane.
 // ----------------------------------------------------------------
 
-GfxDevice::Plane::Plane(GfxDevice *device)
-: drm_core::Plane{device->allocator.allocate()} { }
+GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type)
+: drm_core::Plane{device->allocator.allocate(), type} { }
 
 // ----------------------------------------------------------------
 // GfxDevice: BufferObject.
@@ -350,7 +351,7 @@ async::detached bindController(mbus::Entity entity) {
 			<< "x" << info.height << " (" << info.bpp
 			<< " bpp, pitch: " << info.pitch << ")" << std::endl;
 	assert(info.bpp == 32);
-	
+
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(hw_device),
 			info.width, info.height, info.pitch,
 			helix::Mapping{fb_memory, 0, info.pitch * info.height});
@@ -358,7 +359,7 @@ async::detached bindController(mbus::Entity entity) {
 
 	// Create an mbus object for the device.
 	auto root = co_await mbus::Instance::global().getRoot();
-	
+
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
 		{"unix.subsystem", mbus::StringItem{"drm"}},
