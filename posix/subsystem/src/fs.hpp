@@ -156,7 +156,7 @@ public:
 
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.
-	virtual expected<std::string> readSymlink(FsLink *link);
+	virtual expected<std::string> readSymlink(FsLink *link, Process *process);
 
 	//! Read the major/minor device number (devices only).
 	virtual DeviceId readDevice();

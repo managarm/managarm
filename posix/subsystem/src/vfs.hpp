@@ -62,10 +62,19 @@ private:
 	std::set<std::shared_ptr<MountView>, Compare> _mounts;
 };
 
-using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
+using ViewPathPair = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
+
+struct ViewPath : public ViewPathPair {
+	ViewPath() = default;
+
+	ViewPath(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: ViewPathPair(mount, link) {}
+
+	std::string getPath(ViewPath root) const;
+};
 
 struct PathResolver {
-	void setup(ViewPath root, ViewPath workdir, std::string string);
+	void setup(ViewPath root, ViewPath workdir, std::string string, Process *process);
 
 	async::result<frg::expected<protocols::fs::Error, void>> resolve(ResolveFlags flags = 0);
 
@@ -88,6 +97,7 @@ struct PathResolver {
 
 private:
 	ViewPath _rootPath;
+	Process *_process;
 
 	std::deque<std::string> _components;
 	bool _trailingSlash;
@@ -100,8 +110,8 @@ ViewPath rootPath();
 
 // TODO: Switch to PathResolver instead of using this function.
 async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath root, ViewPath workdir,
-		std::string name, ResolveFlags flags = 0);
+		std::string name, Process *process, ResolveFlags flags = 0);
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
-		ViewPath workdir, std::string name, ResolveFlags resolve_flags = 0,
+		ViewPath workdir, std::string name, Process *process, ResolveFlags resolve_flags = 0,
 		SemanticFlags semantic_flags = 0);

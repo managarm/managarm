@@ -93,7 +93,7 @@ FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags)
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }
 
-expected<std::string> FsNode::readSymlink(FsLink *link) {
+expected<std::string> FsNode::readSymlink(FsLink *link, Process *process) {
 	co_return Error::illegalOperationTarget;
 }
 

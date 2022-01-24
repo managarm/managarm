@@ -1,11 +1,16 @@
 #include <string.h>
+#include <sstream>
+#include <iomanip>
 
 #include "clock.hpp"
 #include "common.hpp"
 #include "device.hpp"
 #include "procfs.hpp"
+#include "process.hpp"
 
 namespace procfs {
+
+SuperBlock procfs_superblock;
 
 // ----------------------------------------------------------------------------
 // LinkCompare implementation.
@@ -185,6 +190,19 @@ RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 	co_return File::constructHandle(std::move(file));
 }
 
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular() {
+	co_return nullptr;
+}
+
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createSocket() {
+	co_return nullptr;
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+SuperBlock::rename(FsLink *source, FsNode *directory, std::string name) {
+	co_return Error::noSuchFile;
+};
+
 // ----------------------------------------------------------------------------
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
@@ -194,11 +212,14 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
+
+	auto self_link = std::make_shared<Link>(the_node->shared_from_this(), "self", std::make_shared<SelfLink>());
+	the_node->_entries.insert(std::move(self_link));
 	return link;
 }
 
 DirectoryNode::DirectoryNode()
-: _treeLink{nullptr} { }
+: FsNode{&procfs_superblock}, _treeLink{nullptr} { }
 
 std::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
 		std::shared_ptr<RegularNode> regular) {
@@ -218,8 +239,31 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
+std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_ptr<FsNode> node) {
+	assert(_entries.find(name) == _entries.end());
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	_entries.insert(link);
+	return link;
+}
+
+std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
+		Process *process) {
+	auto link = directMkdir(name);
+	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
+
+	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
+	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
+
+	return link;
+}
+
 VfsType DirectoryNode::getType() {
 	return VfsType::directory;
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string name,
+		std::shared_ptr<FsNode> target) {
+	co_return Error::noSuchFile;
 }
 
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
@@ -248,6 +292,83 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getL
 	if(it != _entries.end())
 		co_return *it;
 	co_return nullptr; // TODO: Return an error code.
+}
+
+async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
+	auto it = _entries.find(name);
+	if (it == _entries.end())
+		co_return Error::noSuchFile;
+	_entries.erase(it);
+	co_return frg::expected<Error>{};
+}
+
+VfsType SelfLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> SelfLink::readSymlink(FsLink *link, Process *process) {
+	co_return "/proc/" + std::to_string(process->pid());
+}
+
+async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs SelfLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+VfsType ExeLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> ExeLink::readSymlink(FsLink *link, Process *process) {
+	co_return _process->path();
+}
+
+async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs ExeLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+async::result<std::string> MapNode::show() {
+	auto vmContext = _process->vmContext();
+	std::stringstream stream;
+	for (auto area : *vmContext) {
+		stream << std::hex << area.baseAddress();
+		stream << "-";
+		stream << std::hex << area.baseAddress() + area.size();
+		stream << " ";
+		stream << (area.isReadable() ? "r" : "-");
+		stream << (area.isWritable() ? "w" : "-");
+		stream << (area.isExecutable() ? "x" : "-");
+		stream << (area.isPrivate() ? "p" : "-");
+		stream << " ";
+		auto backingFile = area.backingFile();
+		if (!backingFile) {
+			stream << "00000000 00:00 0";
+		} else {
+			stream << std::setfill('0') << std::setw(8) << area.backingFileOffset();
+			stream << " ";
+			auto fsNode = backingFile->associatedLink()->getTarget();
+			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
+			auto fileStats = co_await fsNode->getStats();
+			DeviceId deviceId{};
+			if (fsNode->getType() == VfsType::charDevice || fsNode->getType() == VfsType::blockDevice)
+				deviceId = fsNode->readDevice();
+			assert(fileStats);
+
+			stream << std::dec << std::setfill('0') << std::setw(2) << deviceId.first << ":" << deviceId.second;
+			stream << " ";
+			stream << std::setw(0) << fileStats.value().inodeNumber;
+			stream << "    ";
+			stream << viewPath.getPath(_process->fsContext()->getRoot());
+		}
+		stream << "\n";
+	}
+	co_return stream.str();
+}
+
+async::result<void> MapNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Can't store to a /proc/maps file!");
 }
 
 } // namespace procfs

@@ -342,7 +342,7 @@ public:
 		} else {
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
-					process->fsContext()->getWorkingDirectory(), std::move(path));
+					process->fsContext()->getWorkingDirectory(), std::move(path), process);
 			auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
 			if(!resolveResult) {
 				co_return resolveResult.error();
@@ -401,7 +401,7 @@ public:
 		} else {
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
-					process->fsContext()->getWorkingDirectory(), std::move(path));
+					process->fsContext()->getWorkingDirectory(), std::move(path), process);
 			auto resolveResult = co_await resolver.resolve();
 			if(!resolveResult) {
 				co_return resolveResult.error();

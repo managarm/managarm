@@ -301,7 +301,7 @@ private:
 		return VfsType::symlink;
 	}
 
-	expected<std::string> readSymlink(FsLink *) override {
+	expected<std::string> readSymlink(FsLink *, Process *) override {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;

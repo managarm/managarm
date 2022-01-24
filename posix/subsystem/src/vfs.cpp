@@ -67,7 +67,7 @@ async::result<void> populateRootView() {
 	rootView = MountView::createRoot(tree);
 
 	co_await tree->getTarget()->mkdir("realfs");
-	
+
 	// TODO: Check for errors from mkdir().
 	auto dev = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir("dev"));
 	co_await rootView->mount(std::move(dev), getDevtmpfs());
@@ -81,7 +81,7 @@ async::result<void> populateRootView() {
 	> stack;
 
 	stack.push_back({tree->getTarget(), std::string{""}});
-	
+
 	while(!stack.empty()) {
 		auto item = stack.back();
 		stack.pop_back();
@@ -138,7 +138,7 @@ struct Path {
 	static Path decompose(std::string string) {
 		auto it = string.begin();
 
-		// paths starting with '/' are absolute. 
+		// paths starting with '/' are absolute.
 		bool relative = true;
 		if(it != string.end() && *it == '/') {
 			relative = false;
@@ -191,8 +191,9 @@ private:
 	std::vector<std::string> _components;
 };
 
-void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string) {
+void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string, Process *process) {
 	_rootPath = std::move(root);
+	_process = process;
 
 	auto path = Path::decompose(std::move(string));
 	_components = std::deque<std::string>(path.begin(), path.end());
@@ -301,7 +302,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				if(auto mount = _currentPath.first->getMount(child); mount) {
 					if(debugResolve)
 						std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
-					next = ViewPath{std::move(mount), mount->getOrigin()};
+					next = ViewPath{mount, mount->getOrigin()};
 				}else{
 					next = ViewPath{_currentPath.first, std::move(child)};
 				}
@@ -309,7 +310,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				// Finally, we might need to follow symlinks.
 				if(next.second->getTarget()->getType() == VfsType::symlink
 						&& !(_components.empty() && (flags & resolveDontFollow))) {
-					auto result = co_await next.second->getTarget()->readSymlink(next.second.get());
+					auto result = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
 					auto link = Path::decompose(std::get<std::string>(result));
 
 					if(debugResolve) {
@@ -356,7 +357,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				if(auto mount = _currentPath.first->getMount(child); mount) {
 					if(debugResolve)
 						std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
-					next = ViewPath{std::move(mount), mount->getOrigin()};
+					next = ViewPath{mount, mount->getOrigin()};
 				}else{
 					next = ViewPath{_currentPath.first, std::move(child)};
 				}
@@ -364,7 +365,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				// Finally, we might need to follow symlinks.
 				if(next.second->getTarget()->getType() == VfsType::symlink
 						&& !(_components.empty() && (flags & resolveDontFollow))) {
-					auto result = co_await next.second->getTarget()->readSymlink(next.second.get());
+					auto result = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
 					auto link = Path::decompose(std::get<std::string>(result));
 
 					if(debugResolve) {
@@ -405,14 +406,43 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 	co_return {};
 }
 
+std::string ViewPath::getPath(ViewPath root) const {
+	std::string path = "/";
+	auto dir = *this;
+	while(true) {
+		if(dir == root)
+			break;
+
+		// If we are at the origin of a mount point, traverse that mount point.
+		ViewPath traversed;
+		if(dir.second == dir.first->getOrigin()) {
+			if(!dir.first->getParent())
+				break;
+			auto anchor = dir.first->getAnchor();
+			assert(anchor); // Non-root mounts must have anchors in their parents.
+			traversed = ViewPath{dir.first->getParent(), anchor};
+		}else{
+			traversed = dir;
+		}
+
+		auto owner = traversed.second->getOwner();
+		assert(owner); // Otherwise, we would have been at the root.
+		path = "/" + traversed.second->getName() + path;
+
+		dir = ViewPath{traversed.first, owner->treeLink()};
+	}
+
+	return path;
+}
+
 ViewPath rootPath() {
 	return ViewPath{rootView, rootView->getOrigin()};
 }
 
 async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath root, ViewPath workdir,
-		std::string name, ResolveFlags flags) {
+		std::string name, Process *process, ResolveFlags flags) {
 	PathResolver resolver;
-	resolver.setup(std::move(root), std::move(workdir), std::move(name));
+	resolver.setup(std::move(root), std::move(workdir), std::move(name), process);
 	auto result = co_await resolver.resolve(flags);
 	if (!result) {
 		assert(result.error() == protocols::fs::Error::fileNotFound
@@ -427,10 +457,10 @@ async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath ro
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
-		ViewPath workdir, std::string name, ResolveFlags resolve_flags,
+		ViewPath workdir, std::string name, Process *process, ResolveFlags resolve_flags,
 		SemanticFlags semantic_flags) {
 	auto resolveResult = co_await resolve(std::move(root), std::move(workdir),
-			std::move(name), resolve_flags);
+			std::move(name), process, resolve_flags);
 	if (!resolveResult) {
 		assert(resolveResult.error() == protocols::fs::Error::fileNotFound
 				|| resolveResult.error() == protocols::fs::Error::notDirectory);
