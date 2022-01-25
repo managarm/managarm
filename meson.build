@@ -147,11 +147,13 @@ endif
 if build_kernel
 	cralgo = subproject('cralgo')
 	lai = subproject('lai')
+	libasync = subproject('libasync', default_options : [ 'install_headers=false' ])
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
 	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	lai_sources = lai.get_variable('sources')
 	lai_includes = lai.get_variable('includes')
+	libasync_dep = libasync.get_variable('libasync_dep')
 
 	subdir('kernel/eir')
 	subdir('kernel/thor')
