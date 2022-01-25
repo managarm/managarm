@@ -84,7 +84,6 @@ inc += include_directories(
 	'system/pci',
 	'../common',
 	'../../subprojects/libarch/include',
-	'../../subprojects/libasync/include',
 	'../../tools/pb2frigg/include',
 	'../../protocols/posix/include',
 	'../../hel/include'
@@ -151,7 +150,7 @@ link_with += static_library('cralgo', cralgo_sources,
 	pic : false
 )
 
-deps = [ coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep ]
+deps = [ coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep, libasync_dep ]
 
 # TODO: also build thor on RISC-V.
 if arch != 'riscv64'
