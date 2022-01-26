@@ -8,6 +8,8 @@ project('managarm', ['c', 'cpp'],
 	]
 )
 
+add_project_arguments('-Wimplicit-fallthrough', language: ['c', 'cpp'])
+
 # build documentation
 if get_option('build_docs')
 	subdir('docs')
