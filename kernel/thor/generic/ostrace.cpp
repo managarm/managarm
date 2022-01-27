@@ -70,7 +70,7 @@ OsTraceEventId announceOsTraceEvent(frg::string_view name) {
 
 	managarm::ostrace::AnnounceEventRecord<KernelAlloc> record{*kernelAlloc};
 	record.set_id(id);
-	record.set_name({*kernelAlloc, name});
+	record.set_name(frg::string<KernelAlloc>{*kernelAlloc, name});
 	commitOsTrace(std::move(record));
 
 	return static_cast<OsTraceEventId>(id);
