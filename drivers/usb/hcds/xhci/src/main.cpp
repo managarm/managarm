@@ -600,6 +600,7 @@ Controller::Event Controller::Event::fromRawTrb(RawTrb trb) {
 				(static_cast<uintptr_t>(trb.val[1]) << 32))
 				>> 8;
 			ev.notificationType = (trb.val[0] >> 4) & 0xF;
+			break;
 
 		default:
 			assert(!"xhci: trb passed to fromRawTrb is not a proper event trb\n");
@@ -788,6 +789,7 @@ async::detached Controller::Port::initPort() {
 		switch(speedId) {
 			case 1:
 				isFullSpeed = true;
+				[[fallthrough]];
 			case 2:
 				targetPacketSize = 8;
 				break;

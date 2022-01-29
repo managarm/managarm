@@ -3229,6 +3229,7 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 #else
 #			error Unknown architecture
 #endif
+			break;
 
 		case kHelRegsThread:
 #if defined (__x86_64__)
@@ -3238,6 +3239,7 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 #else
 #			error Unknown architecture
 #endif
+			break;
 
 #if defined (__x86_64__)
 		case kHelRegsVirtualization:

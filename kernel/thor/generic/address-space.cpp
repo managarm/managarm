@@ -15,6 +15,7 @@ namespace {
 	constexpr bool logCleanup = false;
 	constexpr bool logUsage = false;
 
+	[[maybe_unused]]
 	void logRss(VirtualSpace *space) {
 		if(!logUsage)
 			return;

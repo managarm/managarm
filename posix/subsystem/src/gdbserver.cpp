@@ -226,6 +226,7 @@ struct EmitOverlay {
 			case '*':
 				buf_->push_back('}');
 				buf_->push_back(b ^ 0x20);
+				break;
 			default:
 				buf_->push_back(b);
 			}
