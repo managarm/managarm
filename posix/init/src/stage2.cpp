@@ -172,8 +172,9 @@ int main() {
 			if(mkdir("/tmp/.X11-unix", 1777))
 				throw std::runtime_error("mkdir() failed");
 			//execl("/usr/bin/weston", "weston", nullptr);
-			execl("/usr/bin/weston", "weston", "--xwayland", nullptr);
+			//execl("/usr/bin/weston", "weston", "--xwayland", nullptr);
 			//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
+			execl("/usr/bin/Xorg", "Xorg", "-ac", "-verbose", "-logverbose", nullptr);
 		}else if(launch == "headless") {
 			auto fd = open("/dev/ttyS0", O_RDWR);
 			if(fd < 0)
