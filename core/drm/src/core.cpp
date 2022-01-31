@@ -1255,8 +1255,10 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		drm_mode_modeinfo mode_info;
 		if(crtc->drmState()->mode) {
 			/* TODO: Set x, y, fb_id, gamma_size */
+			std::cout << "\e[33mcore/drm: MODE_GETCRTC does not handle x, y or gamma_size\e[39m" << std::endl;
 			memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 			resp.set_drm_mode_valid(1);
+			resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
 		}else{
 			memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
 			resp.set_drm_mode_valid(0);
