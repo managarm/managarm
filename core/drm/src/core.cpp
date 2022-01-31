@@ -168,7 +168,12 @@ drm_core::Device::Device() {
 
 	struct DpmsProperty : drm_core::Property {
 		DpmsProperty()
-		: drm_core::Property{dpms, drm_core::IntPropertyType{}, "DPMS"} { }
+		: drm_core::Property{dpms, drm_core::EnumPropertyType{}, "DPMS"} {
+			addEnumInfo(0, "On");
+			addEnumInfo(1, "Standby");
+			addEnumInfo(2, "Suspend");
+			addEnumInfo(3, "Off");
+		}
 
 		bool validate(const Assignment& assignment) override {
 			return (assignment.intValue < 4);
@@ -1640,6 +1645,8 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 				auto prop_type = prop->propertyType();
 
 				if(std::holds_alternative<IntPropertyType>(prop_type)) {
+					assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+				} else if(std::holds_alternative<EnumPropertyType>(prop_type)) {
 					assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
 				} else if(std::holds_alternative<BlobPropertyType>(prop_type)) {
 					auto blob = self->_device->findBlob(value);
