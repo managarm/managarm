@@ -1350,13 +1350,17 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		auto obj = self->_device->findObject(req.drm_fb_id());
-		assert(obj);
-		auto fb = obj->asFrameBuffer();
-		assert(fb);
-		fb->notifyDirty();
-
 		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto obj = self->_device->findObject(req.drm_fb_id());
+		if(!obj) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			auto fb = obj->asFrameBuffer();
+			assert(fb);
+			fb->notifyDirty();
+		}
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
