@@ -112,6 +112,15 @@ struct Property {
 	void addEnumInfo(uint64_t value, std::string name);
 	const std::unordered_map<uint64_t, std::string>& enumInfo();
 
+	/**
+	 * Applies an Assignment to a AtomicState.
+	 *
+	 * In derived classes this method correctly sets the value in the AtomicState.
+	 * The default implementation silently drops the Assignment.
+	 *
+	 * @param assignment
+	 * @param state
+	 */
 	virtual void writeToState(const Assignment assignment, std::unique_ptr<drm_core::AtomicState> &state);
 	virtual uint32_t intFromState(std::shared_ptr<ModeObject> obj);
 	virtual std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj);
@@ -242,7 +251,24 @@ private:
 public:
 	id_allocator<uint32_t> allocator;
 
+	/**
+	 * Register a Property @p p with DRM
+	 *
+	 * Please note that this only makes a Property known to DRM and has no relation
+	 * to instances (i.e. values attached to a Property). Assigning values to
+	 * Property objects is handled via Configuration, {Crtc,Plane,Connector}States
+	 * and Assignments.
+	 *
+	 * @param p
+	 */
 	void registerProperty(std::shared_ptr<drm_core::Property> p);
+
+	/**
+	 * Obtain a Property object via its @p id.
+	 *
+	 * @param id
+	 * @return std::shared_ptr<drm_core::Property>
+	 */
 	std::shared_ptr<drm_core::Property> getProperty(uint32_t id);
 
 	Property *srcWProperty();
@@ -268,6 +294,10 @@ struct File {
 	File(std::shared_ptr<Device> device);
 
 	static async::result<protocols::fs::ReadResult>
+
+	/**
+	 * A read operation on a DRM fd returning pending events, if any.
+	 */
 	read(void *object, const char *, void *buffer, size_t length);
 
 	static async::result<helix::BorrowedDescriptor>
@@ -289,9 +319,24 @@ struct File {
 	void detachFrameBuffer(FrameBuffer *frame_buffer);
 	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
 
+	/**
+	 * Prepare a BufferObject to be mmap'ed by userspace.
+	 *
+	 * mmap()ing buffers works by providing a (fake) offset that can be used on the
+	 * DRM fd to map the requested BufferObject. The (fake) offset is returned.
+	 * Obviously, this offset is only valid on the DRM fd that is was set up on.
+	 *
+	 * @param bo BufferObject to be set up for mapping
+	 * @return uint32_t The offset to be used to mmap the BufferObject
+	 */
 	uint32_t createHandle(std::shared_ptr<BufferObject> bo);
 	BufferObject *resolveHandle(uint32_t handle);
 
+	/**
+	 * Add an @p event to the queue of pending events to be read by userspace.
+	 *
+	 * @param[in] event
+	 */
 	void postEvent(Event event);
 
 	helix::BorrowedDescriptor statusPageMemory() {
@@ -368,6 +413,12 @@ struct ModeObject {
 	void setupWeakPtr(std::weak_ptr<ModeObject> self);
 	std::shared_ptr<ModeObject> sharedModeObject();
 
+	/**
+	 * Get a vector of assignments for the ModeObject
+	 *
+	 * @param dev
+	 * @return std::vector<drm_core::Assignment>
+	 */
 	virtual std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 private:
 	ObjectType _type;
@@ -567,8 +618,40 @@ struct PlaneState {
 struct AtomicState {
 	AtomicState(Device *device) : _device(device) {};
 
+	/**
+	 * Retrieve the Crtc state from an AtomicState by its Crtc id.
+	 *
+	 * If the AtomicState does not yet have the requested CrtcState, the currently
+	 * active CrtcState is copied over from the correct Crtc. If it already exists,
+	 * i.e. has already been modified/touched, it is simply returned.
+	 *
+	 * @param id The ModeObject id of the Crtc.
+	 * @return std::shared_ptr<drm_core::CrtcState> CrtcState for the @p id in the AtomicState
+	 */
 	std::shared_ptr<CrtcState> crtc(uint32_t id);
+
+	/**
+	 * Retrieve the Plane state from an AtomicState by its Plane id.
+	 *
+	 * If the AtomicState does not yet have the requested PlaneState, the currently
+	 * active PlaneState is copied over from the correct Plane. If it already exists,
+	 * i.e. has already been modified/touched, it is simply returned.
+	 *
+	 * @param id The ModeObject id of the Plane.
+	 * @return std::shared_ptr<drm_core::PlaneState> PlaneState for the @p id in the AtomicState
+	 */
 	std::shared_ptr<PlaneState> plane(uint32_t id);
+
+	/**
+	 * Retrieve the Connector state from an AtomicState by its Connector id.
+	 *
+	 * If the AtomicState does not yet have the requested ConnectorState, the currently
+	 * active ConnectorState is copied over from the correct Connector. If it already exists,
+	 * i.e. has already been modified/touched, it is simply returned.
+	 *
+	 * @param id The ModeObject id of the Connector.
+	 * @return std::shared_ptr<drm_core::ConnectorState> ConnectorState for the @p id in the AtomicState
+	 */
 	std::shared_ptr<ConnectorState> connector(uint32_t id);
 
 	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>>& crtc_states(void);
@@ -582,6 +665,14 @@ private:
 };
 
 struct Assignment {
+	/**
+	 * Create an Assignment with integer value, be that of int or enum type.
+	 *
+	 * @param obj ModeObject that this Assignment belongs to.
+	 * @param property DRM Property that this Assignment assigns.
+	 * @param val Integer value to be set for the @p property of @p obj.
+	 * @return drm_core::Assignment Assignment instance to be used for committing the Configuration.
+	 */
 	static Assignment withInt(std::shared_ptr<ModeObject>, Property *property, uint64_t val);
 	static Assignment withModeObj(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<ModeObject>);
 	static Assignment withBlob(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<Blob>);
