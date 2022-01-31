@@ -1018,9 +1018,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		}else if(req.drm_capability() == DRM_CAP_CRTC_IN_VBLANK_EVENT) {
 			resp.set_drm_value(1);
 		}else if(req.drm_capability() == DRM_CAP_CURSOR_WIDTH) {
-			resp.set_drm_value(0);
+			resp.set_drm_value(32);
 		}else if(req.drm_capability() == DRM_CAP_CURSOR_HEIGHT) {
-			resp.set_drm_value(0);
+			resp.set_drm_value(32);
 		}else{
 			std::cout << "core/drm: Unknown capability " << req.drm_capability() << std::endl;
 			resp.set_drm_value(0);
