@@ -19,6 +19,7 @@
 #include <libdrm/drm_fourcc.h>
 
 #include "fs.bragi.hpp"
+#include "posix.bragi.hpp"
 #include "core/drm/core.hpp"
 
 constexpr bool logDrmRequests = false;
@@ -26,6 +27,17 @@ constexpr bool logDrmRequests = false;
 // ----------------------------------------------------------------
 // Device
 // ----------------------------------------------------------------
+
+namespace drm_core {
+
+static constexpr auto primeFileOperations = protocols::fs::FileOperations{
+	.seekAbs = &drm_core::PrimeFile::seekAbs,
+	.seekRel = &drm_core::PrimeFile::seekRel,
+	.seekEof = &drm_core::PrimeFile::seekEof,
+	.accessMemory = &drm_core::PrimeFile::accessMemory,
+};
+
+}
 
 drm_core::Device::Device() {
 	struct SrcWProperty : drm_core::Property {
@@ -319,6 +331,23 @@ std::shared_ptr<drm_core::Blob> drm_core::Device::findBlob(uint32_t id) {
 std::unique_ptr<drm_core::AtomicState> drm_core::Device::atomicState() {
 	auto state = AtomicState(this);
 	return std::make_unique<drm_core::AtomicState>(state);
+}
+
+/**
+ * Adds a (credentials, BufferObject) pair to the list of exported BOs for this device
+ */
+void drm_core::Device::registerBufferObject(std::shared_ptr<drm_core::BufferObject> obj, std::array<char, 16> creds) {
+	_exportedBufferObjects.insert({creds, obj});
+}
+
+/**
+ * Retrieves a BufferObject from the list of exported BOs for this device, given the credentials for it
+ */
+std::shared_ptr<drm_core::BufferObject> drm_core::Device::findBufferObject(std::array<char, 16> creds) {
+	auto it = _exportedBufferObjects.find(creds);
+	if(it == _exportedBufferObjects.end())
+		return nullptr;
+	return it->second;
 }
 
 uint64_t drm_core::Device::installMapping(drm_core::BufferObject *bo) {
@@ -915,7 +944,11 @@ const std::vector<std::shared_ptr<drm_core::FrameBuffer>> &drm_core::File::getFr
 
 uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 	auto handle = _allocator.allocate();
-	_buffers.insert({handle, bo});
+	auto ret = _buffers.insert({handle, bo});
+	assert(ret.second);
+
+	if(logDrmRequests)
+		std::cout << "core/drm: createHandle for BufferObject " << bo.get() << " -> handle " << handle << std::endl;
 
 	auto [boMemory, boOffset] = bo->getMemory();
 	HEL_CHECK(helAlterMemoryIndirection(_memory.getHandle(),
@@ -931,6 +964,49 @@ drm_core::BufferObject *drm_core::File::resolveHandle(uint32_t handle) {
 		return nullptr;
 	return it->second.get();
 };
+
+uint32_t drm_core::File::getHandle(std::shared_ptr<drm_core::BufferObject> bo) {
+	for(auto &it : _buffers) {
+		if(it.second == bo)
+			return it.first;
+	}
+
+	return (uint32_t) -1;
+};
+
+/**
+ * For the currently opened File, this exports a BufferObject references by the handle with
+ * the credentials `creds` to the device. It also creates the mapping between credentials and the
+ * DRM handle in this file.
+ */
+bool drm_core::File::exportBufferObject(uint32_t handle, std::array<char, 16> creds) {
+	auto bo = resolveHandle(handle);
+	if(!bo)
+		return false;
+	auto buffer = bo->sharedBufferObject();
+
+	_device->registerBufferObject(buffer, creds);
+	return true;
+}
+
+/**
+ * For the currently opened File, this imports the BufferObject from the device if necessary and
+ * returns a pair of (BufferObject, DRM handle) for the `File`.
+ */
+std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
+drm_core::File::importBufferObject(std::array<char, 16> creds) {
+	auto bo = _device->findBufferObject(creds);
+	if(!bo)
+		return {};
+
+	auto handle = getHandle(bo);
+
+	if(!handle) {
+		handle = createHandle(bo);
+	}
+
+	return {bo, handle};
+}
 
 void drm_core::File::postEvent(drm_core::Event event) {
 	HEL_CHECK(helGetClock(&event.timestamp));
@@ -1023,6 +1099,8 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			resp.set_drm_value(32);
 		}else if(req.drm_capability() == DRM_CAP_CURSOR_HEIGHT) {
 			resp.set_drm_value(32);
+		}else if(req.drm_capability() == DRM_CAP_PRIME) {
+			resp.set_drm_value(DRM_PRIME_CAP_IMPORT | DRM_PRIME_CAP_EXPORT);
 		}else{
 			std::cout << "core/drm: Unknown capability " << req.drm_capability() << std::endl;
 			resp.set_drm_value(0);
@@ -1759,6 +1837,92 @@ send:
 			helix::action(&send_resp, ser.data(), ser.size()));
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_PRIME_HANDLE_TO_FD) {
+		managarm::fs::SvrResponse resp;
+
+		// Extract the credentials of the calling thread in order to locate it in POSIX for attaching the file
+		auto [proc_creds] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::extractCredentials());
+		HEL_CHECK(proc_creds.error());
+
+		auto bo = self->resolveHandle(req.drm_prime_handle());
+		assert(bo);
+		auto buffer = bo->sharedBufferObject();
+
+		// Create the lane used for serving the PRIME fd
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		auto file = smarter::make_shared<drm_core::PrimeFile>(bo->getMemory().first, bo->getSize());
+
+		// Start serving the file
+		async::detach(protocols::fs::servePassthrough(
+				std::move(local_lane), file, &drm_core::primeFileOperations));
+
+		// Request POSIX to register our file as a passthrough file, while giving out a fd we can pass back to our client
+		managarm::posix::CntRequest fd_req;
+		fd_req.set_request_type(managarm::posix::CntReqType::FD_SERVE);
+		const char *proc_cred_str = proc_creds.credentials();
+		for(size_t i = 0; i < 16; i++) {
+			fd_req.add_passthrough_credentials(proc_cred_str[i]);
+		}
+
+		auto fd_ser = fd_req.SerializeAsString();
+		auto [offer, send_req, send_handle, recv_resp] = co_await helix_ng::exchangeMsgs(
+			self->_device->_posixLane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(fd_ser.data(), fd_ser.size()),
+				helix_ng::pushDescriptor(helix::BorrowedDescriptor(remote_lane)),
+				helix_ng::recvInline())
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_handle.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::posix::SvrResponse posix_resp;
+		posix_resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+
+		// 'export' the object so that we can locate it from other threads, too
+		std::array<char, 16> creds;
+		HEL_CHECK(helGetCredentials(remote_lane.getHandle(), 0, creds.data()));
+
+		if(self->exportBufferObject(req.drm_prime_handle(), creds)) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_drm_prime_fd(posix_resp.fd());
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
+		managarm::fs::SvrResponse resp;
+
+		// extract the credentials of the land that served the PRIME fd, as this is keying our maps that keep track of it
+		auto [creds] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::extractCredentials());
+		HEL_CHECK(creds.error());
+
+		// 'import' the BufferObject while returning or creating the DRM handle that references it
+		std::array<char, 16> credentials;
+		std::copy_n(creds.credentials(), 16, std::begin(credentials));
+		auto [bo, handle] = self->importBufferObject(credentials);
+
+		if(bo) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_drm_prime_handle(handle);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
 	}else{
 		std::cout << "\e[31m" "core/drm: Unknown ioctl() with ID "
 				<< req.command() << "\e[39m" << std::endl;
@@ -1805,6 +1969,38 @@ drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
 	event.cookie = cookie;
 	event.crtcId = crtc_id;
 	postEvent(event);
+}
+
+drm_core::PrimeFile::PrimeFile(helix::BorrowedDescriptor handle, size_t size)
+: size(size) {
+	_memory = std::move(handle);
+};
+
+async::result<helix::BorrowedDescriptor>
+drm_core::PrimeFile::accessMemory(void *object) {
+	auto self = static_cast<drm_core::PrimeFile *>(object);
+	co_return self->_memory;
+}
+
+async::result<protocols::fs::SeekResult>
+drm_core::PrimeFile::seekAbs(void *object, int64_t offset) {
+	auto self = static_cast<drm_core::PrimeFile *>(object);
+	self->offset = offset;
+	co_return static_cast<ssize_t>(self->offset);
+}
+
+async::result<protocols::fs::SeekResult>
+drm_core::PrimeFile::seekRel(void *object, int64_t offset) {
+	auto self = static_cast<drm_core::PrimeFile *>(object);
+	self->offset += offset;
+	co_return static_cast<ssize_t>(self->offset);
+}
+
+async::result<protocols::fs::SeekResult>
+drm_core::PrimeFile::seekEof(void *object, int64_t offset) {
+	auto self = static_cast<drm_core::PrimeFile  *>(object);
+	self->offset = offset + self->size;
+	co_return static_cast<ssize_t>(self->offset);
 }
 
 namespace drm_core {
@@ -1866,7 +2062,7 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE);
+			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE | managarm::fs::FileCaps::FC_POSIX_LANE);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -1877,6 +2073,14 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::OPEN_FD_LANE) {
+			auto [fd_lane] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::pullDescriptor()
+			);
+			HEL_CHECK(fd_lane.error());
+
+			device->_posixLane = fd_lane.descriptor();
 		}else{
 			throw std::runtime_error("Invalid request in serveDevice()");
 		}

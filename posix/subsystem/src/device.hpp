@@ -94,3 +94,5 @@ openExternalDevice(helix::BorrowedLane lane,
 		SemanticFlags semantic_flags);
 
 FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane);
+
+async::result<void> serveServerLane(helix::UniqueDescriptor lane);
