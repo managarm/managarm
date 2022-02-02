@@ -1476,7 +1476,20 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		for(auto ass : obj->getAssignments(self->_device)) {
 			resp.add_drm_obj_property_ids(ass.property->id());
-			resp.add_drm_obj_property_values(ass.intValue);
+
+			if(std::holds_alternative<IntPropertyType>(ass.property->propertyType())) {
+				resp.add_drm_obj_property_values(ass.intValue);
+			} else if(std::holds_alternative<EnumPropertyType>(ass.property->propertyType())) {
+				resp.add_drm_obj_property_values(ass.intValue);
+			} else if(std::holds_alternative<BlobPropertyType>(ass.property->propertyType())) {
+				resp.add_drm_obj_property_values(ass.intValue);
+			} else if(std::holds_alternative<ObjectPropertyType>(ass.property->propertyType())) {
+				if(ass.objectValue) {
+					resp.add_drm_obj_property_values(ass.objectValue->id());
+				} else {
+					resp.add_drm_obj_property_values(0);
+				}
+			}
 		}
 
 		if(!resp.drm_obj_property_ids_size()) {
