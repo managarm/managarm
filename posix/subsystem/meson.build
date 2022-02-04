@@ -21,6 +21,7 @@ src = [
 	'src/gdbserver.cpp',
 	'src/inotify.cpp',
 	'src/main.cpp',
+	'src/memfd.cpp',
 	'src/net.cpp',
 	'src/nl-socket.cpp',
 	'src/process.cpp',

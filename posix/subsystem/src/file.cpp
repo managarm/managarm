@@ -1,5 +1,6 @@
 
 #include <string.h>
+#include <fcntl.h>
 #include <future>
 
 #include <sys/socket.h>
@@ -102,10 +103,11 @@ async::result<frg::expected<protocols::fs::Error>> File::ptTruncate(void *object
 	return self->truncate(size);
 }
 
-async::result<void> File::ptAllocate(void *object,
+async::result<frg::expected<protocols::fs::Error>> File::ptAllocate(void *object,
 		int64_t offset, size_t size) {
 	auto self = static_cast<File *>(object);
-	return self->allocate(offset, size);
+
+	co_return co_await self->allocate(offset, size);
 }
 
 async::result<int> File::ptGetOption(void *object, int option) {
@@ -162,6 +164,16 @@ async::result<void> File::ptSetFileFlags(void *object, int flags) {
 async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPeername(void *object, void *addr_ptr, size_t max_addr_length) {
 	auto self = static_cast<File *>(object);
 	return self->peername(addr_ptr, max_addr_length);
+}
+
+async::result<frg::expected<protocols::fs::Error, int>> File::ptGetSeals(void *object) {
+	auto self = static_cast<File *>(object);
+	co_return co_await self->getSeals();
+}
+
+async::result<frg::expected<protocols::fs::Error, int>> File::ptAddSeals(void *object, int seals) {
+	auto self = static_cast<File *>(object);
+	co_return co_await self->addSeals(seals);
 }
 
 async::result<protocols::fs::RecvResult>
@@ -280,7 +292,7 @@ async::result<frg::expected<protocols::fs::Error>> File::truncate(size_t) {
 	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
-async::result<void> File::allocate(int64_t, size_t) {
+async::result<frg::expected<protocols::fs::Error>> File::allocate(int64_t, size_t) {
 	throw std::runtime_error("posix: Object has no File::allocate()");
 }
 
@@ -404,3 +416,10 @@ async::result<frg::expected<protocols::fs::Error, size_t>> File::peername(void *
 	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
+async::result<frg::expected<protocols::fs::Error, int>> File::getSeals() {
+	co_return protocols::fs::Error::illegalOperationTarget;
+}
+
+async::result<frg::expected<protocols::fs::Error, int>> File::addSeals(int seals) {
+	co_return protocols::fs::Error::illegalOperationTarget;
+}

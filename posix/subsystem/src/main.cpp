@@ -40,6 +40,7 @@
 #include "fifo.hpp"
 #include "gdbserver.hpp"
 #include "inotify.hpp"
+#include "memfd.hpp"
 #include "procfs.hpp"
 #include "pts.hpp"
 #include "signalfd.hpp"
@@ -3679,6 +3680,47 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::MemFdCreateRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::MemFdCreateRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: MEMFD_CREATE " << req->name() << std::endl;
+
+			std::cout << "posix: MEMFD_CREATE ignores some flags" << std::endl;
+
+			auto memFile = smarter::make_shared<MemoryFile>();
+			MemoryFile::serve(memFile);
+			auto file = File::constructHandle(std::move(memFile));
+
+			int flags = 0;
+
+			if(req->flags() & MFD_CLOEXEC) {
+				flags |= managarm::posix::OpenFlags::OF_CLOEXEC;
+			}
+
+			int fd = self->fileContext()->attachFile(file, flags);
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;

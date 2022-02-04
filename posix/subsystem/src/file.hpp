@@ -121,7 +121,7 @@ public:
 	static async::result<frg::expected<protocols::fs::Error>>
 	ptTruncate(void *object, size_t size);
 
-	static async::result<void>
+	static async::result<frg::expected<protocols::fs::Error>>
 	ptAllocate(void *object, int64_t offset, size_t size);
 
 	static async::result<int>
@@ -169,6 +169,8 @@ public:
 	static async::result<frg::expected<protocols::fs::Error, size_t>>
 	ptPeername(void *object, void *addr_ptr, size_t max_addr_length);
 
+	static async::result<frg::expected<protocols::fs::Error, int>> ptGetSeals(void *object);
+	static async::result<frg::expected<protocols::fs::Error, int>> ptAddSeals(void *object, int seals);
 
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
@@ -191,6 +193,8 @@ public:
 		.recvMsg = &ptRecvMsg,
 		.sendMsg = &ptSendMsg,
 		.peername = &ptPeername,
+		.getSeals = &ptGetSeals,
+		.addSeals = &ptAddSeals,
 	};
 
 	// ------------------------------------------------------------------------
@@ -284,7 +288,7 @@ public:
 
 	virtual async::result<frg::expected<protocols::fs::Error>> truncate(size_t size);
 
-	virtual async::result<void> allocate(int64_t offset, size_t size);
+	virtual async::result<frg::expected<protocols::fs::Error>> allocate(int64_t offset, size_t size);
 
 	// poll() uses a sequence number mechansim for synchronization.
 	// Before returning, it waits until current-sequence > in-sequence.
@@ -331,6 +335,8 @@ public:
 
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
+	virtual async::result<frg::expected<protocols::fs::Error, int>> getSeals();
+	virtual async::result<frg::expected<protocols::fs::Error, int>> addSeals(int flags);
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;

@@ -480,3 +480,10 @@ message IoctlFioclexRequest 83 {
 head(128):
 	int32 fd;	
 }
+
+message MemFdCreateRequest 84 {
+head(128):
+	int32 flags;
+tail:
+	string name;
+}
