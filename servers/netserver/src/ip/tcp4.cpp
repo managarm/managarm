@@ -410,6 +410,41 @@ struct Tcp4Socket {
 		co_return 0;
 	}
 
+	static async::result<size_t> sockname(void *obj, void *addrPtr, size_t maxAddrLength) {
+		sockaddr_in sa;
+		in_addr addr;
+		auto self = static_cast<Tcp4Socket *>(obj);
+
+		memset(&sa, 0, sizeof(struct sockaddr_in));
+		memset(&addr, 0, sizeof(struct in_addr));
+		sa.sin_family = AF_INET;
+		addr.s_addr = htonl(self->localEp_.ipAddress);
+		sa.sin_addr = addr;
+		sa.sin_port = self->localEp_.port;
+
+		auto destSize = std::min(sizeof(sockaddr_in), maxAddrLength);
+		memcpy(addrPtr, &sa, destSize);
+		co_return destSize;
+	}
+
+	static async::result<frg::expected<protocols::fs::Error, size_t>> 
+	peername(void *obj, void *addrPtr, size_t maxAddrLength) {
+		sockaddr_in sa;
+		in_addr addr;
+		auto self = static_cast<Tcp4Socket *>(obj);
+
+		memset(&sa, 0, sizeof(struct sockaddr_in));
+		memset(&addr, 0, sizeof(struct in_addr));
+		sa.sin_family = AF_INET;
+		addr.s_addr = htonl(self->remoteEp_.ipAddress);
+		sa.sin_addr = addr;
+		sa.sin_port = self->remoteEp_.port;
+
+		auto destSize = std::min(sizeof(sockaddr_in), maxAddrLength);
+		memcpy(addrPtr, &sa, destSize);
+		co_return destSize;
+	}
+
 	constexpr static protocols::fs::FileOperations ops {
 		.read = &read,
 		.write = &write,
@@ -417,10 +452,12 @@ struct Tcp4Socket {
 		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.connect = &connect,
+		.sockname = &sockname,
 		.getFileFlags = &getFileFlags,
 		.setFileFlags = &setFileFlags,
 		.recvMsg = &recvMsg,
 		.sendMsg = &sendMsg,
+		.peername = &peername,
 	};
 
 	bool bindAvailable(uint32_t ipAddress = INADDR_ANY) {
