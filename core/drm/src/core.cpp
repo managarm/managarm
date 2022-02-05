@@ -168,7 +168,12 @@ drm_core::Device::Device() {
 
 	struct DpmsProperty : drm_core::Property {
 		DpmsProperty()
-		: drm_core::Property{dpms, drm_core::IntPropertyType{}, "DPMS"} { }
+		: drm_core::Property{dpms, drm_core::EnumPropertyType{}, "DPMS"} {
+			addEnumInfo(0, "On");
+			addEnumInfo(1, "Standby");
+			addEnumInfo(2, "Suspend");
+			addEnumInfo(3, "Off");
+		}
 
 		bool validate(const Assignment& assignment) override {
 			return (assignment.intValue < 4);
@@ -1013,9 +1018,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		}else if(req.drm_capability() == DRM_CAP_CRTC_IN_VBLANK_EVENT) {
 			resp.set_drm_value(1);
 		}else if(req.drm_capability() == DRM_CAP_CURSOR_WIDTH) {
-			resp.set_drm_value(0);
+			resp.set_drm_value(32);
 		}else if(req.drm_capability() == DRM_CAP_CURSOR_HEIGHT) {
-			resp.set_drm_value(0);
+			resp.set_drm_value(32);
 		}else{
 			std::cout << "core/drm: Unknown capability " << req.drm_capability() << std::endl;
 			resp.set_drm_value(0);
@@ -1250,8 +1255,10 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		drm_mode_modeinfo mode_info;
 		if(crtc->drmState()->mode) {
 			/* TODO: Set x, y, fb_id, gamma_size */
+			std::cout << "\e[33mcore/drm: MODE_GETCRTC does not handle x, y or gamma_size\e[39m" << std::endl;
 			memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 			resp.set_drm_mode_valid(1);
+			resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
 		}else{
 			memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
 			resp.set_drm_mode_valid(0);
@@ -1345,13 +1352,17 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		auto obj = self->_device->findObject(req.drm_fb_id());
-		assert(obj);
-		auto fb = obj->asFrameBuffer();
-		assert(fb);
-		fb->notifyDirty();
-
 		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto obj = self->_device->findObject(req.drm_fb_id());
+		if(!obj) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			auto fb = obj->asFrameBuffer();
+			assert(fb);
+			fb->notifyDirty();
+		}
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -1465,7 +1476,20 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		for(auto ass : obj->getAssignments(self->_device)) {
 			resp.add_drm_obj_property_ids(ass.property->id());
-			resp.add_drm_obj_property_values(ass.intValue);
+
+			if(std::holds_alternative<IntPropertyType>(ass.property->propertyType())) {
+				resp.add_drm_obj_property_values(ass.intValue);
+			} else if(std::holds_alternative<EnumPropertyType>(ass.property->propertyType())) {
+				resp.add_drm_obj_property_values(ass.intValue);
+			} else if(std::holds_alternative<BlobPropertyType>(ass.property->propertyType())) {
+				resp.add_drm_obj_property_values(ass.intValue);
+			} else if(std::holds_alternative<ObjectPropertyType>(ass.property->propertyType())) {
+				if(ass.objectValue) {
+					resp.add_drm_obj_property_values(ass.objectValue->id());
+				} else {
+					resp.add_drm_obj_property_values(0);
+				}
+			}
 		}
 
 		if(!resp.drm_obj_property_ids_size()) {
@@ -1512,10 +1536,39 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		std::cout << "\e[31mcore/drm: DRM_IOCTL_MODE_SETPROPERTY is a no-op\e[39m"
-				<< std::endl;
+		std::vector<drm_core::Assignment> assignments;
 
-		resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		auto config = self->_device->createConfiguration();
+		auto state = self->_device->atomicState();
+
+		auto mode_obj = self->_device->findObject(req.drm_obj_id());
+		assert(mode_obj);
+
+		auto prop = self->_device->getProperty(req.drm_property_id());
+		assert(prop);
+		auto value = req.drm_property_value();
+		auto prop_type = prop->propertyType();
+
+
+		if(std::holds_alternative<IntPropertyType>(prop_type)) {
+			assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+		} else if(std::holds_alternative<EnumPropertyType>(prop_type)) {
+			assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+		} else if(std::holds_alternative<BlobPropertyType>(prop_type)) {
+			auto blob = self->_device->findBlob(value);
+			assignments.push_back(Assignment::withBlob(mode_obj, prop.get(), blob));
+		} else if(std::holds_alternative<ObjectPropertyType>(prop_type)) {
+			auto obj = self->_device->findObject(value);
+			assignments.push_back(Assignment::withModeObj(mode_obj, prop.get(), obj));
+		}
+
+		auto valid = config->capture(assignments, state);
+		assert(valid);
+
+		config->commit(state);
+		co_await config->waitForCompletion();
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -1640,6 +1693,8 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 				auto prop_type = prop->propertyType();
 
 				if(std::holds_alternative<IntPropertyType>(prop_type)) {
+					assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+				} else if(std::holds_alternative<EnumPropertyType>(prop_type)) {
 					assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
 				} else if(std::holds_alternative<BlobPropertyType>(prop_type)) {
 					auto blob = self->_device->findBlob(value);

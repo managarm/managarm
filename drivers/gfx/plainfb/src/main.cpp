@@ -92,6 +92,9 @@ async::detached GfxDevice::initialize() {
 	registerObject(_theConnector.get());
 	attachConnector(_theConnector.get());
 
+	setupMinDimensions(_screenWidth, _screenHeight);
+	setupMaxDimensions(_screenWidth, _screenHeight);
+
 	assignments.push_back(drm_core::Assignment::withInt(_theConnector, dpmsProperty(), 3));
 	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc));
 
