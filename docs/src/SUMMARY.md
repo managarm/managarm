@@ -5,7 +5,7 @@
 - [Getting Started](getting-started/index.md)
     - [Trying Out](getting-started/trying-out.md)
     - [Supported Hardware and Software](getting-started/supported/index.md)
-        - [Supported Packages](getting-started/supported/package_index.md)
+        - [Supported Packages](getting-started/supported/package-index.md)
 
 - [Building](building/index.md)
 	- [With `cbuildrt` (recommended)](building/index.md)
