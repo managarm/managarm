@@ -104,37 +104,54 @@ address_t cutFromRegion(size_t size) {
 			continue;
 
 		regions[i].size -= size;
+
+		// Discard this region if it's smaller than alignment
+		if(regions[i].size < 0x200000)
+			regions[i].regionType = RegionType::null;
+
 		return regions[i].address + regions[i].size;
 	}
-	
+
 	eir::panicLogger() << "Eir: Unable to cut memory from a region" << frg::endlog;
 	__builtin_unreachable();
 }
 
 void setupRegionStructs() {
+	for(size_t j = numRegions; j > 0; j--) {
+		size_t i = j - 1;
+
+		if(regions[i].regionType != RegionType::allocatable)
+			continue;
+
+		// Setup a buddy allocator.
+		auto order = BuddyAccessor::suitableOrder(regions[i].size >> pageShift);
+		auto preRoots = regions[i].size >> (pageShift + order);
+		auto overhead = BuddyAccessor::determineSize(preRoots, order);
+		overhead = (overhead + address_t(pageSize - 1)) & ~address_t(pageSize - 1);
+
+		assert(overhead >= preRoots * (1 << (order + 1)));
+
+		regions[i].buddyTree = cutFromRegion(overhead);
+		regions[i].buddyOverhead = overhead;
+	}
+
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
 
 		// Setup a buddy allocator.
 		auto order = BuddyAccessor::suitableOrder(regions[i].size >> pageShift);
-		auto pre_roots = regions[i].size >> (pageShift + order);
-		auto overhead = BuddyAccessor::determineSize(pre_roots, order);
-		overhead = (overhead + address_t(pageSize - 1)) & ~address_t(pageSize - 1);
+		auto numRoots = regions[i].size >> (pageShift + order);
+		assert(numRoots >= 32);
 
-		// Note that cutFromRegion might actually reduce this regions' size.
-		auto table_paddr = cutFromRegion(overhead);
-		auto num_roots = regions[i].size >> (pageShift + order);
-		assert(num_roots >= 32);
+		assert(regions[i].size / 4096 >= numRoots * (1 << order));
 
 		regions[i].order = order;
-		regions[i].numRoots = num_roots;
-		regions[i].buddyTree = table_paddr;
-		regions[i].buddyOverhead = overhead;
+		regions[i].numRoots = numRoots;
 
 		// Finally initialize the buddy tree.
-		auto table_ptr = reinterpret_cast<int8_t *>(table_paddr);
-		BuddyAccessor::initialize(table_ptr, num_roots, order);
+		auto tablePtr = reinterpret_cast<int8_t *>(regions[i].buddyTree);
+		BuddyAccessor::initialize(tablePtr, numRoots, order);
 	}
 }
 
