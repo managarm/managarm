@@ -624,17 +624,23 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	if(handler.flags & signalOnce)
 		_handlers[item->signalNumber - 1].disposition = SignalDisposition::none;
 
+	// Handle default dispositions properly
 	if(handler.disposition == SignalDisposition::none) {
-		if(item->signalNumber == SIGCHLD) { // TODO: Handle default actions generically.
-			// Ignore the signal.
-			killed = false;
-			co_return;
-		}else{
-			std::cout << "posix: Thread killed as the result of signal "
-							<< item->signalNumber << std::endl;
-			killed = true;
-			co_await process->terminate(TerminationBySignal{item->signalNumber});
-			co_return;
+		switch (item->signalNumber) {
+			// TODO: Handle SIGTSTP, SIGSTOP and SIGCONT
+			case SIGCHLD:
+			case SIGURG:
+			case SIGWINCH:
+				// Ignore the signal.
+				killed = false;
+				co_return;
+
+			default:
+				std::cout << "posix: Thread killed as the result of signal "
+						<< item->signalNumber << std::endl;
+				killed = true;
+				co_await process->terminate(TerminationBySignal{item->signalNumber});
+				co_return;
 		}
 	} else if(handler.disposition == SignalDisposition::ignore) {
 		// Ignore the signal.
