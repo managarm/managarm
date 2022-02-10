@@ -3700,7 +3700,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			std::cout << "posix: MEMFD_CREATE ignores some flags" << std::endl;
 
-			auto memFile = smarter::make_shared<MemoryFile>();
+			auto link = SpecialLink::makeSpecialLink(VfsType::regular, 0777);
+			auto memFile = smarter::make_shared<MemoryFile>(nullptr, link);
 			MemoryFile::serve(memFile);
 			auto file = File::constructHandle(std::move(memFile));
 

@@ -13,8 +13,8 @@ public:
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	MemoryFile()
-	: File{StructName::get("memfd-file")}, _offset{0} { }
+	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{StructName::get("memfd-file"), mount, link}, _offset{0} { }
 
 	void handleClose() override;
 
