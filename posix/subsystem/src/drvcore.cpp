@@ -11,6 +11,7 @@ std::shared_ptr<sysfs::Object> globalDevicesObject;
 std::shared_ptr<sysfs::Object> globalBusObject;
 std::shared_ptr<sysfs::Object> globalClassObject;
 std::shared_ptr<sysfs::Object> globalCharObject;
+std::shared_ptr<sysfs::Object> globalBlockDevObject;
 std::shared_ptr<sysfs::Object> globalBlockObject;
 
 sysfs::Object *devicesObject() {
@@ -157,6 +158,24 @@ void ClassDevice::linkToSubsystem() {
 }
 
 //-----------------------------------------------------------------------------
+// BlockDevice implementation.
+//-----------------------------------------------------------------------------
+
+BlockDevice::BlockDevice(ClassSubsystem *subsystem, std::shared_ptr<Device> parent,
+		std::string name, UnixDevice *unix_device)
+: Device{std::move(parent), std::move(name), unix_device},
+	_subsystem{subsystem} { }
+
+void BlockDevice::linkToSubsystem() {
+	auto subsystem_object = _subsystem->object();
+	globalBlockObject->createSymlink(name(), devicePtr());
+	subsystem_object->createSymlink(name(), devicePtr());
+	if (auto parent = parentDevice(); parent)
+		createSymlink("device", std::move(parent));
+	createSymlink("subsystem", subsystem_object);
+}
+
+//-----------------------------------------------------------------------------
 // Free functions.
 //-----------------------------------------------------------------------------
 
@@ -166,18 +185,20 @@ void initialize() {
 	// Create the /sys/dev/{char,block} directories.
 	auto dev_object = std::make_shared<sysfs::Object>(nullptr, "dev");
 	globalCharObject = std::make_shared<sysfs::Object>(dev_object, "char");
-	globalBlockObject = std::make_shared<sysfs::Object>(dev_object, "block");
+	globalBlockDevObject = std::make_shared<sysfs::Object>(dev_object, "block");
 
 	// Create the global /sys/{devices,class,dev} directories.
 	globalDevicesObject = std::make_shared<sysfs::Object>(nullptr, "devices");
 	globalBusObject = std::make_shared<sysfs::Object>(nullptr, "bus");
 	globalClassObject = std::make_shared<sysfs::Object>(nullptr, "class");
+	globalBlockObject = std::make_shared<sysfs::Object>(nullptr, "block");
 	globalDevicesObject->addObject();
 	globalBusObject->addObject();
 	globalClassObject->addObject();
+	globalBlockObject->addObject();
 	dev_object->addObject();
 	globalCharObject->addObject(); // TODO: Do this before dev_object is visible.
-	globalBlockObject->addObject();
+	globalBlockDevObject->addObject();
 }
 
 void installDevice(std::shared_ptr<Device> device) {
@@ -191,8 +212,12 @@ void installDevice(std::shared_ptr<Device> device) {
 	if(auto unix_dev = device->unixDevice(); unix_dev) {
 		std::stringstream id_ss;
 		id_ss << unix_dev->getId().first << ":" << unix_dev->getId().second;
-		assert(unix_dev->type() == VfsType::charDevice);
-		globalCharObject->createSymlink(id_ss.str(), device);
+		if (unix_dev->type() == VfsType::charDevice)
+			globalCharObject->createSymlink(id_ss.str(), device);
+		else if (unix_dev->type() == VfsType::blockDevice)
+			globalBlockDevObject->createSymlink(id_ss.str(), device);
+		else
+			assert(!"Unsupported unix device trying to be added!");
 	}
 
 	UeventProperties ue;

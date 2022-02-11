@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <string>
 #include <sys/epoll.h>
+#include <linux/cdrom.h>
 
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -13,6 +14,7 @@
 #include <blockfs.hpp>
 #include "gpt.hpp"
 #include "ext2fs.hpp"
+#include "raw.hpp"
 #include "fs.bragi.hpp"
 #include <bragi/helpers-std.hpp>
 
@@ -21,6 +23,7 @@ namespace blockfs {
 // TODO: Support more than one table.
 gpt::Table *table;
 ext2fs::FileSystem *fs;
+raw::RawFs *rawFs;
 
 protocols::ostrace::Context ostContext;
 protocols::ostrace::EventId ostReadEvent;
@@ -482,10 +485,98 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 	.traverseLinks = &traverseLinks
 };
 
+async::result<protocols::fs::ReadResult> rawRead(void *object, const char *,
+		void *buffer, size_t length) {
+	assert(length);
+
+	uint64_t start;
+	HEL_CHECK(helGetClock(&start));
+
+	auto self = static_cast<raw::OpenFile *>(object);
+	auto file_size = co_await self->rawFs->device->getSize();
+
+	if(self->offset >= file_size)
+		co_return size_t{0};
+
+	auto remaining = file_size - self->offset;
+	auto chunkSize = std::min(length, remaining);
+	if(!chunkSize)
+		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
+
+	auto chunk_offset = self->offset;
+	self->offset += chunkSize;
+
+	auto readMemory = co_await helix_ng::readMemory(
+			helix::BorrowedDescriptor(self->rawFs->frontalMemory),
+			chunk_offset, chunkSize, buffer);
+	HEL_CHECK(readMemory.error());
+
+	uint64_t end;
+	HEL_CHECK(helGetClock(&end));
+
+	protocols::ostrace::Event oste{&ostContext, ostReadEvent};
+	oste.withCounter(ostByteCounter, static_cast<int64_t>(length));
+	oste.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
+	co_await oste.emit();
+
+	co_return chunkSize;
+}
+
+async::result<protocols::fs::Error> rawFlock(void *object, int flags) {
+	auto self = static_cast<raw::OpenFile*>(object);
+
+	auto result = co_await self->rawFs->flockManager.lock(&self->flock, flags);
+	co_return result;
+}
+
+async::result<protocols::fs::SeekResult> rawSeekAbs(void *object, int64_t offset) {
+	auto self = static_cast<raw::OpenFile*>(object);
+	self->offset = offset;
+	co_return static_cast<ssize_t>(self->offset);
+}
+
+async::result<protocols::fs::SeekResult> rawSeekRel(void *object, int64_t offset) {
+	auto self = static_cast<raw::OpenFile*>(object);
+	self->offset += offset;
+	co_return static_cast<ssize_t>(self->offset);
+}
+
+async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset) {
+	auto self = static_cast<raw::OpenFile *>(object);
+	auto size = co_await self->rawFs->device->getSize();
+	self->offset = offset + size;
+	co_return static_cast<ssize_t>(self->offset);
+}
+async::result<void> rawIoctl(void *object, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation) {
+	if (req.command() == CDROM_GET_CAPABILITY) {
+		managarm::fs::SvrResponse rsp;
+		rsp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+
+		auto ser = rsp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	} else {
+		co_return;
+	}
+}
+
+constexpr protocols::fs::FileOperations rawOperations {
+	.seekAbs = rawSeekAbs,
+	.seekRel = rawSeekRel,
+	.seekEof = rawSeekEof,
+	.read = rawRead,
+	.ioctl = rawIoctl,
+	.flock = rawFlock,
+};
+
 } // anonymous namespace
 
-BlockDevice::BlockDevice(size_t sector_size)
-: sectorSize(sector_size) { }
+BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id)
+: size(0), sectorSize(sector_size), parentId(parent_id) { }
 
 async::detached servePartition(helix::UniqueLane lane) {
 	std::cout << "unix device: Connection" << std::endl;
@@ -620,8 +711,27 @@ async::detached servePartition(helix::UniqueLane lane) {
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			auto file = smarter::make_shared<raw::OpenFile>(rawFs);
+			async::detach(protocols::fs::servePassthrough(std::move(local_lane),
+					file,
+					&rawOperations));
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_lane)
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_node.error());
 		}else{
-			throw std::runtime_error("Unexpected request type");
+			throw std::runtime_error("Unexpected request type " + std::to_string((int)req.req_type()));
 		}
 	}
 }
@@ -642,7 +752,8 @@ async::detached runDevice(BlockDevice *device) {
 
 		mbus::Properties descriptor {
 			{"unix.devtype", mbus::StringItem{"block"}},
-			{"unix.blocktype", mbus::StringItem{"disk"}}
+			{"unix.blocktype", mbus::StringItem{"disk"}},
+			{"drvcore.mbus-parent", mbus::StringItem{std::to_string(device->parentId)}}
 		};
 
 		auto handler = mbus::ObjectHandler{}
@@ -670,6 +781,10 @@ async::detached runDevice(BlockDevice *device) {
 		co_await fs->init();
 		printf("ext2fs is ready!\n");
 
+		rawFs = new raw::RawFs(fs->device);
+		co_await rawFs->init();
+		printf("rawfs is ready!\n");
+
 		// Create an mbus object for the partition.
 		auto root = co_await mbus::Instance::global().getRoot();
 
@@ -677,7 +792,8 @@ async::detached runDevice(BlockDevice *device) {
 			{"unix.devtype", mbus::StringItem{"block"}},
 			{"unix.blocktype", mbus::StringItem{"partition"}},
 			{"unix.partid", mbus::StringItem{std::to_string(partId++)}},
-			{"unix.diskid", mbus::StringItem{std::to_string(diskId)}}
+			{"unix.diskid", mbus::StringItem{std::to_string(diskId)}},
+			{"drvcore.mbus-parent", mbus::StringItem{std::to_string(device->parentId)}}
 		};
 
 		auto handler = mbus::ObjectHandler{}

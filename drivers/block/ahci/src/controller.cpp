@@ -43,10 +43,10 @@ namespace {
 	constexpr bool logCommands = false;
 }
 
-Controller::Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
+Controller::Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
 		helix::UniqueDescriptor, helix::UniqueDescriptor irq)
-	: hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(hbaRegs)},
-	regs_{regsMapping_.get()}, irq_{std::move(irq)} {
+	: hwDevice_{std::move(hwDevice)} ,regsMapping_{std::move(hbaRegs)},
+	regs_{regsMapping_.get()}, irq_{std::move(irq)}, parentId_{parentId}{
 }
 
 async::detached Controller::run() {
@@ -162,7 +162,7 @@ async::result<bool> Controller::initPorts_(size_t numCommandSlots, bool ss) {
 	for (int i = 0; i < maxPorts_; i++) {
 		if (portsImpl_ & (1 << i)) {
 			auto offset = 0x100 + i * 0x80;
-			auto port = std::make_unique<Port>(i, numCommandSlots, ss, regs_.subspace(offset));
+			auto port = std::make_unique<Port>(parentId_, i, numCommandSlots, ss, regs_.subspace(offset));
 
 			if (co_await port->init())
 				activePorts_.push_back(std::move(port));

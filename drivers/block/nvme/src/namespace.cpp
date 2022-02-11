@@ -4,7 +4,7 @@
 #include "controller.hpp"
 
 Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift)
-	: BlockDevice{(size_t)1 << lbaShift}, controller_(controller), nsid_(nsid),
+	: BlockDevice{(size_t)1 << lbaShift, controller->getParentId()}, controller_(controller), nsid_(nsid),
 	  lbaShift_(lbaShift) {
 }
 
@@ -44,4 +44,9 @@ async::result<void> Namespace::writeSectors(uint64_t sector, const void *buffer,
 	cmd->setupBuffer(arch::dma_buffer_view{nullptr, (char *)buffer, numSectors << lbaShift_});
 
 	co_await controller_->submitIoCommand(std::move(cmd));
+}
+
+async::result<size_t> Namespace::getSize() {
+	std::cout << "nvme: Namespace::getSize() is a stub!" << std::endl;
+	co_return 1;
 }

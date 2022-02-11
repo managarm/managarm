@@ -20,9 +20,9 @@ UserRequest::UserRequest(bool write_, uint64_t sector_, void *buffer_, size_t nu
 // Device
 // --------------------------------------------------------
 
-Device::Device(std::unique_ptr<virtio_core::Transport> transport)
-: blockfs::BlockDevice{512}, _transport{std::move(transport)},
-		_requestQueue{nullptr} { }
+Device::Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent_id)
+: blockfs::BlockDevice{512, parent_id}, _transport{std::move(transport)},
+		_requestQueue{nullptr}, _size{0} { }
 
 void Device::runDevice() {
 	_transport->finalizeFeatures();
@@ -32,6 +32,7 @@ void Device::runDevice() {
 	auto size = static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[0]))
 			| (static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[1])) << 32);
 	std::cout << "virtio: Disk size: " << size << " sectors" << std::endl;
+	_size = size;
 
 	_transport->runDevice();
 
@@ -41,7 +42,7 @@ void Device::runDevice() {
 
 	// natural alignment makes sure that request headers do not cross page boundaries
 	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
-	
+
 	// setup an interrupt for the device
 	_processRequests();
 
@@ -90,6 +91,10 @@ async::result<void> Device::writeSectors(uint64_t sector,
 	}
 }
 
+async::result<size_t> Device::getSize() {
+	co_return _size * 512;
+}
+
 async::detached Device::_processRequests() {
 	while(true) {
 		if(_pendingQueue.empty()) {
@@ -116,7 +121,7 @@ async::detached Device::_processRequests() {
 
 		chain.setupBuffer(virtio_core::hostToDevice, arch::dma_buffer_view{nullptr,
 				header, sizeof(VirtRequest)});
-		
+
 		// Setup descriptors for the transfered data.
 		for(size_t i = 0; i < request->numSectors; i++) {
 			chain.append(co_await _requestQueue->obtainDescriptor());

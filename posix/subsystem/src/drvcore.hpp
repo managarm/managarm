@@ -117,6 +117,20 @@ private:
 	ClassSubsystem *_subsystem;
 };
 
+struct BlockDevice : Device {
+	BlockDevice(ClassSubsystem *subsystem, std::shared_ptr<Device> parent,
+			std::string name, UnixDevice *unix_device);
+
+protected:
+	~BlockDevice() = default;
+
+public:
+	void linkToSubsystem() override;
+
+private:
+	ClassSubsystem *_subsystem;
+};
+
 void initialize();
 
 void installDevice(std::shared_ptr<Device> device);

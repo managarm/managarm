@@ -6,17 +6,17 @@
 #include "port.hpp"
 
 namespace regs {
-	constexpr arch::scalar_register<uint32_t> clBase{0x0}; 
-	constexpr arch::scalar_register<uint32_t> clBaseUpper{0x4}; 
-	constexpr arch::scalar_register<uint32_t> fisBase{0x8}; 
-	constexpr arch::scalar_register<uint32_t> fisBaseUpper{0xC}; 
-	constexpr arch::scalar_register<uint32_t> interruptStatus{0x10}; 
-	constexpr arch::scalar_register<uint32_t> interruptEnable{0x14}; 
-	constexpr arch::scalar_register<uint32_t> commandAndStatus{0x18}; 
-	constexpr arch::scalar_register<uint32_t> tfd{0x20}; 
-	constexpr arch::scalar_register<uint32_t> status{0x28}; 
+	constexpr arch::scalar_register<uint32_t> clBase{0x0};
+	constexpr arch::scalar_register<uint32_t> clBaseUpper{0x4};
+	constexpr arch::scalar_register<uint32_t> fisBase{0x8};
+	constexpr arch::scalar_register<uint32_t> fisBaseUpper{0xC};
+	constexpr arch::scalar_register<uint32_t> interruptStatus{0x10};
+	constexpr arch::scalar_register<uint32_t> interruptEnable{0x14};
+	constexpr arch::scalar_register<uint32_t> commandAndStatus{0x18};
+	constexpr arch::scalar_register<uint32_t> tfd{0x20};
+	constexpr arch::scalar_register<uint32_t> status{0x28};
 	constexpr arch::scalar_register<uint32_t> sErr{0x30};
-	constexpr arch::scalar_register<uint32_t> commandIssue{0x38}; 
+	constexpr arch::scalar_register<uint32_t> commandIssue{0x38};
 }
 
 namespace flags {
@@ -50,8 +50,8 @@ namespace {
 }
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
-Port::Port(int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
-	: BlockDevice{::sectorSize},  regs_{regs}, numCommandSlots_{numCommandSlots},
+Port::Port(int64_t parentId, int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
+	: BlockDevice{::sectorSize, parentId},  regs_{regs}, numCommandSlots_{numCommandSlots},
 	commandsInFlight_{0}, portIndex_{portIndex}, staggeredSpinUp_{staggeredSpinUp} {
 
 }
@@ -94,7 +94,7 @@ async::result<bool> Port::init() {
 	auto success = co_await helix::kindaBusyWait(500'000'000, [&](){
 		return !(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning); });
 	assert(success);
-	
+
 	// Clear PxCMD.FRE (must be done before rebase)
 	cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::fisReceiveEnable);
@@ -288,4 +288,9 @@ async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size
 			const_cast<void *>(buffer), CommandType::write};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
+}
+
+async::result<size_t> Port::getSize() {
+	std::cout << "ahci: Port::getSize() is a stub!" << std::endl;
+	co_return 0;
 }

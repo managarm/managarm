@@ -36,10 +36,10 @@ namespace flags {
 	} // namespace csts
 } // namespace flags
 
-Controller::Controller(protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
+Controller::Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
 					   helix::UniqueDescriptor, helix::UniqueDescriptor irq)
 	: hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(hbaRegs)},
-	  regs_{regsMapping_.get()}, irq_{std::move(irq)} {
+	  regs_{regsMapping_.get()}, irq_{std::move(irq)}, parentId_{parentId} {
 }
 
 async::detached Controller::run() {

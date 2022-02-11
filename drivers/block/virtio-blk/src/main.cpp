@@ -25,7 +25,7 @@ async::detached bindDevice(mbus::Entity entity) {
 	auto transport = co_await virtio_core::discover(std::move(hw_device),
 			virtio_core::DiscoverMode::transitional);
 
-	auto device = new block::virtio::Device{std::move(transport)};
+	auto device = new block::virtio::Device{std::move(transport), entity.getId()};
 	device->runDevice();
 
 /*
