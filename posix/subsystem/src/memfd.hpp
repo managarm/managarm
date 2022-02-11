@@ -13,8 +13,12 @@ public:
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("memfd-file"), mount, link}, _offset{0} { }
+	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool allowSealing)
+	: File{StructName::get("memfd-file"), mount, link}, _offset{0} {
+		if(!allowSealing) {
+			_seals = F_SEAL_SEAL;
+		}
+	}
 
 	void handleClose() override;
 

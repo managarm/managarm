@@ -3705,7 +3705,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto link = SpecialLink::makeSpecialLink(VfsType::regular, 0777);
-			auto memFile = smarter::make_shared<MemoryFile>(nullptr, link);
+			auto memFile = smarter::make_shared<MemoryFile>(nullptr, link, (req->flags() & MFD_ALLOW_SEALING) == true);
 			MemoryFile::serve(memFile);
 			auto file = File::constructHandle(std::move(memFile));
 
