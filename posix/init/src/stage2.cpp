@@ -158,6 +158,7 @@ int main() {
 		setenv("XDG_RUNTIME_DIR", "/run", 1);
 		setenv("MESA_GLSL_CACHE_DISABLE", "1", 1);
 //		setenv("MESA_DEBUG", "1", 1);
+		setenv("SHELL", "/bin/bash", 1);
 
 		if(launch == "kmscon") {
 			// TODO: kmscon should invoke a login program which sets these environment vars.
