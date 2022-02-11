@@ -919,7 +919,16 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto seals = co_await file_ops->addSeals(file.get(), req.seals());
 
 		if(!seals) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			switch(seals.error()) {
+				case protocols::fs::Error::insufficientPermissions: {
+					resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
+					break;
+				}
+				default: {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					break;
+				}
+			}
 			resp.set_seals(0);
 		} else {
 			resp.set_seals(seals.value());

@@ -64,6 +64,10 @@ MemoryFile::getSeals() {
 
 async::result<frg::expected<protocols::fs::Error, int>>
 MemoryFile::addSeals(int seals) {
+	if(_seals & F_SEAL_SEAL) {
+		co_return protocols::fs::Error::insufficientPermissions;
+	}
+
 	_seals |= seals;
 	co_return int{_seals};
 }
