@@ -3681,6 +3681,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::MemFdCreateRequest::message_id) {
+			managarm::posix::SvrResponse resp;
 			std::vector<std::byte> tail(preamble.tail_size());
 			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -3698,7 +3699,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: MEMFD_CREATE " << req->name() << std::endl;
 
-			std::cout << "posix: MEMFD_CREATE ignores some flags" << std::endl;
+			if(req->flags() & ~(MFD_CLOEXEC | MFD_ALLOW_SEALING)) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
 			auto link = SpecialLink::makeSpecialLink(VfsType::regular, 0777);
 			auto memFile = smarter::make_shared<MemoryFile>(nullptr, link);
@@ -3713,7 +3717,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			int fd = self->fileContext()->attachFile(file, flags);
 
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
 
