@@ -933,11 +933,18 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_resp.error());
 	} else if (req.req_type() == managarm::fs::CntReqType::PT_GET_SEALS) {
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
 
-		auto seals = co_await file_ops->getSeals(file.get());
+		auto result = co_await file_ops->getSeals(file.get());
+		if(!result) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			resp.set_seals(0);
+		} else {
+			assert(result);
+			auto seals = result.value();
 
-		resp.set_seals(seals.value());
+			resp.set_seals(seals);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
