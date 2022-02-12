@@ -10,7 +10,8 @@ src = [
 	'src/stat.cpp',
 	'src/unixnames.cpp',
 	'src/sigaltstack.cpp',
-	'src/mmap.cpp'
+	'src/mmap.cpp',
+	'src/memfd.cpp'
 ]
 
 executable('posix-tests', src, install : true)

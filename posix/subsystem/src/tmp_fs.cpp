@@ -390,7 +390,7 @@ public:
 
 	async::result<frg::expected<protocols::fs::Error>> truncate(size_t size) override;
 
-	FutureMaybe<void> allocate(int64_t offset, size_t size) override;
+	async::result<frg::expected<protocols::fs::Error>> allocate(int64_t offset, size_t size) override;
 
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
 
@@ -568,7 +568,7 @@ MemoryFile::truncate(size_t size) {
 	co_return {};
 }
 
-async::result<void>
+async::result<frg::expected<protocols::fs::Error>>
 MemoryFile::allocate(int64_t offset, size_t size) {
 	assert(!offset);
 
@@ -576,8 +576,9 @@ MemoryFile::allocate(int64_t offset, size_t size) {
 
 	// TODO: Careful about overflow.
 	if(offset + size <= node->_fileSize)
-		co_return;
+		co_return {};
 	node->_resizeFile(offset + size);
+	co_return {};
 }
 
 FutureMaybe<helix::UniqueDescriptor>

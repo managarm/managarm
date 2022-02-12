@@ -400,10 +400,17 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
-		co_await file_ops->fallocate(file.get(), req.rel_offset(), req.size());
+		auto result = co_await file_ops->fallocate(file.get(), req.rel_offset(), req.size());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		if(result) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else if(result.error() == protocols::fs::Error::insufficientPermissions) {
+			resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -898,6 +905,55 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 		resp.set_size(res.value());
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	} else if (req.req_type() == managarm::fs::CntReqType::PT_ADD_SEALS) {
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto seals = co_await file_ops->addSeals(file.get(), req.seals());
+
+		if(!seals) {
+			switch(seals.error()) {
+				case protocols::fs::Error::insufficientPermissions: {
+					resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
+					break;
+				}
+				default: {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					break;
+				}
+			}
+			resp.set_seals(0);
+		} else {
+			resp.set_seals(seals.value());
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	} else if (req.req_type() == managarm::fs::CntReqType::PT_GET_SEALS) {
+		managarm::fs::SvrResponse resp;
+
+		auto result = co_await file_ops->getSeals(file.get());
+		if(!result) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			resp.set_seals(0);
+		} else {
+			assert(result);
+			auto seals = result.value();
+
+			resp.set_seals(seals);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(

@@ -89,7 +89,7 @@ struct FileOperations {
 		truncate = f;
 		return *this;
 	}
-	constexpr FileOperations &withFallocate(async::result<void> (*f)(void *object,
+	constexpr FileOperations &withFallocate(async::result<frg::expected<protocols::fs::Error>> (*f)(void *object,
 			int64_t offset, size_t size)) {
 		fallocate = f;
 		return *this;
@@ -152,7 +152,7 @@ struct FileOperations {
 	async::result<ReadEntriesResult> (*readEntries)(void *object);
 	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object);
 	async::result<frg::expected<protocols::fs::Error>> (*truncate)(void *object, size_t size);
-	async::result<void> (*fallocate)(void *object, int64_t offset, size_t size);
+	async::result<frg::expected<protocols::fs::Error>> (*fallocate)(void *object, int64_t offset, size_t size);
 	async::result<void> (*ioctl)(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 	async::result<protocols::fs::Error> (*flock)(void *object, int flags);
@@ -179,6 +179,8 @@ struct FileOperations {
 			void *addr_buf, size_t addr_size,
 			std::vector<uint32_t> fds);
 	async::result<frg::expected<Error, size_t>> (*peername)(void *object, void *addr_ptr, size_t max_addr_length);
+	async::result<frg::expected<Error, int>> (*getSeals)(void *object);
+	async::result<frg::expected<Error, int>> (*addSeals)(void *object, int seals);
 
 	bool logRequests = false;
 };

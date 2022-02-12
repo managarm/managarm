@@ -120,7 +120,10 @@ enum CntReqType {
 	NODE_CHMOD = 38,
 
 	NODE_RMDIR = 40,
-	NODE_UTIMENSAT = 41
+	NODE_UTIMENSAT = 41,
+
+	PT_GET_SEALS = 48,
+	PT_ADD_SEALS = 49
 }
 
 struct Rect {
@@ -256,6 +259,8 @@ head(128):
 
 		// used by PT_IOCTL for TIOCSPGRP
 		tag(69) int64 pgid;
+
+		tag(84) int32 seals;
 	}
 }
 
@@ -413,6 +418,8 @@ head(128):
 
 		// returned by FIONREAD
 		tag(94) uint32 fionread_count;
+
+		tag(97) int32 seals;
 	}
 }
 

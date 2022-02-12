@@ -1124,7 +1124,11 @@ async::result<void> Process::terminate(TerminationState state) {
 	_fileContext = nullptr;
 	//_signalContext = nullptr; // TODO: Migrate the notifications to PID 1.
 	_currentGeneration = nullptr;
-	assert(co_await _procfs_dir->getOwner()->unlink(_procfs_dir->getName()));
+	if(_procfs_dir) {
+		auto result = co_await _procfs_dir->getOwner()->unlink(_procfs_dir->getName());
+		assert(result);
+		(void)result;
+	}
 
 	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);
