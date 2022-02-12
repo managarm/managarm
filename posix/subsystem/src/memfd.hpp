@@ -46,7 +46,7 @@ private:
 
 	helix::UniqueDescriptor _memory;
 	helix::Mapping _mapping;
-	size_t _areaSize;
-	size_t _fileSize;
-	int _seals;
+	size_t _areaSize = 0;
+	size_t _fileSize = 0;
+	int _seals = 0;
 };
