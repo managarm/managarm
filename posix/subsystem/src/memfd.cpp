@@ -17,6 +17,11 @@ MemoryFile::seek(off_t delta, VfsSeek whence) {
 	co_return _offset;
 }
 
+async::result<frg::expected<protocols::fs::Error>> MemoryFile::truncate(size_t size) {
+	_resizeFile(size);
+	co_return {};
+}
+
 async::result<frg::expected<protocols::fs::Error>>
 MemoryFile::allocate(int64_t offset, size_t size) {
 	assert(!offset);
