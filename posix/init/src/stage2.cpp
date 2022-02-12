@@ -90,6 +90,11 @@ int main() {
 
 	waitpid(udev_settle, nullptr, 0);
 
+	// Set the into blocking mode, so that we don't have to poll it.
+	auto flags = fcntl(udev_monitor_get_fd(init_udev_mon), F_GETFL, 0);
+	assert(flags >= 0);
+	assert(!fcntl(udev_monitor_get_fd(init_udev_mon), F_SETFL, flags & ~O_NONBLOCK));
+
 	std::cout << "init: udev initialization is done" << std::endl;
 
 	// Determine what to launch.
