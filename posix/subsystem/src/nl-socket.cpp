@@ -47,9 +47,9 @@ public:
 				file, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(int protocol)
+	OpenFile(int protocol, bool nonBlock = false)
 	: File{StructName::get("nl-socket"), File::defaultPipeLikeSeek}, _protocol{protocol},
-			_currentSeq{1}, _inSeq{0}, _socketPort{0}, _passCreds{false} { }
+			_currentSeq{1}, _inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
 
 	void deliver(Packet packet) {
 		_recvQueue.push_back(std::move(packet));
@@ -68,6 +68,12 @@ public:
 	readSome(Process *, void *data, size_t max_length) override {
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
+
+		if(_recvQueue.empty() && nonBlock_) {
+			if(logSockets)
+				std::cout << "posix: netlink socket would block" << std::endl;
+			co_return Error::wouldBlock;
+		}
 
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
@@ -105,7 +111,14 @@ public:
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 		assert(!flags);
+		// assert(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)));
 		assert(max_addr_length >= sizeof(struct sockaddr_nl));
+
+		if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
+			if(logSockets)
+				std::cout << "posix: netlink socket would block" << std::endl;
+			co_return RecvResult { protocols::fs::Error::wouldBlock };
+		}
 
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
@@ -196,6 +209,24 @@ public:
 		return _passthrough;
 	}
 
+	async::result<void> setFileFlags(int flags) override {
+		if (flags & ~O_NONBLOCK) {
+			std::cout << "posix: setFileFlags on netlink socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+			co_return;
+		}
+		if (flags & O_NONBLOCK)
+			nonBlock_ = true;
+		else
+			nonBlock_ = false;
+		co_return;
+	}
+
+	async::result<int> getFileFlags() override {
+		if(nonBlock_)
+			co_return O_NONBLOCK;
+		co_return 0;
+	}
+
 private:
 	void _associatePort() {
 		assert(!_socketPort);
@@ -221,6 +252,7 @@ private:
 
 	// Socket options.
 	bool _passCreds;
+	bool nonBlock_;
 };
 
 struct Group {
@@ -366,8 +398,8 @@ void broadcast(int proto_idx, int grp_idx, std::string buffer) {
 	group->carbonCopy(packet);
 }
 
-smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol) {
-	auto file = smarter::make_shared<OpenFile>(protocol);
+smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol, bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(protocol, nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
