@@ -93,7 +93,8 @@ int main() {
 	// Set the into blocking mode, so that we don't have to poll it.
 	auto flags = fcntl(udev_monitor_get_fd(init_udev_mon), F_GETFL, 0);
 	assert(flags >= 0);
-	assert(!fcntl(udev_monitor_get_fd(init_udev_mon), F_SETFL, flags & ~O_NONBLOCK));
+	auto ret = fcntl(udev_monitor_get_fd(init_udev_mon), F_SETFL, flags & ~O_NONBLOCK);
+	assert(!ret);
 
 	std::cout << "init: udev initialization is done" << std::endl;
 
