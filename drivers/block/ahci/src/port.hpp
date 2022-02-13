@@ -22,6 +22,8 @@ public:
 	async::result<bool> init();
 	async::detached run();
 	void handleIrq();
+	void dumpState();
+	void checkErrors();
 
 	async::result<void> readSectors(uint64_t sector, void *buf, size_t numSectors) override;
 	async::result<void> writeSectors(uint64_t sector, const void *buf, size_t numSectors) override;

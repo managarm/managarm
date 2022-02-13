@@ -18,6 +18,7 @@ public:
 private:
 	async::result<bool> initPorts_(size_t numCommandSlots, bool staggeredSpinUp);
 	async::detached handleIrqs_();
+	void dumpState_();
 
 private:
 	protocols::hw::Device hwDevice_;

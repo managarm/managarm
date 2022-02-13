@@ -15,13 +15,14 @@ namespace regs {
 	constexpr arch::scalar_register<uint32_t> commandAndStatus{0x18};
 	constexpr arch::scalar_register<uint32_t> tfd{0x20};
 	constexpr arch::scalar_register<uint32_t> status{0x28};
-	constexpr arch::scalar_register<uint32_t> sErr{0x30};
+	constexpr arch::scalar_register<uint32_t> sataControl{0x2C};
+	constexpr arch::scalar_register<uint32_t> sErr{0x30}
+	constexpr arch::scalar_register<uint32_t> sataActive{0x34};
 	constexpr arch::scalar_register<uint32_t> commandIssue{0x38};
 }
 
 namespace flags {
 	namespace cmd {
-		constexpr int iccActive         = 1 << 28;
 		constexpr int cmdListRunning    = 1 << 15;
 		constexpr int fisReceiveRunning = 1 << 14;
 		constexpr int fisReceiveEnable  = 1 << 4;
@@ -46,38 +47,15 @@ namespace flags {
 
 namespace {
 	constexpr size_t sectorSize = 512;
-	constexpr bool logCommands  = false;
 }
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
 Port::Port(int64_t parentId, int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
 	: BlockDevice{::sectorSize, parentId},  regs_{regs}, numCommandSlots_{numCommandSlots},
 	commandsInFlight_{0}, portIndex_{portIndex}, staggeredSpinUp_{staggeredSpinUp} {
-
 }
 
 async::result<bool> Port::init() {
-	if (staggeredSpinUp_) {
-		// Spin up device
-		auto cas = regs_.load(regs::commandAndStatus);
-		regs_.store(regs::commandAndStatus, cas | flags::cmd::spinUpDevice);
-
-		// Wait up to 10ms for PxSSTS.DET = 1 or 3 (AHCI spec: 10.1.1, SATA 3.2 spec: 17.7.2)
-		auto success = co_await helix::kindaBusyWait(10'000'000, [&]() {
-			auto det = regs_.load(regs::status) & 0xF;
-			return det == 1 || det == 3;
-		});
-		if (!success) {
-			printf("block/ahci: Couldn't spin up port %d\n", portIndex_);
-			co_return false;
-		}
-	}
-
-	// Set link to active
-	auto cas = regs_.load(regs::commandAndStatus);
-	cas &= ~(0xF << 28); // Clear ICC
-	regs_.store(regs::commandAndStatus, cas | flags::cmd::iccActive);
-
 	// If PxSSTS.DET != 3, PxSSTS.IPM != 1 at this point, then ignore the device for now
 	auto status = regs_.load(regs::status);
 	auto ipm = (status >> 8) & 0xF;
@@ -87,7 +65,7 @@ async::result<bool> Port::init() {
 
 	// 10.1.2, part 3:
 	// Clear PxCMD.ST
-	cas = regs_.load(regs::commandAndStatus);
+	auto cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::start);
 
 	// Wait until PxCMD.CR = 0 with 500ms timeout
@@ -102,6 +80,36 @@ async::result<bool> Port::init() {
 	// Wait until PxCMD.FR = 0 with 500ms timeout
 	success = co_await helix::kindaBusyWait(500'000'000, [&](){
 			return !(regs_.load(regs::commandAndStatus) & flags::cmd::fisReceiveRunning); });
+	assert(success);
+
+	if (staggeredSpinUp_) {
+		// Spin up device
+		auto cas = regs_.load(regs::commandAndStatus);
+		regs_.store(regs::commandAndStatus, cas | flags::cmd::spinUpDevice);
+
+		// Wait up to 10ms for PxSSTS.DET = 1 or 3 (AHCI spec: 10.1.1, SATA 3.2 spec: 17.7.2)
+		auto success = co_await helix::kindaBusyWait(10'000'000, [&]() {
+			auto det = regs_.load(regs::status) & 0xF;
+			// return det == 1 || det == 3;
+			return det == 3;
+		});
+		if (!success) {
+			printf("block/ahci: Couldn't spin up port %d\n", portIndex_);
+			co_return false;
+		}
+	}
+
+	// Perform COMRESET (AHCI spec 10.4.2)
+	auto sataControl = regs_.load(regs::sataControl);
+	regs_.store(regs::sataControl, (sataControl & 0xFFFFFFF0) | 1);
+
+	co_await helix::sleepFor(10'000'000);
+
+	sataControl = regs_.load(regs::sataControl);
+	regs_.store(regs::sataControl, sataControl & 0xFFFFFFF0);
+
+	success = co_await helix::kindaBusyWait(10'000'000, [&](){
+			return (regs_.load(regs::status) & 0xF) == 0x3; });
 	assert(success);
 
 	// Allocate memory for command list, received FIS, and command tables
@@ -123,9 +131,26 @@ async::result<bool> Port::init() {
 	regs_.store(regs::fisBase, static_cast<uint32_t>(rfPhys));
 	regs_.store(regs::fisBaseUpper, 0);
 
-	printf("block/ahci: Discovered port %d, ipm %x, det %x\n", portIndex_, ipm, det);
+	status = regs_.load(regs::status);
+	ipm = (status >> 8) & 0xF;
+	det = status & 0xF;
+	printf("block/ahci: Discovered port %d, PxSSTS.IPM %#x, PxSSTS.DET %#x\n", portIndex_, ipm, det);
 
 	co_return true;
+}
+
+void Port::dumpState() {
+	printf("\tPxSERR: %#x\n", regs_.load(regs::sErr));
+	printf("\tPxCMD: %#x\n", regs_.load(regs::commandAndStatus));
+	printf("\tPxCI: %#x\n", regs_.load(regs::commandIssue));
+	printf("\tPxTFD: %#x\n", regs_.load(regs::tfd));
+	printf("\tPxSSTS: %#x\n", regs_.load(regs::status));
+	printf("\tPxSCTL: %#x\n", regs_.load(regs::sataControl));
+	printf("\tPxSACT: %#x\n", regs_.load(regs::sataActive));
+	printf("\tPxIS: %#x\n", regs_.load(regs::interruptStatus));
+	printf("\tPxIE: %#x\n", regs_.load(regs::interruptEnable));
+	printf("\tcommandsInFlight: %zu\n", commandsInFlight_);
+	printf("\tsubmittedCmds slots used: %zu\n", std::count_if(submittedCmds_.begin(), submittedCmds_.end(), [](auto &p){ return p != nullptr; }));
 }
 
 async::detached Port::run() {
@@ -134,10 +159,14 @@ async::detached Port::run() {
 	regs_.store(regs::commandAndStatus, cas | flags::cmd::fisReceiveEnable);
 
 	// Check that the BSY and DRQ bits are clear (necessary as per 10.3.1)
-	auto tfd = regs_.load(regs::tfd);
-	if ((tfd & flags::tfd::bsy) || (tfd & flags::tfd::drq)) {
-		printf("block/ahci: Failed to start busy port %d\n", portIndex_);
-		co_return;
+	auto success = co_await helix::kindaBusyWait(10'000'000'000, [&](){
+		auto tfd = regs_.load(regs::tfd);
+		return !((tfd & flags::tfd::bsy) || (tfd & flags::tfd::drq));
+	});
+	if (!success) {
+		printf("\e[31mblock/ahci: Failed to start busy port %d\e[39m\n", portIndex_);
+		dumpState();
+		abort();
 	}
 
 	// Start port (10.3.1)
@@ -154,7 +183,7 @@ async::detached Port::run() {
 	regs_.store(regs::commandIssue, 1 << slot);
 
 	// Just poll for completion for simplicity
-	auto success = co_await helix::kindaBusyWait(500'000'000,
+	success = co_await helix::kindaBusyWait(500'000'000,
 			[&](){ return !(regs_.load(regs::commandIssue) & (1 << slot)); });
 	assert(success);
 
@@ -169,23 +198,41 @@ async::detached Port::run() {
 	assert(logicalSize == 512 && "block/ahci: logical sector size > 512 is not supported");
 
 	// Clear errors
-	regs_.store(regs::sErr, ~0);
+	regs_.store(regs::sErr, regs_.load(regs::sErr));
 
 	// Clear and enable interrupts on this port
 	auto is = regs_.load(regs::interruptStatus);
 	regs_.store(regs::interruptStatus, is);
 	auto ie = regs_.load(regs::interruptEnable);
-	regs_.store(regs::interruptEnable, ie
-			| flags::is::d2hFis
-			| flags::is::taskFileError
-			| flags::is::hostDataError
-			| flags::is::hostFatalError
-			| flags::is::ifFatalError
-			| flags::is::ifNonFatalError);
+	// regs_.store(regs::interruptEnable, ie
+	// 		| flags::is::d2hFis
+	// 		| flags::is::taskFileError
+	// 		| flags::is::hostDataError
+	// 		| flags::is::hostFatalError
+	// 		| flags::is::ifFatalError
+	// 		| flags::is::ifNonFatalError);
+	regs_.store(regs::interruptEnable,
+			(1 << 30) |
+			(1 << 29) |
+			(1 << 28) |
+			(1 << 27) |
+			(1 << 26) |
+			(1 << 24) |
+			(1 << 23) |
+			(1 << 22) |
+			(1 << 6) |
+			(1 << 5) |
+			(1 << 4) |
+			(1 << 3) |
+			(1 << 2) |
+			(1 << 1) |
+			(1 << 0));
 
 	submitPendingLoop_();
 
+	// if (portIndex_ != 4)
 	blockfs::runDevice(this);
+
 	co_return;
 }
 
@@ -211,50 +258,64 @@ async::result<size_t> Port::findFreeSlot_() {
 	co_return 0;
 }
 
+void Port::checkErrors() {
+	auto is = regs_.load(regs::interruptStatus);
+
+	// TODO: Make this more robust (try to recover)
+	if (is & (flags::is::hostFatalError | flags::is::ifFatalError) || regs_.load(regs::tfd) & 0x1) {
+		printf("\e[31mblock/ahci: Port %d encountered error\e[39m\n", portIndex_);
+		dumpState();
+		abort();
+	} else if (is & flags::is::ifNonFatalError) {
+		printf("\e[31mblock/ahci: Port %d encountered non-fatal error\e[39m\n", portIndex_);
+		dumpState();
+		abort();
+	} else if (regs_.load(regs::tfd) & 1) {
+		printf("\e[31mblock/ahci: Port %d encountered task file error\e[39m\n", portIndex_);
+		dumpState();
+		abort();
+	}
+}
+
 void Port::handleIrq() {
 	auto is = regs_.load(regs::interruptStatus);
 
-	// Check errors
-	// TODO: Make this more robust (log non-fatal errors, try to recover, print more state etc.)
-	if (is & (flags::is::hostFatalError | flags::is::ifFatalError)) {
-		printf("\e[31mblock/ahci: Port %d encountered fatal error, PxIS = %u, PxSERR = %u\e[39m\n",
-				portIndex_, is, regs_.load(regs::sErr));
-		abort();
-	}
-
 	if (logCommands) {
-		printf("block/ahci: Port %d handling IRQ: PxIS %x, PxIE %x, TFD %x, CI %x, CAS %x\n",
+		printf("block/ahci: Port %d handling IRQ: PxIS %#x, PxIE %#x, PxTFD %#x, PxCI %#x, PxCAS %#x\n",
 				portIndex_, is, regs_.load(regs::interruptEnable), regs_.load(regs::tfd),
 				regs_.load(regs::commandIssue), regs_.load(regs::commandAndStatus));
 	}
 
+	checkErrors();
+
+	std::vector<std::unique_ptr<Command>> completed;
+
 	// Notify all completed commands
-	auto numCompleted = 0;
 	auto cmdActiveMask = regs_.load(regs::commandIssue);
 	for (size_t i = 0; i < numCommandSlots_; i++) {
 		if (submittedCmds_[i] && !(cmdActiveMask & (1 << i))) {
-			Command *cmd = std::exchange(submittedCmds_[i], nullptr);
-			cmd->notifyCompletion();
-			numCompleted++;
+			completed.push_back(std::move(submittedCmds_[i]));
 		}
+	}
+
+	commandsInFlight_ -= completed.size();
+	regs_.store(regs::interruptStatus, is);
+
+	for (auto &cmd : completed) {
+		cmd->notifyCompletion();
 	}
 
 	// If the buffer has gone from full to not full, wake the tasks waiting for a free slot.
 	// TODO: If we have a lot of waiters, this will cause many spurious wakeups. Ideally, we only
 	// notify a certain number of tasks, and the rest can stay asleep.
-	if (commandsInFlight_ == numCommandSlots_ && numCompleted > 0) {
+	if (commandsInFlight_ + completed.size() == numCommandSlots_ && completed.size() > 0) {
 		freeSlotDoorbell_.raise();
 	}
-
-	commandsInFlight_ -= numCompleted;
-
-	// Acknowledge the interrupt
-	regs_.store(regs::interruptStatus, is);
 }
 
 async::detached Port::submitPendingLoop_() {
 	while (true) {
-		auto cmd =	co_await pendingCmdQueue_.async_get();
+		auto cmd = co_await pendingCmdQueue_.async_get();
 		assert(cmd);
 		co_await submitCommand_(cmd.value());
 	}
@@ -271,6 +332,11 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 	// Issue command
 	submittedCmds_[slot] = cmd;
 	commandsInFlight_++;
+
+	// Wait until not busy
+	while (regs_.load(regs::tfd) & (flags::tfd::bsy | flags::tfd::drq))
+		;
+
 	regs_.store(regs::commandIssue, 1 << slot);
 
 	co_return;

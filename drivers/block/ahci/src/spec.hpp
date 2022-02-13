@@ -10,6 +10,10 @@ namespace limits {
 	constexpr size_t maxPorts    = 32;
 }
 
+namespace {
+	constexpr bool logCommands = false;
+}
+
 struct receivedFis {
 	uint8_t dmaFis[0x1C];
 	uint8_t _reservedA[4];
