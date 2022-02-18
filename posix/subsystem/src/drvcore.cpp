@@ -181,6 +181,7 @@ void BlockDevice::linkToSubsystem() {
 
 void initialize() {
 	nl_socket::configure(NETLINK_KOBJECT_UEVENT, 32);
+	nl_socket::configure(NETLINK_ROUTE, 32);
 
 	// Create the /sys/dev/{char,block} directories.
 	auto dev_object = std::make_shared<sysfs::Object>(nullptr, "dev");
