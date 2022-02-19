@@ -149,6 +149,8 @@ struct FileOperations {
 			void *buffer, size_t length);
 	async::result<frg::expected<protocols::fs::Error, size_t>> (*write)(void *object, const char *credentials,
 			const void *buffer, size_t length);
+	async::result<frg::expected<protocols::fs::Error, size_t>> (*pwrite)(void *object, int64_t offset, const char *credentials,
+			const void *buffer, size_t length);
 	async::result<ReadEntriesResult> (*readEntries)(void *object);
 	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object);
 	async::result<frg::expected<protocols::fs::Error>> (*truncate)(void *object, size_t size);
