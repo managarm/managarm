@@ -5,6 +5,7 @@ src = [
 	'src/ip/tcp4.cpp',
 	'src/ip/udp4.cpp',
 	'src/main.cpp',
+	'src/netlink.cpp',
 	'src/nic.cpp'
 ]
 

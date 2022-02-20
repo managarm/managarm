@@ -173,7 +173,7 @@ public:
 
 		auto packet = &_recvQueue.front();
 
-		CtrlBuilder ctrl{max_ctrl_length};
+		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
 		if(_passCreds) {
 			struct ucred creds;

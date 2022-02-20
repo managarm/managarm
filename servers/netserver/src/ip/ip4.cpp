@@ -141,7 +141,7 @@ struct Ip4Socket {
 			e != protocols::fs::Error::none) {
 			co_return e;
 		}
-		
+
 		// TODO(arsen): check other broadcast addresses too
 		if (ip == INADDR_ANY) {
 			co_return protocols::fs::Error::accessDenied;

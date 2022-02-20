@@ -6,6 +6,7 @@
 #include <sys/timerfd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <linux/netlink.h>
 
 #include <helix/timer.hpp>
 
@@ -2260,7 +2261,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK);
 			}else if(req->domain() == AF_NETLINK) {
 				assert(req->socktype() == SOCK_RAW || req->socktype() == SOCK_DGRAM);
-				file = nl_socket::createSocketFile(req->protocol(), req->flags() & SOCK_NONBLOCK);
+				// NL_ROUTE gets handled by the netserver.
+				if (req->protocol() == NETLINK_ROUTE)
+					file = co_await extern_socket::createSocket(
+						co_await net::getNetLane(),
+						req->domain(),
+						req->socktype(), req->protocol(),
+						req->flags() & SOCK_NONBLOCK
+						);
+				else
+					file = nl_socket::createSocketFile(req->protocol(), req->flags() & SOCK_NONBLOCK);
 			} else if (req->domain() == AF_INET) {
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
