@@ -26,6 +26,33 @@ The package, for instance, would be `managarm-system`, which will place
 `compile_commands.json` in the root of the `managarm` source managed by
 `xbstrap`.
 
+### Note on "multi build" sources
+Some code, such as the `managarm` kernel and servers, is built under two
+distinct configurations from the same source.
+For these, the above procedure won't be sufficient (which one of the two
+compile databases do you pick?).
+As a workaround, we can instruct clangd to conditionally pick a compile
+database.
+
+In the managarm source directory, drop in a snippet like this one into a file
+called `.clangd` at the root:
+
+```yaml
+---
+CompileFlags:
+  CompilationDatabase: /var/lib/managarm-buildenv/build/pkg-builds/managarm-system
+---
+If:
+  PathMatch: kernel/.*
+CompileFlags:
+  CompilationDatabase: /var/lib/managarm-buildenv/build/pkg-builds/managarm-kernel
+
+# vim: set ft=yaml :
+```
+
+Your paths might vary, and the LSP launcher relies on a compile database link
+existing (even if broken), so the above step with `ln -s` is still necessary.
+
 ## Editor specific setup
 
 ### vim (`vim-lsp`)
