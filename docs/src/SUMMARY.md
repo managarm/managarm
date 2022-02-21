@@ -16,6 +16,7 @@
 - [Contributing](contributing/overview.md)
     - [Overview](contributing/overview.md)
     - [xbstrap-Workflow](contributing/xbstrap.md)
+    - [LSP setup](contributing/lsp.md)
     - [Commit messages](contributing/commit-messages.md)
     - [Coding style](contributing/coding-style.md)
 
