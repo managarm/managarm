@@ -5,31 +5,31 @@ run [clangd](https://clangd.llvm.org/) server inside the build context.
 This provides autocompletion, hover information, basic refactoring and other
 features to your text editor of choice.
 
-As the server runs inside a container or with a modified environment, which is
-a nonstandard configuration, some editor configuration will be required.
+As the server runs inside a container or within a modified environment, which
+is a nonstandard configuration, some editor configuration will be required.
 
 ## Common setup
 Using the `scripts/managarm-lsp-launcher.sh` script in the `bootstrap-managarm`
-repository, we conveniently launch an LSP server in our build environment.
+repository, we can conveniently launch an LSP server in our build environment.
 
 This script discovers what package context you're currently in and runs clangd
 appropriately.
-It relies on a link to the compile commands database to detect what package
-it's working in.
+It relies on the `compile_commands.json` link to figure out what package you're
+currently in.
 To create this link, run:
 
 ```sh
 xbstrap -C /path/to/build-dir lsp <package> -- ln -s @THIS_BUILD_DIR@/compile_commands.json
 ```
 
-The package, for instance, would be `managarm-system`, which will place
-`compile_commands.json` in the root of the `managarm` source managed by
-`xbstrap`.
+For instance, if `<package>` is `managarm-system`, it will place a link in
+`<source dir>/managarm/compile_commands.json`, as this is where the xbstrap
+`managarm` source is located.
 
 ### Note on "multi build" sources
 Some code, such as the `managarm` kernel and servers, is built under two
 distinct configurations from the same source.
-For these, the above procedure won't be sufficient (which one of the two
+For these, the above procedure will not be sufficient (which one of the two
 compile databases do you pick?).
 As a workaround, we can instruct clangd to conditionally pick a compile
 database.
@@ -97,4 +97,10 @@ In case of trouble, please invoke the script directly like so:
 - If you see the `clangd` banner, but you are seeing issues in the editor,
   enable the LSP logs in your editor (for instance, `g:lsp_log_verbose` and
   `g:lsp_log_file` with `vim-lsp`), and check the logs.
-  If there is no obvious issue, reach out for help.
+- Export `CLANGD_FLAGS="--log=verbose"` before running your text editor to
+  increase log verbosity and try again.
+- LLVM 13 changed the meaning of `.clangd`.
+  It used to be a directory containing the indexer cache, but it was moved to
+  `$XDG_CACHE_HOME/clangd`.
+  If `.clangd` is a directory, remove it.
+- If there is no obvious solution, reach out for help.
