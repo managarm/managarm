@@ -73,13 +73,13 @@ void Thread::migrateCurrent() {
 	}, &this_thread->_executor);
 }
 
-void Thread::blockCurrent() {
+bool Thread::blockCurrent(bool interruptible) {
 	auto thisThread = getCurrentThread();
 
 	// Optimistically clear the unblock latch before entering the mutex.
 	// We need acquire semantics to synchronize with unblockOther().
 	if(thisThread->_unblockLatch.exchange(false, std::memory_order_acquire))
-		return;
+		return true;
 
 	StatelessIrqLock irqLock;
 	auto lock = frg::guard(&thisThread->_mutex);
@@ -87,7 +87,7 @@ void Thread::blockCurrent() {
 	// We do not need any memory barrier here: no matter how our aquisition of _mutex
 	// is ordered to the aquisition in unblockOther(), we are still correct.
 	if(thisThread->_unblockLatch.load(std::memory_order_relaxed))
-		return;
+		return true;
 
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)thisThread.get()
@@ -95,7 +95,7 @@ void Thread::blockCurrent() {
 
 	assert(thisThread->_runState == kRunActive);
 	thisThread->_updateRunTime();
-	thisThread->_runState = kRunBlocked;
+	thisThread->_runState = interruptible ? kRunInterruptableBlocked : kRunBlocked;
 	localScheduler.get().update();
 	Scheduler::suspendCurrent();
 	localScheduler.get().forceReschedule();
@@ -108,6 +108,11 @@ void Thread::blockCurrent() {
 			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
 	}, &thisThread->_executor);
+
+	// Check if we've been interrupted
+	if (interruptible && thisThread->_pendingSignal == kSigInterrupt)
+		return false;
+	return true;
 }
 
 void Thread::deferCurrent() {
@@ -395,7 +400,7 @@ void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&thread->_mutex);
 
-	if(thread->_runState != kRunBlocked)
+	if (thread->_runState != kRunBlocked && thread->_runState != kRunInterruptableBlocked)
 		return;
 	
 	if(logRunStates)
@@ -413,12 +418,23 @@ void Thread::killOther(smarter::borrowed_ptr<Thread> thread) {
 
 void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
 	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&thread->_mutex);
+	bool unblock;
 
-	// TODO: Perform the interrupt immediately if possible.
+	{
+		auto lock = frg::guard(&thread->_mutex);
 
-//	assert(thread->_pendingSignal == kSigNone);
-	thread->_pendingSignal = kSigInterrupt;
+		// TODO: Perform the interrupt immediately if possible.
+		// assert(thread->_pendingSignal == kSigNone);
+
+		thread->_pendingSignal = kSigInterrupt;
+
+		// If the thread is blocked and can be interrupted,
+		// then unblock it to notify.
+		unblock = (thread->_runState == kRunInterruptableBlocked);
+	}
+
+	if(unblock)
+		unblockOther(thread);
 }
 
 Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
@@ -594,7 +610,10 @@ void Thread::_updateRunTime() {
 		_loadRunnable += elapsed;
 	} else {
 		// TODO: Terminated counts as not runnable; we may want to revisit this.
-		assert(_runState == kRunBlocked || _runState == kRunInterrupted || _runState == kRunTerminated);
+		assert(
+		    _runState == kRunBlocked || _runState == kRunInterrupted || _runState == kRunTerminated
+		    || _runState == kRunInterruptableBlocked
+		);
 		_loadNotRunnable += elapsed;
 	}
 	_lastRunTimeUpdate = now;
