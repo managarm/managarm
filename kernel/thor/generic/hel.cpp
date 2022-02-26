@@ -2965,21 +2965,25 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		if(deadline != -1)
 			return kHelErrIllegalArgs;
 
-		Thread::asyncBlockCurrent(
-			getGlobalFutexRealm()->wait(std::move(futex), expected)
-		);
+		if (!Thread::asyncBlockCurrent([&] (async::cancellation_token ct) {
+			return getGlobalFutexRealm()->wait(std::move(futex), expected, ct);
+			}, Thread::asyncBlockCurrentInterruptible{})) {
+			return kHelErrCancelled;
+		}
 	}else{
-		Thread::asyncBlockCurrent(
-			async::race_and_cancel(
+		if (!Thread::asyncBlockCurrent([&] (async::cancellation_token ct) {
+			return async::race_and_cancel(
 				[&] (async::cancellation_token cancellation) {
 					return getGlobalFutexRealm()->wait(std::move(futex), expected,
 							cancellation);
 				},
 				[&] (async::cancellation_token cancellation) {
 					return generalTimerEngine()->sleep(deadline, cancellation);
-				}
-			)
-		);
+				});
+			}, Thread::asyncBlockCurrentInterruptible{}
+			)) {
+			return kHelErrCancelled;
+		}
 	}
 
 	return kHelErrNone;
