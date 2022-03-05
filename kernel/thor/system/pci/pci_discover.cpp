@@ -1334,6 +1334,9 @@ void runAllBridges() {
 }
 
 void runAllDevices() {
+	if (!allDevices)
+		allDevices.initialize(*kernelAlloc);
+
 	for (auto dev : *allDevices)
 		dev->runDevice();
 }
@@ -1875,6 +1878,12 @@ uint32_t findHighestId(PciBus *bus) {
 }
 
 void enumerateAll() {
+	if (!enumerationQueue)
+		enumerationQueue.initialize(*kernelAlloc);
+
+	if (!allRootBuses)
+		allRootBuses.initialize(*kernelAlloc);
+
 	if (!allDevices)
 		allDevices.initialize(*kernelAlloc);
 
