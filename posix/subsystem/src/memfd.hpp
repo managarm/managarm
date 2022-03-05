@@ -30,6 +30,8 @@ public:
 	async::result<frg::expected<protocols::fs::Error, int>> getSeals() override;
 	async::result<frg::expected<protocols::fs::Error, int>> addSeals(int seals) override;
 
+	async::result<frg::expected<protocols::fs::Error>> truncate(size_t new_size) override;
+
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {

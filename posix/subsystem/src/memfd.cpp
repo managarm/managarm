@@ -76,3 +76,9 @@ MemoryFile::addSeals(int seals) {
 	_seals |= seals;
 	co_return int{_seals};
 }
+
+async::result<frg::expected<protocols::fs::Error>>
+MemoryFile::truncate(size_t new_size) {
+	_resizeFile(new_size);
+	co_return {};
+}
