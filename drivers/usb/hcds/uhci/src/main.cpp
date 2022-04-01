@@ -1192,7 +1192,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 
 	//printf("Transfer complete!\n");
 	front->promise.set_value(front->lengthComplete);
-	front->voidPromise.set_value(UsbError{});
+	front->voidPromise.set_value(frg::success);
 
 	// Schedule the next transaction.
 	entity->transactions.pop_front();
