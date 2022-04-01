@@ -41,21 +41,22 @@ Enumerator::Enumerator(Controller *controller)
 : _controller{controller} { }
 
 void Enumerator::connectPort(int port) {
-	assert(_state == State::null);
-	_state = State::resetting;
-	_activePort = port;
-	_reset();
+	_reset(port);
 }
 
 void Enumerator::enablePort(int port) {
-	assert(_state == State::resetting);
 	assert(_activePort == port);
-	_state = State::probing;
 	_probe();
 }
 
-async::detached Enumerator::_reset() {
+void Enumerator::disablePort(int port) {
+	assert(_activePort == port);
+	_addressMutex.unlock();
+}
+
+async::detached Enumerator::_reset(int port) {
 	co_await _addressMutex.async_lock();
+	_activePort = port;
 	_controller->resetPort(_activePort);
 }
 
@@ -280,9 +281,11 @@ void Controller::_checkPorts() {
 			port_space.store(port_regs::sc, portsc::connectChange(true)
 					| portsc::portOwner(sc & portsc::portOwner));
 			if(sc & portsc::connectStatus) {
-				if((sc & portsc::lineStatus) == 1) {
+				if((sc & portsc::lineStatus) == 1) { // K-state: Low-speed device
 					if(logDeviceEnumeration)
 						std::cout << "ehci: Device on port " << i << " is low-speed" << std::endl;
+					// release the ownership of the port to the companion controller, as required by spec
+					// see EHCI spec rev 1.0, p. 28
 					port_space.store(port_regs::sc, portsc::portOwner(true));
 				}else{
 					if(logDeviceEnumeration)
@@ -912,7 +915,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			std::cout << "ehci: Transfer complete!" << std::endl;
 		assert(active->fullSize >= active->lostSize);
 		active->promise.set_value(active->fullSize - active->lostSize);
-		active->voidPromise.set_value(UsbError{});
+		active->voidPromise.set_value(frg::success);
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();
@@ -976,8 +979,9 @@ async::detached Controller::resetPort(int number) {
 		std::cout << "ehci: Port " << number << " was enabled." << std::endl;
 		_enumerator.enablePort(number);
 	}else{
-		// TODO: We should grant the port to the companion controller here.
-		std::cout << "ehci: Port " << number << " disabled after reset." << std::endl;
+		std::cout << "ehci: Device on port " << number << " is not high-speed" << std::endl;
+		port_space.store(port_regs::sc, portsc::portOwner(true));
+		_enumerator.disablePort(number);
 	}
 }
 

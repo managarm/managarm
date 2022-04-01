@@ -27,16 +27,14 @@ struct Enumerator {
 	// Called by the USB hub driver once a device completes reset.
 	void enablePort(int port);
 
-private:
-	enum class State {
-		null, resetting, probing
-	};
+	// Called by the USB hub driver if a port fails to enable after connection
+	void disablePort(int port);
 
-	async::detached _reset();
+private:
+	async::detached _reset(int port);
 	async::detached _probe();
 
 	Controller *_controller;
-	State _state;
 	int _activePort;
 	async::mutex _addressMutex;
 };
