@@ -317,7 +317,7 @@ public:
 	// Notifies the device that new descriptors have been posted.
 	void notify();
 
-	auto submitDescriptor(Handle descriptor) {
+	async::result<void> submitDescriptor(Handle descriptor) {
 		struct OneshotRequest : Request {
 			async::oneshot_event event;
 		} ev_req;
@@ -329,7 +329,8 @@ public:
 		});
 		notify();
 
-		return ev_req.event.wait();
+		co_await ev_req.event.wait();
+		co_return;
 	}
 
 	// Processes interrupts for this virtq.
