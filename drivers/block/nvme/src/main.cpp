@@ -27,8 +27,11 @@ async::detached bindController(mbus::Entity entity) {
 async::detached observeControllers() {
 	auto root = co_await mbus::Instance::global().getRoot();
 
-	auto filter = mbus::Conjunction({mbus::EqualsFilter("pci-vendor", "1b36"),
-									 mbus::EqualsFilter("pci-device", "0010")});
+	auto filter = mbus::Conjunction({
+            mbus::EqualsFilter("pci-class", "01"),
+            mbus::EqualsFilter("pci-subclass", "08"),
+            mbus::EqualsFilter("pci-interface", "02"),
+    });
 
 	auto handler = mbus::ObserverHandler{}
 					   .withAttach([](mbus::Entity entity, mbus::Properties) {
