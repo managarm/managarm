@@ -195,7 +195,7 @@ if build_drivers
 	
 	# delay these dirs until last as they require other libs
 	# to already be built
-	delay = [ 'drivers/nic/virtio', 'servers/netserver', 'drivers/clocktracker' ]
+	delay = [ 'drivers/nic/virtio', 'drivers/nic/rtl8139', 'servers/netserver', 'drivers/clocktracker' ]
 
 	foreach dir : protocols
 		subdir('protocols'/dir)
