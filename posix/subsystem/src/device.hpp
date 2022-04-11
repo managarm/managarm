@@ -88,7 +88,6 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 // External device helpers.
 // --------------------------------------------------------
 
-//FutureMaybe<smarter::shared_ptr<File, FileHandle>>
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,

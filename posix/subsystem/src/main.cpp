@@ -61,12 +61,12 @@
 #include <protocols/posix/data.hpp>
 
 namespace {
-	constexpr bool logRequests = true;
+	constexpr bool logRequests = false;
 	constexpr bool logPaths = false;
 	constexpr bool logSignals = false;
 	constexpr bool logCleanup = false;
 
-	constexpr bool debugFaults = true;
+	constexpr bool debugFaults = false;
 }
 
 std::map<
@@ -2475,7 +2475,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
-			//resp.set_path("/dev/ttyS0");
 
 			auto file = self->fileContext()->getFile(req.fd());
 			if(!file) {

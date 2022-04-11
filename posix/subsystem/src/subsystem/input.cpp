@@ -71,6 +71,10 @@ private:
 async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	auto fileMaybe = co_await device->open(nullptr, nullptr, 0);
+	if(!fileMaybe){
+		std::cout << "\e[31mposix: show(): open() error\e[39m" << std::endl;
+		while(true);
+	}
 	auto file = fileMaybe.value(); //TODO: properly handle error returns here
 	auto lane = file->getPassthroughLane();
 
