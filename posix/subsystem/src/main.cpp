@@ -420,32 +420,51 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			auto pid = gprs[kHelRegArg0];
+			auto pid = (intptr_t)gprs[kHelRegArg0];
 			auto sn = gprs[kHelRegArg1];
 
 			std::shared_ptr<Process> target;
+			std::shared_ptr<ProcessGroup> targetGroup;
 			if(!pid) {
-				std::cout << "\e[31mposix: SIG_KILL(0) should target "
-						"the whole process group\e[39m" << std::endl;
 				if(logSignals)
-					std::cout << "posix: SIG_KILL on PID " << self->pid() << std::endl;
-				target = self;
-			}else{
+					std::cout << "posix: SIG_KILL on PGRP " << self->pid()
+						<< " (self)" << std::endl;
+				targetGroup = self->pgPointer();
+			} else if(pid == -1) {
+				std::cout << "posix: SIG_KILL(-1) is ignored!" << std::endl;
+				HEL_CHECK(helResume(thread.getHandle()));
+				break;
+			} else if(pid > 0) {
 				if(logSignals)
 					std::cout << "posix: SIG_KILL on PID " << pid << std::endl;
 				target = Process::findProcess(pid);
-				assert(target);
+			} else {
+				if(logSignals)
+					std::cout << "posix: SIG_KILL on PGRP " << -pid << std::endl;
+				targetGroup = ProcessGroup::findProcessGroup(-pid);
 			}
 
 			// Clear the error code.
 			// TODO: This should only happen is raising succeeds. Move it somewhere else?
 			gprs[kHelRegError] = 0;
-			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			if(!target && !targetGroup) {
+				gprs[kHelRegOut0] = ESRCH;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+				HEL_CHECK(helResume(thread.getHandle()));
+				break;
+			}
 
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			UserSignal info;
 			info.pid = self->pid();
 			info.uid = 0;
-			target->signalContext()->issueSignal(sn, info);
+			if(sn) {
+				if(targetGroup) {
+					targetGroup->issueSignalToGroup(sn, info);
+				} else {
+					target->signalContext()->issueSignal(sn, info);
+				}
+			}
 
 			// If the process signalled itself, we should process the signal before resuming.
 			bool killed = false;

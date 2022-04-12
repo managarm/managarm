@@ -643,6 +643,8 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 	friend struct TerminalSession;
 	friend struct ControllingTerminalState;
 
+	static std::shared_ptr<ProcessGroup> findProcessGroup(ProcessId pgid);
+
 	ProcessGroup(std::shared_ptr<PidHull> hull);
 
 	~ProcessGroup();
