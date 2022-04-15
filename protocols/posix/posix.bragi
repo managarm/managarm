@@ -465,7 +465,7 @@ head(128):
 	int64 pid;
 }
 
-message SetPgidRequest 81 {
+message SetPgidRequest 85 {
 head(128):
 	int64 pid;
 	int64 pgid;
