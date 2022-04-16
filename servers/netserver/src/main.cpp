@@ -23,16 +23,45 @@
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
+#include <nic/intel/e1000.hpp>
 
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 
-async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
+async::result<void> doVirtioBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
 	protocols::hw::Device hwDevice(co_await base_entity.bind());
 	co_await hwDevice.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
 	auto device = nic::virtio::makeShared(std::move(transport));
+	if (baseDeviceMap.empty()) {
+		// default via 10.0.2.2 src 10.10.2.15
+		Ip4Router::Route wan { { 0, 0 }, device };
+		wan.gateway = 0x0a000202;
+		wan.source = 0x0a0a020f;
+		ip4Router().addRoute(std::move(wan));
+
+		// 10.0.2.0/24
+		ip4Router().addRoute({ { 0x0a000200, 24 }, device });
+		// inet 10.10.2.15/24
+		ip4().setLink({ 0x0a0a020f, 24 }, device);
+	}
+	baseDeviceMap.insert({base_entity.getId(), device});
+	nic::runDevice(device);
+}
+
+async::result<void> doIntelBind(mbus::Entity base_entity) {
+	protocols::hw::Device hwDevice(co_await base_entity.bind());
+	co_await hwDevice.enableBusmaster();
+	auto info = co_await hwDevice.getPciInfo();
+
+    // Extract BAR0, and map it into memory
+	auto& e1000BarInfo = info.barInfo[0];
+	assert(e1000BarInfo.ioType == protocols::hw::IoType::kIoTypeMemory);
+	auto e1000Bar = co_await hwDevice.accessBar(0);
+	helix::Mapping mapping{e1000Bar, e1000BarInfo.offset, e1000BarInfo.length};
+
+	auto device = nic::e1000::makeShared(std::move(hwDevice), std::move(mapping), std::move(e1000Bar));
 	if (baseDeviceMap.empty()) {
 		// default via 10.0.2.2 src 10.10.2.15
 		Ip4Router::Route wan { { 0, 0 }, device };
@@ -59,24 +88,37 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 	// Make sure that we only bind to supported devices.
 	auto properties = co_await base_entity.getProperties();
-	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
-			!vendor_str || vendor_str->value != "1af4")
+	auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+	if(!vendor_str || !(vendor_str->value == "1af4" || vendor_str->value == "8086"))
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	virtio_core::DiscoverMode discover_mode;
-	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
-		if(device_str->value == "1000")
-			discover_mode = virtio_core::DiscoverMode::transitional;
-		else if(device_str->value == "1041")
-			discover_mode = virtio_core::DiscoverMode::modernOnly;
-		else
+	// Virtio NIC
+	if (vendor_str->value == "1af4") {
+		virtio_core::DiscoverMode discover_mode;
+		if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
+			if(device_str->value == "1000")
+				discover_mode = virtio_core::DiscoverMode::transitional;
+			else if(device_str->value == "1041")
+				discover_mode = virtio_core::DiscoverMode::modernOnly;
+			else
+				co_return protocols::svrctl::Error::deviceNotSupported;
+		}else{
 			co_return protocols::svrctl::Error::deviceNotSupported;
-	}else{
-		co_return protocols::svrctl::Error::deviceNotSupported;
-	}
+		}
 
-	co_await doBind(base_entity, discover_mode);
-	co_return protocols::svrctl::Error::success;
+		co_await doVirtioBind(base_entity, discover_mode);
+		co_return protocols::svrctl::Error::success;
+	} else {
+		std::cout << "netserver: Intel e1000 Gigabit Ethernet card detected!\n";
+		// Intel e1000 Gigabit Ethernet
+		auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+		if(!device_str || !(device_str->value == "100e" || device_str->value == "100f" ||
+							device_str->value == "109a"))
+			co_return protocols::svrctl::Error::deviceNotSupported;
+		
+		co_await doIntelBind(base_entity);
+		co_return protocols::svrctl::Error::success;
+	}
 }
 
 async::detached serve(helix::UniqueLane lane) {

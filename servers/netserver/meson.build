@@ -9,7 +9,13 @@ src = [
 ]
 
 executable('netserver', src,
-	dependencies : [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep ],
+	dependencies : [ 
+		fs_proto_dep, 
+		mbus_proto_dep, 
+		svrctl_proto_dep, 
+		nic_virtio_dep,  
+		nic_intel_dep,
+	],
 	include_directories : 'include',
 	install : true
 )
