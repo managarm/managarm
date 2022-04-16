@@ -1127,10 +1127,13 @@ void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) 
 }
 
 void Controller::_progressSchedule() {
-	auto it = _activeEntities.begin();
-	while(it != _activeEntities.end()) {
-		_progressQueue(*it);
-		++it;
+	// NOTE: This loop is intentionally weird to account for the fact that
+	// _progressQueue may in fact add entries to the active list.  Any iterators
+	// are then potentially invalidated.
+	volatile size_t size = _activeEntities.size();
+	for(size_t i = 0; i < size; i++) {
+		_progressQueue(_activeEntities[i]);
+		size = _activeEntities.size();
 	}
 }
 
