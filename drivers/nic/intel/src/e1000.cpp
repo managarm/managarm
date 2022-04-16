@@ -38,10 +38,10 @@ namespace {
 
         if (haveEEPROM) {
             regs_.store(regs::eeprom, 1 | ((uint32_t)offset << 8));
-            while ( !( (result = regs_.load(regs::eeprom)) & (1 << 4) ) );
+            while (!((result = regs_.load(regs::eeprom)) & (1 << 4)));
         } else {
             regs_.store(regs::eeprom, 1 | ((uint32_t)offset << 2));
-            while ( !( (result = regs_.load(regs::eeprom)) & (1 << 1) ) );
+            while (!((result = regs_.load(regs::eeprom)) & (1 << 1)));
         }
 
         return static_cast<uint16_t>((result >> 16) & 0xFFFF);
@@ -79,14 +79,21 @@ namespace {
             tmp = read_eeprom(2);
             mac_[4] = tmp & 0xFF;
             mac_[5] = tmp >> 8;
+        } else {
+            for (int i = 0; i < 5; i++) {
+                // TODO(cleanbaja): find a less hacky way to do this
+                arch::scalar_register<uint32_t> macAddress{0x5400 + i};
+                mac_[i] = regs_.load(macAddress);
+            }
+        }
 
-            char ms[3 * 6 + 1];
-            sprintf(ms, "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x",
-                    mac_[0], mac_[1], mac_[2],
-                    mac_[3], mac_[4], mac_[5]);
-            std::cout << "intel-e1000: Device has a hardware MAC: "
-                << ms << std::endl;
-        } 
+        // Print the MAC address, which the e1000 always has
+        char ms[3 * 6 + 1];
+        sprintf(ms, "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x",
+                mac_[0], mac_[1], mac_[2],
+                mac_[3], mac_[4], mac_[5]);
+        std::cout << "intel-e1000: Device has a hardware MAC: "
+            << ms << std::endl;
     }
 
     async::result<void> e1000Nic::receive(arch::dma_buffer_view) {
