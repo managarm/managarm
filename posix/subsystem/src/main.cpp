@@ -2485,14 +2485,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto ttynameResult = co_await file->ttyname();
 			if(!ttynameResult) {
 			    assert(ttynameResult.error() == Error::notTerminal);
-			    // This error can be named better, but will do for now
-			    co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+			    co_await sendErrorResponse(managarm::posix::Errors::NOT_A_TTY);
 			    continue;
 			}
+
 			resp.set_path(ttynameResult.value());
-
-			std::cout << "\e[31mposix: ttynameResult: " << ttynameResult.value() << "\e[39m" << std::endl;
-
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
