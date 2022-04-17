@@ -266,6 +266,12 @@ async::result<frg::expected<Error, size_t>> File::writeAll(Process *, const void
 	throw std::runtime_error("posix: Object has no File::writeAll()");
 }
 
+async::result<frg::expected<Error, ControllingTerminalState *>> File::getControllingTerminal() {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement getControllingTerminal()\e[39m" << std::endl;
+	co_return Error::notTerminal;
+}
+
 async::result<ReadEntriesResult> File::readEntries() {
 	throw std::runtime_error("posix: Object has no File::readEntries()");
 }
