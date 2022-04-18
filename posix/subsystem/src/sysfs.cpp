@@ -6,6 +6,8 @@
 #include "device.hpp"
 #include "sysfs.hpp"
 
+#include <bitset>
+
 namespace sysfs {
 
 // ----------------------------------------------------------------------------
@@ -190,9 +192,16 @@ async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 	co_return stats;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> AttributeNode::open(std::shared_ptr<MountView> mount,
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+AttributeNode::open(std::shared_ptr<MountView> mount,
 		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+	if(semantic_flags & ~(semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+			<< std::bitset<32>(semantic_flags)
+			<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< std::endl;
+		co_return Error::illegalArguments;
+	}
 
 	auto file = smarter::make_shared<AttributeFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);
@@ -300,9 +309,16 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> DirectoryNode::open(std::shared_ptr<MountView> mount,
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+DirectoryNode::open(std::shared_ptr<MountView> mount,
 		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+	if(semantic_flags & ~(semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+			<< std::bitset<32>(semantic_flags)
+			<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< std::endl;
+		co_return Error::illegalArguments;
+	}
 
 	auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 	file->setupWeakFile(file);

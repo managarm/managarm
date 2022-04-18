@@ -398,6 +398,13 @@ async::result<void> File::ioctl(Process *, managarm::fs::CntRequest,
 	co_return;
 }
 
+async::result<frg::expected<Error, std::string>>
+File::ttyname() {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement ttyname()" << std::endl;
+	co_return Error::notTerminal;
+}
+
 async::result<int> File::getFileFlags() {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement getFileFlags()" << std::endl;

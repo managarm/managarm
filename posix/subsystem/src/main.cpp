@@ -2292,6 +2292,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						if(fileResult.error() == Error::noBackingDevice) {
 							co_await sendErrorResponse(managarm::posix::Errors::NO_BACKING_DEVICE);
 							continue;
+						} else if(fileResult.error() == Error::illegalArguments) {
+							co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+							continue;
 						} else {
 							std::cout << "posix: Unexpected failure from open()" << std::endl;
 							co_return;
@@ -2472,7 +2475,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
-			resp.set_path("/dev/ttyS0");
+
+			auto file = self->fileContext()->getFile(req.fd());
+			if(!file) {
+			    co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
+			    continue;
+			}
+			
+			auto ttynameResult = co_await file->ttyname();
+			if(!ttynameResult) {
+			    assert(ttynameResult.error() == Error::notTerminal);
+			    co_await sendErrorResponse(managarm::posix::Errors::NOT_A_TTY);
+			    continue;
+			}
+
+			resp.set_path(ttynameResult.value());
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();

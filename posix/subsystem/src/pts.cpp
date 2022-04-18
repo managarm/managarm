@@ -10,6 +10,8 @@
 #include "pts.hpp"
 #include "fs.bragi.hpp"
 
+#include <bitset>
+
 namespace pts {
 
 namespace {
@@ -97,7 +99,7 @@ struct MasterDevice final : UnixDevice {
 		return "ptmx";
 	}
 
-	async::result<SharedFilePtr>
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 };
@@ -109,7 +111,7 @@ struct SlaveDevice final : UnixDevice {
 		return std::string{};
 	}
 
-	async::result<SharedFilePtr>
+	async::result<frg::expected<Error, SharedFilePtr>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 
@@ -171,7 +173,7 @@ public:
 	}
 
 	SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			std::shared_ptr<Channel> channel);
+			std::shared_ptr<Channel> channel, bool nonBlock);
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override;
@@ -193,10 +195,15 @@ public:
 		return _passthrough;
 	}
 
+	async::result<frg::expected<Error, std::string>>
+	ttyname() override;
+
 private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
+
+	bool nonBlock_;
 };
 
 //-----------------------------------------------------------------------------
@@ -274,7 +281,8 @@ public:
 		return _id;
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
@@ -429,10 +437,17 @@ Channel::commonIoctl(Process *process, managarm::fs::CntRequest req, helix::Uniq
 // MasterDevice implementation.
 //-----------------------------------------------------------------------------
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)));
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+				<< std::bitset<32>(semantic_flags)
+				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< std::endl;
+		co_return Error::illegalArguments;
+	}
+
 	auto file = smarter::make_shared<MasterFile>(std::move(mount), std::move(link),
 			semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
@@ -589,21 +604,29 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 	assignId({136, _channel->ptsIndex});
 }
 
-FutureMaybe<SharedFilePtr>
+async::result<frg::expected<Error, SharedFilePtr>>
 SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
-	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel);
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+			<< std::bitset<32>(semantic_flags)
+			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< std::endl;
+		co_return Error::illegalArguments;
+	}
+
+	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel,
+			semantic_flags & semanticNonBlock);
 	file->setupWeakFile(file);
 	SlaveFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
 SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		std::shared_ptr<Channel> channel)
+		std::shared_ptr<Channel> channel, bool nonBlock)
 : File{StructName::get("pts.slave"), std::move(mount), std::move(link),
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
-		_channel{std::move(channel)} { }
+		_channel{std::move(channel)}, nonBlock_{nonBlock} { }
 
 async::result<frg::expected<Error, size_t>>
 SlaveFile::readSome(Process *, void *data, size_t maxLength) {
@@ -612,8 +635,14 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 	if(!maxLength)
 		co_return 0;
 
-	while(_channel->slaveQueue.empty())
+	while(_channel->slaveQueue.empty()){
+		if(nonBlock_){
+			if(logReadWrite)
+				std::cout << "posix: tty would block" << std::endl;
+			co_return Error::wouldBlock;
+		}
 		co_await _channel->statusBell.async_wait();
+	}
 
 	auto packet = &_channel->slaveQueue.front();
 	auto chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
@@ -792,6 +821,19 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req.command()
 				<< "\e[39m" << std::endl;
 	}
+}
+
+async::result<frg::expected<Error, std::string>>
+SlaveFile::ttyname() {
+	std::shared_ptr<FsLink> me = associatedLink();
+	std::string name;
+	if(!isTerminal())
+		co_return Error::notTerminal;
+
+	name = me->getName();;
+
+	//TODO: dynamically resolve absolute path?
+	co_return std::string("/dev/pts/").append(name);
 }
 
 //-----------------------------------------------------------------------------

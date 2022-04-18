@@ -30,7 +30,7 @@ public:
 
 	virtual std::string nodePath() = 0;
 
-	virtual FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) = 0;
 
@@ -88,7 +88,8 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 // External device helpers.
 // --------------------------------------------------------
 
-FutureMaybe<smarter::shared_ptr<File, FileHandle>> openExternalDevice(helix::BorrowedLane lane,
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags);
 

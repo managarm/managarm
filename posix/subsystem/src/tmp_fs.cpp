@@ -12,6 +12,8 @@
 #include "process.hpp"
 #include <sys/stat.h>
 
+#include <bitset>
+
 // TODO: Remove dependency on those functions.
 #include "extern_fs.hpp"
 HelHandle __mlibc_getPassthrough(int fd);
@@ -273,7 +275,13 @@ private:
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+		if(semantic_flags & ~(semanticRead | semanticWrite)){
+			std::cout << "\e[31mposix: open() received illegal arguments:"
+				<< std::bitset<32>(semantic_flags)
+				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< std::endl;
+			co_return Error::illegalArguments;
+		}
 
 		auto file = smarter::make_shared<DirectoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
@@ -349,7 +357,13 @@ private:
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!(semantic_flags & ~(semanticRead | semanticWrite)));
+		if(semantic_flags & ~(semanticRead | semanticWrite)){
+			std::cout << "\e[31mposix: open() received illegal arguments:"
+				<< std::bitset<32>(semantic_flags)
+				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< std::endl;
+			co_return Error::illegalArguments;
+		}
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
@@ -417,7 +431,13 @@ struct MemoryNode final : Node {
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		assert(!(semantic_flags & ~(semanticRead | semanticWrite | semanticNonBlock)));
+		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+			std::cout << "\e[31mposix: open() received illegal arguments:"
+				<< std::bitset<32>(semantic_flags)
+				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< std::endl;
+			co_return Error::illegalArguments;
+		}
 		auto file = smarter::make_shared<MemoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		MemoryFile::serve(file);
