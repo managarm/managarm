@@ -159,7 +159,9 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 
 async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *,
 		const void *buffer, size_t length) {
-	assert(length);
+	if(!length) {
+		co_return 0;
+	}
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	co_await self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
