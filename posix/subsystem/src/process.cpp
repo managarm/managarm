@@ -507,6 +507,7 @@ SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
 }
 
 void SignalContext::issueSignal(int sn, SignalInfo info) {
+	assert(sn > 0);
 	assert(sn - 1 < 64);
 	auto item = new SignalItem;
 	item->signalNumber = sn;
@@ -1170,6 +1171,13 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 // --------------------------------------------------------------------------------------
 // Process groups and sessions.
 // --------------------------------------------------------------------------------------
+
+std::shared_ptr<ProcessGroup> ProcessGroup::findProcessGroup(ProcessId pid) {
+	auto it = globalPidMap.find(pid);
+	if(it == globalPidMap.end())
+		return nullptr;
+	return it->second->getProcessGroup();
+}
 
 ProcessGroup::ProcessGroup(std::shared_ptr<PidHull> hull)
 : hull_{std::move(hull)} { }
