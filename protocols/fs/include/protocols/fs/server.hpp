@@ -76,6 +76,11 @@ struct FileOperations {
 		write = f;
 		return *this;
 	}
+	constexpr FileOperations &withPwrite(async::result<frg::expected<protocols::fs::Error, size_t>> (*f)(void *object,
+			int64_t offset, const char *, const void *buffer, size_t length)) {
+		pwrite = f;
+		return *this;
+	}
 	constexpr FileOperations &withReadEntries(async::result<ReadEntriesResult> (*f)(void *object)) {
 		readEntries = f;
 		return *this;
