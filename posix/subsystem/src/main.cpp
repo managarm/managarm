@@ -2166,7 +2166,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_RDONLY
 					| managarm::posix::OpenFlags::OF_WRONLY
 					| managarm::posix::OpenFlags::OF_RDWR
-					| managarm::posix::OpenFlags::OF_PATH))) {
+					| managarm::posix::OpenFlags::OF_PATH
+					| managarm::posix::OpenFlags::OF_NOCTTY))) {
 				std::cout << "posix: OPENAT flags not recognized: " << req->flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
@@ -2310,6 +2311,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix:     OPEN failed: file not found" << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
+			}
+
+			if(file->isTerminal() &&
+				!(req->flags() & managarm::posix::OpenFlags::OF_NOCTTY) && 
+				self->pgPointer()->getSession()->getSessionId() == (pid_t)self->pid() &&
+				self->pgPointer()->getSession()->getControllingTerminal() == nullptr) {
+				// POSIX 1003.1-2017 11.1.3
+				auto cts = co_await file->getControllingTerminal();
+				if(!cts) {
+					std::cout << "posix: Unable to get controlling terminal (" << (int)cts.error() << ")" << std::endl;
+				} else {
+					cts.value()->assignSessionOf(self.get());
+				}
 			}
 
 			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC) {

@@ -139,6 +139,9 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
+	async::result<frg::expected<Error, ControllingTerminalState *>>
+	getControllingTerminal() override;
+
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t sequence, int mask,
 			async::cancellation_token cancellation) override;
@@ -180,6 +183,9 @@ public:
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
+
+	async::result<frg::expected<Error, ControllingTerminalState *>>
+	getControllingTerminal() override;
 
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t sequence, int mask,
@@ -521,6 +527,11 @@ MasterFile::writeAll(Process *, const void *data, size_t length) {
 	co_return length;
 }
 
+async::result<frg::expected<Error, ControllingTerminalState *>>
+MasterFile::getControllingTerminal() {
+	co_return &_channel->cts;
+}
+
 async::result<frg::expected<Error, PollWaitResult>>
 MasterFile::pollWait(Process *, uint64_t past_seq, int mask,
 		async::cancellation_token cancellation) {
@@ -689,6 +700,11 @@ SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	_channel->masterInSeq = ++_channel->currentSeq;
 	_channel->statusBell.raise();
 	co_return length;
+}
+
+async::result<frg::expected<Error, ControllingTerminalState *>>
+SlaveFile::getControllingTerminal() {
+	co_return &_channel->cts;
 }
 
 async::result<frg::expected<Error, PollWaitResult>>

@@ -15,6 +15,7 @@ struct File;
 struct MountView;
 struct FsLink;
 struct Process;
+struct ControllingTerminalState;
 
 struct FileHandle { };
 
@@ -274,6 +275,9 @@ public:
 
 	virtual async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length);
+
+	virtual async::result<frg::expected<Error, ControllingTerminalState *>>
+	getControllingTerminal();
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
 
