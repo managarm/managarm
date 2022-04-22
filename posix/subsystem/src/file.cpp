@@ -93,6 +93,23 @@ async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *o
 	co_return result.value();
 }
 
+async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPwrite(void *object, int64_t offset, const char *credentials,
+			const void *buffer, size_t length) {
+	auto self = static_cast<File *>(object);
+	auto process = findProcessWithCredentials(credentials);
+	auto result = co_await self->pwrite(process.get(), offset, buffer, length);
+	if(!result) {
+		switch(result.error()) {
+		case Error::noSpaceLeft:
+			co_return protocols::fs::Error::noSpaceLeft;
+		default:
+			assert(!"Unexpected error from pwrite()");
+			__builtin_unreachable();
+		}
+	}
+	co_return result.value();
+}
+
 async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
 	auto self = static_cast<File *>(object);
 	return self->readEntries();
@@ -270,6 +287,12 @@ async::result<frg::expected<Error, ControllingTerminalState *>> File::getControl
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement getControllingTerminal()\e[39m" << std::endl;
 	co_return Error::notTerminal;
+}
+
+async::result<frg::expected<Error, size_t>> File::pwrite(Process *, int64_t, const void *, size_t) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement pwrite()" << std::endl;
+	co_return Error::seekOnPipe;
 }
 
 async::result<ReadEntriesResult> File::readEntries() {

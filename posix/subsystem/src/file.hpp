@@ -118,6 +118,9 @@ public:
 	static async::result<frg::expected<protocols::fs::Error, size_t>>
 	ptWrite(void *object, const char *credentials, const void *buffer, size_t length);
 
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
+	ptPwrite(void *object, int64_t offset, const char *credentials, const void *buffer, size_t length);
+
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(void *object);
 
@@ -181,6 +184,7 @@ public:
 		.seekEof = &ptSeekEof,
 		.read = &ptRead,
 		.write = &ptWrite,
+		.pwrite = &ptPwrite,
 		.readEntries = &ptReadEntries,
 		.truncate = &ptTruncate,
 		.fallocate = &ptAllocate,
@@ -278,6 +282,9 @@ public:
 
 	virtual async::result<frg::expected<Error, ControllingTerminalState *>>
 	getControllingTerminal();
+
+	virtual async::result<frg::expected<Error, size_t>>
+	pwrite(Process *process, int64_t offset, const void *data, size_t length);
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
 

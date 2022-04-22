@@ -159,11 +159,24 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 
 async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *,
 		const void *buffer, size_t length) {
-	assert(length);
+	if(!length) {
+		co_return 0;
+	}
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	co_await self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
 	self->offset += length;
+	co_return length;
+}
+
+async::result<frg::expected<protocols::fs::Error, size_t>> pwrite(void *object, int64_t offset, const char *credentials,
+			const void *buffer, size_t length) {
+	if(!length) {
+		co_return 0;
+	}
+
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	co_await self->inode->fs.write(self->inode.get(), offset, buffer, length);
 	co_return length;
 }
 
@@ -208,6 +221,7 @@ constexpr protocols::fs::FileOperations fileOperations {
 	.read         = &read,
 	.pread        = &pread,
 	.write        = &write,
+	.pwrite       = &pwrite,
 	.readEntries  = &readEntries,
 	.accessMemory = &accessMemory,
 	.truncate     = &truncate,
