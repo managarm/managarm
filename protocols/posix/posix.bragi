@@ -20,7 +20,8 @@ enum Errors {
 	NO_BACKING_DEVICE = 16,
 	NO_SUCH_RESOURCE = 17,
 	INSUFFICIENT_PERMISSION = 18,
-	IS_DIRECTORY = 19
+	IS_DIRECTORY = 19,
+	NOT_A_TTY = 20
 }
 
 consts CntReqType uint32 {
@@ -106,7 +107,8 @@ consts OpenFlags uint32 {
 	OF_WRONLY = 16,
 	OF_RDWR = 32,
 	OF_TRUNC = 64,
-	OF_PATH = 128
+	OF_PATH = 128,
+	OF_NOCTTY = 512
 }
 
 message CntRequest 1 {

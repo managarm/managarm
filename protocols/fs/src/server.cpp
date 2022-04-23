@@ -253,8 +253,65 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
 			} else if(res.error() == Error::wouldBlock) {
 				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+			} else if(res.error() == Error::seekOnPipe) {
+				resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
 			} else {
 				std::cout << "Unknown error from write()" << std::endl;
+				co_return;
+			}
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}else{
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_size(res.value());
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_PWRITE) {
+		std::vector<uint8_t> buffer;
+		buffer.resize(req.size());
+
+		auto [extract_creds, recv_buffer] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials(),
+			helix_ng::recvBuffer(buffer.data(), buffer.size())
+		);
+		HEL_CHECK(extract_creds.error());
+		HEL_CHECK(recv_buffer.error());
+
+		if(!file_ops->pwrite) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto res = co_await file_ops->pwrite(file.get(), req.offset(), extract_creds.credentials(),
+				buffer.data(), recv_buffer.actualLength());
+
+		managarm::fs::SvrResponse resp;
+		if(!res) {
+			if(res.error() == Error::noSpaceLeft) {
+				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
+			} else if(res.error() == Error::wouldBlock) {
+				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+			} else {
+				std::cout << "Unknown error from pwrite()" << std::endl;
 				co_return;
 			}
 			auto ser = resp.SerializeAsString();

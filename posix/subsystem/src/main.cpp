@@ -420,32 +420,51 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			auto pid = gprs[kHelRegArg0];
+			auto pid = (intptr_t)gprs[kHelRegArg0];
 			auto sn = gprs[kHelRegArg1];
 
 			std::shared_ptr<Process> target;
+			std::shared_ptr<ProcessGroup> targetGroup;
 			if(!pid) {
-				std::cout << "\e[31mposix: SIG_KILL(0) should target "
-						"the whole process group\e[39m" << std::endl;
 				if(logSignals)
-					std::cout << "posix: SIG_KILL on PID " << self->pid() << std::endl;
-				target = self;
-			}else{
+					std::cout << "posix: SIG_KILL on PGRP " << self->pid()
+						<< " (self)" << std::endl;
+				targetGroup = self->pgPointer();
+			} else if(pid == -1) {
+				std::cout << "posix: SIG_KILL(-1) is ignored!" << std::endl;
+				HEL_CHECK(helResume(thread.getHandle()));
+				break;
+			} else if(pid > 0) {
 				if(logSignals)
 					std::cout << "posix: SIG_KILL on PID " << pid << std::endl;
 				target = Process::findProcess(pid);
-				assert(target);
+			} else {
+				if(logSignals)
+					std::cout << "posix: SIG_KILL on PGRP " << -pid << std::endl;
+				targetGroup = ProcessGroup::findProcessGroup(-pid);
 			}
 
 			// Clear the error code.
 			// TODO: This should only happen is raising succeeds. Move it somewhere else?
 			gprs[kHelRegError] = 0;
-			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			if(!target && !targetGroup) {
+				gprs[kHelRegOut0] = ESRCH;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+				HEL_CHECK(helResume(thread.getHandle()));
+				break;
+			}
 
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			UserSignal info;
 			info.pid = self->pid();
 			info.uid = 0;
-			target->signalContext()->issueSignal(sn, info);
+			if(sn) {
+				if(targetGroup) {
+					targetGroup->issueSignalToGroup(sn, info);
+				} else {
+					target->signalContext()->issueSignal(sn, info);
+				}
+			}
 
 			// If the process signalled itself, we should process the signal before resuming.
 			bool killed = false;
@@ -2166,7 +2185,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_RDONLY
 					| managarm::posix::OpenFlags::OF_WRONLY
 					| managarm::posix::OpenFlags::OF_RDWR
-					| managarm::posix::OpenFlags::OF_PATH))) {
+					| managarm::posix::OpenFlags::OF_PATH
+					| managarm::posix::OpenFlags::OF_NOCTTY))) {
 				std::cout << "posix: OPENAT flags not recognized: " << req->flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
@@ -2292,6 +2312,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						if(fileResult.error() == Error::noBackingDevice) {
 							co_await sendErrorResponse(managarm::posix::Errors::NO_BACKING_DEVICE);
 							continue;
+						} else if(fileResult.error() == Error::illegalArguments) {
+							co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+							continue;
 						} else {
 							std::cout << "posix: Unexpected failure from open()" << std::endl;
 							co_return;
@@ -2307,6 +2330,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "posix:     OPEN failed: file not found" << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
+			}
+
+			if(file->isTerminal() &&
+				!(req->flags() & managarm::posix::OpenFlags::OF_NOCTTY) && 
+				self->pgPointer()->getSession()->getSessionId() == (pid_t)self->pid() &&
+				self->pgPointer()->getSession()->getControllingTerminal() == nullptr) {
+				// POSIX 1003.1-2017 11.1.3
+				auto cts = co_await file->getControllingTerminal();
+				if(!cts) {
+					std::cout << "posix: Unable to get controlling terminal (" << (int)cts.error() << ")" << std::endl;
+				} else {
+					cts.value()->assignSessionOf(self.get());
+				}
 			}
 
 			if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC) {
@@ -2472,7 +2508,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
-			resp.set_path("/dev/ttyS0");
+
+			auto file = self->fileContext()->getFile(req.fd());
+			if(!file) {
+			    co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
+			    continue;
+			}
+			
+			auto ttynameResult = co_await file->ttyname();
+			if(!ttynameResult) {
+			    assert(ttynameResult.error() == Error::notTerminal);
+			    co_await sendErrorResponse(managarm::posix::Errors::NOT_A_TTY);
+			    continue;
+			}
+
+			resp.set_path(ttynameResult.value());
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();

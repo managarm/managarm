@@ -123,7 +123,9 @@ enum CntReqType {
 	NODE_UTIMENSAT = 41,
 
 	PT_GET_SEALS = 48,
-	PT_ADD_SEALS = 49
+	PT_ADD_SEALS = 49,
+
+	PT_PWRITE = 50
 }
 
 struct Rect {

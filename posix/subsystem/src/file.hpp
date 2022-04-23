@@ -15,6 +15,7 @@ struct File;
 struct MountView;
 struct FsLink;
 struct Process;
+struct ControllingTerminalState;
 
 struct FileHandle { };
 
@@ -50,6 +51,8 @@ enum class Error {
 	notConnected,
 
 	alreadyExists,
+
+	notTerminal,
 
 	// Corresponds with ENXIO
 	noBackingDevice,
@@ -115,6 +118,9 @@ public:
 	static async::result<frg::expected<protocols::fs::Error, size_t>>
 	ptWrite(void *object, const char *credentials, const void *buffer, size_t length);
 
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
+	ptPwrite(void *object, int64_t offset, const char *credentials, const void *buffer, size_t length);
+
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(void *object);
 
@@ -178,6 +184,7 @@ public:
 		.seekEof = &ptSeekEof,
 		.read = &ptRead,
 		.write = &ptWrite,
+		.pwrite = &ptPwrite,
 		.readEntries = &ptReadEntries,
 		.truncate = &ptTruncate,
 		.fallocate = &ptAllocate,
@@ -273,6 +280,12 @@ public:
 	virtual async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length);
 
+	virtual async::result<frg::expected<Error, ControllingTerminalState *>>
+	getControllingTerminal();
+
+	virtual async::result<frg::expected<Error, size_t>>
+	pwrite(Process *process, int64_t offset, const void *data, size_t length);
+
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
 
 	virtual async::result<protocols::fs::RecvResult>
@@ -337,6 +350,8 @@ public:
 
 	virtual async::result<frg::expected<protocols::fs::Error, int>> getSeals();
 	virtual async::result<frg::expected<protocols::fs::Error, int>> addSeals(int flags);
+
+	virtual async::result<frg::expected<Error, std::string>> ttyname();
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;
