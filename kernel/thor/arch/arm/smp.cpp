@@ -2,7 +2,7 @@
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/arch/cpu.hpp>

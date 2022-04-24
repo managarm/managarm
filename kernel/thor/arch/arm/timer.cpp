@@ -3,7 +3,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/schedule.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/dtb/dtb.hpp>

@@ -1,6 +1,8 @@
 #pragma once
 
-#include <thor-internal/initgraph.hpp>
+#include <stdint.h>
+
+#include <initgraph.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/timer.hpp>
 

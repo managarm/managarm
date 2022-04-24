@@ -7,7 +7,7 @@
 #include <frg/string.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/error.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <smarter.hpp>

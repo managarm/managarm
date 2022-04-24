@@ -2,10 +2,8 @@
 
 #include <frg/array.hpp>
 #include <frg/list.hpp>
-#include <thor-internal/debug.hpp>
 #include <assert.h>
 
-namespace thor {
 namespace initgraph {
 
 inline constexpr bool printDotAnnotations = false;
@@ -34,6 +32,9 @@ struct Edge {
 
 	Edge &operator= (const Edge &) = delete;
 
+	Node *source() { return source_; }
+	Node *target() { return target_; }
+
 private:
 	Node *source_;
 	Node *target_;
@@ -55,6 +56,11 @@ struct Node {
 	Node(const Node &) = delete;
 
 	Node &operator= (const Node &) = delete;
+
+	NodeType type() { return type_; }
+	Engine *engine() { return engine_; }
+
+	const char *displayName() { return displayName_; }
 
 protected:
 	virtual void activate() { };
@@ -96,9 +102,21 @@ private:
 
 struct Engine {
 	friend void realizeNode(Node *node);
+	friend void realizeEdge(Edge *node);
 
 	constexpr Engine() = default;
 
+protected:
+	~Engine() = default;
+
+	virtual void onRealizeNode(Node *node) { (void)node; };
+	virtual void onRealizeEdge(Edge *edge) { (void)edge; };
+	virtual void preActivate(Node *node) { (void)node; };
+	virtual void postActivate(Node *node) { (void)node; };
+	virtual void reportUnreached(Node *node) { (void)node; };
+	virtual void onUnreached() { __builtin_trap(); }
+
+public:
 	void run(Node *goal = nullptr) {
 		frg::intrusive_list<
 			Node,
@@ -150,16 +168,12 @@ struct Engine {
 			assert(current->wanted_);
 			assert(!current->done_);
 
-			if(current->type_ == NodeType::task)
-				infoLogger() << "thor: Running task " << current->displayName_
-						<< frg::endlog;
+			preActivate(current);
 
 			current->activate();
 			current->done_ = true;
 
-			if(current->type_ == NodeType::stage)
-				infoLogger() << "thor: Reached stage " << current->displayName_
-						<< frg::endlog;
+			postActivate(current);
 
 			for(auto edge : current->outList_) {
 				auto successor = edge->target_;
@@ -177,15 +191,12 @@ struct Engine {
 				continue;
 			if(node->done_)
 				continue;
-			if(node->type_ == NodeType::stage)
-				infoLogger() << "thor: Initialization stage "
-						<< node->displayName_ << " could not be reached" << frg::endlog;
+			reportUnreached(node);
 			++nUnreached;
 		}
 
 		if(nUnreached)
-			panicLogger() << "thor: There are " << nUnreached << " initialization nodes"
-					" that could not be reached (circular dependencies?)" << frg::endlog;
+			onUnreached();
 	}
 
 private:
@@ -209,25 +220,9 @@ private:
 };
 
 inline void realizeNode(Node *node) {
-	if(node->type_ == NodeType::stage) {
-		infoLogger() << "thor: Registering stage " << node->displayName_
-				<< frg::endlog;
-	}else if(node->type_ == NodeType::task) {
-		infoLogger() << "thor: Registering task " << node->displayName_
-				<< frg::endlog;
-	}
-
 	node->engine_->nodes_.push_back(node);
 
-	if(printDotAnnotations) {
-		if(node->type_ == NodeType::stage) {
-			infoLogger() << "thor, initgraph.dot: n" << node
-					<< " [label=\"" << node->displayName_ << "\", shape=box];" << frg::endlog;
-		}else if(node->type_ == NodeType::task) {
-			infoLogger() << "thor, initgraph.dot: n" << node
-					<< " [label=\"" << node->displayName_ << "\"];" << frg::endlog;
-		}
-	}
+	node->engine()->onRealizeNode(node);
 }
 
 inline void realizeEdge(Edge *edge) {
@@ -235,9 +230,7 @@ inline void realizeEdge(Edge *edge) {
 	edge->target_->inList_.push_back(edge);
 	++edge->target_->nUnsatisfied;
 
-	if(printDotAnnotations)
-		infoLogger() << "thor, initgraph.dot: n" << edge->source_
-				<< " -> n" << edge->target_ << ";" << frg::endlog;
+	edge->source()->engine()->onRealizeEdge(edge);
 }
 
 struct Stage final : Node {
@@ -323,4 +316,4 @@ private:
 	frg::array<Edge, NE> eEdges_;
 };
 
-} } // namespace thor::initgraph
+} // namespace initgraph

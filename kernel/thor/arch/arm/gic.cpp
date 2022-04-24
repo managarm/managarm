@@ -6,7 +6,7 @@
 #include <arch/register.hpp>
 #include <thor-internal/debug.hpp>
 #include <assert.h>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
