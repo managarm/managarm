@@ -140,7 +140,7 @@ enum class TrbType : uint8_t {
 	setLatencyToleranceValCommand,
 	getPortBandwidthCommand,
 	forceHeaderCommand,
-	noopCommandnoopCommand,
+	noopCommand,
 	getExtPropertyCommand,
 	setExtPropertyCommand,
 
