@@ -64,4 +64,30 @@ private:
 	helix::UniqueLane _lane;
 };
 
+struct BusDeviceMemoryInfo {
+	BusDeviceMemoryInfo(const std::string& tag, IoType type, uintptr_t address, size_t length)
+		:tag(tag)
+		,type(type)
+		,address(address)
+		,length(length)
+	{}
+
+	std::string tag;
+	IoType type;
+	uintptr_t address;
+	size_t length;
+};
+
+struct BusDevice {
+	BusDevice(helix::UniqueLane lane)
+	:_lane(std::move(lane)) { };
+
+	async::result<std::vector<BusDeviceMemoryInfo>> getMemoryRegions();
+	async::result<helix::UniqueDescriptor> accessMemory(int index);
+	async::result<helix::UniqueDescriptor> accessIrq();
+
+private:
+	helix::UniqueLane _lane;
+};
+
 } } // namespace protocols::hw
