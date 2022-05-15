@@ -16,7 +16,7 @@ namespace regs {
 	constexpr arch::scalar_register<uint32_t> tfd{0x20};
 	constexpr arch::scalar_register<uint32_t> status{0x28};
 	constexpr arch::scalar_register<uint32_t> sataControl{0x2C};
-	constexpr arch::scalar_register<uint32_t> sErr{0x30}
+	constexpr arch::scalar_register<uint32_t> sErr{0x30};
 	constexpr arch::scalar_register<uint32_t> sataActive{0x34};
 	constexpr arch::scalar_register<uint32_t> commandIssue{0x38};
 }
@@ -182,7 +182,7 @@ async::detached Port::run() {
 
 	regs_.store(regs::commandIssue, 1 << slot);
 
-	// Just poll for completion for simplicity
+	// For simplicity, poll for completion
 	success = co_await helix::kindaBusyWait(500'000'000,
 			[&](){ return !(regs_.load(regs::commandIssue) & (1 << slot)); });
 	assert(success);
@@ -288,13 +288,13 @@ void Port::handleIrq() {
 
 	checkErrors();
 
-	std::vector<std::unique_ptr<Command>> completed;
+	std::vector<Command *> completed;
 
 	// Notify all completed commands
 	auto cmdActiveMask = regs_.load(regs::commandIssue);
 	for (size_t i = 0; i < numCommandSlots_; i++) {
 		if (submittedCmds_[i] && !(cmdActiveMask & (1 << i))) {
-			completed.push_back(std::move(submittedCmds_[i]));
+			completed.push_back(std::exchange(submittedCmds_[i], nullptr));
 		}
 	}
 

@@ -10,8 +10,7 @@
 class Controller {
 
 public:
-	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
-			helix::UniqueDescriptor ahciBar, helix::UniqueDescriptor irq);
+	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq);
 
 	async::detached run();
 

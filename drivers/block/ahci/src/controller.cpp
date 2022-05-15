@@ -39,10 +39,6 @@ namespace flags {
 	}
 }
 
-namespace {
-	constexpr bool logCommands = false;
-}
-
 Controller::Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq)
 	: hwDevice_{std::move(hwDevice)} ,regsMapping_{std::move(hbaRegs)},
 	regs_{regsMapping_.get()}, irq_{std::move(irq)}, parentId_{parentId}{
