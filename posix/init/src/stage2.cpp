@@ -189,6 +189,9 @@ int main() {
 				throw std::runtime_error("dup2() failed");
 			close(fd);
 			execl(command.c_str(), command.c_str(), nullptr);
+		}else if(launch == "sway") {
+			setenv("WLR_RENDERER_ALLOW_SOFTWARE", "1", 1);
+			execl("/usr/bin/seatd-launch", "seatd-launch", "--", "sway", nullptr);
 		}else{
 			std::cout << "init: init does not know how to launch " << launch << std::endl;
 		}
