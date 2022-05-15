@@ -100,19 +100,19 @@ void Thread::blockCurrent() {
 
 // FIXME: This function does not save the state! It needs to be given a ImageAccessor parameter!
 void Thread::deferCurrent() {
-	auto this_thread = getCurrentThread();
+	auto thisThread = getCurrentThread();
 	StatelessIrqLock irq_lock;
-	auto lock = frg::guard(&this_thread->_mutex);
+	auto lock = frg::guard(&thisThread->_mutex);
 	
 	if(logRunStates)
-		infoLogger() << "thor: " << (void *)this_thread.get()
+		infoLogger() << "thor: " << (void *)thisThread.get()
 				<< " is deferred" << frg::endlog;
 
-	assert(this_thread->_runState == kRunActive);
-	this_thread->_runState = kRunDeferred;
+	assert(thisThread->_runState == kRunActive);
+	thisThread->_runState = kRunDeferred;
 	getCpuData()->scheduler.update();
 	getCpuData()->scheduler.forceReschedule();
-	this_thread->_uninvoke();
+	thisThread->_uninvoke();
 
 	runOnStack([] (Continuation, frg::unique_lock<Mutex> lock) {
 		lock.unlock();
