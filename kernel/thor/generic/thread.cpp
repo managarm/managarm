@@ -98,7 +98,6 @@ void Thread::blockCurrent() {
 	}, &thisThread->_executor);
 }
 
-// FIXME: This function does not save the state! It needs to be given a ImageAccessor parameter!
 void Thread::deferCurrent() {
 	auto thisThread = getCurrentThread();
 	StatelessIrqLock irq_lock;
