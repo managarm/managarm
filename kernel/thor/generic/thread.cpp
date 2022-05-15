@@ -114,10 +114,13 @@ void Thread::deferCurrent() {
 	getCpuData()->scheduler.forceReschedule();
 	thisThread->_uninvoke();
 
-	runOnStack([] (Continuation, frg::unique_lock<Mutex> lock) {
-		lock.unlock();
-		localScheduler()->commitReschedule();
-	}, getCpuData()->detachedStack.base(), std::move(lock));
+	forkExecutor([&] {
+		runOnStack([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
+			scrubStack(executor, cont);
+			lock.unlock();
+			localScheduler()->commitReschedule();
+		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
+	}, &thisThread->_executor);
 }
 
 void Thread::deferCurrent(IrqImageAccessor image) {
