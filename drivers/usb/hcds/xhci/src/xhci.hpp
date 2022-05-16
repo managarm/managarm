@@ -216,7 +216,7 @@ private:
 
 		void submit(int endpoint);
 		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
-		async::result<void> allocSlot(int slotType, int packetSize);
+		async::result<void> allocSlot(int speedId, int slotType, int packetSize);
 
 		async::result<void> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
 

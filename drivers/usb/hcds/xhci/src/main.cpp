@@ -815,7 +815,7 @@ async::detached Controller::Port::initPort() {
 	assert(targetPacketSize != -1);
 
 	_device = std::make_shared<Device>(_id, _controller);
-	co_await _device->allocSlot(_proto->protocolSlotType, targetPacketSize);
+	co_await _device->allocSlot(speedId, _proto->protocolSlotType, targetPacketSize);
 	_controller->_devices[_device->_slotId] = _device;
 
 	// TODO: if isFullSpeed is set, read the first 8 bytes of the device descriptor
@@ -1065,7 +1065,7 @@ void Controller::Device::submit(int endpoint) {
 	_controller->ringDoorbell(_slotId, endpoint, /* stream */ 0);
 }
 
-async::result<void> Controller::Device::allocSlot(int slotType, int packetSize) {
+async::result<void> Controller::Device::allocSlot(int speedId, int slotType, int packetSize) {
 	RawTrb enable_slot = {{0, 0, 0, 
 		(slotType << 16)
 			| (static_cast<uint32_t>(TrbType::enableSlotCommand) << 10)}};
@@ -1091,7 +1091,7 @@ async::result<void> Controller::Device::allocSlot(int slotType, int packetSize) 
 	memset(inputCtx.data(), 0, sizeof(InputContext));
 	inputCtx->icc.addContextFlags = (1 << 0) | (1 << 1); // slot and control endpoint
 	// TODO: support hubs (generate route string)
-	inputCtx->slotContext.val[0] = (1 << 27); // 1 context entry
+	inputCtx->slotContext.val[0] = (speedId << 20) | (1 << 27); // 1 context entry
 	inputCtx->slotContext.val[1] = (_portId << 16); // root hub port
 
 	_transferRings[0] = std::make_unique<TransferRing>(_controller);
@@ -1105,12 +1105,14 @@ async::result<void> Controller::Device::allocSlot(int slotType, int packetSize) 
 	// max p streams = 0
 	// mult = 0
 	// error count = 3
+	// average trb size = 8
 	auto tr_ptr = _transferRings[0]->getPtr();
 	printf("xhci: tr ptr = %016lx\n", tr_ptr);
 	assert(!(tr_ptr & 0xF));
 	inputCtx->endpointContext[0].val[1] = (3 << 1) | (4 << 3) | (packetSize << 16);
 	inputCtx->endpointContext[0].val[2] = (1 << 0) | (tr_ptr & 0xFFFFFFF0);
 	inputCtx->endpointContext[0].val[3] = (tr_ptr >> 32);
+	inputCtx->endpointContext[0].val[4] = (8 << 0);
 
 	uintptr_t dev_ctx_ptr;
 	HEL_CHECK(helPointerPhysical(_devCtx.data(), &dev_ctx_ptr));
