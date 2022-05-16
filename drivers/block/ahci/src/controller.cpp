@@ -18,9 +18,10 @@ namespace regs {
 
 namespace flags {
 	namespace ghc {
-		constexpr int ahciEnable      = 1 << 31;
-		constexpr int interruptEnable = 1 << 1;
-		constexpr int hbaReset        = 1;
+		constexpr int ahciEnable          = 1 << 31;
+		constexpr int revertSingleMessage = 1 << 2;
+		constexpr int interruptEnable     = 1 << 1;
+		constexpr int hbaReset            = 1;
 	}
 
 	namespace bohc {
@@ -39,9 +40,10 @@ namespace flags {
 	}
 }
 
-Controller::Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq)
+Controller::Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq, bool useMsis)
 	: hwDevice_{std::move(hwDevice)} ,regsMapping_{std::move(hbaRegs)},
-	regs_{regsMapping_.get()}, irq_{std::move(irq)}, parentId_{parentId}{
+	regs_{regsMapping_.get()}, irq_{std::move(irq)}, parentId_{parentId}, useMsis_{useMsis}
+{
 }
 
 async::detached Controller::run() {
@@ -88,22 +90,23 @@ async::detached Controller::run() {
 	regs_.store(regs::ghc, ghc | flags::ghc::ahciEnable);
 
 	auto cap = regs_.load(regs::cap);
-	maxPorts_ = (cap & 0xF) + 1;
+	maxPorts_ = (cap & 0x1F) + 1;
 	assert(maxPorts_ <= 32);
 
 	portsImpl_ = regs_.load(regs::portsImpl);
 	assert(portsImpl_ != 0 && std::popcount(portsImpl_) <= maxPorts_);
 
-	// auto numCommandSlots = ((cap >> 8) & 0x1F) + 1;
-	auto numCommandSlots = 1;
+	auto numCommandSlots = ((cap >> 8) & 0x1F) + 1;
 	auto iss = (cap >> 20) & 0xF;
 	bool ss = cap & flags::cap::staggeredSpinup;
+	bool revertSingleMessage = regs_.load(regs::ghc) & flags::ghc::revertSingleMessage;
 	bool s64a = cap & flags::cap::supports64Bit;
 	assert(s64a); // TODO: We aren't allowed to read some fields if no 64-bit support
 
 	printf("block/ahci: Initialised controller: version %x, %d active ports, "
-			"%d slots, Gen %d, SS %s, 64-bit %s\n", version, std::popcount(portsImpl_),
-			numCommandSlots, iss, ss ? "yes" : "no", s64a ? "yes" : "no");
+			"%d slots, Gen %d, SS %s, 64-bit %s, MSI %s%s\n", version, std::popcount(portsImpl_),
+			numCommandSlots, iss, ss ? "yes" : "no", s64a ? "yes" : "no", useMsis_ ? "yes" : "no",
+			revertSingleMessage ? "/reverted to single" : "");
 
 	if (!(co_await initPorts_(numCommandSlots, ss))) {
 		std::cout << "\e[31mblock/ahci: No ports found, exiting\e[39m\n";
@@ -115,11 +118,24 @@ async::detached Controller::run() {
 	ghc = regs_.load(regs::ghc);
 	regs_.store(regs::ghc, ghc | flags::ghc::interruptEnable);
 
+	// dumpState_();
+
 	handleIrqs_();
 
 	for (auto& port : activePorts_) {
 		port->run();
 	}
+}
+
+void Controller::dumpState_() {
+	printf("block/ahci: Dumping controller state:\n");
+	printf("  CAP: %#x\n", regs_.load(regs::cap));
+	printf("  CAP2: %#x\n", regs_.load(regs::cap2));
+	printf("  GHC: %#x\n", regs_.load(regs::ghc));
+	printf("  IS: %#x\n", regs_.load(regs::interruptStatus));
+	printf("  PI: %#x\n", regs_.load(regs::portsImpl));
+	printf("  VS: %#x\n", regs_.load(regs::version));
+	printf("  BOHC: %#x\n", regs_.load(regs::biosHandoff));
 }
 
 async::detached Controller::handleIrqs_() {
@@ -151,14 +167,19 @@ async::detached Controller::handleIrqs_() {
 			regs_.store(regs::interruptStatus, intStatus);
 			HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckAcknowledge, irqSequence_));
 		} else {
-			for (auto &port : activePorts_) {
-				std::cout << "block/ahci: NACK, dumping state on port " << port->getIndex() << ":\n";
-				port->dumpState();
-				port->checkErrors();
-				std::cout << "\tglobal IS: " << regs_.load(regs::interruptStatus) << ", masked GIS " << (regs_.load(regs::interruptStatus) & portsImpl_) << ", read GIS " << intStatus << "\n";
-			}
+			if (useMsis_) {
+				// In theory, we shouldn't get here, but refer to xhci handleMsis() comment for details.
+				HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckAcknowledge, irqSequence_));
+			} else {
+				for (auto &port : activePorts_) {
+					std::cout << "block/ahci: NACK, dumping state on port " << port->getIndex() << ":\n";
+					port->dumpState();
+					port->checkErrors();
+					std::cout << "\tglobal IS: " << regs_.load(regs::interruptStatus) << ", masked GIS " << (regs_.load(regs::interruptStatus) & portsImpl_) << ", read GIS " << intStatus << "\n";
+				}
 
-			HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckNack, irqSequence_));
+				HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckNack, irqSequence_));
+			}
 		}
 	}
 }

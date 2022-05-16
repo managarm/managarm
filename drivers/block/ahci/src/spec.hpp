@@ -11,7 +11,7 @@ namespace limits {
 }
 
 namespace {
-	constexpr bool logCommands = true;
+	constexpr bool logCommands = false;
 }
 
 struct receivedFis {

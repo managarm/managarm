@@ -51,8 +51,10 @@ namespace {
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
 Port::Port(int64_t parentId, int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
-	: BlockDevice{::sectorSize, parentId},  regs_{regs}, numCommandSlots_{numCommandSlots},
-	commandsInFlight_{0}, portIndex_{portIndex}, staggeredSpinUp_{staggeredSpinUp} {
+	: BlockDevice{::sectorSize, parentId},  regs_{regs}, deviceSize_{0},
+	numCommandSlots_{numCommandSlots}, commandsInFlight_{0}, portIndex_{portIndex}, 
+	staggeredSpinUp_{staggeredSpinUp}
+{
 }
 
 async::result<bool> Port::init() {
@@ -90,8 +92,7 @@ async::result<bool> Port::init() {
 		// Wait up to 10ms for PxSSTS.DET = 1 or 3 (AHCI spec: 10.1.1, SATA 3.2 spec: 17.7.2)
 		auto success = co_await helix::kindaBusyWait(10'000'000, [&]() {
 			auto det = regs_.load(regs::status) & 0xF;
-			// return det == 1 || det == 3;
-			return det == 3;
+			return det == 1 || det == 3;
 		});
 		if (!success) {
 			printf("block/ahci: Couldn't spin up port %d\n", portIndex_);
@@ -100,17 +101,19 @@ async::result<bool> Port::init() {
 	}
 
 	// Perform COMRESET (AHCI spec 10.4.2)
-	auto sataControl = regs_.load(regs::sataControl);
-	regs_.store(regs::sataControl, (sataControl & 0xFFFFFFF0) | 1);
+	// auto sataControl = regs_.load(regs::sataControl);
+	// regs_.store(regs::sataControl, (sataControl & 0xFFFFFFF0) | 1);
+	//
+	// co_await helix::sleepFor(10'000'000);
+	//
+	// sataControl = regs_.load(regs::sataControl);
+	// regs_.store(regs::sataControl, sataControl & 0xFFFFFFF0);
+	//
+	// success = co_await helix::kindaBusyWait(10'000'000, [&](){
+	// 		return (regs_.load(regs::status) & 0xF) == 0x3; });
+	// assert(success);
 
-	co_await helix::sleepFor(10'000'000);
-
-	sataControl = regs_.load(regs::sataControl);
-	regs_.store(regs::sataControl, sataControl & 0xFFFFFFF0);
-
-	success = co_await helix::kindaBusyWait(10'000'000, [&](){
-			return (regs_.load(regs::status) & 0xF) == 0x3; });
-	assert(success);
+	regs_.store(regs::sErr, regs_.load(regs::sErr));
 
 	// Allocate memory for command list, received FIS, and command tables
 	// Note: the combination of libarch DMA types and ptrToPhysical ensures that
@@ -140,19 +143,20 @@ async::result<bool> Port::init() {
 }
 
 void Port::dumpState() {
-	printf("\tPxSERR: %#x\n", regs_.load(regs::sErr));
-	printf("\tPxCMD: %#x\n", regs_.load(regs::commandAndStatus));
-	printf("\tPxCI: %#x\n", regs_.load(regs::commandIssue));
-	printf("\tPxTFD: %#x\n", regs_.load(regs::tfd));
-	printf("\tPxSSTS: %#x\n", regs_.load(regs::status));
-	printf("\tPxSCTL: %#x\n", regs_.load(regs::sataControl));
-	printf("\tPxSACT: %#x\n", regs_.load(regs::sataActive));
-	printf("\tPxIS: %#x\n", regs_.load(regs::interruptStatus));
-	printf("\tPxIE: %#x\n", regs_.load(regs::interruptEnable));
-	printf("\tcommandsInFlight: %zu\n", commandsInFlight_);
-	printf("\tsubmittedCmds slots used: %zu\n", std::count_if(submittedCmds_.begin(), submittedCmds_.end(), [](auto &p){ return p != nullptr; }));
+	printf("  PxSERR: %#x\n", regs_.load(regs::sErr));
+	printf("  PxCMD: %#x\n", regs_.load(regs::commandAndStatus));
+	printf("  PxCI: %#x\n", regs_.load(regs::commandIssue));
+	printf("  PxTFD: %#x\n", regs_.load(regs::tfd));
+	printf("  PxSSTS: %#x\n", regs_.load(regs::status));
+	printf("  PxSCTL: %#x\n", regs_.load(regs::sataControl));
+	printf("  PxSACT: %#x\n", regs_.load(regs::sataActive));
+	printf("  PxIS: %#x\n", regs_.load(regs::interruptStatus));
+	printf("  PxIE: %#x\n", regs_.load(regs::interruptEnable));
+	printf("  commandsInFlight: %zu\n", commandsInFlight_);
+	printf("  submittedCmds slots used: %zu\n", std::count_if(submittedCmds_.begin(), submittedCmds_.end(), [](auto &p){ return p != nullptr; }));
 }
 
+// Start port (10.3.1).
 async::detached Port::run() {
 	// Enable FIS receive
 	auto cas = regs_.load(regs::commandAndStatus);
@@ -161,7 +165,7 @@ async::detached Port::run() {
 	// Check that the BSY and DRQ bits are clear (necessary as per 10.3.1)
 	auto success = co_await helix::kindaBusyWait(10'000'000'000, [&](){
 		auto tfd = regs_.load(regs::tfd);
-		return !((tfd & flags::tfd::bsy) || (tfd & flags::tfd::drq));
+		return (tfd & flags::tfd::bsy) == 0 && (tfd & flags::tfd::drq) == 0;
 	});
 	if (!success) {
 		printf("\e[31mblock/ahci: Failed to start busy port %d\e[39m\n", portIndex_);
@@ -169,7 +173,7 @@ async::detached Port::run() {
 		abort();
 	}
 
-	// Start port (10.3.1)
+	// Set PxCMD.ST
 	assert(!(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning));
 	cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas | flags::cmd::start);
@@ -191,10 +195,11 @@ async::detached Port::run() {
 	auto [logicalSize, physicalSize] = identify->getSectorSize();
 	auto sectorCount = identify->maxLBA48;
 	auto model = identify->getModel();
+	deviceSize_ = logicalSize * sectorCount;
 
-	printf("block/ahci: Started port %d, model %s, logical sector size %zu, "
-			"physical sector size %zu, sector count %" PRIu64 "\n",
-			portIndex_, model.c_str(), logicalSize, physicalSize, sectorCount);
+	printf("block/ahci: Started port %d, model %s, size %.1fGiB (sectors: logical %zu, physical %zu, count %" PRIu64 ")\n",
+			portIndex_, model.c_str(), static_cast<float>(deviceSize_ / (1 << 30)),
+			logicalSize, physicalSize, sectorCount);
 	assert(logicalSize == 512 && "block/ahci: logical sector size > 512 is not supported");
 
 	// Clear errors
@@ -204,33 +209,32 @@ async::detached Port::run() {
 	auto is = regs_.load(regs::interruptStatus);
 	regs_.store(regs::interruptStatus, is);
 	auto ie = regs_.load(regs::interruptEnable);
-	// regs_.store(regs::interruptEnable, ie
-	// 		| flags::is::d2hFis
-	// 		| flags::is::taskFileError
-	// 		| flags::is::hostDataError
-	// 		| flags::is::hostFatalError
-	// 		| flags::is::ifFatalError
-	// 		| flags::is::ifNonFatalError);
-	regs_.store(regs::interruptEnable,
-			(1 << 30) |
-			(1 << 29) |
-			(1 << 28) |
-			(1 << 27) |
-			(1 << 26) |
-			(1 << 24) |
-			(1 << 23) |
-			(1 << 22) |
-			(1 << 6) |
-			(1 << 5) |
-			(1 << 4) |
-			(1 << 3) |
-			(1 << 2) |
-			(1 << 1) |
-			(1 << 0));
+	regs_.store(regs::interruptEnable, ie
+			| flags::is::d2hFis
+			| flags::is::taskFileError
+			| flags::is::hostDataError
+			| flags::is::hostFatalError
+			| flags::is::ifFatalError
+			| flags::is::ifNonFatalError);
+	// regs_.store(regs::interruptEnable,
+	// 		(1 << 30) |
+	// 		(1 << 29) |
+	// 		(1 << 28) |
+	// 		(1 << 27) |
+	// 		(1 << 26) |
+	// 		(1 << 24) |
+	// 		(1 << 23) |
+	// 		(1 << 22) |
+	// 		(1 << 6) |
+	// 		(1 << 5) |
+	// 		(1 << 4) |
+	// 		(1 << 3) |
+	// 		(1 << 2) |
+	// 		(1 << 1) |
+	// 		(1 << 0));
 
 	submitPendingLoop_();
 
-	// if (portIndex_ != 4)
 	blockfs::runDevice(this);
 
 	co_return;
@@ -338,7 +342,6 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 		;
 
 	regs_.store(regs::commandIssue, 1 << slot);
-
 	co_return;
 }
 
@@ -357,6 +360,6 @@ async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size
 }
 
 async::result<size_t> Port::getSize() {
-	std::cout << "ahci: Port::getSize() is a stub!" << std::endl;
-	co_return 0;
+	assert(deviceSize_ != 0);
+	co_return deviceSize_;
 }

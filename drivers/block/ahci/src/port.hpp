@@ -61,6 +61,7 @@ private:
 	std::array<Command *, limits::maxCmdSlots> submittedCmds_{};
 	async::recurring_event freeSlotDoorbell_;
 
+	uint64_t deviceSize_;
 	size_t numCommandSlots_;
 	size_t commandsInFlight_;
 	int portIndex_;

@@ -80,7 +80,7 @@ void Command::prepare(commandTable& table, commandHeader& header) {
 
 /* Returns the number of PRDT entries written.
  *
- * Note on buffer_: libblockfs guarantees us that buffer is locked into memory,
+ * Note on buffer_: libblockfs guarantees us that buffer_ is locked into memory,
  * and calling helPointerPhysical ensures that the pages are allocated and present
  * in the page tables. Hence, we know the buffer remains in memory during the DMA.
  */

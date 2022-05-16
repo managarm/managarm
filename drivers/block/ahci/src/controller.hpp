@@ -10,7 +10,7 @@
 class Controller {
 
 public:
-	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq);
+	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq, bool useMsis);
 
 	async::detached run();
 
@@ -31,4 +31,5 @@ private:
 	uint32_t portsImpl_;
 	uint64_t irqSequence_;
 	int maxPorts_;
+	bool useMsis_;
 };
