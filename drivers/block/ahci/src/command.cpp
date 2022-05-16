@@ -31,8 +31,8 @@ void Command::notifyCompletion() {
 
 void Command::prepare(commandTable& table, commandHeader& header) {
 	auto tablePhys = helix::ptrToPhysical(&table);
-	assert(tablePhys < std::numeric_limits<uint32_t>::max() &&
-			numSectors_ < std::numeric_limits<uint16_t>::max());
+	assert((tablePhys & 0x1F) == 0 && tablePhys < std::numeric_limits<uint32_t>::max());
+	assert(numSectors_ < std::numeric_limits<uint16_t>::max());
 
 	memset(&table, 0, sizeof(commandTable));
 	table.commandFis.fisType = 0x27; // Host to Device FIS

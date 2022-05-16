@@ -74,7 +74,7 @@ struct fisH2D {
 };
 static_assert(sizeof(fisH2D) == 20);
 
-struct commandTable {
+struct alignas(128) commandTable {
 	fisH2D commandFis;
 	uint8_t commandFisPad[0x40 - 20];
 
@@ -85,7 +85,8 @@ struct commandTable {
 	static constexpr std::size_t prdtEntries = 16 + 1;
 	prdtEntry prdts[prdtEntries];
 };
-static_assert(sizeof(commandTable) == 128 + 16 * commandTable::prdtEntries);
+// static_assert(sizeof(commandTable) == 128 + 16 * commandTable::prdtEntries);
+static_assert(alignof(commandTable) >= 128);
 
 struct identifyDevice {
 	uint16_t _junkA[27];

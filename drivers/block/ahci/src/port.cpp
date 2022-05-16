@@ -235,7 +235,8 @@ async::detached Port::run() {
 
 	submitPendingLoop_();
 
-	blockfs::runDevice(this);
+	if (portIndex_ != 4)
+		blockfs::runDevice(this);
 
 	co_return;
 }

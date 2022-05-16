@@ -96,6 +96,7 @@ async::detached Controller::run() {
 	portsImpl_ = regs_.load(regs::portsImpl);
 	assert(portsImpl_ != 0 && std::popcount(portsImpl_) <= maxPorts_);
 
+	// auto numCommandSlots = 1;
 	auto numCommandSlots = ((cap >> 8) & 0x1F) + 1;
 	auto iss = (cap >> 20) & 0xF;
 	bool ss = cap & flags::cap::staggeredSpinup;
