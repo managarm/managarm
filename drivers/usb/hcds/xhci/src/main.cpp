@@ -1368,8 +1368,8 @@ async::detached bindController(mbus::Entity entity) {
 	helix::UniqueDescriptor irq;
 
 	if (info.numMsis) {
-		co_await device.enableMsi();
 		irq = co_await device.installMsi(0);
+		co_await device.enableMsi();
 	} else {
 		irq = co_await device.accessIrq();
 	}

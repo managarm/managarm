@@ -646,8 +646,8 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 
 			// Enable MSI-X.
 			if (info.numMsis) {
-				co_await hw_device.enableMsi();
 				queueMsi = co_await hw_device.installMsi(0);
+				co_await hw_device.enableMsi();
 			}
 
 			// Set the ACKNOWLEDGE and DRIVER bits.
