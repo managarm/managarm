@@ -85,7 +85,6 @@ struct alignas(128) commandTable {
 	static constexpr std::size_t prdtEntries = 16 + 1;
 	prdtEntry prdts[prdtEntries];
 };
-// static_assert(sizeof(commandTable) == 128 + 16 * commandTable::prdtEntries);
 static_assert(alignof(commandTable) >= 128);
 
 struct identifyDevice {

@@ -92,7 +92,8 @@ async::result<bool> Port::init() {
 		// Wait up to 10ms for PxSSTS.DET = 1 or 3 (AHCI spec: 10.1.1, SATA 3.2 spec: 17.7.2)
 		auto success = co_await helix::kindaBusyWait(10'000'000, [&]() {
 			auto det = regs_.load(regs::status) & 0xF;
-			return det == 1 || det == 3;
+			// return det == 1 || det == 3;
+			return det == 3;
 		});
 		if (!success) {
 			printf("block/ahci: Couldn't spin up port %d\n", portIndex_);
@@ -112,8 +113,8 @@ async::result<bool> Port::init() {
 	// success = co_await helix::kindaBusyWait(10'000'000, [&](){
 	// 		return (regs_.load(regs::status) & 0xF) == 0x3; });
 	// assert(success);
-
-	regs_.store(regs::sErr, regs_.load(regs::sErr));
+	//
+	// regs_.store(regs::sErr, regs_.load(regs::sErr));
 
 	// Allocate memory for command list, received FIS, and command tables
 	// Note: the combination of libarch DMA types and ptrToPhysical ensures that
@@ -216,27 +217,10 @@ async::detached Port::run() {
 			| flags::is::hostFatalError
 			| flags::is::ifFatalError
 			| flags::is::ifNonFatalError);
-	// regs_.store(regs::interruptEnable,
-	// 		(1 << 30) |
-	// 		(1 << 29) |
-	// 		(1 << 28) |
-	// 		(1 << 27) |
-	// 		(1 << 26) |
-	// 		(1 << 24) |
-	// 		(1 << 23) |
-	// 		(1 << 22) |
-	// 		(1 << 6) |
-	// 		(1 << 5) |
-	// 		(1 << 4) |
-	// 		(1 << 3) |
-	// 		(1 << 2) |
-	// 		(1 << 1) |
-	// 		(1 << 0));
 
 	submitPendingLoop_();
 
-	if (portIndex_ != 4)
-		blockfs::runDevice(this);
+	blockfs::runDevice(this);
 
 	co_return;
 }

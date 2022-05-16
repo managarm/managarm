@@ -26,7 +26,6 @@ async::detached bindController(mbus::Entity entity) {
 		irq = co_await device.installMsi(0);
 		co_await device.enableMsi();
 	} else {
-		assert(false);
 		irq = co_await device.accessIrq();
 	}
 
