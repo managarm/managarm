@@ -779,6 +779,14 @@ async::detached Controller::Port::initPort() {
 					|| speed.mantissa == 10
 					|| speed.mantissa == 20)) { // SuperSpeed
 				targetPacketSize = 512;
+			}else if (speed.exponent == 2
+				&& (speed.mantissa == 1248
+					|| speed.mantissa == 2496
+					|| speed.mantissa == 4992
+					|| speed.mantissa == 1458
+					|| speed.mantissa == 2915
+					|| speed.mantissa == 5830)) { // SSIC SuperSpeed
+				targetPacketSize = 512;
 			}
 
 			break;
