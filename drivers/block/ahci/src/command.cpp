@@ -31,11 +31,8 @@ void Command::notifyCompletion() {
 
 void Command::prepare(commandTable& table, commandHeader& header) {
 	auto tablePhys = helix::ptrToPhysical(&table);
-	assert((tablePhys & 0x1F) == 0 && tablePhys < std::numeric_limits<uint32_t>::max());
+	assert((tablePhys & 0x7F) == 0 && tablePhys < std::numeric_limits<uint32_t>::max());
 	assert(numSectors_ < std::numeric_limits<uint16_t>::max());
-
-	// Make sure the table doesn't straddle a page boundary
-	assert(((tablePhys + sizeof(commandTable)) & ~0xFFF) == (tablePhys & ~0xFFF));
 
 	memset(&table, 0, sizeof(commandTable));
 	table.commandFis.fisType = 0x27; // Host to Device FIS

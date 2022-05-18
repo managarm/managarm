@@ -119,12 +119,13 @@ async::detached Controller::run() {
 	ghc = regs_.load(regs::ghc);
 	regs_.store(regs::ghc, ghc | flags::ghc::interruptEnable);
 
-	// dumpState_();
-
 	handleIrqs_();
 
 	for (auto& port : activePorts_) {
-		port->run();
+		if (!(co_await port->run())) {
+			dumpState_();
+			abort();
+		}
 	}
 }
 

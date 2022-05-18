@@ -101,39 +101,7 @@ async::result<bool> Port::init() {
 		}
 	}
 
-	// Perform COMRESET (AHCI spec 10.4.2)
-	// auto sataControl = regs_.load(regs::sataControl);
-	// regs_.store(regs::sataControl, (sataControl & 0xFFFFFFF0) | 1);
-	//
-	// co_await helix::sleepFor(10'000'000);
-	//
-	// sataControl = regs_.load(regs::sataControl);
-	// regs_.store(regs::sataControl, sataControl & 0xFFFFFFF0);
-	//
-	// success = co_await helix::kindaBusyWait(10'000'000, [&](){
-	// 		return (regs_.load(regs::status) & 0xF) == 0x3; });
-	// assert(success);
-	//
-	// regs_.store(regs::sErr, regs_.load(regs::sErr));
-
-	// Allocate memory for command list, received FIS, and command tables
-	// Note: the combination of libarch DMA types and ptrToPhysical ensures that
-	// these buffers will remain present in the page tables at all times.
-	commandList_ = arch::dma_object<commandList>{nullptr};
-	commandTables_ = arch::dma_array<commandTable>{nullptr, numCommandSlots_};
-	receivedFis_ = arch::dma_object<receivedFis>{nullptr};
-
-	uintptr_t clPhys = helix::ptrToPhysical(commandList_.data()),
-			  ctPhys = helix::ptrToPhysical(&commandTables_[0]),
-			  rfPhys = helix::ptrToPhysical(receivedFis_.data());
-	assert((clPhys & 0x3FF) == 0 && clPhys < std::numeric_limits<uint32_t>::max());
-	assert((ctPhys & 0x7F) == 0 && ctPhys < std::numeric_limits<uint32_t>::max());
-	assert((rfPhys & 0xFF) == 0 && rfPhys < std::numeric_limits<uint32_t>::max());
-
-	regs_.store(regs::clBase, static_cast<uint32_t>(clPhys));
-	regs_.store(regs::clBaseUpper, 0);
-	regs_.store(regs::fisBase, static_cast<uint32_t>(rfPhys));
-	regs_.store(regs::fisBaseUpper, 0);
+	// TODO: If the port isn't available here, we may try a COMRESET (AHCI spec 10.4.2)
 
 	status = regs_.load(regs::status);
 	ipm = (status >> 8) & 0xF;
@@ -144,6 +112,7 @@ async::result<bool> Port::init() {
 }
 
 void Port::dumpState() {
+	printf("block/ahci: Dumping port %d state:\n", portIndex_);
 	printf("  PxSERR: %#x\n", regs_.load(regs::sErr));
 	printf("  PxCMD: %#x\n", regs_.load(regs::commandAndStatus));
 	printf("  PxCI: %#x\n", regs_.load(regs::commandIssue));
@@ -158,7 +127,31 @@ void Port::dumpState() {
 }
 
 // Start port (10.3.1).
-async::detached Port::run() {
+async::result<bool> Port::run() {
+	printf("block/ahci: Starting port %d\n", portIndex_);
+
+	// Clear errors
+	regs_.store(regs::sErr, regs_.load(regs::sErr));
+
+	// Allocate memory for command list, received FIS, and command tables.
+	// arch::dma_* structs should guarantee that these are always present in memory,
+	// and are physically contiguous.
+	commandList_ = arch::dma_object<commandList>{&dmaPool_};
+	commandTables_ = arch::dma_array<commandTable>{&dmaPool_, numCommandSlots_};
+	receivedFis_ = arch::dma_object<receivedFis>{&dmaPool_};
+
+	uintptr_t clPhys = helix::ptrToPhysical(commandList_.data()),
+			  ctPhys = helix::ptrToPhysical(&commandTables_[0]),
+			  rfPhys = helix::ptrToPhysical(receivedFis_.data());
+	assert((clPhys & 0x3FF) == 0 && clPhys < std::numeric_limits<uint32_t>::max());
+	assert((ctPhys & 0x7F) == 0 && ctPhys < std::numeric_limits<uint32_t>::max());
+	assert((rfPhys & 0xFF) == 0 && rfPhys < std::numeric_limits<uint32_t>::max());
+
+	regs_.store(regs::clBase, static_cast<uint32_t>(clPhys));
+	regs_.store(regs::clBaseUpper, 0);
+	regs_.store(regs::fisBase, static_cast<uint32_t>(rfPhys));
+	regs_.store(regs::fisBaseUpper, 0);
+
 	// Enable FIS receive
 	auto cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas | flags::cmd::fisReceiveEnable);
@@ -171,7 +164,7 @@ async::detached Port::run() {
 	if (!success) {
 		printf("\e[31mblock/ahci: Failed to start busy port %d\e[39m\n", portIndex_);
 		dumpState();
-		abort();
+		co_return false;
 	}
 
 	// Set PxCMD.ST
@@ -181,16 +174,20 @@ async::detached Port::run() {
 
 	size_t slot = co_await findFreeSlot_();
 
-	arch::dma_object<identifyDevice> identify{nullptr};
+	arch::dma_object<identifyDevice> identify{&dmaPool_};
 	Command cmd = Command(identify.data(), CommandType::identify);
 	cmd.prepare(commandTables_[slot], commandList_->slots[slot]);
 
 	regs_.store(regs::commandIssue, 1 << slot);
 
-	// For simplicity, poll for completion
+	// For simplicity, poll for completion (500ms)
 	success = co_await helix::kindaBusyWait(500'000'000,
 			[&](){ return !(regs_.load(regs::commandIssue) & (1 << slot)); });
-	assert(success);
+	if (!success) {
+		printf("\e[31mblock/ahci: Port %d identify failed\n", portIndex_);
+		dumpState();
+		co_return false;
+	}
 
 	assert(identify->supportsLba48());
 	auto [logicalSize, physicalSize] = identify->getSectorSize();
@@ -202,9 +199,6 @@ async::detached Port::run() {
 			portIndex_, model.c_str(), static_cast<float>(deviceSize_ / (1 << 30)),
 			logicalSize, physicalSize, sectorCount);
 	assert(logicalSize == 512 && "block/ahci: logical sector size > 512 is not supported");
-
-	// Clear errors
-	regs_.store(regs::sErr, regs_.load(regs::sErr));
 
 	// Clear and enable interrupts on this port
 	auto is = regs_.load(regs::interruptStatus);
@@ -222,7 +216,7 @@ async::detached Port::run() {
 
 	blockfs::runDevice(this);
 
-	co_return;
+	co_return true;
 }
 
 async::result<size_t> Port::findFreeSlot_() {

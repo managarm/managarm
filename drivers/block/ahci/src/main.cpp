@@ -10,8 +10,6 @@
 std::vector<std::unique_ptr<Controller>> globalControllers;
 
 async::detached bindController(mbus::Entity entity) {
-	co_await helix::kindaBusyWait(5'000'000'000, []{ return false; });
-
 	protocols::hw::Device device(co_await entity.bind());
 	auto info = co_await device.getPciInfo();
 
