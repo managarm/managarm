@@ -7,10 +7,6 @@
 
 #include "command.hpp"
 
-namespace {
-	constexpr bool logCommands = false;
-}
-
 Command::Command(uint64_t sector, size_t numSectors, size_t numBytes, void *buffer,
 		CommandType type) : sector_{sector}, numSectors_{numSectors}, numBytes_{numBytes},
 	buffer_{buffer}, type_{type}, event_{} {
@@ -27,7 +23,7 @@ Command::Command(uint64_t sector, size_t numSectors, size_t numBytes, void *buff
 
 void Command::notifyCompletion() {
 	if (logCommands) {
-		printf("block/ahci: completed %s to %p", cmdTypeToString(type_), buffer_);
+		printf("block/ahci: completed %s to %p\n", cmdTypeToString(type_), buffer_);
 	}
 
 	event_.raise();
@@ -35,8 +31,8 @@ void Command::notifyCompletion() {
 
 void Command::prepare(commandTable& table, commandHeader& header) {
 	auto tablePhys = helix::ptrToPhysical(&table);
-	assert(tablePhys < std::numeric_limits<uint32_t>::max() &&
-			numSectors_ < std::numeric_limits<uint16_t>::max());
+	assert((tablePhys & 0x7F) == 0 && tablePhys < std::numeric_limits<uint32_t>::max());
+	assert(numSectors_ < std::numeric_limits<uint16_t>::max());
 
 	memset(&table, 0, sizeof(commandTable));
 	table.commandFis.fisType = 0x27; // Host to Device FIS
@@ -54,7 +50,7 @@ void Command::prepare(commandTable& table, commandHeader& header) {
 	auto numEntries = writeScatterGather_(table);
 
 	memset(&header, 0, sizeof(commandHeader));
-	header.configBytes[0] = sizeof(fisH2D) / 4; // Supply length in words
+	header.configBytes[0] = sizeof(fisH2D) / 4; // Supply length in dwords
 	header.configBytes[1] = 0;
 	header.prdtLength = numEntries;
 	header.prdByteCount = 0;
@@ -84,7 +80,7 @@ void Command::prepare(commandTable& table, commandHeader& header) {
 
 /* Returns the number of PRDT entries written.
  *
- * Note on buffer: libblockfs guarantees us that buffer is locked into memory,
+ * Note on buffer_: libblockfs guarantees us that buffer_ is locked into memory,
  * and calling helPointerPhysical ensures that the pages are allocated and present
  * in the page tables. Hence, we know the buffer remains in memory during the DMA.
  */

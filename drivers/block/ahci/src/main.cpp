@@ -3,6 +3,8 @@
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
 
+#include <helix/timer.hpp>
+
 #include "controller.hpp"
 
 std::vector<std::unique_ptr<Controller>> globalControllers;
@@ -14,12 +16,23 @@ async::detached bindController(mbus::Entity entity) {
 	auto& ahciBarInfo = info.barInfo[5];
 	assert(ahciBarInfo.ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto ahciBar = co_await device.accessBar(5);
-	auto irq  = co_await device.accessIrq();
 
+	helix::UniqueDescriptor irq;
+
+	if (info.numMsis) {
+		// TODO: Don't hardcode 0 here
+		irq = co_await device.installMsi(0);
+		co_await device.enableMsi();
+	} else {
+		irq = co_await device.accessIrq();
+	}
+
+	co_await device.enableBusmaster();
+	
 	helix::Mapping mapping{ahciBar, ahciBarInfo.offset, ahciBarInfo.length};
 
 	auto controller = std::make_unique<Controller>(entity.getId(), std::move(device),
-			std::move(mapping), std::move(ahciBar), std::move(irq));
+			std::move(mapping), std::move(irq), info.numMsis > 0);
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }
