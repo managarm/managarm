@@ -129,9 +129,10 @@ bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include'
 cxxshim = subproject('cxxshim')
 coroutines = cxxshim.get_variable('clang_coroutine_dep')
 
-frigg = subproject('frigg',
-	default_options : [ 'frigg_no_install=true' ]
-).get_variable('frigg_dep')
+frigg = dependency('frigg',
+	default_options : [ 'frigg_no_install=true' ],
+	fallback: ['frigg', 'frigg_dep'],
+)
 
 # If we are building the kernel, we need the freestanding subset of libarch.
 if flavor == 'kernel'
