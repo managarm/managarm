@@ -853,6 +853,7 @@ Controller::useConfiguration(int address, int configuration) {
 async::result<frg::expected<UsbError>>
 Controller::useInterface(int address, int interface, int alternative) {
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address));
+	bool fail = false;
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
 
@@ -877,13 +878,23 @@ Controller::useInterface(int address, int interface, int alternative) {
 			_activeDevices[address].outStates[pipe].queueEntity = entity;
 		}
 
-		auto order = 1 << (CHAR_BIT * sizeof(int) - __builtin_clz(desc->interval) - 1);
-		std::cout << "uhci: Using order " << order << std::endl;
-		this->_linkInterrupt(entity, order, 0);
-//TODO: For bulk: this->_linkAsync(entity);
-
+		if (info.endpointType == EndpointType::interrupt) {
+			auto order = 1 << (CHAR_BIT * sizeof(int) - __builtin_clz(desc->interval) - 1);
+			std::cout << "uhci: Using order " << order << std::endl;
+			this->_linkInterrupt(entity, order, 0);
+		} else if (info.endpointType == EndpointType::bulk){
+			this->_linkAsync(entity);
+		} else {
+			std::cout << "uhci: Unsupported endpoint type in Controller::useInterface!" << std::endl;
+			fail = true;
+			return;
+		}
 	});
-	co_return {};
+
+	if (fail)
+		co_return UsbError::unsupported;
+	else
+		co_return {};
 }
 
 // ------------------------------------------------------------------------
@@ -1194,8 +1205,8 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	}
 
 	//printf("Transfer complete!\n");
-	front->promise.set_value(front->lengthComplete);
-	front->voidPromise.set_value(UsbError{});
+	front->promise.set_value(size_t{front->lengthComplete});
+	front->voidPromise.set_value(frg::success);
 
 	// Schedule the next transaction.
 	entity->transactions.pop_front();
