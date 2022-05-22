@@ -126,8 +126,8 @@ frgbragi = generator(bragi,
 # declare dependencies that subdirs are going to use
 bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include')
 
-cxxshim = subproject('cxxshim')
-coroutines = cxxshim.get_variable('clang_coroutine_dep')
+cxxshim_dep = dependency('cxxshim', fallback: ['cxxshim', 'cxxshim_dep'])
+coroutines = dependency('cxxshim-coroutine-clang', fallback: ['cxxshim', 'clang_coroutine_dep'])
 
 frigg = dependency('frigg',
 	default_options : [ 'frigg_no_install=true' ],
@@ -153,7 +153,6 @@ if build_kernel
 	libasync = subproject('libasync', default_options : [ 'install_headers=false' ])
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
-	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	lai_sources = lai.get_variable('sources')
 	lai_includes = lai.get_variable('includes')
 	libasync_dep = libasync.get_variable('libasync_dep')
