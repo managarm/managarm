@@ -157,3 +157,18 @@ struct Device {
 private:
 	std::shared_ptr<DeviceData> _state;
 };
+
+// ----------------------------------------------------------------
+// BaseController.
+// ----------------------------------------------------------------
+
+struct Hub;
+
+struct BaseController {
+protected:
+	~BaseController() = default;
+
+public:
+	// TODO(qookie): Support High-speed and Super-speed devices here
+	virtual async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, bool lowSpeed) = 0;
+};
