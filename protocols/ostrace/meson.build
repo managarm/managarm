@@ -2,7 +2,7 @@ ostrace_bragi = cxxbragi.process('ostrace.bragi')
 
 src = [ 'src/ostrace.cpp', ostrace_bragi ]
 inc = [ 'include' ]
-deps = [ mbus_proto_dep, bragi_dep ]
+deps = [ mbus_proto_dep, bragi_dep, frigg ]
 
 libostrace_protocol = shared_library('ostrace_protocol', src,
 	dependencies : deps,

@@ -3,7 +3,7 @@ kernlet_pb = protocxx.process(here/'kernlet.proto',
 	extra_args : [ '-I' + here ]
 )
 
-deps = [ mbus_proto_dep ]
+deps = [ mbus_proto_dep, frigg ]
 src = [ 'src/compiler.cpp', kernlet_pb ]
 inc = [ 'include' ]
 

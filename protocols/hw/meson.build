@@ -4,7 +4,7 @@ hw_pb = cxxbragi.process(here/'hw.bragi',
 )
 
 incs = [ 'include' ]
-deps = [ helix_dep, proto_lite_dep ]
+deps = [ helix_dep, proto_lite_dep, frigg ]
 src = [ 'src/client.cpp', hw_pb ]
 
 libhw = shared_library('hw_protocol', src,
