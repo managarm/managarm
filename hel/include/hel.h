@@ -128,8 +128,7 @@ struct HelX86SegmentRegister {
 	uint64_t base;
 	uint32_t limit;
 	uint16_t selector;
-	uint32_t ar_bytes;
-	uint8_t access_right;
+	uint8_t type, present, dpl, db, s, l, g, avl;
 };
 
 struct HelX86DescriptorTable {
@@ -262,7 +261,8 @@ enum HelMapFlags {
 	kHelMapProtRead = 256,
 	kHelMapProtWrite = 512,
 	kHelMapProtExecute = 1024,
-	kHelMapDontRequireBacking = 128
+	kHelMapDontRequireBacking = 128,
+	kHelMapFixed = 2048
 };
 
 enum HelThreadFlags {
@@ -531,13 +531,15 @@ struct HelThreadStats {
 };
 
 enum {
-  khelVmexitHlt = 0,
-  khelVmexitTranslationFault = 1,
-  khelVmexitError = -1,
+  kHelVmexitHlt = 0,
+  kHelVmexitTranslationFault = 1,
+  kHelVmexitError = -1,
+  kHelVmexitUnknownPlatformSpecificExitCode = -2,
 };
 
 struct HelVmexitReason {
 	uint32_t exitReason;
+	uint32_t code;
 	size_t address;
 	size_t flags;
 };

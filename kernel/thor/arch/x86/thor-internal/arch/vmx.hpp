@@ -80,14 +80,6 @@ namespace thor::vmx {
 	constexpr uint64_t GUEST_TR_LIMIT                   = 0x0000480e;
 	constexpr uint64_t GUEST_GDTR_LIMIT                 = 0x00004810;
 	constexpr uint64_t GUEST_IDTR_LIMIT                 = 0x00004812;
-	constexpr uint64_t GUEST_ES_AR_BYTES                = 0x00004814;
-	constexpr uint64_t GUEST_CS_AR_BYTES                = 0x00004816;
-	constexpr uint64_t GUEST_SS_AR_BYTES                = 0x00004818;
-	constexpr uint64_t GUEST_DS_AR_BYTES                = 0x0000481a;
-	constexpr uint64_t GUEST_FS_AR_BYTES                = 0x0000481c;
-	constexpr uint64_t GUEST_GS_AR_BYTES                = 0x0000481e;
-	constexpr uint64_t GUEST_LDTR_AR_BYTES              = 0x00004820;
-	constexpr uint64_t GUEST_TR_AR_BYTES                = 0x00004822;
 	constexpr uint64_t GUEST_ES_BASE                    = 0x00006806;
 	constexpr uint64_t GUEST_CS_BASE                    = 0x00006808;
 	constexpr uint64_t GUEST_SS_BASE                    = 0x0000680a;
