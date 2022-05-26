@@ -21,6 +21,8 @@
 #include "fs.bragi.hpp"
 #include "core/drm/core.hpp"
 
+constexpr bool logDrmRequests = false;
+
 // ----------------------------------------------------------------
 // Device
 // ----------------------------------------------------------------
@@ -1194,6 +1196,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: ADDFB()" << std::endl;
+
 		auto bo = self->resolveHandle(req.drm_handle());
 		assert(bo);
 		auto buffer = bo->sharedBufferObject();
@@ -1229,6 +1234,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_MAP_DUMB) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: MAP_DUMB(handle " << req.drm_handle() << ")" << std::endl;
 
 		auto bo = self->resolveHandle(req.drm_handle());
 		assert(bo);
@@ -1372,6 +1380,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: MODE_CURSOR()" << std::endl;
+
 		auto crtc_obj = self->_device->findObject(req.drm_crtc_id());
 		assert(crtc_obj);
 		auto crtc = crtc_obj->asCrtc();
@@ -1431,6 +1442,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		co_await transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_DESTROY_DUMB){
+		if(logDrmRequests)
+			std::cout << "core/drm: DESTROY_DUMB(" << req.drm_handle() << ")" << std::endl;
+
 		self->_buffers.erase(req.drm_handle());
 
 		helix::SendBuffer send_resp;
@@ -1590,6 +1604,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
+		if(logDrmRequests)
+			std::cout << "core/drm: GETPLANERESOURCES()" << std::endl;
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -1611,6 +1628,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		} else {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
+
+		if(logDrmRequests)
+			std::cout << "core/drm: GETPROPBLOB(id " << req.drm_blob_id() << ")" << std::endl;
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -1640,6 +1660,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
 
+		if(logDrmRequests)
+			std::cout << "core/drm: CREATEPROPBLOB() -> id " << resp.drm_blob_id() << std::endl;
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -1654,6 +1677,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		} else {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
+
+		if(logDrmRequests)
+			std::cout << "core/drm: DESTROYPROPBLOB(id " << req.drm_blob_id() << ")" << std::endl;
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
