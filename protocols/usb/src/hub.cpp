@@ -114,6 +114,10 @@ public:
 		return characteristics_;
 	}
 
+	std::optional<Device> associatedDevice() override {
+		return device_;
+	}
+
 private:
 	Device device_;
 	Endpoint endpoint_;

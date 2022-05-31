@@ -45,6 +45,10 @@ public:
 		return UsbError::stall; // TODO(qookie): Use a different error?
 	}
 
+	virtual std::optional<Device> associatedDevice() {
+		return std::nullopt;
+	}
+
 	std::shared_ptr<Hub> parent() const {
 		return parent_;
 	}

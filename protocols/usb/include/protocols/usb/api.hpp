@@ -161,6 +161,10 @@ struct Device {
 	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) const;
 	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) const;
 
+	std::shared_ptr<DeviceData> state() const {
+		return _state;
+	}
+
 private:
 	std::shared_ptr<DeviceData> _state;
 };
