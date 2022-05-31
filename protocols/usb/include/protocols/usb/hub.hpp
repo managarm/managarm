@@ -35,8 +35,7 @@ public:
 
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
-	// TODO(qookie): Support High-speed and Super-speed devices here
-	virtual async::result<frg::expected<UsbError, bool>> issueReset(int port, bool *lowSpeed) = 0;
+	virtual async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) = 0;
 
 	std::shared_ptr<Hub> parent() const {
 		return parent_;

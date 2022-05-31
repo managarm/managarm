@@ -25,7 +25,7 @@ struct Controller final : std::enable_shared_from_this<Controller>, BaseControll
 
 		size_t numPorts() override;
 		async::result<PortState> pollState(int port) override;
-		async::result<frg::expected<UsbError, bool>> issueReset(int port, bool *low_speed) override;
+		async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) override;
 
 	private:
 		Controller *_controller;
@@ -38,7 +38,7 @@ struct Controller final : std::enable_shared_from_this<Controller>, BaseControll
 	async::detached _handleIrqs();
 	async::detached _refreshFrame();
 	
-	async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, bool low_speed) override;
+	async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) override;
 
 private:
 	protocols::hw::Device _hwDevice;

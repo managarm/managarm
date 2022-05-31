@@ -32,11 +32,15 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	enumerate_lock = std::unique_lock<async::mutex>{enumerateMutex_, std::adopt_lock};
 
 	std::cout << "usb: Issuing reset on port " << port << std::endl;
-	bool lowSpeed;
-	if (!(co_await hub->issueReset(port, &lowSpeed)))
+
+	DeviceSpeed speed; 
+
+	if (auto v = co_await hub->issueReset(port); !v)
 		co_return;
-	if (lowSpeed)
-		std::cout << "\e[31musb: Device is low speed!\e[39m" << std::endl;
+	else
+		speed = v.value();
+
+	std::cout << "usb: Waiting for device to become enabled on port " << port << std::endl;
 
 	// Wait until the device is enabled.
 	while (true) {
@@ -48,7 +52,7 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	}
 
 	std::cout << "usb: Enumerating device on port " << port << std::endl;
-	co_await controller_->enumerateDevice(hub, port, lowSpeed);
+	co_await controller_->enumerateDevice(hub, port, speed);
 	enumerate_lock.unlock();
 
 	// Wait until the device is disconnected.
@@ -78,6 +82,7 @@ namespace PortBits {
 	static constexpr uint16_t enable = 0x02;
 	static constexpr uint16_t reset = 0x10;
 	static constexpr uint16_t lowSpeed = 0x200;
+	static constexpr uint16_t highSpeed = 0x400;
 }
 
 namespace PortFeatures {
@@ -101,7 +106,7 @@ private:
 public:
 	size_t numPorts() override;
 	async::result<PortState> pollState(int port) override;
-	async::result<frg::expected<UsbError, bool>> issueReset(int port, bool *low_speed) override;
+	async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) override;
 
 private:
 	Device device_;
@@ -262,7 +267,7 @@ async::result<PortState> StandardHub::pollState(int port) {
 	}
 }
 
-async::result<frg::expected<UsbError, bool>> StandardHub::issueReset(int port, bool *lowSpeed) {
+async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::issueReset(int port) {
 	// Issue a SetPortFeature request to reset the port.
 	arch::dma_object<SetupPacket> resetReq{device_.setupPool()};
 	resetReq->type = setup_type::targetOther | setup_type::byClass
@@ -287,9 +292,16 @@ async::result<frg::expected<UsbError, bool>> StandardHub::issueReset(int port, b
 	arch::dma_array<uint16_t> result{device_.bufferPool(), 2};
 	FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToHost,
 			statusReq, result.view_buffer()}));
-	*lowSpeed = (result[0] & PortBits::lowSpeed);
 
-	co_return true;
+	auto lowSpeed = result[0] & PortBits::lowSpeed;
+	auto highSpeed = result[0] & PortBits::highSpeed;
+
+	if (lowSpeed)
+		co_return DeviceSpeed::lowSpeed;
+	else if (highSpeed)
+		co_return DeviceSpeed::highSpeed;
+	else // TODO(qookie): What about SuperSpeed hubs?
+		co_return DeviceSpeed::fullSpeed;
 }
 
 } // namespace anonymous

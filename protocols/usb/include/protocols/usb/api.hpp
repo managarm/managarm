@@ -13,6 +13,13 @@ enum class UsbError {
 	stall
 };
 
+enum class DeviceSpeed {
+	lowSpeed,
+	fullSpeed,
+	highSpeed,
+	superSpeed
+};
+
 enum XferFlags {
 	kXferToDevice = 1,
 	kXferToHost = 2
@@ -169,6 +176,5 @@ protected:
 	~BaseController() = default;
 
 public:
-	// TODO(qookie): Support High-speed and Super-speed devices here
-	virtual async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, bool lowSpeed) = 0;
+	virtual async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) = 0;
 };

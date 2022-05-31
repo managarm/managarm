@@ -349,8 +349,8 @@ async::result<PortState> Controller::RootHub::pollState(int port) {
 	}
 }
 
-async::result<frg::expected<UsbError, bool>>
-Controller::RootHub::issueReset(int port, bool *low_speed) {
+async::result<frg::expected<UsbError, DeviceSpeed>>
+Controller::RootHub::issueReset(int port) {
 	auto port_space = _controller->_ioSpace.subspace(0x10 + (2 * port));
 
 	// Reset the port for 50 ms.
@@ -385,22 +385,28 @@ Controller::RootHub::issueReset(int port, bool *low_speed) {
 		HEL_CHECK(helGetClock(&now));
 		if(now - start > 1000'000'000) {
 			std::cout << "\e[31muhci: Could not enable device after reset\e[39m" << std::endl;
-			co_return false;
+			co_return UsbError::stall; // TODO(qookie): Add a timeout error.
 		}
 	}
 	
 	auto sc = port_space.load(port_regs::statusCtrl);
-	*low_speed = (sc & port_status_ctrl::lowSpeed);
+
+	DeviceSpeed speed = (sc & port_status_ctrl::lowSpeed)
+				? DeviceSpeed::lowSpeed
+				: DeviceSpeed::fullSpeed;
 
 	// Similar to USB standard hubs we do not reset the enable-change bit.
 	_controller->_portState[port].status |= HubStatus::enable;
 	_controller->_portState[port].changes |= HubStatus::reset;
 	_controller->_portDoorbell.raise();
 
-	co_return true;
+	co_return speed;
 }
 
-async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, int port, bool low_speed) {
+async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, int port, DeviceSpeed speed) {
+	assert(speed == DeviceSpeed::lowSpeed || speed == DeviceSpeed::fullSpeed);
+	bool low_speed = speed == DeviceSpeed::lowSpeed;
+
 	// This queue will become the default control pipe of our new device.
 	auto queue = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 	_linkAsync(queue);
