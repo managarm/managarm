@@ -95,18 +95,24 @@ namespace PortFeatures {
 }
 
 struct StandardHub final : Hub {
-	StandardHub(std::shared_ptr<Hub> parentHub, Device device)
-	: Hub{parentHub}, device_{std::move(device)}, endpoint_{nullptr} { }
+	StandardHub(std::shared_ptr<Hub> parentHub, Device device, size_t port)
+	: Hub{parentHub, port}, device_{std::move(device)}, endpoint_{nullptr} { }
 
 	async::result<frg::expected<UsbError>> initialize();
 
 private:
 	async::detached run_();
 
+	HubCharacteristics characteristics_;
+
 public:
 	size_t numPorts() override;
 	async::result<PortState> pollState(int port) override;
 	async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) override;
+
+	frg::expected<UsbError, HubCharacteristics> getCharacteristics() override {
+		return characteristics_;
+	}
 
 private:
 	Device device_;
@@ -141,8 +147,9 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	endpoint_ = FRG_CO_TRY(co_await intf.getEndpoint(PipeType::in, endNumber.value()));
 
 	// Read the hub class-specific descriptor.
-	struct HubDescriptor : public DescriptorBase {
+	struct [[gnu::packed]] HubDescriptor : public DescriptorBase {
 		uint8_t numPorts;
+		uint16_t hubCharacteristics;
 	};
 
 	arch::dma_object<SetupPacket> getDescriptor{device_.setupPool()};
@@ -158,6 +165,10 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 			getDescriptor, hubDescriptor.view_buffer()}));
 
 	state_.resize(hubDescriptor->numPorts, PortState{0, 0});
+
+	auto rawThinkTime = (hubDescriptor->hubCharacteristics >> 5) & 0b11;
+	characteristics_.ttThinkTime = 8 * (1 + rawThinkTime);
+
 	run_();
 	co_return {};
 }
@@ -307,8 +318,8 @@ async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::issueReset(int 
 } // namespace anonymous
 
 async::result<frg::expected<UsbError, std::shared_ptr<Hub>>>
-createHubFromDevice(std::shared_ptr<Hub> parentHub, Device device) {
-	auto hub = std::make_shared<StandardHub>(parentHub, std::move(device));
+createHubFromDevice(std::shared_ptr<Hub> parentHub, Device device, size_t port) {
+	auto hub = std::make_shared<StandardHub>(parentHub, std::move(device), port);
 	FRG_CO_TRY(co_await hub->initialize());
 	co_return hub;
 }

@@ -474,7 +474,7 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 	if(descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0
 			&& descriptor->deviceProtocol == 0) {
 		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
-		auto hub = (co_await createHubFromDevice(parentHub, Device{std::move(state)})).unwrap();
+		auto hub = (co_await createHubFromDevice(parentHub, Device{std::move(state)}, port)).unwrap();
 		_enumerator.observeHub(std::move(hub));
 	}
 

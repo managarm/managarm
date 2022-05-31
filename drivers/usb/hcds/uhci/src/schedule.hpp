@@ -21,7 +21,7 @@ struct Controller final : std::enable_shared_from_this<Controller>, BaseControll
 
 	struct RootHub final : Hub {
 		RootHub(Controller *controller)
-		: Hub{nullptr}, _controller{controller} { }
+		: Hub{nullptr, 0}, _controller{controller} { }
 
 		size_t numPorts() override;
 		async::result<PortState> pollState(int port) override;
