@@ -76,133 +76,13 @@ struct Controller final : BaseController {
 
 	async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) override;
 
+	arch::os::contiguous_pool *memoryPool() {
+		return &_memoryPool;
+	}
+
+	void processEvent(Event ev);
+
 private:
-	struct Event {
-		// generic
-		TrbType type;
-		int slotId;
-		int vfId;
-		int completionCode;
-
-		// transfer event specific
-		uintptr_t trbPointer;
-		size_t transferLen;
-		size_t endpointId;
-		bool eventData;
-
-		// command completion event specific
-		uintptr_t commandPointer;
-		int commandCompletionParameter;
-
-		// port status change event specific
-		size_t portId;
-
-		// doorbell event specific
-		size_t doorbellReason;
-
-		// device notification event specific
-		uintptr_t notificationData;
-		size_t notificationType;
-
-		// raw trb
-		RawTrb raw;
-
-		static Event fromRawTrb(RawTrb trb);
-		void printInfo();
-	};
-
-	struct CommandRing {
-		constexpr static size_t commandRingSize = 128;
-
-		struct CommandEvent {
-			async::oneshot_event completion;
-			Event event;
-		};
-
-		struct alignas(64) CommandRingEntries {
-			RawTrb ent[commandRingSize];
-		};
-
-		CommandRing(Controller *controller);
-		uintptr_t getCrcr();
-
-		void pushRawCommand(RawTrb cmd, CommandEvent *ev = nullptr);
-
-		std::array<CommandEvent *, commandRingSize> _commandEvents;
-		void submit();
-	private:
-		arch::dma_object<CommandRingEntries> _commandRing;
-		size_t _enqueuePtr;
-
-		Controller *_controller;
-
-		bool _pcs; // producer cycle state
-	};
-
-	struct EventRing {
-		constexpr static size_t eventRingSize = 128;
-
-		struct alignas(64) ErstEntry {
-			uint32_t ringSegmentBaseLow;
-			uint32_t ringSegmentBaseHi;
-			uint32_t ringSegmentSize;
-			uint32_t reserved;
-		};
-
-		struct alignas(64) EventRingEntries {
-			RawTrb ent[eventRingSize];
-		};
-
-		static_assert(sizeof(ErstEntry) == 64, "invalid ErstEntry size");
-
-		EventRing(Controller *controller);
-		uintptr_t getErstPtr();
-		uintptr_t getEventRingPtr();
-		size_t getErstSize();
-
-		void processRing();
-
-		std::deque<Event> _dequeuedEvents;
-		async::recurring_event _doorbell;
-	private:
-		arch::dma_object<EventRingEntries> _eventRing;
-		arch::dma_array<ErstEntry> _erst;
-
-		void processEvent(Event ev);
-
-		size_t _dequeuePtr;
-		Controller *_controller;
-
-		int _ccs;
-	};
-
-	struct TransferRing {
-		constexpr static size_t transferRingSize = 128;
-
-		struct TransferEvent {
-			async::oneshot_event completion;
-			Event event;
-		};
-
-		struct alignas(64) TransferRingEntries {
-			RawTrb ent[transferRingSize];
-		};
-
-		TransferRing(Controller *controller);
-		uintptr_t getPtr();
-
-		void pushRawTransfer(RawTrb cmd, TransferEvent *ev = nullptr);
-
-		void updateLink();
-
-		std::array<TransferEvent *, transferRingSize> _transferEvents;
-	private:
-		arch::dma_object<TransferRingEntries> _transferRing;
-		size_t _enqueuePtr;
-
-		bool _pcs; // producer cycle state
-	};
-
 	struct Interrupter {
 		Interrupter(int id, Controller *controller);
 		void setEnable(bool enable);
@@ -289,13 +169,13 @@ private:
 		async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
 
 		void submit(int endpoint);
-		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
+		void pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *ev = nullptr);
 
 		async::result<void> enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<Hub> hub, DeviceSpeed speed, int slotType);
 
 		async::result<void> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
 
-		std::array<std::unique_ptr<TransferRing>, 31> _transferRings;
+		std::array<std::unique_ptr<ProducerRing>, 31> _transferRings;
 
 		async::result<void> setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type, bool drop = false);
 
@@ -393,13 +273,14 @@ private:
 	std::vector<std::pair<uint8_t, uint16_t>> getExtendedCapabilityOffsets();
 
 	async::result<Event> submitCommand(RawTrb trb) {
-		CommandRing::CommandEvent ev;
-		_cmdRing.pushRawCommand(trb, &ev);
-		_cmdRing.submit();
+		ProducerRing::Completion comp;
+		_cmdRing.pushRawTrb(trb, &comp);
 
-		co_await ev.completion.wait();
+		ringDoorbell(0, 0, 0);
 
-		co_return ev.event;
+		co_await comp.completion.wait();
+
+		co_return comp.event;
 	}
 
 	arch::os::contiguous_pool _memoryPool;
@@ -414,7 +295,7 @@ private:
 
 	std::vector<std::shared_ptr<RootHub>> _rootHubs;
 
-	CommandRing _cmdRing;
+	ProducerRing _cmdRing;
 	EventRing _eventRing;
 
 	int _numPorts;

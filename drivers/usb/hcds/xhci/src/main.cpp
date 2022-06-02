@@ -251,7 +251,7 @@ async::detached Controller::initialize() {
 
 	_operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data())); // tell the device about our dcbaa
 
-	_operational.store(op_regs::crcr, _cmdRing.getCrcr() | 1);
+	_operational.store(op_regs::crcr, _cmdRing.getPtr() | 1);
 
 	printf("xhci: setting up interrupters\n");
 	auto max_intrs = _space.load(cap_regs::hcsparams1) & hcsparams1::maxIntrs;
@@ -304,6 +304,7 @@ async::detached Controller::handleIrqs() {
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		_eventRing.processRing();
+		_interrupters[0]->setEventRing(&_eventRing, true);
 	}
 
 	printf("xhci: interrupt coroutine should not exit...\n");
@@ -324,6 +325,7 @@ async::detached Controller::handleMsis() {
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		_eventRing.processRing();
+		_interrupters[0]->setEventRing(&_eventRing, true);
 	}
 
 	printf("xhci: interrupt coroutine should not exit...\n");
@@ -418,141 +420,27 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 	co_await root.createObject(name, mbus_desc, std::move(handler));
 }
 
-// ------------------------------------------------------------------------
-// Controller::CommandRing
-// ------------------------------------------------------------------------
+void Controller::processEvent(Event ev) {
+	switch (ev.type) {
+		using enum TrbType;
 
-Controller::CommandRing::CommandRing(Controller *controller)
-:_commandRing{&controller->_memoryPool}, _enqueuePtr{0},
-	_controller{controller}, _pcs{true} {
+		case commandCompletionEvent:
+			_cmdRing.processEvent(ev);
+			break;
 
-	for (uint32_t i = 0; i < commandRingSize; i++) {
-		_commandRing->ent[i] = {{0, 0, 0, 0}};
-	}
+		case transferEvent:
+			_devices[ev.slotId]->_transferRings[ev.endpointId - 1]->processEvent(ev);
+			break;
 
-	_commandRing->ent[commandRingSize - 1] = {{
-		static_cast<uint32_t>(getCrcr() & 0xFFFFFFFF),
-		static_cast<uint32_t>(getCrcr() >> 32),
-		0,
-		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
-	}};
-}
+		case portStatusChangeEvent:
+			assert(ev.portId <= _ports.size());
+			if (_ports[ev.portId - 1])
+				_ports[ev.portId - 1]->_doorbell.raise();
+			break;
 
-uintptr_t Controller::CommandRing::getCrcr() {
-	uintptr_t ptr;
-	HEL_CHECK(helPointerPhysical(_commandRing.data(), &ptr));
-	return ptr;
-}
-
-void Controller::CommandRing::pushRawCommand(RawTrb cmd, 
-		Controller::CommandRing::CommandEvent *ev) {
-	assert(_enqueuePtr < 127 && "ring aspect of the command ring not yet supported");
-	_commandRing->ent[_enqueuePtr] = cmd;
-	_commandEvents[_enqueuePtr] = ev;
-	if (_pcs) {
-		_commandRing->ent[_enqueuePtr].val[3] |= 1;
-	} else {
-		_commandRing->ent[_enqueuePtr].val[3] &= ~1;
-	}
-	_enqueuePtr++;
-
-	// update link trb
-	_commandRing->ent[commandRingSize - 1] = {{
-		static_cast<uint32_t>(getCrcr() & 0xFFFFFFFF),
-		static_cast<uint32_t>(getCrcr() >> 32),
-		0,
-		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
-	}};
-}
-
-void Controller::CommandRing::submit() {
-	_controller->ringDoorbell(0, 0, 0);
-}
-
-// ------------------------------------------------------------------------
-// Controller::EventRing
-// ------------------------------------------------------------------------
-
-Controller::EventRing::EventRing(Controller *controller)
-:_eventRing{&controller->_memoryPool}, _erst{&controller->_memoryPool, 1},
-	_dequeuePtr{0}, _controller{controller}, _ccs{1} {
-
-	for (size_t i = 0; i < eventRingSize; i++) {
-		_eventRing->ent[i] = {{0, 0, 0, 0}};
-	}
-
-	_erst[0].ringSegmentBaseLow = getEventRingPtr() & 0xFFFFFFFF;
-	_erst[0].ringSegmentBaseHi = getEventRingPtr() >> 32;
-	_erst[0].ringSegmentSize = eventRingSize;
-	_erst[0].reserved = 0; // ResvZ in spec
-}
-
-uintptr_t Controller::EventRing::getErstPtr() {
-	uintptr_t ptr;
-	HEL_CHECK(helPointerPhysical(_erst.data(), &ptr));
-	return ptr;
-}
-
-uintptr_t Controller::EventRing::getEventRingPtr() {
-	uintptr_t ptr;
-	HEL_CHECK(helPointerPhysical(_eventRing.data(), &ptr));
-	return ptr + _dequeuePtr * sizeof(RawTrb);
-}
-
-size_t Controller::EventRing::getErstSize() {
-	return _erst.size();
-}
-
-void Controller::EventRing::processRing() {
-	while((_eventRing->ent[_dequeuePtr].val[3] & 1) == _ccs) {
-		RawTrb raw_ev = _eventRing->ent[_dequeuePtr];
-
-		int old_ccs = _ccs;
-
-		_dequeuePtr++;
-		if (_dequeuePtr >= eventRingSize) {
-			_dequeuePtr = 0; // wrap around
-			_ccs = !_ccs; // invert cycle state
-		}
-
-		if ((raw_ev.val[3] & 1) != old_ccs)
-			break; // not the proper cycle state
-
-		Controller::Event ev = Controller::Event::fromRawTrb(raw_ev);
-
-		_dequeuedEvents.push_back(ev);
-		processEvent(ev);
-	}
-
-	_controller->_interrupters[0]->setEventRing(this, true);
-	_doorbell.raise();
-}
-
-void Controller::EventRing::processEvent(Controller::Event ev) {
-	if (ev.type == TrbType::commandCompletionEvent) {
-		size_t commandIndex = (ev.commandPointer - _controller->_cmdRing.getCrcr()) / sizeof(RawTrb);
-		assert(commandIndex < Controller::CommandRing::commandRingSize);
-		auto cmdEv = _controller->_cmdRing._commandEvents[commandIndex];
-		_controller->_cmdRing._commandEvents[commandIndex] = nullptr;
-		if (cmdEv) {
-			cmdEv->event = ev;
-			cmdEv->completion.raise();
-		}
-	} else if (ev.type == TrbType::portStatusChangeEvent) {
-		printf("xhci: port %lu changed state\n", ev.portId);
-		assert(ev.portId <= _controller->_ports.size());
-		if (_controller->_ports[ev.portId - 1])
-			_controller->_ports[ev.portId - 1]->_doorbell.raise();
-	} else if (ev.type == TrbType::transferEvent) {
-		auto transferRing = _controller->_devices[ev.slotId]->_transferRings[ev.endpointId - 1].get();
-		size_t commandIndex = (ev.trbPointer - transferRing->getPtr()) / sizeof(RawTrb);
-		assert(commandIndex < Controller::TransferRing::transferRingSize);
-		auto transferEv = transferRing->_transferEvents[commandIndex];
-		transferRing->_transferEvents[commandIndex] = nullptr;
-		if (transferEv) {
-			transferEv->event = ev;
-			transferEv->completion.raise();
-		}
+		default:
+			printf("xhci: Unexpected event in processEvent, ignoring...\n");
+			ev.printInfo();
 	}
 }
 
@@ -596,114 +484,6 @@ bool Controller::Interrupter::isPending() {
 void Controller::Interrupter::clearPending() {
 	auto reg = _space.load(interrupter::iman);
 	_space.store(interrupter::iman, reg | iman::pending(1));
-}
-
-// ------------------------------------------------------------------------
-// Controller::Event
-// ------------------------------------------------------------------------
-
-Controller::Event Controller::Event::fromRawTrb(RawTrb trb) {
-	Controller::Event ev;
-
-	ev.type = static_cast<TrbType>((trb.val[3] >> 10) & 63);
-	ev.completionCode = (trb.val[2] >> 24) & 0xFF;
-	ev.slotId = (trb.val[3] >> 24) & 0xFF;
-	ev.vfId = (trb.val[3] >> 16) & 0xFF;
-	ev.raw = trb;
-
-	switch(ev.type) {
-		case TrbType::transferEvent:
-			ev.trbPointer = trb.val[0] |
-				(static_cast<uintptr_t>(trb.val[1]) << 32);
-			ev.transferLen = trb.val[2] & 0xFFFFFF;
-			ev.endpointId = (trb.val[3] >> 16) & 0x1F;
-			ev.eventData = trb.val[3] & (1 << 2);
-			break;
-
-		case TrbType::commandCompletionEvent:
-			ev.commandPointer = trb.val[0] |
-				(static_cast<uintptr_t>(trb.val[1]) << 32);
-			ev.commandCompletionParameter = trb.val[2] & 0xFFFFFF;
-			break;
-
-		case TrbType::portStatusChangeEvent:
-			ev.portId = (trb.val[0] >> 24) & 0xFF;
-			break;
-
-		case TrbType::doorbellEvent:
-			ev.doorbellReason = trb.val[0] & 0x1F;
-			break;
-
-		case TrbType::deviceNotificationEvent:
-			ev.notificationData = (trb.val[0] |
-				(static_cast<uintptr_t>(trb.val[1]) << 32))
-				>> 8;
-			ev.notificationType = (trb.val[0] >> 4) & 0xF;
-			break;
-
-		default:
-			assert(!"xhci: trb passed to fromRawTrb is not a proper event trb\n");
-	}
-
-	return ev;
-}
-
-void Controller::Event::printInfo() {
-	printf("xhci: --- event dump ---\n");
-	printf("xhci: raw: %08x %08x %08x %08x\n",
-			raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
-	printf("xhci: type: %u\n", static_cast<unsigned int>(type));
-	printf("xhci: slot id: %d\n", slotId);
-	printf("xhci: completion code: %s (%d)\n",
-			completionCodeNames[completionCode],
-			completionCode);
-
-	switch(type) {
-		case TrbType::transferEvent:
-			printf("xhci: type name: Transfer Event\n");
-			printf("xhci: trb ptr: %016lx, len %lu\n", trbPointer,
-					transferLen);
-			printf("xhci: endpointId: %lu, eventData: %s\n",
-					endpointId, eventData ? "yes" : "no");
-			break;
-		case TrbType::commandCompletionEvent:
-			printf("xhci: type name: Command Completion Event\n");
-			printf("xhci: command pointer: %016lx\n",
-					commandPointer);
-			printf("xhci: command completion parameter: %d\n",
-					commandCompletionParameter);
-			printf("xhci: vfid: %d\n", vfId);
-			break;
-		case TrbType::portStatusChangeEvent:
-			printf("xhci: type name: Port Status Change Event\n");
-			printf("xhci: port id: %lu\n", portId);
-			break;
-		case TrbType::bandwidthRequestEvent:
-			printf("xhci: type name: Bandwidth Request Event\n");
-			break;
-		case TrbType::doorbellEvent:
-			printf("xhci: type name: Doorbell Event\n");
-			printf("xhci: reason: %lu\n", doorbellReason);
-			printf("xhci: vfid: %d\n", vfId);
-			break;
-		case TrbType::hostControllerEvent:
-			printf("xhci: type name: Host Controller Event\n");
-			break;
-		case TrbType::deviceNotificationEvent:
-			printf("xhci: type name: Device Notification Event\n");
-			printf("xhci: notification data: %lx\n",
-					notificationData);
-			printf("xhci: notification type: %lu\n",
-					notificationType);
-			break;
-		case TrbType::mfindexWrapEvent:
-			printf("xhci: type name: MFINDEX Wrap Event\n");
-			break;
-		default:
-			printf("xhci: invalid event\n");
-	}
-
-	printf("xhci: --- end of event dump ---\n");
 }
 
 // ------------------------------------------------------------------------
@@ -905,59 +685,6 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::RootHub::issueRe
 }
 
 // ------------------------------------------------------------------------
-// Controller::TransferRing
-// ------------------------------------------------------------------------
-
-Controller::TransferRing::TransferRing(Controller *controller)
-: _transferRing{&controller->_memoryPool}, _enqueuePtr{0}, _pcs{true} {
-
-	for (uint32_t i = 0; i < transferRingSize; i++) {
-		_transferRing->ent[i] = {{0, 0, 0, 0}};
-	}
-
-	_transferRing->ent[transferRingSize - 1] = {{
-		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
-		static_cast<uint32_t>(getPtr() >> 32),
-		0,
-		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
-	}};
-}
-
-uintptr_t Controller::TransferRing::getPtr() {
-	uintptr_t ptr;
-	HEL_CHECK(helPointerPhysical(_transferRing.data(), &ptr));
-	return ptr;
-}
-
-void Controller::TransferRing::pushRawTransfer(RawTrb cmd, 
-		Controller::TransferRing::TransferEvent *ev) {
-
-	_transferRing->ent[_enqueuePtr] = cmd;
-	_transferEvents[_enqueuePtr] = ev;
-	if (_pcs) {
-		_transferRing->ent[_enqueuePtr].val[3] |= 1;
-	} else {
-		_transferRing->ent[_enqueuePtr].val[3] &= ~1;
-	}
-	_enqueuePtr++;
-
-	if (_enqueuePtr >= Controller::TransferRing::transferRingSize - 1) {
-		updateLink();
-		_pcs = !_pcs;
-		_enqueuePtr = 0;
-	}
-}
-
-void Controller::TransferRing::updateLink() {
-	_transferRing->ent[transferRingSize - 1] = {{
-		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
-		static_cast<uint32_t>(getPtr() >> 32),
-		0,
-		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
-	}};
-}
-
-// ------------------------------------------------------------------------
 // Controller::Device
 // ------------------------------------------------------------------------
 
@@ -1030,17 +757,17 @@ Controller::Device::useConfiguration(int number) {
 			0, 0, 0, 
 			(1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
 
-	TransferRing::TransferEvent ev;
+	ProducerRing::Completion comp;
 
 	pushRawTransfer(0, setup_stage);
-	pushRawTransfer(0, status_stage, &ev);
+	pushRawTransfer(0, status_stage, &comp);
 	submit(1);
 
-	co_await ev.completion.wait();
+	co_await comp.completion.wait();
 
-	if (ev.event.completionCode != 1)
+	if (comp.event.completionCode != 1)
 		printf("xhci: failed to use configuration, completion code: '%s'\n",
-			completionCodeNames[ev.event.completionCode]);
+			completionCodeNames[comp.event.completionCode]);
 
 	printf("xhci: configuration set\n");
 
@@ -1080,7 +807,7 @@ Controller::Device::transfer(ControlTransfer info) {
 		progress += chunk;
 	}
 
-	TransferRing::TransferEvent ev;
+	ProducerRing::Completion ev;
 
 	RawTrb status_stage = {{
 			0, 0, 0, 
@@ -1178,8 +905,8 @@ async::result<void> Controller::Device::enumerate(size_t rootPort, size_t port, 
 	printf("xhci: device successfully addressed\n");
 }
 
-void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, Controller::TransferRing::TransferEvent *ev) {
-	_transferRings[endpoint]->pushRawTransfer(cmd, ev);
+void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *comp) {
+	_transferRings[endpoint]->pushRawTrb(cmd, comp);
 }
 
 async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
@@ -1200,7 +927,7 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view des
 			0, 0, 0, 
 			(1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
 
-	TransferRing::TransferEvent ev;
+	ProducerRing::Completion ev;
 
 	pushRawTransfer(0, setup_stage);
 	pushRawTransfer(0, data_stage);
@@ -1365,7 +1092,7 @@ async::result<frg::expected<UsbError, size_t>>
 Controller::EndpointState::transfer(InterruptTransfer info) {
 	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
 
-	Controller::TransferRing::TransferEvent ev;
+	ProducerRing::Completion ev;
 
 	size_t progress = 0;
 	while(progress < info.buffer.size()) {
@@ -1401,7 +1128,7 @@ async::result<frg::expected<UsbError, size_t>>
 Controller::EndpointState::transfer(BulkTransfer info) {
 	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
 
-	Controller::TransferRing::TransferEvent ev;
+	ProducerRing::Completion ev;
 
 	size_t progress = 0;
 	while(progress < info.buffer.size()) {
