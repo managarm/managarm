@@ -31,6 +31,17 @@
 // what Linux is doing in it's driver.
 inline constexpr bool ignoreControllerSpeeds = true;
 
+inline frg::expected<UsbError> completionToError(Event ev) {
+	switch (ev.completionCode) {
+		case 1: return frg::success;
+		case 13: return frg::success; // Should short packets always be treated as success?
+		case 3: return UsbError::babble;
+		case 6: return UsbError::stall;
+		case 22: return UsbError::unsupported;
+		default: return UsbError::other;
+	}
+}
+
 // ----------------------------------------------------------------
 // Controller
 // ----------------------------------------------------------------
@@ -371,14 +382,14 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 	rootPort += proto->compatiblePortStart;
 
 	auto device = std::make_shared<Device>(this);
-	co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->protocolSlotType);
+	(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->protocolSlotType)).unwrap();
 	_devices[device->slot()] = device;
 
 	// TODO: if isFullSpeed is set, read the first 8 bytes of the device descriptor
 	// and update the control endpoint's max packet size to match the bMaxPacketSize0 value
 
 	arch::dma_object<DeviceDescriptor> descriptor{&_memoryPool};
-	co_await device->readDescriptor(descriptor.view_buffer(), 0x0100);
+	(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100)).unwrap();
 
 	// Advertise the USB device on mbus.
 	char class_code[3], sub_class[3], protocol[3];
@@ -393,7 +404,7 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
 		auto hub = (co_await createHubFromDevice(parentHub, ::Device{device}, port)).unwrap();
 
-		device->configureHub(hub);
+		(co_await device->configureHub(hub)).unwrap();
 
 		_enumerator.observeHub(std::move(hub));
 	}
@@ -614,10 +625,6 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 			case 6:
 			case 7:
 				speed = DeviceSpeed::superSpeed;
-				break;
-			default:
-				printf("xhci: Invalid speed ID: %u\n", speedId);
-				assert(!"Invalid speed ID");
 		}
 	} else {
 		for (auto &pSpeed : _proto->speeds) {
@@ -659,12 +666,12 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 	// Raise the event here to make progress in the enumerator
 	_pollEv.raise();
 
-	assert(speed);
-
-	if (speed)
+	if (speed) {
 		co_return speed.value();
-	else
-		co_return UsbError::stall; // TODO(qookie): Add a better error
+	} else {
+		printf("xhci: Invalid speed ID: %u\n", speedId);
+		co_return UsbError::unsupported;
+	}
 }
 
 // ------------------------------------------------------------------------
@@ -712,10 +719,10 @@ arch::dma_pool *Controller::Device::bufferPool() {
 async::result<frg::expected<UsbError, std::string>>
 Controller::Device::configurationDescriptor() {
 	arch::dma_object<ConfigDescriptor> header{&_controller->_memoryPool};
-	co_await readDescriptor(header.view_buffer(), 0x0200);
+	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200));
 
 	arch::dma_buffer descriptor{&_controller->_memoryPool, header->totalLength};
-	co_await readDescriptor(descriptor, 0x0200);
+	FRG_CO_TRY(co_await readDescriptor(descriptor, 0x0200));
 	co_return std::string{(char *)descriptor.data(), descriptor.size()};
 }
 
@@ -754,7 +761,7 @@ Controller::Device::useConfiguration(int number) {
 	for (auto &ep : _eps) {
 		printf("xhci: setting up %s endpoint %d (max packet size: %d)\n", 
 			ep.dir == PipeType::in ? "in" : "out", ep.pipe, ep.packetSize);
-		co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type);
+		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
 	}
 
 	RawTrb setup_stage = {{
@@ -778,6 +785,7 @@ Controller::Device::useConfiguration(int number) {
 		printf("xhci: failed to use configuration, completion code: '%s'\n",
 			completionCodeNames[comp.event.completionCode]);
 
+	FRG_CO_TRY(completionToError(comp.event));
 	printf("xhci: configuration set\n");
 
 	co_return Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
@@ -828,10 +836,8 @@ Controller::Device::transfer(ControlTransfer info) {
 
 	co_await ev.completion.wait();
 
-	if (ev.event.completionCode != 1)
-		printf("xhci: failed to perform a control transfer, completion code: '%s'\n",
-			completionCodeNames[ev.event.completionCode]);
-	co_return {};
+	FRG_CO_TRY(completionToError(ev.event));
+	co_return frg::success;
 }
 
 void Controller::Device::submit(int endpoint) {
@@ -852,9 +858,12 @@ static inline uint8_t getHcdSpeedId(DeviceSpeed speed) {
 	return 0;
 }
 
-async::result<void> Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<Hub> hub, DeviceSpeed speed, int slotType) {
+async::result<frg::expected<UsbError>>
+Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<Hub> hub, DeviceSpeed speed, int slotType) {
 	auto event = co_await _controller->submitCommand(
 			Command::enableSlot(slotType));
+
+	FRG_CO_TRY(completionToError(event));
 
 	assert(event.completionCode != 9); // TODO: handle running out of device slots
 	assert(event.completionCode == 1); // success
@@ -911,14 +920,19 @@ async::result<void> Controller::Device::enumerate(size_t rootPort, size_t port, 
 		printf("xhci: failed to address device, completion code: '%s'\n",
 			completionCodeNames[event.completionCode]);
 
+	FRG_CO_TRY(completionToError(event));
+
 	printf("xhci: device successfully addressed\n");
+
+	co_return frg::success;
 }
 
 void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *comp) {
 	_transferRings[endpoint]->pushRawTrb(cmd, comp);
 }
 
-async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
+async::result<frg::expected<UsbError>>
+Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	RawTrb setup_stage = {{
 			static_cast<uint32_t>((desc << 16) | (6 << 8) | 0x80), // GET_DESCRIPTOR, dev to host
 			static_cast<uint32_t>(dest.size() << 16), 8,
@@ -949,7 +963,11 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view des
 		printf("xhci: failed to read descriptor, completion code: '%s'\n",
 			completionCodeNames[ev.event.completionCode]);
 
+	FRG_CO_TRY(completionToError(ev.event));
+
 	printf("xhci: device descriptor successfully read\n");
+
+	co_return frg::success;
 }
 
 static inline uint32_t getHcdEndpointType(PipeType dir, EndpointType type) {
@@ -976,7 +994,8 @@ static inline uint32_t getDefaultAverageTrbLen(EndpointType type) {
 	return 0;
 }
 
-async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type, bool drop) {
+async::result<frg::expected<UsbError>>
+Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type) {
 	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -993,12 +1012,15 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 		printf("xhci: failed to configure endpoint, completion code: '%s'\n",
 			completionCodeNames[event.completionCode]);
 
-	assert(event.completionCode == 1);
+	FRG_CO_TRY(completionToError(event));
 
 	printf("xhci: configure endpoint finished\n");
+
+	co_return frg::success;
 }
 
-async::result<void> Controller::Device::configureHub(std::shared_ptr<Hub> hub) {
+async::result<frg::expected<UsbError>>
+Controller::Device::configureHub(std::shared_ptr<Hub> hub) {
 	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -1021,9 +1043,10 @@ async::result<void> Controller::Device::configureHub(std::shared_ptr<Hub> hub) {
 		printf("xhci: failed to configure endpoint, completion code: '%s'\n",
 			completionCodeNames[event.completionCode]);
 
-	assert(event.completionCode == 1);
+	FRG_CO_TRY(completionToError(event));
 
 	printf("xhci: configure endpoint finished\n");
+	co_return frg::success;
 }
 
 void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type) {
@@ -1128,8 +1151,7 @@ Controller::EndpointState::transfer(InterruptTransfer info) {
 
 	co_await ev.completion.wait();
 
-	assert(ev.event.completionCode == 1 || ev.event.completionCode == 13); // success
-
+	FRG_CO_TRY(completionToError(ev.event));
 	co_return info.buffer.size() - ev.event.transferLen;
 }
 
@@ -1164,12 +1186,7 @@ Controller::EndpointState::transfer(BulkTransfer info) {
 
 	co_await ev.completion.wait();
 
-	if (ev.event.completionCode != 1) {
-		printf("xhci: completion code is %s instead of success\n", completionCodeNames[ev.event.completionCode]);
-	}
-
-	assert(ev.event.completionCode == 1); // success
-
+	FRG_CO_TRY(completionToError(ev.event));
 	co_return info.buffer.size() - ev.event.transferLen;
 }
 

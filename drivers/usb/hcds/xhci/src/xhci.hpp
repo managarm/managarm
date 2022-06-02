@@ -171,15 +171,15 @@ private:
 		void submit(int endpoint);
 		void pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *ev = nullptr);
 
-		async::result<void> enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<Hub> hub, DeviceSpeed speed, int slotType);
+		async::result<frg::expected<UsbError>> enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<Hub> hub, DeviceSpeed speed, int slotType);
 
-		async::result<void> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
+		async::result<frg::expected<UsbError>> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
 
 		std::array<std::unique_ptr<ProducerRing>, 31> _transferRings;
 
-		async::result<void> setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type, bool drop = false);
+		async::result<frg::expected<UsbError>> setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type);
 
-		async::result<void> configureHub(std::shared_ptr<Hub> hub);
+		async::result<frg::expected<UsbError>> configureHub(std::shared_ptr<Hub> hub);
 
 		size_t slot() const {
 			return _slotId;
