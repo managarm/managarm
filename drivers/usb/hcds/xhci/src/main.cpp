@@ -26,46 +26,6 @@
 #include "xhci.hpp"
 #include "trb.hpp"
 
-constexpr const char *completionCodeNames[256] = {
-	"Invalid",
-	"Success",
-	"Data buffer error",
-	"Babble detected",
-	"USB transaction error",
-	"TRB error",
-	"Stall error",
-	"Resource error",
-	"Bandwidth error",
-	"No slots available",
-	"Invalid stream type",
-	"Slot not enabled",
-	"Endpoint not enabled",
-	"Short packet",
-	"Ring underrun",
-	"Ring overrun",
-	"VF event ring full",
-	"Parameter error",
-	"Bandwidth overrun",
-	"Context state error",
-	"No ping response",
-	"Event ring full",
-	"Incompatible device",
-	"Missed service",
-	"Command ring stopped",
-	"Command aborted",
-	"Stopped",
-	"Stopped - invalid length",
-	"Stopped - short packet",
-	"Max exit latency too high",
-	"Reserved",
-	"Isoch buffer overrun",
-	"Event lost",
-	"Undefined error",
-	"Invalid stream ID",
-	"Secondary bandwidth error",
-	"Split transaction error",
-};
-
 // ----------------------------------------------------------------
 // Controller
 // ----------------------------------------------------------------
@@ -79,7 +39,7 @@ Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
 		_space{_mapping.get()}, _memoryPool{},
 		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
 		_eventRing{this}, _useMsis{useMsis},
-		_enumerator{this} {
+		_enumerator{this}, _largeCtx{false} {
 	auto op_offset = _space.load(cap_regs::caplength);
 	auto runtime_offset = _space.load(cap_regs::rtsoff);
 	auto doorbell_offset = _space.load(cap_regs::dboff);
@@ -257,7 +217,7 @@ async::detached Controller::initialize() {
 	while(_operational.load(op_regs::usbsts) & usbsts::controllerNotReady); // poll for reset to complete
 	printf("xhci: controller reset done...\n");
 
-	assert(!(_space.load(cap_regs::hccparams1) & hccparams1::contextSize) && "device has 64-byte contexts, which are unsupported");
+	_largeCtx = _space.load(cap_regs::hccparams1) & hccparams1::contextSize;
 
 	_maxDeviceSlots = _space.load(cap_regs::hcsparams1) & hcsparams1::maxDevSlots;
 	_operational.store(op_regs::config, config::enabledDeviceSlots(_maxDeviceSlots));
@@ -281,21 +241,15 @@ async::detached Controller::initialize() {
 		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
 					page_size));
 
-		uintptr_t phys;
-		HEL_CHECK(helPointerPhysical(_scratchpadBufs.back().data(), &phys));
-		_scratchpadBufArray[i] = phys;
+		_scratchpadBufArray[i] = helix::ptrToPhysical(_scratchpadBufs.back().data());
 	}
 
 	for (size_t i = 0; i < 256; i++)
 		_dcbaa[i] = 0;
 
-	uintptr_t sbufs_phys;
-	HEL_CHECK(helPointerPhysical(_scratchpadBufArray.data(), &sbufs_phys));
-	_dcbaa[0] = sbufs_phys;
+	_dcbaa[0] = helix::ptrToPhysical(_scratchpadBufArray.data());
 
-	uintptr_t dcbaap;
-	HEL_CHECK(helPointerPhysical(_dcbaa.data(), &dcbaap));
-	_operational.store(op_regs::dcbaap, dcbaap); // tell the device about our dcbaa
+	_operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data())); // tell the device about our dcbaa
 
 	_operational.store(op_regs::crcr, _cmdRing.getCrcr() | 1);
 
@@ -1106,8 +1060,8 @@ Controller::Device::transfer(ControlTransfer info) {
 
 	size_t progress = 0;
 	while(progress < info.buffer.size()) {
-		uintptr_t pptr, ptr = (uintptr_t)info.buffer.data() + progress;
-		HEL_CHECK(helPointerPhysical((void *)ptr, &pptr));
+		uintptr_t ptr = (uintptr_t)info.buffer.data() + progress;
+		uintptr_t pptr = helix::addressToPhysical(ptr);
 
 		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
 
@@ -1176,16 +1130,16 @@ async::result<void> Controller::Device::enumerate(size_t rootPort, size_t port, 
 
 	// initialize slot
 
-	_devCtx = arch::dma_object<DeviceContext>{&_controller->_memoryPool};
+	_devCtx = DeviceContext{_controller->_largeCtx, &_controller->_memoryPool};
 
-	auto inputCtx = arch::dma_object<InputContext>{&_controller->_memoryPool};
-	memset(inputCtx.data(), 0, sizeof(InputContext));
+	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
+	auto &slotCtx = inputCtx.get(inputCtxSlot);
 
-	inputCtx->inputControlContext |= InputControlFields::add(0); // Slot Context
+	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
 
-	inputCtx->slotContext |= SlotFields::routeString(route);
-	inputCtx->slotContext |= SlotFields::ctxEntries(1);
-	inputCtx->slotContext |= SlotFields::speed(getHcdSpeedId(speed));
+	slotCtx |= SlotFields::routeString(route);
+	slotCtx |= SlotFields::ctxEntries(1);
+	slotCtx |= SlotFields::speed(getHcdSpeedId(speed));
 
 	if ((speed == DeviceSpeed::lowSpeed || speed == DeviceSpeed::fullSpeed)
 			&& hub->parent()) {
@@ -1193,11 +1147,11 @@ async::result<void> Controller::Device::enumerate(size_t rootPort, size_t port, 
 
 		auto hubDevice = std::static_pointer_cast<Device>(hub->associatedDevice()->state());
 
-		inputCtx->slotContext |= SlotFields::parentHubPort(hub->port() + 1);
-		inputCtx->slotContext |= SlotFields::parentHubSlot(hubDevice->_slotId);
+		slotCtx |= SlotFields::parentHubPort(hub->port() + 1);
+		slotCtx |= SlotFields::parentHubSlot(hubDevice->_slotId);
 	}
 
-	inputCtx->slotContext |= SlotFields::rootHubPort(rootPort);
+	slotCtx |= SlotFields::rootHubPort(rootPort);
 
 	size_t packetSize = 0;
 	switch (speed) {
@@ -1209,17 +1163,13 @@ async::result<void> Controller::Device::enumerate(size_t rootPort, size_t port, 
 		case superSpeed: packetSize = 512; break;
 	}
 
-	_initEpCtx(*inputCtx, 0, PipeType::control, packetSize, EndpointType::control);
+	_initEpCtx(inputCtx, 0, PipeType::control, packetSize, EndpointType::control);
 
-	uintptr_t dev_ctx_ptr;
-	HEL_CHECK(helPointerPhysical(_devCtx.data(), &dev_ctx_ptr));
-	_controller->_dcbaa[_slotId] = dev_ctx_ptr;
-
-	uintptr_t in_ctx_ptr;
-	HEL_CHECK(helPointerPhysical(inputCtx.data(), &in_ctx_ptr));
+	_controller->_dcbaa[_slotId] = helix::ptrToPhysical(_devCtx.rawData());
 
 	event = co_await _controller->submitCommand(
-			Command::addressDevice(_slotId, in_ctx_ptr));
+			Command::addressDevice(_slotId,
+				helix::ptrToPhysical(inputCtx.rawData())));
 
 	if (event.completionCode != 1)
 		printf("xhci: failed to address device, completion code: '%s'\n",
@@ -1238,8 +1188,7 @@ async::result<void> Controller::Device::readDescriptor(arch::dma_buffer_view des
 			static_cast<uint32_t>(dest.size() << 16), 8,
 			(3 << 16) | (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
 
-	uintptr_t ptr;
-	HEL_CHECK(helPointerPhysical(dest.data(), &ptr));
+	uintptr_t ptr = helix::ptrToPhysical(dest.data());
 
 	RawTrb data_stage = {{
 			static_cast<uint32_t>(ptr & 0xFFFFFFFF),
@@ -1292,21 +1241,17 @@ static inline uint32_t getDefaultAverageTrbLen(EndpointType type) {
 }
 
 async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type, bool drop) {
-	auto inputCtx = arch::dma_object<InputContext>{&_controller->_memoryPool};
-	memset(inputCtx.data(), 0, sizeof(InputContext));
+	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
 
+	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
+	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
+	inputCtx.get(inputCtxSlot) |= SlotFields::ctxEntries(31);
 
-	inputCtx->inputControlContext |= InputControlFields::add(0); // Slot Context
-	inputCtx->slotContext = _devCtx->slotContext;
-	inputCtx->slotContext |= SlotFields::ctxEntries(31);
-
-	_initEpCtx(*inputCtx, endpoint, dir, maxPacketSize, type);
-
-	uintptr_t in_ctx_ptr;
-	HEL_CHECK(helPointerPhysical(inputCtx.data(), &in_ctx_ptr));
+	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type);
 
 	auto event = co_await _controller->submitCommand(
-			Command::configureEndpoint(_slotId, in_ctx_ptr));
+			Command::configureEndpoint(_slotId, 
+				helix::ptrToPhysical(inputCtx.rawData())));
 
 	if (event.completionCode != 1)
 		printf("xhci: failed to configure endpoint, completion code: '%s'\n",
@@ -1318,27 +1263,23 @@ async::result<void> Controller::Device::setupEndpoint(int endpoint, PipeType dir
 }
 
 async::result<void> Controller::Device::configureHub(std::shared_ptr<Hub> hub) {
-	auto inputCtx = arch::dma_object<InputContext>{&_controller->_memoryPool};
-	memset(inputCtx.data(), 0, sizeof(InputContext));
+	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
 
-	inputCtx->inputControlContext |= InputControlFields::add(0); // Slot Context
+	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
+	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
 
-	inputCtx->slotContext = _devCtx->slotContext;
-
-	inputCtx->slotContext |= SlotFields::hub(true);
-	inputCtx->slotContext |= SlotFields::portCount(hub->numPorts());
+	inputCtx.get(inputCtxSlot) |= SlotFields::hub(true);
+	inputCtx.get(inputCtxSlot) |= SlotFields::portCount(hub->numPorts());
 
 	// TODO(qookie): Check if this device is high-speed.
-	inputCtx->slotContext |= SlotFields::ttThinkTime(
+	inputCtx.get(inputCtxSlot) |= SlotFields::ttThinkTime(
 			hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
 
 	printf("xhci: ttThinkTime: %d\n", hub->getCharacteristics().unwrap().ttThinkTime);
 
-	uintptr_t in_ctx_ptr;
-	HEL_CHECK(helPointerPhysical(inputCtx.data(), &in_ctx_ptr));
-
 	auto event = co_await _controller->submitCommand(
-			Command::evaluateContext(_slotId, in_ctx_ptr));
+			Command::evaluateContext(_slotId,
+				helix::ptrToPhysical(inputCtx.rawData())));
 
 	if (event.completionCode != 1)
 		printf("xhci: failed to configure endpoint, completion code: '%s'\n",
@@ -1355,23 +1296,25 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, PipeType di
 				? 1
 				: 0);
 
-	ctx.inputControlContext |= InputControlFields::add(endpointId); // EP Context
+	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
 
-	_transferRings[endpointId - 1] = std::make_unique<TransferRing>(_controller);
+	_transferRings[endpointId - 1] = std::make_unique<ProducerRing>(_controller);
 
 	auto trPtr = _transferRings[endpointId - 1]->getPtr();
 
-	ctx.endpointContext[endpointId - 1] |= EpFields::errorCount(3);
-	ctx.endpointContext[endpointId - 1] |= EpFields::epType(getHcdEndpointType(dir, type));
-	ctx.endpointContext[endpointId - 1] |= EpFields::maxPacketSize(maxPacketSize);
-	ctx.endpointContext[endpointId - 1] |= EpFields::dequeCycle(true);
-	ctx.endpointContext[endpointId - 1] |= EpFields::trPointerLo(trPtr);
-	ctx.endpointContext[endpointId - 1] |= EpFields::trPointerHi(trPtr);
+	auto &epCtx = ctx.get(inputCtxEp0 + endpointId - 1);
+
+	epCtx |= EpFields::errorCount(3);
+	epCtx |= EpFields::epType(getHcdEndpointType(dir, type));
+	epCtx |= EpFields::maxPacketSize(maxPacketSize);
+	epCtx |= EpFields::dequeCycle(true);
+	epCtx |= EpFields::trPointerLo(trPtr);
+	epCtx |= EpFields::trPointerHi(trPtr);
 
 	// TODO(qookie): We should keep track of the average transfer sizes and
 	// update this every once in a while. Currently we just use the recommended
 	// initial values from the specification.
-	ctx.endpointContext[endpointId - 1] |= EpFields::averageTrbLength(getDefaultAverageTrbLen(type));
+	epCtx |= EpFields::averageTrbLength(getDefaultAverageTrbLen(type));
 }
 
 // ------------------------------------------------------------------------
@@ -1426,8 +1369,8 @@ Controller::EndpointState::transfer(InterruptTransfer info) {
 
 	size_t progress = 0;
 	while(progress < info.buffer.size()) {
-		uintptr_t pptr, ptr = (uintptr_t)info.buffer.data() + progress;
-		HEL_CHECK(helPointerPhysical((void *)ptr, &pptr));
+		uintptr_t ptr = (uintptr_t)info.buffer.data() + progress;
+		uintptr_t pptr = helix::addressToPhysical(ptr);
 
 		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
 
@@ -1462,8 +1405,8 @@ Controller::EndpointState::transfer(BulkTransfer info) {
 
 	size_t progress = 0;
 	while(progress < info.buffer.size()) {
-		uintptr_t pptr, ptr = (uintptr_t)info.buffer.data() + progress;
-		HEL_CHECK(helPointerPhysical((void *)ptr, &pptr));
+		uintptr_t ptr = (uintptr_t)info.buffer.data() + progress;
+		uintptr_t pptr = helix::addressToPhysical(ptr);
 
 		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
 

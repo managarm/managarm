@@ -4,22 +4,65 @@
 #include <cstddef>
 #include <cassert>
 
+#include <arch/dma_pool.hpp>
+
 struct RawContext {
 	uint32_t val[8];
 };
 
-struct alignas(64) InputContext {
-	RawContext inputControlContext;
-	RawContext slotContext;
-	RawContext endpointContext[31];
-};
-static_assert (sizeof(InputContext) == 34 * 32, "invalid InputContext size"); // 34 due to 64 byte alignment
+inline constexpr size_t inputCtxCtrl = 0;
+inline constexpr size_t inputCtxSlot = 1;
+inline constexpr size_t inputCtxEp0 = 2;
 
-struct alignas(64) DeviceContext {
-	RawContext slotContext;
-	RawContext endpointContext[31];
+inline constexpr size_t deviceCtxSlot = 0;
+inline constexpr size_t deviceCtxEp0 = 1;
+
+template <size_t Size>
+struct ContextArray {
+	ContextArray() = default;
+
+	ContextArray(bool largeCtx, arch::os::contiguous_pool *pool)
+	: largeCtx_{largeCtx} {
+		if (largeCtx) {
+			largeArr_ = arch::dma_object<LargeArr>{pool};
+			ctx_ = &largeArr_->ctx[0];
+		} else {
+			smallArr_ = arch::dma_object<SmallArr>{pool};
+			ctx_ = &smallArr_->ctx[0];
+		}
+
+		memset(ctx_, 0, rawSize());
+	}
+
+	void *rawData() {
+		return ctx_;
+	}
+
+	size_t rawSize() {
+		return largeCtx_ ? sizeof(LargeArr) : sizeof(SmallArr);
+	}
+
+	RawContext &get(size_t i) {
+		return ctx_[i * (largeCtx_ ? 2 : 1)];
+	}
+
+private:
+	struct alignas(64) SmallArr {
+		RawContext ctx[Size];
+	};
+
+	struct alignas(64) LargeArr {
+		RawContext ctx[Size * 2];
+	};
+
+	bool largeCtx_ = false;
+	arch::dma_object<SmallArr> smallArr_{};
+	arch::dma_object<LargeArr> largeArr_{};
+	RawContext *ctx_ = nullptr;
 };
-static_assert (sizeof(DeviceContext) == 32 * 32, "invalid DeviceContext size");
+
+using InputContext = ContextArray<34>;
+using DeviceContext = ContextArray<32>;
 
 struct ContextField {
 	int word;

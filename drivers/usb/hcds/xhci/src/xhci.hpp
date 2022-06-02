@@ -16,6 +16,47 @@
 #include "spec.hpp"
 #include "context.hpp"
 #include "trb.hpp"
+#include "ring.hpp"
+
+constexpr const char *completionCodeNames[256] = {
+	"Invalid",
+	"Success",
+	"Data buffer error",
+	"Babble detected",
+	"USB transaction error",
+	"TRB error",
+	"Stall error",
+	"Resource error",
+	"Bandwidth error",
+	"No slots available",
+	"Invalid stream type",
+	"Slot not enabled",
+	"Endpoint not enabled",
+	"Short packet",
+	"Ring underrun",
+	"Ring overrun",
+	"VF event ring full",
+	"Parameter error",
+	"Bandwidth overrun",
+	"Context state error",
+	"No ping response",
+	"Event ring full",
+	"Incompatible device",
+	"Missed service",
+	"Command ring stopped",
+	"Command aborted",
+	"Stopped",
+	"Stopped - invalid length",
+	"Stopped - short packet",
+	"Max exit latency too high",
+	"Reserved",
+	"Isoch buffer overrun",
+	"Event lost",
+	"Undefined error",
+	"Invalid stream ID",
+	"Secondary bandwidth error",
+	"Split transaction error",
+};
 
 // ----------------------------------------------------------------
 // Controller
@@ -269,7 +310,7 @@ private:
 
 		Controller *_controller;
 
-		arch::dma_object<DeviceContext> _devCtx;
+		DeviceContext _devCtx;
 
 		void _initEpCtx(InputContext &ctx, int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type);
 	};
@@ -382,6 +423,8 @@ private:
 	bool _useMsis;
 
 	Enumerator _enumerator;
+
+	bool _largeCtx;
 };
 
 
