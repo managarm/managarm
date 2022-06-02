@@ -26,6 +26,11 @@
 #include "xhci.hpp"
 #include "trb.hpp"
 
+// When set to true, the driver ignores any speeds defined in the supported protocols
+// in favor of the default values defined in the XHCI spec. This behavior imitates
+// what Linux is doing in it's driver.
+inline constexpr bool ignoreControllerSpeeds = true;
+
 // ----------------------------------------------------------------
 // Controller
 // ----------------------------------------------------------------
@@ -593,42 +598,7 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 
 	std::optional<DeviceSpeed> speed;
 
-	for (auto &pSpeed : _proto->speeds) {
-		if (pSpeed.value == speedId) {
-			if (pSpeed.exponent == 2
-					&& pSpeed.mantissa == 12) {
-				// Full Speed
-				speed = DeviceSpeed::fullSpeed;
-			} else if (pSpeed.exponent == 1
-					&& pSpeed.mantissa == 1500) {
-				// Low Speed
-				speed = DeviceSpeed::lowSpeed;
-			} else if (pSpeed.exponent == 2
-					&& pSpeed.mantissa == 480) {
-				// High Speed
-				speed = DeviceSpeed::highSpeed;
-			} else if (pSpeed.exponent == 3
-					&& (pSpeed.mantissa == 5
-						|| pSpeed.mantissa == 10
-						|| pSpeed.mantissa == 20)) {
-				// SuperSpeed
-				speed = DeviceSpeed::superSpeed;
-			}else if (pSpeed.exponent == 2
-					&& (pSpeed.mantissa == 1248
-						|| pSpeed.mantissa == 2496
-						|| pSpeed.mantissa == 4992
-						|| pSpeed.mantissa == 1458
-						|| pSpeed.mantissa == 2915
-						|| pSpeed.mantissa == 5830)) {
-				// SSIC SuperSpeed
-				speed = DeviceSpeed::superSpeed;
-			}
-
-			break;
-		}
-	}
-
-	if (_proto->speeds.empty()) {
+	if (ignoreControllerSpeeds || _proto->speeds.empty()) {
 		switch(speedId) {
 			case 1:
 				speed = DeviceSpeed::fullSpeed;
@@ -644,6 +614,45 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 			case 6:
 			case 7:
 				speed = DeviceSpeed::superSpeed;
+				break;
+			default:
+				printf("xhci: Invalid speed ID: %u\n", speedId);
+				assert(!"Invalid speed ID");
+		}
+	} else {
+		for (auto &pSpeed : _proto->speeds) {
+			if (pSpeed.value == speedId) {
+				if (pSpeed.exponent == 2
+						&& pSpeed.mantissa == 12) {
+					// Full Speed
+					speed = DeviceSpeed::fullSpeed;
+				} else if (pSpeed.exponent == 1
+						&& pSpeed.mantissa == 1500) {
+					// Low Speed
+					speed = DeviceSpeed::lowSpeed;
+				} else if (pSpeed.exponent == 2
+						&& pSpeed.mantissa == 480) {
+					// High Speed
+					speed = DeviceSpeed::highSpeed;
+				} else if (pSpeed.exponent == 3
+						&& (pSpeed.mantissa == 5
+							|| pSpeed.mantissa == 10
+							|| pSpeed.mantissa == 20)) {
+					// SuperSpeed
+					speed = DeviceSpeed::superSpeed;
+				}else if (pSpeed.exponent == 2
+						&& (pSpeed.mantissa == 1248
+							|| pSpeed.mantissa == 2496
+							|| pSpeed.mantissa == 4992
+							|| pSpeed.mantissa == 1458
+							|| pSpeed.mantissa == 2915
+							|| pSpeed.mantissa == 5830)) {
+					// SSIC SuperSpeed
+					speed = DeviceSpeed::superSpeed;
+				}
+
+				break;
+			}
 		}
 	}
 
