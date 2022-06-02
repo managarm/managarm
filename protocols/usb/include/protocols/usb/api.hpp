@@ -10,7 +10,11 @@
 
 enum class UsbError {
 	none,
-	stall
+	stall,
+	babble,
+	timeout,
+	unsupported,
+	other
 };
 
 enum class DeviceSpeed {

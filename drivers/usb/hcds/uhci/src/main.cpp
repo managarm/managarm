@@ -385,7 +385,7 @@ Controller::RootHub::issueReset(int port) {
 		HEL_CHECK(helGetClock(&now));
 		if(now - start > 1000'000'000) {
 			std::cout << "\e[31muhci: Could not enable device after reset\e[39m" << std::endl;
-			co_return UsbError::stall; // TODO(qookie): Add a timeout error.
+			co_return UsbError::timeout;
 		}
 	}
 	

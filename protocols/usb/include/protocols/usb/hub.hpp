@@ -42,7 +42,7 @@ public:
 	virtual async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) = 0;
 
 	virtual frg::expected<UsbError, HubCharacteristics> getCharacteristics() {
-		return UsbError::stall; // TODO(qookie): Use a different error?
+		return UsbError::unsupported;
 	}
 
 	virtual std::optional<Device> associatedDevice() {
