@@ -93,10 +93,10 @@ BootScreen::BootScreen(TextDisplay *display)
 
 void BootScreen::printChar(char) {
 	auto displayLine = [&] (uint64_t seq, int i) {
-		char text[100];
-		copyLogMessage(seq, text);
+		LogMessage log;
+		copyLogMessage(seq, log);
 		_fmt = Formatter{this, 0, i};
-		_fmt.print(text);
+		_fmt.print(log.text);
 	};
 
 	if(auto cs = currentLogSequence(); _bottomSequence < cs) {
@@ -109,13 +109,13 @@ void BootScreen::printChar(char) {
 
 		// Clear the last line.
 		_bottomSequence = cs;
-		_display->setBlanks(0, _height - 1, frg::min(100, _width), -1);
+		_display->setBlanks(0, _height - 1, frg::min(logLineLength, _width), -1);
 		_fmt = Formatter{this, 0, _height - 1};
 	}
 
 	// Partially draw the last line.
-//	char text[100];
-//	copyLogMessage(_bottomSequence, text);
+//  LogMessage log;
+//	copyLogMessage(_bottomSequence, log);
 //	_fmt.print(text + _x);
 }
 

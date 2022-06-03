@@ -117,15 +117,15 @@ HelError translateError(Error error) {
 HelError helLog(const char *string, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
-		auto chunk = frg::min(length - offset, size_t{100});
+		LogMessage log;
+		auto chunk = frg::min(length - offset, size_t{logLineLength});
 
-		char buffer[100];
-		if(!readUserArray(string + offset, buffer, chunk))
+		if(!readUserArray(string + offset, log.text, chunk))
 			return kHelErrFault;
 
 		auto p = infoLogger();
 		for(size_t i = 0; i < chunk; i++)
-			p << frg::char_fmt(buffer[i]);
+			p << frg::char_fmt(log.text[i]);
 		p << frg::endlog;
 
 		offset += chunk;
