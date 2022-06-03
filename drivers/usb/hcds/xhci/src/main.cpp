@@ -764,19 +764,14 @@ Controller::Device::useConfiguration(int number) {
 		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
 	}
 
-	RawTrb setup_stage = {{
-			static_cast<uint32_t>((number << 16) | (9 << 8) | 0x00), // SET_CONFIGURATION, host to device
-			0, 8,
-			(3 << 16) | (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
-
-	RawTrb status_stage = {{
-			0, 0, 0, 
-			(1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
-
 	ProducerRing::Completion comp;
 
-	pushRawTransfer(0, setup_stage);
-	pushRawTransfer(0, status_stage, &comp);
+	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
+		if (last)
+			trb.val[3] |= 1 << 5; // IOC
+		pushRawTransfer(0, trb, last ? &comp : nullptr);
+	}, { .request = request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false);
+
 	submit(1);
 
 	co_await comp.completion.wait();
@@ -793,45 +788,14 @@ Controller::Device::useConfiguration(int number) {
 
 async::result<frg::expected<UsbError>>
 Controller::Device::transfer(ControlTransfer info) {
-	RawTrb setup_stage = {{
-		0, static_cast<uint32_t>(info.buffer.size() << 16), 8,
-		((info.flags == kXferToDevice ? 2 : 3) << 16) 
-		| (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
-
-	memcpy(setup_stage.val, info.setup.data(), sizeof(SetupPacket));
-
-	pushRawTransfer(0, setup_stage);
-
-	size_t progress = 0;
-	while(progress < info.buffer.size()) {
-		uintptr_t ptr = (uintptr_t)info.buffer.data() + progress;
-		uintptr_t pptr = helix::addressToPhysical(ptr);
-
-		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
-
-		bool is_last = (progress + chunk) >= info.buffer.size();
-
-		RawTrb transfer = {{
-			static_cast<uint32_t>(pptr & 0xFFFFFFFF),
-			static_cast<uint32_t>(pptr >> 32),
-			static_cast<uint32_t>(chunk),
-			(!is_last << 4) | (1 << 2)
-				| ((info.flags == kXferToDevice ? 0 : 1) << 16)
-				| (static_cast<uint32_t>(TrbType::normal) << 10)}};
-
-		pushRawTransfer(0, transfer);
-
-		progress += chunk;
-	}
-
 	ProducerRing::Completion ev;
 
-	RawTrb status_stage = {{
-			0, 0, 0, 
-			((info.flags == kXferToDevice ? 0 : 1) << 16) 
-			| (1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
+	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
+		if (last)
+			trb.val[3] |= 1 << 5; // IOC
+		pushRawTransfer(0, trb, last ? &ev : nullptr);
+	}, *info.setup.data(), info.buffer, info.flags == kXferToHost);
 
-	pushRawTransfer(0, status_stage, &ev);
 	submit(1);
 
 	co_await ev.completion.wait();
@@ -933,28 +897,15 @@ void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing:
 
 async::result<frg::expected<UsbError>>
 Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
-	RawTrb setup_stage = {{
-			static_cast<uint32_t>((desc << 16) | (6 << 8) | 0x80), // GET_DESCRIPTOR, dev to host
-			static_cast<uint32_t>(dest.size() << 16), 8,
-			(3 << 16) | (1 << 6) | (static_cast<uint32_t>(TrbType::setupStage) << 10)}};
-
-	uintptr_t ptr = helix::ptrToPhysical(dest.data());
-
-	RawTrb data_stage = {{
-			static_cast<uint32_t>(ptr & 0xFFFFFFFF),
-			static_cast<uint32_t>(ptr >> 32),
-			static_cast<uint32_t>(dest.size()),
-			(1 << 2) | (1 << 16) | (static_cast<uint32_t>(TrbType::dataStage) << 10)}};
-
-	RawTrb status_stage = {{
-			0, 0, 0, 
-			(1 << 5) | (static_cast<uint32_t>(TrbType::statusStage) << 10)}};
-
 	ProducerRing::Completion ev;
 
-	pushRawTransfer(0, setup_stage);
-	pushRawTransfer(0, data_stage);
-	pushRawTransfer(0, status_stage, &ev);
+	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
+		if (last)
+			trb.val[3] |= 1 << 5; // IOC
+		pushRawTransfer(0, trb, last ? &ev : nullptr);
+	}, { .type = 0x80, .request = request_type::getDescriptor,
+		.value = static_cast<uint16_t>(desc), .length = static_cast<uint16_t>(dest.size()) }, dest, true);
+
 	submit(1);
 
 	co_await ev.completion.wait();
@@ -1045,7 +996,7 @@ Controller::Device::configureHub(std::shared_ptr<Hub> hub) {
 
 	FRG_CO_TRY(completionToError(event));
 
-	printf("xhci: configure endpoint finished\n");
+	printf("xhci: configure hub finished\n");
 	co_return frg::success;
 }
 
@@ -1126,26 +1077,11 @@ Controller::EndpointState::transfer(InterruptTransfer info) {
 
 	ProducerRing::Completion ev;
 
-	size_t progress = 0;
-	while(progress < info.buffer.size()) {
-		uintptr_t ptr = (uintptr_t)info.buffer.data() + progress;
-		uintptr_t pptr = helix::addressToPhysical(ptr);
-
-		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
-
-		bool is_last = (progress + chunk) >= info.buffer.size();
-
-		RawTrb transfer = {{
-			static_cast<uint32_t>(pptr & 0xFFFFFFFF),
-			static_cast<uint32_t>(pptr >> 32),
-			static_cast<uint32_t>(chunk),
-			(!is_last << 4) | (1 << 2) | (is_last << 5)
-				| (static_cast<uint32_t>(TrbType::normal) << 10)}};
-
-		_device->pushRawTransfer(endpointId - 1, transfer, is_last ? &ev : nullptr);
-
-		progress += chunk;
-	}
+	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
+		if (last)
+			trb.val[3] |= 1 << 5; // IOC
+		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+	}, info.buffer);
 
 	_device->submit(endpointId);
 
@@ -1161,26 +1097,11 @@ Controller::EndpointState::transfer(BulkTransfer info) {
 
 	ProducerRing::Completion ev;
 
-	size_t progress = 0;
-	while(progress < info.buffer.size()) {
-		uintptr_t ptr = (uintptr_t)info.buffer.data() + progress;
-		uintptr_t pptr = helix::addressToPhysical(ptr);
-
-		auto chunk = std::min(info.buffer.size() - progress, 0x1000 - (ptr & 0xFFF));
-
-		bool is_last = (progress + chunk) >= info.buffer.size();
-
-		RawTrb transfer = {{
-			static_cast<uint32_t>(pptr & 0xFFFFFFFF),
-			static_cast<uint32_t>(pptr >> 32),
-			static_cast<uint32_t>(chunk),
-			(!is_last << 4) | (1 << 2) | (is_last << 5)
-				| (static_cast<uint32_t>(TrbType::normal) << 10)}};
-
-		_device->pushRawTransfer(endpointId - 1, transfer, is_last ? &ev : nullptr);
-
-		progress += chunk;
-	}
+	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
+		if (last)
+			trb.val[3] |= 1 << 5; // IOC
+		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+	}, info.buffer);
 
 	_device->submit(endpointId);
 
