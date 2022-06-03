@@ -1067,8 +1067,22 @@ Controller::EndpointState::EndpointState(Controller *,
 
 async::result<frg::expected<UsbError>>
 Controller::EndpointState::transfer(ControlTransfer info) {
-	assert(!"TODO: implement this");
-	co_return {};
+	int endpointId = _endpoint * 2;
+
+	ProducerRing::Completion ev;
+
+	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
+		if (last)
+			trb.val[3] |= 1 << 5; // IOC
+		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+	}, *info.setup.data(), info.buffer, info.flags == kXferToHost);
+
+	_device->submit(endpointId);
+
+	co_await ev.completion.wait();
+
+	FRG_CO_TRY(completionToError(ev.event));
+	co_return frg::success;
 }
 
 async::result<frg::expected<UsbError, size_t>>
