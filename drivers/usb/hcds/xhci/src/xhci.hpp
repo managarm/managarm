@@ -179,7 +179,7 @@ private:
 
 		async::result<frg::expected<UsbError>> setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type);
 
-		async::result<frg::expected<UsbError>> configureHub(std::shared_ptr<Hub> hub);
+		async::result<frg::expected<UsbError>> configureHub(std::shared_ptr<Hub> hub, DeviceSpeed speed);
 
 		size_t slot() const {
 			return _slotId;

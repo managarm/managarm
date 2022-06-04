@@ -404,7 +404,7 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
 		auto hub = (co_await createHubFromDevice(parentHub, ::Device{device}, port)).unwrap();
 
-		(co_await device->configureHub(hub)).unwrap();
+		(co_await device->configureHub(hub, speed)).unwrap();
 
 		_enumerator.observeHub(std::move(hub));
 	}
@@ -971,7 +971,7 @@ Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSi
 }
 
 async::result<frg::expected<UsbError>>
-Controller::Device::configureHub(std::shared_ptr<Hub> hub) {
+Controller::Device::configureHub(std::shared_ptr<Hub> hub, DeviceSpeed speed) {
 	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -980,11 +980,9 @@ Controller::Device::configureHub(std::shared_ptr<Hub> hub) {
 	inputCtx.get(inputCtxSlot) |= SlotFields::hub(true);
 	inputCtx.get(inputCtxSlot) |= SlotFields::portCount(hub->numPorts());
 
-	// TODO(qookie): Check if this device is high-speed.
-	inputCtx.get(inputCtxSlot) |= SlotFields::ttThinkTime(
-			hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
-
-	printf("xhci: ttThinkTime: %d\n", hub->getCharacteristics().unwrap().ttThinkTime);
+	if (speed == DeviceSpeed::highSpeed)
+		inputCtx.get(inputCtxSlot) |= SlotFields::ttThinkTime(
+				hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
 
 	auto event = co_await _controller->submitCommand(
 			Command::evaluateContext(_slotId,
