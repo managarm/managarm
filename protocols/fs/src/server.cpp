@@ -8,6 +8,7 @@
 #include <helix/ipc.hpp>
 
 #include <protocols/fs/server.hpp>
+#include <bragi/helpers-std.hpp>
 #include "fs.bragi.hpp"
 
 namespace protocols {
@@ -1150,8 +1151,24 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 		auto conversation = accept.descriptor();
 
 		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
+		auto preamble = bragi::read_preamble(recv_req);
+		if(preamble.error()) {
+			std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+			break;
+		}
+		assert(!preamble.error());
+
+		// managarm::posix::CntRequest req;
+		if (preamble.id() == managarm::fs::CntRequest::message_id) {
+			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_req);
+			recv_req.reset();
+			if (!o) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			req = *o;
+		}
 		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
 			assert(node_ops->getStats);
 			auto result = co_await node_ops->getStats(node);
@@ -1232,8 +1249,22 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_TRAVERSE_LINKS) {
-			auto result = co_await node_ops->traverseLinks(node, std::deque(req.path_segments().begin(), req.path_segments().end()));
+		}else if(preamble.id() == managarm::fs::NodeTraverseLinksRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::fs::NodeTraverseLinksRequest>(recv_req, tail);
+			recv_req.reset();
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+			auto result = co_await node_ops->traverseLinks(node, std::deque(req->path_segments().begin(), req->path_segments().end()));
 
 			if (!result) {
 				managarm::fs::SvrResponse resp;

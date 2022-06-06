@@ -454,23 +454,22 @@ private:
 
 	async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>>
 	traverseLinks(std::deque<std::string> path) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_TRAVERSE_LINKS);
+		managarm::fs::NodeTraverseLinksRequest req;
 		for (auto &i : path)
 			req.add_path_segments(i);
 
-		auto ser = req.SerializeAsString();
-		auto [offer, send_req, recv_resp, pull_desc] = co_await helix_ng::exchangeMsgs(
+		auto [offer, send_head, send_tail, recv_resp, pull_desc] = co_await helix_ng::exchangeMsgs(
 			getLane(),
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
 				helix_ng::pullDescriptor()
 			)
 		);
 
 		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_head.error());
+		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
 		std::shared_ptr<FsLink> link = nullptr;

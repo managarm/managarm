@@ -439,3 +439,9 @@ tail:
 	string old_name;
 	string new_name;
 }
+
+message NodeTraverseLinksRequest 4 {
+head(128):
+tail:
+	string[] path_segments;
+}
