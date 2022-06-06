@@ -76,6 +76,26 @@ File::ptRead(void *object, const char *credentials,
 	}
 }
 
+async::result<protocols::fs::ReadResult>
+File::ptPread(void *object, int64_t offset, const char *credentials, void *buffer, size_t length) {
+	auto self = static_cast<File *>(object);
+	auto process = findProcessWithCredentials(credentials);
+	auto result = co_await self->pread(process.get(), offset, buffer, length);
+	if(!result) {
+		switch(result.error()) {
+		case Error::illegalOperationTarget:
+			co_return protocols::fs::Error::illegalArguments;
+		case Error::wouldBlock:
+			co_return protocols::fs::Error::wouldBlock;
+		default:
+			assert(!"Unexpected error from pread()");
+			__builtin_unreachable();
+		}
+	}else{
+		co_return result.value();
+	}
+}
+
 async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *object, const char *credentials,
 		const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
@@ -270,6 +290,12 @@ async::result<frg::expected<Error, size_t>> File::readSome(Process *, void *, si
 	std::cout << "\e[35mposix \e[1;34m" << structName()
 			<< "\e[0m\e[35m: File does not support read()\e[39m" << std::endl;
 	co_return Error::illegalOperationTarget;
+}
+
+async::result<frg::expected<Error, size_t>> File::pread(Process *, int64_t, void *, size_t) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement pread()" << std::endl;
+	co_return Error::seekOnPipe;
 }
 
 void File::handleClose() {
