@@ -403,6 +403,9 @@ public:
 	writeAll(Process *, const void *buffer, size_t length) override;
 
 	async::result<frg::expected<Error, size_t>>
+	pread(Process *, int64_t offset, void *buffer, size_t length) override;
+
+	async::result<frg::expected<Error, size_t>>
 	pwrite(Process *, int64_t offset, const void *buffer, size_t length) override;
 
 	async::result<frg::expected<protocols::fs::Error>> truncate(size_t size) override;
@@ -581,6 +584,19 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
 	_offset += length;
 	co_return length;
+}
+
+async::result<frg::expected<Error, size_t>>
+MemoryFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
+	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
+
+	if(!(offset <= node->_fileSize))
+		co_return 0;
+	auto chunk = std::min(node->_fileSize - offset, length);
+
+	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + offset, chunk);
+
+	co_return chunk;
 }
 
 async::result<frg::expected<Error, size_t>>
