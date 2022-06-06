@@ -165,8 +165,13 @@ namespace Transfer {
 
 	template <typename FU>
 	inline void buildControlChain(FU use, SetupPacket setup, arch::dma_buffer_view view, bool dataIn) {
+		bool statusIn = true;
+
+		if (view.size() && dataIn)
+			statusIn = false;
+
 		use(setupStage(setup, view.size(), dataIn), false);
 		buildTransferChain(use, false, view, dataStage, dataIn);
-		use(statusStage(dataIn), true);
+		use(statusStage(statusIn), true);
 	}
 } // namespace Transfer
