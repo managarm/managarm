@@ -851,6 +851,24 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 	}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
 			|| req.command() == TIOCSPGRP || req.command() == TIOCGSID) {
 		co_await _channel->commonIoctl(process, std::move(req), std::move(conversation));
+	}else if(req.command() == TIOCINQ) {
+		managarm::fs::SvrResponse resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		if(_channel->slaveQueue.empty()) {
+			resp.set_fionread_count(0);
+		}else{
+			auto packet = &_channel->slaveQueue.front();
+			resp.set_fionread_count(packet->buffer.size() - packet->offset);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
 	}else{
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req.command()
 				<< "\e[39m" << std::endl;
