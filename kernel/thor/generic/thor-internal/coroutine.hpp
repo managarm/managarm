@@ -65,7 +65,7 @@ struct coroutine {
 		}
 
 		coroutine get_return_object() {
-			return {std::experimental::coroutine_handle<promise_type>::from_promise(*this)};
+			return {std::coroutine_handle<promise_type>::from_promise(*this)};
 		}
 
 		void unhandled_exception() {
@@ -85,7 +85,7 @@ struct coroutine {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) {
+				void await_suspend(std::coroutine_handle<void>) {
 					// Do nothing.
 				}
 
@@ -108,7 +108,7 @@ struct coroutine {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
+				void await_suspend(std::coroutine_handle<void>) noexcept {
 					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
 							std::memory_order_release);
 					if(cfp == coroutine_cfp::past_start) {
@@ -136,7 +136,7 @@ struct coroutine {
 	coroutine()
 	: h_{} { }
 
-	coroutine(std::experimental::coroutine_handle<promise_type> h)
+	coroutine(std::coroutine_handle<promise_type> h)
 	: h_{h} { }
 
 	coroutine(const coroutine &) = delete;
@@ -157,7 +157,7 @@ struct coroutine {
 	}
 
 private:
-	std::experimental::coroutine_handle<promise_type> h_;
+	std::coroutine_handle<promise_type> h_;
 };
 
 
@@ -182,7 +182,7 @@ struct coroutine<void> {
 		}
 
 		coroutine get_return_object() {
-			return {std::experimental::coroutine_handle<promise_type>::from_promise(*this)};
+			return {std::coroutine_handle<promise_type>::from_promise(*this)};
 		}
 
 		void unhandled_exception() {
@@ -202,7 +202,7 @@ struct coroutine<void> {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) {
+				void await_suspend(std::coroutine_handle<void>) {
 					// Do nothing.
 				}
 
@@ -225,7 +225,7 @@ struct coroutine<void> {
 					return false;
 				}
 
-				void await_suspend(std::experimental::coroutine_handle<void>) noexcept {
+				void await_suspend(std::coroutine_handle<void>) noexcept {
 					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
 							std::memory_order_release);
 					if(cfp == coroutine_cfp::past_start) {
@@ -253,7 +253,7 @@ struct coroutine<void> {
 	coroutine()
 	: h_{} { }
 
-	coroutine(std::experimental::coroutine_handle<promise_type> h)
+	coroutine(std::coroutine_handle<promise_type> h)
 	: h_{h} { }
 
 	coroutine(const coroutine &) = delete;
@@ -274,7 +274,7 @@ struct coroutine<void> {
 	}
 
 private:
-	std::experimental::coroutine_handle<promise_type> h_;
+	std::coroutine_handle<promise_type> h_;
 };
 
 template<typename T, typename R>
@@ -385,11 +385,11 @@ struct detached_coroutine_promise {
 	}
 
 	auto initial_suspend() {
-		return std::experimental::suspend_never{};
+		return std::suspend_never{};
 	}
 
 	auto final_suspend() noexcept {
-		return std::experimental::suspend_never{};
+		return std::suspend_never{};
 	}
 };
 
@@ -401,7 +401,7 @@ struct last_type {
 template<typename... Ts>
 using last_type_t = typename last_type<Ts...>::type;
 
-namespace std::experimental {
+namespace std {
 	template<typename... Args>
 	requires (std::is_same_v<last_type_t<Args...>, enable_detached_coroutine>)
 	struct coroutine_traits<void, Args...> {

@@ -9,7 +9,7 @@
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
 
-#include <experimental/coroutine>
+#include <coroutine>
 
 namespace fifo {
 
