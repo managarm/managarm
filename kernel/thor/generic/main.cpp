@@ -6,7 +6,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -102,7 +102,60 @@ extern "C" void thorRunConstructors() {
 			(*p)();
 }
 
-constinit initgraph::Engine globalInitEngine;
+// GlobalInitEngine implementation.
+
+static constexpr bool printDotAnnotations = false;
+
+void GlobalInitEngine::onRealizeNode(initgraph::Node *node) {
+	if(node->type() == initgraph::NodeType::stage) {
+		infoLogger() << "thor: Registering stage " << node->displayName()
+				<< frg::endlog;
+	}else if(node->type() == initgraph::NodeType::task) {
+		infoLogger() << "thor: Registering task " << node->displayName()
+				<< frg::endlog;
+	}
+
+	if(printDotAnnotations) {
+		if(node->type() == initgraph::NodeType::stage) {
+			infoLogger() << "thor, initgraph.dot: n" << node
+					<< " [label=\"" << node->displayName() << "\", shape=box];" << frg::endlog;
+		}else if(node->type() == initgraph::NodeType::task) {
+			infoLogger() << "thor, initgraph.dot: n" << node
+					<< " [label=\"" << node->displayName() << "\"];" << frg::endlog;
+		}
+	}
+}
+
+void GlobalInitEngine::onRealizeEdge(initgraph::Edge *edge) {
+	if(printDotAnnotations)
+		infoLogger() << "thor, initgraph.dot: n" << edge->source()
+				<< " -> n" << edge->target() << ";" << frg::endlog;
+}
+
+void GlobalInitEngine::preActivate(initgraph::Node *node) {
+	if(node->type() == initgraph::NodeType::task)
+		infoLogger() << "thor: Running task " << node->displayName()
+				<< frg::endlog;
+}
+
+void GlobalInitEngine::postActivate(initgraph::Node *node) {
+	if(node->type() == initgraph::NodeType::stage)
+		infoLogger() << "thor: Reached stage " << node->displayName()
+				<< frg::endlog;
+}
+
+void GlobalInitEngine::reportUnreached(initgraph::Node *node) {
+	if(node->type() == initgraph::NodeType::stage)
+		infoLogger() << "thor: Initialization stage "
+				<< node->displayName() << " could not be reached" << frg::endlog;
+}
+
+void GlobalInitEngine::onUnreached() {
+	panicLogger() << "thor: There are initialization nodes"
+			" that could not be reached (circular dependencies?)" << frg::endlog;
+}
+
+constinit GlobalInitEngine globalInitEngine;
 
 initgraph::Stage *getTaskingAvailableStage() {
 	static initgraph::Stage s{&globalInitEngine, "tasking-available"};

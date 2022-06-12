@@ -92,6 +92,11 @@ endif
 protoc = find_program('protoc')
 bragi = find_program('bragi')
 
+frigg = dependency('frigg',
+	default_options : [ 'frigg_no_install=true' ],
+	fallback: ['frigg', 'frigg_dep'],
+)
+
 if build_tools
 	subdir('tools/pb2frigg')
 else
@@ -126,13 +131,6 @@ frgbragi = generator(bragi,
 # declare dependencies that subdirs are going to use
 bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include')
 
-cxxshim = subproject('cxxshim')
-coroutines = cxxshim.get_variable('clang_coroutine_dep')
-
-frigg = subproject('frigg',
-	default_options : [ 'frigg_no_install=true' ]
-).get_variable('frigg_dep')
-
 # If we are building the kernel, we need the freestanding subset of libarch.
 if flavor == 'kernel'
 	libarch_opts = [ 'install_headers=false', 'header_only=true' ]
@@ -141,6 +139,9 @@ elif flavor == 'userspace'
 endif
 
 if build_kernel or build_drivers
+	cxxshim_dep = dependency('cxxshim', fallback: ['cxxshim', 'cxxshim_dep'])
+	coroutines = dependency('cxxshim-coroutine-clang', fallback: ['cxxshim', 'clang_coroutine_dep'])
+
 	libarch = subproject('libarch',
 		default_options : libarch_opts
 	).get_variable('libarch_dep')
@@ -152,7 +153,6 @@ if build_kernel
 	libasync = subproject('libasync', default_options : [ 'install_headers=false' ])
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
-	cxxshim_dep = cxxshim.get_variable('cxxshim_dep')
 	lai_sources = lai.get_variable('sources')
 	lai_includes = lai.get_variable('includes')
 	libasync_dep = libasync.get_variable('libasync_dep')

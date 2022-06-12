@@ -11,7 +11,7 @@
 #include <thor-internal/types.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-stack.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 
 namespace thor {
 

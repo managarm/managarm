@@ -5,7 +5,7 @@ mbus_pb = protocxx.process(here/'mbus.proto',
 
 src = [ 'src/client.cpp', mbus_pb ]
 inc = [ 'include' ]
-deps = [ helix_dep, proto_lite_dep, posix_extra_dep ]
+deps = [ helix_dep, proto_lite_dep, posix_extra_dep, frigg ]
 
 libmbus = shared_library('mbus', src,
 	dependencies : deps,

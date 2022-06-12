@@ -2,7 +2,7 @@
 
 #include <arch/mem_space.hpp>
 #include <x86/machine.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/types.hpp>

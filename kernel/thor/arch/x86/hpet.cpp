@@ -9,6 +9,7 @@
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/irq.hpp>
 

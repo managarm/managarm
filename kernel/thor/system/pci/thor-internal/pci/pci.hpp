@@ -6,7 +6,7 @@
 #include <frg/vector.hpp>
 #include <frg/hash_map.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <arch/register.hpp>
 

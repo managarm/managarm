@@ -1,7 +1,7 @@
 #pragma once
 
 #include <thor-internal/kernel_heap.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <frg/hash_map.hpp>
 #include <frg/vector.hpp>

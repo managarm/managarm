@@ -5,7 +5,7 @@
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
 

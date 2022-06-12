@@ -10,6 +10,10 @@ namespace limits {
 	constexpr size_t maxPorts    = 32;
 }
 
+namespace {
+	constexpr bool logCommands = false;
+}
+
 struct receivedFis {
 	uint8_t dmaFis[0x1C];
 	uint8_t _reservedA[4];
@@ -70,7 +74,7 @@ struct fisH2D {
 };
 static_assert(sizeof(fisH2D) == 20);
 
-struct commandTable {
+struct alignas(128) commandTable {
 	fisH2D commandFis;
 	uint8_t commandFisPad[0x40 - 20];
 
@@ -81,7 +85,7 @@ struct commandTable {
 	static constexpr std::size_t prdtEntries = 16 + 1;
 	prdtEntry prdts[prdtEntries];
 };
-static_assert(sizeof(commandTable) == 128 + 16 * commandTable::prdtEntries);
+static_assert(alignof(commandTable) >= 128);
 
 struct identifyDevice {
 	uint16_t _junkA[27];

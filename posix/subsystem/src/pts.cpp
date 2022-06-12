@@ -152,6 +152,24 @@ public:
 	async::result<void>
 	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override;
 
+	async::result<void> setFileFlags(int flags) override {
+		if (flags & ~O_NONBLOCK) {
+			std::cout << "posix: setFileFlags on pty \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+			co_return;
+		}
+		if (flags & O_NONBLOCK)
+			_nonBlocking = true;
+		else
+			_nonBlocking = false;
+		co_return;
+	}
+
+	async::result<int> getFileFlags() override {
+		if(_nonBlocking)
+			co_return O_NONBLOCK;
+		co_return 0;
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}

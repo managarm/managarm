@@ -1,7 +1,7 @@
 #pragma once
 
 #include <thor-internal/irq.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 
 namespace thor {
 

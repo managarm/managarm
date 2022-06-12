@@ -1,6 +1,6 @@
 #pragma once
 
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/irq.hpp>
 #include <arch/mem_space.hpp>

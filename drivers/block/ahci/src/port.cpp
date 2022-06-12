@@ -15,13 +15,14 @@ namespace regs {
 	constexpr arch::scalar_register<uint32_t> commandAndStatus{0x18};
 	constexpr arch::scalar_register<uint32_t> tfd{0x20};
 	constexpr arch::scalar_register<uint32_t> status{0x28};
+	constexpr arch::scalar_register<uint32_t> sataControl{0x2C};
 	constexpr arch::scalar_register<uint32_t> sErr{0x30};
+	constexpr arch::scalar_register<uint32_t> sataActive{0x34};
 	constexpr arch::scalar_register<uint32_t> commandIssue{0x38};
 }
 
 namespace flags {
 	namespace cmd {
-		constexpr int iccActive         = 1 << 28;
 		constexpr int cmdListRunning    = 1 << 15;
 		constexpr int fisReceiveRunning = 1 << 14;
 		constexpr int fisReceiveEnable  = 1 << 4;
@@ -46,38 +47,17 @@ namespace flags {
 
 namespace {
 	constexpr size_t sectorSize = 512;
-	constexpr bool logCommands  = false;
 }
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
 Port::Port(int64_t parentId, int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
-	: BlockDevice{::sectorSize, parentId},  regs_{regs}, numCommandSlots_{numCommandSlots},
-	commandsInFlight_{0}, portIndex_{portIndex}, staggeredSpinUp_{staggeredSpinUp} {
-
+	: BlockDevice{::sectorSize, parentId},  regs_{regs}, deviceSize_{0},
+	numCommandSlots_{numCommandSlots}, commandsInFlight_{0}, portIndex_{portIndex}, 
+	staggeredSpinUp_{staggeredSpinUp}
+{
 }
 
 async::result<bool> Port::init() {
-	if (staggeredSpinUp_) {
-		// Spin up device
-		auto cas = regs_.load(regs::commandAndStatus);
-		regs_.store(regs::commandAndStatus, cas | flags::cmd::spinUpDevice);
-
-		// Wait up to 10ms for PxSSTS.DET = 1 or 3 (AHCI spec: 10.1.1, SATA 3.2 spec: 17.7.2)
-		auto success = co_await helix::kindaBusyWait(10'000'000, [&]() {
-			auto det = regs_.load(regs::status) & 0xF;
-			return det == 1 || det == 3;
-		});
-		if (!success) {
-			printf("block/ahci: Couldn't spin up port %d\n", portIndex_);
-			co_return false;
-		}
-	}
-
-	// Set link to active
-	auto cas = regs_.load(regs::commandAndStatus);
-	cas &= ~(0xF << 28); // Clear ICC
-	regs_.store(regs::commandAndStatus, cas | flags::cmd::iccActive);
-
 	// If PxSSTS.DET != 3, PxSSTS.IPM != 1 at this point, then ignore the device for now
 	auto status = regs_.load(regs::status);
 	auto ipm = (status >> 8) & 0xF;
@@ -87,7 +67,7 @@ async::result<bool> Port::init() {
 
 	// 10.1.2, part 3:
 	// Clear PxCMD.ST
-	cas = regs_.load(regs::commandAndStatus);
+	auto cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::start);
 
 	// Wait until PxCMD.CR = 0 with 500ms timeout
@@ -104,12 +84,61 @@ async::result<bool> Port::init() {
 			return !(regs_.load(regs::commandAndStatus) & flags::cmd::fisReceiveRunning); });
 	assert(success);
 
-	// Allocate memory for command list, received FIS, and command tables
-	// Note: the combination of libarch DMA types and ptrToPhysical ensures that
-	// these buffers will remain present in the page tables at all times.
-	commandList_ = arch::dma_object<commandList>{nullptr};
-	commandTables_ = arch::dma_array<commandTable>{nullptr, numCommandSlots_};
-	receivedFis_ = arch::dma_object<receivedFis>{nullptr};
+	if (staggeredSpinUp_) {
+		// Spin up device
+		auto cas = regs_.load(regs::commandAndStatus);
+		regs_.store(regs::commandAndStatus, cas | flags::cmd::spinUpDevice);
+
+		// Wait up to 10ms for PxSSTS.DET = 1 or 3 (AHCI spec: 10.1.1, SATA 3.2 spec: 17.7.2)
+		auto success = co_await helix::kindaBusyWait(10'000'000, [&]() {
+			auto det = regs_.load(regs::status) & 0xF;
+			// return det == 1 || det == 3;
+			return det == 3;
+		});
+		if (!success) {
+			printf("block/ahci: Couldn't spin up port %d\n", portIndex_);
+			co_return false;
+		}
+	}
+
+	// TODO: If the port isn't available here, we may try a COMRESET (AHCI spec 10.4.2)
+
+	status = regs_.load(regs::status);
+	ipm = (status >> 8) & 0xF;
+	det = status & 0xF;
+	printf("block/ahci: Discovered port %d, PxSSTS.IPM %#x, PxSSTS.DET %#x\n", portIndex_, ipm, det);
+
+	co_return true;
+}
+
+void Port::dumpState() {
+	printf("block/ahci: Dumping port %d state:\n", portIndex_);
+	printf("  PxSERR: %#x\n", regs_.load(regs::sErr));
+	printf("  PxCMD: %#x\n", regs_.load(regs::commandAndStatus));
+	printf("  PxCI: %#x\n", regs_.load(regs::commandIssue));
+	printf("  PxTFD: %#x\n", regs_.load(regs::tfd));
+	printf("  PxSSTS: %#x\n", regs_.load(regs::status));
+	printf("  PxSCTL: %#x\n", regs_.load(regs::sataControl));
+	printf("  PxSACT: %#x\n", regs_.load(regs::sataActive));
+	printf("  PxIS: %#x\n", regs_.load(regs::interruptStatus));
+	printf("  PxIE: %#x\n", regs_.load(regs::interruptEnable));
+	printf("  commandsInFlight: %zu\n", commandsInFlight_);
+	printf("  submittedCmds slots used: %zu\n", std::count_if(submittedCmds_.begin(), submittedCmds_.end(), [](auto &p){ return p != nullptr; }));
+}
+
+// Start port (10.3.1).
+async::result<bool> Port::run() {
+	printf("block/ahci: Starting port %d\n", portIndex_);
+
+	// Clear errors
+	regs_.store(regs::sErr, regs_.load(regs::sErr));
+
+	// Allocate memory for command list, received FIS, and command tables.
+	// arch::dma_* structs should guarantee that these are always present in memory,
+	// and are physically contiguous.
+	commandList_ = arch::dma_object<commandList>{&dmaPool_};
+	commandTables_ = arch::dma_array<commandTable>{&dmaPool_, numCommandSlots_};
+	receivedFis_ = arch::dma_object<receivedFis>{&dmaPool_};
 
 	uintptr_t clPhys = helix::ptrToPhysical(commandList_.data()),
 			  ctPhys = helix::ptrToPhysical(&commandTables_[0]),
@@ -123,53 +152,53 @@ async::result<bool> Port::init() {
 	regs_.store(regs::fisBase, static_cast<uint32_t>(rfPhys));
 	regs_.store(regs::fisBaseUpper, 0);
 
-	printf("block/ahci: Discovered port %d, ipm %x, det %x\n", portIndex_, ipm, det);
-
-	co_return true;
-}
-
-async::detached Port::run() {
 	// Enable FIS receive
 	auto cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas | flags::cmd::fisReceiveEnable);
 
 	// Check that the BSY and DRQ bits are clear (necessary as per 10.3.1)
-	auto tfd = regs_.load(regs::tfd);
-	if ((tfd & flags::tfd::bsy) || (tfd & flags::tfd::drq)) {
-		printf("block/ahci: Failed to start busy port %d\n", portIndex_);
-		co_return;
+	auto success = co_await helix::kindaBusyWait(10'000'000'000, [&](){
+		auto tfd = regs_.load(regs::tfd);
+		return (tfd & flags::tfd::bsy) == 0 && (tfd & flags::tfd::drq) == 0;
+	});
+	if (!success) {
+		printf("\e[31mblock/ahci: Failed to start busy port %d\e[39m\n", portIndex_);
+		dumpState();
+		co_return false;
 	}
 
-	// Start port (10.3.1)
+	// Set PxCMD.ST
 	assert(!(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning));
 	cas = regs_.load(regs::commandAndStatus);
 	regs_.store(regs::commandAndStatus, cas | flags::cmd::start);
 
 	size_t slot = co_await findFreeSlot_();
 
-	arch::dma_object<identifyDevice> identify{nullptr};
+	arch::dma_object<identifyDevice> identify{&dmaPool_};
 	Command cmd = Command(identify.data(), CommandType::identify);
 	cmd.prepare(commandTables_[slot], commandList_->slots[slot]);
 
 	regs_.store(regs::commandIssue, 1 << slot);
 
-	// Just poll for completion for simplicity
-	auto success = co_await helix::kindaBusyWait(500'000'000,
+	// For simplicity, poll for completion (500ms)
+	success = co_await helix::kindaBusyWait(500'000'000,
 			[&](){ return !(regs_.load(regs::commandIssue) & (1 << slot)); });
-	assert(success);
+	if (!success) {
+		printf("\e[31mblock/ahci: Port %d identify failed\n", portIndex_);
+		dumpState();
+		co_return false;
+	}
 
 	assert(identify->supportsLba48());
 	auto [logicalSize, physicalSize] = identify->getSectorSize();
 	auto sectorCount = identify->maxLBA48;
 	auto model = identify->getModel();
+	deviceSize_ = logicalSize * sectorCount;
 
-	printf("block/ahci: Started port %d, model %s, logical sector size %zu, "
-			"physical sector size %zu, sector count %" PRIu64 "\n",
-			portIndex_, model.c_str(), logicalSize, physicalSize, sectorCount);
+	printf("block/ahci: Started port %d, model %s, size %.1fGiB (sectors: logical %zu, physical %zu, count %" PRIu64 ")\n",
+			portIndex_, model.c_str(), static_cast<float>(deviceSize_ / (1 << 30)),
+			logicalSize, physicalSize, sectorCount);
 	assert(logicalSize == 512 && "block/ahci: logical sector size > 512 is not supported");
-
-	// Clear errors
-	regs_.store(regs::sErr, ~0);
 
 	// Clear and enable interrupts on this port
 	auto is = regs_.load(regs::interruptStatus);
@@ -186,7 +215,8 @@ async::detached Port::run() {
 	submitPendingLoop_();
 
 	blockfs::runDevice(this);
-	co_return;
+
+	co_return true;
 }
 
 async::result<size_t> Port::findFreeSlot_() {
@@ -211,50 +241,64 @@ async::result<size_t> Port::findFreeSlot_() {
 	co_return 0;
 }
 
+void Port::checkErrors() {
+	auto is = regs_.load(regs::interruptStatus);
+
+	// TODO: Make this more robust (try to recover)
+	if (is & (flags::is::hostFatalError | flags::is::ifFatalError) || regs_.load(regs::tfd) & 0x1) {
+		printf("\e[31mblock/ahci: Port %d encountered error\e[39m\n", portIndex_);
+		dumpState();
+		abort();
+	} else if (is & flags::is::ifNonFatalError) {
+		printf("\e[31mblock/ahci: Port %d encountered non-fatal error\e[39m\n", portIndex_);
+		dumpState();
+		abort();
+	} else if (regs_.load(regs::tfd) & 1) {
+		printf("\e[31mblock/ahci: Port %d encountered task file error\e[39m\n", portIndex_);
+		dumpState();
+		abort();
+	}
+}
+
 void Port::handleIrq() {
 	auto is = regs_.load(regs::interruptStatus);
 
-	// Check errors
-	// TODO: Make this more robust (log non-fatal errors, try to recover, print more state etc.)
-	if (is & (flags::is::hostFatalError | flags::is::ifFatalError)) {
-		printf("\e[31mblock/ahci: Port %d encountered fatal error, PxIS = %u, PxSERR = %u\e[39m\n",
-				portIndex_, is, regs_.load(regs::sErr));
-		abort();
-	}
-
 	if (logCommands) {
-		printf("block/ahci: Port %d handling IRQ: PxIS %x, PxIE %x, TFD %x, CI %x, CAS %x\n",
+		printf("block/ahci: Port %d handling IRQ: PxIS %#x, PxIE %#x, PxTFD %#x, PxCI %#x, PxCAS %#x\n",
 				portIndex_, is, regs_.load(regs::interruptEnable), regs_.load(regs::tfd),
 				regs_.load(regs::commandIssue), regs_.load(regs::commandAndStatus));
 	}
 
+	checkErrors();
+
+	std::vector<Command *> completed;
+
 	// Notify all completed commands
-	auto numCompleted = 0;
 	auto cmdActiveMask = regs_.load(regs::commandIssue);
 	for (size_t i = 0; i < numCommandSlots_; i++) {
 		if (submittedCmds_[i] && !(cmdActiveMask & (1 << i))) {
-			Command *cmd = std::exchange(submittedCmds_[i], nullptr);
-			cmd->notifyCompletion();
-			numCompleted++;
+			completed.push_back(std::exchange(submittedCmds_[i], nullptr));
 		}
+	}
+
+	commandsInFlight_ -= completed.size();
+	regs_.store(regs::interruptStatus, is);
+
+	for (auto &cmd : completed) {
+		cmd->notifyCompletion();
 	}
 
 	// If the buffer has gone from full to not full, wake the tasks waiting for a free slot.
 	// TODO: If we have a lot of waiters, this will cause many spurious wakeups. Ideally, we only
 	// notify a certain number of tasks, and the rest can stay asleep.
-	if (commandsInFlight_ == numCommandSlots_ && numCompleted > 0) {
+	if (commandsInFlight_ + completed.size() == numCommandSlots_ && completed.size() > 0) {
 		freeSlotDoorbell_.raise();
 	}
-
-	commandsInFlight_ -= numCompleted;
-
-	// Acknowledge the interrupt
-	regs_.store(regs::interruptStatus, is);
 }
 
 async::detached Port::submitPendingLoop_() {
 	while (true) {
-		auto cmd =	co_await pendingCmdQueue_.async_get();
+		auto cmd = co_await pendingCmdQueue_.async_get();
 		assert(cmd);
 		co_await submitCommand_(cmd.value());
 	}
@@ -271,8 +315,12 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 	// Issue command
 	submittedCmds_[slot] = cmd;
 	commandsInFlight_++;
-	regs_.store(regs::commandIssue, 1 << slot);
 
+	// Wait until not busy
+	while (regs_.load(regs::tfd) & (flags::tfd::bsy | flags::tfd::drq))
+		;
+
+	regs_.store(regs::commandIssue, 1 << slot);
 	co_return;
 }
 
@@ -291,6 +339,6 @@ async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size
 }
 
 async::result<size_t> Port::getSize() {
-	std::cout << "ahci: Port::getSize() is a stub!" << std::endl;
-	co_return 0;
+	assert(deviceSize_ != 0);
+	co_return deviceSize_;
 }

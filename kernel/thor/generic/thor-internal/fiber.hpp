@@ -4,7 +4,7 @@
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/schedule.hpp>
-#include <thor-internal/initgraph.hpp>
+#include <initgraph.hpp>
 
 namespace thor {
 

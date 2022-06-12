@@ -5,7 +5,7 @@ usb_pb = protocxx.process(here/'usb.proto',
 
 inc = [ 'include' ]
 src = [ 'src/api.cpp', 'src/client.cpp', 'src/server.cpp', usb_pb ]
-deps = [ libarch, helix_dep, proto_lite_dep ]
+deps = [ libarch, helix_dep, proto_lite_dep, frigg ]
 headers = [
 	'include/protocols/usb/client.hpp',
 	'include/protocols/usb/server.hpp',
