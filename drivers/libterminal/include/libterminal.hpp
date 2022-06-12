@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <experimental/optional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -57,7 +57,7 @@ struct Emulator {
 	int width;
 	int height;
 	Attribute attribute;
-	std::experimental::optional<int> currentNumber;
+	std::optional<int> currentNumber;
 	Attribute *attributes;
 	char *chars;
 };

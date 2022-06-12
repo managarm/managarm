@@ -1,6 +1,6 @@
 
 #include <deque>
-#include <experimental/optional>
+#include <optional>
 #include <iostream>
 
 #include <stdlib.h>
@@ -27,8 +27,8 @@ namespace {
 async::detached StorageDevice::run(int config_num, int intf_num) {
 	auto descriptor = (co_await _usbDevice.configurationDescriptor()).unwrap();
 
-	std::experimental::optional<int> in_endp_number;
-	std::experimental::optional<int> out_endp_number;
+	std::optional<int> in_endp_number;
+	std::optional<int> out_endp_number;
 
 	walkConfiguration(descriptor, [&] (int type, size_t, void *, const auto &info) {
 		if(type == descriptor_type::endpoint) {
@@ -200,11 +200,11 @@ async::detached bindDevice(mbus::Entity entity) {
 	auto lane = helix::UniqueLane(co_await entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
 
-	std::experimental::optional<int> config_number;
-	std::experimental::optional<int> intf_number;
-	std::experimental::optional<int> intf_class;
-	std::experimental::optional<int> intf_subclass;
-	std::experimental::optional<int> intf_protocol;
+	std::optional<int> config_number;
+	std::optional<int> intf_number;
+	std::optional<int> intf_class;
+	std::optional<int> intf_subclass;
+	std::optional<int> intf_protocol;
 
 	if(logEnumeration)
 		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
