@@ -1,6 +1,6 @@
 
 #include <deque>
-#include <experimental/optional>
+#include <optional>
 #include <iostream>
 #include <set>
 
@@ -237,7 +237,7 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 			assert(!f.isSigned);
 			for(int i = 0; i < f.dataMax - f.dataMin + 1; i++)
 				values[k + i] = {true, 0};
-			
+
 			for(int i = 0; i < f.arraySize; i++) {
 				auto data = fetch(f.bitSize, false);
 				if(!(data >= f.dataMin && data <= f.dataMax))
@@ -260,18 +260,18 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 
 struct LocalState {
 	std::vector<uint32_t> usage;
-	std::experimental::optional<uint32_t> usageMin;
-	std::experimental::optional<uint32_t> usageMax;
+	std::optional<uint32_t> usageMin;
+	std::optional<uint32_t> usageMax;
 };
 
 struct GlobalState {
-	std::experimental::optional<uint16_t> usagePage;
-	std::experimental::optional<std::pair<int32_t, uint32_t>> logicalMin;
-	std::experimental::optional<std::pair<int32_t, uint32_t>> logicalMax;
-	std::experimental::optional<unsigned int> reportSize;
-	std::experimental::optional<unsigned int> reportCount;
-	std::experimental::optional<int> physicalMin;
-	std::experimental::optional<int> physicalMax;
+	std::optional<uint16_t> usagePage;
+	std::optional<std::pair<int32_t, uint32_t>> logicalMin;
+	std::optional<std::pair<int32_t, uint32_t>> logicalMax;
+	std::optional<unsigned int> reportSize;
+	std::optional<unsigned int> reportCount;
+	std::optional<int> physicalMin;
+	std::optional<int> physicalMax;
 };
 
 HidDevice::HidDevice() {
@@ -281,19 +281,19 @@ HidDevice::HidDevice() {
 void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 	LocalState local;
 	GlobalState global;
-	
+
 	std::set<uint32_t> foundElements;
 
 	auto generateFields = [&] (bool array, bool relative) {
 		if(!global.reportSize || !global.reportCount)
 			throw std::runtime_error("Missing Report Size/Count");
-			
+
 		if(!local.usageMin != !local.usageMax)
 			throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
-		
+
 		if(!local.usage.empty() && (local.usageMin || local.usageMax))
 			throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
-			
+
 		if(local.usage.empty() && !local.usageMin && !local.usageMax) {
 			Field field;
 			field.type = FieldType::padding;
@@ -309,10 +309,10 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 					assert(local.usage.size() == global.reportCount.value());
 					actual_id = local.usage[i];
 				}
-				
+
 				if(!global.logicalMin || !global.logicalMax)
 					throw std::runtime_error("logicalMin or logicalMax not set");
-				
+
 				Field field;
 				field.type = FieldType::variable;
 				field.bitSize = global.reportSize.value();
@@ -342,7 +342,7 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 
 			if(!global.logicalMin || !global.logicalMax)
 				throw std::runtime_error("logicalMin or logicalMax not set");
-			
+
 			if(global.logicalMin.value().first < 0) {
 				if(global.logicalMin.value().first > global.logicalMax.value().first)
 					throw std::runtime_error("signed: logicalMin > logicalMax");
@@ -381,7 +381,7 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 			}
 		}
 	};
-	
+
 	if(logDescriptorParser)
 		printf("usb-hid: Parsing report descriptor:\n");
 
@@ -424,13 +424,13 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 				printf("usb-hid:     Output: 0x%x\n", data);
 			if(!global.reportSize || !global.reportCount)
 				throw std::runtime_error("Missing Report Size/Count");
-				
+
 			if(!local.usageMin != !local.usageMax)
 				throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
-			
+
 			if(!local.usage.empty() && (local.usageMin || local.usageMax))
 				throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
-			
+
 			local = LocalState();
 			break;
 
@@ -440,19 +440,19 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 				printf("usb-hid:     Report Count: 0x%x\n", data);
 			global.reportCount = data;
 			break;
-		
+
 		case 0x74:
 			if(logDescriptorParser)
 				printf("usb-hid:     Report Size: 0x%x\n", data);
 			global.reportSize = data;
 			break;
-		
+
 		case 0x44:
 			if(logDescriptorParser)
 				printf("usb-hid:     Physical Maximum: 0x%x\n", data);
 			global.physicalMax = data;
 			break;
-	
+
 		case 0x34:
 			if(logDescriptorParser)
 				printf("usb-hid:     Physical Minimum: 0x%x\n", data);
@@ -467,7 +467,7 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 						global.logicalMax.value().first,
 						global.logicalMax.value().second);
 			break;
-		
+
 		case 0x14:
 			assert(size > 0);
 			global.logicalMin = std::make_pair(signExtend(data, size * 8), data);
@@ -476,7 +476,7 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 						global.logicalMin.value().first,
 						global.logicalMin.value().second);
 			break;
-		
+
 		case 0x04:
 			if(logDescriptorParser)
 				printf("usb-hid:     Usage Page: 0x%x\n", data);
@@ -490,14 +490,14 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 			assert(size < 4); // TODO: this would override the usage page
 			local.usageMax = data;
 			break;
-		
+
 		case 0x18:
 			if(logDescriptorParser)
 				printf("usb-hid:     Usage Minimum: 0x%x\n", data);
 			assert(size < 4); // TODO: this would override the usage page
 			local.usageMin = data;
 			break;
-			
+
 		case 0x08:
 			if(logDescriptorParser)
 				printf("usb-hid:     Usage: 0x%x\n", data);
@@ -516,13 +516,13 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 	auto descriptor = (co_await device.configurationDescriptor()).unwrap();
 
 	std::vector<size_t> report_descs;
-	std::experimental::optional<int> in_endp_number;
+	std::optional<int> in_endp_number;
 	size_t in_endp_pktsize;
 
 //	std::cout << "usb-hid: Device configuration:" << std::endl;
 	walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
 //		std::cout << "    Descriptor: " << type << std::endl;
-		if(type == descriptor_type::hid) {	
+		if(type == descriptor_type::hid) {
 			if(info.configNumber.value() != config_num
 					|| info.interfaceNumber.value() != intf_num)
 				return;
@@ -530,7 +530,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 			auto desc = static_cast<HidDescriptor *>(p);
 			assert(desc->length == sizeof(HidDescriptor)
 					+ (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
-			
+
 			for(size_t i = 0; i < desc->numDescriptors; i++) {
 				assert(desc->entries[i].descriptorType == descriptor_type::report);
 				report_descs.push_back(desc->entries[i].descriptorLength);
@@ -565,7 +565,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 
 		(co_await device.transfer(ControlTransfer{kXferToHost,
 				get_descriptor, buffer})).unwrap();
-		
+
 		auto p = reinterpret_cast<uint8_t *>(buffer.data());
 		auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + report_descs[i];
 		parseReportDescriptor(device, p, limit);
@@ -592,7 +592,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 
 	// Create an mbus object for the device.
 	auto root = co_await mbus::Instance::global().getRoot();
-	
+
 	mbus::Properties mbus_descriptor{
 		{"unix.subsystem", mbus::StringItem{"input"}}
 	};
@@ -607,7 +607,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 	});
 
 	co_await root.createObject("input_hid", mbus_descriptor, std::move(handler));
-	
+
 	auto config = (co_await device.useConfiguration(config_num)).unwrap();
 	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
 	auto endp = (co_await intf.getEndpoint(PipeType::in, in_endp_number.value())).unwrap();
@@ -627,7 +627,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 		// Some devices (e.g. bochs) send empty packets instead of NAKs.
 		if(!length)
 			continue;
-		
+
 		if(logRawPackets) {
 			std::cout << "usb-hid: Report size: " << length
 					<< " (packet size is " << in_endp_pktsize << ")" << std::endl;
@@ -641,7 +641,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 		std::fill(values.begin(), values.end(), std::pair<bool, int32_t>{false, 0});
 		interpret(fields, reinterpret_cast<uint8_t *>(report.data()),
 				length, values);
-	
+
 		if(logFieldValues) {
 			for(size_t i = 0; i < values.size(); i++)
 				if(values[i].first)
@@ -683,10 +683,10 @@ async::detached bindDevice(mbus::Entity entity) {
 		co_return;
 	}
 
-	std::experimental::optional<int> config_number;
-	std::experimental::optional<int> intf_number;
-	std::experimental::optional<int> intf_alternative;
-	
+	std::optional<int> config_number;
+	std::optional<int> intf_number;
+	std::optional<int> intf_alternative;
+
 	walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
@@ -695,7 +695,7 @@ async::detached bindDevice(mbus::Entity entity) {
 			auto desc = reinterpret_cast<InterfaceDescriptor *>(p);
 			if(desc->interfaceClass != 3)
 				return;
-	
+
 			if(intf_number) {
 				std::cout << "usb-hid: Ignoring secondary HID interface: "
 						<< info.interfaceNumber.value()
@@ -707,7 +707,7 @@ async::detached bindDevice(mbus::Entity entity) {
 			intf_alternative = info.interfaceAlternative.value();
 		}
 	});
-	
+
 	if(!intf_number)
 		co_return;
 	std::cout << "usb-hid: Detected HID device. "
