@@ -44,7 +44,7 @@ struct AwaitableRequest : virtio_core::Request {
 		return false;
 	}
 
-	void await_suspend(std::experimental::coroutine_handle<> handle) {
+	void await_suspend(std::coroutine_handle<> handle) {
 		_handle = handle;
 
 		_queue->postDescriptor(_descriptor, this, &AwaitableRequest::complete);
@@ -57,7 +57,7 @@ struct AwaitableRequest : virtio_core::Request {
 private:
 	virtio_core::Queue *_queue;
 	virtio_core::Handle _descriptor;
-	std::experimental::coroutine_handle<> _handle;
+	std::coroutine_handle<> _handle;
 };
 
 GfxDevice::GfxDevice(std::unique_ptr<virtio_core::Transport> transport)

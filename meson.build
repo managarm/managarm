@@ -13,7 +13,7 @@ add_project_arguments('-Wimplicit-fallthrough', language: ['c', 'cpp'])
 # build documentation
 if get_option('build_docs')
 	subdir('docs')
-	
+
 	doxyfile = configure_file(
 		input : 'hel/Doxyfile.in',
 		output : 'Doxyfile',
@@ -111,7 +111,7 @@ protocxx = generator(protoc,
 
 protofrg = generator(protoc,
 	output : '@BASENAME@.frigg_pb.hpp',
-	arguments : [ 
+	arguments : [
 		'--plugin=protoc-gen-frigg=' + pb2frigg.full_path(),
 		'--frigg_out=@BUILD_DIR@',
 		'@EXTRA_ARGS@', '@INPUT@'
@@ -140,7 +140,7 @@ endif
 
 if build_kernel or build_drivers
 	cxxshim_dep = dependency('cxxshim', fallback: ['cxxshim', 'cxxshim_dep'])
-	coroutines = dependency('cxxshim-coroutine-clang', fallback: ['cxxshim', 'clang_coroutine_dep'])
+	coroutines = dependency('cxxshim-coroutine-std', fallback: ['cxxshim', 'std_coroutine_dep'])
 
 	libarch = subproject('libarch',
 		default_options : libarch_opts
@@ -175,9 +175,9 @@ if build_drivers
 	protocols = [ 'posix', 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
 	core = [ 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
-	drivers = [ 
+	drivers = [
 		# libraries
-		'libblockfs', 'libevbackend', 
+		'libblockfs', 'libevbackend',
 		# storage
 		'block/ata', 'block/virtio-blk', 'block/ahci', 'block/nvme',
 		# gfx
@@ -192,7 +192,7 @@ if build_drivers
 	]
 	utils = [ 'runsvr', 'lsmbus' ]
 	testsuites = [ 'kernel-bench', 'kernel-tests', 'posix-torture', 'posix-tests', 'virt-test' ]
-	
+
 	# delay these dirs until last as they require other libs
 	# to already be built
 	delay = [ 'drivers/nic/virtio', 'servers/netserver', 'drivers/clocktracker' ]
