@@ -2959,10 +2959,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "\e[31mposix: socketpair(SOCK_NONBLOCK)"
 						" is not implemented correctly\e[39m" << std::endl;
 
-			assert(req->domain() == AF_UNIX);
-			assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
-					|| req->socktype() == SOCK_SEQPACKET);
-			assert(!req->protocol());
+			if(req->domain() != AF_UNIX) {
+				std::cout << "\e[31mposix: socketpair() with domain " << req->domain() <<
+						" is not implemented correctly\e[39m" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ADDRESS_FAMILY_NOT_SUPPORTED);
+				continue;
+			}
+			if(req->socktype() != SOCK_DGRAM && req->socktype() != SOCK_STREAM
+					&& req->socktype() != SOCK_SEQPACKET) {
+				std::cout << "\e[31mposix: socketpair() with socktype " << req->socktype() <<
+						" is not implemented correctly\e[39m" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+			if(req->protocol() && req->protocol() != PF_UNSPEC) {
+				std::cout << "\e[31mposix: socketpair() with protocol " << req->protocol() <<
+						" is not implemented correctly\e[39m" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::PROTOCOL_NOT_SUPPORTED);
+				continue;
+			}
 
 			auto pair = un_socket::createSocketPair(self.get());
 			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair),
