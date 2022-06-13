@@ -27,7 +27,6 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 			break;
 	}
 
-	// TODO(qookie): enumerateMutex_ should be moved into the controller code, as we should be able to submit multiple enumerations at once on XHCI for example
 	co_await enumerateMutex_.async_lock();
 	enumerate_lock = std::unique_lock<async::mutex>{enumerateMutex_, std::adopt_lock};
 

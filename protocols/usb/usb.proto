@@ -5,7 +5,12 @@ option optimize_for = LITE_RUNTIME;
 
 enum Errors {
 	SUCCESS = 0;
-	ILLEGAL_REQUEST = 1;
+	STALL = 1;
+	BABBLE = 2;
+	TIMEOUT = 3;
+	UNSUPPORTED = 4;
+	OTHER = 5;
+	ILLEGAL_REQUEST = 6;
 }
 
 enum CntReqType {
