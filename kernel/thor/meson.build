@@ -34,6 +34,7 @@ src += files(
 	'../common/font-8x16.cpp',
 	'generic/address-space.cpp',
 	'generic/cancel.cpp',
+	'generic/credentials.cpp',
 	'generic/core.cpp',
 	'generic/debug.cpp',
 	'generic/event.cpp',

@@ -244,24 +244,27 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 	auto thisUniverse = thisThread->getUniverse();
 	assert(!flags);
 
-	smarter::shared_ptr<Thread> thread;
+	smarter::shared_ptr<Credentials> creds;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(thisUniverse->lock);
 
 		if(handle == kHelThisThread) {
-			thread = thisThread.lock();
+			creds = thisThread.lock();
 		}else{
-			auto threadWrapper = thisUniverse->getDescriptor(universe_guard, handle);
-			if(!threadWrapper)
+			auto wrapper = thisUniverse->getDescriptor(universe_guard, handle);
+			if(!wrapper)
 				return kHelErrNoDescriptor;
-			if(!threadWrapper->is<ThreadDescriptor>())
+			if(wrapper->is<ThreadDescriptor>())
+				creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
+			else if(wrapper->is<LaneDescriptor>())
+				creds = wrapper->get<LaneDescriptor>().handle.getStream().lock();
+			else
 				return kHelErrBadDescriptor;
-			thread = remove_tag_cast(threadWrapper->get<ThreadDescriptor>().thread);
 		}
 	}
 
-	if(!writeUserMemory(credentials, thread->credentials(), 16))
+	if(!writeUserMemory(credentials, creds->credentials(), 16))
 		return kHelErrFault;
 
 	return kHelErrNone;

@@ -734,9 +734,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = actualSize;
 	} break;
 	case kHelCallCreateThread: {
-//		infoLogger() << "[" << this_thread->globalThreadId << "]"
-//				<< " helCreateThread()"
-//				<< frg::endlog;
 		HelHandle handle;
 		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
 				(int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
