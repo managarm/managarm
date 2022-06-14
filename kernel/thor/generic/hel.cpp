@@ -2183,12 +2183,32 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				node->_tag = kTagAccept;
 				ipcSize += ipcSourceSize(sizeof(HelHandleResult));
 				break;
-			case kHelActionImbueCredentials:
+			case kHelActionImbueCredentials: {
+				smarter::shared_ptr<Credentials> creds;
+
+				if(recipe->handle == kHelThisThread) {
+					creds = thisThread.lock();
+				} else {
+					auto irq_lock = frg::guard(&irqMutex());
+					Universe::Guard universe_guard(thisUniverse->lock);
+
+					auto wrapper = thisUniverse->getDescriptor(universe_guard, recipe->handle);
+					if(!wrapper) {
+						return kHelErrNoDescriptor;
+					}
+					if(wrapper->is<ThreadDescriptor>())
+						creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
+					else if(wrapper->is<LaneDescriptor>())
+						creds = wrapper->get<LaneDescriptor>().handle.getStream().lock();
+					else
+						return kHelErrBadDescriptor;
+				}
+
 				node->_tag = kTagImbueCredentials;
-				memcpy(node->_inCredentials.data(),
-						thisThread->credentials(), 16);
+				memcpy(node->_inCredentials.data(), creds->credentials(), 16);
 				ipcSize += ipcSourceSize(sizeof(HelSimpleResult));
 				break;
+			}
 			case kHelActionExtractCredentials:
 				node->_tag = kTagExtractCredentials;
 				ipcSize += ipcSourceSize(sizeof(HelCredentialsResult));

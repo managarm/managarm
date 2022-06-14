@@ -763,7 +763,16 @@ inline Item<Accept> action(Accept *operation, uint32_t flags = 0) {
 inline Item<ImbueCredentials> action(ImbueCredentials *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionImbueCredentials;
+	action.handle = kHelThisThread;
 	action.flags = flags;
+	return {operation, action};
+}
+
+inline Item<ImbueCredentials> action(ImbueCredentials *operation, BorrowedDescriptor descriptor, uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionImbueCredentials;
+	action.flags = flags;
+	action.handle = descriptor.getHandle();
 	return {operation, action};
 }
 

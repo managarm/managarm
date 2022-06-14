@@ -397,7 +397,10 @@ struct Accept {
 	frg::tuple<T...> nested_actions;
 };
 
-struct ImbueCredentials { };
+struct ImbueCredentials {
+	HelHandle handle;
+};
+
 struct ExtractCredentials { };
 
 struct SendBuffer {
@@ -474,7 +477,15 @@ inline auto accept(T &&...args) {
 }
 
 inline auto imbueCredentials() {
-	return ImbueCredentials{};
+	return ImbueCredentials{kHelThisThread};
+}
+
+inline auto imbueCredentials(BorrowedDescriptor desc) {
+	return ImbueCredentials{desc.getHandle()};
+}
+
+inline auto imbueCredentials(HelHandle handle) {
+	return ImbueCredentials{handle};
 }
 
 inline auto extractCredentials() {
@@ -581,10 +592,11 @@ inline auto createActionsArrayFor(bool chain, const Accept<T...> &o) {
 	);
 }
 
-inline auto createActionsArrayFor(bool chain, const ImbueCredentials &) {
+inline auto createActionsArrayFor(bool chain, const ImbueCredentials &item) {
 	HelAction action{};
 	action.type = kHelActionImbueCredentials;
 	action.flags = chain ? kHelItemChain : 0;
+	action.handle = item.handle;
 
 	return frg::array<HelAction, 1>{action};
 }
