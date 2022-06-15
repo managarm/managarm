@@ -4,12 +4,15 @@
 #include <iostream>
 #include <deque>
 #include <map>
+#include <numeric>
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
+#include "fs.bragi.hpp"
 
 #include <coroutine>
+#include <sys/ioctl.h>
 
 namespace fifo {
 
@@ -159,6 +162,37 @@ public:
 		if(nonBlock_)
 			co_return O_NONBLOCK;
 		co_return 0;
+	}
+
+	async::result<void>
+	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override {
+		managarm::fs::SvrResponse resp;
+
+		switch(req.command()) {
+			case FIONREAD: {
+				size_t count = std::accumulate(_channel->packetQueue.cbegin(), _channel->packetQueue.cend(), 0, [](size_t sum, const Packet &p) {
+					return sum + (p.buffer.size() - p.offset);
+				});
+
+				resp.set_fionread_count(count);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				break;
+			}
+			default: {
+				std::cout << "Invalid ioctl for fifo.read" << std::endl;
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				break;
+			}
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+		co_return;
 	}
 
 private:
