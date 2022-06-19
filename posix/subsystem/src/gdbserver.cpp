@@ -468,6 +468,21 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 					resp.appendBinary(s->subspan(offset, length));
 				}
 			}
+		}else if(req.matchString("Attached")) {
+			// Return an indication of whether the remote server attached to an existing process or created a new process.
+			resp.appendString("1"); // 1: The remote server attached to an existing process.
+		}else if(req.matchString("TStatus")) {
+			// Ask the stub if there is a trace experiment running right now.
+			// We don't currently even support trace points.
+			resp.appendString("T0;tnotrun:0"); // no trace is currently running and none has been run yet
+		}else if(req.matchString("Symbol::")) {
+			// Notify the target (this) that GDB is prepared to serve symbol lookup requests.
+			// Accept requests from the target (this) for the values of symbols.
+			resp.appendString("OK"); // We don't plan on making any requests.
+		}else if(req.matchString("L")) {
+			// Obtain thread information from RTOS.
+			// We don't return info about threads.
+			resp.appendString("qM001"); // return 0 threads (2 hex digits) with no intention to return more (1, as the last hex digit)
 		}else{
 			co_return ProtocolError::unknownPacket;
 		}
@@ -475,9 +490,19 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		if(req.matchString("MustReplyEmpty")) {
 			// Must be handled like unknown v packets (but do not complain).
 			req = {}; // Fully consume the packet.
+		}else if(req.matchString("Cont")) {
+			if(req.matchString("?")) {
+				// Request a list of actions supported by the 'vCont' packet
+				resp.appendString(""); // We don't support this.
+			} else {
+				co_return ProtocolError::unknownPacket;
+			}
 		}else{
 			co_return ProtocolError::unknownPacket;
 		}
+	}else if(req.matchString("D")) {
+		// Detach GDB from the remote system.
+		resp.appendString("OK"); // return success
 	}else{
 		co_return ProtocolError::unknownPacket;
 	}
