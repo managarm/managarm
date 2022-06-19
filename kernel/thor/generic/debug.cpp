@@ -5,14 +5,8 @@
 namespace thor {
 
 namespace {
-	constexpr int logLineLength = 100;
-
 	// Protects the data structures below.
 	constinit frg::ticket_spinlock logMutex;
-
-	struct LogMessage {
-		char text[logLineLength];
-	};
 
 	constinit LogMessage logQueue[1024]{};
 	constinit size_t logHead = 0;
@@ -31,8 +25,8 @@ size_t currentLogSequence() {
 	return logHead;
 }
 
-void copyLogMessage(size_t sequence, char *text) {
-	memcpy(text, logQueue[sequence % 1024].text, logLineLength);
+void copyLogMessage(size_t sequence, LogMessage &msg) {
+	memcpy(msg.text, logQueue[sequence % 1024].text, logLineLength);
 }
 
 void enableLogHandler(LogHandler *sink) {
@@ -150,9 +144,9 @@ void panic() {
 		halt();
 }
 
-constinit frg::stack_buffer_logger<InfoSink> infoLogger;
-constinit frg::stack_buffer_logger<UrgentSink> urgentLogger;
-constinit frg::stack_buffer_logger<PanicSink> panicLogger;
+constinit frg::stack_buffer_logger<InfoSink, logLineLength> infoLogger;
+constinit frg::stack_buffer_logger<UrgentSink, logLineLength> urgentLogger;
+constinit frg::stack_buffer_logger<PanicSink, logLineLength> panicLogger;
 
 void InfoSink::operator() (const char *msg) {
 	auto irqLock = frg::guard(&irqMutex());

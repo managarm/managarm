@@ -11,6 +11,12 @@ void panic();
 // Log infrastructure.
 // --------------------------------------------------------
 
+constexpr int logLineLength = 256;
+
+struct LogMessage {
+	char text[logLineLength];
+};
+
 struct LogHandler {
 	virtual void printChar(char c) = 0;
 
@@ -24,7 +30,7 @@ void enableLogHandler(LogHandler *sink);
 void disableLogHandler(LogHandler *sink);
 
 size_t currentLogSequence();
-void copyLogMessage(size_t sequence, char *text);
+void copyLogMessage(size_t sequence, LogMessage &msg);
 
 // --------------------------------------------------------
 // Loggers.
@@ -48,10 +54,10 @@ struct PanicSink {
 	void operator() (const char *msg);
 };
 
-extern frg::stack_buffer_logger<InfoSink> infoLogger;
+extern frg::stack_buffer_logger<InfoSink, logLineLength> infoLogger;
 // Similar in spirit as infoLogger(), but avoids the use of sophisticated kernel infrastructure.
 // This can be used to debug low-level kernel infrastructure, e.g., irqMutex().
-extern frg::stack_buffer_logger<UrgentSink> urgentLogger;
-extern frg::stack_buffer_logger<PanicSink> panicLogger;
+extern frg::stack_buffer_logger<UrgentSink, logLineLength> urgentLogger;
+extern frg::stack_buffer_logger<PanicSink, logLineLength> panicLogger;
 
 } // namespace thor
