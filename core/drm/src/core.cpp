@@ -1524,6 +1524,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 			std::cout << "core/drm: DESTROY_DUMB(" << req.drm_handle() << ")" << std::endl;
 
 		self->_buffers.erase(req.drm_handle());
+		self->_allocator.free(req.drm_handle());
 
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
