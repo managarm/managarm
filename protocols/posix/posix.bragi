@@ -79,7 +79,9 @@ consts CntReqType uint32 {
 	TIMERFD_SETTIME = 36,
 
 	HELFD_ATTACH = 10,
-	HELFD_CLONE = 11
+	HELFD_CLONE = 11,
+
+	FD_SERVE = 77
 }
 
 consts OpenMode uint32 {
@@ -179,6 +181,7 @@ head(128):
 		tag(21) uint64 interval_nanos;
 
 		tag(33) uint64 sigset;
+		tag(35) char[] passthrough_credentials;
 	}
 }
 
@@ -480,7 +483,7 @@ head(128):
 
 message IoctlFioclexRequest 83 {
 head(128):
-	int32 fd;	
+	int32 fd;
 }
 
 message MemFdCreateRequest 84 {

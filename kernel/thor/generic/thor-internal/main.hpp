@@ -5,6 +5,7 @@
 namespace thor {
 
 struct GlobalInitEngine : public initgraph::Engine {
+	virtual ~GlobalInitEngine() = default;
 protected:
 	void onRealizeNode(initgraph::Node *node) override;
 	void onRealizeEdge(initgraph::Edge *node) override;

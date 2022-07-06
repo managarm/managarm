@@ -12,6 +12,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/thread.hpp>
 #include <thor-internal/universe.hpp>
 
 namespace thor {
@@ -188,7 +189,7 @@ using StreamList = frg::intrusive_list<
 	>
 >;
 
-struct Stream {
+struct Stream final : Credentials {
 	struct Submitter {
 		void enqueue(const LaneHandle &lane, StreamList &chain);
 

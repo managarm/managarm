@@ -1,4 +1,9 @@
-src = [ 'src/core.cpp' ]
+posix_bragi = cxxbragi.process(protos/'posix/posix.bragi')
+
+src = [
+	'src/core.cpp',
+	posix_bragi
+]
 
 if arch == 'x86_64'
 	src += 'x86_64-src/copy-sse.S'

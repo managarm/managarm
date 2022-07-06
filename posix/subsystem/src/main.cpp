@@ -26,7 +26,6 @@
 #include "drvcore.hpp"
 #include "nl-socket.hpp"
 #include "vfs.hpp"
-#include "process.hpp"
 #include "epoll.hpp"
 #include "exec.hpp"
 #include "extern_fs.hpp"
@@ -2333,7 +2332,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			if(file->isTerminal() &&
-				!(req->flags() & managarm::posix::OpenFlags::OF_NOCTTY) && 
+				!(req->flags() & managarm::posix::OpenFlags::OF_NOCTTY) &&
 				self->pgPointer()->getSession()->getSessionId() == (pid_t)self->pid() &&
 				self->pgPointer()->getSession()->getControllingTerminal() == nullptr) {
 				// POSIX 1003.1-2017 11.1.3
@@ -2514,7 +2513,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			    co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 			    continue;
 			}
-			
+
 			auto ttynameResult = co_await file->ttyname();
 			if(!ttynameResult) {
 			    assert(ttynameResult.error() == Error::notTerminal);

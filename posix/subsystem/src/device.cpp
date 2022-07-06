@@ -8,8 +8,10 @@
 #include "common.hpp"
 #include "device.hpp"
 #include "extern_fs.hpp"
+#include "process.hpp"
 #include "tmp_fs.hpp"
 #include <fs.bragi.hpp>
+#include <posix.bragi.hpp>
 
 #include <bitset>
 
@@ -135,7 +137,7 @@ private:
 		}
 		co_return length;
 	}
-	
+
 	async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
 			uint64_t sequence, int mask,
 			async::cancellation_token cancellation = {}) override {
@@ -143,7 +145,7 @@ private:
 		assert(resultOrError);
 		co_return resultOrError.value();
 	}
-	
+
 	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override {
 		auto pollOverIpc = [this] ()
 				-> async::result<frg::expected<Error, PollStatusResult>> {
@@ -270,7 +272,83 @@ openExternalDevice(helix::BorrowedLane lane,
 	auto file = smarter::make_shared<DeviceFile>(helix::UniqueLane{},
 			pull_pt.descriptor(), std::move(mount), std::move(link), std::move(status_mapping));
 	file->setupWeakFile(file);
+	helix::UniqueDescriptor file_fd_lane;
+
+	if(resp.caps() & managarm::fs::FileCaps::FC_POSIX_LANE) {
+		managarm::fs::CntRequest fd_req;
+		fd_req.set_req_type(managarm::fs::CntReqType::OPEN_FD_LANE);
+		auto fd_ser = fd_req.SerializeAsString();
+
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+
+		auto [fd_offer, fd_send_req, fd_lane] = co_await helix_ng::exchangeMsgs(lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(fd_ser.data(), fd_ser.size()),
+				helix_ng::pushDescriptor(remote_lane)
+			)
+		);
+		HEL_CHECK(fd_offer.error());
+		HEL_CHECK(fd_send_req.error());
+		HEL_CHECK(fd_lane.error());
+
+		async::detach(serveServerLane(std::move(std::move(local_lane))));
+	}
 	co_return File::constructHandle(std::move(file));
+}
+
+
+async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
+	while(true) {
+		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
+
+		// TODO: Handle end-of-lane correctly. Why does it even happen here?
+		if(accept.error() == kHelErrLaneShutdown
+				|| accept.error() == kHelErrEndOfLane)
+			co_return;
+
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());
+		auto conversation = accept.descriptor();
+
+		managarm::posix::CntRequest req;
+		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
+
+		if(req.request_type() == managarm::posix::CntReqType::FD_SERVE) {
+			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+
+			auto [recv_handle] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::pullDescriptor()
+			);
+			HEL_CHECK(recv_handle.error());
+
+			const auto creds = req.passthrough_credentials();
+			auto process = findProcessWithCredentials((const char *) creds.data());
+
+			auto handle = helix::UniqueLane(recv_handle.descriptor());
+			auto dev_file = smarter::make_shared<PassthroughFile>(std::move(handle));
+			dev_file->setupWeakFile(dev_file);
+			auto file = File::constructHandle(std::move(dev_file));
+
+			auto fd = process->fileContext()->attachFile(file);
+
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}
+	}
 }
 
 FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane) {

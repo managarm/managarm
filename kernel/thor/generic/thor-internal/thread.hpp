@@ -4,6 +4,7 @@
 #include <atomic>
 
 #include <frg/container_of.hpp>
+#include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/schedule.hpp>
@@ -37,7 +38,7 @@ smarter::borrowed_ptr<Thread> getCurrentThread();
 
 struct ActiveHandle { };
 
-struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntity {
+struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntity, Credentials {
 	// Silence Clang warning about hidden overloads.
 	using smarter::crtp_counter<Thread, ActiveHandle>::dispose;
 
@@ -201,10 +202,6 @@ public:
 			AbiParameters abi);
 	~Thread();
 
-	const char *credentials() {
-		return _credentials;
-	}
-
 	WorkQueue *mainWorkQueue() {
 		return &_mainWorkQueue;
 	}
@@ -315,8 +312,6 @@ private:
 		// Thread exited or was killed.
 		kRunTerminated
 	};
-
-	char _credentials[16];
 
 	AssociatedWorkQueue _mainWorkQueue;
 	AssociatedWorkQueue _pagingWorkQueue;

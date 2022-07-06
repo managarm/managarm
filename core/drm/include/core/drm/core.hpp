@@ -5,6 +5,7 @@
 #include <map>
 #include <unordered_map>
 #include <optional>
+#include <variant>
 
 #include <arch/mem_space.hpp>
 #include <async/cancellation.hpp>
@@ -210,6 +211,7 @@ public:
 	uint32_t getMinHeight();
 	uint32_t getMaxHeight();
 
+	helix::UniqueDescriptor _posixLane;
 private:
 	std::vector<Crtc *> _crtcs;
 	std::vector<Encoder *> _encoders;
@@ -248,7 +250,12 @@ private:
 	std::shared_ptr<Property> _crtcWProperty;
 	std::shared_ptr<Property> _crtcHProperty;
 
+	std::map<std::array<char, 16>, std::shared_ptr<drm_core::BufferObject>> _exportedBufferObjects;
+
 public:
+	void registerBufferObject(std::shared_ptr<drm_core::BufferObject> obj, std::array<char, 16> creds);
+	std::shared_ptr<drm_core::BufferObject> findBufferObject(std::array<char, 16> creds);
+
 	id_allocator<uint32_t> allocator;
 
 	/**
@@ -331,6 +338,12 @@ struct File {
 	 */
 	uint32_t createHandle(std::shared_ptr<BufferObject> bo);
 	BufferObject *resolveHandle(uint32_t handle);
+	uint32_t getHandle(std::shared_ptr<drm_core::BufferObject> bo);
+
+	bool exportBufferObject(uint32_t handle, std::array<char, 16> creds);
+
+	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
+	importBufferObject(std::array<char, 16> creds);
 
 	/**
 	 * Add an @p event to the queue of pending events to be read by userspace.
@@ -368,6 +381,21 @@ private:
 
 	bool universalPlanes;
 	bool atomic;
+};
+
+struct PrimeFile {
+	PrimeFile(helix::BorrowedDescriptor handle, size_t size);
+
+	static async::result<helix::BorrowedDescriptor> accessMemory(void *object);
+
+	static async::result<protocols::fs::SeekResult> seekAbs(void *object, int64_t offset);
+	static async::result<protocols::fs::SeekResult> seekRel(void *object, int64_t offset);
+	static async::result<protocols::fs::SeekResult> seekEof(void *object, int64_t offset);
+
+	helix::BorrowedDescriptor _memory;
+
+	size_t offset;
+	size_t size;
 };
 
 struct Configuration {

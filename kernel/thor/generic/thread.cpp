@@ -3,13 +3,12 @@
 
 #include <frg/container_of.hpp>
 
+#include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 
 namespace thor {
-
-static std::atomic<uint64_t> globalThreadId;
 
 namespace {
 	constexpr bool logTransitions = false;
@@ -383,10 +382,6 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 		_executor{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)},
 		_affinityMask{*kernelAlloc} {
-	// TODO: Generate real UUIDs instead of ascending numbers.
-	uint64_t id = globalThreadId.fetch_add(1, std::memory_order_relaxed) + 1;
-	memset(_credentials, 0, 16);
-	memcpy(_credentials + 8, &id, sizeof(uint64_t));
 }
 
 Thread::~Thread() {

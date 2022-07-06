@@ -9,6 +9,7 @@
 #include <frg/expected.hpp>
 #include <hel.h>
 #include <protocols/fs/server.hpp>
+#include <protocols/fs/client.hpp>
 #include "common.hpp"
 
 struct File;
@@ -389,4 +390,22 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
+};
+
+struct PassthroughFile : File {
+	PassthroughFile(helix::UniqueLane lane)
+	: File{StructName::get("passthrough")}, _file{std::move(lane)} { }
+
+
+	FutureMaybe<helix::UniqueDescriptor> accessMemory() override {
+		auto memory = co_await _file.accessMemory();
+		co_return std::move(memory);
+	}
+
+	helix::BorrowedDescriptor getPassthroughLane() override {
+		return _file.getLane();
+	}
+
+private:
+	protocols::fs::File _file;
 };

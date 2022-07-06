@@ -51,7 +51,8 @@ consts FlockFlags uint32 {
 }
 
 consts FileCaps uint32 {
-	FC_STATUS_PAGE = 1
+	FC_STATUS_PAGE = 1,
+	FC_POSIX_LANE = 2
 }
 
 enum CntReqType {
@@ -122,6 +123,7 @@ enum CntReqType {
 	NODE_RMDIR = 40,
 	NODE_UTIMENSAT = 41,
 
+	OPEN_FD_LANE = 47,
 	PT_GET_SEALS = 48,
 	PT_ADD_SEALS = 49,
 
@@ -239,6 +241,8 @@ head(128):
 		tag(36) Rect[] drm_clips;
 
 		tag(37) uint64 drm_cookie;
+
+		tag(82) uint32 drm_prime_handle;
 
 		tag(40) int32 input_type;
 		tag(41) int32 input_clock;
@@ -404,6 +408,8 @@ head(128):
 		tag(92) string[] drm_enum_name;
 
 		tag(93) uint32 drm_blob_id;
+		tag(95) uint32 drm_prime_fd;
+		tag(96) uint32 drm_prime_handle;
 
 		tag(65) int32 input_value;
 		tag(66) int32 input_min;
