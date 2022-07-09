@@ -30,4 +30,3 @@ eir64_link_depends = files('generic64_link.x')
 
 subdir('multiboot1')
 subdir('multiboot2')
-subdir('stivale')
