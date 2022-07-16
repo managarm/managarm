@@ -8,6 +8,7 @@ title = "Managarm Handbook"
 [output.html]
 git-repository-url = "https://github.com/managarm/managarm"
 mathjax-support = true
+site-url = "/handbook/"
 
 [output.html.search]
 enable = true
