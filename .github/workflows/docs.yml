@@ -13,7 +13,7 @@ jobs:
                 sudo pip3 install meson
           - name: Install mdbook
             run: |
-                set -x
+                set -e
                 wget -O mdbook.tar.gz https://github.com/rust-lang/mdBook/releases/download/v0.4.20/mdbook-v0.4.20-x86_64-unknown-linux-gnu.tar.gz
                 sha512sum --check <<EOF
                 bc184123378814c0d28ffb13d88736bcfab64cfabb140f42c331e41f4fd7ea3fee24e480f78fe8f6f3f13bddd57bda7dcc215e6fc7f4a606177903dd10881a74  mdbook.tar.gz
