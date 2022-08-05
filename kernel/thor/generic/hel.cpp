@@ -3082,7 +3082,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 }
 
 HelError helEnableIo(HelHandle handle) {
-#ifdef __x86_64__
+#ifdef THOR_ARCH_SUPPORTS_PIO
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -3108,7 +3108,7 @@ HelError helEnableIo(HelHandle handle) {
 }
 
 HelError helEnableFullIo() {
-#ifdef __x86_64__
+#ifdef THOR_ARCH_SUPPORTS_PIO
 	auto this_thread = getCurrentThread();
 
 	for(uintptr_t port = 0; port < 0x10000; port++)

@@ -2,9 +2,6 @@
 
 #include <frg/allocation.hpp>
 #include <thor-internal/arch/paging.hpp>
-#ifdef __x86_64__
-#include <thor-internal/arch/pic.hpp>
-#endif
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -135,7 +132,7 @@ void *laihost_scan(const char *name, size_t index) {
 	}
 }
 
-#ifdef __x86_64__
+#ifdef THOR_ARCH_SUPPORTS_PIO
 void laihost_outb(uint16_t p, uint8_t v) {
 	asm volatile ("outb %0, %1" : : "a"(v), "d"(p));
 }
