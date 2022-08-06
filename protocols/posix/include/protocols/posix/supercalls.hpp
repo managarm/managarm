@@ -17,6 +17,7 @@ inline constexpr uint32_t superAnonAllocate = 10;
 inline constexpr uint32_t superAnonDeallocate = 11;
 inline constexpr uint32_t superSigAltStack = 12;
 inline constexpr uint32_t superSigSuspend = 13;
+inline constexpr uint32_t superGetTid = 14;
 inline constexpr uint32_t superGetServerData = 64;
 
 } // namespace posix

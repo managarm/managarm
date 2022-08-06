@@ -546,6 +546,17 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superGetTid){
+			if(logRequests)
+				std::cout << "posix: GET_TID supercall" << std::endl;
+
+			uintptr_t gprs[kHelNumGprs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			gprs[kHelRegError] = 0;
+			gprs[kHelRegOut0] = self->tid();
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			bool killed = false;
@@ -749,39 +760,24 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			req = *o;
 		}
 
-		if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
-			auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(recv_head);
+		if(preamble.id() == bragi::message_id<managarm::posix::GetPidRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::GetPidRequest>(recv_head);
 			if (!req) {
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
 			if(logRequests)
-				std::cout << "posix: GET_TID" << std::endl;
+				std::cout << "posix: GET_PID" << std::endl;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(self->tid());
+			resp.set_pid(self->pid());
 
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(sendResp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::GET_PID) {
-			if(logRequests)
-				std::cout << "posix: GET_PID" << std::endl;
-
-			helix::SendBuffer send_resp;
-
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(self->pid());
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::GetPpidRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::GetPpidRequest>(recv_head);
 

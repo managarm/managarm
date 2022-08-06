@@ -26,7 +26,6 @@ enum Errors {
 
 consts CntReqType uint32 {
 	INIT = 7,
-	GET_PID = 17,
 	FORK = 8,
 	EXEC = 1,
 	WAIT = 56,
@@ -253,11 +252,6 @@ head(128):
 		// returned by GET_RESOURCE_USAGE
 		tag(29) uint64 ru_user_time;
 	}
-}
-
-message GetTidRequest 29 {
-head(128):
-	int32 dummy;
 }
 
 message VmMapRequest 26 {
@@ -491,4 +485,8 @@ head(128):
 	int32 flags;
 tail:
 	string name;
+}
+
+message GetPidRequest 86 {
+head(128):
 }
