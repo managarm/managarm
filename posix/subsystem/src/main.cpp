@@ -58,6 +58,7 @@
 #include <posix.bragi.hpp>
 #include <frg/std_compat.hpp>
 #include <protocols/posix/data.hpp>
+#include <protocols/posix/supercalls.hpp>
 
 namespace {
 	constexpr bool logRequests = false;
@@ -189,7 +190,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		HEL_CHECK(observe.error());
 		sequence = observe.sequence();
 
-		if(observe.observation() == kHelObserveSuperCall + 10) {
+		if(observe.observation() == kHelObserveSuperCall + posix::superAnonAllocate) {
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			size_t size = gprs[kHelRegArg0];
@@ -202,7 +203,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = reinterpret_cast<uintptr_t>(address);
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 11) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superAnonDeallocate) {
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
@@ -212,7 +213,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 1) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superGetProcessData) {
 			posix::ManagarmProcessData data = {
 				self->clientPosixLane(),
 				self->fileContext()->clientMbusLane(),
@@ -231,7 +232,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegError] = kHelErrNone;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 2) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superFork) {
 			if(logRequests)
 				std::cout << "posix: fork supercall" << std::endl;
 			auto child = Process::fork(self);
@@ -256,7 +257,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
-		}else if(observe.observation() == kHelObserveSuperCall + 9) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superClone) {
 			if(logRequests)
 				std::cout << "posix: clone supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
@@ -275,7 +276,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
-		}else if(observe.observation() == kHelObserveSuperCall + 3) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superExecve) {
 			if(logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
@@ -341,7 +342,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				HEL_CHECK(helResume(thread.getHandle()));
 			}else
 				assert(error == Error::success);
-		}else if(observe.observation() == kHelObserveSuperCall + 4) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superExit) {
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
 
@@ -350,7 +351,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			auto code = gprs[kHelRegArg0];
 
 			co_await self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
-		}else if(observe.observation() == kHelObserveSuperCall + 7) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigMask) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
 
@@ -387,7 +388,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				break;
 
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 8) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigRaise) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RAISE supercall" << std::endl;
 
@@ -407,13 +408,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 6) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigRestore) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 
 			co_await self->signalContext()->restoreContext(thread);
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 5) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigKill) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
 
@@ -476,7 +477,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 12) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigAltStack) {
 			// sigaltstack is implemented as a supercall because it
 			// needs to access the thread's registers.
 
@@ -526,7 +527,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = error;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + 13) {
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigSuspend) {
 			if(logRequests || logSignals)
 				std::cout << "posix: SIGSUSPEND supercall" << std::endl;
 
