@@ -44,6 +44,7 @@ src += embed_trampoline
 inc += include_directories('.')
 link_args += [ '-z', 'max-page-size=0x1000', '-Wl,-T,' + meson.current_source_dir()/'link.x' ]
 args += [ '-mno-80387', '-mno-mmx', '-mno-sse', '-mno-sse2', '-mcmodel=kernel', '-mno-red-zone', '-mstack-alignment=8' ]
+args += ['-DTHOR_ARCH_SUPPORTS_PIO=1']
 link_depends += files('link.x')
 
 want_acpi = true

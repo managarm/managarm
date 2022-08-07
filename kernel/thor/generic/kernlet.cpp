@@ -1,7 +1,7 @@
 
 #include <stdint.h>
 
-#ifdef __x86_64__
+#ifdef THOR_ARCH_SUPPORTS_PIO
 #include <arch/io_space.hpp>
 #endif
 #include <arch/mem_space.hpp>
@@ -215,7 +215,7 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 
 	// Perform relocations.
 	auto resolveExternal = [] (frg::string_view name) -> void * {
-#ifdef __x86_64__
+#ifdef THOR_ARCH_SUPPORTS_PIO
 		uint16_t (*abi_pio_read16)(ptrdiff_t) =
 			[] (ptrdiff_t offset) -> uint16_t {
 				if(logIo)
@@ -279,7 +279,7 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 				event->trigger(bits);
 			};
 
-#ifdef __x86_64__
+#ifdef THOR_ARCH_SUPPORTS_PIO
 		if(name == "__pio_read16")
 			return reinterpret_cast<void *>(abi_pio_read16);
 		else if(name == "__pio_write16")
