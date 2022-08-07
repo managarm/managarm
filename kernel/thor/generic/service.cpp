@@ -10,6 +10,7 @@
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>
 #include <protocols/posix/data.hpp>
+#include <protocols/posix/supercalls.hpp>
 
 namespace thor {
 
@@ -412,25 +413,6 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(preamble.id() == bragi::message_id<managarm::posix::GetTidRequest>) {
-				auto req = bragi::parse_head_only<managarm::posix::GetTidRequest>(
-						reqBuffer, *kernelAlloc);
-				if(!req) {
-					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
-					co_return;
-				}
-
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_pid(1);
-
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-				// TODO: improve error handling here.
-				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
 				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
 				if(tailError != Error::success) {
@@ -676,7 +658,7 @@ namespace posix {
 						<< name().data() << "\e[39m" << frg::endlog;
 				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
 				break;
-			}else if(interrupt == kIntrSuperCall + 10) { // ANON_ALLOCATE.
+			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
 				auto size = *_thread->_executor.arg0();
 				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
@@ -699,7 +681,7 @@ namespace posix {
 				*_thread->_executor.result1() = mapResult.value();
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 11) { // ANON_FREE.
+			}else if(interrupt == kIntrSuperCall + ::posix::superAnonDeallocate) { // ANON_FREE.
 				auto address = *_thread->_executor.arg0();
 				auto size = *_thread->_executor.arg1();
 				auto space = _thread->getAddressSpace();
@@ -714,7 +696,7 @@ namespace posix {
 				*_thread->_executor.result1() = 0;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 1) {
+			}else if(interrupt == kIntrSuperCall + ::posix::superGetProcessData) {
 				::posix::ManagarmProcessData data = {
 					posixHandle,
 					mbusHandle,
@@ -733,7 +715,7 @@ namespace posix {
 				}
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 64) {
+			}else if(interrupt == kIntrSuperCall + ::posix::superGetServerData) {
 				::posix::ManagarmServerData data = {
 					controlHandle
 				};
@@ -748,9 +730,14 @@ namespace posix {
 				}
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
-			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
+			}else if(interrupt == kIntrSuperCall + ::posix::superSigMask) { // sigprocmask.
 				*_thread->_executor.result0() = kHelErrNone;
 				*_thread->_executor.result1() = 0;
+				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+			}else if(interrupt == kIntrSuperCall + ::posix::superGetTid) {
+				*_thread->_executor.result0() = kHelErrNone;
+				*_thread->_executor.result1() = 1;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else{
