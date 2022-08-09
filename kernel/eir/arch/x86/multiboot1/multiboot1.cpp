@@ -5,6 +5,8 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
 
+#include <acpispec/tables.h>
+
 namespace eir {
 
 enum MbInfoFlags {
@@ -54,6 +56,60 @@ struct MbMemoryMap {
 	uint64_t length;
 	uint32_t type;
 };
+
+static bool findAcpiRsdp(EirInfo *info) {
+	auto doChecksum = [](void *ptr, size_t len) {
+		uint8_t checksum = 0;
+		for(size_t i = 0; i < len; i++)
+			checksum += reinterpret_cast<uint8_t *>(ptr)[i];
+		return checksum;
+	};
+
+	auto scanZone = [info, doChecksum](uintptr_t base, size_t len) {
+		uint8_t *region = reinterpret_cast<uint8_t *>(base);
+	
+		for(size_t off = 0; off < len; off += 16) {
+			acpi_rsdp_t *rsdp = reinterpret_cast<acpi_rsdp_t *>(region + off);
+
+			if(memcmp(rsdp->signature, "RSD PTR ", 8))
+				continue;
+
+			if(doChecksum(static_cast<void *>(rsdp), sizeof(acpi_rsdp_t)) != 0)
+				continue;
+
+			if(!rsdp->revision) {
+				info->acpiRevision = 1;
+				info->acpiRsdt = rsdp->rsdt;
+				return true;
+			} else {
+				acpi_xsdp_t *xsdp = reinterpret_cast<acpi_xsdp_t *>(rsdp);
+
+				if(doChecksum(static_cast<void *>(xsdp), sizeof(acpi_xsdp_t)))
+					continue;
+
+				info->acpiRevision = 2;
+				info->acpiRsdt = xsdp->xsdt;
+				return true;
+			}
+		}
+
+		return false;
+	};
+
+	// First, find the base address of the EDBA
+	uint16_t bdaData = *reinterpret_cast<uint16_t *>(0x40E);
+	uintptr_t ebdaBase = ((uintptr_t)bdaData) << 4;
+
+	// Next, try the EDBA
+	if(scanZone(ebdaBase, 0x400))
+		return true;
+
+	// Finally, try the BIOS memory
+	if(scanZone(0xE0000, 0x20000))
+		return true;
+  
+	return false;
+}
 
 extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
 
@@ -154,7 +210,11 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 
 	info_ptr->numModules = mb_info->numModules - 1;
 	info_ptr->moduleInfo = mapBootstrapData(modules);
-	
+
+	// Manually probe for ACPI tables in EBDA/BIOS memory
+	if(!findAcpiRsdp(info_ptr))
+		eir::panicLogger() << "eir: unable to find ACPI RSDP in low memory, halting..." << frg::endlog;
+
 	if((mb_info->flags & kMbInfoFramebuffer)
 			&& (mb_info->fbType == 1)) { // For now, only linear framebuffer is supported.
 		auto framebuf = &info_ptr->frameBuffer;
