@@ -986,9 +986,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			uint32_t mode = 0;
 			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
-				mode |= 0x200 | byExit->code; // 0x200 = normal exit().
+				mode |= W_EXITCODE(byExit->code, 0);
 			}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
-				mode |= 0x400 | (bySignal->signo << 24); // 0x400 = killed by signal.
+				mode |= W_EXITCODE(0, bySignal->signo);
 			}else{
 				assert(std::holds_alternative<std::monostate>(state));
 			}
