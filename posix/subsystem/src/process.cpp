@@ -486,7 +486,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 
 	// Copy the current signal handler table.
 	for(int sn = 1; sn <= 64; sn++)
-		context->_handlers[sn - 1] = original->_handlers[sn];
+		context->_handlers[sn - 1] = original->_handlers[sn - 1];
 
 	return context;
 }
@@ -622,19 +622,25 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 
 	// Implement SA_RESETHAND by resetting the signal disposition to default.
 	if(handler.flags & signalOnce)
-		_handlers[item->signalNumber].disposition = SignalDisposition::none;
+		_handlers[item->signalNumber - 1].disposition = SignalDisposition::none;
 
+	// Handle default dispositions properly
 	if(handler.disposition == SignalDisposition::none) {
-		if(item->signalNumber == SIGCHLD) { // TODO: Handle default actions generically.
-			// Ignore the signal.
-			killed = false;
-			co_return;
-		}else{
-			std::cout << "posix: Thread killed as the result of signal "
-							<< item->signalNumber << std::endl;
-			killed = true;
-			co_await process->terminate(TerminationBySignal{item->signalNumber});
-			co_return;
+		switch (item->signalNumber) {
+			// TODO: Handle SIGTSTP, SIGSTOP and SIGCONT
+			case SIGCHLD:
+			case SIGURG:
+			case SIGWINCH:
+				// Ignore the signal.
+				killed = false;
+				co_return;
+
+			default:
+				std::cout << "posix: Thread killed as the result of signal "
+						<< item->signalNumber << std::endl;
+				killed = true;
+				co_await process->terminate(TerminationBySignal{item->signalNumber});
+				co_return;
 		}
 	} else if(handler.disposition == SignalDisposition::ignore) {
 		// Ignore the signal.

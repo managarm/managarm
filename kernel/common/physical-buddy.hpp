@@ -26,13 +26,21 @@ private:
 	}
 
 	// Determines the largest free chunk in the given range.
-	static int scanFreeChunks(int8_t *slice, AddressType base, AddressType limit) {
+	static int scanFreeChunks(int8_t *slice, AddressType base, AddressType limit, int order) {
 		int freeOrder = -1;
+		bool allEqualOrder = true;
+
 		for(AddressType i = 0; i < limit; i++) {
 			if(slice[base + i] >= freeOrder)
 				freeOrder = slice[base + i];
+			if(slice[base + i] != order)
+				allEqualOrder = false;
 		}
-		return freeOrder;
+
+		if(allEqualOrder)
+			return order + 1;
+		else
+			return freeOrder;
 	}
 
 	int traverseForSanityCheck(int8_t *slice, int order, size_t base) {
@@ -184,7 +192,7 @@ public:
 		AddressType updateIndex = allocIndex;
 		while(currentOrder < tableOrder_) {
 			updateIndex /= 2;
-			auto freeOrder = scanFreeChunks(slice, 2 * updateIndex, 2);
+			auto freeOrder = scanFreeChunks(slice, 2 * updateIndex, 2, currentOrder);
 			currentOrder++;
 			slice -= size_t(numRoots_) << (tableOrder_ - currentOrder);
 			slice[updateIndex] = freeOrder;
@@ -227,7 +235,7 @@ public:
 		// Update all superior elements.
 		while(currentOrder < tableOrder_) {
 			updateIndex /= 2;
-			auto freeOrder = scanFreeChunks(slice, 2 * updateIndex, 2);
+			auto freeOrder = scanFreeChunks(slice, 2 * updateIndex, 2, currentOrder);
 			currentOrder++;
 			slice -= size_t(numRoots_) << (tableOrder_ - currentOrder);
 			slice[updateIndex] = freeOrder;

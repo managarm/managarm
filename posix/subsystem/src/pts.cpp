@@ -615,6 +615,10 @@ async::result<void> MasterFile::ioctl(Process *process, managarm::fs::CntRequest
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+
+		// XXX: This should deliver SIGWINCH to the parent under certain conditions
+		UserSignal info;
+		_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
 	}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
 			|| req.command() == TIOCSPGRP || req.command() == TIOCGSID) {
 		co_await _channel->commonIoctl(process, std::move(req), std::move(conversation));
@@ -848,6 +852,10 @@ async::result<void> SlaveFile::ioctl(Process *process, managarm::fs::CntRequest 
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+
+		// XXX: This should deliver SIGWINCH to the parent under certain conditions
+		UserSignal info;
+		_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
 	}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
 			|| req.command() == TIOCSPGRP || req.command() == TIOCGSID) {
 		co_await _channel->commonIoctl(process, std::move(req), std::move(conversation));

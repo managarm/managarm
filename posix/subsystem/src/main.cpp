@@ -1068,7 +1068,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			void *address;
 			if(req->flags() & MAP_ANONYMOUS) {
-				assert(req->fd() == -1);
 				assert(!req->rel_offset());
 
 				if(copyOnWrite) {
