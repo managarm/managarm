@@ -43,6 +43,7 @@ jobs:
           - name: Install prerequisites
             run: |
                 set -x
+                sudo apt-get update
                 sudo apt-get install qemu-system-x86
                 pip3 install xbstrap
                 xbstrap prereqs cbuildrt xbps
