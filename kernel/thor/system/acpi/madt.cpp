@@ -262,14 +262,12 @@ static initgraph::Task initTablesTask{&globalInitEngine, "acpi.init-tables",
 				rsdp_info.rsdt_address = 0;
 				rsdp_info.xsdt_address = thorBootInfoPtr->acpiRsdt;
 			} else {
-				panicLogger() << "thor: Got unknown acpi version from multiboot2: " << thorBootInfoPtr->acpiRevision << frg::endlog;
+				panicLogger() << "thor: Eir gave unknown acpi revision: " << thorBootInfoPtr->acpiRevision << frg::endlog;
 			}
 		} else {
-			if(lai_bios_detect_rsdp(&rsdp_info))
-				panicLogger() << "thor: Could not detect ACPI" << frg::endlog;
+			panicLogger() << "thor: Could not detect ACPI" << frg::endlog;
 		}
 
-		assert((rsdp_info.acpi_version == 1 || rsdp_info.acpi_version == 2) && "Got unknown acpi version from lai");
 		globalRsdtVersion = rsdp_info.acpi_version;
 		if(rsdp_info.acpi_version == 2){
 			globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, 0x1000);
