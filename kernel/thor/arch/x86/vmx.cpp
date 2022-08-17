@@ -7,8 +7,64 @@
 #include <thor-internal/thread.hpp>
 #include <x86/machine.hpp>
 
-extern "C" void vmLaunch(void* state);
-extern "C" void vmResume(void* state);
+namespace {
+	inline int vmptrld(PhysicalAddr vmcs) {
+		uint8_t ret;
+		asm volatile (
+			"vmptrld %[pa];"
+			"setna %[ret];"
+			: [ret]"=rm"(ret)
+			: [pa]"m"(vmcs)
+			: "cc", "memory");
+		return ret;
+	}
+
+	inline int vmclear(PhysicalAddr vmcs) {
+		uint8_t ret;
+		asm volatile (
+			"vmclear %[pa];"
+			"setna %[ret];"
+			: [ret]"=rm"(ret)
+			: [pa]"m"(vmcs)
+			: "cc", "memory");
+		return ret;
+	}
+
+	inline int vmwrite(uint64_t encoding, uint64_t value) {
+		uint8_t ret;
+		asm volatile (
+			"vmwrite %1, %2;"
+			"setna %[ret]"
+			: [ret]"=rm"(ret)
+			: "rm"(value), "r"(encoding)
+			: "cc", "memory");
+
+		return ret;
+	}
+
+	inline uint64_t vmread(uint64_t encoding) {
+		uint64_t tmp;
+		uint8_t ret;
+		asm volatile(
+			"vmread %[encoding], %[value];"
+			"setna %[ret];"
+			: [value]"=rm"(tmp), [ret]"=rm"(ret)
+			: [encoding]"r"(encoding)
+			: "cc", "memory");
+
+		return tmp;
+	}
+}
+
+extern "C" void vmxVmRun(thor::vmx::Vmcs* vm, void* state, bool launched);
+extern "C" uintptr_t vmxDoVmExit[]; // Actually a function that cannot be called in the conventional sense, just need the address
+
+extern "C" void vmxUpdateHostRsp(thor::vmx::Vmcs* vm, uintptr_t rsp) {
+	if(vm->saved_host_rsp != rsp) {
+		vmwrite(thor::vmx::HOST_RSP, rsp);
+		vm->saved_host_rsp = rsp;
+	}
+}
 
 namespace thor::vmx {
 	bool vmxon() {
@@ -61,53 +117,6 @@ namespace thor::vmx {
 		}
 
 		return successful;
-	}
-
-	static inline int vmptrld(PhysicalAddr vmcs) {
-		uint8_t ret;
-		asm volatile (
-			"vmptrld %[pa];"
-			"setna %[ret];"
-			: [ret]"=rm"(ret)
-			: [pa]"m"(vmcs)
-			: "cc", "memory");
-		return ret;
-	}
-
-	static inline int vmclear(PhysicalAddr vmcs) {
-		uint8_t ret;
-		asm volatile (
-			"vmclear %[pa];"
-			"setna %[ret];"
-			: [ret]"=rm"(ret)
-			: [pa]"m"(vmcs)
-			: "cc", "memory");
-		return ret;
-	}
-
-	static inline int vmwrite(uint64_t encoding, uint64_t value) {
-		uint8_t ret;
-		asm volatile (
-			"vmwrite %1, %2;"
-			"setna %[ret]"
-			: [ret]"=rm"(ret)
-			: "rm"(value), "r"(encoding)
-			: "cc", "memory");
-
-		return ret;
-	}
-
-	static inline uint64_t vmread(uint64_t encoding) {
-		uint64_t tmp;
-		uint8_t ret;
-		asm volatile(
-			"vmread %[encoding], %[value];"
-			"setna %[ret];"
-			: [value]"=rm"(tmp), [ret]"=rm"(ret)
-			: [encoding]"r"(encoding)
-			: "cc", "memory");
-
-		return tmp;
 	}
 
 	Vmcs::Vmcs(smarter::shared_ptr<EptSpace> ept) : space(ept) {
@@ -185,6 +194,7 @@ namespace thor::vmx {
 		vmwrite(HOST_GDTR_BASE, (size_t)gdtr.pointer);
 		vmwrite(HOST_IDTR_BASE, (size_t)idtr.pointer);
 		vmwrite(HOST_EFER_FULL, common::x86::rdmsr(0xc0000080));
+		vmwrite(HOST_RIP, (size_t)vmxDoVmExit);
 
 		//Set up guest state on vm entry.
 		vmwrite(GUEST_ES_SELECTOR, 0x0);
@@ -271,6 +281,8 @@ namespace thor::vmx {
 	}
 
 	HelVmexitReason Vmcs::run() {
+		vmptrld((PhysicalAddr)region);
+
 		uint16_t es;
 		uint16_t cs;
 		uint16_t ss;
@@ -299,8 +311,11 @@ namespace thor::vmx {
 		vmwrite(HOST_GS_BASE, common::x86::rdmsr(MSR_GS_BASE));
 		vmwrite(HOST_CR3, cr3);
 
+		vmclear((PhysicalAddr)region);
+
 		HelVmexitReason exitInfo{};
 
+		bool launched = false;
 		while(1) {
 			/*
 			 * NOTE: this will only work as long as long
@@ -310,7 +325,6 @@ namespace thor::vmx {
 			 * and set launched = false;
 			 */
 			asm volatile("cli");
-			vmclear((PhysicalAddr)region);
 			vmptrld((PhysicalAddr)region);
 			if(getGlobalCpuFeatures()->haveXsave){
 				common::x86::xsave((uint8_t*)hostFstate, ~0);
@@ -319,13 +333,9 @@ namespace thor::vmx {
 				asm volatile ("fxsaveq %0" : : "m" (*hostFstate));
 				asm volatile ("fxrstorq %0" : : "m" (*guestFstate));
 			}
-			launched = false;
-			if(!launched) {
-				vmLaunch((void*)&state);
-				launched = true;
-			} else {
-				vmResume((void*)&state);
-			}
+
+			vmxVmRun(this, &state, launched);
+			launched = true;
 
 			if(getGlobalCpuFeatures()->haveXsave){
 				common::x86::xsave((uint8_t*)guestFstate, ~0);

@@ -141,19 +141,22 @@ namespace thor::vmx {
 
 	struct Vmcs final : VirtualizedCpu {
 		Vmcs(smarter::shared_ptr<EptSpace> ept);
+		~Vmcs();
+
 		Vmcs(const Vmcs& vmcs) = delete;
 		Vmcs& operator=(const Vmcs& vmcs) = delete;
+
 		HelVmexitReason run();
 		void storeRegs(const HelX86VirtualizationRegs *regs);
 		void loadRegs(HelX86VirtualizationRegs *res);
-		~Vmcs();
+		
 		void *region;
 		uint8_t* hostFstate;
 		uint8_t* guestFstate;
 
 		smarter::shared_ptr<EptSpace> space;
-		bool launched = false;
 
 		GuestState state;
+		uint64_t saved_host_rsp;
 	};
 }
