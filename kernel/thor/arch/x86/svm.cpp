@@ -6,7 +6,7 @@
 #include <thor-internal/thread.hpp>
 #include <x86/machine.hpp>
 
-extern "C" void vmRun(thor::svm::GprState *gprs, PhysicalAddr vmcb);
+extern "C" void svmVmRun(thor::svm::GprState *gprs, PhysicalAddr vmcb);
 
 namespace thor::svm {
 	bool init() {
@@ -128,7 +128,7 @@ namespace thor::svm {
 				asm volatile ("fxrstorq %0" : : "m" (*guest_fpu_state));
 			}
 
-			vmRun(&gprState, vmcb_region);
+			svmVmRun(&gprState, vmcb_region);
 
 			common::x86::wrmsr(common::x86::kMsrPAT, pat);
 			asm volatile("vmload %%rax" : : "a"(host_additional_save_region) : "memory");
@@ -140,10 +140,6 @@ namespace thor::svm {
 				asm volatile ("fxsaveq %0" : : "m" (*guest_fpu_state));
 				asm volatile ("fxrstorq %0" : : "m" (*host_fpu_state));
 			}
-
-			getCpuData()->gdt[kGdtIndexTask * 2 + 1] &= ~(0x1F << 8);
-			getCpuData()->gdt[kGdtIndexTask * 2 + 1] |= (9 << 8); // Reset TSS type from TSS64-busy to TSS64
-			asm volatile ("ltr %w0" : : "r"(kSelTask) : "memory"); 
 
 			asm("stgi");
 
