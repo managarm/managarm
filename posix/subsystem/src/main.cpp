@@ -2785,9 +2785,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			SignalHandler saved_handler;
 			if(req.mode()) {
 				SignalHandler handler;
-				if(req.sig_handler() == uintptr_t(-2)) {
+				if(req.sig_handler() == uintptr_t(SIG_DFL)) {
 					handler.disposition = SignalDisposition::none;
-				}else if(req.sig_handler() == uintptr_t(-3)) {
+				}else if(req.sig_handler() == uintptr_t(SIG_IGN)) {
 					handler.disposition = SignalDisposition::ignore;
 				}else{
 					handler.disposition = SignalDisposition::handle;
