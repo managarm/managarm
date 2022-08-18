@@ -22,7 +22,7 @@ struct CtrlBuilder {
 		h.cmsg_type = type;
 
 		memcpy(_buffer.data(), &h, sizeof(struct cmsghdr));
-		_offset += sizeof(struct cmsghdr);
+		_offset += CMSG_ALIGN(sizeof(struct cmsghdr));
 
 		return true;
 	}
