@@ -4,6 +4,7 @@ ENTRY(_start)
 SECTIONS {
 	/* R-X segment. */
 	. = 0x45000000;
+	eirImageFloor = .;
 
 	.text : { *(.text) *(.text.*) }
 
@@ -18,8 +19,17 @@ SECTIONS {
 	/* RW- segment. */
 	. = ALIGN(0x1000) + (. & (0xFFF));
 
+	.init_array : {
+		PROVIDE_HIDDEN (__init_array_start = .);
+		KEEP (*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+		KEEP (*(.init_array .ctors))
+		PROVIDE_HIDDEN (__init_array_end = .);
+	}
+
 	.data : { *(.data) *(.data.*) }
 	.got : { *(.got) }
 	.got.plt : { *(.got.plt) }
 	.bss : { *(.bss) *(.bss.*) }
+
+	eirImageCeiling = .;
 }
