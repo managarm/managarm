@@ -424,14 +424,12 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		auto spaceLock = frg::guard(&_snapshotMutex);
 
 		if(flags & kMapFixed) {
-			assert(address);
 			assert((address % kPageSize) == 0);
 
 			actualAddress = _allocateAt(address, length);
 		}else{
 			actualAddress = _allocate(length, flags);
 		}
-		assert(actualAddress);
 
 	//	infoLogger() << "Creating new mapping at " << (void *)actualAddress
 	//			<< ", length: " << (void *)length << frg::endlog;

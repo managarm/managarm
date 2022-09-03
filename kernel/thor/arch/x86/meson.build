@@ -5,6 +5,7 @@ src += files(
 	'stubs.S',
 	'user-access.S',
 	'vmx_stubs.S',
+	'svm_stubs.S',
 
 	'cpu.cpp',
 	'debug.cpp',
@@ -12,11 +13,13 @@ src += files(
 	'hpet.cpp',
 	'ints.cpp',
 	'pic.cpp',
+	'npt.cpp',
 	'paging.cpp',
 	'pmc-amd.cpp',
 	'pmc-intel.cpp',
 	'pci_io.cpp',
 	'rtc.cpp',
+	'svm.cpp',
 	'system.cpp',
 	'vmx.cpp'
 )

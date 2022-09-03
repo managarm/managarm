@@ -523,6 +523,7 @@ struct CpuFeatures {
 	bool haveInvariantTsc;
 	bool haveTscDeadline;
 	bool haveVmx;
+	bool haveSvm;
 	uint32_t profileFlags;
 	size_t xsaveRegionSize;
 };

@@ -1,5 +1,6 @@
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/arch/vmx.hpp>
+#include <thor-internal/arch/svm.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
@@ -485,12 +486,41 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 			return true;
 		}(); // Immediately invoked.
 
+		bool svmSupported = [] () -> bool {
+			auto leaf = common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures);
+			if(!(leaf[2] & (1 << 2)))
+				return false; // Unsupported
+			
+			auto vm_cr = common::x86::rdmsr(common::x86::kMsrIndexVmCr);
+			if(vm_cr & (1 << 4)) {
+				if(leaf[3] & (1 << 2)) {
+					infoLogger() << "\e[37mthor: SVM Locked with Key\e[39m" << frg::endlog;
+					return false;
+				} else {
+					infoLogger() << "\e[37mthor: SVM Disabled in BIOS\e[39m" << frg::endlog;
+					return false;
+				}
+			}
+
+			if(!(leaf[3] & (1 << 0)))
+				return false; // Required feature NPT unsupported
+			return true;
+		}();
+
 		if(vmxSupported) {
 			infoLogger() << "\e[37mthor: CPUs support VMX\e[39m"
 					<< frg::endlog;
 			globalCpuFeatures.haveVmx = true;
 		}else{
 			infoLogger() << "\e[37mthor: CPUs do not support VMX!\e[39m" << frg::endlog;
+		}
+
+		if(svmSupported) {
+			infoLogger() << "\e[37mthor: CPUs support SVM\e[39m"
+					<< frg::endlog;
+			globalCpuFeatures.haveSvm = true;
+		}else{
+			infoLogger() << "\e[37mthor: CPUs do not support SVM!\e[39m" << frg::endlog;
 		}
 
 		cpuFeaturesKnown = true;
@@ -713,9 +743,12 @@ void initializeThisProcessor() {
 		infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frg::endlog;
 	}
 
-	// Enable VMX if it is supported.
+	// Enable SVM or VMX if it is supported.
 	if(getGlobalCpuFeatures()->haveVmx)
 		cpuData->haveVirtualization = thor::vmx::vmxon();
+
+	if(getGlobalCpuFeatures()->haveSvm)
+		cpuData->haveVirtualization = thor::svm::init();
 
 	// Setup the syscall interface.
 	if((common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures)[3]

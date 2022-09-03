@@ -21,6 +21,8 @@
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
+#include <thor-internal/arch/npt.hpp>
+#include <thor-internal/arch/svm.hpp>
 #endif
 #include <hel.h>
 
@@ -664,7 +666,17 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	}
 	PageAccessor paccessor{pml4e};
 	memset(paccessor.get(), 0, kPageSize);
-	auto vspace = thor::vmx::EptSpace::create(pml4e);
+
+	smarter::shared_ptr<VirtualizedPageSpace> vspace;
+	if(getGlobalCpuFeatures()->haveVmx) {
+		vspace = thor::vmx::EptSpace::create(pml4e);
+	} else if(getGlobalCpuFeatures()->haveSvm) {
+		vspace = thor::svm::NptSpace::create(pml4e);
+	} else {
+		physicalAllocator->free(pml4e, kPageSize);
+		return kHelErrNoHardwareSupport;
+	}
+
 	Universe::Guard universe_guard(this_universe->lock);
 	*handle = this_universe->attachDescriptor(universe_guard,
 			VirtualizedSpaceDescriptor(std::move(vspace)));
@@ -691,7 +703,13 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 		return kHelErrBadDescriptor;
 	auto space = wrapper->get<VirtualizedSpaceDescriptor>();
 
-	smarter::shared_ptr<vmx::Vmcs> vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(space.space)));
+	smarter::shared_ptr<VirtualizedCpu> vcpu;
+	if(getGlobalCpuFeatures()->haveVmx)
+		vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(space.space)));
+	else if(getGlobalCpuFeatures()->haveSvm)
+		vcpu = smarter::allocate_shared<svm::Vcpu>(Allocator{}, (smarter::static_pointer_cast<thor::svm::NptSpace>(space.space)));
+	else
+		return kHelErrNoHardwareSupport;
 
 	*out = this_universe->attachDescriptor(universe_guard,
 			VirtualizedCpuDescriptor(std::move(vcpu)));
@@ -749,7 +767,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	auto this_universe = this_thread->getUniverse();
 
 	uint32_t map_flags = 0;
-	if(pointer != nullptr) {
+	if(pointer != nullptr || flags & kHelMapFixed) {
 		map_flags |= AddressSpace::kMapFixed;
 	}else{
 		map_flags |= AddressSpace::kMapPreferTop;
@@ -813,6 +831,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	frg::expected<Error, VirtualAddr> mapResult;
 	if(!isVspace) {
+		if(map_flags & AddressSpace::kMapFixed && !pointer)
+			return kHelErrIllegalArgs; // Non-vspaces aren't allowed to map at NULL
+		
 		mapResult = Thread::asyncBlockCurrent(space->map(slice,
 				(VirtualAddr)pointer, offset, length, map_flags));
 	} else {
@@ -1866,6 +1887,8 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		vcpu.vcpu->loadRegs(&regs);
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
+#else
+		return kHelErrNoHardwareSupport;
 #endif
 	}else if(set == kHelRegsSimd) {
 #if defined(__x86_64__)
@@ -1985,6 +2008,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 		vcpu.vcpu->storeRegs(&regs);
+#else
+		return kHelErrNoHardwareSupport;
 #endif
 	}else if(set == kHelRegsSimd) {
 #if defined(__x86_64__)

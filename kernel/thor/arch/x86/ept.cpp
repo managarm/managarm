@@ -271,13 +271,6 @@ EptSpace::~EptSpace() {
 					auto pde = reinterpret_cast<size_t*>(pdeAccessor.get());
 					for(int k = 0; k < 512; k++) {
 						if(pde[k] & (1 << EPT_READ)) {
-							PageAccessor ptAccessor{(pde[k] >> EPT_PHYSADDR) << 12};
-							auto pte = reinterpret_cast<size_t*>(ptAccessor.get());
-							for(int l = 0; l < 512; l++) {
-								if(pte[l] & (1 << EPT_READ)) {
-									physicalAllocator->free((size_t)((pte[l] >> EPT_PHYSADDR)) << 12, kPageSize);
-								}
-							}
 							physicalAllocator->free((size_t)(pde[k] >> EPT_PHYSADDR) << 12, kPageSize);
 						}
 					}

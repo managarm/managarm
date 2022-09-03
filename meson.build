@@ -191,7 +191,7 @@ if build_drivers
 		'kernletcc'
 	]
 	utils = [ 'runsvr', 'lsmbus' ]
-	testsuites = [ 'kernel-bench', 'kernel-tests', 'posix-torture', 'posix-tests' ]
+	testsuites = [ 'kernel-bench', 'kernel-tests', 'posix-torture', 'posix-tests', 'virt-test' ]
 	
 	# delay these dirs until last as they require other libs
 	# to already be built
