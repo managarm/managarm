@@ -287,11 +287,20 @@ void PageBinding::shootdown() {
 					// Perform the actual shootdown.
 					if(!getCpuData()->havePcids) {
 						assert(!_pcid);
-						for(size_t pg = 0; pg < current->size; pg += kPageSize)
-							invalidatePage(reinterpret_cast<void *>(current->address + pg));
+						if((current->size >> kPageShift) >= 64) {
+							invalidateFullTlb();
+						}else{
+							for(size_t pg = 0; pg < current->size; pg += kPageSize)
+								invalidatePage(reinterpret_cast<void *>(current->address + pg));
+						}
 					}else{
-						for(size_t pg = 0; pg < current->size; pg += kPageSize)
-							invalidatePage(_pcid, reinterpret_cast<void *>(current->address + pg));
+						if((current->size >> kPageShift) >= 64) {
+							invalidatePcid(_pcid);
+						}else{
+							for(size_t pg = 0; pg < current->size; pg += kPageSize)
+								invalidatePage(_pcid,
+										reinterpret_cast<void *>(current->address + pg));
+						}
 					}
 
 					// Signal completion of the shootdown.
@@ -463,8 +472,12 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 			if(bindings[0].boundSpace().get() == this) {
 				assert(unshot_bindings);
 
-				for(size_t pg = 0; pg < node->size; pg += kPageSize)
-					invalidatePage(reinterpret_cast<void *>(node->address + pg));
+				if((node->size >> kPageShift) >= 64) {
+					invalidateFullTlb();
+				}else{
+					for(size_t pg = 0; pg < node->size; pg += kPageSize)
+						invalidatePage(reinterpret_cast<void *>(node->address + pg));
+				}
 				unshot_bindings--;
 			}
 		}else{
@@ -473,9 +486,13 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 					continue;
 				assert(unshot_bindings);
 
-				for(size_t pg = 0; pg < node->size; pg += kPageSize)
-					invalidatePage(bindings[i].getPcid(),
-							reinterpret_cast<void *>(node->address + pg));
+				if((node->size >> kPageShift) >= 64) {
+					invalidatePcid(bindings[i].getPcid());
+				}else{
+					for(size_t pg = 0; pg < node->size; pg += kPageSize)
+						invalidatePage(bindings[i].getPcid(),
+								reinterpret_cast<void *>(node->address + pg));
+				}
 				unshot_bindings--;
 			}
 		}
@@ -1058,6 +1075,53 @@ void ClientPageSpace::Walk::_update() {
 	if(!(tbl2[index2].load() & kPagePresent))
 		return;
 	_accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
+}
+
+void ClientPageSpace::Cursor::realizePts() {
+	auto doRealize = [&] <int S> (PageAccessor &subPt, PageAccessor &pt,
+			std::integral_constant<int, S>) {
+		auto ptPtr = reinterpret_cast<uint64_t *>(pt.get())
+				+ ((va_ >> S) & 0x1FF);
+		auto ptEnt = __atomic_load_n(ptPtr, __ATOMIC_RELAXED);
+		if(ptEnt & ptePresent) {
+			subPt = PageAccessor{ptEnt & pteAddress};
+			return;
+		}
+
+		PhysicalAddr subPtPage = physicalAllocator->allocate(kPageSize);
+		assert(subPtPage != static_cast<PhysicalAddr>(-1) && "OOM");
+
+		subPt = PageAccessor{subPtPage};
+		for(int i = 0; i < 512; i++) {
+			auto subPtPtr = reinterpret_cast<uint64_t *>(subPt.get()) + i;
+			*subPtPtr = 0;
+		}
+
+		ptEnt = subPtPage | ptePresent | pteWrite | pteUser;
+		__atomic_store_n(ptPtr, ptEnt, __ATOMIC_RELEASE);
+	};
+
+	auto realize3 = [&] {
+		if(_accessor3) /* [[likely]] */
+			return;
+		doRealize(_accessor3, _accessor4, std::integral_constant<int, 39>{});
+	};
+	auto realize2 = [&] {
+		if(_accessor2) /* [[likely]] */
+			return;
+		realize3();
+		doRealize(_accessor2, _accessor3, std::integral_constant<int, 30>{});
+	};
+
+	// This function is called after cachePts() if not all PTs are present.
+	assert(!_accessor1);
+
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&space_->_mutex);
+	{
+		realize2();
+		doRealize(_accessor1, _accessor2, std::integral_constant<int, 21>{});
+	}
 }
 
 } // namespace thor

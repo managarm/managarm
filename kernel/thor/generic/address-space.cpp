@@ -89,8 +89,8 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 	return {};
 }
 
-frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va,
-		MemoryView *view, uintptr_t offset, PageFlags flags) {
+frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, PageFlags flags) {
 	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1));
 	if(physicalRange.get<0>() == PhysicalAddr(-1))
 		return Error::fault;
