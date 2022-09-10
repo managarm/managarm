@@ -432,6 +432,8 @@ public:
 				ptEnt |= ptePwt;
 			}else if(cachingMode == CachingMode::writeCombine) {
 				ptEnt |= ptePat | ptePwt;
+			}else if(cachingMode == CachingMode::uncached) {
+				ptEnt |= ptePcd;
 			}else{
 				assert(cachingMode == CachingMode::null || cachingMode == CachingMode::writeBack);
 			}
@@ -453,6 +455,8 @@ public:
 				ptEnt |= ptePwt;
 			}else if(cachingMode == CachingMode::writeCombine) {
 				ptEnt |= ptePat | ptePwt;
+			}else if(cachingMode == CachingMode::uncached) {
+				ptEnt |= ptePcd;
 			}else{
 				assert(cachingMode == CachingMode::null || cachingMode == CachingMode::writeBack);
 			}
