@@ -27,6 +27,7 @@ src = [
 	'src/process.cpp',
 	'src/procfs.cpp',
 	'src/pts.cpp',
+	'src/requests.cpp',
 	'src/signalfd.cpp',
 	'src/subsystem/block.cpp',
 	'src/subsystem/drm.cpp',
