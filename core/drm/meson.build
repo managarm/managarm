@@ -2,6 +2,7 @@ posix_bragi = cxxbragi.process(protos/'posix/posix.bragi')
 
 src = [
 	'src/core.cpp',
+	'src/ioctl.cpp',
 	posix_bragi
 ]
 
@@ -18,6 +19,7 @@ headers = [
 	'include/core/drm/range-allocator.hpp',
 	'include/core/drm/id-allocator.hpp',
 	'include/core/drm/core.hpp',
+	'include/core/drm/debug.hpp',
 	'include/core/drm/fwd-decls.hpp'
 ]
 
