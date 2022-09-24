@@ -420,20 +420,19 @@ smarter::shared_ptr<File, FileHandle> FileContext::getFile(int fd) {
 	return file->second.file;
 }
 
-void FileContext::closeFile(int fd) {
+Error FileContext::closeFile(int fd) {
 	if(logFileAttach)
 		std::cout << "posix: Closing FD " << fd << std::endl;
 	auto it = _fileTable.find(fd);
 	if(it == _fileTable.end()) {
-		std::cout << "\e[31m" "posix: Trying to close non-existant FD "
-				<< fd << "\e[39m" << std::endl;
-		return;
+		return Error::noSuchFile;
 	}
 
 	HEL_CHECK(helCloseDescriptor(_universe.getHandle(), _fileTableWindow[fd]));
 
 	_fileTableWindow[fd] = 0;
 	_fileTable.erase(it);
+	return Error::success;
 }
 
 void FileContext::closeOnExec() {

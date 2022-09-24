@@ -37,6 +37,7 @@ src = [
 	'src/timerfd.cpp',
 	'src/tmp_fs.cpp',
 	'src/un-socket.cpp',
+	'src/util.cpp',
 	'src/vfs.cpp',
 	posix_bragi
 ]

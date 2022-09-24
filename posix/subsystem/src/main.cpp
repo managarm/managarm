@@ -2365,7 +2365,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: CLOSE file descriptor " << req->fd() << std::endl;
 
-			self->fileContext()->closeFile(req->fd());
+			auto closeErr = self->fileContext()->closeFile(req->fd());
+
+			if(closeErr != Error::success) {
+				if(closeErr == Error::noSuchFile) {
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
+					continue;
+				} else {
+					std::cout << "posix: Unhandled error " << closeErr << " returned from closeFile" << std::endl;
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
