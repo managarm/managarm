@@ -3,6 +3,7 @@ posix_bragi = cxxbragi.process(protos/'posix/posix.bragi')
 src = [
 	'src/core.cpp',
 	'src/ioctl.cpp',
+	'src/property.cpp',
 	posix_bragi
 ]
 
