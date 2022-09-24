@@ -188,7 +188,7 @@ void LocalApicContext::_updateLocalTimer() {
 
 	if(localApicContext()->useTscMode) {
 		if(!deadline) {
-			common::x86::wrmsr(0x6E0, 0);
+			common::x86::wrmsr(common::x86::kMsrIa32TscDeadline, 0);
 			return;
 		}
 
@@ -196,7 +196,7 @@ void LocalApicContext::_updateLocalTimer() {
 		auto of = __builtin_mul_overflow(deadline, localApicContext()->tscTicksPerMilli, &ticks);
 		assert(!of);
 		ticks /= 1'000'000;
-		common::x86::wrmsr(0x6E0, ticks);
+		common::x86::wrmsr(common::x86::kMsrIa32TscDeadline, ticks);
 		if(debugTimer)
 			infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting TSC deadline to "
 					<< ticks << frg::endlog;
