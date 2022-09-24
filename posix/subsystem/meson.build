@@ -24,6 +24,7 @@ src = [
 	'src/memfd.cpp',
 	'src/net.cpp',
 	'src/nl-socket.cpp',
+	'src/observations.cpp',
 	'src/process.cpp',
 	'src/procfs.cpp',
 	'src/pts.cpp',
