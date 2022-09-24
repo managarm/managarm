@@ -65,6 +65,8 @@ enum class Error {
 	isDirectory
 };
 
+std::ostream& operator<<(std::ostream& os, const Error& err);
+
 // TODO: Rename this enum as is not part of the VFS.
 enum class VfsSeek {
 	null, absolute, relative, eof

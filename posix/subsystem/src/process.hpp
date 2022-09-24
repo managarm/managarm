@@ -178,7 +178,7 @@ public:
 
 	smarter::shared_ptr<File, FileHandle> getFile(int fd);
 
-	void closeFile(int fd);
+	Error closeFile(int fd);
 
 	void closeOnExec();
 
