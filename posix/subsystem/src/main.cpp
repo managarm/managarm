@@ -60,14 +60,7 @@
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
 
-namespace {
-	constexpr bool logRequests = false;
-	constexpr bool logPaths = false;
-	constexpr bool logSignals = false;
-	constexpr bool logCleanup = false;
-
-	constexpr bool debugFaults = false;
-}
+#include "debug-options.hpp"
 
 std::map<
 	std::array<char, 16>,
