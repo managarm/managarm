@@ -23,6 +23,9 @@
 #include <libdrm/drm.h>
 #include <libdrm/drm_mode.h>
 
+#include <protocols/fs/defs.hpp>
+#include <protocols/fs/server.hpp>
+
 namespace drm_core {
 
 enum struct ObjectType {
