@@ -4,6 +4,7 @@ src = [
 	'src/core.cpp',
 	'src/device.cpp',
 	'src/ioctl.cpp',
+	'src/mode-object.cpp',
 	'src/property.cpp',
 	posix_bragi
 ]
