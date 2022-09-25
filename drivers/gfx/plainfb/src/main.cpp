@@ -193,6 +193,7 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &st
 	_dispatch(state);
 
 	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
+	_device->_theConnector->setDrmState(state->connector(_device->_theConnector->id()));
 	_device->_plane->setDrmState(state->plane(_device->_plane->id()));
 }
 
