@@ -323,6 +323,10 @@ std::vector<drm_core::Assignment> drm_core::Connector::getAssignments(std::share
 // Blob
 // ----------------------------------------------------------------
 
+uint32_t drm_core::Blob::id() {
+	return _id;
+}
+
 size_t drm_core::Blob::size() {
 	return _data.size();
 }

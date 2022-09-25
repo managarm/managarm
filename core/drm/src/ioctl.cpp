@@ -372,7 +372,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		std::vector<drm_core::Assignment> assignments;
 		if(req.drm_mode_valid()) {
-			auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
+			auto mode_blob = self->_device->registerBlob(std::move(mode_buffer));
 			auto fb = self->_device->findObject(req.drm_fb_id());
 			assert(fb);
 
@@ -559,6 +559,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		auto obj = self->_device->findObject(req.drm_obj_id());
 		assert(obj);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		if(logDrmRequests)
 			std::cout << "core/drm: GETPROPERTIES([" << req.drm_obj_id() << "])" << std::endl;
@@ -583,7 +584,13 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 					std::cout << "\t" << ass.property->name() << " -> enum " << enum_name << " (" << ass.intValue << ")" << std::endl;
 				}
 			} else if(std::holds_alternative<BlobPropertyType>(ass.property->propertyType())) {
-				resp.add_drm_obj_property_values(ass.intValue);
+				if(ass.blobValue) {
+					resp.add_drm_obj_property_values(ass.blobValue->id());
+					if(logDrmRequests)
+						std::cout << "\t" << ass.property->name() << " -> blob [" << ass.blobValue->id() << "]" << std::endl;
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
 			} else if(std::holds_alternative<ObjectPropertyType>(ass.property->propertyType())) {
 				if(ass.objectValue) {
 					resp.add_drm_obj_property_values(ass.objectValue->id());
@@ -596,8 +603,6 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		if(!resp.drm_obj_property_ids_size()) {
 			std::cout << "\e[31mcore/drm: No properties found for object [" << req.drm_obj_id() << "]\e[39m" << std::endl;
 		}
-
-		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -748,10 +753,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		if(!req.drm_blob_size()) {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		} else {
-			auto blob = std::make_shared<Blob>(std::move(blob_data));
-			auto id = self->_device->registerBlob(blob);
+			auto blob = self->_device->registerBlob(std::move(blob_data));
 
-			resp.set_drm_blob_id(id);
+			resp.set_drm_blob_id(blob->id());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
 
