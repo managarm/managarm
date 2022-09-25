@@ -24,6 +24,7 @@ headers = [
 	'include/core/drm/debug.hpp',
 	'include/core/drm/device.hpp',
 	'include/core/drm/fwd-decls.hpp',
+	'include/core/drm/mode-object.hpp',
 	'include/core/drm/property.hpp'
 ]
 

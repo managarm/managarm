@@ -1,3 +1,4 @@
+#pragma once
 
 // ----------------------------------------------------------------
 // Range allocator.
@@ -21,7 +22,7 @@ private:
 			return u.off < v.off;
 		}
 	};
-	
+
 	static unsigned int clz(unsigned long x) {
 		return __builtin_clzl(x);
 	}

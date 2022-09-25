@@ -8,8 +8,8 @@
 
 #include "fwd-decls.hpp"
 
-#include "core.hpp"
 #include "id-allocator.hpp"
+#include "mode-object.hpp"
 
 namespace drm_core {
 
