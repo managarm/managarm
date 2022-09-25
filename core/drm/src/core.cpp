@@ -81,13 +81,13 @@ drm_core::BufferObject *drm_core::File::resolveHandle(uint32_t handle) {
 	return it->second.get();
 };
 
-uint32_t drm_core::File::getHandle(std::shared_ptr<drm_core::BufferObject> bo) {
+std::optional<uint32_t> drm_core::File::getHandle(std::shared_ptr<drm_core::BufferObject> bo) {
 	for(auto &it : _buffers) {
 		if(it.second == bo)
 			return it.first;
 	}
 
-	return (uint32_t) -1;
+	return {};
 };
 
 /**
@@ -121,7 +121,7 @@ drm_core::File::importBufferObject(std::array<char, 16> creds) {
 		handle = createHandle(bo);
 	}
 
-	return {bo, handle};
+	return {bo, handle.value_or(-1)};
 }
 
 void drm_core::File::postEvent(drm_core::Event event) {
