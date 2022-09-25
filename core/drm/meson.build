@@ -22,6 +22,7 @@ headers = [
 	'include/core/drm/id-allocator.hpp',
 	'include/core/drm/core.hpp',
 	'include/core/drm/debug.hpp',
+	'include/core/drm/device.hpp',
 	'include/core/drm/fwd-decls.hpp'
 ]
 
