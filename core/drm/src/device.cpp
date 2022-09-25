@@ -1,4 +1,5 @@
 #include "core/drm/core.hpp"
+#include "core/drm/device.hpp"
 #include "core/drm/debug.hpp"
 
 // ----------------------------------------------------------------
