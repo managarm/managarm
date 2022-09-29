@@ -23,7 +23,8 @@ headers = [
 	'include/core/drm/core.hpp',
 	'include/core/drm/debug.hpp',
 	'include/core/drm/device.hpp',
-	'include/core/drm/fwd-decls.hpp'
+	'include/core/drm/fwd-decls.hpp',
+	'include/core/drm/property.hpp'
 ]
 
 drm_core = shared_library('drm_core', src,
