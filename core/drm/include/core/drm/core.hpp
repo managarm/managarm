@@ -15,6 +15,8 @@
 #include <async/result.hpp>
 #include <helix/memory.hpp>
 
+#include "fwd-decls.hpp"
+
 #include "id-allocator.hpp"
 #include "range-allocator.hpp"
 
@@ -22,18 +24,6 @@
 #include <libdrm/drm_mode.h>
 
 namespace drm_core {
-
-struct ModeObject;
-struct Crtc;
-struct Encoder;
-struct Connector;
-struct Configuration;
-struct FrameBuffer;
-struct Plane;
-struct PlaneState;
-struct Assignment;
-struct Blob;
-struct AtomicState;
 
 enum struct ObjectType {
 	encoder,

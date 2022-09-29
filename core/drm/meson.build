@@ -17,7 +17,8 @@ inc = [ 'include' ]
 headers = [
 	'include/core/drm/range-allocator.hpp',
 	'include/core/drm/id-allocator.hpp',
-	'include/core/drm/core.hpp'
+	'include/core/drm/core.hpp',
+	'include/core/drm/fwd-decls.hpp'
 ]
 
 drm_core = shared_library('drm_core', src,
