@@ -70,13 +70,13 @@ private:
 struct BorrowedDescriptor {
 	BorrowedDescriptor()
 	: _handle(kHelNullHandle) { }
-	
+
 	BorrowedDescriptor(const BorrowedDescriptor &other) = default;
 	BorrowedDescriptor(BorrowedDescriptor &&other) = default;
 
 	explicit BorrowedDescriptor(HelHandle handle)
 	: _handle(handle) { }
-	
+
 	BorrowedDescriptor(const UniqueDescriptor &other)
 	: BorrowedDescriptor(other.getHandle()) { }
 
@@ -230,6 +230,26 @@ private:
 
 struct SendBufferResult {
 	SendBufferResult() :_valid{false} {}
+
+	HelError error() {
+		FRG_ASSERT(_valid);
+		return _error;
+	}
+
+	void parse(void *&ptr, ElementHandle) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		_error = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		_valid = true;
+	}
+
+private:
+	bool _valid;
+	HelError _error;
+};
+
+struct SendBufferSgResult {
+	SendBufferSgResult() :_valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -408,6 +428,11 @@ struct SendBuffer {
 	size_t size;
 };
 
+struct SendBufferSg {
+	const void *buf;
+	size_t size;
+};
+
 struct RecvBuffer {
 	void *buf;
 	size_t size;
@@ -494,6 +519,10 @@ inline auto extractCredentials() {
 
 inline auto sendBuffer(const void *data, size_t length) {
 	return SendBuffer{data, length};
+}
+
+inline auto sendBufferSg(const HelSgItem *data, size_t length) {
+	return SendBufferSg{data, length};
 }
 
 inline auto recvBuffer(void *data, size_t length) {
@@ -619,6 +648,16 @@ inline auto createActionsArrayFor(bool chain, const SendBuffer &item) {
 	return frg::array<HelAction, 1>{action};
 }
 
+inline auto createActionsArrayFor(bool chain, const SendBufferSg &item) {
+	HelAction action{};
+	action.type = kHelActionSendFromBufferSg;
+	action.flags = chain ? kHelItemChain : 0;
+	action.buffer = const_cast<void *>(item.buf);
+	action.length = item.size;
+
+	return frg::array<HelAction, 1>{action};
+}
+
 inline auto createActionsArrayFor(bool chain, const RecvBuffer &item) {
 	HelAction action{};
 	action.type = kHelActionRecvToBuffer;
@@ -714,6 +753,10 @@ inline auto resultTypeTuple(const ExtractCredentials &) {
 
 inline auto resultTypeTuple(const SendBuffer &) {
 	return frg::tuple<SendBufferResult>{};
+}
+
+inline auto resultTypeTuple(const SendBufferSg &) {
+	return frg::tuple<SendBufferSgResult>{};
 }
 
 inline auto resultTypeTuple(const RecvBuffer &) {
