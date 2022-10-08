@@ -109,6 +109,7 @@ async::result<void> populateRootView() {
 
 			managarm::fs::SvrResponse resp;
 			resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+			recv_resp.reset();
 			if(resp.error() == managarm::fs::Errors::END_OF_FILE)
 				break;
 			assert(resp.error() == managarm::fs::Errors::SUCCESS);

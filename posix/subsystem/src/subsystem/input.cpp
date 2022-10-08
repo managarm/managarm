@@ -107,6 +107,7 @@ async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 	std::stringstream ss;
