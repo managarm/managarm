@@ -76,6 +76,7 @@ async::detached issueReset() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	throw std::runtime_error("Return from PM_RESET request");
@@ -318,6 +319,7 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 		auto conversation = accept.descriptor();
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			auto file = smarter::make_shared<File>(device.get(),
 					req.flags() & managarm::fs::OpenFlags::OF_NONBLOCK);

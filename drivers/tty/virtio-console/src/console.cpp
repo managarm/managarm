@@ -57,6 +57,7 @@ getKerncfgByteRingPart(helix::BorrowedLane lane,
 
 	managarm::kerncfg::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
 	co_return std::make_tuple(resp.size(), resp.effective_dequeue(), resp.new_dequeue());

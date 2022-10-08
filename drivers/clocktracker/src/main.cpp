@@ -53,6 +53,7 @@ async::result<RtcTime> getRtcTime() {
 
 	managarm::clock::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::clock::Error::SUCCESS);
 	
 	co_return RtcTime{resp.ref_nanos(), resp.time_nanos()};
@@ -87,6 +88,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 		managarm::clock::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 		if(req.req_type() == managarm::clock::CntReqType::ACCESS_PAGE) {
 			managarm::clock::SvrResponse resp;
 			resp.set_error(managarm::clock::Error::SUCCESS);

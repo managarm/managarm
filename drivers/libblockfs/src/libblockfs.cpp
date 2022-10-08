@@ -618,6 +618,7 @@ async::detached servePartition(helix::UniqueLane lane) {
 
 			req = *o;
 		}
+		recv_head.reset();
 
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
 			helix::UniqueLane local_lane, remote_lane;
