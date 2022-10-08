@@ -841,6 +841,7 @@ send:
 
 		managarm::posix::SvrResponse posix_resp;
 		posix_resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 
 		// 'export' the object so that we can locate it from other threads, too
 		std::array<char, 16> creds;
