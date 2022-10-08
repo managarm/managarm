@@ -107,6 +107,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 
 		if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
 			auto [local_lane, remote_lane] = helix::createStream();
