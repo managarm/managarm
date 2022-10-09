@@ -1045,6 +1045,19 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	} else if (req.req_type() == managarm::fs::CntReqType::PT_GET_SEALS) {
 		managarm::fs::SvrResponse resp;
 
+		if(!file_ops->getSeals) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
 		auto result = co_await file_ops->getSeals(file.get());
 		if(!result) {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
