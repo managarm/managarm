@@ -947,66 +947,24 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		if(!res) {
 			if(res.error() == Error::wouldBlock) {
 				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else if(res.error() == Error::hostUnreachable) {
 				resp.set_error(managarm::fs::Errors::HOST_UNREACHABLE);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else if(res.error() == Error::accessDenied) {
 				resp.set_error(managarm::fs::Errors::ACCESS_DENIED);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else if(res.error() == Error::netUnreachable) {
 				resp.set_error(managarm::fs::Errors::NETWORK_UNREACHABLE);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else if(res.error() == Error::destAddrRequired) {
 				resp.set_error(managarm::fs::Errors::DESTINATION_ADDRESS_REQUIRED);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else if(res.error() == Error::addressNotAvailable) {
 				resp.set_error(managarm::fs::Errors::ADDRESS_NOT_AVAILABLE);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
 			} else {
 				std::cout << "Unknown error from sendMsg()" << std::endl;
 				co_return;
 			}
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_size(res.value());
 		}
-
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_size(res.value());
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
