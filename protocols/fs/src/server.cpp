@@ -957,6 +957,16 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				resp.set_error(managarm::fs::Errors::DESTINATION_ADDRESS_REQUIRED);
 			} else if(res.error() == Error::addressNotAvailable) {
 				resp.set_error(managarm::fs::Errors::ADDRESS_NOT_AVAILABLE);
+			} else if(res.error() == Error::illegalArguments) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			} else if(res.error() == Error::afNotSupported) {
+				resp.set_error(managarm::fs::Errors::AF_NOT_SUPPORTED);
+			} else if(res.error() == Error::messageSize) {
+				resp.set_error(managarm::fs::Errors::MESSAGE_TOO_LARGE);
+			} else if(res.error() == Error::brokenPipe) {
+				resp.set_error(managarm::fs::Errors::BROKEN_PIPE);
+			} else if(res.error() == Error::notConnected) {
+				resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
 			} else {
 				std::cout << "Unknown error from sendMsg()" << std::endl;
 				co_return;
