@@ -1,3 +1,5 @@
+#include <memory>
+
 #include <protocols/mbus/client.hpp>
 
 #include "net.hpp"

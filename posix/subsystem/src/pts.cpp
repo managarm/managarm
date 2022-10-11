@@ -1,6 +1,7 @@
 #include <asm/ioctls.h>
 #include <termios.h>
 #include <sys/epoll.h>
+#include <signal.h>
 #include <sstream>
 
 #include <async/recurring-event.hpp>
