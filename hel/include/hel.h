@@ -225,15 +225,6 @@ struct HelAction {
 	HelHandle handle;
 };
 
-enum {
-	kHelDescMemory = 1,
-	kHelDescAddressSpace = 2,
-	kHelDescThread = 3,
-	kHelDescEndpoint = 5,
-	kHelDescIrq = 9,
-	kHelDescIo = 10,
-};
-
 struct HelDescriptorInfo {
 	int type;
 };
@@ -396,11 +387,6 @@ enum HelSyscallArgs {
 };
 #endif
 
-enum HelMessageFlags {
-	kHelRequest = 1,
-	kHelResponse = 2
-};
-
 struct HelQueueParameters {
 	uint32_t flags;
 	unsigned int ringShift;
@@ -508,11 +494,6 @@ struct HelEventResult {
 	HelError error;
 	uint32_t bitset;
 	uint64_t sequence;
-};
-
-enum HelIrqFlags {
-	kHelIrqExclusive = 1,
-	kHelIrqManualAcknowledge = 2
 };
 
 enum HelAckFlags {
