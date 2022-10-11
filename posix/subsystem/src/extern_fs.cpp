@@ -98,6 +98,7 @@ struct Node : FsNode {
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		co_return Error::success;
@@ -125,6 +126,7 @@ struct Node : FsNode {
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		co_return Error::success;
@@ -237,6 +239,7 @@ public:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 		co_return {};
 	}
@@ -370,6 +373,7 @@ public:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 		co_return frg::success_tag{};
 	}
@@ -473,6 +477,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 
 		if (resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
 			co_return Error::noSuchFile;
@@ -536,6 +541,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recvResp.data(), recvResp.length());
+		recvResp.reset();
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pullNode.error());
 
@@ -573,6 +579,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recvResp.data(), recvResp.length());
+		recvResp.reset();
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pullNode.error());
 
@@ -724,6 +731,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		co_return {};
@@ -861,6 +869,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	if(resp.error() == managarm::fs::Errors::SUCCESS) {
 		co_return internalizePeripheralLink(target_node, name, shared_node);
 	}else{

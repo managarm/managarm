@@ -284,6 +284,7 @@ async::detached serveTerminal(helix::UniqueLane lane) {
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();

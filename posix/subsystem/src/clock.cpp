@@ -37,6 +37,7 @@ async::detached fetchTrackerPage() {
 
 	managarm::clock::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::clock::Error::SUCCESS);
 	globalTrackerPageMemory = pull_memory.descriptor();
 	

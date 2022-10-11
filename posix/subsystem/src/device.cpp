@@ -261,6 +261,7 @@ openExternalDevice(helix::BorrowedLane lane,
 
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 	helix::Mapping status_mapping;
@@ -369,6 +370,7 @@ FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lan
 
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	co_return extern_fs::createRoot(lane.dup(), pull_node.descriptor());
 }

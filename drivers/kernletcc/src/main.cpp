@@ -72,6 +72,7 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 
 	managarm::kernlet::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 	std::cout << "kernletcc: Upload success" << std::endl;
 
@@ -102,6 +103,7 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 
 		managarm::kernlet::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
+		recv_req.reset();
 		if(req.req_type() == managarm::kernlet::CntReqType::COMPILE) {
 			std::vector<BindType> bind_types;
 			for(int i = 0; i < req.bind_types_size(); i++) {
@@ -119,6 +121,7 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 
 			auto elf = compileFafnir(reinterpret_cast<const uint8_t *>(recv_code.data()),
 					recv_code.length(), bind_types);
+			recv_code.reset();
 
 			if(dumpHex) {
 				for(size_t i = 0; i < elf.size(); i++) {

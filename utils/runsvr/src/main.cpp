@@ -111,6 +111,7 @@ async::result<helix::UniqueLane> runServer(const char *name) {
 
 	managarm::svrctl::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::svrctl::Error::SUCCESS);
 	co_return pull_server.descriptor();
 }
@@ -136,6 +137,7 @@ async::result<void> uploadFile(const char *name) {
 
 		managarm::svrctl::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		if(resp.error() == managarm::svrctl::Error::DATA_REQUIRED)
 			co_return false;
 		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
@@ -162,6 +164,7 @@ async::result<void> uploadFile(const char *name) {
 
 		managarm::svrctl::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
 	};
 
@@ -192,6 +195,7 @@ async::result<void> bindServer(helix::UniqueLane &lane, int mbusId) {
 
 	managarm::svrctl::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	assert(resp.error() == managarm::svrctl::Error::SUCCESS);
 }
 
