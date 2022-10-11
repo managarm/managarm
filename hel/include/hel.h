@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdint.h>
 
+#include "hel-types.h"
+
 #ifdef __cplusplus
 #define HEL_C_LINKAGE extern "C"
 #else
@@ -165,16 +167,6 @@ struct HelX86VirtualizationRegs {
 	uint64_t efer;
 	uint64_t apic_base;
 };
-
-//! Integer type that represents an error or success value.
-typedef int HelError;
-
-typedef int HelAbi;
-
-//! Integer handle that represents a kernel resource.
-typedef int64_t HelHandle;
-
-typedef int64_t HelNanotime;
 
 enum {
 	kHelNullHandle = 0,

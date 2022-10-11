@@ -2,6 +2,7 @@
 #include <eir/interface.hpp>
 #include <frg/string.hpp>
 #include <elf.h>
+#include <hel.h>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>

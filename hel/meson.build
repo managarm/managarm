@@ -2,6 +2,7 @@ headers = [
 	'include/hel.h',
 	'include/hel-stubs.h',
 	'include/hel-syscalls.h',
+	'include/hel-types.h',
 	'include/helix/ipc.hpp',
 	'include/helix/memory.hpp'
 ]
