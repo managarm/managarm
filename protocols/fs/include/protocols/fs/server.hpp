@@ -14,6 +14,7 @@
 #include <protocols/fs/defs.hpp>
 #include <smarter.hpp>
 #include <deque>
+#include <memory>
 
 namespace managarm::fs {
 	struct CntRequest;

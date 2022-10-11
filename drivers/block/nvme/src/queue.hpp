@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <arch/mem_space.hpp>
 #include <async/recurring-event.hpp>
 #include <async/queue.hpp>

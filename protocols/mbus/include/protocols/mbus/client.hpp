@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
+#include <memory>
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>

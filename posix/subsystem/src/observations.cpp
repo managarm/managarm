@@ -1,3 +1,5 @@
+#include <signal.h>
+
 #include "gdbserver.hpp"
 #include "observations.hpp"
 

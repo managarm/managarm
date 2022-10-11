@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <memory>
 #include <vector>
 
 #include <arch/dma_structs.hpp>
