@@ -3,6 +3,7 @@
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
 #include <cstdint>
+#include <memory>
 
 namespace nic {
 struct MacAddress {
