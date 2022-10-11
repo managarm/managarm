@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <iostream>
 #include <queue>
+#include <memory>
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>

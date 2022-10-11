@@ -1,4 +1,5 @@
 
+#include <memory>
 #include <queue>
 
 #include <blockfs.hpp>

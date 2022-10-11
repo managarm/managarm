@@ -1,4 +1,5 @@
 #include <iostream>
+#include <memory>
 
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
@@ -28,7 +29,7 @@ async::detached bindController(mbus::Entity entity) {
 	}
 
 	co_await device.enableBusmaster();
-	
+
 	helix::Mapping mapping{ahciBar, ahciBarInfo.offset, ahciBarInfo.length};
 
 	auto controller = std::make_unique<Controller>(entity.getId(), std::move(device),

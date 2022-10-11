@@ -1,4 +1,5 @@
 #include <queue>
+#include <memory>
 
 #include <arch/dma_pool.hpp>
 #include <core/virtio/core.hpp>
