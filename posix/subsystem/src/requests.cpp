@@ -1216,6 +1216,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				target_link = resolver.currentLink();
 			}
 
+			// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
+			// Instead of blowing up, return ENOENT.
+			if(target_link == nullptr) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
+
 			auto statsResult = co_await target_link->getTarget()->getStats();
 			assert(statsResult);
 			auto stats = statsResult.value();
