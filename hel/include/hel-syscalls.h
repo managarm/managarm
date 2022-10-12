@@ -2,6 +2,7 @@
 #ifndef HEL_SYSCALLS_H
 #define HEL_SYSCALLS_H
 
+#include <stddef.h>
 #include <hel-types.h>
 #include <hel-stubs.h>
 
