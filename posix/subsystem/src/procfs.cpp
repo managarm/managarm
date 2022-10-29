@@ -261,6 +261,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
 	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
+	proc_dir->directMknode("cwd", std::make_shared<CwdLink>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
@@ -593,6 +594,19 @@ async::result<std::string> StatusNode::show() {
 async::result<void> StatusNode::store(std::string) {
 	// TODO: proper error reporting.
 	throw std::runtime_error("Can't store to a /proc/status file!");
+}
+
+VfsType CwdLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> CwdLink::readSymlink(FsLink *link, Process *process) {
+	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
+}
+
+async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs CwdLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
 }
 
 } // namespace procfs
