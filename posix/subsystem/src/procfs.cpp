@@ -265,6 +265,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
+	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 
 	return link;
 }
@@ -506,6 +507,92 @@ async::result<std::string> StatmNode::show() {
 async::result<void> StatmNode::store(std::string) {
 	// TODO: proper error reporting.
 	throw std::runtime_error("Can't store to a /proc/statm file!");
+}
+
+async::result<std::string> StatusNode::show() {
+	// Everything that has a value of N/A is not implemented yet.
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "Name: " << _process->name() << "\n"; // Name is hardcoded to be the last part of the path
+	stream << "Umask: 0022\n"; // Hardcoded to 0022, which is what we hardcode in the mlibc sysdeps.
+	stream << "State: R\n"; // Hardcoded to R, running.
+	stream << "Tgid: " << _process->pid() << "\n"; // Thread group id, same as gid for now
+	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
+	stream << "Pid: " << _process->pid() << "\n";
+	// This avoids a crash when asking for the parent of init.
+	if(_process->getParent()) {
+		stream << "PPid: " << _process->getParent()->pid() << "\n";
+	} else {
+		stream << "PPid: 0\n";
+	}
+	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
+	stream << "Uid: " << _process->uid() << "\n";
+	stream << "Gid: " << _process->gid() << "\n";
+	stream << "FDSize: 256\n"; // Pick a sane default, I don't believe we have a real maximum here.
+	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
+	// Namespace information, unimplemented.
+	stream << "NStgid: N/A\n";
+	stream << "NSpid: N/A\n";
+	stream << "NSpgid: N/A\n";
+	stream << "NSsid: N/A\n";
+	// End namespace information.
+	// VM information, not exposed yet.
+	stream << "VmPeak: N/A kB\n";
+	stream << "VmSize: N/A kB\n";
+	stream << "VmLck: 0 kB\n"; // We don't lock memory.
+	stream << "VmPin: 0 kB\n"; // We don't pin memory.
+	stream << "VmHWM: N/A kB\n";
+	stream << "VmRSS: N/A kB\n";
+	stream << "RssAnon: N/A kB\n";
+	stream << "RssFile: N/A kB\n";
+	stream << "RssShmem: N/A kB\n";
+	stream << "VmData: N/A kB\n";
+	stream << "VmStk: N/A kB\n";
+	stream << "VmExe: N/A kB\n";
+	stream << "VmLib: N/A kB\n";
+	stream << "VmPTE: N/A kB\n";
+	stream << "VmSwap: 0 kB\n"; // We don't have swap yet.
+	stream << "HugetlbPages: N/A kB\n";
+	// End of VM information.
+	stream << "CoreDumping: 0\n"; // We don't implement coredumps, so 0 is correct here.
+	// Documentation doesn't mention THP_enabled.
+	stream << "THP_enabled: N/A\n";
+	stream << "Threads: 1\n"; // Number of threads in this process, hardcode to 1 for now.
+	// Signal related information, we should fill this out properly eventually.
+	stream << "SigQ: N/A\n";
+	// Masks of pending, blocked, ignored and caught signals, zero them all.
+	stream << "SigPnd: 0000000000000000\n";
+	stream << "ShdPnd: 0000000000000000\n";
+	stream << "SigBlk: 0000000000000000\n";
+	stream << "SigIgn: 0000000000000000\n";
+	stream << "SigCgt: 0000000000000000\n";
+	// End of signal related information.
+	// We don't implement capabilities, so 0 is good for all of them.
+	stream << "CapInh: 0000000000000000\n";
+	stream << "CapPrm: 0000000000000000\n";
+	stream << "CapEff: 0000000000000000\n";
+	stream << "CapBnd: 0000000000000000\n";
+	stream << "CapAmb: 0000000000000000\n";
+	// We don't implement this bit, nor seccomp, nor spectre/meltdown mitigations.
+	stream << "NoNewPrivs: 0\n";
+	stream << "Seccomp: 0\n";
+	stream << "Seccomp_filters: 0\n";
+	stream << "Speculation_Store_Bypass: thread vulnerable\n";
+	stream << "SpeculationIndirectBranch: thread vulnerable\n";
+	// Other stuff we don't implement yet.
+	stream << "Cpus_allowed: N/A\n";
+	stream << "Cpus_allowed_list: N/A\n";
+	stream << "Mems_allowed: N/A\n";
+	stream << "Mems_allowed_list: N/A\n";
+	stream << "voluntary_ctxt_switches: N/A\n";
+	stream << "nonvoluntary_ctxt_switches: N/A\n";
+	co_return stream.str();
+}
+
+async::result<void> StatusNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Can't store to a /proc/status file!");
 }
 
 } // namespace procfs

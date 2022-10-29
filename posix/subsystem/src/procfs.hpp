@@ -216,6 +216,17 @@ private:
 
 struct StatmNode final : RegularNode {
 	StatmNode(Process *process)
+        : _process(process)
+        { }
+
+        async::result<std::string> show() override;
+        async::result<void> store(std::string) override;
+private:
+        Process *_process;
+};
+
+struct StatusNode final : RegularNode {
+	StatusNode(Process *process)
 	: _process(process)
 	{ }
 
