@@ -203,6 +203,17 @@ private:
 	Process *_process;
 };
 
+struct StatNode final : RegularNode {
+	StatNode(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+private:
+	Process *_process;
+};
+
 } // namespace procfs
 
 std::shared_ptr<FsLink> getProcfs();
