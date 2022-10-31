@@ -264,6 +264,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
+	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 
 	return link;
 }
@@ -484,6 +485,27 @@ async::result<std::string> StatNode::show() {
 async::result<void> StatNode::store(std::string) {
 	// TODO: proper error reporting.
 	throw std::runtime_error("Can't store to a /proc/stat file!");
+}
+
+async::result<std::string> StatmNode::show() {
+	(void)_process;
+	// All hardcoded to 0.
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "0 "; // size
+	stream << "0 "; // resident
+	stream << "0 "; // shared
+	stream << "0 "; // text
+	stream << "0 "; // lib
+	stream << "0 "; // data
+	stream << "0\n"; // dt
+	co_return stream.str();
+}
+
+async::result<void> StatmNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Can't store to a /proc/statm file!");
 }
 
 } // namespace procfs
