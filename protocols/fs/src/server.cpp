@@ -704,11 +704,13 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 
 			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			auto [send_resp, send_addr] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(nullptr, 0)
 			);
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_addr.error());
 			co_return;
 		}
 
