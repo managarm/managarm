@@ -7,6 +7,8 @@ struct CounterItem {
 	int64 value;
 }
 
+group {
+
 message EventRecord 1 {
 head(8):
 tail:
@@ -29,13 +31,16 @@ tail:
 	string name;
 }
 
-// Messages of the IPC protocol.
+}
 
+// Messages of the IPC protocol.
 enum Error {
 	SUCCESS = 0,
 	ILLEGAL_REQUEST = 1,
 	OSTRACE_GLOBALLY_DISABLED = 2
 }
+
+group {
 
 message NegotiateReq 1 {
 head(128):
@@ -57,8 +62,14 @@ head(128):
 	string name;
 }
 
+}
+
+group {
+
 message Response 1 {
 head(32):
 	Error error;
 	uint64 id;
+}
+
 }
