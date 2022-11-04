@@ -3,9 +3,12 @@
 #include <array>
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
+#include <frg/logging.hpp>
+#include <frg/formatting.hpp>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <protocols/mbus/client.hpp>
 #include <unordered_map>
 
@@ -107,3 +110,8 @@ protected:
 
 async::detached runDevice(std::shared_ptr<Link> dev);
 } // namespace nic
+
+inline std::ostream &operator<<(std::ostream &os, const nic::MacAddress &mac) {
+    frg::to(os) << frg::fmt("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return os;
+}
