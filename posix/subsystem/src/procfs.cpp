@@ -260,6 +260,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
+	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 
@@ -401,6 +402,19 @@ async::result<std::string> CommNode::show() {
 async::result<void> CommNode::store(std::string) {
 	// TODO: proper error reporting.
 	throw std::runtime_error("Can't store to a /proc/comm file!");
+}
+
+VfsType RootLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> RootLink::readSymlink(FsLink *link, Process *process) {
+	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
+}
+
+async::result<frg::expected<Error, FileStats>> RootLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs RootLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
 }
 
 } // namespace procfs
