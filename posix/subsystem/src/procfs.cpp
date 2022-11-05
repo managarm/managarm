@@ -261,6 +261,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
+	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 
 	return link;
 }
@@ -383,6 +384,23 @@ async::result<std::string> MapNode::show() {
 async::result<void> MapNode::store(std::string) {
 	// TODO: proper error reporting.
 	throw std::runtime_error("Can't store to a /proc/maps file!");
+}
+
+async::result<std::string> CommNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	auto path = _process->path();
+	size_t pos = path.rfind('/');
+	assert(pos != std::string::npos);
+	auto name = path.substr(pos + 1);
+	stream << name << "\n";
+	co_return stream.str();
+}
+
+async::result<void> CommNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Can't store to a /proc/comm file!");
 }
 
 } // namespace procfs
