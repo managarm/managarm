@@ -356,9 +356,7 @@ async::result<std::string> MapNode::show() {
 		stream << (area.isPrivate() ? "p" : "-");
 		stream << " ";
 		auto backingFile = area.backingFile();
-		if (!backingFile) {
-			stream << "00000000 00:00 0";
-		} else {
+		if(backingFile && backingFile->associatedLink() && backingFile->associatedMount()) {
 			stream << std::setfill('0') << std::setw(8) << area.backingFileOffset();
 			stream << " ";
 			auto fsNode = backingFile->associatedLink()->getTarget();
@@ -374,6 +372,9 @@ async::result<std::string> MapNode::show() {
 			stream << std::setw(0) << fileStats.value().inodeNumber;
 			stream << "    ";
 			stream << viewPath.getPath(_process->fsContext()->getRoot());
+		} else {
+			// TODO: In the case of memfd files, show the name here.
+			stream << "00000000 00:00 0";
 		}
 		stream << "\n";
 	}
