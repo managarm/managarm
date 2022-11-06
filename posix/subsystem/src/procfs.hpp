@@ -169,8 +169,31 @@ private:
 	Process *_process;
 };
 
+struct RootLink final : FsNode, std::enable_shared_from_this<RootLink> {
+	RootLink(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+	VfsType getType() override;
+	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+private:
+	Process *_process;
+};
+
 struct MapNode final : RegularNode {
 	MapNode(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+private:
+	Process *_process;
+};
+
+struct CommNode final : RegularNode {
+	CommNode(Process *process)
 	: _process(process)
 	{ }
 
