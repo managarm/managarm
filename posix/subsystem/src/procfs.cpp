@@ -385,7 +385,8 @@ async::result<std::string> MapNode::show() {
 
 async::result<void> MapNode::store(std::string) {
 	// TODO: proper error reporting.
-	throw std::runtime_error("Can't store to a /proc/maps file!");
+	std::cout << "posix: Can't store to a /proc/maps file" << std::endl;
+	co_return;
 }
 
 async::result<std::string> CommNode::show() {
