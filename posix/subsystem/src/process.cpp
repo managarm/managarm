@@ -842,7 +842,10 @@ bool Process::checkOrRequestSignalRaise() {
 async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	auto hull = std::make_shared<PidHull>(1);
 	auto process = std::make_shared<Process>(std::move(hull), nullptr);
+	size_t pos = path.rfind('/');
+	assert(pos != std::string::npos);
 	process->_path = path;
+	process->_name = path.substr(pos + 1);
 	process->_vmContext = VmContext::create();
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
@@ -914,6 +917,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	auto hull = std::make_shared<PidHull>(nextPid++);
 	auto process = std::make_shared<Process>(std::move(hull), original.get());
 	process->_path = original->path();
+	process->_name = original->name();
 	process->_vmContext = VmContext::clone(original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
@@ -978,6 +982,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	auto hull = std::make_shared<PidHull>(nextPid++);
 	auto process = std::make_shared<Process>(std::move(hull), original.get());
 	process->_path = original->path();
+	process->_name = original->name();
 	process->_vmContext = original->_vmContext;
 	process->_fsContext = original->_fsContext;
 	process->_fileContext = original->_fileContext;
@@ -1080,6 +1085,9 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_fileContext->closeOnExec();
 
 	// "Commit" the exec() operation.
+	size_t pos = path.rfind('/');
+	assert(pos != std::string::npos);
+	process->_name = std::move(path.substr(pos + 1));
 	process->_path = std::move(path);
 	process->_posixLane = std::move(server_lane);
 	process->_threadDescriptor = std::move(execResult.thread);

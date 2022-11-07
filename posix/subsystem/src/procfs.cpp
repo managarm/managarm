@@ -393,17 +393,13 @@ async::result<std::string> CommNode::show() {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	auto path = _process->path();
-	size_t pos = path.rfind('/');
-	assert(pos != std::string::npos);
-	auto name = path.substr(pos + 1);
-	stream << name << "\n";
+	stream << _process->name() << "\n";
 	co_return stream.str();
 }
 
-async::result<void> CommNode::store(std::string) {
-	// TODO: proper error reporting.
-	throw std::runtime_error("Can't store to a /proc/comm file!");
+async::result<void> CommNode::store(std::string name) {
+	_process->setName(name);
+	co_return;
 }
 
 VfsType RootLink::getType() {
