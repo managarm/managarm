@@ -2,6 +2,7 @@ inc = [ 'include' ]
 
 i8254x_files = files(
 	'src/i8254x.cpp',
+	'src/rx.cpp',
 )
 
 nic_i8254x_lib = static_library('nic-i8254x', i8254x_files,

@@ -2,10 +2,15 @@
 #include <memory>
 #include <nic/i8254x/common.hpp>
 #include <nic/i8254x/regs.hpp>
+#include <nic/i8254x/rx.hpp>
 #include <unistd.h>
 
 Intel8254xNic::Intel8254xNic(protocols::hw::Device device)
 	: nic::Link(1500, &_dmaPool), _device{std::move(device)} {
+		auto rx = RxQueue(NUM_RX_DESCRIPTORS, *this);
+
+		_rxQueue = std::make_unique<RxQueue>(std::move(rx));
+
 		async::run(this->init(), helix::currentDispatcher);
 }
 
@@ -64,12 +69,38 @@ async::result<void> Intel8254xNic::init() {
 
 	if constexpr (logDebug) std::cout << "i8254x: MAC " << mac_ << std::endl;
 
+	rxInit();
+
 	enableIrqs();
 }
 
 void Intel8254xNic::enableIrqs() {
 	_mmio.store(regs::ims, 0xFF & ~4);
 	_mmio.load(regs::icr);
+}
+
+/**
+ * Initialize Receive for i8254x
+ *
+ * See the SDM at 14.4 Receive Initialization
+ */
+void Intel8254xNic::rxInit() {
+	uintptr_t physical = _rxQueue->getBase();
+
+	_mmio.store(regs::rdbah, (physical >> 32) & 0xFFFFFFFF);
+	_mmio.store(regs::rdbal, physical & 0xFFFFFFFF);
+	_mmio.store(regs::rdlen, _rxQueue->getLength());
+
+	_mmio.store(regs::rdh, 0);
+	_mmio.store(regs::rdt, _rxQueue->descriptors() - 1);
+
+	_mmio.store(regs::rctl, flags::rctl::receiver_enable(true) /
+		flags::rctl::receive_buffer_size(0) /
+		flags::rctl::broadcast_accept(true) /
+		flags::rctl::unicast_promiscuous(true) /
+		flags::rctl::multicast_promiscuous(true));
+
+	if constexpr (logDebug) std::cout << "i8254x: rx enabled" << std::endl;
 }
 
 async::result<uint16_t> Intel8254xNic::eepromRead(uint8_t address) {
