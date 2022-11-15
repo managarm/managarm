@@ -5,17 +5,21 @@
 #include <helix/memory.hpp>
 #include <netserver/nic.hpp>
 #include <nic/i8254x/rx.hpp>
+#include <nic/i8254x/tx.hpp>
 #include <nic/i8254x/queue.hpp>
 #include <protocols/hw/client.hpp>
 
 constexpr bool logDebug = true;
 
 constexpr int NUM_RX_DESCRIPTORS = 256;
+constexpr int NUM_TX_DESCRIPTORS = 256;
 
 struct RxQueue;
+struct TxQueue;
 
 struct Intel8254xNic : nic::Link {
 	friend RxQueue;
+	friend TxQueue;
 public:
 	Intel8254xNic(protocols::hw::Device device);
 
@@ -23,6 +27,7 @@ public:
 
 private:
 	void rxInit();
+	void txInit();
 
 	void enableIrqs();
 	async::result<uint16_t> eepromRead(uint8_t address);
@@ -34,6 +39,7 @@ private:
 	protocols::hw::Device _device;
 
 	std::unique_ptr<RxQueue> _rxQueue;
+	std::unique_ptr<TxQueue> _txQueue;
 
 	helix::UniqueDescriptor _irq;
 };

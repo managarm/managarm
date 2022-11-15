@@ -66,4 +66,17 @@ namespace flags {
 		constexpr arch::field<uint32_t, bool> bsex{25, 1};
 		constexpr arch::field<uint32_t, bool> strip_ethernet_crc{26, 1};
 	}
+
+	namespace tctl {
+		constexpr arch::field<uint32_t, bool> enable{1, 1};
+		constexpr arch::field<uint32_t, bool> pad_short_packets{3, 1};
+		constexpr arch::field<uint32_t, uint16_t> collision_distance{12, 10};
+		constexpr arch::field<uint32_t, bool> rtlc{24, 1};
+	}
+
+	namespace tipg {
+		constexpr arch::field<uint32_t, uint16_t> ipgt{0, 10};
+		constexpr arch::field<uint32_t, uint16_t> ipgr1{10, 10};
+		constexpr arch::field<uint32_t, uint16_t> ipgr2{20, 10};
+	}
 } // namespace flags
