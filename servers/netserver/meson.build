@@ -1,4 +1,4 @@
-src = [ 
+src = [
 	'src/ip/arp.cpp',
 	'src/ip/checksum.cpp',
 	'src/ip/ip4.cpp',
@@ -9,7 +9,7 @@ src = [
 ]
 
 executable('netserver', src,
-	dependencies : [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep ],
+	dependencies : [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep, nic_i8254x_dep ],
 	include_directories : 'include',
 	install : true
 )
