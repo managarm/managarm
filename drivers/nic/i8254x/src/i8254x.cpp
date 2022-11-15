@@ -76,6 +76,7 @@ async::result<void> Intel8254xNic::init() {
 	txInit();
 
 	enableIrqs();
+	processInterrupt();
 }
 
 void Intel8254xNic::enableIrqs() {
@@ -160,6 +161,57 @@ async::result<void> Intel8254xNic::send(arch::dma_buffer_view payload) {
 	if constexpr (logDebug) puts("i8254x: ---------------- SEND OVER ----------------");
 
 	co_return;
+}
+
+async::detached Intel8254xNic::processInterrupt() {
+	co_await _device.enableBusIrq();
+
+	// TODO: The kick here should not be required.
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
+
+	uint64_t sequence = 0;
+	while(true) {
+		auto await = co_await helix_ng::awaitEvent(_irq, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
+
+		auto status = _mmio.load(regs::icr);
+		uint32_t handled = 0;
+
+		printf("i8254x: ICR %#x\n", uint32_t(status));
+
+		if(status & flags::icr::tx_queue_empty) {
+			handled |= flags::icr::tx_queue_empty(true).bits();
+		}
+
+		if(status & flags::icr::tx_desc_written_back) {
+			handled |= flags::icr::tx_desc_written_back(true).bits();
+
+			_txQueue->ackAll();
+		}
+
+		if(status & flags::icr::rxdmt0) {
+			handled |= flags::icr::rxdmt0(true).bits();
+		}
+
+		if(status & flags::icr::rxt0) {
+			handled |= flags::icr::rxt0(true).bits();
+
+			_rxQueue->ackAll();
+		}
+
+		if(status & flags::icr::int_asserted) {
+			handled |= flags::icr::int_asserted(true).bits();
+		}
+
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
+
+		uint32_t unhandled = uint32_t(status) & ~(handled);
+
+		if(unhandled) {
+			printf("i8254x: unhandled IRQ with status 0x%x\n", unhandled);
+		}
+	}
 }
 
 namespace nic::intel8254x {

@@ -35,6 +35,8 @@ private:
 	void enableIrqs();
 	async::result<uint16_t> eepromRead(uint8_t address);
 
+	async::detached processInterrupt();
+
 	helix::Mapping _mmio_mapping;
 	arch::mem_space _mmio;
 

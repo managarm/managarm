@@ -79,4 +79,42 @@ namespace flags {
 		constexpr arch::field<uint32_t, uint16_t> ipgr1{10, 10};
 		constexpr arch::field<uint32_t, uint16_t> ipgr2{20, 10};
 	}
+
+	namespace icr {
+		/**
+		 * Transmit Descriptor Written Back
+		 *
+		 * Set when hardware processes a transmit descriptor with the RS bit set (and possibly IDE set).
+		 * If using delayed interrupts (IDE set), the interrupt occurs after the timer expires.
+		 */
+		constexpr arch::field<uint32_t, bool> tx_desc_written_back{0, 1};
+		/**
+		 * Transmit Queue Empty
+		 *
+		 * Set when the last descriptor block for a transmit queue has been used.
+		 */
+		constexpr arch::field<uint32_t, bool> tx_queue_empty{1, 1};
+		/**
+		 * Receive Descriptor Minimum Threshold Reached
+		 *
+		 * Indicates that the minimum number of receive descriptors are available and software should load more receive descriptors.
+		 */
+		constexpr arch::field<uint32_t, bool> rxdmt0{4, 1};
+		/**
+		 * Receiver Timer Interrupt
+		 *
+		 * Set when the receiver timer expires.
+		 * The receiver timer is used for receiver descriptor packing.
+		 * Timer expiration flushes any accumulated descriptors and sets an interrupt event when enabled.
+		 */
+		constexpr arch::field<uint32_t, bool> rxt0{7, 1};
+
+		/**
+		 * Interrupt Asserted.
+		 *
+		 * This bit is set when the LAN port has a pending interrupt. If the interrupt is enabled
+		 * in the PCI configuration space, an interrupt is asserted.
+		 */
+		constexpr arch::field<uint32_t, bool> int_asserted{31, 1};
+	}
 } // namespace flags

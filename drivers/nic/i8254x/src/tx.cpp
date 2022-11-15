@@ -60,6 +60,28 @@ async::result<void> TxQueue::postDescriptor(arch::dma_buffer_view payload, Intel
 	co_return;
 }
 
+void TxQueue::ackAll() {
+	while(!_requests.empty()) {
+		auto request = _requests.front();
+		assert(request);
+
+		if constexpr (logDebug) std::cout << "i8254x/TxQueue: checking tx desc id " << request->index() << std::endl;
+
+		auto desc = &_descriptors[request->index()];
+		assert(desc);
+
+		if(desc->status & flags::tx::status::done) {
+			if constexpr (logDebug) std::cout << "i8254x/TxQueue: ACKing tx desc id " << request->index() << std::endl;
+			request->complete(request);
+			_requests.pop();
+		} else {
+			/* if we reach TX descriptors that are still in-flight, we return in order to wait for the next interrupt to occur */
+			if constexpr (logDebug) std::cout << "i8254x/TxQueue: descriptor not ready id " << request->index() << std::endl;
+			return;
+		}
+	}
+}
+
 uintptr_t TxQueue::getBase() {
 	return helix_ng::ptrToPhysical(&_descriptors[0]);
 }

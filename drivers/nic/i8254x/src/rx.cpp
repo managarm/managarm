@@ -50,6 +50,47 @@ async::result<void> RxQueue::postDescriptor(arch::dma_buffer_view frame, Intel82
 	co_return;
 }
 
+void RxQueue::ackAll() {
+	while(!_requests.empty() && !this->empty()) {
+		auto head = this->head();
+		auto tail = this->tail();
+
+		auto i = --head;
+
+		auto request = _requests.front();
+		assert(request);
+		auto desc = &_descriptors[request->index()];
+
+		if constexpr (logDebug) printf("i8254x/RxQueue: rx receive head=%zu tail=%zu processing=%zu\n", head(), tail(), i());
+
+		if(!(desc->status & flags::rx::status::done))
+			return;
+
+		if(desc->status & flags::rx::status::done) {
+			/* TODO(no92): handle packets that are split across multiple descriptors */
+			assert(desc->status & flags::rx::status::end_of_packet);
+
+			if constexpr (logDebug) std::cout << "i8254x/RxQueue: ACKing rx desc id " << i() << std::endl;
+
+			/* copy out the received packet */
+			void *virt_addr = reinterpret_cast<void *>(&_descriptor_buffers[i()]);
+			memcpy(request->frame.data(), virt_addr, desc->length);
+
+			/* run the callback for packet reception */
+			request->complete(request);
+
+			/* remove the completed request from the queue */
+			_requests.pop();
+			/* reset the status field for reusing the descriptor */
+			desc->status = flags::rx::status::done(false);
+			/* advance the tail pointer to indicate successful handling of the packet to hardware */
+			this->tail(i);
+		} else {
+			return;
+		}
+	}
+}
+
 uintptr_t RxQueue::getBase() {
 	return helix_ng::ptrToPhysical(&_descriptors[0]);
 }

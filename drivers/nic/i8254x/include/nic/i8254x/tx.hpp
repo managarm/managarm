@@ -53,6 +53,8 @@ private:
 	TxQueue(size_t descriptors, Intel8254xNic &nic);
 
 public:
+	void ackAll();
+
 	/**
 	 * Return the physical address to the base of the descriptors
 	 */
