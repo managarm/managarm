@@ -146,6 +146,14 @@ async::result<uint16_t> Intel8254xNic::eepromRead(uint8_t address) {
 	co_return res & flags::eerd::data;
 }
 
+async::result<void> Intel8254xNic::receive(arch::dma_buffer_view frame) {
+	if constexpr (logDebug) puts("i8254x: ---------------- RECEIVE ----------------");
+	co_await _rxQueue->submitDescriptor(frame, *this);
+	if constexpr (logDebug) puts("i8254x: ---------------- RECEIVE OVER ----------------");
+
+	co_return;
+}
+
 namespace nic::intel8254x {
 
 std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device) {
