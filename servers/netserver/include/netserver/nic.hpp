@@ -4,6 +4,7 @@
 #include <async/result.hpp>
 #include <cstdint>
 #include <memory>
+#include <ostream>
 
 namespace nic {
 struct MacAddress {
@@ -62,3 +63,10 @@ protected:
 
 async::detached runDevice(std::shared_ptr<Link> dev);
 } // namespace nic
+
+inline std::ostream &operator<<(std::ostream &os, const nic::MacAddress &mac) {
+	char buf[18];
+	snprintf(buf, 18, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	os << buf;
+	return os;
+}
