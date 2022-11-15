@@ -154,6 +154,14 @@ async::result<void> Intel8254xNic::receive(arch::dma_buffer_view frame) {
 	co_return;
 }
 
+async::result<void> Intel8254xNic::send(arch::dma_buffer_view payload) {
+	if constexpr (logDebug) puts("i8254x: ---------------- SEND ----------------");
+	co_await _txQueue->submitDescriptor(payload, *this);
+	if constexpr (logDebug) puts("i8254x: ---------------- SEND OVER ----------------");
+
+	co_return;
+}
+
 namespace nic::intel8254x {
 
 std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device) {

@@ -70,6 +70,9 @@ public:
 	QueueIndex head();
 	QueueIndex tail();
 
+	async::result<void> submitDescriptor(arch::dma_buffer_view frame, Intel8254xNic &nic);
+	async::result<void> postDescriptor(arch::dma_buffer_view frame, Intel8254xNic &nic, Request *req, async::detached (*complete)(Request *));
+
 private:
 	Intel8254xNic &_nic;
 	arch::dma_array<TxDescriptor> _descriptors;

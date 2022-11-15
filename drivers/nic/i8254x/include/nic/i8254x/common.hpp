@@ -24,6 +24,7 @@ public:
 	Intel8254xNic(protocols::hw::Device device);
 
 	virtual async::result<void> receive(arch::dma_buffer_view) override;
+	virtual async::result<void> send(const arch::dma_buffer_view) override;
 
 	async::result<void> init();
 
