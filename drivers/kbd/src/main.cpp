@@ -64,8 +64,12 @@ async::detached Controller::init() {
 
 	configuration |= 0b11; // enable interrupts
 	configuration &= ~(1 << 6); // disable translation
+	configuration &= ~(1 << 4); // ensure that the keyboard is not disabled
 
 	submitCommand(controller_cmd::SetByte0{}, configuration);
+
+	// ensure that translation is indeed disabled
+	assert(!(submitCommand(controller_cmd::GetByte0{}) & (1 << 6)));
 
 	// enable devices
 	submitCommand(controller_cmd::EnablePort{}, 0);
@@ -266,17 +270,19 @@ async::result<void> Controller::Port::init() {
 async::result<void> Controller::KbdDevice::run() {
 	// Set scancode set 2.
 	auto res1 = co_await submitCommand(device_cmd::SetScancodeSet{}, 2);
-	assert(res1);
-
-	// Make sure it is used.
-	auto res2 = co_await submitCommand(device_cmd::GetScancodeSet{});
-	assert(res2);
-	if (res2.value() != 1 && res2.value() != 2) {
-		std::cout << "\e[31m" "ps2-hid: Keyboard does supports neither scancode set 1 nor 2"
-				"\e[39m" << std::endl;
-		co_return;
+	if(res1) {
+		// Make sure it is used.
+		auto res2 = co_await submitCommand(device_cmd::GetScancodeSet{});
+		assert(res2);
+		if (res2.value() != 1 && res2.value() != 2) {
+			std::cout << "\e[31m" "ps2-hid: Keyboard does supports neither scancode set 1 nor 2"
+					"\e[39m" << std::endl;
+			co_return;
+		}
+		_codeSet = res2.value();
+	} else {
+		_codeSet = 2;
 	}
-	_codeSet = res2.value();
 
 	//setup evdev stuff
 	_evDev = std::make_shared<libevbackend::EventDevice>();
@@ -875,7 +881,7 @@ static DeviceType determineTypeById(uint16_t id) {
 		return DeviceType{.mouse = true, .hasScrollWheel = true};
 	if (id == 0x4)
 		return DeviceType{.mouse = true, .has5Buttons = true};
-	if (id == 0xAB41 || id == 0xABC1 || id == 0xAB83)
+	if (id == 0xAB41 || id == 0xABC1 || id == 0xAB83 || id == 0xAB84)
 		return DeviceType{.keyboard = true};
 
 	printf("ps2-hid: unknown device id %04x, please submit a bug report\n", id);
