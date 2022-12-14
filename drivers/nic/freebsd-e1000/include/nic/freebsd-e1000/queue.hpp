@@ -1,5 +1,8 @@
 #pragma once
 
+#include <async/result.hpp>
+#include <async/oneshot-event.hpp>
+#include <arch/dma_structs.hpp>
 #include <stddef.h>
 
 struct QueueIndex {
@@ -36,4 +39,9 @@ struct QueueIndex {
 private:
 	size_t _index;
 	size_t _mod;
+};
+
+struct Request {
+	async::oneshot_event event;
+	arch::dma_buffer_view frame;
 };
