@@ -79,7 +79,7 @@ struct File {
 	 */
 	uint32_t createHandle(std::shared_ptr<BufferObject> bo);
 	BufferObject *resolveHandle(uint32_t handle);
-	uint32_t getHandle(std::shared_ptr<drm_core::BufferObject> bo);
+	std::optional<uint32_t> getHandle(std::shared_ptr<drm_core::BufferObject> bo);
 
 	bool exportBufferObject(uint32_t handle, std::array<char, 16> creds);
 

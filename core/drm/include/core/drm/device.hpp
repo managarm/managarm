@@ -45,7 +45,7 @@ public:
 	void registerObject(ModeObject *object);
 	std::shared_ptr<ModeObject> findObject(uint32_t);
 
-	uint32_t registerBlob(std::shared_ptr<Blob> blob);
+	std::shared_ptr<Blob> registerBlob(std::vector<char> data);
 	bool deleteBlob(uint32_t id);
 	std::shared_ptr<Blob> findBlob(uint32_t id);
 

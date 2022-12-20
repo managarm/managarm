@@ -47,22 +47,31 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: GET_CAP()" << std::endl;
+
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		if(req.drm_capability() == DRM_CAP_TIMESTAMP_MONOTONIC) {
 			resp.set_drm_value(1);
+			if(logDrmRequests) std::cout << "\tCAP_TIMESTAMP_MONOTONIC supported" << std::endl;
 		}else if(req.drm_capability() == DRM_CAP_DUMB_BUFFER) {
 			resp.set_drm_value(1);
+			if(logDrmRequests) std::cout << "\tCAP_DUMB_BUFFER supported" << std::endl;
 		}else if(req.drm_capability() == DRM_CAP_CRTC_IN_VBLANK_EVENT) {
 			resp.set_drm_value(1);
+			if(logDrmRequests) std::cout << "\tCAP_CRTC_IN_VBLANK_EVENT supported" << std::endl;
 		}else if(req.drm_capability() == DRM_CAP_CURSOR_WIDTH) {
 			resp.set_drm_value(32);
+			if(logDrmRequests) std::cout << "\tCAP_CURSOR_WIDTH supported" << std::endl;
 		}else if(req.drm_capability() == DRM_CAP_CURSOR_HEIGHT) {
 			resp.set_drm_value(32);
+			if(logDrmRequests) std::cout << "\tCAP_CURSOR_HEIGHT supported" << std::endl;
 		}else if(req.drm_capability() == DRM_CAP_PRIME) {
 			resp.set_drm_value(DRM_PRIME_CAP_IMPORT | DRM_PRIME_CAP_EXPORT);
+			if(logDrmRequests) std::cout << "\tCAP_PRIME supported" << std::endl;
 		}else{
-			std::cout << "core/drm: Unknown capability " << req.drm_capability() << std::endl;
+			std::cout << "\tUnknown capability " << req.drm_capability() << std::endl;
 			resp.set_drm_value(0);
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
@@ -75,6 +84,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_GETRESOURCES) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: GETRESOURCES()" << std::endl;
 
 		auto &crtcs = self->_device->getCrtcs();
 		for(size_t i = 0; i < crtcs.size(); i++) {
@@ -112,6 +124,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_list;
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: GETCONNECTOR()" << std::endl;
+
 		auto obj = self->_device->findObject(req.drm_connector_id());
 		assert(obj);
 		auto conn = obj->asConnector();
@@ -145,6 +160,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: GETENCODER()" << std::endl;
+
 		resp.set_drm_encoder_type(0);
 
 		auto obj = self->_device->findObject(req.drm_encoder_id());
@@ -175,6 +193,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_GETPLANE) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: GETPLANE()" << std::endl;
 
 		resp.set_drm_encoder_type(0);
 
@@ -225,6 +246,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		resp.set_drm_size(pair.first->getSize());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
+		if(logDrmRequests)
+			std::cout << "core/drm: CREATE_DUMB(" << req.drm_width() << "x" << req.drm_height() << ") -> <" << resp.drm_handle() << ">" << std::endl;
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -233,9 +257,6 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_ADDFB) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-
-		if(logDrmRequests)
-			std::cout << "core/drm: ADDFB()" << std::endl;
 
 		auto bo = self->resolveHandle(req.drm_handle());
 		assert(bo);
@@ -248,6 +269,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		resp.set_drm_fb_id(fb->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
+		if(logDrmRequests)
+			std::cout << "core/drm: ADDFB(" << req.drm_width() << "x" << req.drm_height() << ") -> [" << fb->id() << "]" << std::endl;
+
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));
@@ -256,6 +280,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_RMFB) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: RMFB([" << req.drm_fb_id() << "])" << std::endl;
 
 		auto obj = self->_device->findObject(req.drm_fb_id());
 		assert(obj);
@@ -274,7 +301,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		managarm::fs::SvrResponse resp;
 
 		if(logDrmRequests)
-			std::cout << "core/drm: MAP_DUMB(handle " << req.drm_handle() << ")" << std::endl;
+			std::cout << "core/drm: MAP_DUMB(<" << req.drm_handle() << ">)" << std::endl;
 
 		auto bo = self->resolveHandle(req.drm_handle());
 		assert(bo);
@@ -292,6 +319,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		helix::SendBuffer send_mode;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: GETCRTC()" << std::endl;
 
 		auto obj = self->_device->findObject(req.drm_crtc_id());
 		assert(obj);
@@ -323,6 +353,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		std::vector<char> mode_buffer;
 		mode_buffer.resize(sizeof(drm_mode_modeinfo));
 
+		if(logDrmRequests)
+			std::cout << "core/drm: SETCRTC()" << std::endl;
+
 		helix::RecvBuffer recv_buffer;
 		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_buffer, mode_buffer.data(), sizeof(drm_mode_modeinfo)));
@@ -339,7 +372,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		std::vector<drm_core::Assignment> assignments;
 		if(req.drm_mode_valid()) {
-			auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
+			auto mode_blob = self->_device->registerBlob(std::move(mode_buffer));
 			auto fb = self->_device->findObject(req.drm_fb_id());
 			assert(fb);
 
@@ -526,16 +559,38 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		auto obj = self->_device->findObject(req.drm_obj_id());
 		assert(obj);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		if(logDrmRequests)
+			std::cout << "core/drm: GETPROPERTIES([" << req.drm_obj_id() << "])" << std::endl;
 
 		for(auto ass : obj->getAssignments(self->_device)) {
 			resp.add_drm_obj_property_ids(ass.property->id());
 
 			if(std::holds_alternative<IntPropertyType>(ass.property->propertyType())) {
 				resp.add_drm_obj_property_values(ass.intValue);
+
+				if(logDrmRequests)
+					std::cout << "\t" << ass.property->name() << " -> int " << ass.intValue << std::endl;
 			} else if(std::holds_alternative<EnumPropertyType>(ass.property->propertyType())) {
 				resp.add_drm_obj_property_values(ass.intValue);
+
+				if(logDrmRequests) {
+					auto enuminfo = ass.property->enumInfo();
+					std::string enum_name = "<invalid>";
+					if(enuminfo.contains(ass.intValue)) {
+						enum_name = enuminfo.at(ass.intValue);
+					}
+					std::cout << "\t" << ass.property->name() << " -> enum " << enum_name << " (" << ass.intValue << ")" << std::endl;
+				}
 			} else if(std::holds_alternative<BlobPropertyType>(ass.property->propertyType())) {
-				resp.add_drm_obj_property_values(ass.intValue);
+				if(ass.blobValue) {
+					resp.add_drm_obj_property_values(ass.blobValue->id());
+					if(logDrmRequests)
+						std::cout << "\t" << ass.property->name() << " -> blob [" << ass.blobValue->id() << "]" << std::endl;
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
 			} else if(std::holds_alternative<ObjectPropertyType>(ass.property->propertyType())) {
 				if(ass.objectValue) {
 					resp.add_drm_obj_property_values(ass.objectValue->id());
@@ -546,10 +601,8 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		}
 
 		if(!resp.drm_obj_property_ids_size()) {
-			std::cout << "\e[31mcore/drm: No properties found for object id " << req.drm_obj_id() << "\e[39m" << std::endl;
+			std::cout << "\e[31mcore/drm: No properties found for object [" << req.drm_obj_id() << "]\e[39m" << std::endl;
 		}
-
-		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -562,6 +615,11 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		uint32_t prop_id = req.drm_property_id();
 		auto prop = self->_device->getProperty(prop_id);
+
+		if(logDrmRequests) {
+			std::string prop_name = (prop) ? prop->name() : "<invalid>";
+			std::cout << "core/drm: GETPROPERTY(" << prop_name << " [" << prop_id << "])" << std::endl;
+		}
 
 		if(prop) {
 			resp.set_drm_property_name(prop->name());
@@ -588,6 +646,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_SETPROPERTY) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: SETPROPERTIES()" << std::endl;
 
 		std::vector<drm_core::Assignment> assignments;
 
@@ -657,6 +718,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 
 		auto blob = self->_device->findBlob(req.drm_blob_id());
 
+		if(logDrmRequests)
+			std::cout << "core/drm: GETPROPBLOB([" << req.drm_blob_id() << ((!blob) ? "] [invalid]" : "]") << ")" << std::endl;
+
 		if(blob) {
 			auto data = reinterpret_cast<const uint8_t *>(blob->data());
 			for(size_t i = 0; i < blob->size(); i++) {
@@ -667,9 +731,6 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		} else {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
-
-		if(logDrmRequests)
-			std::cout << "core/drm: GETPROPBLOB(id " << req.drm_blob_id() << ")" << std::endl;
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -692,15 +753,14 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		if(!req.drm_blob_size()) {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		} else {
-			auto blob = std::make_shared<Blob>(std::move(blob_data));
-			auto id = self->_device->registerBlob(blob);
+			auto blob = self->_device->registerBlob(std::move(blob_data));
 
-			resp.set_drm_blob_id(id);
+			resp.set_drm_blob_id(blob->id());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
 
 		if(logDrmRequests)
-			std::cout << "core/drm: CREATEPROPBLOB() -> id " << resp.drm_blob_id() << std::endl;
+			std::cout << "core/drm: CREATEPROPBLOB() -> [" << resp.drm_blob_id() << "]" << std::endl;
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -718,7 +778,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		}
 
 		if(logDrmRequests)
-			std::cout << "core/drm: DESTROYPROPBLOB(id " << req.drm_blob_id() << ")" << std::endl;
+			std::cout << "core/drm: DESTROYPROPBLOB([" << req.drm_blob_id() << "])" << std::endl;
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -801,6 +861,9 @@ send:
 	}else if(req.command() == DRM_IOCTL_PRIME_HANDLE_TO_FD) {
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: PRIME_HANDLE_TO_FD(<" << req.drm_prime_handle() << ">)" << std::endl;
+
 		// Extract the credentials of the calling thread in order to locate it in POSIX for attaching the file
 		auto [proc_creds] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::extractCredentials());
 		HEL_CHECK(proc_creds.error());
@@ -850,6 +913,8 @@ send:
 		if(self->exportBufferObject(req.drm_prime_handle(), creds)) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_drm_prime_fd(posix_resp.fd());
+			if(logDrmRequests)
+				std::cout << "\t-> {" << posix_resp.fd() << "}" << std::endl;
 		} else {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
@@ -863,6 +928,9 @@ send:
 	}else if(req.command() == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: PRIME_FD_TO_HANDLE({can't resolve credentials yet})" << std::endl;
+
 		// extract the credentials of the land that served the PRIME fd, as this is keying our maps that keep track of it
 		auto [creds] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::extractCredentials());
 		HEL_CHECK(creds.error());
@@ -875,6 +943,8 @@ send:
 		if(bo) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_drm_prime_handle(handle);
+			if(logDrmRequests)
+				std::cout << "\t-> <" << handle << ">" << std::endl;
 		} else {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}

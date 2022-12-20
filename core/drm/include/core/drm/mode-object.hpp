@@ -37,14 +37,16 @@ private:
 };
 
 struct Blob {
-	Blob(std::vector<char> data)
-	: _data(std::move(data)) {  };
+	Blob(std::vector<char> data, uint32_t id)
+	: _data(std::move(data)), _id(id) {  };
 
+	uint32_t id();
 	size_t size();
 	const void *data();
 
 private:
 	std::vector<char> _data;
+	uint32_t _id;
 };
 
 /**

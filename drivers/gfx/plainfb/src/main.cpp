@@ -65,7 +65,9 @@ async::detached GfxDevice::initialize() {
 	registerObject(_theCrtc.get());
 	registerObject(_theEncoder.get());
 
-	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), nullptr));
+	auto [dumb_fb, dumb_pitch] = createDumb(_screenWidth, _screenHeight, 32);
+	auto fb = createFrameBuffer(dumb_fb, _screenWidth, _screenHeight, 0, dumb_pitch);
+
 	assignments.push_back(drm_core::Assignment::withModeObj(_plane, crtcIdProperty(), _theCrtc));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, srcHProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, srcWProperty(), 0));
@@ -75,7 +77,7 @@ async::detached GfxDevice::initialize() {
 	assignments.push_back(drm_core::Assignment::withInt(_plane, srcYProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcXProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_plane, crtcYProperty(), 0));
-	assignments.push_back(drm_core::Assignment::withModeObj(_plane, fbIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::withModeObj(_plane, fbIdProperty(), fb));
 
 	setupCrtc(_theCrtc.get());
 	setupEncoder(_theEncoder.get());
@@ -105,6 +107,12 @@ async::detached GfxDevice::initialize() {
 		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
 	});
 	_theConnector->setModeList(supported_modes);
+
+	auto info_ptr = reinterpret_cast<char *>(&supported_modes.front());
+	std::vector<char> modeData(info_ptr, info_ptr + sizeof(drm_mode_modeinfo));
+	auto modeBlob = registerBlob(std::move(modeData));
+
+	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), modeBlob));
 
 	auto config = createConfiguration();
 	auto state = atomicState();
@@ -193,6 +201,7 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &st
 	_dispatch(state);
 
 	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
+	_device->_theConnector->setDrmState(state->connector(_device->_theConnector->id()));
 	_device->_plane->setDrmState(state->plane(_device->_plane->id()));
 }
 

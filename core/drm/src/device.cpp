@@ -44,11 +44,12 @@ std::shared_ptr<drm_core::ModeObject> drm_core::Device::findObject(uint32_t id) 
 	return it->second->sharedModeObject();
 }
 
-uint32_t drm_core::Device::registerBlob(std::shared_ptr<drm_core::Blob> blob) {
+std::shared_ptr<drm_core::Blob> drm_core::Device::registerBlob(std::vector<char> data) {
 	uint32_t id = _blobIdAllocator.allocate();
+	auto blob = std::make_shared<drm_core::Blob>(data, id);
 	_blobs.insert({id, blob});
 
-	return id;
+	return blob;
 }
 
 bool drm_core::Device::deleteBlob(uint32_t id) {
