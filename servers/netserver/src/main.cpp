@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <queue>
+#include <unordered_set>
 #include <vector>
 
 #include <async/result.hpp>
@@ -25,6 +26,40 @@
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
+
+const std::string VENDOR_REDHAT = "1af4";
+
+std::unordered_set<std::string_view> nic_vendor_ids = {
+	VENDOR_REDHAT, /* virtio */
+};
+
+std::unordered_set<std::string_view> virtio_device_ids = {
+	"1000",
+	"1041",
+};
+
+namespace {
+
+async::result<std::shared_ptr<nic::Link>> setupVirtioDevice(mbus::Entity &base_entity, protocols::hw::Device hwDevice) {
+	virtio_core::DiscoverMode discover_mode = virtio_core::DiscoverMode::null;
+	auto properties = co_await base_entity.getProperties();
+
+	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+		device_str) {
+		if(device_str->value == "1000")
+			discover_mode = virtio_core::DiscoverMode::transitional;
+		else if(device_str->value == "1041")
+			discover_mode = virtio_core::DiscoverMode::modernOnly;
+		else
+			assert(!"Unhandled virtio device");
+	}
+
+	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
+
+	co_return nic::virtio::makeShared(std::move(transport));
+}
+
+} // namespace anonymous
 
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
@@ -46,12 +81,37 @@ std::shared_ptr<nic::Link> nic::Link::byIndex(int index) {
 	return {};
 }
 
-async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
+async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
+	std::cout << "netserver: Binding to device " << base_id << std::endl;
+	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
+
+	// Do not bind to devices that are already bound to this driver.
+	if(baseDeviceMap.find(base_entity.getId()) != baseDeviceMap.end())
+		co_return protocols::svrctl::Error::success;
+
+	// Make sure that we only bind to supported devices.
+	auto properties = co_await base_entity.getProperties();
+	auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+
+	if(!vendor_str || !nic_vendor_ids.contains(vendor_str->value))
+		co_return protocols::svrctl::Error::deviceNotSupported;
+
 	protocols::hw::Device hwDevice(co_await base_entity.bind());
 	co_await hwDevice.enableBusmaster();
-	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
-	auto device = nic::virtio::makeShared(std::move(transport));
+	std::shared_ptr<nic::Link> device;
+
+	if(vendor_str->value == VENDOR_REDHAT) {
+		if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+			!device_str || !virtio_device_ids.contains(device_str->value))
+			co_return protocols::svrctl::Error::deviceNotSupported;
+
+		device = co_await setupVirtioDevice(base_entity, std::move(hwDevice));
+	} else {
+		co_return protocols::svrctl::Error::deviceNotSupported;
+	}
+
+
 	if (baseDeviceMap.empty()) {
 		// default via 10.0.2.2 src 10.10.2.15
 		Ip4Router::Route wan { { 0, 0 }, device };
@@ -64,37 +124,10 @@ async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode d
 		// inet 10.10.2.15/24
 		ip4().setLink({ 0x0a0a020f, 24 }, device);
 	}
+
 	baseDeviceMap.insert({base_entity.getId(), device});
 	nic::runDevice(device);
-}
 
-async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
-	std::cout << "netserver: Binding to device " << base_id << std::endl;
-	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
-
-	// Do not bind to devices that are already bound to this driver.
-	if(baseDeviceMap.find(base_entity.getId()) != baseDeviceMap.end())
-		co_return protocols::svrctl::Error::success;
-
-	// Make sure that we only bind to supported devices.
-	auto properties = co_await base_entity.getProperties();
-	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
-			!vendor_str || vendor_str->value != "1af4")
-		co_return protocols::svrctl::Error::deviceNotSupported;
-
-	virtio_core::DiscoverMode discover_mode;
-	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
-		if(device_str->value == "1000")
-			discover_mode = virtio_core::DiscoverMode::transitional;
-		else if(device_str->value == "1041")
-			discover_mode = virtio_core::DiscoverMode::modernOnly;
-		else
-			co_return protocols::svrctl::Error::deviceNotSupported;
-	}else{
-		co_return protocols::svrctl::Error::deviceNotSupported;
-	}
-
-	co_await doBind(base_entity, discover_mode);
 	co_return protocols::svrctl::Error::success;
 }
 
