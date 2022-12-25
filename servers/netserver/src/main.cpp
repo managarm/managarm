@@ -26,16 +26,39 @@
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
+#include <nic/rtl8168/rtl8168.hpp>
 
+const std::string VENDOR_REALTEK = "10ec";
+const std::string VENDOR_DLINK = "1186";
+const std::string VENDOR_TPLINK = "10ff";
+const std::string VENDOR_COREGA = "1259";
+const std::string VENDOR_LINKSYS = "1737";
+const std::string VENDOR_US_ROBOTICS = "16ec";
 const std::string VENDOR_REDHAT = "1af4";
 
 std::unordered_set<std::string_view> nic_vendor_ids = {
 	VENDOR_REDHAT, /* virtio */
+	VENDOR_REALTEK, /* Realtek */
 };
 
 std::unordered_set<std::string_view> virtio_device_ids = {
 	"1000",
 	"1041",
+};
+
+std::unordered_set<std::string_view> rtl8168_device_ids = {
+	"8129", /* RTL8129 */
+	"8136", /* RTL8136 */
+	"8161", /* RTL8161 */
+	"8162", /* RTL8162 */
+	"8167", /* RTL8167 */
+	"8168", /* RTL8168 */
+	"8169", /* RTL8169 */
+};
+
+std::unordered_set<std::string_view> rtl8168_dlink_device_ids = {
+	"4300",
+	"4302",
 };
 
 namespace {
@@ -81,6 +104,35 @@ std::shared_ptr<nic::Link> nic::Link::byIndex(int index) {
 	return {};
 }
 
+bool determineRTL8168Support(const std::string& vendor_str, const std::string& device_str) {
+	if(vendor_str == VENDOR_REALTEK) {
+		if(rtl8168_device_ids.contains(device_str)) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_DLINK) {
+		if(rtl8168_dlink_device_ids.contains(device_str)) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_TPLINK) {
+		if(device_str == std::string("8168")) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_COREGA) {
+		if(device_str == std::string("c107")) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_LINKSYS) {
+		if(device_str == std::string("1032")) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_US_ROBOTICS) {
+		if(device_str == std::string("0116")) {
+			return true;
+		}
+	}
+	return false;
+}
+
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	std::cout << "netserver: Binding to device " << base_id << std::endl;
 	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
@@ -100,17 +152,18 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	co_await hwDevice.enableBusmaster();
 
 	std::shared_ptr<nic::Link> device;
+	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
+		if(vendor_str->value == VENDOR_REDHAT) {
+			if(!virtio_device_ids.contains(device_str->value))
+				co_return protocols::svrctl::Error::deviceNotSupported;
 
-	if(vendor_str->value == VENDOR_REDHAT) {
-		if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
-			!device_str || !virtio_device_ids.contains(device_str->value))
+			device = co_await setupVirtioDevice(base_entity, std::move(hwDevice));
+		} else if(determineRTL8168Support(vendor_str->value, device_str->value)) {
+			device = nic::rtl8168::makeShared(std::move(hwDevice));	
+		} else {
 			co_return protocols::svrctl::Error::deviceNotSupported;
-
-		device = co_await setupVirtioDevice(base_entity, std::move(hwDevice));
-	} else {
-		co_return protocols::svrctl::Error::deviceNotSupported;
+		}
 	}
-
 
 	if (baseDeviceMap.empty()) {
 		// default via 10.0.2.2 src 10.10.2.15
