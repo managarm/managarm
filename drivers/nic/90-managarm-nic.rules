@@ -5,4 +5,26 @@ SUBSYSTEM!="pci", GOTO="managarm_nic_end"
 ATTR{vendor}=="0x1af4", ATTR{device}=="0x1000", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
 ATTR{vendor}=="0x1af4", ATTR{device}=="0x1041", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
 
+## RTL 8168 Driver.
+# Realtek Vendor cards
+ATTR{vendor}=="0x10ec", ATTR{device}=="0x8129", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x10ec", ATTR{device}=="0x8136", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x10ec", ATTR{device}=="0x8161", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x10ec", ATTR{device}=="0x8162", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x10ec", ATTR{device}=="0x8167", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x10ec", ATTR{device}=="0x8168", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x10ec", ATTR{device}=="0x8169", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+# TP-LINK Vendor cards
+ATTR{vendor}=="0x10ff", ATTR{device}=="0x8168", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+# D-LINK Vendor cards
+ATTR{vendor}=="0x1186", ATTR{device}=="0x4300", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x1186", ATTR{device}=="0x4302", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+# Corega Vendor cards
+ATTR{vendor}=="0x1259", ATTR{device}=="0xc107", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+# Linksys Vendor cards
+# TODO: Not all cards with this device ID are Realtek cards.
+# ATTR{vendor}=="0x1737", ATTR{device}=="0x1032", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+# US Robotics cards
+ATTR{vendor}=="0x16ec", ATTR{device}=="0x0116", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+
 LABEL="managarm_nic_end"
