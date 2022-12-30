@@ -482,6 +482,14 @@ public:
 		return _path;
 	}
 
+	std::string name() {
+		return _name;
+	}
+
+	void setName(std::string name) {
+		_name = name;
+	}
+
 	helix::BorrowedLane posixLane() {
 		return _posixLane;
 	}
@@ -576,6 +584,7 @@ private:
 	int _egid;
 	bool _didExecute;
 	std::string _path;
+	std::string _name;
 	helix::UniqueLane _posixLane;
 	helix::UniqueDescriptor _threadDescriptor;
 	std::shared_ptr<Generation> _currentGeneration;
