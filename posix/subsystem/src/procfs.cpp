@@ -263,6 +263,8 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
+	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
+	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 
 	return link;
 }
@@ -413,6 +415,97 @@ expected<std::string> RootLink::readSymlink(FsLink *link, Process *process) {
 async::result<frg::expected<Error, FileStats>> RootLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs RootLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+async::result<std::string> StatNode::show() {
+	// Everything that has a value of 0 is likely not implemented yet.
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << _process->pid(); // Pid
+	stream << " (" << _process->name() << ") "; // Name
+	stream << "R "; // State
+	// This avoids a crash when asking for the parent of init.
+	if(_process->getParent()) {
+		stream << _process->getParent()->pid() << " ";
+	} else {
+		stream << "0 ";
+	}
+	stream << _process->pgPointer()->getHull()->getPid() << " "; // Pgrp
+	stream << _process->pgPointer()->getSession()->getSessionId() << " "; // SID
+	stream << "0 "; // tty_nr
+	stream << "0 "; // tpgid
+	stream << "0 "; // flags
+	stream << "0 "; // minflt
+	stream << "0 "; // cminflt
+	stream << "0 "; // majflt
+	stream << "0 "; // cmajflt
+	stream << _process->accumulatedUsage().userTime << " "; // utime
+	stream << "0 "; // stime
+	stream << "0 "; // cutime
+	stream << "0 "; // cstime
+	stream << "0 "; // priority
+	stream << "0 "; // nice
+	stream << "1 "; // num_threads
+	stream << "0 "; // itrealvalue
+	stream << "0 "; // starttime
+	stream << "0 "; // vsize
+	stream << "0 "; // rss
+	stream << "0 "; // rsslim
+	stream << "0 "; // startcode
+	stream << "0 "; // endcode
+	stream << "0 "; // startstack
+	stream << "0 "; // kstkesp
+	stream << "0 "; // kstkeip
+	stream << "0 "; // signal
+	stream << "0 "; // blocked
+	stream << "0 "; // sigignore
+	stream << "0 "; // sigcatch
+	stream << "0 "; // wchan
+	stream << "0 "; // nswap
+	stream << "0 "; // cnswap
+	stream << "0 "; // exit_signal
+	stream << "0 "; // processor
+	stream << "0 "; // rt_priority
+	stream << "0 "; // policy
+	stream << "0 "; // delayacct_blkio_ticks
+	stream << "0 "; // guest_time
+	stream << "0 "; // cguest_time
+	stream << "0 "; // start_data
+	stream << "0 "; // end_data
+	stream << "0 "; // start_brk
+	stream << "0 "; // arg_start
+	stream << "0 "; // arg_end
+	stream << "0 "; // env_start
+	stream << "0 "; // env_end
+	stream << "0\n"; // exitcode
+	co_return stream.str();
+}
+
+async::result<void> StatNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Can't store to a /proc/stat file!");
+}
+
+async::result<std::string> StatmNode::show() {
+	(void)_process;
+	// All hardcoded to 0.
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "0 "; // size
+	stream << "0 "; // resident
+	stream << "0 "; // shared
+	stream << "0 "; // text
+	stream << "0 "; // lib
+	stream << "0 "; // data
+	stream << "0\n"; // dt
+	co_return stream.str();
+}
+
+async::result<void> StatmNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Can't store to a /proc/statm file!");
 }
 
 } // namespace procfs
