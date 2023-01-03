@@ -11,9 +11,11 @@ eir32_sources = [
 	eir_x86_sources]
 eir32_c_args = [eir_c_args, '-m32']
 eir32_cpp_args = [eir_cpp_args, '-m32']
-eir32_link_args = [eir_link_args, '-m32', '-Wl,-T,' + meson.current_source_dir() + '/generic32_link.x']
+# -lgcc here is a bit of a hack, as Meson attempts to resolve libgcc to it's
+# non-multilibbed path, which fails to be useful here.
+eir32_link_args = [eir_link_args, '-m32', '-Wl,-T,' + meson.current_source_dir() + '/generic32_link.x', '-lgcc']
 eir32_dependencies = eir_dependencies
-eir32_extra_objects = [meson.current_source_dir() + '/libgcc.a']
+eir32_extra_objects = []
 eir32_link_depends = files('generic32_link.x')
 
 eir64_sources = [

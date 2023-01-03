@@ -8,6 +8,8 @@ args = [
 c_args = [ ]
 cpp_args = [ ]
 
+cxx = meson.get_compiler('cpp')
+libgcc = cxx.find_library('gcc')
 link_depends = []
 inc = [ cralgo_includes ]
 link_with = []
@@ -150,7 +152,7 @@ link_with += static_library('cralgo', cralgo_sources,
 	pic : false
 )
 
-deps = [ coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep, libasync_dep ]
+deps = [ libgcc, coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep, libasync_dep ]
 
 # TODO: also build thor on RISC-V.
 if arch != 'riscv64'
