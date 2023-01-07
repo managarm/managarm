@@ -754,11 +754,6 @@ void PciDevice::setupMsi(MsiPin *msi, size_t index) {
 
 		bool is64Capable = msgControl & (1 << 7);
 
-		msgControl &= ~0x0071; // Disable MSI by default, enable only 1 message
-
-		io->writeConfigHalf(parentBus,
-				slot, function, offset + 2, msgControl);
-
 		io->writeConfigWord(parentBus,
 				slot, function, offset + 4, msi->getMessageAddress() & 0xFFFFFFFF);
 
@@ -774,6 +769,16 @@ void PciDevice::setupMsi(MsiPin *msi, size_t index) {
 			io->writeConfigHalf(parentBus,
 				slot, function, offset + 8, msi->getMessageData());
 		}
+
+		if (msiEnabled) {
+			// Enable MSI
+			msgControl |= 0x0001;
+
+			io->writeConfigHalf(parentBus,
+					slot, function, offset + 2, msgControl);
+		}
+
+		msiInstalled = true;
 	}
 }
 
@@ -802,10 +807,23 @@ void PciDevice::enableMsi() {
 		auto msgControl = io->readConfigHalf(parentBus,
 				slot, function, offset + 2);
 
-		msgControl |= 0x0001; // Enable MSI
+		if (!msiInstalled) {
+			// Disable MSI by default, configure to only 1 message
+			// MSIs will be reenabled once one is installed in setupMsi, since
+			// we may not have a way to mask it otherwise (mask register only
+			// exists if MSIs are 64-bit).
+			msgControl &= ~0x0071;
+		} else {
+			// setupMsi was called before enableMsi, so we can enable them
+			// without worrying about needing the MSI to be masked.
+			msgControl &= ~0x0070; // Only one message
+			msgControl |= 0x0001; // Enable MSI
+		}
 
 		io->writeConfigHalf(parentBus,
 				slot, function, offset + 2, msgControl);
+
+		msiEnabled = true;
 	}
 }
 
