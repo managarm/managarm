@@ -52,6 +52,7 @@ struct PanicSink {
 	constexpr PanicSink() = default;
 
 	void operator() (const char *msg);
+	void finalize(bool);
 };
 
 extern frg::stack_buffer_logger<InfoSink, logLineLength> infoLogger;

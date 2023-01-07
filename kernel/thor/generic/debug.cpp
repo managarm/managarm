@@ -167,12 +167,14 @@ void UrgentSink::operator() (const char *msg) {
 void PanicSink::operator() (const char *msg) {
 	StatelessIrqLock irqLock;
 
-	{
-		auto lock = frg::guard(&logMutex);
+	auto lock = frg::guard(&logMutex);
 
-		logProcessor.print(msg);
-		logProcessor.print('\n');
-	}
+	logProcessor.print(msg);
+	logProcessor.print('\n');
+}
+
+void PanicSink::finalize(bool) {
+	StatelessIrqLock irqLock;
 
 #ifdef THOR_HAS_FRAME_POINTERS
 	urgentLogger() << "Stacktrace:" << frg::endlog;
