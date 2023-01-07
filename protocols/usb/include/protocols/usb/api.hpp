@@ -10,7 +10,18 @@
 
 enum class UsbError {
 	none,
-	stall
+	stall,
+	babble,
+	timeout,
+	unsupported,
+	other
+};
+
+enum class DeviceSpeed {
+	lowSpeed,
+	fullSpeed,
+	highSpeed,
+	superSpeed
 };
 
 enum XferFlags {
@@ -154,6 +165,24 @@ struct Device {
 	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) const;
 	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) const;
 
+	std::shared_ptr<DeviceData> state() const {
+		return _state;
+	}
+
 private:
 	std::shared_ptr<DeviceData> _state;
+};
+
+// ----------------------------------------------------------------
+// BaseController.
+// ----------------------------------------------------------------
+
+struct Hub;
+
+struct BaseController {
+protected:
+	~BaseController() = default;
+
+public:
+	virtual async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) = 0;
 };

@@ -27,13 +27,11 @@ namespace setup_type {
 
 // Alignment makes sure that a packet doesnt cross a page boundary
 struct alignas(8) SetupPacket {
-	SetupPacket() = default;
-
-	uint8_t type;
-	uint8_t request;
-	uint16_t value;
-	uint16_t index;
-	uint16_t length;
+	uint8_t type = 0;
+	uint8_t request = 0;
+	uint16_t value = 0;
+	uint16_t index = 0;
+	uint16_t length = 0;
 };
 static_assert(sizeof(SetupPacket) == 8, "Bad SetupPacket size");
 

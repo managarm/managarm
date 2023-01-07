@@ -1218,6 +1218,17 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 				<< frg::endlog;
 		io->writeConfigHalf(bus, slot, function, 0xC0, 0x2000);
 	}
+
+	if (class_code == 0x0C && sub_class == 0x03 && interface == 0x30 && vendor == 0x8086) {
+		infoLogger() << "            \e[32mSwitching USB ports to XHCI!\e[39m"
+				<< frg::endlog;
+
+		auto usb3PortsAvail = io->readConfigWord(bus, slot, function, 0xDC);
+		io->writeConfigWord(bus, slot, function, 0xD8, usb3PortsAvail);
+
+		auto usb2PortsAvail = io->readConfigWord(bus, slot, function, 0xD4);
+		io->writeConfigWord(bus, slot, function, 0xD0, usb2PortsAvail);
+	}
 }
 
 template <typename EnumFunc>

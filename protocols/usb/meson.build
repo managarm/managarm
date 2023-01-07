@@ -4,13 +4,14 @@ usb_pb = protocxx.process(here/'usb.proto',
 )
 
 inc = [ 'include' ]
-src = [ 'src/api.cpp', 'src/client.cpp', 'src/server.cpp', usb_pb ]
+src = [ 'src/api.cpp', 'src/hub.cpp', 'src/client.cpp', 'src/server.cpp', usb_pb ]
 deps = [ libarch, helix_dep, proto_lite_dep, frigg ]
 headers = [
 	'include/protocols/usb/client.hpp',
 	'include/protocols/usb/server.hpp',
 	'include/protocols/usb/api.hpp',
-	'include/protocols/usb/usb.hpp'
+	'include/protocols/usb/usb.hpp',
+	'include/protocols/usb/hub.hpp'
 ]
 
 libusb = shared_library('usb_protocol', src,

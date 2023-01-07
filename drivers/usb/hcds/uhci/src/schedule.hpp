@@ -9,57 +9,8 @@
 
 #include <frg/std_compat.hpp>
 
-struct DeviceState;
-struct ConfigurationState;
-struct InterfaceState;
-struct EndpointState;
-
-// ----------------------------------------------------------------------------
-// Various stuff that needs to be moved to some USB core library.
-// ----------------------------------------------------------------------------
-
-struct BaseController {
-protected:
-	~BaseController() = default;
-
-public:
-	virtual async::result<void> enumerateDevice(bool low_speed) = 0;
-};
-
-namespace hub_status {
-	static constexpr uint32_t connect = 0x01;
-	static constexpr uint32_t enable = 0x02;
-	static constexpr uint32_t reset = 0x04;
-}
-
-struct PortState {
-	uint32_t status;
-	uint32_t changes;
-};
-
-struct Hub {
-protected:
-	~Hub() = default;
-
-public:
-	virtual size_t numPorts() = 0;
-	virtual async::result<PortState> pollState(int port) = 0;
-	virtual async::result<frg::expected<UsbError, bool>> issueReset(int port, bool *low_speed) = 0;
-};
-
-struct Enumerator {
-	Enumerator(BaseController *controller)
-	: _controller{controller} { }
-
-	void observeHub(std::shared_ptr<Hub> hub);
-
-private:
-	async::detached _observePort(std::shared_ptr<Hub> hub, int port);
-	async::result<void> _observationCycle(Hub *hub, int port);
-
-	BaseController *_controller;
-	async::mutex _enumerateMutex;
-};
+#include <protocols/usb/api.hpp>
+#include <protocols/usb/hub.hpp>
 
 // ----------------------------------------------------------------
 // Controller.
@@ -70,11 +21,11 @@ struct Controller final : std::enable_shared_from_this<Controller>, BaseControll
 
 	struct RootHub final : Hub {
 		RootHub(Controller *controller)
-		: _controller{controller} { }
+		: Hub{nullptr, 0}, _controller{controller} { }
 
 		size_t numPorts() override;
 		async::result<PortState> pollState(int port) override;
-		async::result<frg::expected<UsbError, bool>> issueReset(int port, bool *low_speed) override;
+		async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) override;
 
 	private:
 		Controller *_controller;
@@ -87,7 +38,7 @@ struct Controller final : std::enable_shared_from_this<Controller>, BaseControll
 	async::detached _handleIrqs();
 	async::detached _refreshFrame();
 	
-	async::result<void> enumerateDevice(bool low_speed) override;
+	async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) override;
 
 private:
 	protocols::hw::Device _hwDevice;

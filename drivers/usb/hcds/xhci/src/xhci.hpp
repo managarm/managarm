@@ -2,158 +2,87 @@
 #include <queue>
 
 #include <arch/mem_space.hpp>
+#include <arch/dma_pool.hpp>
 #include <async/recurring-event.hpp>
+#include <async/sequenced-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
 #include <helix/timer.hpp>
 #include <protocols/usb/api.hpp>
+#include <protocols/usb/hub.hpp>
+#include <protocols/hw/client.hpp>
 
 #include "spec.hpp"
+#include "context.hpp"
+#include "trb.hpp"
+#include "ring.hpp"
+
+constexpr const char *completionCodeNames[256] = {
+	"Invalid",
+	"Success",
+	"Data buffer error",
+	"Babble detected",
+	"USB transaction error",
+	"TRB error",
+	"Stall error",
+	"Resource error",
+	"Bandwidth error",
+	"No slots available",
+	"Invalid stream type",
+	"Slot not enabled",
+	"Endpoint not enabled",
+	"Short packet",
+	"Ring underrun",
+	"Ring overrun",
+	"VF event ring full",
+	"Parameter error",
+	"Bandwidth overrun",
+	"Context state error",
+	"No ping response",
+	"Event ring full",
+	"Incompatible device",
+	"Missed service",
+	"Command ring stopped",
+	"Command aborted",
+	"Stopped",
+	"Stopped - invalid length",
+	"Stopped - short packet",
+	"Max exit latency too high",
+	"Reserved",
+	"Isoch buffer overrun",
+	"Event lost",
+	"Undefined error",
+	"Invalid stream ID",
+	"Secondary bandwidth error",
+	"Split transaction error",
+};
 
 // ----------------------------------------------------------------
-// controller.
+// Controller
 // ----------------------------------------------------------------
 
-struct Controller : std::enable_shared_from_this<Controller> {
+struct Controller final : BaseController {
 	Controller(protocols::hw::Device hw_device,
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio,
 			helix::UniqueIrq irq, bool useMsis);
 
+	virtual ~Controller() = default;
+
 	async::detached initialize();
 	async::detached handleIrqs();
 	async::detached handleMsis();
 
+	async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) override;
+
+	arch::os::contiguous_pool *memoryPool() {
+		return &_memoryPool;
+	}
+
+	void processEvent(Event ev);
+
 private:
-	struct Event {
-		// generic
-		TrbType type;
-		int slotId;
-		int vfId;
-		int completionCode;
-
-		// transfer event specific
-		uintptr_t trbPointer;
-		size_t transferLen;
-		size_t endpointId;
-		bool eventData;
-
-		// command completion event specific
-		uintptr_t commandPointer;
-		int commandCompletionParameter;
-
-		// port status change event specific
-		size_t portId;
-
-		// doorbell event specific
-		size_t doorbellReason;
-
-		// device notification event specific
-		uintptr_t notificationData;
-		size_t notificationType;
-
-		// raw trb
-		RawTrb raw;
-
-		static Event fromRawTrb(RawTrb trb);
-		void printInfo();
-	};
-
-	struct CommandRing {
-		constexpr static size_t commandRingSize = 128;
-
-		struct CommandEvent {
-			async::oneshot_event completion;
-			Event event;
-		};
-
-		struct alignas(64) CommandRingEntries {
-			RawTrb ent[commandRingSize];
-		};
-
-		CommandRing(Controller *controller);
-		uintptr_t getCrcr();
-
-		void pushRawCommand(RawTrb cmd, CommandEvent *ev = nullptr);
-
-		std::array<CommandEvent *, commandRingSize> _commandEvents;
-		void submit();
-	private:
-		arch::dma_object<CommandRingEntries> _commandRing;
-		size_t _enqueuePtr;
-
-		Controller *_controller;
-
-		bool _pcs; // producer cycle state
-	};
-
-	struct EventRing {
-		constexpr static size_t eventRingSize = 128;
-
-		struct alignas(64) ErstEntry {
-			uint32_t ringSegmentBaseLow;
-			uint32_t ringSegmentBaseHi;
-			uint32_t ringSegmentSize;
-			uint32_t reserved;
-		};
-
-		struct alignas(64) EventRingEntries {
-			RawTrb ent[eventRingSize];
-		};
-
-		static_assert(sizeof(ErstEntry) == 64, "invalid ErstEntry size");
-
-		EventRing(Controller *controller);
-		uintptr_t getErstPtr();
-		uintptr_t getEventRingPtr();
-		size_t getErstSize();
-
-		void processRing();
-
-		std::deque<Event> _dequeuedEvents;
-		async::recurring_event _doorbell;
-	private:
-		arch::dma_object<EventRingEntries> _eventRing;
-		arch::dma_array<ErstEntry> _erst;
-
-		void processEvent(Event ev);
-
-		size_t _dequeuePtr;
-		Controller *_controller;
-
-		int _ccs;
-	};
-
-	struct TransferRing {
-		constexpr static size_t transferRingSize = 128;
-
-		struct TransferEvent {
-			async::oneshot_event completion;
-			Event event;
-		};
-
-		struct alignas(64) TransferRingEntries {
-			RawTrb ent[transferRingSize];
-		};
-
-		TransferRing(Controller *controller);
-		uintptr_t getPtr();
-
-		void pushRawTransfer(RawTrb cmd, TransferEvent *ev = nullptr);
-
-		void updateDequeue(int current);
-		void updateLink();
-
-		std::array<TransferEvent *, transferRingSize> _transferEvents;
-	private:
-		arch::dma_object<TransferRingEntries> _transferRing;
-		size_t _dequeuePtr;
-		size_t _enqueuePtr;
-
-		bool _pcs; // producer cycle state
-	};
-
 	struct Interrupter {
 		Interrupter(int id, Controller *controller);
 		void setEnable(bool enable);
@@ -194,6 +123,10 @@ private:
 		}
 
 		async::recurring_event _doorbell;
+
+		async::result<PortState> pollState();
+		async::result<frg::expected<UsbError, DeviceSpeed>> getGenericSpeed();
+
 	private:
 		uint8_t getLinkStatus();
 		uint8_t getSpeed();
@@ -202,10 +135,31 @@ private:
 		Controller *_controller;
 		SupportedProtocol *_proto;
 		arch::mem_space _space;
+
+		async::sequenced_event _pollEv;
+		uint64_t _pollSeq = 0;
+		PortState _state{};
+	};
+
+	struct RootHub final : Hub {
+		RootHub(Controller *controller, SupportedProtocol &proto);
+
+		size_t numPorts() override;
+		async::result<PortState> pollState(int port) override;
+		async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) override;
+
+		SupportedProtocol *protocol() {
+			return _proto;
+		}
+
+	private:
+		Controller *_controller;
+		SupportedProtocol *_proto;
+		std::vector<std::unique_ptr<Port>> _ports;
 	};
 
 	struct Device final : DeviceData, std::enable_shared_from_this<Device> {
-		Device(int portId, Controller *controller);
+		Device(Controller *controller);
 
 		// Public API inherited from DeviceData.
 		arch::dma_pool *setupPool() override;
@@ -215,22 +169,30 @@ private:
 		async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
 
 		void submit(int endpoint);
-		void pushRawTransfer(int endpoint, RawTrb cmd, TransferRing::TransferEvent *ev = nullptr);
-		async::result<void> allocSlot(int slotType, int packetSize);
+		void pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *ev = nullptr);
 
-		async::result<void> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
+		async::result<frg::expected<UsbError>> enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<Hub> hub, DeviceSpeed speed, int slotType);
 
-		std::array<std::unique_ptr<TransferRing>, 31> _transferRings;
+		async::result<frg::expected<UsbError>> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
 
-		int _slotId;
+		std::array<std::unique_ptr<ProducerRing>, 31> _transferRings;
 
-		async::result<void> setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type, bool drop = false);
+		async::result<frg::expected<UsbError>> setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type);
+
+		async::result<frg::expected<UsbError>> configureHub(std::shared_ptr<Hub> hub, DeviceSpeed speed);
+
+		size_t slot() const {
+			return _slotId;
+		}
 
 	private:
-		int _portId;
+		int _slotId;
+
 		Controller *_controller;
 
-		arch::dma_object<DeviceContext> _devCtx;
+		DeviceContext _devCtx;
+
+		void _initEpCtx(InputContext &ctx, int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type);
 	};
 
 	struct SupportedProtocol {
@@ -310,6 +272,17 @@ private:
 
 	std::vector<std::pair<uint8_t, uint16_t>> getExtendedCapabilityOffsets();
 
+	async::result<Event> submitCommand(RawTrb trb) {
+		ProducerRing::Completion comp;
+		_cmdRing.pushRawTrb(trb, &comp);
+
+		ringDoorbell(0, 0, 0);
+
+		co_await comp.completion.wait();
+
+		co_return comp.event;
+	}
+
 	arch::os::contiguous_pool _memoryPool;
 
 	arch::dma_array<uint64_t> _dcbaa;
@@ -317,16 +290,22 @@ private:
 	std::vector<arch::dma_buffer> _scratchpadBufs;
 
 	std::vector<std::unique_ptr<Interrupter>> _interrupters;
-	std::vector<std::unique_ptr<Port>> _ports;
+	std::vector<Port *> _ports;
 	std::array<std::shared_ptr<Device>, 256> _devices;
 
-	CommandRing _cmdRing;
+	std::vector<std::shared_ptr<RootHub>> _rootHubs;
+
+	ProducerRing _cmdRing;
 	EventRing _eventRing;
 
 	int _numPorts;
 	int _maxDeviceSlots;
 
 	bool _useMsis;
+
+	Enumerator _enumerator;
+
+	bool _largeCtx;
 };
 
 
