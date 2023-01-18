@@ -13,9 +13,11 @@ This section lists the most important coding style guidelines that Managarm foll
 - Braces are placed similarly to existing code.
 - Single line bodies of `if`, `while`, `for` all go to a seperate line, like
 ```c
-if(expression)
+if(expression) {
 	one-line statement;
+}
 ```
+- Single line bodies of `if`, `while`, `for` should use braces for readability.
 - All headers have include guards. We use `#pragma once` for all headers with the exception of public headers in `mlibc`, which uses the classical include guards.
 - Preferred line limit is 100 characters.
 
