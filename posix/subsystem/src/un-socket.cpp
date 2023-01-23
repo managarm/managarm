@@ -7,9 +7,9 @@
 #include <iostream>
 
 #include <async/recurring-event.hpp>
+#include <protocols/fs/common.hpp>
 #include <helix/ipc.hpp>
 #include "fs.bragi.hpp"
-#include "sockutil.hpp"
 #include "un-socket.hpp"
 #include "process.hpp"
 #include "vfs.hpp"
@@ -173,7 +173,7 @@ public:
 
 		auto packet = &_recvQueue.front();
 
-		CtrlBuilder ctrl{max_ctrl_length};
+		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
 		if(_passCreds) {
 			struct ucred creds;

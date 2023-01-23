@@ -8,9 +8,9 @@
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
+#include <protocols/fs/common.hpp>
 #include "nl-socket.hpp"
 #include "process.hpp"
-#include "sockutil.hpp"
 
 namespace nl_socket {
 
@@ -77,7 +77,7 @@ public:
 
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
-		
+
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
 		auto size = packet->buffer.size();
@@ -86,7 +86,7 @@ public:
 		_recvQueue.pop_front();
 		co_return size;
 	}
-	
+
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override {
 		throw std::runtime_error("posix: Fix netlink send()");
@@ -122,10 +122,10 @@ public:
 
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
-		
+
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
-		
+
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
@@ -136,8 +136,8 @@ public:
 		sa.nl_pid = packet->senderPort;
 		sa.nl_groups = packet->group ? (1 << (packet->group - 1)) : 0;
 		memcpy(addr_ptr, &sa, sizeof(struct sockaddr_nl));
-		
-		CtrlBuilder ctrl{max_ctrl_length};
+
+		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
 		if(_passCreds) {
 			struct ucred creds;
@@ -152,19 +152,19 @@ public:
 		_recvQueue.pop_front();
 		co_return RecvResult { RecvData { size, sizeof(struct sockaddr_nl), ctrl.buffer() } };
 	}
-	
+
 	async::result<frg::expected<protocols::fs::Error, size_t>>
 	sendMsg(Process *process, uint32_t flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
-	
+
 	async::result<void> setOption(int option, int value) override {
 		assert(option == SO_PASSCRED);
 		_passCreds = value;
 		co_return;
 	};
-	
+
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t past_seq, int mask,
 			async::cancellation_token cancellation) override {
@@ -202,7 +202,7 @@ public:
 
 	async::result<protocols::fs::Error>
 	bind(Process *, const void *, size_t) override;
-	
+
 	async::result<size_t> sockname(void *, size_t) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -246,7 +246,7 @@ private:
 	uint64_t _inSeq;
 
 	int _socketPort;
-	
+
 	// The actual receive queue of the socket.
 	std::deque<Packet> _recvQueue;
 
@@ -359,7 +359,7 @@ async::result<size_t> OpenFile::sockname(void *addr_ptr, size_t max_addr_length)
 	sa.nl_family = AF_NETLINK;
 	sa.nl_pid = _socketPort;
 	memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_nl), max_addr_length));
-	
+
 	co_return sizeof(struct sockaddr_nl);
 }
 
