@@ -150,7 +150,7 @@ public:
 		}
 
 		_recvQueue.pop_front();
-		co_return RecvResult { RecvData { size, sizeof(struct sockaddr_nl), ctrl.buffer() } };
+		co_return RecvData{ctrl.buffer(), size, sizeof(struct sockaddr_nl), 0};
 	}
 
 	async::result<frg::expected<protocols::fs::Error, size_t>>

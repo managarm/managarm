@@ -317,7 +317,7 @@ struct Tcp4Socket {
 		sa.sin_addr.s_addr = arch::to_endian<arch::big_endian, uint32_t>(self->remoteEp_.ipAddress);
 		memcpy(addrPtr, &sa, std::min(sizeof(struct sockaddr_in), addrLength));
 
-		co_return protocols::fs::RecvData{progress, sizeof(struct sockaddr_in), {}};
+		co_return protocols::fs::RecvData{{}, progress, sizeof(struct sockaddr_in), 0};
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendMsg(void *object,

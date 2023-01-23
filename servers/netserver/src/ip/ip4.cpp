@@ -123,7 +123,7 @@ struct Ip4Socket {
 		};
 		std::memset(addr_buf, 0, addr_size);
 		std::memcpy(addr_buf, &addr, std::min(addr_size, sizeof(addr)));
-		co_return RecvData { copy_size, sizeof(addr), {} };
+		co_return RecvData{{}, copy_size, sizeof(addr), 0};
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendmsg(void *obj,

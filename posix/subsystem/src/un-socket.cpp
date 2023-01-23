@@ -155,7 +155,7 @@ public:
 		assert(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)));
 
 		if(_currentState == State::remoteShutDown)
-			co_return protocols::fs::RecvResult { protocols::fs::RecvData { 0, 0, {} } };
+			co_return protocols::fs::RecvData{{}, 0, 0, 0};
 
 		if(_currentState != State::connected)
 			co_return protocols::fs::Error::notConnected;
@@ -204,7 +204,7 @@ public:
 
 		if(packet->offset == packet->buffer.size())
 			_recvQueue.pop_front();
-		co_return protocols::fs::RecvResult { protocols::fs::RecvData { chunk, 0, ctrl.buffer() } };
+		co_return protocols::fs::RecvData{ctrl.buffer(), chunk, 0, 0};
 	}
 
 	async::result<frg::expected<protocols::fs::Error, size_t>>
