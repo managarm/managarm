@@ -1,9 +1,13 @@
 #pragma once
 
 #include <optional>
+#include <string.h>
+#include <string>
 #include <sys/socket.h>
 #include <variant>
 #include <vector>
+
+#include "fs.bragi.hpp"
 
 namespace protocols {
 namespace fs {
@@ -34,6 +38,34 @@ enum class Error {
 	noBackingDevice = 23,
 	isDirectory = 22,
 };
+
+inline managarm::fs::Errors mapFsError(Error e) {
+	switch(e) {
+		case Error::none: return managarm::fs::Errors::SUCCESS;
+		case Error::fileNotFound: return managarm::fs::Errors::FILE_NOT_FOUND;
+		case Error::endOfFile: return managarm::fs::Errors::END_OF_FILE;
+		case Error::illegalArguments: return managarm::fs::Errors::ILLEGAL_ARGUMENT;
+		case Error::wouldBlock: return managarm::fs::Errors::WOULD_BLOCK;
+		case Error::seekOnPipe: return managarm::fs::Errors::SEEK_ON_PIPE;
+		case Error::brokenPipe: return managarm::fs::Errors::BROKEN_PIPE;
+		case Error::accessDenied: return managarm::fs::Errors::ACCESS_DENIED;
+		case Error::notDirectory: return managarm::fs::Errors::NOT_DIRECTORY;
+		case Error::afNotSupported: return managarm::fs::Errors::AF_NOT_SUPPORTED;
+		case Error::destAddrRequired: return managarm::fs::Errors::DESTINATION_ADDRESS_REQUIRED;
+		case Error::netUnreachable: return managarm::fs::Errors::NETWORK_UNREACHABLE;
+		case Error::messageSize: return managarm::fs::Errors::MESSAGE_TOO_LARGE;
+		case Error::hostUnreachable: return managarm::fs::Errors::HOST_UNREACHABLE;
+		case Error::insufficientPermissions: return managarm::fs::Errors::INSUFFICIENT_PERMISSIONS;
+		case Error::addressInUse: return managarm::fs::Errors::ADDRESS_IN_USE;
+		case Error::addressNotAvailable: return managarm::fs::Errors::ADDRESS_NOT_AVAILABLE;
+		case Error::notConnected: return managarm::fs::Errors::NOT_CONNECTED;
+		case Error::alreadyExists: return managarm::fs::Errors::ALREADY_EXISTS;
+		case Error::illegalOperationTarget: return managarm::fs::Errors::ILLEGAL_OPERATION_TARGET;
+		case Error::noSpaceLeft: return managarm::fs::Errors::NO_SPACE_LEFT;
+		case Error::noBackingDevice: return managarm::fs::Errors::NO_BACKING_DEVICE;
+		case Error::isDirectory: return managarm::fs::Errors::IS_DIRECTORY;
+	}
+}
 
 using ReadResult = std::variant<Error, size_t>;
 
