@@ -8,6 +8,8 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
+#include "../ip/ip4.hpp"
+
 #include <deque>
 #include <vector>
 #include <utility>
@@ -48,6 +50,12 @@ public:
 	};
 
 private:
+	void getRoute(struct nlmsghdr *hdr);
+
+	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
+
+	void sendDone(struct nlmsghdr *hdr);
+
 	int flags;
 
 	// Status management for poll()

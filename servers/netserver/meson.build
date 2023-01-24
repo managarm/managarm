@@ -7,6 +7,9 @@ src = [
 	'src/main.cpp',
 	'src/nic.cpp',
 	'src/netlink/netlink.cpp',
+	'src/netlink/packets.cpp',
+	'src/netlink/queries.cpp',
+	'src/netlink/utils.cpp',
 ]
 
 executable('netserver', src,
