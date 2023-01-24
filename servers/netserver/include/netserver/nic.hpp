@@ -46,8 +46,8 @@ struct Link {
 		arch::dma_buffer frame;
 		arch::dma_buffer_view payload;
 	};
-	inline Link(unsigned int mtu, arch::dma_pool *dmaPool)
-		: mtu(mtu), dmaPool_(dmaPool) {}
+
+	Link(unsigned int mtu, arch::dma_pool *dmaPool);
 	virtual ~Link() = default;
 	//! Receives an entire frame from the network
 	virtual async::result<void> receive(arch::dma_buffer_view) = 0;
@@ -58,10 +58,13 @@ struct Link {
 		size_t payloadSize);
 
 	MacAddress deviceMac();
+	int index();
+	std::string name();
 	unsigned int mtu;
 protected:
 	arch::dma_pool *dmaPool_;
 	MacAddress mac_;
+	int index_;
 };
 
 async::detached runDevice(std::shared_ptr<Link> dev);

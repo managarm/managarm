@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/id-allocator.hpp>
 #include <map>
 #include <variant>
 #include <string>
@@ -8,7 +9,6 @@
 
 #include "fwd-decls.hpp"
 
-#include "id-allocator.hpp"
 #include "mode-object.hpp"
 
 namespace drm_core {

@@ -173,7 +173,7 @@ if build_drivers
 	subdir('hel')
 
 	protocols = [ 'posix', 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
-	core = [ 'core/drm', 'core/virtio', 'mbus' ]
+	core = [ 'core', 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [
 		# libraries
