@@ -97,6 +97,10 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 			self->newRoute(hdr);
 		} else if(hdr->nlmsg_type == RTM_GETROUTE) {
 			self->getRoute(hdr);
+		} else if(hdr->nlmsg_type == RTM_GETLINK) {
+			self->getLink(hdr);
+		} else if(hdr->nlmsg_type == RTM_DELLINK) {
+			self->sendError(hdr, EPERM);
 		} else {
 			std::cout << "netlink: unknown nlmsg_type " << hdr->nlmsg_type << std::endl;
 			co_return protocols::fs::Error::illegalArguments;

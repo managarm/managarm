@@ -29,6 +29,10 @@
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 
+std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &nic::Link::getLinks() {
+	return baseDeviceMap;
+}
+
 std::shared_ptr<nic::Link> nic::Link::byIndex(int index) {
 	if(baseDeviceMap.empty())
 		return {};

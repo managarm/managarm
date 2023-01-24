@@ -6,6 +6,80 @@
 
 namespace nl {
 
+void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
+	const struct ifinfomsg *msg;
+
+	if(auto opt = netlinkMessage<struct ifinfomsg>(hdr, hdr->nlmsg_len))
+		msg = *opt;
+	else {
+		sendError(hdr, EINVAL);
+		return;
+	}
+
+	std::optional<std::string> if_name = std::nullopt;
+	uint32_t ext_mask = 0;
+
+	if(msg) {
+		auto attrs = NetlinkAttr(hdr, nl::packets::ifinfo{});
+
+		if(!attrs.has_value()) {
+			sendError(hdr, EINVAL);
+			return;
+		}
+
+		for(auto attr : *attrs) {
+			switch(attr.type()) {
+				case IFLA_IFNAME: {
+					if(auto opt = attr.str()) {
+						if_name = opt;
+					} else {
+						std::cout << "netlink: string parsing from rtattr failed unexpectedly" << std::endl;
+						sendError(hdr, EINVAL);
+						return;
+					}
+					break;
+				}
+				case IFLA_EXT_MASK: {
+					ext_mask = attr.data<uint32_t>().value_or(0);
+					break;
+				}
+				default: {
+					std::cout << "netlink: ignoring unknown attr " << attr.type() << std::endl;
+					if(attr.type() > RTA_MAX) {
+						sendError(hdr, EINVAL);
+						return;
+					}
+					break;
+				}
+			}
+		}
+	}
+
+	if(!msg || msg->ifi_index == 0) {
+		auto links = nic::Link::getLinks();
+
+		for(auto m = links.begin(); m != links.end(); m++) {
+			if(!if_name.has_value() || if_name == m->second->name()) {
+				sendLinkPacket(m->second, hdr);
+			}
+		}
+	} else {
+		auto nic = nic::Link::byIndex(msg->ifi_index);
+
+		if(!nic) {
+			sendError(hdr, ENODEV);
+			return;
+		}
+
+		if(!if_name.has_value() || if_name == nic->name())
+			sendLinkPacket(nic, hdr);
+	}
+
+	sendDone(hdr);
+
+	return;
+}
+
 void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 	const struct rtmsg *msg;
 

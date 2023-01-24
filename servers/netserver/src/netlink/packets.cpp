@@ -11,6 +11,37 @@
 
 namespace nl {
 
+void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
+	struct nlmsghdr *hdr = reinterpret_cast<struct nlmsghdr *>(h);
+
+	NetlinkBuilder b;
+
+	b.header(RTM_NEWLINK, NLM_F_MULTI, hdr->nlmsg_seq, 0);
+
+	b.message<struct ifinfomsg>({
+		.ifi_family = AF_UNSPEC,
+		.ifi_type = ARPHRD_ETHER,
+		.ifi_index = nic->index(),
+		.ifi_flags = IFF_UP | IFF_LOWER_UP | IFF_RUNNING | IFF_MULTICAST | IFF_BROADCAST,
+	});
+
+	constexpr struct ether_addr broadcast_addr = { {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF} };
+
+	if(!nic->name().empty())
+		b.rtattr_string(IFLA_IFNAME, nic->name());
+	if(nic->mtu)
+		b.rtattr(IFLA_MTU, nic->mtu);
+	b.rtattr(IFLA_TXQLEN, 1000);
+	b.rtattr(IFLA_BROADCAST, broadcast_addr);
+	//TODO(no92): separate out the concept of permanent MAC addresses from userspace-configurable ones
+	b.rtattr(IFLA_ADDRESS, nic->deviceMac());
+	b.rtattr(IFLA_PERM_ADDRESS, nic->deviceMac());
+	b.rtattr(IFLA_OPERSTATE, (uint8_t) IF_OPER_UP);
+	b.rtattr(IFLA_NUM_TX_QUEUES, 1);
+
+	_recvQueue.push_back(b.packet());
+}
+
 void NetlinkSocket::sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route) {
 	NetlinkBuilder b;
 
