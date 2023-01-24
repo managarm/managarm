@@ -445,3 +445,33 @@ head(128):
 tail:
 	string[] path_segments;
 }
+
+message RecvMsgRequest 5 {
+head(128):
+	int32 size;
+	uint32 flags;
+	uint64 ctrl_size;
+	uint64 addr_size;
+}
+
+message RecvMsgReply 6 {
+head(128):
+	Errors error;
+	int64 addr_size;
+	int64 ret_val;
+	uint32 flags;
+}
+
+message SendMsgRequest 7 {
+head(128):
+	int32 size;
+	uint32 flags;
+tail:
+	uint32[] fds;
+}
+
+message SendMsgReply 8 {
+head(128):
+	Errors error;
+	uint64 size;
+}
