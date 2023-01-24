@@ -3,6 +3,18 @@
 
 namespace nl {
 
+void NetlinkSocket::sendAck(struct nlmsghdr *hdr) {
+	NetlinkBuilder b;
+
+	b.header(NLMSG_ERROR, NLM_F_CAPPED, hdr->nlmsg_seq, 0);
+	b.message<struct nlmsgerr>({
+		.error = 0,
+		.msg = *hdr,
+	});
+
+	_recvQueue.push_back(b.packet());
+}
+
 void NetlinkSocket::sendDone(struct nlmsghdr *hdr) {
 	NetlinkBuilder b;
 

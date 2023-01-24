@@ -4,6 +4,7 @@
 #include <async/result.hpp>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace nic {
 struct MacAddress {
@@ -61,6 +62,8 @@ struct Link {
 	int index();
 	std::string name();
 	unsigned int mtu;
+
+	static std::shared_ptr<Link> byIndex(int index);
 protected:
 	arch::dma_pool *dmaPool_;
 	MacAddress mac_;

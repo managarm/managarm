@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <optional>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,17 @@
 
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
+
+std::shared_ptr<nic::Link> nic::Link::byIndex(int index) {
+	if(baseDeviceMap.empty())
+		return {};
+
+	for(auto it = baseDeviceMap.begin(); it != baseDeviceMap.end(); it++)
+		if(it->second->index() == index)
+			return it->second;
+
+	return {};
+}
 
 async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
 	protocols::hw::Device hwDevice(co_await base_entity.bind());
