@@ -20,6 +20,7 @@
 #include "fs.bragi.hpp"
 
 #include "ip/ip4.hpp"
+#include "netlink/netlink.hpp"
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
@@ -114,15 +115,21 @@ async::detached serve(helix::UniqueLane lane) {
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			if (req.domain() != AF_INET) {
-				co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				continue;
-			}
 
-			auto err = ip4().serveSocket(std::move(local_lane),
-					req.type(), req.protocol(), req.flags());
-			if (err != managarm::fs::Errors::SUCCESS) {
-				co_await sendError(err);
+			if(req.domain() == AF_INET) {
+				auto err = ip4().serveSocket(std::move(local_lane),
+						req.type(), req.protocol(), req.flags());
+				if(err != managarm::fs::Errors::SUCCESS) {
+					co_await sendError(err);
+					continue;
+				}
+			} else if(req.domain() == AF_NETLINK) {
+				auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags());
+				async::detach(servePassthrough(std::move(local_lane), nl_socket,
+						&nl::NetlinkSocket::ops));
+			} else {
+				std::cout << "mlibc: unexpected socket domain " << req.domain() << std::endl;
+				co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				continue;
 			}
 

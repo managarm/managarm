@@ -5,7 +5,8 @@ src = [
 	'src/ip/tcp4.cpp',
 	'src/ip/udp4.cpp',
 	'src/main.cpp',
-	'src/nic.cpp'
+	'src/nic.cpp',
+	'src/netlink/netlink.cpp',
 ]
 
 executable('netserver', src,
