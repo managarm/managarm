@@ -8,7 +8,7 @@ project('managarm', ['c', 'cpp'],
 	]
 )
 
-add_project_arguments('-Wimplicit-fallthrough', language: ['c', 'cpp'])
+add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', language: ['c', 'cpp'])
 
 # build documentation
 if get_option('build_docs')
