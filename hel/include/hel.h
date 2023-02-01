@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdint.h>
 
+#include "hel-types.h"
+
 #ifdef __cplusplus
 #define HEL_C_LINKAGE extern "C"
 #else
@@ -166,25 +168,15 @@ struct HelX86VirtualizationRegs {
 	uint64_t apic_base;
 };
 
-//! Integer type that represents an error or success value.
-typedef int HelError;
-
-typedef int HelAbi;
-
-//! Integer handle that represents a kernel resource.
-typedef int64_t HelHandle;
-
-typedef int64_t HelNanotime;
-
 enum {
 	kHelNullHandle = 0,
-	kHelThisUniverse = -1,
-	kHelThisThread = -2,
-	kHelZeroMemory = -3
+	kHelThisUniverse = -1U,
+	kHelThisThread = -2U,
+	kHelZeroMemory = -3U
 };
 
 enum {
-	kHelWaitInfinite = -1
+	kHelWaitInfinite = -1U
 };
 
 enum {
@@ -223,15 +215,6 @@ struct HelAction {
 	void *buffer;
 	size_t length;
 	HelHandle handle;
-};
-
-enum {
-	kHelDescMemory = 1,
-	kHelDescAddressSpace = 2,
-	kHelDescThread = 3,
-	kHelDescEndpoint = 5,
-	kHelDescIrq = 9,
-	kHelDescIo = 10,
 };
 
 struct HelDescriptorInfo {
@@ -396,11 +379,6 @@ enum HelSyscallArgs {
 };
 #endif
 
-enum HelMessageFlags {
-	kHelRequest = 1,
-	kHelResponse = 2
-};
-
 struct HelQueueParameters {
 	uint32_t flags;
 	unsigned int ringShift;
@@ -510,11 +488,6 @@ struct HelEventResult {
 	uint64_t sequence;
 };
 
-enum HelIrqFlags {
-	kHelIrqExclusive = 1,
-	kHelIrqManualAcknowledge = 2
-};
-
 enum HelAckFlags {
 	kHelAckAcknowledge = 2,
 	kHelAckNack = 3,
@@ -533,8 +506,8 @@ struct HelThreadStats {
 enum {
   kHelVmexitHlt = 0,
   kHelVmexitTranslationFault = 1,
-  kHelVmexitError = -1,
-  kHelVmexitUnknownPlatformSpecificExitCode = -2,
+  kHelVmexitError = -1U,
+  kHelVmexitUnknownPlatformSpecificExitCode = -2U,
 };
 
 struct HelVmexitReason {
