@@ -170,13 +170,13 @@ struct HelX86VirtualizationRegs {
 
 enum {
 	kHelNullHandle = 0,
-	kHelThisUniverse = -1U,
-	kHelThisThread = -2U,
-	kHelZeroMemory = -3U
+	kHelThisUniverse = -1,
+	kHelThisThread = -2,
+	kHelZeroMemory = -3
 };
 
 enum {
-	kHelWaitInfinite = -1U
+	kHelWaitInfinite = -1
 };
 
 enum {
@@ -506,8 +506,8 @@ struct HelThreadStats {
 enum {
   kHelVmexitHlt = 0,
   kHelVmexitTranslationFault = 1,
-  kHelVmexitError = -1U,
-  kHelVmexitUnknownPlatformSpecificExitCode = -2U,
+  kHelVmexitError = -1,
+  kHelVmexitUnknownPlatformSpecificExitCode = -2,
 };
 
 struct HelVmexitReason {
