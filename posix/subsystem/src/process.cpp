@@ -1157,15 +1157,30 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state) {
-	assert(pid == -1 || pid > 0);
-
+async::result<frg::expected<WaitError, int>>
+Process::wait(int pid, bool nonBlocking, TerminationState *state) {
+	int groupid = 0;
+	if(pid == -1){
+		groupid = abs(pid);
+	}
+	else if(pid == 0){
+		 groupid = gid();
+	}
 	int result = 0;
 	TerminationState resultState;
 	while(true) {
 		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
-			if(pid > 0 && pid != it->pid())
+			if(pid > 0 && pid != it->pid()){
 				continue;
+			}
+			else if(pid == 0 && groupid != it->gid()){
+				continue;
+			}
+			else if(pid < -1 && groupid != it->gid()){
+				continue;
+			}
+			//The -1 case (status for any child process) is implicitly handled
+			//by never continuing the loop and breaking after one iteration.
 			_notifyQueue.erase(it);
 			result = it->pid();
 			resultState = it->_state;

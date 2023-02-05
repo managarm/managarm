@@ -20,6 +20,12 @@ struct ControllingTerminalState;
 
 typedef int ProcessId;
 
+enum class WaitError {
+	noChild,
+	interrupted,
+	invalid,
+};
+
 // TODO: This struct should store the process' VMAs once we implement them.
 // TODO: We need a clarification here: Does mmap() keep file descriptions open (e.g. for flock())?
 struct VmContext {
@@ -535,7 +541,7 @@ public:
 
 	async::result<void> terminate(TerminationState state);
 
-	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state);
+	async::result<frg::expected<WaitError, int>> wait(int pid, bool nonBlocking, TerminationState *state);
 
 	ResourceUsage accumulatedUsage() {
 		return _childrenUsage;

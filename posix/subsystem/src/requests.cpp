@@ -300,24 +300,40 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(req.flags() & WCONTINUED)
 				std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
 
-			TerminationState state;
-			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state);
-
 			helix::SendBuffer send_resp;
-
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(pid);
-
-			uint32_t mode = 0;
-			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
-				mode |= W_EXITCODE(byExit->code, 0);
-			}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
-				mode |= W_EXITCODE(0, bySignal->signo);
-			}else{
-				assert(std::holds_alternative<std::monostate>(state));
+			
+			TerminationState state;
+			auto pid_error = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state);
+			
+			if(!pid_error) {
+				auto error_code = pid_error.error();
+				if(error_code == WaitError::noChild) {
+					resp.set_error(managarm::posix::Errors::NO_CHILD);
+				}
+				else if(error_code == WaitError::interrupted) {
+					resp.set_error(managarm::posix::Errors::WAIT_INTERRUPTED);
+				}
+				else {
+					 
+				}
+				resp.set_error(managarm::posix::Errors::NO_CHILD);
+				resp.set_pid(-1);
 			}
-			resp.set_mode(mode);
+			else {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(pid_error.value());
+
+				uint32_t mode = 0;
+				if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
+					mode |= W_EXITCODE(byExit->code, 0);
+				}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
+					mode |= W_EXITCODE(0, bySignal->signo);
+				}else{
+					assert(std::holds_alternative<std::monostate>(state));
+				}
+				resp.set_mode(mode);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
