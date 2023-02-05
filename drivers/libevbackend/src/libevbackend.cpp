@@ -224,7 +224,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
-	}else if(req.command() == EVIOSCLOCKID) {
+	}else if(req.command() == EVIOCSCLOCKID) {
 		managarm::fs::SvrResponse resp;
 
 		// TODO: Does this setting affect already queued events in Linux?
