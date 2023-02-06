@@ -57,6 +57,7 @@ private:
 
 	void newAddr(struct nlmsghdr *hdr);
 	void getAddr(struct nlmsghdr *hdr);
+	void deleteAddr(struct nlmsghdr *hdr);
 
 	void sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h);
 	void sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);

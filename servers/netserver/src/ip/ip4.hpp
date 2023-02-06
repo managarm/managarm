@@ -135,7 +135,7 @@ struct Ip4 {
 	bool hasIp(uint32_t ip);
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
 	std::optional<CidrAddress> getCidrByIndex(int index);
-	bool deleteLink(int index);
+	bool deleteLink(CidrAddress addr);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 

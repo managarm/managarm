@@ -369,13 +369,8 @@ std::optional<CidrAddress> Ip4::getCidrByIndex(int index) {
 	return iter->first;
 }
 
-bool Ip4::deleteLink(int index) {
-	auto addr = getLinkByIndex(index);
-
-	if(addr)
-		return ips.erase(addr.value()) > 0;
-
-	return false;
+bool Ip4::deleteLink(CidrAddress addr) {
+	return ips.erase(addr) > 0;
 }
 
 std::optional<uint32_t> Ip4::findLinkIp(uint32_t ipOnNet, nic::Link *link) {
