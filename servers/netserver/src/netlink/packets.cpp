@@ -7,6 +7,7 @@
 #include <linux/if_arp.h>
 #include <linux/neighbour.h>
 #include <linux/rtnetlink.h>
+#include <memory>
 #include <net/ethernet.h>
 
 namespace nl {
@@ -38,6 +39,31 @@ void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 	b.rtattr(IFLA_PERM_ADDRESS, nic->deviceMac());
 	b.rtattr(IFLA_OPERSTATE, (uint8_t) IF_OPER_UP);
 	b.rtattr(IFLA_NUM_TX_QUEUES, 1);
+
+	_recvQueue.push_back(b.packet());
+}
+
+void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic) {
+	auto addr_check = ip4().getCidrByIndex(nic->index());
+
+	if(!addr_check)
+		return;
+
+	auto addr = addr_check.value();
+
+	NetlinkBuilder b;
+	b.header(RTM_NEWADDR, NLM_F_MULTI | NLM_F_DUMP_FILTERED, hdr->nlmsg_seq, 0);
+	b.message<struct ifaddrmsg>({
+		.ifa_family = AF_INET,
+		.ifa_prefixlen = addr.prefix,
+		.ifa_flags = msg->ifa_flags,
+		.ifa_scope = RT_SCOPE_UNIVERSE,
+		.ifa_index = static_cast<uint32_t>(nic->index()),
+	});
+
+	b.rtattr(IFA_ADDRESS, htonl(addr.ip));
+	b.rtattr(IFA_LOCAL, htonl(addr.ip));
+	b.rtattr_string(IFA_LABEL, nic->name());
 
 	_recvQueue.push_back(b.packet());
 }

@@ -353,6 +353,31 @@ std::shared_ptr<nic::Link> Ip4::getLink(uint32_t addr) {
 	return ptr;
 }
 
+std::optional<CidrAddress> Ip4::getCidrByIndex(int index) {
+	auto iter = std::find_if(ips.begin(), ips.end(),
+		[index] (const auto &e) {
+			auto ptr = e.second.lock();
+			if(ptr)
+				return ptr->index() == index;
+			return false;
+		});
+
+	if(iter == ips.end()) {
+		return std::nullopt;
+	}
+
+	return iter->first;
+}
+
+bool Ip4::deleteLink(int index) {
+	auto addr = getLinkByIndex(index);
+
+	if(addr)
+		return ips.erase(addr.value()) > 0;
+
+	return false;
+}
+
 std::optional<uint32_t> Ip4::findLinkIp(uint32_t ipOnNet, nic::Link *link) {
 	for (auto &entry : ips) {
 		if (!entry.second.expired() && entry.first.sameNet(ipOnNet)) {

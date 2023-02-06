@@ -242,4 +242,29 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 	return;
 }
 
+void NetlinkSocket::getAddr(struct nlmsghdr *hdr) {
+	const struct ifaddrmsg *msg;
+
+	if(auto opt = netlinkMessage<struct ifaddrmsg>(hdr, hdr->nlmsg_len))
+		msg = *opt;
+	else {
+		sendError(hdr, EINVAL);
+		return;
+	}
+
+	auto links = nic::Link::getLinks();
+	for(auto m = links.begin(); m != links.end(); m++) {
+		if(!msg || msg->ifa_index == 0) {
+			sendAddrPacket(hdr, msg, m->second);
+		} else if(static_cast<uint32_t>(m->second->index()) == msg->ifa_index) {
+			sendAddrPacket(hdr, msg, m->second);
+			break;
+		}
+	}
+
+	sendDone(hdr);
+
+	return;
+}
+
 } // namespace nl

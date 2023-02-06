@@ -56,8 +56,10 @@ private:
 	void getLink(struct nlmsghdr *hdr);
 
 	void newAddr(struct nlmsghdr *hdr);
+	void getAddr(struct nlmsghdr *hdr);
 
 	void sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h);
+	void sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);
 	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
 
 	void sendDone(struct nlmsghdr *hdr);

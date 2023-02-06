@@ -105,6 +105,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 			self->sendError(hdr, EPERM);
 		} else if(hdr->nlmsg_type == RTM_NEWADDR) {
 			self->newAddr(hdr);
+		} else if(hdr->nlmsg_type == RTM_GETADDR) {
+			self->getAddr(hdr);
 		} else {
 			std::cout << "netlink: unknown nlmsg_type " << hdr->nlmsg_type << std::endl;
 			co_return protocols::fs::Error::illegalArguments;
