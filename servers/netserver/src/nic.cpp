@@ -98,7 +98,7 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 				std::move(frameBuffer), capsule);
 			break;
 		case ETHER_TYPE_ARP:
-			neigh4().feedArp(dstsrc[0], capsule);
+			neigh4().feedArp(dstsrc[0], capsule, dev);
 			break;
 		default:
 			break;

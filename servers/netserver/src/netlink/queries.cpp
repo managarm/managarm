@@ -1,8 +1,10 @@
 #include "netlink.hpp"
 #include "protocols/fs/common.hpp"
+#include "src/ip/arp.hpp"
 #include "src/netlink/packets.hpp"
 
 #include <arpa/inet.h>
+#include <linux/neighbour.h>
 
 namespace nl {
 
@@ -329,6 +331,18 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
 		sendAck(hdr);
+
+	return;
+}
+
+void NetlinkSocket::getNeighbor(struct nlmsghdr *hdr) {
+	auto &table = neigh4().getTable();
+
+	for(auto it = table.begin(); it != table.end(); it++) {
+		sendNeighPacket(hdr, it->first, it->second);
+	}
+
+	sendDone(hdr);
 
 	return;
 }

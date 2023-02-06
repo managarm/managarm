@@ -8,7 +8,8 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
-#include "../ip/ip4.hpp"
+#include "ip/ip4.hpp"
+#include "ip/arp.hpp"
 
 #include <deque>
 #include <vector>
@@ -59,9 +60,12 @@ private:
 	void getAddr(struct nlmsghdr *hdr);
 	void deleteAddr(struct nlmsghdr *hdr);
 
+	void getNeighbor(struct nlmsghdr *hdr);
+
 	void sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h);
 	void sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);
 	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
+	void sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, Neighbours::Entry &entry);
 
 	void sendDone(struct nlmsghdr *hdr);
 	void sendError(struct nlmsghdr *hdr, int err);
