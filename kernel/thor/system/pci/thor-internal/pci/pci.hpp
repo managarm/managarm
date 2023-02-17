@@ -223,6 +223,13 @@ struct PciBar {
 	BarType hostType;
 };
 
+struct PciExpansionRom {
+	smarter::shared_ptr<MemoryView> memory;
+	uintptr_t address;
+	size_t length;
+	ptrdiff_t offset;
+};
+
 // Either a device or a bridge.
 struct PciEntity {
 	PciEntity(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function)
@@ -313,6 +320,7 @@ struct PciDevice final : PciEntity {
 
 	// device configuration
 	PciBar bars[6];
+	PciExpansionRom expansion_rom;
 
 	PciBar *getBars() override {
 		return bars;
@@ -345,6 +353,7 @@ enum {
 	kPciRegularBar0 = 0x10,
 	kPciRegularSubsystemVendor = 0x2C,
 	kPciRegularSubsystemDevice = 0x2E,
+	kPciRegularExpansionRomBaseAddress = 0x30,
 	kPciRegularCapabilities = 0x34,
 	kPciRegularInterruptLine = 0x3C,
 	kPciRegularInterruptPin = 0x3D,
