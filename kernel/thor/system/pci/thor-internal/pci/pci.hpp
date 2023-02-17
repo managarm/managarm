@@ -320,7 +320,7 @@ struct PciDevice final : PciEntity {
 
 	// device configuration
 	PciBar bars[6];
-	PciExpansionRom expansion_rom;
+	PciExpansionRom expansionRom;
 
 	PciBar *getBars() override {
 		return bars;

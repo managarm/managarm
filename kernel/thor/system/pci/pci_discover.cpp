@@ -136,8 +136,8 @@ namespace {
 			}
 
 			managarm::hw::PciExpansionRom<KernelAlloc> msg(*kernelAlloc);
-			msg.set_address(device->expansion_rom.address);
-			msg.set_length(device->expansion_rom.length);
+			msg.set_address(device->expansionRom.address);
+			msg.set_length(device->expansionRom.length);
 			resp.set_expansion_rom(msg);
 
 			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
@@ -175,16 +175,16 @@ namespace {
 			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 			// TODO: improve error handling here.
 			assert(descError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessExpansionRomRequest>) {
+		} else if(preamble.id() == bragi::message_id<managarm::hw::AccessExpansionRomRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::AccessExpansionRomRequest>(reqBuffer, *kernelAlloc);
 
-			if (!req) {
+			if(!req) {
 				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 				co_return true;
 			}
 
-			assert(device->expansion_rom.address);
-			AnyDescriptor descriptor = MemoryViewDescriptor{device->expansion_rom.memory};
+			assert(device->expansionRom.address);
+			AnyDescriptor descriptor = MemoryViewDescriptor{device->expansionRom.memory};
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -1165,15 +1165,15 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			io->writeConfigWord(bus, slot, function, kPciRegularExpansionRomBaseAddress, expansion_rom_addr | 1);
 			// Map it
 			auto offset = expansion_rom_addr & (kPageSize - 1);
-			device->expansion_rom.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+			device->expansionRom.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
 						expansion_rom_addr & ~(kPageSize - 1),
 						(expansion_rom_length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 						CachingMode::uncached); // Some cards have problems with caching the PCI Expansion Rom
-			device->expansion_rom.offset = offset;
-			device->expansion_rom.address = expansion_rom_addr;
-			device->expansion_rom.length = expansion_rom_length;
+			device->expansionRom.offset = offset;
+			device->expansionRom.address = expansion_rom_addr;
+			device->expansionRom.length = expansion_rom_length;
 		} else {
-			device->expansion_rom.address = 0;
+			device->expansionRom.address = 0;
 		}
 
 		auto irq_index = static_cast<IrqIndex>(io->readConfigByte(bus, slot, function,
