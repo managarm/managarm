@@ -1,12 +1,18 @@
 #include <iostream>
+#include <memory>
 #include <string.h>
 #include <coroutine>
 #include <queue>
+#include <span>
+#include <algorithm>
 #include <bitset>
+#include <optional>
 #include <async/result.hpp>
 #include <linux/fuse.h>
 
 #include "common.hpp"
+#include "process.hpp"
+#include "file.hpp"
 #include "fuse.hpp"
 
 namespace fuse {
@@ -15,34 +21,28 @@ namespace fuse {
 // Such a chunk can either be a struct from fuse.h, or raw data.
 struct FusePacket {
 private:
-	unsigned char *m_data = nullptr;
-	size_t m_size = 0;
+	std::vector<unsigned char> m_data;
 	size_t m_read_bytes = 0;
 public:
-	size_t read(unsigned char *buffer, size_t nbytes) {
-		size_t delta = m_size - m_read_bytes;
-		if(nbytes < delta){
-			memcpy(buffer, m_data + m_read_bytes, nbytes);
-			m_read_bytes += nbytes;
-			return nbytes;
+	size_t read(std::span<unsigned char> buffer) {
+		size_t delta = m_data.size() - m_read_bytes;
+		size_t new_read_bytes = m_data.size();
+		size_t byte_count = delta;
+		if(buffer.size() < delta) {
+			new_read_bytes = m_read_bytes + buffer.size();
+			byte_count = buffer.size();
 		}
-		memcpy(buffer, m_data + m_read_bytes, delta);
-		m_read_bytes = m_size;
-		return delta;
+		std::copy(m_data.begin() + m_read_bytes, m_data.begin() + new_read_bytes, buffer.begin());
+		m_read_bytes = new_read_bytes;
+		return byte_count;
 	}
 
 	bool all_read() {
-		return m_size == m_read_bytes;
+		return m_data.size() == m_read_bytes;
 	}
 	
-	FusePacket(void *data, size_t size) {
-		m_data = (unsigned char*)calloc(size, sizeof(unsigned char));
-		memcpy(m_data, data, size);
-		m_size = size;
-	}
-
-	~FusePacket() {
-		free(m_data);
+	FusePacket(std::vector<unsigned char> data) {
+		m_data = data;
 	}
 };
 
@@ -59,14 +59,11 @@ public:
 		return m_unique++;
 	}
 
-	size_t read(unsigned char *buffer, size_t nbytes) {
+	size_t read(std::span<unsigned char> buffer) {
 		size_t total_read = 0;
-		size_t nbytes_to_read = nbytes;
-		while(total_read < nbytes && !m_queue.empty()) {
-			auto packet = m_queue.front();
-			auto read_bytes = packet.read(buffer + total_read, nbytes_to_read);
-			nbytes_to_read -= read_bytes;
-			total_read += read_bytes;
+		while(total_read < buffer.size() && !m_queue.empty()) {
+			auto& packet = m_queue.front();
+			total_read += packet.read(buffer.subspan(total_read));
 			if(packet.all_read()) {
 				m_queue.pop();
 			}
@@ -74,8 +71,8 @@ public:
 		return total_read;
 	}
 
-	void save(FusePacket packet) {
-		m_queue.push(packet);
+	void save(std::vector<unsigned char> data) {
+		m_queue.emplace(data);
 	}
 };
 
@@ -87,17 +84,13 @@ private:
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t length) override {
-		size_t read_count = m_queue.read((unsigned char*)data, length);
+		size_t read_count = m_queue.read(std::span((unsigned char*)data, length));
 		co_return read_count;
 	}
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length) override {
-		if(length < sizeof(fuse_out_header)){
-			co_return Error::illegalArguments;
-		}
-
-		co_return Error::success;
+		co_return Error::noSpaceLeft;
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -128,8 +121,8 @@ public:
 			.minor = FUSE_KERNEL_MINOR_VERSION,
 		};
 
-		m_queue.save(FusePacket(&header, sizeof(fuse_in_header)));
-		m_queue.save(FusePacket(&init, sizeof(fuse_init_in)));
+		m_queue.save(std::vector((unsigned char*)&header, (unsigned char*)&header + sizeof(fuse_in_header)));
+		m_queue.save(std::vector((unsigned char*)&init, (unsigned char*)&init + sizeof(fuse_init_in)));
 	}
 };
 
@@ -163,6 +156,126 @@ struct FuseDevice final : UnixDevice {
 
 std::shared_ptr<UnixDevice> createFuseDevice() {
 	return std::make_shared<FuseDevice>();
+}
+
+struct FuseNode : FsNode {
+private:
+	smarter::shared_ptr<File, FileHandle> m_fuse_file;
+public:
+	VfsType getType() override {
+	    return VfsType::directory;
+	}
+
+	FuseNode(smarter::shared_ptr<File, FileHandle> fuse_file)
+	: FsNode(getAnonymousSuperblock()) {
+		m_fuse_file = fuse_file;
+	}
+};
+
+struct FuseRootNode final : FuseNode, std::enable_shared_from_this<FuseRootNode> {
+	using FuseNode::FuseNode;
+};
+
+struct FuseRootLink final : FsLink {
+private:
+	std::shared_ptr<FuseRootNode> m_root;
+public:
+	FuseRootLink(std::shared_ptr<FuseRootNode> root) {
+		m_root = root;
+	}
+
+	std::shared_ptr<FsNode> getOwner() override {
+		throw std::logic_error("posix: FUSE RootLink has no owner");
+	}
+
+	std::string getName() override {
+		throw std::logic_error("posix: FUSE RootLink has no name");
+	}
+
+	std::shared_ptr<FsNode> getTarget() override {
+		return m_root->shared_from_this();
+	}
+};
+
+struct FuseSettings {
+private:
+	int m_fd;
+	bool m_has_fd;
+public:
+	void set_fd(int fd) {
+		m_fd = fd;
+		m_has_fd = true;
+	}
+
+	int fd() {
+		return m_fd;
+	}
+
+	bool has_fd() {
+		return m_has_fd;
+	}
+};
+
+std::optional<FuseSettings> parseArguments(std::string arguments) {
+	std::vector<std::string> split_args;
+	std::string arg;
+
+	for(auto c : arguments) {
+		if(c == ','){
+			if(arg.size()){
+				split_args.push_back(arg);
+				arg = "";
+			}
+			continue;
+		}
+		arg.push_back(c);
+	}
+
+	if(arg.size()) {
+		split_args.push_back(arg);
+	}
+
+	if(!split_args.size()) {
+		return {};
+	}
+
+	FuseSettings settings;
+	for(auto s : split_args){
+		if(s.substr(0, 3) == "fd=") {
+			std::string num = s.substr(3);
+			try {
+				size_t pos = 0;
+				settings.set_fd(std::stoi(num, &pos));
+				if(pos != num.size()){
+					return {};
+				}
+			}
+			catch(const std::exception &e) {
+				std::cout << "posix: " << e.what() << std::endl;
+				return {};
+			}
+		}
+		else {
+			continue; //TODO: handle other arguments
+		}
+	}
+	return settings;
+}
+
+std::optional<std::shared_ptr<FsLink>> getFsRoot(std::shared_ptr<Process> proc, std::string arguments) {
+	auto o_settings = parseArguments(arguments);
+	if(!o_settings.has_value()) {
+		return {};
+	}
+	FuseSettings settings = *o_settings;
+	if(!settings.has_fd()) {
+		return {};
+	}
+	auto file = proc->fileContext()->getFile(settings.fd());
+	if(file.get() == nullptr || file->structName().type() != "fuse-file") {
+		return {};
+	}
+	return std::make_shared<FuseRootLink>(std::make_shared<FuseRootNode>(file));
 }
 
 } // namespace fuse

@@ -29,6 +29,7 @@ enum Errors {
 	NO_CHILD_PROCESSES = 25,
 	SYMBOLIC_LINK_LOOP = 26,
 	ALREADY_CONNECTED = 27,
+	UNKNOWN_FILESYSTEM = 28,
 	INTERNAL_ERROR = 99
 }
 
@@ -444,6 +445,7 @@ tail:
 	string path;
 	string target_path;
 	string fs_type;
+	string arguments;
 }
 
 message SymlinkAtRequest 30 {

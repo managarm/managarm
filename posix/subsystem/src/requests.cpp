@@ -22,6 +22,7 @@
 #include "inotify.hpp"
 #include "memfd.hpp"
 #include "ostrace.hpp"
+#include "fuse.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
 #include "signalfd.hpp"
@@ -750,11 +751,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await target.first->mount(target.second, pts::getFsRoot());
 			}else if(req->fs_type() == "cgroup2") {
 				co_await target.first->mount(target.second, getCgroupfs());
-			}else{
-				if(req->fs_type() != "ext2") {
-					std::cout << "posix: Trying to mount unsupported FS of type: " << req->fs_type() << std::endl;
-				}
-				assert(req->fs_type() == "ext2");
+			}else if(req->fs_type() == "ext2") {
 				auto sourceResult = co_await resolve(self->fsContext()->getRoot(),
 						self->fsContext()->getWorkingDirectory(), req->path(), self.get());
 				if(!sourceResult) {
@@ -775,6 +772,30 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 				auto link = co_await device->mount();
 				co_await target.first->mount(target.second, std::move(link), source);
+			}else{
+				std::string type;
+				for(auto c : req->fs_type()){
+					type.push_back(c);
+					if(c == '.')
+						break;
+				}
+
+				if(type != "fuse." && type != "fuseblk."){
+					co_await sendErrorResponse(managarm::posix::Errors::UNKNOWN_FILESYSTEM);
+					continue;
+				}
+
+				std::cout << "posix: " << req->fs_type() << std::endl;
+				std::cout << "posix: " << req->arguments() << std::endl;
+				std::cout << "posix: " << self->name() << std::endl;
+
+				auto o_root = fuse::getFsRoot(self, req->arguments());
+				if(!o_root.has_value()){
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+
+				co_await target.first->mount(target.second, *o_root);
 			}
 
 			logRequest(logRequests, "MOUNT", "succeeded");
