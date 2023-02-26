@@ -21,12 +21,18 @@ struct BarInfo {
 	ptrdiff_t offset;
 };
 
+struct ExpansionRomInfo {
+	uintptr_t address;
+	size_t length;
+};
+
 struct Capability {
 	unsigned int type;
 };
 
 struct PciInfo {
 	BarInfo barInfo[6];
+	ExpansionRomInfo expansionRomInfo;
 	std::vector<Capability> caps;
 	unsigned int numMsis;
 };
@@ -45,6 +51,7 @@ struct Device {
 
 	async::result<PciInfo> getPciInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
+	async::result<helix::UniqueDescriptor> accessExpansionRom();
 	async::result<helix::UniqueDescriptor> accessIrq();
 	async::result<helix::UniqueDescriptor> installMsi(int index);
 

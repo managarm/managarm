@@ -21,6 +21,11 @@ struct PciBar {
 	uint32 offset;
 }
 
+struct PciExpansionRom {
+	uint64 address;
+	uint64 length;
+}
+
 struct PciCapability {
 	uint32 type;
 	uint64 offset;
@@ -37,6 +42,10 @@ head(128):
 }
 
 message AccessIrqRequest 3 {
+head(128):
+}
+
+message AccessExpansionRomRequest 16 {
 head(128):
 }
 
@@ -101,6 +110,7 @@ tail:
 		tag(1) PciBar[] bars;
 		tag(2) PciCapability[] capabilities;
 		tag(9) uint32 num_msis;
+		tag(10) PciExpansionRom expansion_rom;
 
 		tag(3) uint32 word;
 

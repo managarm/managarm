@@ -81,6 +81,9 @@ async::result<PciInfo> Device::getPciInfo() {
 		info.barInfo[i].offset = resp.bars(i).offset();
 	}
 
+	info.expansionRomInfo.address = resp.expansion_rom().address();
+	info.expansionRomInfo.length = resp.expansion_rom().length();
+
 	co_return info;
 }
 
@@ -121,6 +124,44 @@ async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
 
 	auto bar = pull_bar.descriptor();
 	co_return std::move(bar);
+}
+
+async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
+	managarm::hw::AccessExpansionRomRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+		_lane,
+		helix_ng::offer(
+			helix_ng::want_lane,
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
+	HEL_CHECK(pull_bar.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	auto expansion_rom = pull_bar.descriptor();
+	co_return std::move(expansion_rom);
 }
 
 async::result<helix::UniqueDescriptor> Device::accessIrq() {
