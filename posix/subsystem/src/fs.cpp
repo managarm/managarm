@@ -73,6 +73,10 @@ std::optional<std::string> FsLink::getProcFsDescription() {
 	return std::nullopt;
 }
 
+async::result<frg::expected<Error>> FsLink::deobstruct() {
+	throw std::runtime_error("posix: Object does not implement FsLink::deobstruct()");
+}
+
 // --------------------------------------------------------
 // FsNode implementation.
 // --------------------------------------------------------

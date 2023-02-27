@@ -230,6 +230,7 @@ struct NodeOperations {
 		std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
 
 	async::result<void> (*obstructLink)(std::shared_ptr<void> object, std::string name);
+	async::result<void> (*deobstructLink)(std::shared_ptr<void> object, std::string name);
 	async::result<TraverseLinksResult> (*traverseLinks)(std::shared_ptr<void> object, std::deque<std::string> path);
 };
 

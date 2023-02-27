@@ -30,6 +30,8 @@ enum Errors {
 	SYMBOLIC_LINK_LOOP = 26,
 	ALREADY_CONNECTED = 27,
 	UNKNOWN_FILESYSTEM = 28,
+	NOT_A_MOUNTPOINT = 29,
+	EXPIRE_MOUNT = 30,
 	INTERNAL_ERROR = 99
 }
 
@@ -448,7 +450,14 @@ tail:
 	string arguments;
 }
 
-message SymlinkAtRequest 30 {
+message Umount2Request 30 {
+head(128):
+	int32 flags;
+tail:
+	string target;
+}
+
+message SymlinkAtRequest 31 {
 head(128):
 	int32 fd;
 tail:
@@ -456,11 +465,11 @@ tail:
 	string target_path;
 }
 
-message GetPpidRequest 31 {
+message GetPpidRequest 32 {
 head(128):
 }
 
-message MknodAtRequest 32 {
+message MknodAtRequest 33 {
 head(128):
 	int32 dirfd;
 	int32 mode;
@@ -469,39 +478,39 @@ tail:
 	string path;
 }
 
-message GetPgidRequest 33 {
+message GetPgidRequest 34 {
 head(128):
 	int64 pid;
 }
 
-message SetPgidRequest 34 {
+message SetPgidRequest 35 {
 head(128):
 	int64 pid;
 	int64 pgid;
 }
 
-message GetSidRequest 35 {
+message GetSidRequest 36 {
 head(128):
 	int64 pid;
 }
 
-message IoctlFioclexRequest 36 {
+message IoctlFioclexRequest 37 {
 head(128):
 	int32 fd;
 }
 
-message MemFdCreateRequest 37 {
+message MemFdCreateRequest 38 {
 head(128):
 	int32 flags;
 tail:
 	string name;
 }
 
-message GetPidRequest 38 {
+message GetPidRequest 39 {
 head(128):
 }
 
-message AccessAtRequest 39 {
+message AccessAtRequest 40 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -509,34 +518,34 @@ tail:
 	string path;
 }
 
-message MkdirAtRequest 40 {
+message MkdirAtRequest 41 {
 head(128):
 	int32 fd;
 tail:
 	string path;
 }
 
-message GetAffinityRequest 41 {
+message GetAffinityRequest 42 {
 head(128):
 	int64 pid;
 	uint64 size;
 }
 
-message SetAffinityRequest 42 {
+message SetAffinityRequest 43 {
 head(128):
 	int64 pid;
 tail:
 	uint8[] mask;
 }
 
-message WaitIdRequest 43 {
+message WaitIdRequest 44 {
 head(128):
 	uint16 idtype;
 	uint64 id;
 	int32 flags;
 }
 
-message WaitIdResponse 44 {
+message WaitIdResponse 45 {
 head(128):
 	Errors error;
 	int64 pid;
@@ -545,14 +554,14 @@ head(128):
 	uint64 sig_code;
 }
 
-message ReadlinkAtRequest 45 {
+message ReadlinkAtRequest 46 {
 head(128):
 	int32 fd;
 tail:
 	string path;
 }
 
-message NetserverRequest 46 {
+message NetserverRequest 47 {
 head(128):
 }
 
@@ -578,7 +587,7 @@ head(128):
 	int64 value;
 }
 
-message RebootRequest 47 {
+message RebootRequest 109 {
 head(128):
 	int64 cmd;
 }

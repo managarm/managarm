@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/mount.h>
 
 #include <helix/timer.hpp>
 
@@ -799,6 +800,113 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			logRequest(logRequests, "MOUNT", "succeeded");
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::Umount2Request::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::Umount2Request>(recv_head, tail);
+
+			if(!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: UMOUNT2 with target '" << req->target() << "'" << std::endl;
+
+			if(req->flags() & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW)) {
+				std::cout << "posix: UMOUNT2 encountered unknown flags" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			} else if((req->flags() & MNT_EXPIRE) && ((req->flags() & MNT_FORCE) || (req->flags() & MNT_DETACH))) {
+				std::cout << "posix: UMOUNT2 MNT_EXPIRE is incompatible with MNT_FORCE and MNT_DETACH" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			bool force = false;
+			bool detach = false;
+			bool expire = false;
+			bool nofollow = false;
+
+			if(req->flags() & MNT_FORCE) {
+				std::cout << "posix: UMOUNT2 does not implement MNT_FORCE flag" << std::endl;
+				force = true;
+			}
+			if(req->flags() & MNT_DETACH) {
+				std::cout << "posix: UMOUNT2 does not implement MNT_DETACH flag" << std::endl;
+				detach = true;
+			}
+			if(req->flags() & MNT_EXPIRE) {
+				std::cout << "posix: UMOUNT2 does not implement MNT_EXPIRE flag" << std::endl;
+				expire = true;
+			}
+			if(req->flags() & UMOUNT_NOFOLLOW) {
+				std::cout << "posix: UMOUNT2 does not implement UMOUNT_NOFOLLOW flag" << std::endl;
+				nofollow = true;
+			}
+
+			(void)force;
+			(void)detach;
+			(void)expire;
+			(void)nofollow; //TODO: implement flags
+
+			auto resolveResult = co_await resolve(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req->target(), self.get());
+			if(!resolveResult) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+			}
+			auto target = resolveResult.value();
+			auto view = target.first; //the view containing this mount
+			auto link = target.second; //the link where this fs is mounted
+			
+			if(view->getOrigin() != link) {
+				std::cout << "posix: UMOUNT2 '" << req->target() << "' is not a mountpoint" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::NOT_A_MOUNTPOINT);
+				continue;
+			}
+
+			co_await view->unmount(view);
+			resolveResult = co_await resolve(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(), req->target(), self.get());
+			if(!resolveResult) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+			}
+			
+			if(logRequests)
+				std::cout << "posix:     UMOUNT2 succeeds" << std::endl;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

@@ -62,6 +62,7 @@ public:
 	virtual std::shared_ptr<FsNode> getTarget() = 0;
 	virtual async::result<frg::expected<Error>> obstruct();
 	virtual std::optional<std::string> getProcFsDescription();
+	virtual async::result<frg::expected<Error>> deobstruct();
 };
 
 struct FsSuperblock {

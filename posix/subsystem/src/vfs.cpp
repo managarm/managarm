@@ -55,6 +55,17 @@ async::result<void> MountView::mount(std::shared_ptr<FsLink> anchor, std::shared
 	// TODO: check insert return value
 }
 
+async::result<void> MountView::unmount(std::shared_ptr<MountView> view) {
+	_anchor->deobstruct();
+
+	if(_parent) {
+		size_t erased = _parent->_mounts.erase(shared_from_this());
+		assert(erased);
+	}
+
+	co_return;
+}
+
 std::shared_ptr<MountView> MountView::getMount(std::shared_ptr<FsLink> link) const {
 	auto it = _mounts.find(link);
 	if(it == _mounts.end())

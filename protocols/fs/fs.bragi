@@ -29,7 +29,8 @@ enum Errors {
 	DIRECTORY_NOT_EMPTY = 26,
 	CONNECTION_REFUSED = 27,
 	INTERNAL_ERROR = 28,
-	ALREADY_CONNECTED = 29
+	ALREADY_CONNECTED = 29,
+	EXPIRE_MOUNT = 30
 }
 
 consts FileType int64 {
@@ -78,6 +79,7 @@ enum CntReqType {
 	NODE_UNLINK = 29,
 	NODE_OPEN = 13,
 	NODE_READ_SYMLINK = 15,
+	NODE_DEOBSTRUCT_LINK = 42,
 	NODE_OBSTRUCT_LINK = 43,
 	NODE_TRAVERSE_LINKS = 44,
 
@@ -248,7 +250,13 @@ head(128):
 
 		tag(60) int32 mode;
 
-		// used by NODE_OBSTRUCT_LINK
+		// used by utimensat
+		tag(63) uint64 atime_sec;
+		tag(64) uint64 atime_nsec;
+		tag(65) uint64 mtime_sec;
+		tag(66) uint64 mtime_nsec;
+
+		// used by NODE_OBSTRUCT_LINK and NODE_DEOBSTRUCT_LINK
 		tag(67) string link_name;
 
 		// used by NODE_TRAVERSE_LINKS
