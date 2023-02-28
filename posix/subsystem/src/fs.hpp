@@ -135,7 +135,7 @@ protected:
 	~FsNode() = default;
 
 public:
-	virtual VfsType getType();
+	virtual async::result<VfsType> getType();
 
 	// TODO: This should be async.
 	virtual async::result<frg::expected<Error, FileStats>> getStats();
@@ -250,9 +250,9 @@ private:
 	struct EmbeddedNode final : FsNode {
 		EmbeddedNode() : FsNode(getAnonymousSuperblock()) {}
 
-		VfsType getType() override {
+		async::result<VfsType> getType() override {
 			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
-			return node->fileType_;
+			co_return node->fileType_;
 		}
 
 		async::result<frg::expected<Error, FileStats>> getStats() override {

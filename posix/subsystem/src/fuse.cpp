@@ -162,8 +162,8 @@ struct FuseNode : FsNode {
 private:
 	smarter::shared_ptr<File, FileHandle> m_fuse_file;
 public:
-	VfsType getType() override {
-	    return VfsType::directory;
+	async::result<VfsType> getType() override {
+	    co_return VfsType::directory;
 	}
 
 	FuseNode(smarter::shared_ptr<File, FileHandle> fuse_file)

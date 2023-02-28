@@ -234,8 +234,8 @@ AttributeNode::AttributeNode(Object *object, Attribute *attr)
 	inode_ = static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().allocate();
 }
 
-VfsType AttributeNode::getType() {
-	return VfsType::regular;
+async::result<VfsType> AttributeNode::getType() {
+	co_return VfsType::regular;
 }
 
 async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
@@ -284,8 +284,8 @@ SymlinkNode::SymlinkNode(std::weak_ptr<Object> target)
 	inode_ = static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().allocate();
 }
 
-VfsType SymlinkNode::getType() {
-	return VfsType::symlink;
+async::result<VfsType> SymlinkNode::getType() {
+	co_return VfsType::symlink;
 }
 
 async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
@@ -371,8 +371,8 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
-VfsType DirectoryNode::getType() {
-	return VfsType::directory;
+async::result<VfsType> DirectoryNode::getType() {
+	co_return VfsType::directory;
 }
 
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {

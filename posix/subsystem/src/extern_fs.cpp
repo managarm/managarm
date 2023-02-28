@@ -275,8 +275,8 @@ private:
 
 struct RegularNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::regular;
+	async::result<VfsType> getType() override {
+		co_return VfsType::regular;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -338,8 +338,8 @@ public:
 
 struct SymlinkNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::symlink;
+	async::result<VfsType> getType() override {
+		co_return VfsType::symlink;
 	}
 
 	expected<std::string> readSymlink(FsLink *, Process *) override {
@@ -495,8 +495,8 @@ private:
 
 struct DirectoryNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::directory;
+	async::result<VfsType> getType() override {
+		co_return VfsType::directory;
 	}
 
 	std::shared_ptr<FsLink> treeLink() override {

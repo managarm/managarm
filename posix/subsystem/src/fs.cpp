@@ -81,7 +81,7 @@ async::result<frg::expected<Error>> FsLink::deobstruct() {
 // FsNode implementation.
 // --------------------------------------------------------
 
-VfsType FsNode::getType() {
+async::result<VfsType> FsNode::getType() {
 	throw std::runtime_error("getType() is not implemented for this FsNode");
 }
 

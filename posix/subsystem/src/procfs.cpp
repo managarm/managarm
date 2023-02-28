@@ -183,8 +183,8 @@ std::shared_ptr<FsNode> Link::getTarget() {
 
 RegularNode::RegularNode() : FsNode(&procfsSuperblock, 0) {}
 
-VfsType RegularNode::getType() {
-	return VfsType::regular;
+async::result<VfsType> RegularNode::getType() {
+	co_return VfsType::regular;
 }
 
 async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
@@ -369,8 +369,8 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	return link;
 }
 
-VfsType DirectoryNode::getType() {
-	return VfsType::directory;
+async::result<VfsType> DirectoryNode::getType() {
+	co_return VfsType::directory;
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
@@ -443,6 +443,10 @@ async::result<frg::expected<Error, FileStats>> LinkNode::getStatsInternal(Proces
 	stats.ctimeSecs = now.tv_sec;
 	stats.ctimeNanos = now.tv_nsec;
 	co_return stats;
+}
+
+async::result<VfsType> SelfLink::getType() {
+	co_return VfsType::symlink;
 }
 
 async::result<std::string> UptimeNode::show(Process *) {
@@ -555,6 +559,24 @@ expected<std::string> SelfThreadLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid()) + "/task/" + std::to_string(process->tid());
 }
 
+async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs SelfLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+async::result<VfsType> SelfThreadLink::getType() {
+	co_return VfsType::symlink;
+}
+
+async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs SelfThreadLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+async::result<VfsType> ExeLink::getType() {
+	co_return VfsType::symlink;
+}
+
 expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
 	co_return _process->path();
 }
@@ -584,7 +606,7 @@ async::result<std::string> MapNode::show(Process *) {
 			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
 			auto fileStats = co_await fsNode->getStats();
 			DeviceId deviceId{};
-			if (fsNode->getType() == VfsType::charDevice || fsNode->getType() == VfsType::blockDevice)
+			if (co_await fsNode->getType() == VfsType::charDevice || co_await fsNode->getType() == VfsType::blockDevice)
 				deviceId = fsNode->readDevice();
 			assert(fileStats);
 
@@ -628,6 +650,10 @@ async::result<void> CommNode::store(std::string name) {
 
 async::result<frg::expected<Error, FileStats>> CommNode::getStats() {
 	co_return co_await getStatsInternal(_process);
+}
+
+async::result<VfsType> RootLink::getType() {
+	co_return VfsType::symlink;
 }
 
 expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
@@ -827,6 +853,10 @@ async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
 	co_return co_await getStatsInternal(_process);
 }
 
+async::result<VfsType> CwdLink::getType() {
+	co_return VfsType::symlink;
+}
+
 expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
 }
@@ -888,8 +918,8 @@ helix::BorrowedDescriptor FdDirectoryFile::getPassthroughLane() {
 FdDirectoryNode::FdDirectoryNode(Process *process)
 : FsNode(&procfsSuperblock), _process{process} {}
 
-VfsType FdDirectoryNode::getType() {
-	return VfsType::directory;
+async::result<VfsType> FdDirectoryNode::getType() {
+	co_return VfsType::directory;
 }
 
 async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
@@ -1055,8 +1085,8 @@ async::result<frg::expected<Error, FileStats>> MountInfoNode::getStats() {
 FdInfoDirectoryNode::FdInfoDirectoryNode(Process *process)
 : FsNode(&procfsSuperblock), _process{process} {}
 
-VfsType FdInfoDirectoryNode::getType() {
-	return VfsType::directory;
+async::result<VfsType> FdInfoDirectoryNode::getType() {
+	co_return VfsType::directory;
 }
 
 async::result<frg::expected<Error, FileStats>> FdInfoDirectoryNode::getStats() {
