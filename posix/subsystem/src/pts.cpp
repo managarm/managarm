@@ -1,4 +1,5 @@
 #include <asm/ioctls.h>
+#include <numeric>
 #include <termios.h>
 #include <sys/epoll.h>
 #include <signal.h>
@@ -620,6 +621,22 @@ async::result<void> MasterFile::ioctl(Process *process, managarm::fs::CntRequest
 		// XXX: This should deliver SIGWINCH to the parent under certain conditions
 		UserSignal info;
 		_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
+	}else if(req.command() == FIONREAD) {
+		managarm::fs::SvrResponse resp;
+
+		size_t count = std::transform_reduce(_channel->masterQueue.begin(), _channel->masterQueue.end(), size_t{0}, std::plus<>(), [] (const Packet &p) {
+			return p.buffer.size() - p.offset;
+		});
+
+		resp.set_fionread_count(count);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
 	}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
 			|| req.command() == TIOCSPGRP || req.command() == TIOCGSID) {
 		co_await _channel->commonIoctl(process, std::move(req), std::move(conversation));
