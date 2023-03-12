@@ -141,6 +141,8 @@ struct AtomicState {
 	std::shared_ptr<ConnectorState> connector(uint32_t id);
 
 	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>>& crtc_states(void);
+	std::unordered_map<uint32_t, std::shared_ptr<PlaneState>>& plane_states(void);
+	std::unordered_map<uint32_t, std::shared_ptr<ConnectorState>>& connector_states(void);
 
 private:
 	Device *_device;

@@ -140,6 +140,14 @@ std::unordered_map<uint32_t, std::shared_ptr<drm_core::CrtcState>>& drm_core::At
 	return _crtcStates;
 }
 
+std::unordered_map<uint32_t, std::shared_ptr<drm_core::PlaneState>>& drm_core::AtomicState::plane_states(void) {
+	return _planeStates;
+}
+
+std::unordered_map<uint32_t, std::shared_ptr<drm_core::ConnectorState>>& drm_core::AtomicState::connector_states(void) {
+	return _connectorStates;
+}
+
 drm_core::Device::Device() {
 	struct SrcWProperty : drm_core::Property {
 		SrcWProperty()
