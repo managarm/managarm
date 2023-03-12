@@ -368,7 +368,7 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_x = assignment.intValue;
+			state->plane(assignment.object->id())->src_x = assignment.intValue >> 16;
 		}
 	};
 	registerProperty(_srcXProperty = std::make_shared<SrcXProperty>());
@@ -382,7 +382,7 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_y = assignment.intValue;
+			state->plane(assignment.object->id())->src_y = assignment.intValue >> 16;
 		}
 	};
 	registerProperty(_srcYProperty = std::make_shared<SrcYProperty>());
