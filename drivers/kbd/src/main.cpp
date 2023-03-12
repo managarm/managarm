@@ -71,11 +71,6 @@ async::detached Controller::init() {
 	// ensure that translation is indeed disabled
 	assert(!(submitCommand(controller_cmd::GetByte0{}) & (1 << 6)));
 
-	// enable devices
-	submitCommand(controller_cmd::EnablePort{}, 0);
-	if(_hasSecondPort)
-		submitCommand(controller_cmd::EnablePort{}, 1);
-
 	// From this point on, data read from the data port belongs to the device.
 	_portsOwnData = true;
 	handleIrqsFor(_irq1, 0);
@@ -84,6 +79,10 @@ async::detached Controller::init() {
 	// Reset the IRQ status to ensure that the following code works.
 	HEL_CHECK(helAcknowledgeIrq(_irq1.getHandle(), kHelAckKick, 0));
 	HEL_CHECK(helAcknowledgeIrq(_irq12.getHandle(), kHelAckKick, 0));
+	// enable devices
+	submitCommand(controller_cmd::EnablePort{}, 0);
+	if(_hasSecondPort)
+		submitCommand(controller_cmd::EnablePort{}, 1);
 
 	// Initialize devices.
 	printf("ps2-hid: Setting up first port\n");
@@ -139,7 +138,7 @@ std::optional<uint8_t> Controller::recvResponseByte(uint64_t timeout) {
 		end = start + timeout;
 		current = start;
 
-		while (!(_space.load(kbd_register::status) 
+		while (!(_space.load(kbd_register::status)
 				& status_bits::outBufferStatus) && current < end)
 			HEL_CHECK(helGetClock(&current));
 
