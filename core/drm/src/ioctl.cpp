@@ -272,6 +272,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
 
+			if(logDrmRequests)
+				std::cout << "core/drm: ADDFB(" << req->drm_width() << "x" << req->drm_height() << ", pitch " << req->drm_pitch() << ")";
+
 			auto bo = self->resolveHandle(req->drm_handle());
 			assert(bo);
 			auto buffer = bo->sharedBufferObject();
@@ -284,7 +287,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			if(logDrmRequests)
-				std::cout << "core/drm: ADDFB(" << req->drm_width() << "x" << req->drm_height() << ") -> [" << fb->id() << "]" << std::endl;
+				std::cout << " -> [" << fb->id() << "]" << std::endl;
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -415,6 +418,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
 
+			if(logDrmRequests)
+				std::cout << "core/drm: PAGE_FLIP()" << std::endl;
+
 			auto obj = self->_device->findObject(req->drm_crtc_id());
 			assert(obj);
 			auto crtc = obj->asCrtc();
@@ -444,6 +450,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		}else if(req->command() == DRM_IOCTL_MODE_DIRTYFB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
+
+			if(logDrmRequests)
+				std::cout << "core/drm: DIRTYFB()" << std::endl;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -546,6 +555,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		}else if(req->command() == DRM_IOCTL_SET_CLIENT_CAP) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
+
+			if(logDrmRequests)
+				std::cout << "core/drm: SET_CLIENT_CAP()" << std::endl;
 
 			if(req->drm_capability() == DRM_CLIENT_CAP_STEREO_3D) {
 				std::cout << "\e[31mcore/drm: DRM client cap for stereo 3D unsupported\e[39m" << std::endl;
@@ -662,7 +674,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logDrmRequests)
-				std::cout << "core/drm: SETPROPERTIES()" << std::endl;
+				std::cout << "core/drm: SETPROPERTY()" << std::endl;
 
 			std::vector<drm_core::Assignment> assignments;
 
@@ -802,6 +814,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		}else if(req->command() == DRM_IOCTL_MODE_ATOMIC) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
+
+			if(logDrmRequests)
+				std::cout << "core/drm: ATOMIC()" << std::endl;
 
 			size_t prop_count = 0;
 			std::vector<drm_core::Assignment> assignments;
