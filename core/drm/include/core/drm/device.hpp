@@ -1,11 +1,13 @@
 #pragma once
 
 #include <core/id-allocator.hpp>
+#include <helix/ipc.hpp>
 #include <map>
-#include <variant>
+#include <memory>
 #include <string>
 #include <unordered_map>
-#include <memory>
+#include <variant>
+#include <vector>
 
 #include "fwd-decls.hpp"
 
