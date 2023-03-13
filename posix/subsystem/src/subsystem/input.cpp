@@ -52,7 +52,7 @@ struct Device final : UnixDevice, drvcore::ClassDevice {
 	std::string nodePath() override {
 		return "input/event" + std::to_string(_index);
 	}
-	
+
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
@@ -81,8 +81,8 @@ async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	std::vector<uint64_t> buffer;
 	buffer.resize((_bits + 63) & ~size_t(63));
 
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::PT_IOCTL);
+	managarm::fs::IoctlRequest ioctl_req;
+	managarm::fs::GenericIoctlRequest req;
 	if(_index) {
 		req.set_command(EVIOCGBIT(1, 0));
 		req.set_input_type(_index);
@@ -92,20 +92,22 @@ async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
 	req.set_size(buffer.size() * sizeof(uint64_t));
 
 	auto ser = req.SerializeAsString();
-	auto [offer, send_req, recv_resp, recv_data]
+	auto [offer, send_ioctl_req, send_req, recv_resp, recv_data]
 			= co_await helix_ng::exchangeMsgs(lane,
 		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(ioctl_req, frg::stl_allocator{}),
 			helix_ng::sendBuffer(ser.data(), ser.size()),
 			helix_ng::recvInline(),
 			helix_ng::recvBuffer(buffer.data(), buffer.size() * sizeof(uint64_t))
 		)
 	);
 	HEL_CHECK(offer.error());
+	HEL_CHECK(send_ioctl_req.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
 	HEL_CHECK(recv_data.error());
-	
-	managarm::fs::SvrResponse resp;
+
+	managarm::fs::GenericIoctlReply resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
@@ -135,7 +137,7 @@ async::detached run() {
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("unix.subsystem", "input")
 	});
-	
+
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		int index = evdevAllocator.allocate();

@@ -154,7 +154,7 @@ public:
 	ptSockname(void *object, void *addr_ptr, size_t max_addr_length);
 
 	static async::result<void>
-	ptIoctl(void *object, managarm::fs::CntRequest req,
+	ptIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::UniqueLane conversation);
 
 	static async::result<int>
@@ -348,7 +348,7 @@ public:
 
 	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory();
 
-	virtual async::result<void> ioctl(Process *process, managarm::fs::CntRequest req,
+	virtual async::result<void> ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::UniqueLane conversation);
 
 	virtual async::result<int> getFileFlags();

@@ -479,15 +479,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
-		if(!file_ops->ioctl) {
-			auto [dismiss] = co_await helix_ng::exchangeMsgs(
-				conversation, helix_ng::dismiss());
-			HEL_CHECK(dismiss.error());
-			co_return;
-		}
-
-		co_await file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
 		if(!file_ops->getOption) {
 			managarm::fs::SvrResponse resp;
@@ -1118,6 +1109,33 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+		} else if(preamble.id() == managarm::fs::IoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::IoctlRequest>(recv_req);
+			recv_req.reset();
+
+			if(!req) {
+				std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+				continue;
+			}
+
+			auto [recv_msg] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvInline()
+			);
+
+			HEL_CHECK(recv_msg.error());
+
+			auto msg_preamble = bragi::read_preamble(recv_msg);
+
+			if(!file_ops->ioctl) {
+				std::cout << "protocols/fs: ioctl not supported" << std::endl;
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+				continue;
+			}
+
+			co_await file_ops->ioctl(file.get(), msg_preamble.id(), std::move(recv_msg), std::move(conversation));
 		} else {
 			std::cout << "unhandled request " << preamble.id() << std::endl;;
 			throw std::runtime_error("Unknown request");

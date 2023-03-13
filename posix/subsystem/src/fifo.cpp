@@ -7,6 +7,7 @@
 #include <numeric>
 
 #include <async/recurring-event.hpp>
+#include <bragi/helpers-std.hpp>
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
 #include "fs.bragi.hpp"
@@ -165,34 +166,46 @@ public:
 	}
 
 	async::result<void>
-	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override {
-		managarm::fs::SvrResponse resp;
+	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+		managarm::fs::GenericIoctlReply resp;
 
-		switch(req.command()) {
-			case FIONREAD: {
-				size_t count = std::accumulate(_channel->packetQueue.cbegin(), _channel->packetQueue.cend(), 0, [](size_t sum, const Packet &p) {
-					return sum + (p.buffer.size() - p.offset);
-				});
+		if(id == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			assert(req);
 
-				resp.set_fionread_count(count);
-				resp.set_error(managarm::fs::Errors::SUCCESS);
+			switch(req->command()) {
+				case FIONREAD: {
+					size_t count = std::accumulate(_channel->packetQueue.cbegin(), _channel->packetQueue.cend(), 0, [](size_t sum, const Packet &p) {
+						return sum + (p.buffer.size() - p.offset);
+					});
 
-				break;
+					resp.set_fionread_count(count);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					break;
+				}
+				default: {
+					std::cout << "Invalid ioctl for fifo.read" << std::endl;
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					break;
+				}
 			}
-			default: {
-				std::cout << "Invalid ioctl for fifo.read" << std::endl;
-				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				break;
-			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}else{
+			std::cout << "\e[31m" "fifo: Unknown ioctl() message with ID "
+					<< id << "\e[39m" << std::endl;
+
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-		co_return;
 	}
 
 private:

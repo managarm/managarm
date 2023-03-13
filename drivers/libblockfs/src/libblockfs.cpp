@@ -561,20 +561,24 @@ async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset
 	self->offset = offset + size;
 	co_return static_cast<ssize_t>(self->offset);
 }
-async::result<void> rawIoctl(void *object, managarm::fs::CntRequest req,
+async::result<void> rawIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
-	if (req.command() == CDROM_GET_CAPABILITY) {
-		managarm::fs::SvrResponse rsp;
-		rsp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+	if(id == managarm::fs::GenericIoctlRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		assert(req);
+		if (req->command() == CDROM_GET_CAPABILITY) {
+			managarm::fs::GenericIoctlReply rsp;
+			rsp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
 
-		auto ser = rsp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	} else {
-		co_return;
+			auto ser = rsp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_return;
+		}
 	}
 }
 

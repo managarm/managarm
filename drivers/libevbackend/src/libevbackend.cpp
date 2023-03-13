@@ -172,101 +172,110 @@ File::pollStatus(void *object) {
 }
 
 async::result<void>
-File::ioctl(void *object, managarm::fs::CntRequest req,
+File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
-	auto self = static_cast<File *>(object);
-	if(req.command() == EVIOCGBIT(0, 0)) {
-		assert(req.size());
-		if(logRequests)
-			std::cout << "EVIOCGBIT()" << std::endl;
+	if(id == managarm::fs::GenericIoctlRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		assert(req);
+		auto self = static_cast<File *>(object);
+		if(req->command() == EVIOCGBIT(0, 0)) {
+			assert(req->size());
+			if(logRequests)
+				std::cout << "EVIOCGBIT()" << std::endl;
 
-		managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-
-		auto ser = resp.SerializeAsString();
-		auto chunk = std::min(size_t(req.size()), self->_device->_typeBits.size());
-		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::sendBuffer(self->_device->_typeBits.data(), chunk)
-		);
-		HEL_CHECK(send_resp.error());
-		HEL_CHECK(send_data.error());
-	}else if(req.command() == EVIOCGBIT(1, 0)) {
-		assert(req.size());
-		if(logRequests)
-			std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
-
-		managarm::fs::SvrResponse resp;
-
-		std::pair<const uint8_t *, size_t> p;
-		if(req.input_type() == EV_KEY) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			p = {self->_device->_keyBits.data(), self->_device->_keyBits.size()};
-		}else if(req.input_type() == EV_REL) {
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			p = {self->_device->_relBits.data(), self->_device->_relBits.size()};
-		}else if(req.input_type() == EV_ABS) {
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			p = {self->_device->_absBits.data(), self->_device->_absBits.size()};
+
+			auto ser = resp.SerializeAsString();
+			auto chunk = std::min(size_t(req->size()), self->_device->_typeBits.size());
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(self->_device->_typeBits.data(), chunk)
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
+		}else if(req->command() == EVIOCGBIT(1, 0)) {
+			assert(req->size());
+			if(logRequests)
+				std::cout << "EVIOCGBIT(" << req->input_type() << ")" << std::endl;
+
+			managarm::fs::GenericIoctlReply resp;
+
+			std::pair<const uint8_t *, size_t> p;
+			if(req->input_type() == EV_KEY) {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				p = {self->_device->_keyBits.data(), self->_device->_keyBits.size()};
+			}else if(req->input_type() == EV_REL) {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				p = {self->_device->_relBits.data(), self->_device->_relBits.size()};
+			}else if(req->input_type() == EV_ABS) {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				p = {self->_device->_absBits.data(), self->_device->_absBits.size()};
+			}else{
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				p = {nullptr, 0};
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto chunk = std::min(size_t(req->size()), p.second);
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(p.first, chunk)
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
+		}else if(req->command() == EVIOCSCLOCKID) {
+			managarm::fs::GenericIoctlReply resp;
+
+			// TODO: Does this setting affect already queued events in Linux?
+			switch(req->input_clock()) {
+			case CLOCK_REALTIME:
+			case CLOCK_MONOTONIC:
+				self->_clockId = req->input_clock();
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				break;
+			default:
+				assert(!"Clock is not supported in libevbackend");
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}else if(req->command() == EVIOCGABS(0)) {
+			managarm::fs::GenericIoctlReply resp;
+			if(logRequests)
+				std::cout << "EVIOCGABS(" << req->input_type() << ")" << std::endl;
+
+			assert(static_cast<size_t>(req->input_type())
+					< self->_device->_absoluteSlots.size());
+			auto slot = &self->_device->_absoluteSlots[req->input_type()];
+			resp.set_input_value(slot->value);
+			resp.set_input_min(slot->minimum);
+			resp.set_input_max(slot->maximum);
+			resp.set_input_fuzz(0);
+			resp.set_input_flat(0);
+			resp.set_input_resolution(1);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		}else{
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			p = {nullptr, 0};
+			std::cout << "Unknown ioctl() with ID " << std::to_string(req->command()) << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
-
-		auto ser = resp.SerializeAsString();
-		auto chunk = std::min(size_t(req.size()), p.second);
-		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::sendBuffer(p.first, chunk)
-		);
-		HEL_CHECK(send_resp.error());
-		HEL_CHECK(send_data.error());
-	}else if(req.command() == EVIOCSCLOCKID) {
-		managarm::fs::SvrResponse resp;
-
-		// TODO: Does this setting affect already queued events in Linux?
-		switch(req.input_clock()) {
-		case CLOCK_REALTIME:
-		case CLOCK_MONOTONIC:
-			self->_clockId = req.input_clock();
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			break;
-		default:
-			assert(!"Clock is not supported in libevbackend");
-		}
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-	}else if(req.command() == EVIOCGABS(0)) {
-		managarm::fs::SvrResponse resp;
-		if(logRequests)
-			std::cout << "EVIOCGABS(" << req.input_type() << ")" << std::endl;
-
-		assert(static_cast<size_t>(req.input_type())
-				< self->_device->_absoluteSlots.size());
-		auto slot = &self->_device->_absoluteSlots[req.input_type()];
-		resp.set_input_value(slot->value);
-		resp.set_input_min(slot->minimum);
-		resp.set_input_max(slot->maximum);
-		resp.set_input_fuzz(0);
-		resp.set_input_flat(0);
-		resp.set_input_resolution(1);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
 	}else{
-		std::cout << "Unknown ioctl() with ID " << std::to_string(req.command()) << std::endl;
+		std::cout << "Unknown ioctl() message with ID " << id << std::endl;
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(
 			conversation, helix_ng::dismiss());
 		HEL_CHECK(dismiss.error());

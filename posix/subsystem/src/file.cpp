@@ -184,10 +184,10 @@ async::result<size_t> File::ptSockname(void *object, void *addr_ptr, size_t max_
 	return self->sockname(addr_ptr, max_addr_length);
 }
 
-async::result<void> File::ptIoctl(void *object, managarm::fs::CntRequest req,
+async::result<void> File::ptIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	auto self = static_cast<File *>(object);
-	return self->ioctl(nullptr, std::move(req), std::move(conversation));
+	return self->ioctl(nullptr, id, std::move(msg), std::move(conversation));
 }
 
 async::result<int> File::ptGetFileFlags(void *object) {
@@ -444,7 +444,7 @@ FutureMaybe<helix::UniqueDescriptor> File::accessMemory() {
 	throw std::runtime_error("posix: Object has no File::accessMemory()");
 }
 
-async::result<void> File::ioctl(Process *, managarm::fs::CntRequest,
+async::result<void> File::ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement ioctl()" << std::endl;
