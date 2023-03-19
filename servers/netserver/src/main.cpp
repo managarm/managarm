@@ -6,6 +6,7 @@
 #include <iostream>
 #include <memory>
 #include <queue>
+#include <unordered_set>
 #include <vector>
 
 #include <async/result.hpp>
@@ -23,16 +24,51 @@
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
+#include <nic/i8254x/i8254x.hpp>
+
+const std::string VENDOR_INTEL = "8086";
+const std::string VENDOR_REDHAT = "1af4";
+
+std::unordered_set<std::string_view> nic_vendor_ids = {
+	VENDOR_REDHAT, /* virtio */
+	VENDOR_INTEL, /* Intel */
+};
+
+std::unordered_set<std::string_view> i8254x_device_ids = {
+	"100e", /* QEMU's e1000 device */
+	"10d3", /* QEMU's e1000e device */
+};
 
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 
-async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
+async::result<void> doBindVirtio(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
 	protocols::hw::Device hwDevice(co_await base_entity.bind());
 	co_await hwDevice.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
 	auto device = nic::virtio::makeShared(std::move(transport));
+	if (baseDeviceMap.empty()) {
+		// default via 10.0.2.2 src 10.10.2.15
+		Ip4Router::Route wan { { 0, 0 }, device };
+		wan.gateway = 0x0a000202;
+		wan.source = 0x0a0a020f;
+		ip4Router().addRoute(std::move(wan));
+
+		// 10.0.2.0/24
+		ip4Router().addRoute({ { 0x0a000200, 24 }, device });
+		// inet 10.10.2.15/24
+		ip4().setLink({ 0x0a0a020f, 24 }, device);
+	}
+	baseDeviceMap.insert({base_entity.getId(), device});
+	nic::runDevice(device);
+}
+
+async::result<void> doBindi8254x(mbus::Entity base_entity) {
+	protocols::hw::Device hwDevice(co_await base_entity.bind());
+	co_await hwDevice.enableBusmaster();
+
+	auto device = nic::intel8254x::makeShared(std::move(hwDevice));
 	if (baseDeviceMap.empty()) {
 		// default via 10.0.2.2 src 10.10.2.15
 		Ip4Router::Route wan { { 0, 0 }, device };
@@ -59,23 +95,33 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 	// Make sure that we only bind to supported devices.
 	auto properties = co_await base_entity.getProperties();
-	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
-			!vendor_str || vendor_str->value != "1af4")
+	auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+	if(!vendor_str || !nic_vendor_ids.contains(vendor_str->value))
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	virtio_core::DiscoverMode discover_mode;
-	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
-		if(device_str->value == "1000")
-			discover_mode = virtio_core::DiscoverMode::transitional;
-		else if(device_str->value == "1041")
-			discover_mode = virtio_core::DiscoverMode::modernOnly;
-		else
+	if(vendor_str->value == VENDOR_REDHAT) {
+		virtio_core::DiscoverMode discover_mode;
+		if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
+			if(device_str->value == "1000")
+				discover_mode = virtio_core::DiscoverMode::transitional;
+			else if(device_str->value == "1041")
+				discover_mode = virtio_core::DiscoverMode::modernOnly;
+			else
+				co_return protocols::svrctl::Error::deviceNotSupported;
+		}else{
 			co_return protocols::svrctl::Error::deviceNotSupported;
-	}else{
+		}
+
+		co_await doBindVirtio(base_entity, discover_mode);
+	} else if(vendor_str->value == VENDOR_INTEL) {
+		if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+			!device_str || !i8254x_device_ids.contains(device_str->value))
+			co_return protocols::svrctl::Error::deviceNotSupported;
+
+		co_await doBindi8254x(base_entity);
+	} else {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}
-
-	co_await doBind(base_entity, discover_mode);
 	co_return protocols::svrctl::Error::success;
 }
 
