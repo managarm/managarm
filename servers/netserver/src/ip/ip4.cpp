@@ -48,10 +48,24 @@ bool operator<(const CidrAddress &lhs, const CidrAddress &) {
 	return std::tie(lhs.prefix, lhs.ip) < std::tie(lhs.prefix, lhs.ip);
 }
 
-bool operator<(const Route &lhs, const Route &rhs) {
+auto operator<=>(const Route &lhs, const Route &rhs) {
 	// bigger MTU is better, and hence sorts lower
-	return std::tie(lhs.network, lhs.metric, rhs.mtu) <
-		std::tie(rhs.network, rhs.metric, lhs.mtu);
+	return std::tie(lhs.network, lhs.metric, lhs.scope, rhs.mtu, lhs.type, lhs.protocol,
+					lhs.family, lhs.gateway, lhs.source, lhs.flags) <=>
+		std::tie(rhs.network, rhs.metric, rhs.scope, lhs.mtu, rhs.type, rhs.protocol, rhs.family,
+				rhs.gateway, rhs.source, rhs.flags);
+}
+
+bool operator==(const Route &lhs, const Route &rhs) {
+	if(!lhs.link.expired() && !rhs.link.expired()) {
+		if(lhs.link.lock()->index() != rhs.link.lock()->index()) {
+			return false;
+		}
+	} else if(lhs.link.expired() ^ rhs.link.expired()) {
+		return false;
+	}
+
+	return operator<=>(lhs, rhs) == 0;
 }
 
 bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame) {
@@ -141,7 +155,7 @@ struct Ip4Socket {
 			e != protocols::fs::Error::none) {
 			co_return e;
 		}
-		
+
 		// TODO(arsen): check other broadcast addresses too
 		if (ip == INADDR_ANY) {
 			co_return protocols::fs::Error::accessDenied;
