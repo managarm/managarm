@@ -51,6 +51,11 @@ struct Ip4Router {
 		uint32_t gateway = 0;
 		unsigned int metric = 0;
 		uint32_t source = 0;
+		uint8_t scope = 0;
+		uint8_t type = 0;
+		uint8_t protocol = 0;
+		uint32_t flags = 0;
+		uint8_t family = 0;
 
 		friend bool operator<(const Route &, const Route &);
 	};
@@ -58,6 +63,10 @@ struct Ip4Router {
 	// false if insertion fails
 	bool addRoute(Route r);
 	std::optional<Route> resolveRoute(uint32_t ip);
+
+	inline const std::set<Route> &getRoutes() const {
+		return routes;
+	}
 private:
 	std::set<Route> routes;
 };
@@ -125,6 +134,8 @@ struct Ip4 {
 
 	bool hasIp(uint32_t ip);
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
+	std::optional<CidrAddress> getCidrByIndex(int index);
+	bool deleteLink(CidrAddress addr);
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 

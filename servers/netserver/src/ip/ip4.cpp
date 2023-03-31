@@ -123,7 +123,7 @@ struct Ip4Socket {
 		};
 		std::memset(addr_buf, 0, addr_size);
 		std::memcpy(addr_buf, &addr, std::min(addr_size, sizeof(addr)));
-		co_return RecvData { copy_size, sizeof(addr), {} };
+		co_return RecvData{{}, copy_size, sizeof(addr), 0};
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendmsg(void *obj,
@@ -351,6 +351,26 @@ std::shared_ptr<nic::Link> Ip4::getLink(uint32_t addr) {
 		return {};
 	}
 	return ptr;
+}
+
+std::optional<CidrAddress> Ip4::getCidrByIndex(int index) {
+	auto iter = std::find_if(ips.begin(), ips.end(),
+		[index] (const auto &e) {
+			auto ptr = e.second.lock();
+			if(ptr)
+				return ptr->index() == index;
+			return false;
+		});
+
+	if(iter == ips.end()) {
+		return std::nullopt;
+	}
+
+	return iter->first;
+}
+
+bool Ip4::deleteLink(CidrAddress addr) {
+	return ips.erase(addr) > 0;
 }
 
 std::optional<uint32_t> Ip4::findLinkIp(uint32_t ipOnNet, nic::Link *link) {

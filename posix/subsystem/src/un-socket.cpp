@@ -1,5 +1,6 @@
 
-#include <string.h>
+#include <cstddef>
+#include <cstring>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -7,9 +8,9 @@
 #include <iostream>
 
 #include <async/recurring-event.hpp>
+#include <protocols/fs/common.hpp>
 #include <helix/ipc.hpp>
 #include "fs.bragi.hpp"
-#include "sockutil.hpp"
 #include "un-socket.hpp"
 #include "process.hpp"
 #include "vfs.hpp"
@@ -155,7 +156,7 @@ public:
 		assert(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)));
 
 		if(_currentState == State::remoteShutDown)
-			co_return protocols::fs::RecvResult { protocols::fs::RecvData { 0, 0, {} } };
+			co_return protocols::fs::RecvData{{}, 0, 0, 0};
 
 		if(_currentState != State::connected)
 			co_return protocols::fs::Error::notConnected;
@@ -173,7 +174,7 @@ public:
 
 		auto packet = &_recvQueue.front();
 
-		CtrlBuilder ctrl{max_ctrl_length};
+		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
 		if(_passCreds) {
 			struct ucred creds;
@@ -204,7 +205,7 @@ public:
 
 		if(packet->offset == packet->buffer.size())
 			_recvQueue.pop_front();
-		co_return protocols::fs::RecvResult { protocols::fs::RecvData { chunk, 0, ctrl.buffer() } };
+		co_return protocols::fs::RecvData{ctrl.buffer(), chunk, 0, 0};
 	}
 
 	async::result<frg::expected<protocols::fs::Error, size_t>>
@@ -315,6 +316,10 @@ public:
 
 	async::result<protocols::fs::Error>
 	bind(Process *process, const void *addr_ptr, size_t addr_length) override {
+		if(addr_length <= offsetof(struct sockaddr_un, sun_path)) {
+			co_return protocols::fs::Error::illegalArguments;
+		}
+
 		// Create a new socket node in the FS.
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
@@ -374,7 +379,9 @@ public:
 		memcpy(&sa, addr_ptr, addr_length);
 		std::string path;
 
-		if(sa.sun_path[0] == '\0') {
+		if(addr_length <= offsetof(struct sockaddr_un, sun_path)) {
+			co_return protocols::fs::Error::illegalArguments;
+		} else if(sa.sun_path[0] == '\0') {
 			path.resize(addr_length - sizeof(sa.sun_family) - 1);
 			memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
 		} else {

@@ -5,6 +5,7 @@
 #include <arch/bit.hpp>
 #include <cstring>
 #include <iomanip>
+#include <memory>
 #include "ip4.hpp"
 
 struct ArpHeader {
@@ -69,7 +70,7 @@ async::result<void> sendArp(uint16_t op,
 }
 }
 
-void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view) {
+void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view, std::weak_ptr<nic::Link> link) {
 	using namespace nic;
 	auto ensureEndian = [] (auto &x) {
 		using namespace arch;
@@ -122,7 +123,7 @@ void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view) {
 	ensureEndian(senderProto);
 	ensureEndian(targetProto);
 
-	updateTable(senderProto, senderHw);
+	updateTable(senderProto, senderHw, std::move(link));
 
 	if (leader.op != 1) {
 		return;
@@ -146,11 +147,17 @@ Neighbours::Entry &Neighbours::getEntry(uint32_t ip) {
 	return entry;
 }
 
-void Neighbours::updateTable(uint32_t ip, nic::MacAddress mac) {
+void Neighbours::updateTable(uint32_t ip, nic::MacAddress mac, std::weak_ptr<nic::Link> link) {
 	auto &entry = getEntry(ip);
 	entry.mac = mac;
 	entry.state = State::reachable;
+	entry.link = std::move(link);
+
 	entry.change.raise();
+}
+
+std::map<uint32_t, Neighbours::Entry> &Neighbours::getTable() {
+	return table_;
 }
 
 namespace {

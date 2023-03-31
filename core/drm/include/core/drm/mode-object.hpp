@@ -1,9 +1,10 @@
 #pragma once
 
+#include <core/id-allocator.hpp>
+
 #include "fwd-decls.hpp"
 
 #include "device.hpp"
-#include "id-allocator.hpp"
 #include "range-allocator.hpp"
 #include "property.hpp"
 

@@ -15,12 +15,11 @@ elif arch == 'aarch64'
 	src += 'aarch64-src/copy-fp.S'
 endif
 
-deps = [ libarch, fs_proto_dep, hw_proto_dep, mbus_proto_dep, frigg ]
+deps = [ libarch, fs_proto_dep, hw_proto_dep, mbus_proto_dep, frigg, core_dep ]
 inc = [ 'include' ]
 
 headers = [
 	'include/core/drm/range-allocator.hpp',
-	'include/core/drm/id-allocator.hpp',
 	'include/core/drm/core.hpp',
 	'include/core/drm/debug.hpp',
 	'include/core/drm/device.hpp',

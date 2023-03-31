@@ -8,7 +8,7 @@ project('managarm', ['c', 'cpp'],
 	]
 )
 
-add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', language: ['c', 'cpp'])
+add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', '-Werror=switch', language: ['c', 'cpp'])
 
 # build documentation
 if get_option('build_docs')
@@ -173,7 +173,7 @@ if build_drivers
 	subdir('hel')
 
 	protocols = [ 'posix', 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
-	core = [ 'core/drm', 'core/virtio', 'mbus' ]
+	core = [ 'core', 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [
 		# libraries
