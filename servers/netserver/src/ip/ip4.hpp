@@ -57,7 +57,8 @@ struct Ip4Router {
 		uint32_t flags = 0;
 		uint8_t family = 0;
 
-		friend bool operator<(const Route &, const Route &);
+		friend auto operator<=>(const Route &, const Route &);
+		friend bool operator==(const Route &, const Route &);
 	};
 
 	// false if insertion fails
