@@ -1,6 +1,7 @@
 
 #include <assert.h>
 #include <iostream>
+#include <unordered_map>
 #include <optional>
 
 #include <core/virtio/core.hpp>
@@ -587,6 +588,23 @@ void StandardPciQueue::notifyTransport() {
 	_transport->_notifySpace().store(_notifyRegister, queueIndex());
 }
 
+static const std::unordered_map<uint8_t, std::string> cap_names{
+	{1, "VIRTIO_PCI_CAP_COMMON_CFG"},
+	{2, "VIRTIO_PCI_CAP_NOTIFY_CFG"},
+	{3, "VIRTIO_PCI_CAP_ISR_CFG"},
+	{4, "VIRTIO_PCI_CAP_DEVICE_CFG"},
+	{5, "VIRTIO_PCI_CAP_PCI_CFG"},
+	{8, "VIRTIO_PCI_CAP_SHARED_MEMORY_CFG"},
+};
+
+std::optional<std::string> capName(uint8_t type) {
+	if(cap_names.contains(type)) {
+		return cap_names.at(type);
+	}
+
+	return std::nullopt;
+}
+
 } // anonymous namespace
 
 // --------------------------------------------------------
@@ -617,8 +635,9 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode) {
 			auto bir = co_await hw_device.loadPciCapability(i, 4, 1);
 			auto offset = co_await hw_device.loadPciCapability(i, 8, 4);
 			auto length = co_await hw_device.loadPciCapability(i, 12, 4);
-			std::cout << "virtio: Subtype: " << subtype << ", BAR index: " << bir
-					<< ", offset: " << offset << ", length: " << length << std::endl;
+			std::cout << "virtio: Subtype: " << capName(subtype).value_or("<invalid>")
+					<< " (" << subtype << "), BAR index: " << bir << ", offset: " << offset
+					<< ", length: " << length << std::endl;
 
 			assert(info.barInfo[bir].ioType == protocols::hw::IoType::kIoTypeMemory);
 			auto bar = co_await hw_device.accessBar(bir);
