@@ -91,21 +91,29 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		auto &crtcs = self->_device->getCrtcs();
 		for(size_t i = 0; i < crtcs.size(); i++) {
 			resp.add_drm_crtc_ids(crtcs[i]->id());
+			if(logDrmRequests)
+				std::cout << "\tCRTC " << crtcs[i]->id() << std::endl;
 		}
 
 		auto &encoders = self->_device->getEncoders();
 		for(size_t i = 0; i < encoders.size(); i++) {
 			resp.add_drm_encoder_ids(encoders[i]->id());
+			if(logDrmRequests)
+				std::cout << "\tEncoder " << encoders[i]->id() << std::endl;
 		}
 
 		auto &connectors = self->_device->getConnectors();
 		for(size_t i = 0; i < connectors.size(); i++) {
 			resp.add_drm_connector_ids(connectors[i]->id());
+			if(logDrmRequests)
+				std::cout << "\tConnector " << connectors[i]->id() << std::endl;
 		}
 
 		auto &fbs = self->getFrameBuffers();
 		for(size_t i = 0; i < fbs.size(); i++) {
 			resp.add_drm_fb_ids(fbs[i]->id());
+			if(logDrmRequests)
+				std::cout << "\tFB " << fbs[i]->id() << std::endl;
 		}
 
 		resp.set_drm_min_width(self->_device->getMinWidth());
@@ -401,6 +409,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
+		if(logDrmRequests)
+			std::cout << "core/drm: PAGE_FLIP()" << std::endl;
+
 		auto obj = self->_device->findObject(req.drm_crtc_id());
 		assert(obj);
 		auto crtc = obj->asCrtc();
@@ -430,6 +441,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_DIRTYFB) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: DIRTYFB()" << std::endl;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -532,6 +546,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_SET_CLIENT_CAP) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: SET_CLIENT_CAP()" << std::endl;
 
 		if(req.drm_capability() == DRM_CLIENT_CAP_STEREO_3D) {
 			std::cout << "\e[31mcore/drm: DRM client cap for stereo 3D unsupported\e[39m" << std::endl;
@@ -648,7 +665,7 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		managarm::fs::SvrResponse resp;
 
 		if(logDrmRequests)
-			std::cout << "core/drm: SETPROPERTIES()" << std::endl;
+			std::cout << "core/drm: SETPROPERTY()" << std::endl;
 
 		std::vector<drm_core::Assignment> assignments;
 
@@ -788,6 +805,9 @@ drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 	}else if(req.command() == DRM_IOCTL_MODE_ATOMIC) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: ATOMIC()" << std::endl;
 
 		size_t prop_count = 0;
 		std::vector<drm_core::Assignment> assignments;

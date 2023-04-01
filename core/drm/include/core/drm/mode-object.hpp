@@ -91,15 +91,15 @@ struct CrtcState {
 	std::weak_ptr<Crtc> crtc(void);
 
 	std::weak_ptr<Crtc> _crtc;
-	bool active;
+	bool active = 0;
 
-	bool planesChanged;
-	bool modeChanged;
-	bool activeChanged;
-	bool connectorsChanged;
-	uint32_t planeMask;
-	uint32_t connectorMask;
-	uint32_t encoderMask;
+	bool planesChanged = 0;
+	bool modeChanged = 0;
+	bool activeChanged = 0;
+	bool connectorsChanged = 0;
+	uint32_t planeMask = 0;
+	uint32_t connectorMask = 0;
+	uint32_t encoderMask = 0;
 
 	std::shared_ptr<Blob> mode;
 };
@@ -153,12 +153,12 @@ private:
 };
 
 struct ConnectorState {
-	ConnectorState(std::weak_ptr<Connector> connector) : connector(connector) {};
+	ConnectorState(std::weak_ptr<Connector> connector) : connector{connector}, crtc{}, encoder{} {};
 
 	std::shared_ptr<Connector> connector;
 	std::shared_ptr<Crtc> crtc;
 	std::shared_ptr<Encoder> encoder;
-	uint32_t dpms;
+	uint32_t dpms = 0;
 };
 
 /**
@@ -253,21 +253,21 @@ private:
 };
 
 struct PlaneState {
-	PlaneState(std::weak_ptr<Plane> plane) : plane(plane) {};
+	PlaneState(std::weak_ptr<Plane> plane) : plane{plane}, crtc{}, fb{} { };
 
 	Plane::PlaneType type(void);
 
 	std::shared_ptr<Plane> plane;
 	std::shared_ptr<Crtc> crtc;
 	std::shared_ptr<FrameBuffer> fb;
-	int32_t crtc_x;
-	int32_t crtc_y;
-	uint32_t crtc_w;
-	uint32_t crtc_h;
-	uint32_t src_x;
-	uint32_t src_y;
-	uint32_t src_w;
-	uint32_t src_h;
+	int32_t crtc_x = 0;
+	int32_t crtc_y = 0;
+	uint32_t crtc_w = 0;
+	uint32_t crtc_h = 0;
+	uint32_t src_x = 0;
+	uint32_t src_y = 0;
+	uint32_t src_w = 0;
+	uint32_t src_h = 0;
 };
 
 } //namespace drm_core

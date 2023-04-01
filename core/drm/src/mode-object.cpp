@@ -210,12 +210,12 @@ std::vector<drm_core::Assignment> drm_core::Plane::getAssignments(std::shared_pt
 
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->planeTypeProperty(), static_cast<uint64_t>(drmState()->type())));
 	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->crtcIdProperty(), drmState()->crtc));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcHProperty(), drmState()->src_h));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcWProperty(), drmState()->src_w));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcHProperty(), drmState()->src_h << 16));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcWProperty(), drmState()->src_w << 16));
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcHProperty(), drmState()->crtc_h));
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcWProperty(), drmState()->crtc_w));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcXProperty(), drmState()->src_x));
-	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcYProperty(), drmState()->src_y));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcXProperty(), drmState()->src_x << 16));
+	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->srcYProperty(), drmState()->src_y << 16));
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcXProperty(), drmState()->crtc_x));
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcYProperty(), drmState()->crtc_y));
 	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->fbIdProperty(), drmState()->fb));

@@ -2,6 +2,7 @@
 
 #include <helix/memory.hpp>
 
+#include "core/drm/mode-object.hpp"
 #include "core/drm/property.hpp"
 
 // ----------------------------------------------------------------
@@ -140,6 +141,14 @@ std::unordered_map<uint32_t, std::shared_ptr<drm_core::CrtcState>>& drm_core::At
 	return _crtcStates;
 }
 
+std::unordered_map<uint32_t, std::shared_ptr<drm_core::PlaneState>>& drm_core::AtomicState::plane_states(void) {
+	return _planeStates;
+}
+
+std::unordered_map<uint32_t, std::shared_ptr<drm_core::ConnectorState>>& drm_core::AtomicState::connector_states(void) {
+	return _connectorStates;
+}
+
 drm_core::Device::Device() {
 	struct SrcWProperty : drm_core::Property {
 		SrcWProperty()
@@ -196,6 +205,7 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			assert(!assignment.objectValue || assignment.objectValue->type() == ObjectType::frameBuffer);
 			state->plane(assignment.object->id())->fb = static_pointer_cast<FrameBuffer>(assignment.objectValue);
 		}
 
@@ -252,6 +262,10 @@ drm_core::Device::Device() {
 		bool validate(const Assignment&) override {
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->crtc_x = assignment.intValue;
+		}
 	};
 	registerProperty(_crtcXProperty = std::make_shared<CrtcXProperty>());
 
@@ -262,6 +276,10 @@ drm_core::Device::Device() {
 		bool validate(const Assignment&) override {
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->crtc_y= assignment.intValue;
+		}
 	};
 	registerProperty(_crtcYProperty = std::make_shared<CrtcYProperty>());
 
@@ -304,9 +322,26 @@ drm_core::Device::Device() {
 		CrtcIdProperty()
 		: drm_core::Property{crtcId, drm_core::ObjectPropertyType{}, "CRTC_ID"} { }
 
-		bool validate(const Assignment&) override {
+		bool validate(const Assignment& assignment) override {
+			if(assignment.object->type() != ObjectType::connector
+			&& assignment.object->type() != ObjectType::plane) {
+				return false;
+			}
+
+			if(assignment.objectValue && assignment.objectValue->type() != ObjectType::crtc) {
+				return false;
+			}
+
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			if(assignment.object->type() == ObjectType::connector) {
+				state->connector(assignment.object->id())->crtc = static_pointer_cast<Crtc>(assignment.objectValue);
+			} else if(assignment.object->type() == ObjectType::plane) {
+				state->plane(assignment.object->id())->crtc = static_pointer_cast<Crtc>(assignment.objectValue);
+			}
+		}
 	};
 	registerProperty(_crtcIdProperty = std::make_shared<CrtcIdProperty>());
 
@@ -333,7 +368,7 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_x = assignment.intValue;
+			state->plane(assignment.object->id())->src_x = assignment.intValue >> 16;
 		}
 	};
 	registerProperty(_srcXProperty = std::make_shared<SrcXProperty>());
@@ -347,7 +382,7 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
-			state->plane(assignment.object->id())->src_y = assignment.intValue;
+			state->plane(assignment.object->id())->src_y = assignment.intValue >> 16;
 		}
 	};
 	registerProperty(_srcYProperty = std::make_shared<SrcYProperty>());
@@ -359,6 +394,10 @@ drm_core::Device::Device() {
 		bool validate(const Assignment&) override {
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->crtc_w = assignment.intValue;
+		}
 	};
 	registerProperty(_crtcWProperty = std::make_shared<CrtcWProperty>());
 
@@ -369,6 +408,10 @@ drm_core::Device::Device() {
 		bool validate(const Assignment&) override {
 			return true;
 		};
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->crtc_h = assignment.intValue;
+		}
 	};
 	registerProperty(_crtcHProperty = std::make_shared<CrtcHProperty>());
 }
