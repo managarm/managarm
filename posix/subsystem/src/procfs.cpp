@@ -410,7 +410,8 @@ async::result<std::string> CommNode::show() {
 }
 
 async::result<void> CommNode::store(std::string name) {
-	_process->setName(name);
+	// silently truncate to TASK_COMM_LEN (16), including the null terminator
+	_process->setName(name.substr(0, 15));
 	co_return;
 }
 
