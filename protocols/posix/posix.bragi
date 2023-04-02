@@ -39,7 +39,6 @@ consts CntReqType uint32 {
 	CHROOT = 24,
 	CHDIR = 58,
 	FCHDIR = 61,
-	MKDIRAT = 46,
 	SYMLINKAT = 47,
 	READLINK = 31,
 	READ = 3,
@@ -496,6 +495,13 @@ message AccessAtRequest 87 {
 head(128):
 	int32 fd;
 	int32 flags;
+tail:
+	string path;
+}
+
+message MkdirAtRequest 88 {
+head(128):
+	int32 fd;
 tail:
 	string path;
 }
