@@ -157,6 +157,14 @@ struct SelfLink final : FsNode, std::enable_shared_from_this<SelfLink> {
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 };
 
+struct SelfThreadLink final : FsNode, std::enable_shared_from_this<SelfThreadLink> {
+	SelfThreadLink() = default;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+	VfsType getType() override;
+	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+};
+
 struct ExeLink final : FsNode, std::enable_shared_from_this<ExeLink> {
 	ExeLink(Process *process)
 	: _process(process)

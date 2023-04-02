@@ -223,6 +223,10 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 
 	auto self_link = std::make_shared<Link>(the_node->shared_from_this(), "self", std::make_shared<SelfLink>());
 	the_node->_entries.insert(std::move(self_link));
+
+	auto self_thread_link = std::make_shared<Link>(the_node->shared_from_this(), "thread-self", std::make_shared<SelfThreadLink>());
+	the_node->_entries.insert(std::move(self_thread_link));
+
 	return link;
 }
 
@@ -340,6 +344,19 @@ expected<std::string> SelfLink::readSymlink(FsLink *link, Process *process) {
 
 async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs SelfLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+VfsType SelfThreadLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> SelfThreadLink::readSymlink(FsLink *link, Process *process) {
+	co_return "/proc/" + std::to_string(process->pid()) + "/task/" + std::to_string(process->tid());
+}
+
+async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs SelfThreadLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }
 
