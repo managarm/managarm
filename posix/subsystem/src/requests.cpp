@@ -668,29 +668,43 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::ACCESSAT) {
+		}else if(preamble.id() == managarm::posix::AccessAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::AccessAtRequest>(recv_head, tail);
+
+			if(!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests || logPaths)
-				std::cout << "posix: ACCESSAT " << req.path() << std::endl;
+				std::cout << "posix: ACCESSAT " << req->path() << std::endl;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 
-			if(req.flags()) {
-				if(req.flags() & AT_SYMLINK_NOFOLLOW) {
+			if(req->flags()) {
+				if(req->flags() & AT_SYMLINK_NOFOLLOW) {
 					std::cout << "posix: ACCESSAT flag handling AT_SYMLINK_NOFOLLOW is unimplemented" << std::endl;
-				} else if(req.flags() & AT_EACCESS) {
+				} else if(req->flags() & AT_EACCESS) {
 					std::cout << "posix: ACCESSAT flag handling AT_EACCESS is unimplemented" << std::endl;
 				} else {
-					std::cout << "posix: ACCESSAT unknown flag is unimplemented: " << req.flags() << std::endl;
+					std::cout << "posix: ACCESSAT unknown flag is unimplemented: " << req->flags() << std::endl;
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
 			}
 
-			if(req.fd() == AT_FDCWD) {
+			if(req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if(!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -701,7 +715,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					relative_to, req.path(), self.get());
+					relative_to, req->path(), self.get());
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -714,40 +728,38 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					co_return;
 				}
 			}
-			auto path = pathResult.value();
 
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
+			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
+		}else if(preamble.id() == managarm::posix::MkdirAtRequest::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()));
-			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::MKDIRAT) {
+			auto req = bragi::parse_head_tail<managarm::posix::MkdirAtRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests || logPaths)
-				std::cout << "posix: MKDIRAT " << req.path() << std::endl;
+				std::cout << "posix: MKDIRAT " << req->path() << std::endl;
 
-			helix::SendBuffer send_resp;
-			managarm::posix::SvrResponse resp;
+			if(!req->path().size()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 
-			if (!req.path().size()) {
-				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			if(req.fd() == AT_FDCWD) {
+			if(req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
 			} else {
-				file = self->fileContext()->getFile(req.fd());
+				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
 					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
@@ -759,7 +771,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
-					relative_to, req.path(), self.get());
+					relative_to, req->path(), self.get());
 			auto resolveResult = co_await resolver.resolve(resolvePrefix);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
@@ -789,25 +801,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto result = co_await parent->mkdir(resolver.nextComponent());
+
 			if(auto error = std::get_if<Error>(&result); error) {
 				assert(*error == Error::illegalOperationTarget);
-
-				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}else{
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
 			}
+
+			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(preamble.id() == managarm::posix::MkfifoAtRequest::message_id) {
 			std::vector<std::byte> tail(preamble.tail_size());
 			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
