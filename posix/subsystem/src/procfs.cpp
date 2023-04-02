@@ -223,6 +223,10 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 
 	auto self_link = std::make_shared<Link>(the_node->shared_from_this(), "self", std::make_shared<SelfLink>());
 	the_node->_entries.insert(std::move(self_link));
+
+	auto self_thread_link = std::make_shared<Link>(the_node->shared_from_this(), "thread-self", std::make_shared<SelfThreadLink>());
+	the_node->_entries.insert(std::move(self_thread_link));
+
 	return link;
 }
 
@@ -267,6 +271,14 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
+
+	auto task_link = proc_dir->directMkdir("task");
+	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
+
+	auto tid_link = task_dir->directMkdir(std::to_string(process->tid()));
+	auto tid_dir = static_cast<DirectoryNode*>(tid_link->getTarget().get());
+
+	tid_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 
 	return link;
 }
@@ -332,6 +344,19 @@ expected<std::string> SelfLink::readSymlink(FsLink *link, Process *process) {
 
 async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs SelfLink::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+VfsType SelfThreadLink::getType() {
+	return VfsType::symlink;
+}
+
+expected<std::string> SelfThreadLink::readSymlink(FsLink *link, Process *process) {
+	co_return "/proc/" + std::to_string(process->pid()) + "/task/" + std::to_string(process->tid());
+}
+
+async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
+	std::cout << "\e[31mposix: Fix procfs SelfThreadLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }
 
@@ -402,7 +427,8 @@ async::result<std::string> CommNode::show() {
 }
 
 async::result<void> CommNode::store(std::string name) {
-	_process->setName(name);
+	// silently truncate to TASK_COMM_LEN (16), including the null terminator
+	_process->setName(name.substr(0, 15));
 	co_return;
 }
 
