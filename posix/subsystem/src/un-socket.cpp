@@ -8,6 +8,7 @@
 #include <iostream>
 
 #include <async/recurring-event.hpp>
+#include <bragi/helpers-std.hpp>
 #include <protocols/fs/common.hpp>
 #include <helix/ipc.hpp>
 #include "fs.bragi.hpp"
@@ -457,37 +458,42 @@ public:
 	}
 
 	async::result<void>
-	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation) override {
-		managarm::fs::SvrResponse resp;
+	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+		managarm::fs::GenericIoctlReply resp;
 
-		switch(req.command()) {
-			case FIONREAD: {
-				resp.set_error(managarm::fs::Errors::SUCCESS);
+		if(id == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			assert(req);
 
-				if(_currentState != State::connected) {
-					resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
-				} else if(_recvQueue.empty()) {
-					resp.set_fionread_count(0);
-				} else {
-					auto packet = &_recvQueue.front();
-					resp.set_fionread_count(packet->buffer.size() - packet->offset);
+			switch(req->command()) {
+				case FIONREAD: {
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					if(_currentState != State::connected) {
+						resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
+					} else if(_recvQueue.empty()) {
+						resp.set_fionread_count(0);
+					} else {
+						auto packet = &_recvQueue.front();
+						resp.set_fionread_count(packet->buffer.size() - packet->offset);
+					}
+					break;
 				}
-				break;
+				default: {
+					std::cout << "Invalid ioctl for un-socket" << std::endl;
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					break;
+				}
 			}
-			default: {
-				std::cout << "Invalid ioctl for un-socket" << std::endl;
-				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				break;
-			}
-		}
 
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-		co_return;
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
 	}
 
 private:

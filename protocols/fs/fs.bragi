@@ -101,7 +101,6 @@ enum CntReqType {
 	SEEK_REL = 7,
 	SEEK_EOF = 8,
 
-	PT_IOCTL = 17,
 	PT_GET_OPTION = 26,
 	PT_SET_OPTION = 25,
 
@@ -474,4 +473,177 @@ message SendMsgReply 8 {
 head(128):
 	Errors error;
 	uint64 size;
+}
+
+message IoctlRequest 9 {
+head(128):
+}
+
+message GenericIoctlRequest 10 {
+head(128):
+	tags {
+		tag(1) int32 size;
+		tag(2) int64 command;
+
+		// PTS and TTY ioctls.
+		tag(3) int32 pts_width;
+		tag(4) int32 pts_height;
+		tag(5) int32 pts_pixel_width;
+		tag(6) int32 pts_pixel_height;
+
+		// DRM ioctls.
+		tag(7) uint64 drm_capability;
+
+		tag(8) uint32 drm_connector_id;
+
+		tag(9) uint32 drm_encoder_id;
+
+		tag(10) uint32 drm_max_modes;
+
+		tag(11) uint32 drm_height;
+		tag(12) uint32 drm_width;
+		tag(13) uint32 drm_bpp;
+		tag(14) uint32 drm_flags;
+
+		tag(15) uint32 drm_pitch;
+		tag(16) uint32 drm_depth;
+
+		tag(17) uint32 drm_handle;
+
+		tag(18) uint32 drm_crtc_id;
+
+		tag(19) uint32 drm_plane_id;
+
+		tag(20) uint32[] drm_connector_ids;
+		tag(21) uint32 drm_x;
+		tag(22) uint32 drm_y;
+		tag(23) uint32 drm_fb_id;
+		tag(24) uint32 drm_mode_valid;
+
+		tag(25) uint32 drm_obj_id;
+		tag(26) uint32 drm_obj_type;
+		tag(27) uint32 drm_count_props;
+
+		tag(28) uint32 drm_property_id;
+		tag(29) uint64 drm_property_value;
+
+		tag(30) uint32 drm_blob_id;
+		tag(31) uint32 drm_blob_size;
+
+		tag(32) uint32[] drm_obj_ids;
+		tag(33) uint32[] drm_prop_counts;
+		tag(34) uint32[] drm_props;
+		tag(35) uint64[] drm_prop_values;
+
+		tag(36) uint32 drm_color;
+		tag(37) Rect[] drm_clips;
+
+		tag(38) uint64 drm_cookie;
+
+		tag(39) uint32 drm_prime_handle;
+
+		tag(40) int32 input_type;
+		tag(41) int32 input_clock;
+
+		// used by PT_IOCTL for TIOCSPGRP
+		tag(42) int64 pgid;
+	}
+}
+
+message GenericIoctlReply 11 {
+head(128):
+	Errors error;
+
+	tags {
+		// returned by PT_IOCTL
+		tag(1) uint64 result;
+
+		// PTS and TTY ioctls.
+		tag(2) int32 pts_index;
+		tag(3) int32 pts_width;
+		tag(4) int32 pts_height;
+		tag(5) int32 pts_pixel_width;
+		tag(6) int32 pts_pixel_height;
+
+		// DRM ioctls.
+		tag(7) uint64 drm_value;
+
+		tag(8) uint32[] drm_fb_ids;
+		tag(9) uint32[] drm_crtc_ids;
+		tag(10) uint32[] drm_connector_ids;
+		tag(11) uint32[] drm_encoder_ids;
+		tag(12) int32 drm_min_width;
+		tag(13) int32 drm_max_width;
+		tag(14) int32 drm_min_height;
+		tag(15) int32 drm_max_height;
+
+		tag(16) uint32[] drm_encoders;
+		tag(17) uint32 drm_encoder_id;
+		tag(18) uint32 drm_connector_type;
+		tag(19) uint32 drm_connector_type_id;
+		tag(20) uint32 drm_connection;
+		tag(21) uint32 drm_mm_width;
+		tag(22) uint32 drm_mm_height;
+		tag(23) uint32 drm_subpixel;
+
+		tag(24) uint32 drm_encoder_type;
+		tag(25) uint32 drm_crtc_id;
+		tag(26) uint32 drm_possible_crtcs;
+		tag(27) uint32 drm_possible_clones;
+
+		tag(28) uint32 drm_handle;
+		tag(29) uint32 drm_pitch;
+		tag(30) uint64 drm_size;
+
+		tag(31) uint32 drm_fb_id;
+
+		tag(32) uint64 drm_offset;
+
+		tag(33) uint32 drm_x;
+		tag(34) uint32 drm_y;
+		tag(35) uint32 drm_gamma_size;
+		tag(36) uint32 drm_mode_valid;
+
+		tag(37) uint32 drm_num_modes;
+
+		tag(38) uint32 drm_version_major;
+		tag(39) uint32 drm_version_minor;
+		tag(40) uint32 drm_version_patchlevel;
+		tag(41) string drm_driver_name;
+		tag(42) string drm_driver_date;
+		tag(43) string drm_driver_desc;
+
+		tag(44) uint32 drm_count_props;
+
+		tag(45) uint32[] drm_obj_property_ids;
+		tag(46) uint32[] drm_obj_property_values;
+
+		tag(47) uint8[] drm_property_blob;
+
+		tag(48) uint32[] drm_plane_res;
+
+		tag(49) string drm_property_name;
+		tag(50) uint32[] drm_property_vals;
+		tag(51) uint32 drm_property_flags;
+
+		tag(52) uint32[] drm_format_type;
+
+		tag(53) uint64[] drm_enum_value;
+		tag(54) string[] drm_enum_name;
+
+		tag(55) uint32 drm_blob_id;
+		tag(56) uint32 drm_prime_fd;
+		tag(57) uint32 drm_prime_handle;
+
+		tag(58) int32 input_value;
+		tag(59) int32 input_min;
+		tag(60) int32 input_max;
+		tag(61) int32 input_fuzz;
+		tag(62) int32 input_flat;
+		tag(63) int32 input_resolution;
+
+		tag(64) int64 pid;
+
+		tag(65) uint32 fionread_count;
+	}
 }
