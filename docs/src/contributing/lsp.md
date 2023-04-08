@@ -69,6 +69,24 @@ if executable('xbstrap') && getcwd() =~ '/path/to/bootstrap-managarm/.*'
 endif
 ```
 
+### GNU Emacs (`eglot`)
+In GNU Emacs, you can use directory local variables to adjust
+[Eglot](https://elpa.gnu.org/packages/eglot.html) in your clone of Managarm
+alone, by placing a file like the following into it:
+
+```emacs-lisp
+;;; Directory Local Variables            -*- no-byte-compile: t -*-
+;;; For more information see (info "(emacs) Directory Variables")
+
+((nil . ((eglot-server-programs
+          . (((c-mode c++-mode) . ("/.../managarm-lsp-launcher.sh" "/.../build"))
+)))))
+```
+
+Which translates, roughly, to: for each file in this project, associate
+`c-mode` and `c++-mode` with `managarm-lsp-launcher.sh`.  This is done like so
+in order to have consistent Eglot variables across the entire project.
+
 ### VSCodium (LLVM clangd)
 The [LLVM clangd
 plugin](https://open-vsx.org/extension/llvm-vs-code-extensions/vscode-clangd)
