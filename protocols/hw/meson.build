@@ -1,11 +1,8 @@
-here = meson.current_source_dir()
-hw_pb = cxxbragi.process(here/'hw.bragi', 
-	extra_args : [ '-I' + here ]
-)
+hw_bragi = cxxbragi.process('hw.bragi')
 
 incs = [ 'include' ]
 deps = [ helix_dep, proto_lite_dep, frigg ]
-src = [ 'src/client.cpp', hw_pb ]
+src = [ 'src/client.cpp', hw_bragi ]
 
 libhw = shared_library('hw_protocol', src,
 	dependencies : deps,
@@ -16,7 +13,7 @@ libhw = shared_library('hw_protocol', src,
 hw_proto_dep = declare_dependency(
 	link_with : libhw,
 	dependencies : deps,
-	sources : hw_pb,
+	sources : hw_bragi,
 	include_directories : incs
 )
 

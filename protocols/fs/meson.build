@@ -2,7 +2,7 @@ fs_bragi = cxxbragi.process('fs.bragi')
 
 inc = [ 'include' ]
 src = [ 'src/client.cpp', 'src/server.cpp', 'src/file-locks.cpp', fs_bragi ]
-deps = [ helix_dep, proto_lite_dep, frigg ]
+deps = [ helix_dep, frigg ]
 headers = [ 'include/protocols/fs/client.hpp', 'include/protocols/fs/common.hpp' ]
 
 libfs = shared_library('fs_protocol', src,
