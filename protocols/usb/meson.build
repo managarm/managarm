@@ -1,11 +1,8 @@
-here = meson.current_source_dir()
-usb_pb = protocxx.process(here/'usb.proto', 
-	extra_args : [ '-I' + here ]
-)
+usb_bragi = cxxbragi.process('usb.bragi')
 
 inc = [ 'include' ]
-src = [ 'src/api.cpp', 'src/hub.cpp', 'src/client.cpp', 'src/server.cpp', usb_pb ]
-deps = [ libarch, helix_dep, proto_lite_dep, frigg ]
+src = [ 'src/api.cpp', 'src/hub.cpp', 'src/client.cpp', 'src/server.cpp', usb_bragi ]
+deps = [ libarch, helix_dep, frigg ]
 headers = [
 	'include/protocols/usb/client.hpp',
 	'include/protocols/usb/server.hpp',

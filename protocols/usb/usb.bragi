@@ -1,0 +1,80 @@
+namespace "managarm::usb";
+
+enum Errors {
+	SUCCESS,
+	STALL,
+	BABBLE,
+	TIMEOUT,
+	UNSUPPORTED,
+	OTHER,
+	ILLEGAL_REQUEST
+}
+
+consts PipeType uint32 {
+	NIL,
+	IN,
+	OUT,
+	CONTROL
+}
+
+enum XferDirection {
+	TO_HOST,
+	TO_DEVICE
+}
+
+enum XferType {
+	CONTROL,
+	INTERRUPT,
+	BULK
+	// ISOCH
+}
+
+
+group {
+
+message GetConfigurationDescriptorRequest 1 {
+head(128):
+}
+
+message UseConfigurationRequest 2 {
+head(128):
+	int32 number;
+}
+
+message UseInterfaceRequest 3 {
+head(128):
+	int32 number;
+	int32 alternative;
+}
+
+message GetEndpointRequest 4 {
+head(128):
+	PipeType type;
+	int32 number;
+}
+
+message TransferRequest 5 {
+head(128):
+	XferDirection dir;
+	XferType type;
+	uint64 length;
+
+	tags {
+		tag(1) int8 lazy_notification;
+		tag(2) int8 allow_short_packets;
+	}
+}
+
+}
+
+group {
+
+message SvrResponse 1 {
+head(128):
+	Errors error;
+	tags {
+		tag(1) int64 size;
+	}
+}
+
+}

@@ -7,7 +7,8 @@
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 
-#include "usb.pb.h"
+#include <bragi/helpers-std.hpp>
+#include "usb.bragi.hpp"
 #include "protocols/usb/client.hpp"
 
 namespace protocols::usb {
@@ -55,7 +56,7 @@ private:
 struct EndpointState final : EndpointData {
 	EndpointState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
-	
+
 	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
 	async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) override;
 	async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) override;
@@ -91,28 +92,24 @@ frg::expected<UsbError> transformProtocolError(managarm::usb::Errors error) {
 }
 
 async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDescriptor() {
-	managarm::usb::CntRequest req;
-	req.set_req_type(managarm::usb::CntReqType::GET_CONFIGURATION_DESCRIPTOR);
-
-	auto ser = req.SerializeAsString();
+	managarm::usb::GetConfigurationDescriptorRequest req;
 
 	auto [offer, sendReq, recvResp, recvData] = co_await helix_ng::exchangeMsgs(
-				_lane,
-				helix_ng::offer(
-					helix_ng::sendBuffer(ser.data(), ser.size()),
-					helix_ng::recvInline(),
-					helix_ng::recvInline()
-				)
-			);
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline(),
+			helix_ng::recvInline()
+		)
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
 	HEL_CHECK(recvResp.error());
 
-	managarm::usb::SvrResponse resp;
-	resp.ParseFromArray(recvResp.data(), recvResp.length());
+	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
-	FRG_CO_TRY(transformProtocolError(resp.error()));
+	FRG_CO_TRY(transformProtocolError(resp->error()));
 
 	HEL_CHECK(recvData.error());
 
@@ -122,29 +119,26 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDe
 }
 
 async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfiguration(int number) {
-	managarm::usb::CntRequest req;
-	req.set_req_type(managarm::usb::CntReqType::USE_CONFIGURATION);
+	managarm::usb::UseConfigurationRequest req;
+
 	req.set_number(number);
 
-	auto ser = req.SerializeAsString();
-
 	auto [offer, sendReq, recvResp, pullLane] = co_await helix_ng::exchangeMsgs(
-				_lane,
-				helix_ng::offer(
-					helix_ng::sendBuffer(ser.data(), ser.size()),
-					helix_ng::recvInline(),
-					helix_ng::pullDescriptor()
-				)
-			);
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor()
+		)
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
 	HEL_CHECK(recvResp.error());
 
-	managarm::usb::SvrResponse resp;
-	resp.ParseFromArray(recvResp.data(), recvResp.length());
+	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
-	FRG_CO_TRY(transformProtocolError(resp.error()));
+	FRG_CO_TRY(transformProtocolError(resp->error()));
 
 	HEL_CHECK(pullLane.error());
 
@@ -152,70 +146,90 @@ async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfigurat
 	co_return Configuration(std::move(state));
 }
 
-async::result<frg::expected<UsbError>> DeviceState::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError>>
+doControlTransfer(auto &lane, ControlTransfer info) {
+	managarm::usb::TransferRequest req;
+
+	req.set_type(managarm::usb::XferType::CONTROL);
+	req.set_dir(info.flags == kXferToDevice
+		    ? managarm::usb::XferDirection::TO_DEVICE
+		    : managarm::usb::XferDirection::TO_HOST);
+
+	req.set_length(info.buffer.size());
+
 	if(info.flags == kXferToDevice) {
-		throw std::runtime_error("xfer to device not implemented");
+		auto [offer, sendReq, sendSetup, sendData, recvResp] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::sendBuffer(info.setup.data(), sizeof(SetupPacket)),
+				helix_ng::sendBuffer(info.buffer.data(), info.buffer.size()),
+				helix_ng::recvInline()
+			)
+		);
+
+		HEL_CHECK(offer.error());
+		HEL_CHECK(sendReq.error());
+		HEL_CHECK(sendSetup.error());
+		HEL_CHECK(sendData.error());
+		HEL_CHECK(recvResp.error());
+
+		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+
+		FRG_CO_TRY(transformProtocolError(resp->error()));
 	}else{
-		assert(info.flags == kXferToHost);
-
-		managarm::usb::CntRequest req;
-		req.set_req_type(managarm::usb::CntReqType::TRANSFER_TO_HOST);
-		req.set_length(info.buffer.size());
-
-		auto ser = req.SerializeAsString();
-
 		auto [offer, sendReq, sendSetup, recvResp, recvData] = co_await helix_ng::exchangeMsgs(
-					_lane,
-					helix_ng::offer(
-						helix_ng::sendBuffer(ser.data(), ser.size()),
-						helix_ng::sendBuffer(info.setup.data(), sizeof(SetupPacket)),
-						helix_ng::recvInline(),
-						helix_ng::recvBuffer(info.buffer.data(), info.buffer.size())
-					)
-				);
+			lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::sendBuffer(info.setup.data(), sizeof(SetupPacket)),
+				helix_ng::recvInline(),
+				helix_ng::recvBuffer(info.buffer.data(), info.buffer.size())
+			)
+		);
 
 		HEL_CHECK(offer.error());
 		HEL_CHECK(sendReq.error());
 		HEL_CHECK(sendSetup.error());
 		HEL_CHECK(recvResp.error());
 
-		managarm::usb::SvrResponse resp;
-		resp.ParseFromArray(recvResp.data(), recvResp.length());
+		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
-		FRG_CO_TRY(transformProtocolError(resp.error()));
+		FRG_CO_TRY(transformProtocolError(resp->error()));
 
 		HEL_CHECK(recvData.error());
-
-		co_return {};
 	}
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<UsbError>> DeviceState::transfer(ControlTransfer info) {
+	co_return co_await doControlTransfer(_lane, info);
 }
 
 async::result<frg::expected<UsbError, Interface>>
 ConfigurationState::useInterface(int number, int alternative) {
-	managarm::usb::CntRequest req;
-	req.set_req_type(managarm::usb::CntReqType::USE_INTERFACE);
+	managarm::usb::UseInterfaceRequest req;
+
 	req.set_number(number);
 	req.set_alternative(alternative);
 
-	auto ser = req.SerializeAsString();
-
 	auto [offer, sendReq, recvResp, pullLane] = co_await helix_ng::exchangeMsgs(
-				_lane,
-				helix_ng::offer(
-					helix_ng::sendBuffer(ser.data(), ser.size()),
-					helix_ng::recvInline(),
-					helix_ng::pullDescriptor()
-				)
-			);
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor()
+		)
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
 	HEL_CHECK(recvResp.error());
 
-	managarm::usb::SvrResponse resp;
-	resp.ParseFromArray(recvResp.data(), recvResp.length());
+	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
-	FRG_CO_TRY(transformProtocolError(resp.error()));
+	FRG_CO_TRY(transformProtocolError(resp->error()));
 
 	HEL_CHECK(pullLane.error());
 
@@ -225,30 +239,27 @@ ConfigurationState::useInterface(int number, int alternative) {
 
 async::result<frg::expected<UsbError, Endpoint>>
 InterfaceState::getEndpoint(PipeType type, int number) {
-	managarm::usb::CntRequest req;
-	req.set_req_type(managarm::usb::CntReqType::GET_ENDPOINT);
-	req.set_pipetype(static_cast<int>(type));
+	managarm::usb::GetEndpointRequest req;
+
+	req.set_type(static_cast<int>(type));
 	req.set_number(number);
 
-	auto ser = req.SerializeAsString();
-
 	auto [offer, sendReq, recvResp, pullLane] = co_await helix_ng::exchangeMsgs(
-				_lane,
-				helix_ng::offer(
-					helix_ng::sendBuffer(ser.data(), ser.size()),
-					helix_ng::recvInline(),
-					helix_ng::pullDescriptor()
-				)
-			);
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor()
+		)
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
 	HEL_CHECK(recvResp.error());
 
-	managarm::usb::SvrResponse resp;
-	resp.ParseFromArray(recvResp.data(), recvResp.length());
+	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
-	FRG_CO_TRY(transformProtocolError(resp.error()));
+	FRG_CO_TRY(transformProtocolError(resp->error()));
 
 	HEL_CHECK(pullLane.error());
 
@@ -256,113 +267,75 @@ InterfaceState::getEndpoint(PipeType type, int number) {
 	co_return Endpoint(std::move(state));
 }
 
-async::result<frg::expected<UsbError>> EndpointState::transfer(ControlTransfer) {
-	throw std::runtime_error("endpoint control transfer not implemented");
-}
+template <typename XferInfo>
+async::result<frg::expected<UsbError, size_t>>
+doTransferOfType(auto &lane, managarm::usb::XferType type, XferInfo info) {
+	managarm::usb::TransferRequest req;
 
-async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(InterruptTransfer info) {
+	req.set_type(type);
+	req.set_dir(info.flags == kXferToDevice
+		    ? managarm::usb::XferDirection::TO_DEVICE
+		    : managarm::usb::XferDirection::TO_HOST);
+
+	req.set_allow_short_packets(info.allowShortPackets);
+	req.set_lazy_notification(info.lazyNotification);
+	req.set_length(info.buffer.size());
+
 	if(info.flags == kXferToDevice) {
-		throw std::runtime_error("xfer to device not implemented");
-	}else{
-		assert(info.flags == kXferToHost);
-
-		managarm::usb::CntRequest req;
-		req.set_req_type(managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST);
-		req.set_length(info.buffer.size());
-		req.set_allow_short(info.allowShortPackets);
-		req.set_lazy_notification(info.lazyNotification);
-
-		auto ser = req.SerializeAsString();
-
-		auto [offer, sendReq, recvResp, recvData] = co_await helix_ng::exchangeMsgs(
-					_lane,
-					helix_ng::offer(
-						helix_ng::sendBuffer(ser.data(), ser.size()),
-						helix_ng::recvInline(),
-						helix_ng::recvBuffer(info.buffer.data(), info.buffer.size())
-					)
-				);
-
-		HEL_CHECK(offer.error());
-		HEL_CHECK(sendReq.error());
-		HEL_CHECK(recvResp.error());
-
-		managarm::usb::SvrResponse resp;
-		resp.ParseFromArray(recvResp.data(), recvResp.length());
-
-		FRG_CO_TRY(transformProtocolError(resp.error()));
-
-		HEL_CHECK(recvData.error());
-
-		co_return recvData.actualLength();
-	}
-}
-
-async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(BulkTransfer info) {
-	if(info.flags == kXferToDevice) {
-		assert(info.flags == kXferToDevice);
-		assert(!info.allowShortPackets);
-
-		managarm::usb::CntRequest req;
-		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE);
-		req.set_length(info.buffer.size());
-		req.set_lazy_notification(info.lazyNotification);
-
-		auto ser = req.SerializeAsString();
-
-		auto [offer, sendReq, sendData, recvResp] = co_await helix_ng::exchangeMsgs(
-					_lane,
-					helix_ng::offer(
-						helix_ng::sendBuffer(ser.data(), ser.size()),
-						helix_ng::sendBuffer(info.buffer.data(), info.buffer.size()),
-						helix_ng::recvInline()
-					)
-				);
+		auto [offer, sendReq, sendData, recvResp] =
+			co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+					helix_ng::sendBuffer(info.buffer.data(), info.buffer.size()),
+					helix_ng::recvInline()
+				)
+			);
 
 		HEL_CHECK(offer.error());
 		HEL_CHECK(sendReq.error());
 		HEL_CHECK(sendData.error());
 		HEL_CHECK(recvResp.error());
 
-		managarm::usb::SvrResponse resp;
-		resp.ParseFromArray(recvResp.data(), recvResp.length());
+		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
-		FRG_CO_TRY(transformProtocolError(resp.error()));
+		FRG_CO_TRY(transformProtocolError(resp->error()));
 
-		co_return resp.size();
+		co_return resp->size();
 	}else{
-		assert(info.flags == kXferToHost);
-
-		managarm::usb::CntRequest req;
-		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST);
-		req.set_length(info.buffer.size());
-		req.set_allow_short(info.allowShortPackets);
-		req.set_lazy_notification(info.lazyNotification);
-
-		auto ser = req.SerializeAsString();
-
 		auto [offer, sendReq, recvResp, recvData] = co_await helix_ng::exchangeMsgs(
-					_lane,
-					helix_ng::offer(
-						helix_ng::sendBuffer(ser.data(), ser.size()),
-						helix_ng::recvInline(),
-						helix_ng::recvBuffer(info.buffer.data(), info.buffer.size())
-					)
-				);
+			lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::recvBuffer(info.buffer.data(), info.buffer.size())
+			)
+		);
 
 		HEL_CHECK(offer.error());
 		HEL_CHECK(sendReq.error());
 		HEL_CHECK(recvResp.error());
 
-		managarm::usb::SvrResponse resp;
-		resp.ParseFromArray(recvResp.data(), recvResp.length());
+		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
-		FRG_CO_TRY(transformProtocolError(resp.error()));
+		FRG_CO_TRY(transformProtocolError(resp->error()));
 
 		HEL_CHECK(recvData.error());
 
 		co_return recvData.actualLength();
 	}
+}
+
+async::result<frg::expected<UsbError>> EndpointState::transfer(ControlTransfer info) {
+	co_return co_await doControlTransfer(_lane, info);
+}
+
+async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(InterruptTransfer info) {
+	co_return co_await doTransferOfType(_lane, managarm::usb::XferType::INTERRUPT, info);
+}
+
+async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(BulkTransfer info) {
+	co_return co_await doTransferOfType(_lane, managarm::usb::XferType::BULK, info);
 }
 
 } // anonymous namespace
