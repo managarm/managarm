@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <error.h>
 #include <fstream>
 #include <iostream>
 
@@ -12,6 +13,11 @@
 // This second stages assumes that:
 // - stdin, stdout and stderr are already set up correctly
 // - the real file system is mounted to /
+
+#define CHECK_EXECL(path, ...) \
+	 if(execl(path, __VA_ARGS__) == -1) { \
+		 error(1, errno, "init: failed to launch '%s'", path);	\
+	 }
 
 int main() {
 	std::cout << "init: Entering stage2" << std::endl;
@@ -22,7 +28,7 @@ int main() {
 	std::cout << "init: Running xbps-reconfigure" << std::endl;
 	auto xbps_reconfigure = fork();
 	if(!xbps_reconfigure) {
-		execl("/usr/bin/xbps-reconfigure", "xbps-reconfigure", "-a", "-v", nullptr);
+		CHECK_EXECL("/usr/bin/xbps-reconfigure", "xbps-reconfigure", "-a", "-v", nullptr);
 	}else assert(xbps_reconfigure != -1);
 
 	waitpid(xbps_reconfigure, nullptr, 0);
@@ -31,8 +37,7 @@ int main() {
 	std::cout << "init: Starting udevd" << std::endl;
 	auto udev = fork();
 	if(!udev) {
-//		execl("/usr/sbin/udevd", "udevd", nullptr);
-		execl("/usr/sbin/udevd", "udevd", "--debug", nullptr);
+	    CHECK_EXECL("/usr/sbin/udevd", "udevd", "--debug", nullptr);
 	}else assert(udev != -1);
 
 	while(access("/run/udev/rules.d", F_OK)) { // TODO: Use some other file to wait on?
@@ -62,22 +67,22 @@ int main() {
 #if defined (__x86_64__)
 	auto input_ps2 = fork();
 	if(!input_ps2) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
-				"/usr/lib/managarm/server/input-atkbd.bin", nullptr);
+	    CHECK_EXECL("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
+					"/usr/lib/managarm/server/input-atkbd.bin", nullptr);
 	}else assert(input_ps2 != -1);
 #endif
 
 	auto input_hid = fork();
 	if(!input_hid) {
-		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
-				"/usr/lib/managarm/server/input-usbhid.bin", nullptr);
+		CHECK_EXECL("/usr/bin/runsvr", "/usr/bin/runsvr", "run",
+					"/usr/lib/managarm/server/input-usbhid.bin", nullptr);
 	}else assert(input_hid != -1);
 
 	// Now run 'udevadm trigger' to make sure that udev initializes every device.
 	std::cout << "init: Running udev-trigger" << std::endl;
 	auto udev_trigger_devs = fork();
 	if(!udev_trigger_devs) {
-		execl("/usr/bin/udevadm", "udevadm", "trigger", "--action=add", nullptr);
+		CHECK_EXECL("/usr/bin/udevadm", "udevadm", "trigger", "--action=add", nullptr);
 	}else assert(udev_trigger_devs != -1);
 
 	waitpid(udev_trigger_devs, nullptr, 0);
@@ -85,7 +90,7 @@ int main() {
 	std::cout << "init: Running udev-settle" << std::endl;
 	auto udev_settle = fork();
 	if(!udev_settle) {
-		execl("/usr/bin/udevadm", "udevadm", "settle", nullptr);
+	    CHECK_EXECL("/usr/bin/udevadm", "udevadm", "settle", nullptr);
 	}else assert(udev_settle != -1);
 
 	waitpid(udev_settle, nullptr, 0);
@@ -169,7 +174,7 @@ int main() {
 		if(launch == "kmscon") {
 			// TODO: kmscon should invoke a login program which sets these environment vars.
 			// Force kmscon to not reset the environment
-			execl("/usr/bin/kmscon", "kmscon", "--no-reset-env", nullptr);
+			CHECK_EXECL("/usr/bin/kmscon", "kmscon", "--no-reset-env", nullptr);
 			//execl("/usr/bin/kmscon", "kmscon", nullptr);
 			//execl("/usr/bin/kmscon", "kmscon", "--debug", "--verbose", nullptr);
 		}else if(launch == "weston") {
@@ -179,7 +184,7 @@ int main() {
 			if(mkdir("/tmp/.X11-unix", 1777))
 				throw std::runtime_error("mkdir() failed");
 			//execl("/usr/bin/weston", "weston", nullptr);
-			execl("/usr/bin/weston", "weston", "--xwayland", nullptr);
+		    CHECK_EXECL("/usr/bin/weston", "weston", "--xwayland", nullptr);
 			//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
 		}else if(launch == "headless") {
 			auto fd = open("/dev/ttyS0", O_RDWR);
@@ -188,7 +193,7 @@ int main() {
 			if(dup2(fd, 0) < 0 || dup2(fd, 1) < 0 || dup2(fd, 2) < 0)
 				throw std::runtime_error("dup2() failed");
 			close(fd);
-			execl(command.c_str(), command.c_str(), nullptr);
+			CHECK_EXECL(command.c_str(), command.c_str(), nullptr);
 		}else{
 			std::cout << "init: init does not know how to launch " << launch << std::endl;
 		}
