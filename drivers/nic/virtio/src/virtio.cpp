@@ -4,6 +4,10 @@
 #include <core/virtio/core.hpp>
 
 namespace {
+	constexpr bool logFrames = false;
+}
+
+namespace {
 // Device feature bits.
 constexpr size_t legacyHeaderSize = 10;
 enum {
@@ -102,9 +106,13 @@ async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {
 	chain.append(co_await transmitVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::hostToDevice, payload);
 
-	std::cout << "virtio-driver: sending frame" << std::endl;
+	if(logFrames) {
+		std::cout << "virtio-driver: sending frame" << std::endl;
+	}
 	co_await transmitVq_->submitDescriptor(chain.front());
-	std::cout << "virtio-driver: sent frame" << std::endl;
+	if(logFrames) {
+		std::cout << "virtio-driver: sent frame" << std::endl;
+	}
 }
 } // namespace
 
