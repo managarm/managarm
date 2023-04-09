@@ -41,9 +41,16 @@ public:
 		co_return protocols::fs::Error::none;
 	}
 
+	static async::result<void> setOption(void *, int option, int) {
+		assert(option == SO_PASSCRED);
+		std::cout << "netserver: netlink sockets do not support SO_PASSCRED yet!" << std::endl;
+		co_return;
+	}
+
 	static async::result<size_t> sockname(void *, void *, size_t);
 
 	constexpr static protocols::fs::FileOperations ops {
+		.setOption = &setOption,
 		.bind = &bind,
 		.sockname = &sockname,
 		.recvMsg = &recvMsg,
