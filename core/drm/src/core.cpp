@@ -385,6 +385,7 @@ drm_mode_modeinfo drm_core::makeModeInfo(const char *name, uint32_t type,
 	return mode_info;
 };
 
+// clang-format off
 void drm_core::addDmtModes(std::vector<drm_mode_modeinfo> &supported_modes,
 		unsigned int max_width, unsigned max_height) {
 	drm_mode_modeinfo modes[] = {
@@ -750,3 +751,4 @@ void drm_core::addDmtModes(std::vector<drm_mode_modeinfo> &supported_modes,
 	}
 }
 
+// clang-format on
