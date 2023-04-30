@@ -41,3 +41,5 @@ eirEntry:
 halt_kernel:
 	hlt
 	jmp halt_kernel
+
+	.section .note.GNU-stack,"",%progbits

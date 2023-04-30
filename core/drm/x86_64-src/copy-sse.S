@@ -74,3 +74,5 @@ fastCopy16:
 .L13:
         xorl    %eax, %eax
         jmp     .L2
+
+	.section .note.GNU-stack,"",%progbits

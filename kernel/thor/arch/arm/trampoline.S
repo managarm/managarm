@@ -97,3 +97,5 @@ apEntryPoint:
 	msr sctlr_el1, x2
 
 	eret
+
+	.section .note.GNU-stack,"",%progbits

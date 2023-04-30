@@ -80,3 +80,5 @@ vmxDoVmExit:
 	popq %rbx
 
 	retq
+
+	.section .note.GNU-stack,"",%progbits

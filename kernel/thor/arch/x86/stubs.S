@@ -687,3 +687,4 @@ _restoreExecutorRegisters:
 	mov .L_imageRdi(%rdi), %rdi
 	iretq
 
+	.section .note.GNU-stack,"",%progbits

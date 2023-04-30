@@ -95,3 +95,4 @@ eirEnterKernel:
 	movabs $0xFFFFFE8000010000, %rdi
 	jmp *%rdx
 
+	.section .note.GNU-stack,"",%progbits

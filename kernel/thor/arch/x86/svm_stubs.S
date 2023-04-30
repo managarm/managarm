@@ -110,3 +110,5 @@ svmVmRun:
 	popq %rbx
 
 	ret
+
+	.section .note.GNU-stack,"",%progbits

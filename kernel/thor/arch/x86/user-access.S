@@ -92,3 +92,5 @@ doAtomicUserLoad:
 	mov %rax, %gs:.L_gsCurrentUar # Clean up the UAR.
 	mov $1, %rax
 	ret
+
+	.section .note.GNU-stack,"",%progbits

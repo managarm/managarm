@@ -25,3 +25,5 @@ eirEnterKernel:
 	xor %ebp, %ebp
 	movabs $0xFFFFFE8000010000, %rdi
 	jmp *%rsi
+
+	.section .note.GNU-stack,"",%progbits

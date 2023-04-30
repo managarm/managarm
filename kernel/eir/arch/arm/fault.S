@@ -57,3 +57,5 @@ eirCommonHandler:
 	mrs x3, spsr_el1
 	mrs x4, far_el1
 	b eirExceptionHandler
+
+	.section .note.GNU-stack,"",%progbits

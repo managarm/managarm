@@ -36,3 +36,4 @@ halt_loop:
 	hlt
 	jmp halt_loop
 
+	.section .note.GNU-stack,"",%progbits

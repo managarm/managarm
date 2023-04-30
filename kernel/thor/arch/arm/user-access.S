@@ -88,3 +88,5 @@ doAtomicUserLoad:
 	str x0, [x4, .L_currentUarOff]
 	mov x0, #1
 	ret
+
+	.section .note.GNU-stack,"",%progbits
