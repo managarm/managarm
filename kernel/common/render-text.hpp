@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <cstddef>
 #include <utility>
 
 constexpr uint32_t rgb(int r, int g, int b) {

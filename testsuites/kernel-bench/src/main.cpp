@@ -4,6 +4,8 @@
 #include <async/algorithm.hpp>
 #include <helix/ipc.hpp>
 
+#include <vector>
+
 namespace {
 
 struct IterationsPerSecondBenchmark {
