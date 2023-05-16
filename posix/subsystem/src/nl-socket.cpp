@@ -110,9 +110,9 @@ public:
 		using namespace protocols::fs;
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
-		assert(!flags);
-		// assert(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)));
-		assert(max_addr_length >= sizeof(struct sockaddr_nl));
+		if(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC))) {
+			std::cout << "posix: Unsupported flag in recvMsg" << std::endl;
+		}
 
 		if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
 			if(logSockets)
@@ -277,7 +277,7 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	if(logSockets)
 		std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 	assert(!flags);
-	assert(addr_length == sizeof(struct sockaddr_nl));
+	assert(addr_length >= sizeof(struct sockaddr_nl));
 	assert(files.empty());
 
 	struct sockaddr_nl sa;
@@ -287,7 +287,6 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	if(sa.nl_groups) {
 		// Linux allows multicast only to a single group at a time.
 		grp_idx = __builtin_ffs(sa.nl_groups);
-		assert(sa.nl_groups == (1 << (grp_idx - 1)));
 	}
 
 	// TODO: Associate port otherwise.
@@ -326,7 +325,7 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 async::result<protocols::fs::Error> OpenFile::bind(Process *,
 		const void *addr_ptr, size_t addr_length) {
 	struct sockaddr_nl sa;
-	assert(addr_length <= sizeof(struct sockaddr_nl));
+	assert(addr_length >= sizeof(struct sockaddr_nl));
 	memcpy(&sa, addr_ptr, addr_length);
 
 	assert(!sa.nl_pid);
