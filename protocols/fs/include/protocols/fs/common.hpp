@@ -40,6 +40,7 @@ enum class Error {
 	invalidProtocolOption = 25,
 	directoryNotEmpty = 26,
 	connectionRefused = 27,
+	interrupted = 28,
 };
 
 inline managarm::fs::Errors mapFsError(Error e) {
@@ -70,10 +71,25 @@ inline managarm::fs::Errors mapFsError(Error e) {
 		case Error::invalidProtocolOption: return managarm::fs::Errors::INVALID_PROTOCOL_OPTION;
 		case Error::directoryNotEmpty: return managarm::fs::Errors::DIRECTORY_NOT_EMPTY;
 		case Error::connectionRefused: return managarm::fs::Errors::CONNECTION_REFUSED;
+		case Error::interrupted: return managarm::fs::Errors::INTERRUPTED;
 	}
 }
 
-using ReadResult = std::variant<Error, size_t>;
+struct ReadResult : std::pair<Error, size_t> {
+	ReadResult(const std::pair<Error, size_t> &p)
+	: pair<Error, size_t>{p} {}
+
+	ReadResult(Error err, size_t size)
+	: pair<Error, size_t>{err, size} {}
+
+	Error error() const {
+		return this->first;
+	}
+
+	size_t size() const {
+		return this->second;
+	}
+};
 
 using ReadEntriesResult = std::optional<std::string>;
 

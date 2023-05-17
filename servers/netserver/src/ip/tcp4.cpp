@@ -343,11 +343,13 @@ struct Tcp4Socket {
 	}
 
 	static async::result<protocols::fs::ReadResult> read(void *object, const char *creds,
-			void *data, size_t size) {
+			void *data, size_t size, async::cancellation_token ct) {
+		//TODO(geert): use cancellation token.
 		auto result = co_await recvMsg(object, creds, 0, data, size, nullptr, 0, {});
 		if(auto e = std::get_if<protocols::fs::Error>(&result); e)
-			co_return *e;
-		co_return std::get<protocols::fs::RecvData>(result).dataLength;
+			co_return {*e, 0};
+		co_return {protocols::fs::Error::none,
+			std::get<protocols::fs::RecvData>(result).dataLength};
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *creds,

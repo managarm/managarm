@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <string.h>
 
 #include "clock.hpp"
@@ -71,14 +72,16 @@ async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, Vfs
 	co_return _offset;
 }
 
-async::result<frg::expected<Error, size_t>>
-AttributeFile::readSome(Process *process, void *data, size_t max_length) {
+async::result<protocols::fs::ReadResult>
+AttributeFile::readSome(Process *process, void *data, size_t max_length, async::cancellation_token ce) {
+	// TODO(geert): do something with this.
+	(void) ce;
 	auto ret = co_await pread(process, _offset, data, max_length);
 
 	if(ret)
 		_offset += ret.value();
 
-	co_return ret;
+	co_return {protocols::fs::Error::none, ret.value()};
 }
 
 async::result<frg::expected<Error, size_t>>
@@ -87,6 +90,7 @@ AttributeFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 
 	if(!_cached) {
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
+		// TODO(geert): Don't assume this doesn't block.
 		if(auto res = co_await node->_attr->show(node->_object); res) {
 			_buffer = res.value();
 			_cached = true;
@@ -94,10 +98,10 @@ AttributeFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 			co_return res.error();
 	}
 
-	if(offset >= 0 && static_cast<size_t>(offset) >= _buffer.size())
-		co_return 0;
+	if(_offset >= _buffer.size())
+		co_return std::make_pair(protocols::fs::Error::none, 0);
 	size_t chunk = std::min(_buffer.size() - offset, length);
-	memcpy(buffer, _buffer.data() + offset, chunk);
+	memcpy(buffer, _buffer.data() + _offset, chunk);
 	co_return chunk;
 }
 
