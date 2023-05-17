@@ -289,9 +289,7 @@ public:
 
 	CheckSignalResult checkSignal();
 
-	// TODO: If we ever need to cancel this operation, it would be better to
-	//       take a cancellation token instead of nonBlock.
-	async::result<SignalItem *> fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct = {});
+	async::result<SignalItem *> fetchSignal(uint64_t mask, async::cancellation_token ct);
 
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.

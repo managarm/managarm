@@ -1,4 +1,5 @@
 #include <asm/ioctls.h>
+#include <async/cancellation.hpp>
 #include <linux/magic.h>
 #include <numeric>
 #include <termios.h>
@@ -12,6 +13,7 @@
 #include "core/tty.hpp"
 #include "file.hpp"
 #include "process.hpp"
+#include "protocols/fs/common.hpp"
 #include "pts.hpp"
 #include "fs.bragi.hpp"
 
@@ -371,8 +373,8 @@ public:
 	MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			bool nonBlocking);
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t maxLength) override;
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override;
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
@@ -435,8 +437,8 @@ public:
 	SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			std::shared_ptr<Channel> channel, bool nonBlock);
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t maxLength) override;
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override;
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
@@ -754,18 +756,21 @@ MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink>
 			std::make_shared<DeviceNode>(DeviceId{136, _channel->ptsIndex}));
 }
 
-async::result<frg::expected<Error, size_t>>
-MasterFile::readSome(Process *, void *data, size_t maxLength) {
+async::result<protocols::fs::ReadResult>
+MasterFile::readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) {
 	if(logReadWrite)
 		std::cout << std::format("posix: Read from tty {}\n", structName());
 	if(!maxLength)
-		co_return 0;
+		co_return {protocols::fs::Error::none, 0};
 
 	if (_channel->masterQueue.empty() && _nonBlocking)
-		co_return Error::wouldBlock;
+		co_return {protocols::fs::Error::wouldBlock, 0};
 
-	while(_channel->masterQueue.empty())
-		co_await _channel->statusBell.async_wait();
+	while (_channel->masterQueue.empty()) {
+		co_await _channel->statusBell.async_wait(ce);
+		if (ce.is_cancellation_requested())
+			co_return {protocols::fs::Error::interrupted, 0};
+	}
 
 	auto packet = &_channel->masterQueue.front();
 	size_t chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
@@ -774,7 +779,7 @@ MasterFile::readSome(Process *, void *data, size_t maxLength) {
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
 		_channel->masterQueue.pop_front();
-	co_return chunk;
+	co_return {protocols::fs::Error::none, chunk};
 }
 
 async::result<frg::expected<Error, size_t>>
@@ -980,20 +985,25 @@ SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> l
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
 		_channel{std::move(channel)}, nonBlock_{nonBlock} { }
 
-async::result<frg::expected<Error, size_t>>
-SlaveFile::readSome(Process *, void *data, size_t maxLength) {
+async::result<protocols::fs::ReadResult>
+SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
 	if(!maxLength)
-		co_return 0;
+		co_return {protocols::fs::Error::none, 0};
 
 	while(_channel->slaveQueue.empty()){
 		if(nonBlock_){
 			if(logReadWrite)
 				std::cout << "posix: tty would block" << std::endl;
-			co_return Error::wouldBlock;
+			co_return {protocols::fs::Error::wouldBlock, 0};
 		}
-		co_await _channel->statusBell.async_wait();
+		co_await _channel->statusBell.async_wait(ce);
+		if (ce.is_cancellation_requested()) {
+			if (logReadWrite)
+				std::cout << "posix: tty read interrupted" << std::endl;
+			co_return {protocols::fs::Error::interrupted, 0};
+		}
 	}
 
 	auto packet = &_channel->slaveQueue.front();
@@ -1003,9 +1013,8 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
 		_channel->slaveQueue.pop_front();
-	co_return chunk;
+	co_return {protocols::fs::Error::none, chunk};
 }
-
 
 async::result<frg::expected<Error, size_t>>
 SlaveFile::writeAll(Process *, const void *data, size_t length) {

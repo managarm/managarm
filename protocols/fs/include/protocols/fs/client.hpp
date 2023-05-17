@@ -24,7 +24,7 @@ struct File {
 
 	async::result<void> seekAbsolute(int64_t offset);
 
-	async::result<size_t> readSome(void *data, size_t max_length);
+	async::result<ReadResult> readSome(void *data, size_t max_length, async::cancellation_token);
 	async::result<size_t> writeSome(const void *data, size_t max_length);
 
 	async::result<frg::expected<Error, PollWaitResult>>

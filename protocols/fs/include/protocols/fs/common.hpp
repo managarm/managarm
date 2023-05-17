@@ -44,6 +44,7 @@ enum class Error {
 	internalError = 28,
 	alreadyConnected = 29,
 	notSocket = 30,
+	interrupted = 31,
 };
 
 struct ToFsError {
@@ -84,6 +85,7 @@ inline managarm::fs::Errors operator|(Error e, ToFsError) {
 		case Error::internalError: return managarm::fs::Errors::INTERNAL_ERROR;
 		case Error::alreadyConnected: return managarm::fs::Errors::ALREADY_CONNECTED;
 		case Error::notSocket: return managarm::fs::Errors::NOT_A_SOCKET;
+		case Error::interrupted: return managarm::fs::Errors::INTERRUPTED;
 	}
 }
 
@@ -125,10 +127,19 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 		case managarm::fs::Errors::INTERNAL_ERROR: return Error::internalError;
 		case managarm::fs::Errors::ALREADY_CONNECTED: return Error::alreadyConnected;
 		case managarm::fs::Errors::NOT_A_SOCKET: return Error::notSocket;
+		case managarm::fs::Errors::INTERRUPTED: return Error::interrupted;
 	}
 }
 
-using ReadResult = std::variant<Error, size_t>;
+struct ReadResult : std::pair<Error, size_t> {
+	ReadResult(const std::pair<Error, size_t> &p) : pair<Error, size_t>{p} {}
+
+	ReadResult(Error err, size_t size) : pair<Error, size_t>{err, size} {}
+
+	Error error() const { return this->first; }
+
+	size_t size() const { return this->second; }
+};
 
 using ReadEntriesResult = std::optional<std::string>;
 

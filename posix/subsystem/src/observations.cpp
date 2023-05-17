@@ -329,11 +329,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
-				if(active) {
+				async::cancellation_event ev;
+				ev.cancel();
+				auto active =
+				    co_await self->signalContext()->fetchSignal(~self->signalMask(), {ev});
+				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
-				}
 			}
 			if(killed)
 				break;
@@ -353,7 +354,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
 			bool killed = false;
-			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+			async::cancellation_event ev;
+			ev.cancel();
+			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), {ev});
 			if(active)
 				co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			if(killed)
@@ -419,8 +422,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			// If the process signalled itself, we should process the signal before resuming.
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
+				async::cancellation_event ev;
+				ev.cancel();
+				auto active =
+				    co_await self->signalContext()->fetchSignal(~self->signalMask(), {ev});
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
@@ -533,7 +538,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = EAGAIN;
 			gprs[kHelRegOut1] = 0;
 
-			auto check = co_await self->signalContext()->fetchSignal(mask, true);
+			async::cancellation_event ev{};
+			ev.cancel();
+			auto check = co_await self->signalContext()->fetchSignal(mask, {ev});
 			if(check) {
 				if(infoPtr) {
 					siginfo_t siginfo{};
@@ -557,8 +564,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 					}
 				};
 
-				auto raceSignal = [](async::cancellation_token c, uintptr_t mask, SignalItem *&item, std::shared_ptr<Process> self) -> async::result<void> {
-					item = co_await self->signalContext()->fetchSignal(mask, false, c);
+				auto raceSignal = [](async::cancellation_token c,
+				                     uintptr_t mask,
+				                     SignalItem *&item,
+				                     std::shared_ptr<Process> self) -> async::result<void> {
+					item = co_await self->signalContext()->fetchSignal(mask, c);
 				};
 
 				co_await async::race_and_cancel(
@@ -591,8 +601,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
+				async::cancellation_event ev;
+				ev.cancel();
+				auto active =
+				    co_await self->signalContext()->fetchSignal(~self->signalMask(), {ev});
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}

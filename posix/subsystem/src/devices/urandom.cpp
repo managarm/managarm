@@ -2,6 +2,7 @@
 #include <sys/random.h>
 
 #include "../common.hpp"
+#include "protocols/fs/common.hpp"
 #include "urandom.hpp"
 
 #include <bitset>
@@ -11,8 +12,8 @@ namespace {
 
 struct UrandomFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t length, async::cancellation_token) override {
 		auto p = reinterpret_cast<char *>(data);
 		size_t n = 0;
 		while(n < length) {
@@ -21,7 +22,7 @@ private:
 			n+= chunk;
 		}
 
-		co_return n;
+		co_return {protocols::fs::Error::none, n};
 	}
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t length) override {
