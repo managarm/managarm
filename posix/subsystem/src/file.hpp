@@ -79,6 +79,8 @@ enum class Error {
 	unsupportedSocketType,
 
 	notSocket,
+
+	interrupted,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -108,6 +110,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::noChildProcesses: return protocols::fs::Error::internalError;
 		case Error::alreadyConnected: return protocols::fs::Error::alreadyConnected;
 		case Error::notSocket: return protocols::fs::Error::notSocket;
+		case Error::interrupted: return protocols::fs::Error::interrupted;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return protocols::fs::Error::internalError;
@@ -142,6 +145,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::noChildProcesses: return managarm::posix::Errors::NO_CHILD_PROCESSES;
 		case Error::alreadyConnected: return managarm::posix::Errors::ALREADY_CONNECTED;
 		case Error::unsupportedSocketType: return managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE;
+		case Error::interrupted:
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:
@@ -150,6 +154,39 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::notSocket:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return managarm::posix::Errors::INTERNAL_ERROR;
+	}
+}
+
+struct ToPosixError {
+	template<typename E>
+	auto operator() (E e) const { return e | *this; }
+};
+constexpr ToPosixError toPosixError;
+
+inline Error operator|(protocols::fs::Error e, ToPosixError) {
+	switch(e) {
+		case protocols::fs::Error::none: return Error::success;
+		case protocols::fs::Error::fileNotFound: return Error::noSuchFile;
+		case protocols::fs::Error::endOfFile: return Error::eof;
+		case protocols::fs::Error::illegalArguments: return Error::illegalArguments;
+		case protocols::fs::Error::wouldBlock: return Error::wouldBlock;
+		case protocols::fs::Error::seekOnPipe: return Error::seekOnPipe;
+		case protocols::fs::Error::brokenPipe: return Error::brokenPipe;
+		case protocols::fs::Error::accessDenied: return Error::accessDenied;
+		case protocols::fs::Error::notDirectory: return Error::notDirectory;
+		case protocols::fs::Error::insufficientPermissions: return Error::insufficientPermissions;
+		case protocols::fs::Error::notConnected: return Error::notConnected;
+		case protocols::fs::Error::alreadyExists: return Error::alreadyExists;
+		case protocols::fs::Error::illegalOperationTarget: return Error::illegalOperationTarget;
+		case protocols::fs::Error::noSpaceLeft: return Error::noSpaceLeft;
+		case protocols::fs::Error::notTerminal: return Error::notTerminal;
+		case protocols::fs::Error::noBackingDevice: return Error::noBackingDevice;
+		case protocols::fs::Error::isDirectory: return Error::isDirectory;
+		case protocols::fs::Error::directoryNotEmpty: return Error::directoryNotEmpty;
+		case protocols::fs::Error::internalError: return Error::fileClosed;
+		default:
+			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
+			return Error::ioError;
 	}
 }
 
@@ -211,7 +248,8 @@ public:
 	ptSeekEof(void *object, int64_t offset);
 
 	static async::result<protocols::fs::ReadResult>
-	ptRead(void *object, helix_ng::CredentialsView credentials, void *buffer, size_t length);
+	ptRead(void *object, helix_ng::CredentialsView credentials, void *buffer, size_t length,
+			async::cancellation_token ce);
 
 	static async::result<protocols::fs::ReadResult>
 	ptPread(void *object, int64_t offset, helix_ng::CredentialsView credentials, void *buffer, size_t length);
@@ -385,8 +423,9 @@ public:
 	virtual async::result<frg::expected<Error, off_t>>
 	seek(off_t offset, VfsSeek whence);
 
-	virtual async::result<frg::expected<Error, size_t>>
-	readSome(Process *process, void *data, size_t max_length);
+	virtual async::result<std::expected<size_t, Error>>
+	readSome(Process *process, void *data, size_t max_length,
+			async::cancellation_token ce);
 
 	virtual async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length);
@@ -394,7 +433,7 @@ public:
 	virtual async::result<frg::expected<Error, ControllingTerminalState *>>
 	getControllingTerminal();
 
-	virtual async::result<frg::expected<Error, size_t>>
+	virtual async::result<std::expected<size_t, Error>>
 	pread(Process *process, int64_t offset, void *buffer, size_t length);
 
 	virtual async::result<frg::expected<Error, size_t>>

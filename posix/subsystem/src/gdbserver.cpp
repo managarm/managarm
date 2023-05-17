@@ -79,9 +79,9 @@ private:
 
 	async::result<uint8_t> recvByte_() {
 		if(recvPtr_ == recvLimit_) {
-			auto sizeOrError = co_await file_->readSome(nullptr, recvBuffer_, 512);
-			assert(sizeOrError);
-			recvLimit_ = sizeOrError.value();
+			auto res = co_await file_->readSome(nullptr, recvBuffer_, 512, {});
+			assert(res.has_value());
+			recvLimit_ = res.value();
 			recvPtr_ = 0;
 		}
 

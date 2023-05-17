@@ -21,9 +21,9 @@ OpenFile::OpenFile(std::weak_ptr<Process> proc, bool nonBlock)
 	SpecialLink::makeSpecialLink(VfsType::regular, 0777), defaultPipeLikeSeek},
 	nonBlock_{nonBlock}, process_{std::move(proc)} { }
 
-async::result<frg::expected<Error, size_t>>
-OpenFile::readSome(Process *, void *, size_t) {
-	co_return Error::illegalArguments;
+async::result<std::expected<size_t, Error>>
+OpenFile::readSome(Process *, void *, size_t, async::cancellation_token) {
+	co_return std::unexpected{Error::illegalArguments};
 }
 
 async::result<frg::expected<Error, PollWaitResult>>

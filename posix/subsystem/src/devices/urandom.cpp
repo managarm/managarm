@@ -2,6 +2,7 @@
 #include <sys/random.h>
 
 #include "../common.hpp"
+#include "protocols/fs/common.hpp"
 #include "urandom.hpp"
 
 #include <bitset>
@@ -11,14 +12,21 @@ namespace {
 
 struct UrandomFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t length) override {
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t length, async::cancellation_token ct) override {
 		auto p = reinterpret_cast<char *>(data);
 		size_t n = 0;
 		while(n < length) {
+			if(ct.is_cancellation_requested()) {
+				if(!n)
+					co_return std::unexpected{Error::interrupted};
+
+				break;
+			}
+
 			size_t chunk;
 			HEL_CHECK(helGetRandomBytes(p + n, length - n, &chunk));
-			n+= chunk;
+			n += chunk;
 		}
 
 		co_return n;

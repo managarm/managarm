@@ -77,19 +77,20 @@ void OpenFile::deliver(core::netlink::Packet packet) {
 	_statusBell.raise();
 }
 
-async::result<frg::expected<Error, size_t>>
-OpenFile::readSome(Process *, void *data, size_t max_length) {
+async::result<std::expected<size_t, Error>>
+OpenFile::readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) {
 	if(logSockets)
 		std::cout << "posix: Read from socket " << this << std::endl;
 
 	if(_recvQueue.empty() && nonBlock_) {
 		if(logSockets)
 			std::cout << "posix: netlink socket would block" << std::endl;
-		co_return Error::wouldBlock;
+		co_return std::unexpected{Error::wouldBlock};
 	}
-
-	while(_recvQueue.empty())
-		co_await _statusBell.async_wait();
+	while (_recvQueue.empty()) {
+		if (!co_await _statusBell.async_wait(ce))
+			co_return std::unexpected{Error::interrupted};
+	}
 
 	// TODO: Truncate packets (for SOCK_DGRAM) here.
 	auto packet = &_recvQueue.front();

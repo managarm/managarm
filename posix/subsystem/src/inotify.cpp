@@ -1,13 +1,15 @@
-#include <string.h>
-#include <sys/epoll.h>
-#include <sys/ioctl.h>
-#include <sys/inotify.h>
-#include <iostream>
-#include <print>
-
+#include <async/cancellation.hpp>
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
 #include <helix/ipc.hpp>
+#include <iostream>
+#include <print>
+#include <protocols/fs/common.hpp>
+#include <string.h>
+#include <sys/epoll.h>
+#include <sys/inotify.h>
+#include <sys/ioctl.h>
+
 #include "fs.hpp"
 #include "inotify.hpp"
 #include "process.hpp"
@@ -103,14 +105,15 @@ public:
 
 	~OpenFile() override { }
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t maxLength) override {
-		if(_queue.empty() && nonBlock_) {
-			co_return Error::wouldBlock;
-		}
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override {
+		if (_queue.empty() && nonBlock_)
+			co_return std::unexpected{Error::wouldBlock};
 
-		while(_queue.empty())
-			co_await _statusBell.async_wait();
+		while(_queue.empty()) {
+			if (!co_await _statusBell.async_wait(ce))
+				co_return std::unexpected{Error::interrupted};
+		}
 
 		size_t written = 0;
 
@@ -146,7 +149,7 @@ public:
 		if(written)
 			co_return written;
 		else
-			co_return Error::illegalArguments;
+			co_return std::unexpected{Error::illegalArguments};
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>

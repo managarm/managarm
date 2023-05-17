@@ -345,10 +345,10 @@ struct Tcp4Socket {
 	}
 
 	static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView creds,
-			void *data, size_t size) {
+			void *data, size_t size, async::cancellation_token) {
 		auto result = co_await recvMsg(object, creds, 0, data, size, nullptr, 0, {});
 		if(auto e = std::get_if<protocols::fs::Error>(&result); e)
-			co_return *e;
+			co_return std::unexpected{*e};
 		co_return std::get<protocols::fs::RecvData>(result).dataLength;
 	}
 

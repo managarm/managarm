@@ -1,8 +1,10 @@
 #pragma once
 
+#include <async/cancellation.hpp>
 #include <core/id-allocator.hpp>
 #include <protocols/fs/server.hpp>
 
+#include "protocols/fs/common.hpp"
 #include "vfs.hpp"
 
 struct Process;
@@ -70,10 +72,10 @@ public:
 
 	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override;
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override;
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override;
 
-	async::result<frg::expected<Error, size_t>>
+	async::result<std::expected<size_t, Error>>
 	pread(Process *, int64_t offset, void *buffer, size_t length) override;
 
 	async::result<frg::expected<Error, size_t>>

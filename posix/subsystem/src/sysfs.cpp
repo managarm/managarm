@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <linux/magic.h>
 #include <string.h>
 
@@ -99,33 +100,34 @@ async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, Vfs
 	co_return _offset;
 }
 
-async::result<frg::expected<Error, size_t>>
-AttributeFile::readSome(Process *process, void *data, size_t max_length) {
+async::result<std::expected<size_t, Error>>
+AttributeFile::readSome(Process *process, void *data, size_t max_length, async::cancellation_token) {
 	auto ret = co_await pread(process, _offset, data, max_length);
 
-	if(ret)
+	if(ret.has_value())
 		_offset += ret.value();
 
 	co_return ret;
 }
 
-async::result<frg::expected<Error, size_t>>
+async::result<std::expected<size_t, Error>>
 AttributeFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 	assert(length > 0);
 
 	if(!_cached) {
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
+		// TODO(geert): Don't assume this doesn't block.
 		if(auto res = co_await node->_attr->show(node->_object); res) {
 			_buffer = res.value();
 			_cached = true;
 		} else
-			co_return res.error();
+			co_return std::unexpected{res.error() | protocols::fs::toFsProtoError | toPosixError};
 	}
 
-	if(offset >= 0 && static_cast<size_t>(offset) >= _buffer.size())
-		co_return 0;
+	if (_offset >= _buffer.size())
+		co_return std::unexpected{Error::eof};
 	size_t chunk = std::min(_buffer.size() - offset, length);
-	memcpy(buffer, _buffer.data() + offset, chunk);
+	memcpy(buffer, _buffer.data() + _offset, chunk);
 	co_return chunk;
 }
 
