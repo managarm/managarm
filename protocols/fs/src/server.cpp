@@ -106,10 +106,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+		auto [cancel_event, extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
+			helix_ng::pullDescriptor(),
 			helix_ng::extractCredentials()
 		);
+		HEL_CHECK(cancel_event.error());
 		HEL_CHECK(extract_creds.error());
 
 		if(!file_ops->read) {
@@ -125,14 +127,21 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
+		async::cancellation_event ce;
+		([] (helix::UniqueDescriptor event,
+		     async::cancellation_event &ce) -> async::detached {	
+			co_await helix_ng::awaitEvent(event, 1);
+			ce.cancel();
+		})(cancel_event.descriptor(), ce);
+
 		std::string data;
 		data.resize(req.size());
 		auto res = co_await file_ops->read(file.get(), extract_creds.credentials(),
-				data.data(), req.size());
+				data.data(), req.size(), async::cancellation_token{ce});
 
 		managarm::fs::SvrResponse resp;
-		auto error = std::get_if<Error>(&res);
-		if(error && *error == Error::wouldBlock) {
+		auto error = res.error();
+		if(error == Error::wouldBlock) {
 			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
 
 			auto ser = resp.SerializeAsString();
@@ -141,7 +150,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(error && *error == Error::illegalArguments) {
+		}else if(error == Error::illegalArguments) {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 
 			auto ser = resp.SerializeAsString();
@@ -150,8 +159,19 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+		}else if(error == Error::interrupted) {
+			resp.set_error(managarm::fs::Errors::INTERRUPTED);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
 		}else{
-			assert(!error);
+			assert(error == Error::none);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
@@ -189,8 +209,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				data.data(), req.size());
 
 		managarm::fs::SvrResponse resp;
-		auto error = std::get_if<Error>(&res);
-		if(error && *error == Error::wouldBlock) {
+		auto error = res.error();
+		if(error == Error::wouldBlock) {
 			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
 
 			auto ser = resp.SerializeAsString();
@@ -199,7 +219,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(error && *error == Error::illegalArguments) {
+		}else if(error == Error::illegalArguments) {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 
 			auto ser = resp.SerializeAsString();
@@ -209,7 +229,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			);
 			HEL_CHECK(send_resp.error());
 		}else{
-			assert(!error);
+			assert(error == Error::none);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();

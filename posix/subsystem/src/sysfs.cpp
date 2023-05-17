@@ -1,9 +1,11 @@
 
+#include <async/cancellation.hpp>
 #include <string.h>
 
 #include "clock.hpp"
 #include "common.hpp"
 #include "device.hpp"
+#include "protocols/fs/common.hpp"
 #include "sysfs.hpp"
 
 #include <bitset>
@@ -64,23 +66,24 @@ async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, Vfs
 	co_return _offset;
 }
 
-async::result<frg::expected<Error, size_t>>
-AttributeFile::readSome(Process *, void *data, size_t max_length) {
+async::result<protocols::fs::ReadResult>
+AttributeFile::readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) {
 	assert(max_length > 0);
 
 	if(!_cached) {
 		assert(!_offset);
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
+		// TODO(geert): Don't assume this doesn't block.
 		_buffer = co_await node->_attr->show(node->_object);
 		_cached = true;
 	}
 
 	if(_offset >= _buffer.size())
-		co_return 0;
+		co_return std::make_pair(protocols::fs::Error::none, 0);
 	size_t chunk = std::min(_buffer.size() - _offset, max_length);
 	memcpy(data, _buffer.data() + _offset, chunk);
 	_offset += chunk;
-	co_return chunk;
+	co_return {protocols::fs::Error::none, chunk};
 }
 
 async::result<frg::expected<Error, size_t>>
