@@ -174,10 +174,12 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_resp.error());
 		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
-		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+		auto [cancel_event, extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
+			helix_ng::pullDescriptor(),
 			helix_ng::extractCredentials()
 		);
+		HEL_CHECK(cancel_event.error());
 		HEL_CHECK(extract_creds.error());
 
 		if(!file_ops->read) {
@@ -194,34 +196,45 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
+		auto event = cancel_event.descriptor();
 		std::string data;
 		data.resize(req.size());
-		auto res = co_await file_ops->read(file.get(), extract_creds.credentials(),
-				data.data(), req.size());
+		ReadResult res = Error::internalError;
+
+		auto awaitEvent = [&event](async::cancellation_token c) -> async::result<void> {
+			co_await helix_ng::awaitEvent(event, 1, c);
+		};
+
+		auto cancellableRead = [&](async::cancellation_token c) -> async::result<void> {
+			res = co_await file_ops->read(
+				file.get(),
+				extract_creds.credentials(),
+				data.data(),
+				req.size(),
+				c
+			);
+		};
+
+		co_await async::race_and_cancel(
+			[&](async::cancellation_token c) { return awaitEvent(c); },
+			[&](async::cancellation_token c) { return cancellableRead(c); }
+		);
 
 		managarm::fs::SvrResponse resp;
 		auto error = std::get_if<Error>(&res);
+		size_t size = 0;
 		if(error) {
 			resp.set_error(*error | toFsError);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiSerializedReply(ser);
-			co_return;
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			size = std::get<size_t>(res);
 		}
-
-		assert(!error);
-		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+			helix_ng::sendBuffer(data.data(), size)
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
@@ -254,8 +267,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		managarm::fs::SvrResponse resp;
 		auto error = std::get_if<Error>(&res);
-		if(error && *error == Error::wouldBlock) {
-			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+		if (error) {
+			resp.set_error(*error | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -264,18 +277,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
-		}else if(error && *error == Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiSerializedReply(ser);
-		}else{
-			assert(!error);
+		} else {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();

@@ -74,7 +74,7 @@ struct FileOperations {
 		return *this;
 	}
 	constexpr FileOperations &withRead(async::result<ReadResult> (*f)(void *object,
-			helix_ng::CredentialsView , void *buffer, size_t length)) {
+			helix_ng::CredentialsView, void *buffer, size_t length, async::cancellation_token cancellation)) {
 		read = f;
 		return *this;
 	}
@@ -146,7 +146,7 @@ struct FileOperations {
 	async::result<SeekResult> (*seekRel)(void *object, int64_t offset) = nullptr;
 	async::result<SeekResult> (*seekEof)(void *object, int64_t offset) = nullptr;
 	async::result<ReadResult> (*read)(void *object, helix_ng::CredentialsView credentials,
-			void *buffer, size_t length) = nullptr;
+			void *buffer, size_t length, async::cancellation_token cancellation) = nullptr;
 	async::result<ReadResult> (*pread)(void *object, int64_t offset, helix_ng::CredentialsView credentials,
 			void *buffer, size_t length) = nullptr;
 	async::result<frg::expected<protocols::fs::Error, size_t>> (*write)(void *object, helix_ng::CredentialsView credentials,

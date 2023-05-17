@@ -553,7 +553,8 @@ CheckSignalResult SignalContext::checkSignal() {
 	return CheckSignalResult(_currentSeq, _activeSet);
 }
 
-async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct) {
+async::result<SignalItem *>
+SignalContext::fetchSignal(uint64_t mask, async::cancellation_token ce) {
 	int sn;
 	while(true) {
 		for(sn = 1; sn <= 64; sn++) {
@@ -564,9 +565,8 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 		}
 		if(sn - 1 != 64)
 			break;
-		if(nonBlock)
-			co_return nullptr;
-		if(!co_await _signalBell.async_wait(ct))
+		co_await _signalBell.async_wait(ce);
+		if (ce.is_cancellation_requested())
 			co_return nullptr;
 	}
 
@@ -621,13 +621,14 @@ static const auto simdStateSize = [] () -> size_t {
 	return regInfo.setSize;
 }();
 
-async::result<void> SignalContext::raiseContext(SignalItem *item, Process *process,
-		bool &killed) {
-	auto thread = process->threadDescriptor();
-
+SignalContext::SignalHandling SignalContext::determineHandling(SignalItem *item, Process *process) {
 	SignalHandler handler = _handlers[item->signalNumber - 1];
 
 	process->enterSignal();
+
+	SignalContext::SignalHandling result {
+		.handler = handler,
+	};
 
 	// Implement SA_RESETHAND by resetting the signal disposition to default.
 	if(handler.flags & signalOnce)
@@ -641,9 +642,31 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			case SIGURG:
 			case SIGWINCH:
 				// Ignore the signal.
-				killed = false;
-				co_return;
+				result.ignored = true;
+				break;
+			default:
+				result.killed = true;
+				break;
+		}
+	} else if(handler.disposition == SignalDisposition::ignore) {
+		// Ignore the signal.
+	} else {
+		assert(handler.disposition == SignalDisposition::handle);
+	}
 
+	return result;
+}
+
+async::result<void> SignalContext::raiseContext(SignalItem *item, Process *process,
+		SignalContext::SignalHandling handling) {
+	if (handling.ignored) {
+		delete item;
+		co_return;
+	}
+
+	if (handling.handler.disposition == SignalDisposition::none) {
+
+		switch (item->signalNumber) {
 			case SIGABRT:
 			case SIGILL:
 			case SIGSEGV:
@@ -653,30 +676,31 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 					launchGdbServer(process);
 					co_await async::suspend_indefinitely({});
 				}
-				[[fallthrough]];
+				break;
 			default:
-				std::cout << "posix: Thread killed as the result of signal "
-						<< item->signalNumber << std::endl;
-				killed = true;
-				co_await process->terminate(TerminationBySignal{item->signalNumber});
-				co_return;
+				assert(handling.killed);
+				break;
 		}
-	} else if(handler.disposition == SignalDisposition::ignore) {
+	} else if (handling.handler.disposition == SignalDisposition::ignore) {
 		// Ignore the signal.
-		killed = false;
+		delete item;
 		co_return;
 	}
 
-	assert(handler.disposition == SignalDisposition::handle);
-	killed = false;
+	if (handling.killed) {
+		co_await process->terminate(TerminationBySignal{item->signalNumber});
+		delete item;
+		co_return;
+	}
 
+	auto thread = process->threadDescriptor();
 	SignalFrame sf;
 	memset(&sf, 0, sizeof(SignalFrame));
 
 #if defined (__x86_64__)
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
 
-	sf.returnAddress = handler.restorerIp;
+	sf.returnAddress = handling.handler.restorerIp;
 #elif defined(__aarch64__)
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
 #elif defined(__riscv) && __riscv_xlen == 64
@@ -686,13 +710,13 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #error Signal register loading code is missing for architecture
 #endif
 
-	memcpy(&sf.ucontext.uc_sigmask, &handler.mask, sizeof(handler.mask));
+	memcpy(&sf.ucontext.uc_sigmask, &handling.handler.mask, sizeof(handling.handler.mask));
 
 	std::vector<std::byte> simdState(simdStateSize);
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
 
 	// Once compile siginfo_t if that is neccessary (matches Linux behavior).
-	if(handler.flags & signalInfo) {
+	if(handling.handler.flags & signalInfo) {
 		sf.info.si_signo = item->signalNumber;
 		std::visit(CompileSignalInfo{&sf.info}, item->info);
 	}
@@ -710,7 +734,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #error Code to get stack pointer is missing for architecture
 #endif
 
-	if (handler.flags & signalOnStack && process->isAltStackEnabled()) {
+	if (handling.handler.flags & signalOnStack && process->isAltStackEnabled()) {
 		if (!process->isOnAltStack(threadSp)) {
 			threadSp = process->altStackSp() + process->altStackSize();
 		}
@@ -743,7 +767,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 
 	if(logSignals) {
 		std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
-		std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
+		std::cout << "posix: Calling signal handler at " << (void *)handling.handler.handlerIp << std::endl;
 	}
 	// Setup the new register image and resume.
 #if defined(__x86_64__)
@@ -752,7 +776,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	sf.ucontext.uc_mcontext.gregs[REG_RDX] = frame + offsetof(SignalFrame, ucontext);
 	sf.ucontext.uc_mcontext.gregs[REG_RAX] = 0; // Number of variable arguments.
 
-	sf.ucontext.uc_mcontext.gregs[REG_RIP] = handler.handlerIp;
+	sf.ucontext.uc_mcontext.gregs[REG_RIP] = handling.handler.handlerIp;
 	sf.ucontext.uc_mcontext.gregs[REG_RSP] = frame;
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
@@ -762,9 +786,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	sf.ucontext.uc_mcontext.regs[2] = frame + offsetof(SignalFrame, ucontext);
 
 	// Return address for the 'ret' instruction
-	sf.ucontext.uc_mcontext.regs[30] = handler.restorerIp;
+	sf.ucontext.uc_mcontext.regs[30] = handling.handler.restorerIp;
 
-	sf.ucontext.uc_mcontext.pc = handler.handlerIp;
+	sf.ucontext.uc_mcontext.pc = handling.handler.handlerIp;
 	sf.ucontext.uc_mcontext.sp = frame;
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
@@ -776,6 +800,13 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #endif
 
 	delete item;
+}
+
+async::result<void> SignalContext::determineAndRaiseContext(SignalItem *item, Process *process,
+		bool &killed) {
+	auto handling = determineHandling(item, process);
+	killed = handling.killed;
+	co_return co_await raiseContext(item, process, handling);
 }
 
 async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
@@ -881,6 +912,19 @@ Process::Process(std::shared_ptr<PidHull> hull, Process *parent)
 Process::~Process() {
 	std::cout << std::format("\e[33mposix: Process {} is destructed\e[39m", pid()) << std::endl;
 	_pgPointer->dropProcess(this);
+}
+
+void Process::cancelEvent() {
+	auto cancelEventPtr = reinterpret_cast<HelHandle *>(_cancelEventMapping.get());
+	auto cancelEvent = __atomic_load_n(cancelEventPtr, __ATOMIC_ACQUIRE);
+	if (cancelEvent != kHelNullHandle) {
+		HelHandle posixCancelEvent;
+		HEL_CHECK(helTransferDescriptor(
+		    cancelEvent, _fileContext->getUniverse().getHandle(), kHelTransferDescriptorIn, &posixCancelEvent
+		));
+		HEL_CHECK(helRaiseEvent(posixCancelEvent));
+		*cancelEventPtr = kHelNullHandle;
+	}
 }
 
 bool Process::checkSignalRaise() {
