@@ -669,3 +669,14 @@ head(128):
 message InitializePosixLane 14 {
 head(128):
 }
+
+message ResolveCredentialsToPidReq 15 {
+head(128):
+	uint8[16] credentials;
+}
+
+message ResolveCredentialsToPidReply 16 {
+head(128):
+	Errors error;
+	int64 pid;
+}

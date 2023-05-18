@@ -4,6 +4,7 @@
 #include <memory>
 
 extern std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
+extern std::optional<helix::UniqueDescriptor> posixLane;
 
 namespace {
 
@@ -24,6 +25,13 @@ async::result<size_t> NetlinkSocket::sockname(void *, void *addr_ptr, size_t max
 
 	co_return sizeof(struct sockaddr_nl);
 };
+
+async::result<void> NetlinkSocket::setOption(void *obj, int option, int value) {
+	auto *self = static_cast<NetlinkSocket *>(obj);
+	assert(option == SO_PASSCRED);
+	self->_passCreds = value;
+	co_return;
+}
 
 async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		const char *creds, uint32_t flags, void *data,
@@ -52,6 +60,30 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		memcpy(addr_buf, &sa, sizeof(struct sockaddr_nl));
 	}
 
+	protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
+
+	if(self->_passCreds) {
+		assert(!"netlink: This code is untested!");
+		struct ucred ucreds;
+		auto senderPid = 0;
+
+		managarm::fs::ResolveCredentialsToPidReq creds_resolve_req{};
+
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(*posixLane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(creds_resolve_req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+		memset(&ucreds, 0, sizeof(struct ucred));
+		ucreds.pid = senderPid;
+
+		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
+			throw std::runtime_error("netserver: Implement CMSG truncation");
+		ctrl.write<struct ucred>(ucreds);
+	}
+
 	if(!(flags & MSG_PEEK))
 		self->_recvQueue.pop_front();
 
@@ -61,7 +93,7 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		reply_flags |= MSG_TRUNC;
 	}
 
-	co_return protocols::fs::RecvData{{}, size, sizeof(struct sockaddr_nl), reply_flags};
+	co_return protocols::fs::RecvData{ctrl.buffer(), size, sizeof(struct sockaddr_nl), reply_flags};
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMsg(void *obj,

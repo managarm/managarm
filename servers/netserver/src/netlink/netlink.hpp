@@ -41,9 +41,12 @@ public:
 		co_return protocols::fs::Error::none;
 	}
 
+	static async::result<void> setOption(void *, int option, int value);
+
 	static async::result<size_t> sockname(void *, void *, size_t);
 
 	constexpr static protocols::fs::FileOperations ops {
+		.setOption = &setOption,
 		.bind = &bind,
 		.sockname = &sockname,
 		.recvMsg = &recvMsg,
@@ -78,6 +81,7 @@ private:
 	bool _isClosed = false;
 	uint64_t _currentSeq;
 	uint64_t _inSeq;
+	bool _passCreds = false;
 
 	std::deque<nl::Packet> _recvQueue;
 };
