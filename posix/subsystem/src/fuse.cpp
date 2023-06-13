@@ -781,11 +781,7 @@ public:
 			co_return Error::accessDenied;
 		}
 
-		auto maybe_link = co_await target->getLink(name);
-		if(!maybe_link) {
-			co_return maybe_link.error();
-		}
-		co_return maybe_link.unwrap();
+		co_return co_await target->getLink(name);
 	}
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
@@ -803,6 +799,38 @@ public:
 
 		auto request = requestToVector(&head_in, &data_in);
 		request.insert(request.end(), name.begin(), name.end());
+		request.insert(request.end(), (unsigned char){'\0'});
+		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header));
+		fuse_out_header head_out;
+		copyStructFromSpan(&head_out, out);
+
+		if(head_out.error) {
+			co_return Error::accessDenied; //TODO: map
+		}
+
+		auto maybe_link = co_await getLink(name);
+		if(maybe_link) {
+			co_return maybe_link.unwrap();
+		}
+		co_return maybe_link.error();
+	}
+
+	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	symlink(std::string name, std::string path) override {
+		std::cout << "FuseNode::symlink()" << std::endl;
+		uint64_t unique = m_fuse_file->m_queue.get_unique();
+		fuse_in_header head_in = {
+			.len = static_cast<uint32_t>(sizeof(fuse_in_header) + name.size() + path.size() + 2),
+			.opcode = FUSE_SYMLINK,
+			.unique = unique,
+			.nodeid = m_node_id,
+		};
+
+		auto head_in_span = structToSpan(&head_in);
+		std::vector<unsigned char> request = std::vector(head_in_span.begin(), head_in_span.end());
+		request.insert(request.end(), name.begin(), name.end());
+		request.insert(request.end(), (unsigned char){'\0'});
+		request.insert(request.end(), path.begin(), path.end());
 		request.insert(request.end(), (unsigned char){'\0'});
 		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header));
 		fuse_out_header head_out;
