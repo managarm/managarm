@@ -26,6 +26,7 @@
 #include <string.h>
 
 #include "common.hpp"
+#include "frg/expected.hpp"
 #include "helix/ipc-structs.hpp"
 #include "helix/ipc.hpp"
 #include "process.hpp"
@@ -526,7 +527,7 @@ public:
 		fuse_read_in data_in = {
 			.fh = m_fh,
 			.offset = static_cast<uint64_t>(m_offset),
-			.size = 4096,
+			.size = 4096, //magic constant lifted from linux
 		};
 
 		auto request = requestToVector(&head_in, &data_in);
@@ -549,7 +550,7 @@ public:
 			co_return {};
 		}
 
-		m_offset++;
+		m_offset++; //read offset tracks entries, not bytes
 		copyStructFromSpan(&data_out, out.subspan(sizeof(fuse_out_header)));
 		auto first = out.begin() + sizeof(fuse_out_header) + FUSE_NAME_OFFSET_DIRENTPLUS;
 		auto last = out.begin() + sizeof(fuse_out_header) + FUSE_DIRENTPLUS_SIZE(&data_out);
@@ -558,6 +559,37 @@ public:
 
 	async::result<frg::expected<protocols::fs::Error>>
 	allocate(int64_t offset, size_t size) override {
+		auto link = associatedLink();
+		auto node = link->getTarget();
+		auto maybe_stats = co_await node->getStats();
+		if(!maybe_stats) {
+			std::cout << "FuseFile::allocate() : getStats() failed" << std::endl;
+			co_return protocols::fs::Error::noSpaceLeft; //TODO: map
+		}
+
+		uint64_t unique = m_fuse_file->m_queue.get_unique();
+		fuse_in_header head_in = {
+			.len = static_cast<uint32_t>(sizeof(fuse_in_header) + sizeof(fuse_fallocate_in)),
+			.opcode = FUSE_FALLOCATE,
+			.unique = unique,
+			.nodeid = maybe_stats.unwrap().inodeNumber,
+		};
+		fuse_fallocate_in data_in = {
+			.fh = m_fh,
+			.offset = static_cast<uint64_t>(offset),
+			.length = static_cast<uint64_t>(size),
+		};
+
+		auto request = requestToVector(&head_in, &data_in);
+		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header));
+		fuse_out_header head_out;
+
+		copyStructFromSpan(&head_out, out);
+		if(head_out.error) {
+			co_return protocols::fs::Error::noSpaceLeft; //TODO: map
+		}
+
+		co_return frg::success_tag{};
 	}
 
 	expected<PollResult>
