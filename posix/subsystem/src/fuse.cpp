@@ -44,6 +44,7 @@ struct FuseNode;
 struct FuseFile;
 
 using WriteInData = std::pair<uint64_t, std::span<unsigned char>>;
+using Request = std::vector<unsigned char>;
 
 template <typename T>
 std::span<unsigned char> structToSpan(T *base) {
@@ -63,19 +64,44 @@ void copyStructFromSpan(T *base, std::span<unsigned char> span) {
 }
 
 template <typename T>
-std::vector<unsigned char> requestToVector(fuse_in_header *head, T *data) {
+Request requestToVector(fuse_in_header *head, T *data) {
 	auto head_span = structToSpan(head);
 	auto data_span = structToSpan(data);
-	std::vector<unsigned char> vec(head_span.begin(), head_span.end());
-	vec.insert(vec.end(), data_span.begin(), data_span.end());
-	return vec;
+	Request req(head_span.begin(), head_span.end());
+	req.insert(req.end(), data_span.begin(), data_span.end());
+	return req;
 }
 
-// This struct stores a chunk of data to read from FuseFile.
+template <>
+Request requestToVector<std::string>(fuse_in_header *head, std::string *data) {
+	auto head_span = structToSpan(head);
+	Request req(head_span.begin(), head_span.end());
+	req.insert(req.end(), data->begin(), data->end());
+	req.insert(req.end(), (unsigned char){'\0'});
+	return req;
+}
+
+template<typename T1, typename T2>
+Request requestToVector(fuse_in_header *head, T1 *data1, T2 *data2) {
+	auto req = requestToVector(head, data1);
+	auto data2_span = structToSpan(data2);
+	req.insert(req.end(), data2_span.begin(), data2_span.end());
+	return req;
+}
+
+template<typename T>
+Request requestToVector(fuse_in_header *head, T *data1, std::string *data2) {
+	auto req = requestToVector(head, data1);
+	req.insert(req.end(), data2->begin(), data2->end());
+	req.insert(req.end(), (unsigned char){'\0'});
+	return req;
+}
+
+// This struct stores a chunk of data to read from FuseDeviceFile.
 // Such a chunk can either be a struct from fuse.h, or raw data.
 struct FusePacket {
 private:
-	std::vector<unsigned char> m_data;
+	Request m_data;
 	size_t m_read_bytes = 0;
 public:
 	size_t read(std::span<unsigned char> buffer) {
@@ -95,7 +121,7 @@ public:
 		return m_data.size() == m_read_bytes;
 	}
 
-	FusePacket(std::vector<unsigned char> data) {
+	FusePacket(Request data) {
 		m_data = data;
 	}
 };
@@ -146,7 +172,6 @@ private:
 	bool m_mounted = false;
 	FuseQueue m_queue;
 	bool m_setup_complete = false;
-	size_t m_unique = 0;
 	int m_poll_events = POLLOUT | POLLWRNORM; //these events are always active
 	uint64_t m_current_sequence = 0;
 	async::recurring_event m_change_event;
@@ -736,10 +761,7 @@ public:
 			.nodeid = m_node_id,
 		};
 
-		auto head_in_span = structToSpan(&head_in);
-		std::vector<unsigned char> request(head_in_span.begin(), head_in_span.end());
-		request.insert(request.end(), name.begin(), name.end());
-		request.insert(request.end(), (unsigned char){'\0'});
+		auto request = requestToVector(&head_in, &name);
 		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header) + sizeof(fuse_entry_out));
 		fuse_out_header head_out;
 		fuse_entry_out data_out;
@@ -797,9 +819,7 @@ public:
 		fuse_mkdir_in data_in = {};
 		std::cout << "FUSE mkdir package size: " << head_in.len << std::endl;
 
-		auto request = requestToVector(&head_in, &data_in);
-		request.insert(request.end(), name.begin(), name.end());
-		request.insert(request.end(), (unsigned char){'\0'});
+		auto request = requestToVector(&head_in, &data_in, &name);
 		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header));
 		fuse_out_header head_out;
 		copyStructFromSpan(&head_out, out);
@@ -826,12 +846,7 @@ public:
 			.nodeid = m_node_id,
 		};
 
-		auto head_in_span = structToSpan(&head_in);
-		std::vector<unsigned char> request = std::vector(head_in_span.begin(), head_in_span.end());
-		request.insert(request.end(), name.begin(), name.end());
-		request.insert(request.end(), (unsigned char){'\0'});
-		request.insert(request.end(), path.begin(), path.end());
-		request.insert(request.end(), (unsigned char){'\0'});
+		auto request = requestToVector(&head_in, &name, &path);
 		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header));
 		fuse_out_header head_out;
 		copyStructFromSpan(&head_out, out);
@@ -845,6 +860,28 @@ public:
 			co_return maybe_link.unwrap();
 		}
 		co_return maybe_link.error();
+	}
+
+	async::result<frg::expected<Error>> unlink(std::string name) override {
+		std::cout << "FuseNode::unlink()" << std::endl;
+		uint64_t unique = m_fuse_file->m_queue.get_unique();
+		fuse_in_header head_in = {
+			.len = static_cast<uint32_t>(sizeof(fuse_in_header) + name.size() + 1),
+			.opcode = FUSE_UNLINK,
+			.unique = unique,
+			.nodeid = m_node_id,
+		};
+
+		auto request = requestToVector(&head_in, &name);
+		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header));
+		fuse_out_header head_out;
+		copyStructFromSpan(&head_out, out);
+
+		if(head_out.error) {
+			co_return Error::accessDenied; //TODO: map
+		}
+
+		co_return frg::success_tag{};
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
