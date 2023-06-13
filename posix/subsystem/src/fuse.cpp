@@ -884,6 +884,28 @@ public:
 		co_return frg::success_tag{};
 	}
 
+	async::result<frg::expected<Error>> rmdir(std::string name) override {
+		std::cout << "FuseNode::rmdir()" << std::endl;
+		uint64_t unique = m_fuse_file->m_queue.get_unique();
+		fuse_in_header head_in = {
+			.len = static_cast<uint32_t>(sizeof(fuse_in_header) + name.size() + 1),
+			.opcode = FUSE_RMDIR,
+			.unique = unique,
+			.nodeid = m_node_id,
+		};
+
+		auto request = requestToVector(&head_in, &name);
+		auto out = co_await m_fuse_file->performRequest(request, unique, sizeof(fuse_out_header));
+		fuse_out_header head_out;
+		copyStructFromSpan(&head_out, out);
+
+		if(head_out.error) {
+			co_return Error::accessDenied; //TODO: map
+		}
+
+		co_return frg::success_tag{};
+	}
+
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		std::cout << "FuseNode::open()" << std::endl;
