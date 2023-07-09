@@ -17,8 +17,8 @@ eir_includes = [include_directories(
 cxx = meson.get_compiler('cpp')
 libgcc = cxx.find_library('gcc')
 
-eir_c_args = []
-eir_cpp_args = ['-fno-threadsafe-statics']
+eir_c_args = ['-g']
+eir_cpp_args = ['-fno-threadsafe-statics', '-g']
 eir_link_args = ['-nostdlib']
 eir_dependencies = [libgcc, cxxshim_dep, frigg, libarch]
 

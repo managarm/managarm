@@ -377,6 +377,65 @@ enum HelSyscallArgs {
 	kHelRegOut0 = kHelRegX1,
 	kHelRegOut1 = kHelRegX2
 };
+
+#elif defined(__riscv) && __riscv_xlen == 64
+
+enum HelRegisterIndex {
+	kHelRegRa = 0,
+	kHelRegGp,
+	kHelRegTp,
+	kHelRegT0,
+	kHelRegT1,
+	kHelRegT2,
+	kHelRegS0,
+	kHelRegS1,
+	kHelRegA0,
+	kHelRegA1,
+	kHelRegA2,
+	kHelRegA3,
+	kHelRegA4,
+	kHelRegA5,
+	kHelRegA6,
+	kHelRegA7,
+	kHelRegS2,
+	kHelRegS3,
+	kHelRegS4,
+	kHelRegS5,
+	kHelRegS6,
+	kHelRegS7,
+	kHelRegS8,
+	kHelRegS9,
+	kHelRegS10,
+	kHelRegS11,
+	kHelRegT3,
+	kHelRegT4,
+	kHelRegT5,
+	kHelRegT6,
+
+	kHelNumGprs,
+
+	kHelRegIp = 0,
+	kHelRegSp = 1
+};
+
+enum HelSyscallArgs {
+	kHelRegNumber = kHelRegA0,
+	kHelRegError = kHelRegA0,
+
+	kHelRegArg0 = kHelRegA1,
+	kHelRegArg1 = kHelRegA2,
+	kHelRegArg2 = kHelRegA3,
+	kHelRegArg3 = kHelRegA4,
+	kHelRegArg4 = kHelRegA5,
+	kHelRegArg5 = kHelRegA6,
+	kHelRegArg6 = kHelRegA7,
+	kHelRegArg7 = kHelRegS2,
+	kHelRegArg8 = kHelRegS3,
+
+	kHelRegOut0 = kHelRegA1,
+	kHelRegOut1 = kHelRegA2
+};
+
 #endif
 
 struct HelQueueParameters {

@@ -9,7 +9,7 @@ import argparse
 
 parser = argparse.ArgumentParser(description = 'Generate a managarm initrd')
 parser.add_argument('-t', '--triple', dest = 'arch',
-		choices = ['x86_64-managarm', 'aarch64-managarm'], default = 'x86_64-managarm',
+		choices = ['x86_64-managarm', 'aarch64-managarm', 'riscv64-managarm'], default = 'x86_64-managarm',
 		help = 'Target system triple (default: x86_64-managarm)')
 
 args = parser.parse_args()
@@ -61,8 +61,12 @@ add_file('system-root/usr/lib', 'lib', 'libmbus.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libostrace_protocol.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libsvrctl_protocol.so', strip=True)
 add_file('system-root/usr/lib', 'lib', 'libusb_protocol.so', strip=True)
-add_file('system-root/usr/lib64', 'lib', 'libgcc_s.so.1', strip=True)
-add_file('system-root/usr/lib64', 'lib', 'libstdc++.so.6', strip=True)
+if args.arch == 'riscv64-managarm':
+	add_file('system-root/usr/lib', 'lib', 'libgcc_s.so.1', strip=True)
+	add_file('system-root/usr/lib', 'lib', 'libstdc++.so.6', strip=True)
+else:
+	add_file('system-root/usr/lib64', 'lib', 'libgcc_s.so.1', strip=True)
+	add_file('system-root/usr/lib64', 'lib', 'libstdc++.so.6', strip=True)
 
 # User-space core components.
 add_file('system-root/usr/bin', 'sbin', 'mbus', strip=True)

@@ -3274,6 +3274,9 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = 15 * sizeof(uintptr_t);
 #elif defined (__aarch64__)
 			outInfo.setSize = 31 * sizeof(uintptr_t);
+#elif defined (__riscv) && __riscv_xlen == 64
+			outInfo.setSize = 31 * sizeof(uintptr_t);
+#warning Check if helQueryRegisterInfo is correct for riscv
 #else
 #			error Unknown architecture
 #endif
@@ -3283,6 +3286,8 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 #if defined (__x86_64__)
 			outInfo.setSize = 2 * sizeof(uintptr_t);
 #elif defined (__aarch64__)
+			outInfo.setSize = 1 * sizeof(uintptr_t);
+#elif defined (__riscv) && __riscv_xlen == 64
 			outInfo.setSize = 1 * sizeof(uintptr_t);
 #else
 #			error Unknown architecture
@@ -3300,6 +3305,8 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = Executor::determineSimdSize();
 #elif defined (__aarch64__)
 			outInfo.setSize = sizeof(FpRegisters);
+#elif defined (__riscv) && __riscv_xlen == 64
+#warning kHelRegsSimd not implemented
 #else
 #			error Unknown architecture
 #endif

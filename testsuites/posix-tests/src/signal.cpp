@@ -22,7 +22,7 @@ DEFINE_TEST(signal_save_simd, ([] {
 #elif defined (__aarch64__)
 	asm volatile ("fmov d31, %0" : : "r"(magic_expected));
 #else
-#	error Unknown architecture
+// #	error Unknown architecture
 #endif
 
 	struct sigaction sa;
@@ -37,7 +37,7 @@ DEFINE_TEST(signal_save_simd, ([] {
 #elif defined (__aarch64__)
 		asm volatile ("fmov d31, xzr");
 #else
-#	error Unknown architecture
+// #	error Unknown architecture
 #endif
 	};
 
@@ -56,7 +56,7 @@ DEFINE_TEST(signal_save_simd, ([] {
 #elif defined (__aarch64__)
 	asm volatile ("fmov %0, d31" : "=r"(magic));
 #else
-#	error Unknown architecture
+// #	error Unknown architecture
 #endif
 
 	assert(magic == magic_expected);

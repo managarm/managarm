@@ -13,6 +13,8 @@ if arch == 'x86_64'
 	src += 'x86_64-src/copy-sse.S'
 elif arch == 'aarch64'
 	src += 'aarch64-src/copy-fp.S'
+elif arch == 'riscv64'
+	src += 'riscv64-src/copy-fp.S'
 endif
 
 deps = [ libarch, fs_proto_dep, hw_proto_dep, mbus_proto_dep, frigg, core_dep ]
