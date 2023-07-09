@@ -123,6 +123,8 @@ if arch == 'aarch64'
 	subdir('arch/arm')
 elif arch == 'x86_64'
 	subdir('arch/x86')
+elif arch == 'riscv64'
+	subdir('arch/riscv64')
 endif
 
 if want_acpi
@@ -158,15 +160,12 @@ link_with += static_library('cralgo', cralgo_sources,
 
 deps = [ libgcc, coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep, libasync_dep, libarch, hel_dep ]
 
-# TODO: also build thor on RISC-V.
-if arch != 'riscv64'
-	executable('thor', src,
-		include_directories : inc,
-		dependencies : deps,
-		cpp_args : cpp_args + args,
-		link_with : link_with,
-		link_args : link_args,
-		link_depends : link_depends,
-		install : true
-	)
-endif
+executable('thor', src,
+	include_directories : inc,
+	dependencies : deps,
+	cpp_args : cpp_args + args,
+	link_with : link_with,
+	link_args : link_args,
+	link_depends : link_depends,
+	install : true
+)

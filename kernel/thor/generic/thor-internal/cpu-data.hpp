@@ -3,6 +3,7 @@
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/executor-context.hpp>
 #include <thor-internal/kernel-locks.hpp>
+#include <thor-internal/kernel-stack.hpp>
 #include <thor-internal/schedule.hpp>
 
 namespace thor {

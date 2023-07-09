@@ -1,6 +1,7 @@
 .global _start
 _start:
 	la sp, eirStackTop
+	j _start
 
 	la t0, eirDtbPtr
 	sd a1, 0(t0)

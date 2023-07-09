@@ -353,7 +353,8 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		resp.appendLeHex32(thread_->_executor.general()->elr);
 		resp.appendLeHex32(thread_->_executor.general()->spsr);
 #else
-#	error Unknown architecture
+// #	error Unknown architecture
+#warning Implement GDB server
 #endif
 	}else if(req.matchString("m")) { // Read memory.
 		uint64_t address;
@@ -399,6 +400,8 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 					"<architecture>i386:x86-64</architecture>"
 #elif defined(__aarch64__)
 					"<architecture>aarch64</architecture>"
+#elif defined(__riscv) && __riscv_xlen == 64
+					"<architecture>riscv64</architecture>"
 #else
 #	error Unknown architecture
 #endif
