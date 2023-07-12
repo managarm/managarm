@@ -794,7 +794,7 @@ async::detached runDevice(BlockDevice *device) {
 
 		if(type != gpt::type_guids::managarmRootPartition)
 			continue;
-		printf("It's a Windows data partition!\n");
+		printf("It's a Managarm root partition!\n");
 
 		fs = new ext2fs::FileSystem(&table->getPartition(i));
 		co_await fs->init();
