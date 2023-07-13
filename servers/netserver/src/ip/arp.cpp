@@ -64,7 +64,7 @@ async::result<void> sendArp(uint16_t op,
 	appendData(link->deviceMac());
 	appendData(sender);
 
-	appendData(targetHw);
+	appendData(targetMac);
 	appendData(targetProto);
 	co_await link->send(std::move(buffer.frame));
 }
