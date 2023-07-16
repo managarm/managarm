@@ -122,6 +122,14 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 							fileMemory.dup(), file,
 							phdr->p_offset, mapLength, true,
 							kHelMapProtRead | kHelMapProtExecute);
+				// Allow read only mappings too, ICU loves those.
+				}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
+					HEL_CHECK(helLoadahead(fileMemory.getHandle(), phdr->p_offset, mapLength));
+
+					co_await vmContext->mapFile(mapAddress,
+							fileMemory.dup(), file,
+							phdr->p_offset, mapLength, true,
+							kHelMapProtRead);
 				}else{
 					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
 					co_return Error::badExecutable;
