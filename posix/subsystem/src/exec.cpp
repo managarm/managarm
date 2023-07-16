@@ -122,6 +122,14 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 							fileMemory.dup(), file,
 							phdr->p_offset, mapLength, true,
 							kHelMapProtRead | kHelMapProtExecute);
+				// Allow read only mappings too, ICU loves those.
+				}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
+					HEL_CHECK(helLoadahead(fileMemory.getHandle(), phdr->p_offset, mapLength));
+
+					co_await vmContext->mapFile(mapAddress,
+							fileMemory.dup(), file,
+							phdr->p_offset, mapLength, true,
+							kHelMapProtRead);
 				}else{
 					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
 					co_return Error::badExecutable;
@@ -158,10 +166,10 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_INTERP
 				|| phdr->p_type == PT_TLS
 				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
-				|| phdr->p_type == PT_GNU_RELRO) {
+				|| phdr->p_type == PT_GNU_RELRO || phdr->p_type == PT_NOTE) {
 			// Ignore this PHDR here.
 		}else{
-			std::cout << "posix: Unexpected PHDR type" << std::endl;
+			std::cout << "posix: Unexpected PHDR type " << phdr->p_type << std::endl;
 			co_return Error::badExecutable;
 		}
 	}
