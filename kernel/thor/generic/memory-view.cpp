@@ -1062,7 +1062,16 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
-		assert((offset + length) / kPageSize <= _managed->numPages);
+
+		if ((offset + length) / kPageSize > _managed->numPages) {
+			infoLogger() << frg::fmt(
+				"thor: Requested {} of range {}-{} in BackingMemory of size {}",
+				type == ManageRequest::initialize ? "initialization" : "writeback",
+				offset, offset + length, _managed->numPages * kPageSize
+			) << frg::endlog;
+
+			return Error::illegalArgs;
+		}
 
 	/*	assert(length == kPageSize);
 		auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
