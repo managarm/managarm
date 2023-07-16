@@ -331,6 +331,8 @@ struct PciDevice final : PciEntity {
 	int msixIndex = -1;
 	void *msixMapping = nullptr;
 	int msiIndex = -1;
+	bool msiEnabled = false;
+	bool msiInstalled = false;
 
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
