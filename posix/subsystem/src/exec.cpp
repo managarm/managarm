@@ -166,10 +166,10 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_INTERP
 				|| phdr->p_type == PT_TLS
 				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
-				|| phdr->p_type == PT_GNU_RELRO) {
+				|| phdr->p_type == PT_GNU_RELRO || phdr->p_type == PT_NOTE) {
 			// Ignore this PHDR here.
 		}else{
-			std::cout << "posix: Unexpected PHDR type" << std::endl;
+			std::cout << "posix: Unexpected PHDR type " << phdr->p_type << std::endl;
 			co_return Error::badExecutable;
 		}
 	}
