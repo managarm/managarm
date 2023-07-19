@@ -1427,6 +1427,8 @@ HelError helUpdateMemory(HelHandle handle, int type,
 
 	if(error == Error::illegalObject)
 		return kHelErrUnsupportedOperation;
+	else if(error == Error::illegalArgs)
+		return kHelErrIllegalArgs;
 
 	assert(error == Error::success);
 	return kHelErrNone;
