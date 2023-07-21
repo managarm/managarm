@@ -152,7 +152,7 @@ std::unordered_map<uint32_t, std::shared_ptr<drm_core::ConnectorState>>& drm_cor
 drm_core::Device::Device() {
 	struct SrcWProperty : drm_core::Property {
 		SrcWProperty()
-		: drm_core::Property{srcW, drm_core::IntPropertyType{}, "SRC_W"} { }
+		: drm_core::Property{srcW, RangeProperty{}, "SRC_W", DRM_MODE_PROP_ATOMIC, 0, UINT32_MAX} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -172,7 +172,7 @@ drm_core::Device::Device() {
 
 	struct SrcHProperty : drm_core::Property {
 		SrcHProperty()
-		: drm_core::Property{srcH, drm_core::IntPropertyType{}, "SRC_H"} { }
+		: drm_core::Property{srcH, RangeProperty{}, "SRC_H", DRM_MODE_PROP_ATOMIC, 0, UINT32_MAX} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -192,7 +192,7 @@ drm_core::Device::Device() {
 
 	struct FbIdProperty : drm_core::Property {
 		FbIdProperty()
-		: drm_core::Property{fbId, drm_core::ObjectPropertyType{}, "FB_ID"} { }
+		: drm_core::Property{fbId, ObjectProperty{}, "FB_ID", DRM_MODE_PROP_ATOMIC, DRM_MODE_OBJECT_FB} { }
 
 		bool validate(const Assignment& assignment) override {
 			if(!assignment.objectValue)
@@ -219,7 +219,7 @@ drm_core::Device::Device() {
 
 	struct ModeIdProperty : drm_core::Property {
 		ModeIdProperty()
-		: drm_core::Property{modeId, drm_core::BlobPropertyType{}, "MODE_ID"} { }
+		: drm_core::Property{modeId, BlobProperty{}, "MODE_ID", DRM_MODE_PROP_ATOMIC} { }
 
 		bool validate(const Assignment& assignment) override {
 			if(!assignment.blobValue) {
@@ -257,7 +257,7 @@ drm_core::Device::Device() {
 
 	struct CrtcXProperty : drm_core::Property {
 		CrtcXProperty()
-		: drm_core::Property{crtcX, drm_core::IntPropertyType{}, "CRTC_X"} { }
+		: drm_core::Property{crtcX, SignedRangeProperty{}, "CRTC_X", DRM_MODE_PROP_ATOMIC} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -271,7 +271,7 @@ drm_core::Device::Device() {
 
 	struct CrtcYProperty : drm_core::Property {
 		CrtcYProperty()
-		: drm_core::Property{crtcY, drm_core::IntPropertyType{}, "CRTC_Y"} { }
+		: drm_core::Property{crtcY, SignedRangeProperty{}, "CRTC_Y", DRM_MODE_PROP_ATOMIC} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -285,7 +285,7 @@ drm_core::Device::Device() {
 
 	struct PlaneTypeProperty : drm_core::Property {
 		PlaneTypeProperty()
-		: drm_core::Property{planeType, drm_core::EnumPropertyType{}, "type"} {
+		: drm_core::Property{planeType, EnumProperty{}, "type", DRM_MODE_PROP_IMMUTABLE} {
 			addEnumInfo(0, "Overlay");
 			addEnumInfo(1, "Primary");
 			addEnumInfo(2, "Cursor");
@@ -301,7 +301,7 @@ drm_core::Device::Device() {
 
 	struct DpmsProperty : drm_core::Property {
 		DpmsProperty()
-		: drm_core::Property{dpms, drm_core::EnumPropertyType{}, "DPMS"} {
+		: drm_core::Property{dpms, EnumProperty{}, "DPMS"} {
 			addEnumInfo(0, "On");
 			addEnumInfo(1, "Standby");
 			addEnumInfo(2, "Suspend");
@@ -320,7 +320,7 @@ drm_core::Device::Device() {
 
 	struct CrtcIdProperty : drm_core::Property {
 		CrtcIdProperty()
-		: drm_core::Property{crtcId, drm_core::ObjectPropertyType{}, "CRTC_ID"} { }
+		: drm_core::Property{crtcId, ObjectProperty{}, "CRTC_ID", DRM_MODE_PROP_ATOMIC, DRM_MODE_OBJECT_CRTC} { }
 
 		bool validate(const Assignment& assignment) override {
 			if(assignment.object->type() != ObjectType::connector
@@ -347,7 +347,7 @@ drm_core::Device::Device() {
 
 	struct ActiveProperty : drm_core::Property {
 		ActiveProperty()
-		: drm_core::Property{active, drm_core::IntPropertyType{}, "ACTIVE"} { }
+		: drm_core::Property{active, RangeProperty{}, "ACTIVE", DRM_MODE_PROP_ATOMIC, 0, 1} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -361,7 +361,7 @@ drm_core::Device::Device() {
 
 	struct SrcXProperty : drm_core::Property {
 		SrcXProperty()
-		: drm_core::Property{srcX, drm_core::IntPropertyType{}, "SRC_X"} { }
+		: drm_core::Property{srcX, RangeProperty{}, "SRC_X", DRM_MODE_PROP_ATOMIC, 0, UINT32_MAX} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -375,7 +375,7 @@ drm_core::Device::Device() {
 
 	struct SrcYProperty : drm_core::Property {
 		SrcYProperty()
-		: drm_core::Property{srcY, drm_core::IntPropertyType{}, "SRC_Y"} { }
+		: drm_core::Property{srcY, RangeProperty{}, "SRC_Y", DRM_MODE_PROP_ATOMIC, 0, UINT32_MAX} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -389,7 +389,7 @@ drm_core::Device::Device() {
 
 	struct CrtcWProperty : drm_core::Property {
 		CrtcWProperty()
-		: drm_core::Property{crtcW, drm_core::IntPropertyType{}, "CRTC_W"} { }
+		: drm_core::Property{crtcW, RangeProperty{}, "CRTC_W", DRM_MODE_PROP_ATOMIC, 0, INT32_MAX} { }
 
 		bool validate(const Assignment&) override {
 			return true;
@@ -403,7 +403,7 @@ drm_core::Device::Device() {
 
 	struct CrtcHProperty : drm_core::Property {
 		CrtcHProperty()
-		: drm_core::Property{crtcH, drm_core::IntPropertyType{}, "CRTC_H"} { }
+		: drm_core::Property{crtcH, RangeProperty{}, "CRTC_H", DRM_MODE_PROP_ATOMIC, 0, INT32_MAX} { }
 
 		bool validate(const Assignment&) override {
 			return true;
