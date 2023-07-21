@@ -200,8 +200,8 @@ private:
 	drm_core::Encoder *_currentEncoder;
 	uint32_t _currentStatus;
 	std::vector<Encoder *> _possibleEncoders;
-	uint32_t _physicalWidth;
-	uint32_t _physicalHeight;
+	uint32_t _physicalWidth = 0;
+	uint32_t _physicalHeight = 0;
 	uint32_t _subpixel;
 	uint32_t _connectorType;
 
