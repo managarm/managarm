@@ -277,6 +277,30 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req->command() == DRM_IOCTL_MODE_GETFB2) {
+			helix::SendBuffer send_resp;
+			managarm::fs::GenericIoctlReply resp;
+
+			if(logDrmRequests)
+				std::cout << "core/drm: GETFB2(" << req->drm_fb_id() << ")" << std::endl;
+
+			auto obj = self->_device->findObject(req->drm_fb_id());
+			if(!obj || !obj->asFrameBuffer()) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			} else {
+				auto fb = obj->asFrameBuffer();
+				resp.set_drm_width(fb->getWidth());
+				resp.set_drm_height(fb->getHeight());
+				resp.set_pixel_format(DRM_FORMAT_XRGB8888);
+				resp.set_modifier(DRM_FORMAT_MOD_INVALID);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req->command() == DRM_IOCTL_MODE_ADDFB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;

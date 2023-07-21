@@ -645,5 +645,13 @@ head(128):
 		tag(64) int64 pid;
 
 		tag(65) uint32 fionread_count;
+
+		tag(66) uint32 drm_height;
+		tag(67) uint32 drm_width;
+		tag(68) uint32 pixel_format;
+		tag(69) uint64 modifier;
+		tag(70) uint32[] drm_pitches;
+		tag(71) uint32[] drm_offsets;
+		tag(72) uint32[] drm_handles;
 	}
 }

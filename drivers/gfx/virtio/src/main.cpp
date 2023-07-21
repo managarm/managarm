@@ -412,6 +412,14 @@ void GfxDevice::FrameBuffer::notifyDirty() {
 	_xferAndFlush();
 }
 
+uint32_t GfxDevice::FrameBuffer::getWidth() {
+	return _bo->getWidth();
+}
+
+uint32_t GfxDevice::FrameBuffer::getHeight() {
+	return _bo->getHeight();
+}
+
 async::detached GfxDevice::FrameBuffer::_xferAndFlush() {
 	spec::XferToHost2d xfer;
 	memset(&xfer, 0, sizeof(spec::XferToHost2d));

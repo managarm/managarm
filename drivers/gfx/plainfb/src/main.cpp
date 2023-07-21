@@ -306,6 +306,14 @@ void GfxDevice::FrameBuffer::notifyDirty() {
 	std::cout << "gfx/plainfb: notifyDirty() is not implemented correctly" << std::endl;
 }
 
+uint32_t GfxDevice::FrameBuffer::getWidth() {
+	return _bo->getWidth();
+}
+
+uint32_t GfxDevice::FrameBuffer::getHeight() {
+	return _bo->getHeight();
+}
+
 // ----------------------------------------------------------------
 // GfxDevice: Plane.
 // ----------------------------------------------------------------

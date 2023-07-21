@@ -101,6 +101,8 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 
 		GfxDevice::BufferObject *getBufferObject();
 		void notifyDirty() override;
+		uint32_t getWidth() override;
+		uint32_t getHeight() override;
 		async::detached _xferAndFlush();
 
 	private:

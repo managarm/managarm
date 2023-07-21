@@ -204,7 +204,7 @@ std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> GfxDevice::createDu
 	HelHandle handle;
 	HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
 
-	auto bo = std::make_shared<GfxDevice::BufferObject>(this, size, helix::UniqueDescriptor(handle));
+	auto bo = std::make_shared<GfxDevice::BufferObject>(this, size, helix::UniqueDescriptor(handle), w, h);
 
 	auto mapping = installMapping(bo.get());
 	bo->setupMapping(mapping);
@@ -679,6 +679,14 @@ void GfxDevice::FrameBuffer::notifyDirty() {
 
 }
 
+uint32_t GfxDevice::FrameBuffer::getWidth() {
+	return _bo->getWidth();
+}
+
+uint32_t GfxDevice::FrameBuffer::getHeight() {
+	return _bo->getHeight();
+}
+
 // ----------------------------------------------------------------
 // GfxDevice::Plane
 // ----------------------------------------------------------------
@@ -691,8 +699,8 @@ GfxDevice::Plane::Plane(GfxDevice *dev, PlaneType type)
 // GfxDevice::BufferObject
 // ----------------------------------------------------------------
 
-GfxDevice::BufferObject::BufferObject(GfxDevice *dev, size_t size, helix::UniqueDescriptor mem)
-: _size{size}, _mem{std::move(mem)} {
+GfxDevice::BufferObject::BufferObject(GfxDevice *dev, size_t size, helix::UniqueDescriptor mem, uint32_t width, uint32_t height)
+: _size{size}, _width{width}, _height{height}, _mem{std::move(mem)} {
 	(void)dev;
 }
 

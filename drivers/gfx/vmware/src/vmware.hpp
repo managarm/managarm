@@ -35,13 +35,22 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	};
 
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
-		BufferObject(GfxDevice *device, size_t size, helix::UniqueDescriptor mem);
+		BufferObject(GfxDevice *device, size_t size, helix::UniqueDescriptor mem, uint32_t width, uint32_t height);
 
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
+
+		uint32_t getWidth() {
+			return _width;
+		}
+		uint32_t getHeight() {
+			return _height;
+		}
 	private:
 		size_t _size;
+		uint32_t _width;
+		uint32_t _height;
 		helix::UniqueDescriptor _mem;
 	};
 
@@ -73,6 +82,8 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		GfxDevice::BufferObject *getBufferObject();
 		uint32_t getPixelPitch();
 		void notifyDirty() override;
+		uint32_t getWidth() override;
+		uint32_t getHeight() override;
 
 	private:
 		std::shared_ptr<GfxDevice::BufferObject> _bo;
