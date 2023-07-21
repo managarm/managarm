@@ -648,16 +648,35 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			if(prop) {
-				resp.set_drm_property_name(prop->name());
-				resp.add_drm_property_vals(1);
-				resp.set_drm_property_flags(prop->flags());
-
-				if(std::holds_alternative<EnumPropertyType>(prop->propertyType())) {
+				if(std::holds_alternative<IntPropertyType>(prop->propertyType())) {
+					uint32_t type = prop->flags() & (DRM_MODE_PROP_LEGACY_TYPE | DRM_MODE_PROP_EXTENDED_TYPE);
+					switch(type) {
+						case DRM_MODE_PROP_RANGE: {
+							resp.add_drm_property_vals(prop->rangeMin());
+							resp.add_drm_property_vals(prop->rangeMax());
+							break;
+						}
+						case DRM_MODE_PROP_SIGNED_RANGE: {
+							resp.add_drm_property_vals(prop->signedRangeMin());
+							resp.add_drm_property_vals(prop->signedRangeMax());
+							break;
+						}
+						default: {
+							std::cout << "core/drm: int property type " << type << " is unhandled by DRM_IOCTL_MODE_GETPROPERTY" << std::endl;
+							break;
+						}
+					}
+				} else if(std::holds_alternative<ObjectPropertyType>(prop->propertyType())) {
+					resp.add_drm_property_vals(prop->typeFlags());
+				} else if(std::holds_alternative<EnumPropertyType>(prop->propertyType())) {
 					for(auto &[value, name] : prop->enumInfo()) {
 						resp.add_drm_enum_value(value);
 						resp.add_drm_enum_name(name);
 					}
 				}
+
+				resp.set_drm_property_name(prop->name());
+				resp.set_drm_property_flags(prop->flags());
 
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			} else {

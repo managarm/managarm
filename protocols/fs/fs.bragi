@@ -398,7 +398,7 @@ head(128):
 		tag(85) uint32[] drm_plane_res;
 
 		tag(86) string drm_property_name;
-		tag(88) uint32[] drm_property_vals;
+		tag(88) uint64[] drm_property_vals;
 		tag(89) uint32 drm_property_flags;
 
 		tag(90) uint32[] drm_format_type;
@@ -623,7 +623,7 @@ head(128):
 		tag(48) uint32[] drm_plane_res;
 
 		tag(49) string drm_property_name;
-		tag(50) uint32[] drm_property_vals;
+		tag(50) uint64[] drm_property_vals;
 		tag(51) uint32 drm_property_flags;
 
 		tag(52) uint32[] drm_format_type;
