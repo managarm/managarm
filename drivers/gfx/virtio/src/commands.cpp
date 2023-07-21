@@ -57,6 +57,27 @@ async::result<void> Cmd::setScanout(uint32_t width, uint32_t height, uint32_t sc
 	assert(scanout_result.type == spec::resp::noData);
 }
 
+async::result<void> Cmd::resourceFlush(uint32_t width, uint32_t height, uint32_t resourceId, GfxDevice *device) {
+	spec::ResourceFlush flush;
+	memset(&flush, 0, sizeof(spec::ResourceFlush));
+	flush.header.type = spec::cmd::resourceFlush;
+	flush.rect.x = 0;
+	flush.rect.y = 0;
+	flush.rect.width = width;
+	flush.rect.height = height;
+	flush.resourceId = resourceId;
+
+	spec::Header flush_result;
+	virtio_core::Chain flush_chain;
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, device->_controlQ,
+		arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, device->_controlQ,
+		arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
+	co_await AwaitableRequest{device->_controlQ, flush_chain.front()};
+
+	assert(flush_result.type == spec::resp::noData);
+}
+
 async::result<spec::DisplayInfo> Cmd::getDisplayInfo(GfxDevice *device) {
 	spec::Header header;
 	header.type = spec::cmd::getDisplayInfo;

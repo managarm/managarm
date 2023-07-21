@@ -289,26 +289,7 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 			assert(xfer_result.type == spec::resp::noData);
 
 			co_await Cmd::setScanout(pps->src_w, pps->src_h, scanoutId, resourceId, _device);
-
-			spec::ResourceFlush flush;
-			memset(&flush, 0, sizeof(spec::ResourceFlush));
-			flush.header.type = spec::cmd::resourceFlush;
-			flush.rect.x = 0;
-			flush.rect.y = 0;
-			flush.rect.width = pps->src_w;
-			flush.rect.height = pps->src_h;
-			flush.resourceId = fb->getBufferObject()->hardwareId();
-
-			spec::Header flush_result;
-			virtio_core::Chain flush_chain;
-			co_await virtio_core::scatterGather(virtio_core::hostToDevice,
-					flush_chain, _device->_controlQ,
-					arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
-			co_await virtio_core::scatterGather(virtio_core::deviceToHost,
-					flush_chain, _device->_controlQ,
-					arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
-			co_await AwaitableRequest{_device->_controlQ, flush_chain.front()};
-			assert(flush_result.type == spec::resp::noData);
+			co_await Cmd::resourceFlush(pps->src_w, pps->src_h, resourceId, _device);
 		}
 	}
 
@@ -396,22 +377,7 @@ async::detached GfxDevice::FrameBuffer::_xferAndFlush() {
 		arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
 	co_await AwaitableRequest{_device->_controlQ, xfer_chain.front()};
 
-	spec::ResourceFlush flush;
-	memset(&flush, 0, sizeof(spec::ResourceFlush));
-	flush.header.type = spec::cmd::resourceFlush;
-	flush.rect.x = 0;
-	flush.rect.y = 0;
-	flush.rect.width = _bo->getWidth();
-	flush.rect.height = _bo->getHeight();
-	flush.resourceId = _bo->hardwareId();
-
-	spec::Header flush_result;
-	virtio_core::Chain flush_chain;
-	co_await virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, _device->_controlQ,
-		arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
-	co_await virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, _device->_controlQ,
-		arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
-	co_await AwaitableRequest{_device->_controlQ, flush_chain.front()};
+	co_await Cmd::resourceFlush(_bo->getWidth(), _bo->getHeight(), _bo->hardwareId(), _device);
 }
 
 // ----------------------------------------------------------------
