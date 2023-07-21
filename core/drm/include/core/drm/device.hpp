@@ -54,6 +54,7 @@ public:
 	std::unique_ptr<AtomicState> atomicState();
 
 	uint64_t installMapping(drm_core::BufferObject *bo);
+	void uninstallMapping(drm_core::BufferObject *bo);
 
 	void setupMinDimensions(uint32_t width, uint32_t height);
 	void setupMaxDimensions(uint32_t width, uint32_t height);
