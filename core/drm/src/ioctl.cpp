@@ -122,10 +122,19 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 					std::cout << "\tFB " << fbs[i]->id() << std::endl;
 			}
 
+			auto max_width = self->_device->getMaxWidth();
+			auto max_height = self->_device->getMaxHeight();
+
+			if(!max_width || !max_height) {
+				std::cout << "\e[33mcore/drm: driver-supplied max width/height is empty, defaulting to 16384x16384\e[39m" << std::endl;
+				max_width = 16384;
+				max_height = 16384;
+			}
+
 			resp.set_drm_min_width(self->_device->getMinWidth());
-			resp.set_drm_max_width(self->_device->getMaxWidth());
+			resp.set_drm_max_width(max_width);
 			resp.set_drm_min_height(self->_device->getMinHeight());
-			resp.set_drm_max_height(self->_device->getMaxHeight());
+			resp.set_drm_max_height(max_height);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
