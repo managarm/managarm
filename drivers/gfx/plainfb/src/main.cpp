@@ -328,8 +328,7 @@ GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type)
 GfxDevice::BufferObject::BufferObject(GfxDevice *device,
 		size_t size, helix::UniqueDescriptor memory,
 		uint32_t width, uint32_t height)
-: _size{size}, _memory{std::move(memory)},
-		_width{width}, _height{height} {
+: drm_core::BufferObject{width, height}, _size{size}, _memory{std::move(memory)} {
 	(void)device;
 	_bufferMapping = helix::Mapping{_memory, 0, getSize()};
 }
@@ -340,14 +339,6 @@ std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObj
 
 size_t GfxDevice::BufferObject::getSize() {
 	return _size;
-}
-
-uint32_t GfxDevice::BufferObject::getWidth() {
-	return _width;
-}
-
-uint32_t GfxDevice::BufferObject::getHeight() {
-	return _height;
 }
 
 void *GfxDevice::BufferObject::accessMapping() {

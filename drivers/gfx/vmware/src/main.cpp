@@ -700,7 +700,7 @@ GfxDevice::Plane::Plane(GfxDevice *dev, PlaneType type)
 // ----------------------------------------------------------------
 
 GfxDevice::BufferObject::BufferObject(GfxDevice *dev, size_t size, helix::UniqueDescriptor mem, uint32_t width, uint32_t height)
-: _size{size}, _width{width}, _height{height}, _mem{std::move(mem)} {
+: drm_core::BufferObject{width, height}, _size{size}, _mem{std::move(mem)} {
 	(void)dev;
 }
 

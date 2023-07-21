@@ -53,16 +53,14 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
 		BufferObject(GfxDevice *device, uint32_t id, size_t size, helix::UniqueDescriptor memory,
 			uint32_t width, uint32_t height)
-		: _device{device}, _hardwareId{id}, _size{size}, _memory{std::move(memory)},
-			_width{width}, _height{height} { };
+		: drm_core::BufferObject{width, height}, _device{device}, _hardwareId{id}, _size{size}, _memory{std::move(memory)} {
+		};
 
 		~BufferObject();
 
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
-		uint32_t getWidth();
-		uint32_t getHeight();
 		async::detached _initHw();
 		async::result<void> wait();
 		uint32_t hardwareId();
@@ -72,8 +70,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		uint32_t _hardwareId;
 		size_t _size;
 		helix::UniqueDescriptor _memory;
-		uint32_t _width;
-		uint32_t _height;
+		helix::Mapping _mapping;
 		async::oneshot_event _jump;
 	};
 

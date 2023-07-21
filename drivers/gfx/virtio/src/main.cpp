@@ -485,14 +485,6 @@ size_t GfxDevice::BufferObject::getSize() {
 	return _size;
 }
 
-uint32_t GfxDevice::BufferObject::getWidth() {
-	return _width;
-}
-
-uint32_t GfxDevice::BufferObject::getHeight() {
-	return _height;
-}
-
 uint32_t GfxDevice::BufferObject::hardwareId() {
 	return _hardwareId;
 }

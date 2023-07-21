@@ -372,8 +372,8 @@ GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type)
 
 GfxDevice::BufferObject::BufferObject(GfxDevice *device, size_t alignment, size_t size,
 		uintptr_t offset, ptrdiff_t displacement, uint32_t width, uint32_t height)
-: _device{device}, _alignment{alignment}, _size{size},
-		_offset{offset}, _displacement{displacement}, _width{width}, _height{height} {
+: drm_core::BufferObject{width, height}, _device{device}, _alignment{alignment}, _size{size},
+		_offset{offset}, _displacement{displacement} {
 	assert(!((_offset + _displacement) % 0x1000));
 	assert(!((_offset + _displacement) % _alignment));
 
