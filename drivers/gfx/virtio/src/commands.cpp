@@ -33,6 +33,28 @@ private:
 	std::coroutine_handle<> _handle;
 };
 
+async::result<void> Cmd::transferToHost2d(uint32_t width, uint32_t height, uint32_t resourceId, GfxDevice *device) {
+	spec::XferToHost2d xfer;
+	memset(&xfer, 0, sizeof(spec::XferToHost2d));
+	xfer.header.type = spec::cmd::xferToHost2d;
+	xfer.rect.x = 0;
+	xfer.rect.y = 0;
+	xfer.rect.width = width;
+	xfer.rect.height = height;
+	xfer.resourceId = resourceId;
+
+	spec::Header xfer_result;
+	virtio_core::Chain xfer_chain;
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice,
+			xfer_chain, device->_controlQ,
+			arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost,
+			xfer_chain, device->_controlQ,
+			arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
+	co_await AwaitableRequest{device->_controlQ, xfer_chain.front()};
+	assert(xfer_result.type == spec::resp::noData);
+}
+
 async::result<void> Cmd::setScanout(uint32_t width, uint32_t height, uint32_t scanoutId, uint32_t resourceId, GfxDevice *device) {
 	spec::SetScanout scanout;
 	memset(&scanout, 0, sizeof(spec::SetScanout));

@@ -268,26 +268,7 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 
 			co_await fb->getBufferObject()->wait();
 
-			spec::XferToHost2d xfer;
-			memset(&xfer, 0, sizeof(spec::XferToHost2d));
-			xfer.header.type = spec::cmd::xferToHost2d;
-			xfer.rect.x = 0;
-			xfer.rect.y = 0;
-			xfer.rect.width = pps->src_w;
-			xfer.rect.height = pps->src_h;
-			xfer.resourceId = fb->getBufferObject()->hardwareId();
-
-			spec::Header xfer_result;
-			virtio_core::Chain xfer_chain;
-			co_await virtio_core::scatterGather(virtio_core::hostToDevice,
-					xfer_chain, _device->_controlQ,
-					arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
-			co_await virtio_core::scatterGather(virtio_core::deviceToHost,
-					xfer_chain, _device->_controlQ,
-					arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
-			co_await AwaitableRequest{_device->_controlQ, xfer_chain.front()};
-			assert(xfer_result.type == spec::resp::noData);
-
+			co_await Cmd::transferToHost2d(pps->src_w, pps->src_h, resourceId, _device);
 			co_await Cmd::setScanout(pps->src_w, pps->src_h, scanoutId, resourceId, _device);
 			co_await Cmd::resourceFlush(pps->src_w, pps->src_h, resourceId, _device);
 		}
@@ -360,23 +341,7 @@ uint32_t GfxDevice::FrameBuffer::getHeight() {
 }
 
 async::detached GfxDevice::FrameBuffer::_xferAndFlush() {
-	spec::XferToHost2d xfer;
-	memset(&xfer, 0, sizeof(spec::XferToHost2d));
-	xfer.header.type = spec::cmd::xferToHost2d;
-	xfer.rect.x = 0;
-	xfer.rect.y = 0;
-	xfer.rect.width = _bo->getWidth();
-	xfer.rect.height = _bo->getHeight();
-	xfer.resourceId = _bo->hardwareId();
-
-	spec::Header xfer_result;
-	virtio_core::Chain xfer_chain;
-	co_await virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, _device->_controlQ,
-		arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
-	co_await virtio_core::scatterGather(virtio_core::deviceToHost, xfer_chain, _device->_controlQ,
-		arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
-	co_await AwaitableRequest{_device->_controlQ, xfer_chain.front()};
-
+	co_await Cmd::transferToHost2d(_bo->getWidth(), _bo->getHeight(), _bo->hardwareId(), _device);
 	co_await Cmd::resourceFlush(_bo->getWidth(), _bo->getHeight(), _bo->hardwareId(), _device);
 }
 
