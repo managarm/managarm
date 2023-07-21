@@ -9,12 +9,17 @@
 #include <async/oneshot-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <core/drm/core.hpp>
 #include <core/virtio/core.hpp>
 #include <helix/ipc.hpp>
 
 #include "spec.hpp"
 
+struct Cmd;
+
 struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
+	friend struct Cmd;
+
 	struct FrameBuffer;
 
 	struct ScanoutState {

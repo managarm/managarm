@@ -21,6 +21,7 @@
 #include <libdrm/drm.h>
 #include <libdrm/drm_mode.h>
 
+#include "src/commands.hpp"
 #include "virtio.hpp"
 #include <fs.bragi.hpp>
 
@@ -117,22 +118,8 @@ async::detached GfxDevice::initialize() {
 		_theEncoders[i] = encoder;
 	}
 
-	spec::Header header;
-	header.type = spec::cmd::getDisplayInfo;
-	header.flags = 0;
-	header.fenceId = 0;
-	header.contextId = 0;
-	header.padding = 0;
+	auto info = co_await Cmd::getDisplayInfo(this);
 
-	spec::DisplayInfo info;
-
-	virtio_core::Chain chain;
-	co_await virtio_core::scatterGather(virtio_core::hostToDevice, chain, _controlQ,
-			arch::dma_buffer_view{nullptr, &header, sizeof(spec::Header)});
-	co_await virtio_core::scatterGather(virtio_core::deviceToHost, chain, _controlQ,
-			arch::dma_buffer_view{nullptr, &info, sizeof(spec::DisplayInfo)});
-
-	co_await AwaitableRequest{_controlQ, chain.front()};
 	for(size_t i = 0; i < 16; i++) {
 		if(info.modes[i].enabled) {
 			auto connector = std::make_shared<Connector>(this);
