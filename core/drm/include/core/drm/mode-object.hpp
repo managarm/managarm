@@ -23,7 +23,7 @@ struct BufferObject {
 	: _mapping(-1) { }
 
 protected:
-	~BufferObject() = default;
+	virtual ~BufferObject() = default;
 
 public:
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;

@@ -473,6 +473,10 @@ int GfxDevice::Plane::scanoutId() {
 // GfxDevice: BufferObject.
 // ----------------------------------------------------------------
 
+GfxDevice::BufferObject::~BufferObject() {
+	_memory.release();
+}
+
 std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {
 	return this->shared_from_this();
 }
@@ -498,7 +502,7 @@ async::result<void> GfxDevice::BufferObject::wait() {
 }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	return std::make_pair(helix::BorrowedDescriptor(_memory), 0);
+	return std::make_pair(helix::BorrowedDescriptor{_memory}, 0);
 }
 
 async::detached GfxDevice::BufferObject::_initHw() {

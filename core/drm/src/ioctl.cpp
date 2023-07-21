@@ -22,11 +22,12 @@ static constexpr auto primeFileOperations = protocols::fs::FileOperations{
 async::result<void>
 drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
+	auto self = static_cast<drm_core::File *>(object);
+
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
 		assert(req);
 
-		auto self = static_cast<drm_core::File *>(object);
 		if(req->command() == DRM_IOCTL_VERSION) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -1044,6 +1045,21 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
+	}else if(id == managarm::fs::DrmIoctlGemCloseRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::DrmIoctlGemCloseRequest>(msg);
+		assert(req);
+		managarm::fs::DrmIoctlGemCloseReply resp;
+
+		if(logDrmRequests)
+			std::cout << "core/drm: DRM_IOCTL_GEM_CLOSE(" << req->handle() << ")" << std::endl;
+
+		self->_buffers.erase(req->handle());
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
 	}else{
 		std::cout << "\e[31m" "core/drm: Unknown ioctl() message with ID "
 				<< id << "\e[39m" << std::endl;

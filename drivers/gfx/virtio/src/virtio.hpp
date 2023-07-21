@@ -56,6 +56,8 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		: _device{device}, _hardwareId{id}, _size{size}, _memory{std::move(memory)},
 			_width{width}, _height{height} { };
 
+		~BufferObject();
+
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
