@@ -407,26 +407,9 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 }
 
 async::detached GfxDevice::BufferObject::_initHw() {
-	void *ptr;
-	HEL_CHECK(helMapMemory(_memory.getHandle(), kHelNullHandle,
-		nullptr, 0, getSize(), kHelMapProtRead, &ptr));
+	co_await Cmd::create2d(getWidth(), getHeight(), _hardwareId, _device);
 
-	spec::Create2d buffer;
-	memset(&buffer, 0, sizeof(spec::Create2d));
-	buffer.header.type = spec::cmd::create2d;
-	buffer.resourceId = _hardwareId;
-	buffer.format = spec::format::bgrx;
-	buffer.width = getWidth();
-	buffer.height = getHeight();
-	spec::Header result;
-
-	virtio_core::Chain chain;
-	co_await virtio_core::scatterGather(virtio_core::hostToDevice, chain, _device->_controlQ,
-			arch::dma_buffer_view{nullptr, &buffer, sizeof(spec::Create2d)});
-	co_await virtio_core::scatterGather(virtio_core::deviceToHost, chain, _device->_controlQ,
-			arch::dma_buffer_view{nullptr, &result, sizeof(spec::Header)});
-	co_await AwaitableRequest{_device->_controlQ, chain.front()};
-
+	void *ptr = _mapping.get();
 	std::vector<spec::MemEntry> entries;
 	for(size_t page = 0; page < getSize(); page += 4096) {
 		spec::MemEntry entry;

@@ -121,3 +121,22 @@ async::result<spec::DisplayInfo> Cmd::getDisplayInfo(GfxDevice *device) {
 	co_return info;
 }
 
+async::result<void> Cmd::create2d(uint32_t width, uint32_t height, uint32_t resourceId, GfxDevice *device) {
+	spec::Create2d buffer;
+	memset(&buffer, 0, sizeof(spec::Create2d));
+	buffer.header.type = spec::cmd::create2d;
+	buffer.resourceId = resourceId;
+	buffer.format = spec::format::bgrx;
+	buffer.width = width;
+	buffer.height = height;
+
+	spec::Header result;
+	virtio_core::Chain chain;
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, chain, device->_controlQ,
+			arch::dma_buffer_view{nullptr, &buffer, sizeof(spec::Create2d)});
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, chain, device->_controlQ,
+			arch::dma_buffer_view{nullptr, &result, sizeof(spec::Header)});
+	co_await AwaitableRequest{device->_controlQ, chain.front()};
+
+	assert(result.type == spec::resp::noData);
+}
