@@ -294,6 +294,25 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 		}
 	}
 
+	auto plane_states = state->plane_states();
+
+	for(auto pair : plane_states) {
+		auto ps = pair.second;
+
+		if(ps->fb != nullptr) {
+			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(ps->fb);
+			auto resourceId = fb->getBufferObject()->resourceId();
+
+			co_await fb->getBufferObject()->wait();
+
+			// TODO: if(!fb->getBufferObject()->is3D())
+				co_await Cmd::transferToHost2d(ps->src_w, ps->src_h, resourceId, _device);
+
+			co_await Cmd::setScanout(ps->src_w, ps->src_h, static_pointer_cast<GfxDevice::Plane>(ps->plane)->scanoutId(), resourceId, _device);
+			co_await Cmd::resourceFlush(ps->src_w, ps->src_h, resourceId, _device);
+		}
+	}
+
 	complete();
 }
 
