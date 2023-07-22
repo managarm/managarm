@@ -259,6 +259,18 @@ void GfxDevice::Configuration::dispose() {
 
 void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
 	_dispatch(state);
+
+	for(auto &[_, cs] : state->crtc_states()) {
+		cs->crtc().lock()->setDrmState(cs);
+	}
+
+	for(auto &[_, ps] : state->plane_states()) {
+		ps->plane->setDrmState(ps);
+	}
+
+	for(auto &[_, cs] : state->connector_states()) {
+		cs->connector->setDrmState(cs);
+	}
 }
 
 async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> &state) {
