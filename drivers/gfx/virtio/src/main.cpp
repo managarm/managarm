@@ -75,6 +75,9 @@ async::detached GfxDevice::initialize() {
 
 	std::vector<drm_core::Assignment> assignments;
 
+	setupMinDimensions(64, 64);
+	setupMaxDimensions(5120, 2160);
+
 	auto num_scanouts = static_cast<uint32_t>(_transport->space().load(spec::cfg::numScanouts));
 	for(size_t i = 0; i < num_scanouts; i++) {
 		auto plane = std::make_shared<Plane>(this, i, Plane::PlaneType::PRIMARY);
