@@ -679,7 +679,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 						if(logDrmRequests)
 							std::cout << "\t" << ass.property->name() << " -> blob [" << ass.blobValue->id() << "]" << std::endl;
 					} else {
-						resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+						resp.add_drm_obj_property_values(0);
 					}
 				} else if(std::holds_alternative<ObjectPropertyType>(ass.property->propertyType())) {
 					if(ass.objectValue) {
