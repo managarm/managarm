@@ -890,10 +890,19 @@ void readEntityBars(PciEntity *entity, int nBars) {
 		if((bar & 1) != 0) {
 			uintptr_t address = bar & 0xFFFFFFFC;
 
+			// disable I/O and memory decode while reading BARs
+			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
+			if(command & 0x03)
+				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
+
 			// write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFFC;
 			io->writeConfigWord(bus, slot, function, offset, bar);
+
+			// restore the original command byte value
+			if(command & 0x03)
+				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
 			if (!mask)
@@ -953,10 +962,19 @@ void readEntityBars(PciEntity *entity, int nBars) {
 		}else if(((bar >> 1) & 3) == 0) {
 			uint32_t address = bar & 0xFFFFFFF0;
 
+			// disable I/O and memory decode while reading BARs
+			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
+			if(command & 0x03)
+				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
+
 			// Write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0;
 			io->writeConfigWord(bus, slot, function, offset, bar);
+
+			// restore the original command byte value
+			if(command & 0x03)
+				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
 			if (!mask)
@@ -995,6 +1013,11 @@ void readEntityBars(PciEntity *entity, int nBars) {
 			auto high = io->readConfigWord(bus, slot, function, offset + 4);;
 			auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
 
+			// disable I/O and memory decode while reading BARs
+			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
+			if(command & 0x03)
+				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
+
 			// Write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			io->writeConfigWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
@@ -1002,6 +1025,10 @@ void readEntityBars(PciEntity *entity, int nBars) {
 					| (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
 			io->writeConfigWord(bus, slot, function, offset, bar);
 			io->writeConfigWord(bus, slot, function, offset + 4, high);
+
+			// restore the original command byte value
+			if(command & 0x03)
+				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
 			if (!mask) {
