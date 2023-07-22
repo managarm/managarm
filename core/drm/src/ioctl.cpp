@@ -7,6 +7,7 @@
 
 #include "core/drm/core.hpp"
 #include "core/drm/debug.hpp"
+#include "core/drm/property.hpp"
 
 namespace drm_core {
 
@@ -170,6 +171,35 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			resp.set_drm_subpixel(conn->getSubpixel());
 			resp.set_drm_num_modes(conn->modeList().size());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto assignments = conn->getAssignments(self->_device);
+
+			for(auto ass : assignments) {
+				resp.add_drm_obj_property_ids(ass.property->id());
+
+				if(std::holds_alternative<IntPropertyType>(ass.property->propertyType())) {
+					resp.add_drm_obj_property_values(ass.intValue);
+				} else if(std::holds_alternative<EnumPropertyType>(ass.property->propertyType())) {
+					resp.add_drm_obj_property_values(ass.intValue);
+				} else if(std::holds_alternative<BlobPropertyType>(ass.property->propertyType())) {
+					if(ass.blobValue) {
+						resp.add_drm_obj_property_values(ass.blobValue->id());
+					} else {
+						resp.add_drm_obj_property_values(0);
+					}
+				} else if(std::holds_alternative<ObjectPropertyType>(ass.property->propertyType())) {
+					if(ass.objectValue) {
+						resp.add_drm_obj_property_values(ass.objectValue->id());
+					} else {
+						resp.add_drm_obj_property_values(0);
+					}
+				}
+
+				if(logDrmRequests) {
+					std::cout << "\tproperty " << ass.property->id() << " '" << ass.property->name()
+						<< "' = " << resp.drm_obj_property_values(resp.drm_obj_property_values_size() - 1) << std::endl;
+				}
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
