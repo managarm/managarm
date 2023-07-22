@@ -286,7 +286,10 @@ std::shared_ptr<Link> DirectoryNode::directMklink(std::string name, std::weak_pt
 }
 
 std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
-	assert(_entries.find(name) == _entries.end());
+	auto preexisting = _entries.find(name);
+	if(preexisting != _entries.end()) {
+		return *preexisting;
+	}
 	auto node = std::make_shared<DirectoryNode>();
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
@@ -363,10 +366,19 @@ void Object::createSymlink(std::string name, std::shared_ptr<Object> target) {
 	dir->directMklink(std::move(name), std::move(target));
 }
 
+std::optional<std::string> Object::getClassPath() {
+	return std::nullopt;
+}
+
 void Object::addObject() {
 	if(_parent) {
 		assert(_parent->_dirLink);
 		auto parent_dir = static_cast<DirectoryNode *>(_parent->_dirLink->getTarget().get());
+
+		auto class_path = getClassPath();
+		if(class_path.has_value())
+			parent_dir = static_cast<DirectoryNode *>(parent_dir->directMkdir(class_path.value())->getTarget().get());
+
 		_dirLink = parent_dir->directMkdir(_name);
 	}else{
 		auto parent_dir = static_cast<DirectoryNode *>(getSysfs()->getTarget().get());

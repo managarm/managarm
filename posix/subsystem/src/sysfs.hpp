@@ -175,6 +175,7 @@ private:
 // Object corresponds to Linux kobjects.
 struct Object {
 	Object(std::shared_ptr<Object> parent, std::string name);
+	virtual ~Object() = default;
 
 	const std::string &name() {
 		return _name;
@@ -185,6 +186,7 @@ struct Object {
 	void realizeAttribute(Attribute *attr);
 	void createSymlink(std::string name, std::shared_ptr<Object> target);
 
+	virtual std::optional<std::string> getClassPath();
 	void addObject();
 
 private:

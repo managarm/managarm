@@ -46,6 +46,10 @@ struct Device final : UnixDevice, drvcore::ClassDevice {
 		ue.set("SUBSYSTEM", "drm");
 	}
 
+	std::optional<std::string> getClassPath() override {
+		return "drm";
+	};
+
 private:
 	int _index;
 	helix::UniqueLane _lane;
