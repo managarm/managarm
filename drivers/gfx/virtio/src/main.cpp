@@ -128,6 +128,7 @@ async::detached GfxDevice::initialize() {
 
 		_theCrtcs[i] = crtc;
 		_theEncoders[i] = encoder;
+		_thePlanes[i] = plane;
 	}
 
 	auto info = co_await Cmd::getDisplayInfo(this);
@@ -138,6 +139,8 @@ async::detached GfxDevice::initialize() {
 			connector->setupWeakPtr(connector);
 			connector->setupState(connector);
 
+			auto crtc = _theCrtcs[i];
+
 			connector->setupPossibleEncoders({_theEncoders[i].get()});
 			connector->setCurrentEncoder(_theEncoders[i].get());
 			connector->setCurrentStatus(1);
@@ -146,8 +149,13 @@ async::detached GfxDevice::initialize() {
 			registerObject(connector.get());
 			attachConnector(connector.get());
 
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), srcWProperty(), info.modes[i].rect.width << 16));
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), srcHProperty(), info.modes[i].rect.height << 16));
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcWProperty(), info.modes[i].rect.width));
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcHProperty(), info.modes[i].rect.height));
+
 			assignments.push_back(drm_core::Assignment::withInt(connector, dpmsProperty(), 3));
-			assignments.push_back(drm_core::Assignment::withModeObj(connector, crtcIdProperty(), nullptr));
+			assignments.push_back(drm_core::Assignment::withModeObj(connector, crtcIdProperty(), crtc));
 
 			std::vector<drm_mode_modeinfo> supported_modes;
 			drm_core::addDmtModes(supported_modes, info.modes[i].rect.width,

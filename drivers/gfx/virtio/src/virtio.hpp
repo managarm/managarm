@@ -132,6 +132,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 private:
 	std::shared_ptr<Crtc> _theCrtcs[16];
 	std::shared_ptr<Encoder> _theEncoders[16];
+	std::shared_ptr<Plane> _thePlanes[16];
 	std::shared_ptr<Connector> _activeConnectors[16];
 
 	std::unique_ptr<virtio_core::Transport> _transport;
