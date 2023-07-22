@@ -140,3 +140,35 @@ async::result<void> Cmd::create2d(uint32_t width, uint32_t height, uint32_t reso
 
 	assert(result.type == spec::resp::noData);
 }
+
+async::result<void> Cmd::attachBacking(uint32_t resourceId, void *ptr, size_t size, GfxDevice *device) {
+	std::vector<spec::MemEntry> entries;
+	for(size_t page = 0; page < size; page += 4096) {
+		spec::MemEntry entry;
+		memset(&entry, 0, sizeof(spec::MemEntry));
+		uintptr_t physical;
+
+		HEL_CHECK(helPointerPhysical((reinterpret_cast<char *>(ptr) + page), &physical));
+		entry.address = physical;
+		entry.length = 4096;
+		entries.push_back(entry);
+	}
+
+	spec::AttachBacking attachment;
+	memset(&attachment, 0, sizeof(spec::AttachBacking));
+	attachment.header.type = spec::cmd::attachBacking;
+	attachment.resourceId = resourceId;
+	attachment.numEntries = entries.size();
+
+	spec::Header attach_result;
+	virtio_core::Chain attach_chain;
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, device->_controlQ,
+			arch::dma_buffer_view{nullptr, &attachment, sizeof(spec::AttachBacking)});
+	co_await virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, device->_controlQ,
+			arch::dma_buffer_view{nullptr, entries.data(), entries.size() * sizeof(spec::MemEntry)});
+	co_await virtio_core::scatterGather(virtio_core::deviceToHost, attach_chain, device->_controlQ,
+			arch::dma_buffer_view{nullptr, &attach_result, sizeof(spec::Header)});
+	co_await AwaitableRequest{device->_controlQ, attach_chain.front()};
+
+	assert(attach_result.type == spec::resp::noData);
+}
