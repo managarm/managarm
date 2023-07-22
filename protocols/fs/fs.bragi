@@ -391,7 +391,7 @@ head(128):
 		tag(81) uint32 drm_count_props;
 
 		tag(82) uint32[] drm_obj_property_ids;
-		tag(83) uint32[] drm_obj_property_values;
+		tag(83) uint64[] drm_obj_property_values;
 
 		tag(84) uint8[] drm_property_blob;
 
