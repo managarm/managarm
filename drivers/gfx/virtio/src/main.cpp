@@ -210,7 +210,7 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	auto size = ((width * height * bpp / 8) + (4096 - 1)) & ~(4096 - 1);
 	HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
 
-	auto bo = std::make_shared<BufferObject>(this, _hwAllocator.allocate(), size,
+	auto bo = std::make_shared<BufferObject>(this, _resourceIdAllocator.allocate(), size,
 			helix::UniqueDescriptor(handle), width, height);
 	uint32_t pitch = width * bpp / 8;
 
@@ -284,7 +284,7 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 		if(pps->fb != nullptr) {
 			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(pps->fb);
 			auto scanoutId = static_pointer_cast<GfxDevice::Plane>(pps->plane)->scanoutId();
-			auto resourceId = fb->getBufferObject()->hardwareId();
+			auto resourceId = fb->getBufferObject()->resourceId();
 
 			co_await fb->getBufferObject()->wait();
 
@@ -361,8 +361,8 @@ uint32_t GfxDevice::FrameBuffer::getHeight() {
 }
 
 async::detached GfxDevice::FrameBuffer::_xferAndFlush() {
-	co_await Cmd::transferToHost2d(_bo->getWidth(), _bo->getHeight(), _bo->hardwareId(), _device);
-	co_await Cmd::resourceFlush(_bo->getWidth(), _bo->getHeight(), _bo->hardwareId(), _device);
+	co_await Cmd::transferToHost2d(_bo->getWidth(), _bo->getHeight(), _bo->resourceId(), _device);
+	co_await Cmd::resourceFlush(_bo->getWidth(), _bo->getHeight(), _bo->resourceId(), _device);
 }
 
 // ----------------------------------------------------------------
@@ -394,8 +394,8 @@ size_t GfxDevice::BufferObject::getSize() {
 	return _size;
 }
 
-uint32_t GfxDevice::BufferObject::hardwareId() {
-	return _hardwareId;
+uint32_t GfxDevice::BufferObject::resourceId() {
+	return _resourceId;
 }
 
 async::result<void> GfxDevice::BufferObject::wait() {
@@ -407,8 +407,8 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 }
 
 async::detached GfxDevice::BufferObject::_initHw() {
-	co_await Cmd::create2d(getWidth(), getHeight(), _hardwareId, _device);
-	co_await Cmd::attachBacking(_hardwareId, _mapping.get(), getSize(), _device);
+	co_await Cmd::create2d(getWidth(), getHeight(), _resourceId, _device);
+	co_await Cmd::attachBacking(_resourceId, _mapping.get(), getSize(), _device);
 
 	_jump.raise();
 }
