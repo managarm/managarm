@@ -12,6 +12,7 @@
 #include <arch/register.hpp>
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
+#include <linux/virtio_gpu.h>
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
@@ -65,6 +66,14 @@ GfxDevice::GfxDevice(std::unique_ptr<virtio_core::Transport> transport)
 : _transport{std::move(transport)}, _claimedDevice{false} { }
 
 async::detached GfxDevice::initialize() {
+	if(_transport->checkDeviceFeature(VIRTIO_GPU_F_VIRGL)) {
+		_transport->acknowledgeDriverFeature(VIRTIO_GPU_F_VIRGL);
+		_virgl3D = true;
+	}
+
+	if(_transport->checkDeviceFeature(VIRTIO_GPU_F_EDID))
+		_transport->acknowledgeDriverFeature(VIRTIO_GPU_F_EDID);
+
 	_transport->finalizeFeatures();
 	_transport->claimQueues(2);
 

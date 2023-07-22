@@ -139,4 +139,6 @@ private:
 	virtio_core::Queue *_cursorQ;
 	bool _claimedDevice;
 	id_allocator<uint32_t> _hwAllocator;
+
+	bool _virgl3D = false;
 };
