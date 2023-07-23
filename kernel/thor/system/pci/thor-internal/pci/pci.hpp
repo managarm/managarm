@@ -402,6 +402,8 @@ void addToEnumerationQueue(PciBus *bus);
 void addRootBus(PciBus *bus);
 void enumerateAll();
 
+void applyPciDeviceQuirks(smarter::shared_ptr<pci::PciDevice> dev);
+
 struct PciConfigIo {
 	uint8_t readConfigByte(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset) {
 		return readConfigByte(bus->segId, bus->busId, slot, function, offset);
