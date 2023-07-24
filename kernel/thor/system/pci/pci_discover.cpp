@@ -1287,6 +1287,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 
 		allDevices->push_back(device);
 		bus->childDevices.push_back(device.get());
+
+		applyPciDeviceQuirks(device);
 	} else if ((header_type & 0x7F) == 1) {
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function);
 		bus->childBridges.push_back(bridge);
@@ -1307,24 +1309,6 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		} else {
 			infoLogger() << "            Deferring enumeration until bridge is configured" << frg::endlog;
 		}
-	}
-
-	// TODO: This should probably be moved somewhere else.
-	if(class_code == 0x0C && sub_class == 0x03 && interface == 0x00) {
-		infoLogger() << "            \e[32mDisabling UHCI SMI generation!\e[39m"
-				<< frg::endlog;
-		io->writeConfigHalf(bus, slot, function, 0xC0, 0x2000);
-	}
-
-	if (class_code == 0x0C && sub_class == 0x03 && interface == 0x30 && vendor == 0x8086) {
-		infoLogger() << "            \e[32mSwitching USB ports to XHCI!\e[39m"
-				<< frg::endlog;
-
-		auto usb3PortsAvail = io->readConfigWord(bus, slot, function, 0xDC);
-		io->writeConfigWord(bus, slot, function, 0xD8, usb3PortsAvail);
-
-		auto usb2PortsAvail = io->readConfigWord(bus, slot, function, 0xD4);
-		io->writeConfigWord(bus, slot, function, 0xD0, usb2PortsAvail);
 	}
 }
 
