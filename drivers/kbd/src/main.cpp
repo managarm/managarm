@@ -26,7 +26,7 @@ namespace {
 	constexpr bool logPackets = false;
 	constexpr bool logMouse = false;
 }
-constexpr int default_timeout = 100'000'000;
+constexpr int default_timeout = 500'000'000;
 
 // --------------------------------------------------------------------
 // Controller
