@@ -412,6 +412,11 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 			local = LocalState();
 			break;
 
+		case 0xB0:
+			if(logDescriptorParser)
+				printf("usb-hid:     Feature: 0x%x\n", data);
+			break;
+
 		case 0x80:
 			if(logDescriptorParser)
 				printf("usb-hid:     Input: 0x%x\n", data);
