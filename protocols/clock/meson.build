@@ -1,10 +1,7 @@
-here = meson.current_source_dir()
-clock_pb = protocxx.process(here/'clock.proto', 
-	extra_args : [ '-I' + here ]
-)
+clock_bragi = cxxbragi.process('clock.bragi')
 
 clock_proto_dep = declare_dependency(
-	sources : clock_pb,
+	sources : clock_bragi,
 	include_directories : 'include'
 )
 

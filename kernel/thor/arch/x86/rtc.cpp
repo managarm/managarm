@@ -6,7 +6,9 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/stream.hpp>
-#include <clock.frigg_pb.hpp>
+#include <bragi/helpers-frigg.hpp>
+#include <bragi/helpers-all.hpp>
+#include <clock.frigg_bragi.hpp>
 
 namespace thor {
 
@@ -93,34 +95,45 @@ private:
 		if(reqError != Error::success)
 			co_return reqError;
 
-		managarm::clock::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+		auto preamble = bragi::read_preamble(reqBuffer);
+		if (preamble.error())
+			co_return Error::protocolViolation;
 
-		if(req.req_type() == managarm::clock::CntReqType::RTC_GET_TIME) {
+		auto sendResponse = [] (LaneHandle &conversation,
+				managarm::clock::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+				resp.head_size};
+
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+				resp.size_of_tail()};
+
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+
+			if (respHeadError != Error::success)
+				co_return respHeadError;
+
+			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+
+			if (respTailError != Error::success)
+				co_return respTailError;
+
+			co_return frg::success;
+		};
+
+		if(preamble.id() == bragi::message_id<managarm::clock::GetRtcTimeRequest>) {
 			managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::clock::Error::SUCCESS);
 			resp.set_ref_nanos(systemClockSource()->currentNanos());
-			resp.set_time_nanos(getCmosTime());
+			resp.set_rtc_nanos(getCmosTime());
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
-
-		}else{
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		} else {
 			managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}
 
 		co_return frg::success;

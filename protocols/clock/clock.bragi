@@ -1,0 +1,24 @@
+namespace "managarm::clock";
+
+enum Error {
+	SUCCESS = 0,
+	ILLEGAL_REQUEST
+}
+
+message AccessPageRequest 1 {
+head(128):
+}
+
+message GetRtcTimeRequest 2 {
+head(128):
+}
+
+message SvrResponse 3 {
+head(128):
+	Error error;
+
+	tags {
+		tag(1) int64 ref_nanos;
+		tag(2) int64 rtc_nanos;
+	}
+}

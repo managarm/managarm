@@ -3,9 +3,10 @@
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
+#include <bragi/helpers-std.hpp>
 
 #include "clock.hpp"
-#include "clock.pb.h"
+#include <clock.bragi.hpp>
 
 namespace clk {
 
@@ -18,31 +19,30 @@ helix::UniqueDescriptor globalTrackerPageMemory;
 helix::Mapping trackerPageMapping;
 
 async::detached fetchTrackerPage() {
-	managarm::clock::CntRequest req;
-	req.set_req_type(managarm::clock::CntReqType::ACCESS_PAGE);
+	managarm::clock::AccessPageRequest req;
 
-	auto ser = req.SerializeAsString();
-	auto [offer, send_req, recv_resp, pull_memory] = co_await helix_ng::exchangeMsgs(
+	auto [offer, sendReq, recvResp, pullMemory] = co_await helix_ng::exchangeMsgs(
 		trackerLane,
 		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
 			helix_ng::pullDescriptor()
 		)
 	);
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_memory.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(pullMemory.error());
 
-	managarm::clock::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-	recv_resp.reset();
+	auto resp = *bragi::parse_head_only<managarm::clock::SvrResponse>(recvResp);
+
+	recvResp.reset();
 	assert(resp.error() == managarm::clock::Error::SUCCESS);
-	globalTrackerPageMemory = pull_memory.descriptor();
-	
+
+	globalTrackerPageMemory = pullMemory.descriptor();
+
 	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000};
-	
+
 	foundTracker.raise();
 }
 
