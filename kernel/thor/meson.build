@@ -51,6 +51,7 @@ src += files(
 	'generic/kernel-io.cpp',
 	'generic/kernel-stack.cpp',
 	'generic/main.cpp',
+	'generic/mbus.cpp',
 	'generic/memory-view.cpp',
 	'generic/ostrace.cpp',
 	'generic/physical.cpp',
