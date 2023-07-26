@@ -7,12 +7,8 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/stream.hpp>
 #include <clock.frigg_pb.hpp>
-#include <mbus.frigg_pb.hpp>
 
 namespace thor {
-
-// TODO: Move this to a header file.
-extern frg::manual_box<LaneHandle> mbusClient;
 
 namespace {
 
@@ -78,126 +74,59 @@ int64_t getCmosTime() {
 			+ days * 86400 * nanoPrefix;
 }
 
-coroutine<bool> handleReq(LaneHandle lane) {
-	auto [acceptError, conversation] = co_await AcceptSender{lane};
-	if(acceptError == Error::endOfLane)
-		co_return false;
-	// TODO: improve error handling here.
-	assert(acceptError == Error::success);
+struct RtcBusObject : private KernelBusObject {
+	coroutine<void> run() {
+		Properties properties;
+		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "rtc"));
 
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-	// TODO: improve error handling here.
-	assert(reqError == Error::success);
-
-	managarm::clock::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-
-	if(req.req_type() == managarm::clock::CntReqType::RTC_GET_TIME) {
-		managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::clock::Error::SUCCESS);
-		resp.set_ref_nanos(systemClockSource()->currentNanos());
-		resp.set_time_nanos(getCmosTime());
-	
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-		// TODO: improve error handling here.
-		assert(respError == Error::success);
-	}else{
-		managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
-		
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-		// TODO: improve error handling here.
-		assert(respError == Error::success);
+		// TODO(qookie): Better error handling here.
+		(co_await createObject(std::move(properties))).unwrap();
 	}
 
-	co_return true;
-}
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
+		auto [acceptError, conversation] = co_await AcceptSender{lane};
+		if(acceptError != Error::success)
+			co_return acceptError;
 
-// ------------------------------------------------------------------------
-// mbus object creation and management.
-// ------------------------------------------------------------------------
+		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		if(reqError != Error::success)
+			co_return reqError;
 
-coroutine<LaneHandle> createObject(LaneHandle mbusLane) {
-	auto [offerError, conversation] = co_await OfferSender{mbusLane};
-	// TODO: improve error handling here.
-	assert(offerError == Error::success);
-	
-	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
-	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
-	auto &cls_item = cls_prop.mutable_item().mutable_string_item();
-	cls_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "rtc"));
-	
-	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
-	req.set_parent_id(1);
-	req.add_properties(std::move(cls_prop));
+		managarm::clock::CntRequest<KernelAlloc> req(*kernelAlloc);
+		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	req.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-	memcpy(reqBuffer.data(), ser.data(), ser.size());
-	auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
-	// TODO: improve error handling here.
-	assert(reqError == Error::success);
+		if(req.req_type() == managarm::clock::CntReqType::RTC_GET_TIME) {
+			managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::clock::Error::SUCCESS);
+			resp.set_ref_nanos(systemClockSource()->currentNanos());
+			resp.set_time_nanos(getCmosTime());
 
-	auto [respError, respBuffer] = co_await RecvBufferSender{conversation};
-	// TODO: improve error handling here.
-	assert(respError == Error::success);
-	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
 
-	auto [descError, descriptor] = co_await PullDescriptorSender{conversation};
-	// TODO: improve error handling here.
-	assert(descError == Error::success);
-	assert(descriptor.is<LaneDescriptor>());
-	co_return descriptor.get<LaneDescriptor>().handle;
-}
+		}else{
+			managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
 
-coroutine<void> handleBind(LaneHandle objectLane) {
-	auto [acceptError, conversation] = co_await AcceptSender{objectLane};
-	// TODO: improve error handling here.
-	assert(acceptError == Error::success);
-
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-	// TODO: improve error handling here.
-	assert(reqError == Error::success);
-	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-
-	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.set_error(managarm::mbus::Error::SUCCESS);
-
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	resp.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-	memcpy(respBuffer.data(), ser.data(), ser.size());
-	auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-	// TODO: improve error handling here.
-	assert(respError == Error::success);
-
-	auto stream = createStream();
-	auto descError = co_await PushDescriptorSender{conversation,
-			LaneDescriptor{stream.get<1>()}};
-	// TODO: improve error handling here.
-	assert(descError == Error::success);
-
-	async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane) -> coroutine<void> {
-		while(true) {
-			if(!(co_await handleReq(lane)))
-				break;
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
 		}
-	}(std::move(stream.get<0>())));
-}
+
+		co_return frg::success;
+	}
+};
+
 
 } // anonymous namespace
 
@@ -206,11 +135,8 @@ static initgraph::Task initRtcTask{&globalInitEngine, "x86.init-rtc",
 	[] {
 		// Create a fiber to manage requests to the RTC mbus object.
 		KernelFiber::run([=] {
-			async::detach_with_allocator(*kernelAlloc, [] () -> coroutine<void> {
-				auto objectLane = co_await createObject(*mbusClient);
-				while(true)
-					co_await handleBind(objectLane);
-			}());
+			auto rtc = frg::construct<RtcBusObject>(*kernelAlloc);
+			async::detach_with_allocator(*kernelAlloc, rtc->run());
 		});
 	}
 };
