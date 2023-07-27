@@ -8,7 +8,8 @@
 #include <async/promise.hpp>
 #include <frg/std_compat.hpp>
 #include <protocols/mbus/client.hpp>
-#include <kerncfg.pb.h>
+#include <bragi/helpers-std.hpp>
+#include <kerncfg.bragi.hpp>
 
 async::result<helix::UniqueLane> enumerateKerncfgByteRing(const char *purpose) {
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -35,30 +36,28 @@ async::result<helix::UniqueLane> enumerateKerncfgByteRing(const char *purpose) {
 async::result<std::tuple<size_t, uint64_t, uint64_t>>
 getKerncfgByteRingPart(helix::BorrowedLane lane,
 		arch::dma_buffer_view chunk, uint64_t dequeue, uint64_t watermark) {
-	managarm::kerncfg::CntRequest req;
-	req.set_req_type(managarm::kerncfg::CntReqType::GET_BUFFER_CONTENTS);
+	managarm::kerncfg::GetBufferContentsRequest req;
 	req.set_watermark(watermark);
 	req.set_size(chunk.size());
 	req.set_dequeue(dequeue);
 
-	auto ser = req.SerializeAsString();
-	auto [offer, send_req, recv_resp, recv_buffer] =
+	auto [offer, sendReq, recvResp, recvBuffer] =
 		co_await helix_ng::exchangeMsgs(lane,
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
 				helix_ng::recvBuffer(chunk.data(), chunk.size())
 			)
 		);
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(recv_buffer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(recvBuffer.error());
 
-	managarm::kerncfg::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-	recv_resp.reset();
+	auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
 	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
+
+	recvResp.reset();
 
 	co_return std::make_tuple(resp.size(), resp.effective_dequeue(), resp.new_dequeue());
 }

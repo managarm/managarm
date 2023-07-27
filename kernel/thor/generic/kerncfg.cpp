@@ -10,7 +10,9 @@
 #include <thor-internal/timer.hpp>
 #include <thor-internal/mbus.hpp>
 
-#include "kerncfg.frigg_pb.hpp"
+#include <bragi/helpers-frigg.hpp>
+#include <bragi/helpers-all.hpp>
+#include "kerncfg.frigg_bragi.hpp"
 
 #include <thor-internal/ring-buffer.hpp>
 
@@ -44,20 +46,22 @@ private:
 		if(reqError != Error::success)
 			co_return reqError;
 
+		auto preamble = bragi::read_preamble(reqBuffer);
+		if (preamble.error())
+			co_return Error::protocolViolation;
 
-		assert(reqError == Error::success && "Unexpected mbus transaction");
-		managarm::kerncfg::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+		if(preamble.id() == bragi::message_id<managarm::kerncfg::GetCmdlineRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetCmdlineRequest>(reqBuffer, *kernelAlloc);
 
-		if(req.req_type() == managarm::kerncfg::CntReqType::GET_CMDLINE) {
+			if (!req)
+				co_return Error::protocolViolation;
+
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 			resp.set_size(kernelCommandLine->size());
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
 				co_return respError;
@@ -71,10 +75,8 @@ private:
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
 				co_return respError;
@@ -110,10 +112,18 @@ private:
 		if(reqError != Error::success)
 			co_return reqError;
 
-		managarm::kerncfg::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+auto preamble = bragi::read_preamble(reqBuffer);
+		if (preamble.error())
+			co_return Error::protocolViolation;
 
-		if(req.req_type() == managarm::kerncfg::CntReqType::GET_BUFFER_CONTENTS) {
+		if(preamble.id() == bragi::message_id<managarm::kerncfg::GetBufferContentsRequest>) {
+			auto maybeReq = bragi::parse_head_only<managarm::kerncfg::GetBufferContentsRequest>(reqBuffer, *kernelAlloc);
+
+			if (!maybeReq)
+				co_return Error::protocolViolation;
+
+			auto &req = *maybeReq;
+
 			frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc, req.size()};
 
 			size_t progress = 0;
@@ -165,10 +175,8 @@ private:
 			resp.set_effective_dequeue(effectivePtr);
 			resp.set_new_dequeue(currentPtr);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
 				co_return respError;
@@ -181,10 +189,8 @@ private:
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
 				co_return respError;
