@@ -6,7 +6,8 @@
 #include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
 #include <protocols/mbus/client.hpp>
-#include <kernlet.pb.h>
+#include <bragi/helpers-std.hpp>
+#include <kernlet.bragi.hpp>
 #include "common.hpp"
 
 static bool dumpHex = false;
@@ -39,15 +40,14 @@ async::result<void> enumerateCtl() {
 
 async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 		std::vector<BindType> bind_types) {
-	managarm::kernlet::CntRequest req;
-	req.set_req_type(managarm::kernlet::CntReqType::UPLOAD);
+	managarm::kernlet::UploadRequest req;
 
 	for(auto bt : bind_types) {
 		managarm::kernlet::ParameterType proto;
 		switch(bt) {
-		case BindType::offset: proto = managarm::kernlet::OFFSET; break;
-		case BindType::memoryView: proto = managarm::kernlet::MEMORY_VIEW; break;
-		case BindType::bitsetEvent: proto = managarm::kernlet::BITSET_EVENT; break;
+		case BindType::offset: proto = managarm::kernlet::ParameterType::OFFSET; break;
+		case BindType::memoryView: proto = managarm::kernlet::ParameterType::MEMORY_VIEW; break;
+		case BindType::bitsetEvent: proto = managarm::kernlet::ParameterType::BITSET_EVENT; break;
 		default:
 			assert(!"Unexpected binding type");
 			__builtin_unreachable();
@@ -56,27 +56,28 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 	}
 
 	auto ser = req.SerializeAsString();
-	auto [offer, send_req, send_data, recv_resp, pull_kernlet] = co_await helix_ng::exchangeMsgs(
+	auto [offer, sendHead, sendTail, sendData, recvResp, pullKernlet] = co_await helix_ng::exchangeMsgs(
 		kernletCtlLane,
 		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 			helix_ng::sendBuffer(elf, size),
 			helix_ng::recvInline(),
 			helix_ng::pullDescriptor())
 	);
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(send_data.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_kernlet.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
+	HEL_CHECK(sendData.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(pullKernlet.error());
 
-	managarm::kernlet::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-	recv_resp.reset();
+	auto resp = *bragi::parse_head_only<managarm::kernlet::SvrResponse>(recvResp);
+
+	recvResp.reset();
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 	std::cout << "kernletcc: Upload success" << std::endl;
 
-	co_return pull_kernlet.descriptor();
+	co_return pullKernlet.descriptor();
 }
 
 // ----------------------------------------------------------------------------
@@ -85,10 +86,9 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 
 async::detached serveCompiler(helix::UniqueLane lane) {
 	while(true) {
-		auto [accept, recv_req, recv_code] = co_await helix_ng::exchangeMsgs(
+		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
 			lane,
 			helix_ng::accept(
-				helix_ng::recvInline(),
 				helix_ng::recvInline())
 		);
 		if(accept.error() == kHelErrEndOfLane) {
@@ -96,32 +96,50 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 			co_return;
 		}
 		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-		HEL_CHECK(recv_code.error());
+		HEL_CHECK(recvHead.error());
 
 		auto conversation = accept.descriptor();
 
-		managarm::kernlet::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
-		if(req.req_type() == managarm::kernlet::CntReqType::COMPILE) {
+		auto preamble = bragi::read_preamble(recvHead);
+		assert(!preamble.error());
+
+		std::vector<std::byte> tailBuffer(preamble.tail_size());
+		auto [recvTail, recvCode] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::recvInline() // TODO(qookie): What about kernlets larger than 128 bytes?
+		);
+
+		HEL_CHECK(recvTail.error());
+		HEL_CHECK(recvCode.error());
+
+		if(preamble.id() == bragi::message_id<managarm::kernlet::CompileRequest>) {
+			auto maybeReq = bragi::parse_head_tail<managarm::kernlet::CompileRequest>(recvHead, tailBuffer);
+
+			if (!maybeReq) {
+				std::cout << "kernletcc: Ignoring request due to decoding failure.\n";
+				continue;
+			}
+
+			auto &req = *maybeReq;
+
 			std::vector<BindType> bind_types;
-			for(int i = 0; i < req.bind_types_size(); i++) {
+			for(size_t i = 0; i < req.bind_types_size(); i++) {
 				auto proto = req.bind_types(i);
 				BindType bt;
 				switch(proto) {
-				case managarm::kernlet::OFFSET: bt = BindType::offset; break;
-				case managarm::kernlet::MEMORY_VIEW: bt = BindType::memoryView; break;
-				case managarm::kernlet::BITSET_EVENT: bt = BindType::bitsetEvent; break;
+				case managarm::kernlet::ParameterType::OFFSET: bt = BindType::offset; break;
+				case managarm::kernlet::ParameterType::MEMORY_VIEW: bt = BindType::memoryView; break;
+				case managarm::kernlet::ParameterType::BITSET_EVENT: bt = BindType::bitsetEvent; break;
 				default:
 					assert(!"Unexpected binding type");
 				}
 				bind_types.push_back(bt);
 			}
 
-			auto elf = compileFafnir(reinterpret_cast<const uint8_t *>(recv_code.data()),
-					recv_code.length(), bind_types);
-			recv_code.reset();
+			auto elf = compileFafnir(reinterpret_cast<const uint8_t *>(recvCode.data()),
+					recvCode.length(), bind_types);
+			recvCode.reset();
 
 			if(dumpHex) {
 				for(size_t i = 0; i < elf.size(); i++) {
@@ -139,19 +157,18 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 			managarm::kernlet::SvrResponse resp;
 			resp.set_error(managarm::kernlet::Error::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, push_kernlet] = co_await helix_ng::exchangeMsgs(
+			auto [sendResp, pushKernlet] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
 				helix_ng::pushDescriptor(object)
 			);
-			if(send_resp.error() == kHelErrEndOfLane) {
+			if(sendResp.error() == kHelErrEndOfLane) {
 				std::cout << "\e[31m" "kernletcc: Client unexpectedly closed its connection"
 						"\e[39m" << std::endl;
 				co_return;
 			}
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_kernlet.error());
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(pushKernlet.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
