@@ -8,18 +8,13 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
+#include <thor-internal/mbus.hpp>
 #include <hw.frigg_bragi.hpp>
-#include <mbus.frigg_pb.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
 
 #include <lai/helpers/pm.h>
-
-namespace thor {
-	// TODO: Move this to a header file.
-	extern frg::manual_box<LaneHandle> mbusClient;
-}
 
 namespace thor::acpi {
 
@@ -35,134 +30,60 @@ void issuePs2Reset() {
 }
 #endif
 
-namespace {
+struct PmInterfaceBusObject : private KernelBusObject {
+	coroutine<void> run() {
+		Properties properties;
+		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "pm-interface"));
 
-coroutine<bool> handleReq(LaneHandle lane) {
-	auto [acceptError, conversation] = co_await AcceptSender{lane};
-	if(acceptError == Error::endOfLane)
-		co_return false;
-	// TODO: improve error handling here.
-	assert(acceptError == Error::success);
-
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-	// TODO: improve error handling here.
-	assert(reqError == Error::success);
-
-	auto preamble = bragi::read_preamble(reqBuffer);
-	assert(!preamble.error());
-
-	if(preamble.id() == bragi::message_id<managarm::hw::PmResetRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::PmResetRequest>(reqBuffer, *kernelAlloc);
-
-		if (!req) {
-			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-			co_return true;
-		}
-
-		if(lai_acpi_reset())
-			infoLogger() << "thor: ACPI reset failed" << frg::endlog;
-
-#ifdef __x86_64__
-		issuePs2Reset();
-		infoLogger() << "thor: Reset using PS/2 controller failed" << frg::endlog;
-#endif
-		panicLogger() << "thor: We do not know how to reset" << frg::endlog;
-	}else{
-		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
-		co_await DismissSender{conversation};
+		// TODO(qookie): Better error handling here.
+		(co_await createObject(std::move(properties))).unwrap();
 	}
 
-	co_return true;
-}
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
+		auto [acceptError, conversation] = co_await AcceptSender{lane};
+		if(acceptError != Error::success)
+			co_return acceptError;
 
-// ------------------------------------------------------------------------
-// mbus object creation and management.
-// ------------------------------------------------------------------------
+		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		if(reqError != Error::success)
+			co_return reqError;
 
-coroutine<LaneHandle> createObject(LaneHandle mbusLane) {
-	auto [offerError, conversation] = co_await OfferSender{mbusLane};
-	// TODO: improve error handling here.
-	assert(offerError == Error::success);
+		auto preamble = bragi::read_preamble(reqBuffer);
 
-	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
-	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
-	auto &cls_item = cls_prop.mutable_item().mutable_string_item();
-	cls_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "pm-interface"));
+		if (preamble.error())
+			co_return Error::protocolViolation;
 
-	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
-	req.set_parent_id(1);
-	req.add_properties(std::move(cls_prop));
+		if(preamble.id() == bragi::message_id<managarm::hw::PmResetRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::PmResetRequest>(reqBuffer, *kernelAlloc);
 
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	req.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-	memcpy(reqBuffer.data(), ser.data(), ser.size());
-	auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
-	// TODO: improve error handling here.
-	assert(reqError == Error::success);
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
 
-	auto [respError, respBuffer] = co_await RecvBufferSender{conversation};
-	// TODO: improve error handling here.
-	assert(respError == Error::success);
-	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+			if(lai_acpi_reset())
+				infoLogger() << "thor: ACPI reset failed" << frg::endlog;
 
-	auto [descError, descriptor] = co_await PullDescriptorSender{conversation};
-	// TODO: improve error handling here.
-	assert(descError == Error::success);
-	assert(descriptor.is<LaneDescriptor>());
-	co_return descriptor.get<LaneDescriptor>().handle;
-}
-
-coroutine<void> handleBind(LaneHandle objectLane) {
-	auto [acceptError, conversation] = co_await AcceptSender{objectLane};
-	// TODO: improve error handling here.
-	assert(acceptError == Error::success);
-
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-	// TODO: improve error handling here.
-	assert(reqError == Error::success);
-	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-
-	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.set_error(managarm::mbus::Error::SUCCESS);
-
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	resp.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-	memcpy(respBuffer.data(), ser.data(), ser.size());
-	auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-	// TODO: improve error handling here.
-	assert(respError == Error::success);
-
-	auto stream = createStream();
-	auto descError = co_await PushDescriptorSender{conversation,
-			LaneDescriptor{stream.get<1>()}};
-	// TODO: improve error handling here.
-	assert(descError == Error::success);
-
-	async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane) -> coroutine<void> {
-		while(true) {
-			if(!(co_await handleReq(lane)))
-				break;
+#ifdef __x86_64__
+			issuePs2Reset();
+			infoLogger() << "thor: Reset using PS/2 controller failed" << frg::endlog;
+#endif
+			panicLogger() << "thor: We do not know how to reset" << frg::endlog;
+		}else{
+			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
+			co_await DismissSender{conversation};
 		}
-	}(std::move(stream.get<0>())));
-}
 
-} // anonymous namespace
+		co_return frg::success;
+	}
+};
 
 void initializePmInterface() {
-	// Create a fiber to manage requests to the RTC mbus object.
+	// Create a fiber to manage requests to the PM interface mbus object.
 	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, [] () -> coroutine<void> {
-			auto objectLane = co_await createObject(*mbusClient);
-			while(true)
-				co_await handleBind(objectLane);
-		}());
+		auto pmIf = frg::construct<PmInterfaceBusObject>(*kernelAlloc);
+		async::detach_with_allocator(*kernelAlloc, pmIf->run());
 	});
 }
 
