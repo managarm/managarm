@@ -13,8 +13,8 @@
 #include <thor-internal/kernlet.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/stream.hpp>
+#include <thor-internal/mbus.hpp>
 
-#include "mbus.frigg_pb.hpp"
 #include "kernlet.frigg_pb.hpp"
 
 namespace thor {
@@ -23,8 +23,6 @@ namespace {
 	constexpr bool logBinding = false;
 	constexpr bool logIo = false;
 }
-
-extern frg::manual_box<LaneHandle> mbusClient;
 
 // ------------------------------------------------------------------------
 // KernletObject class.
@@ -350,70 +348,6 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 	return smarter::allocate_shared<KernletObject>(*kernelAlloc, entry, bind_types);
 }
 
-coroutine<Error> handleReq(LaneHandle boundLane) {
-	auto [acceptError, lane] = co_await AcceptSender{boundLane};
-	if(acceptError != Error::success)
-		co_return acceptError;
-
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-	if(reqError != Error::success)
-		co_return reqError;
-	managarm::kernlet::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-
-	if(req.req_type() == managarm::kernlet::CntReqType::UPLOAD) {
-		frg::vector<KernletParameterType, KernelAlloc> bind_types{*kernelAlloc};
-		for(size_t i = 0; i < req.bind_types_size(); i++) {
-			switch(req.bind_types(i)) {
-			case managarm::kernlet::ParameterType::OFFSET:
-				bind_types.push_back(KernletParameterType::offset);
-				break;
-			case managarm::kernlet::ParameterType::MEMORY_VIEW:
-				bind_types.push_back(KernletParameterType::memoryView);
-				break;
-			case managarm::kernlet::ParameterType::BITSET_EVENT:
-				bind_types.push_back(KernletParameterType::bitsetEvent);
-				break;
-			default:
-				assert(!"Unexpected kernlet parameter type");
-			}
-		}
-
-		auto [elfError, elfBuffer] = co_await RecvBufferSender{lane};
-		if(elfError != Error::success)
-			co_return elfError;
-		auto kernlet = processElfDso(reinterpret_cast<char *>(elfBuffer.data()), bind_types);
-
-		managarm::kernlet::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::kernlet::Error::SUCCESS);
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError != Error::success)
-			co_return respError;
-		auto objectError = co_await PushDescriptorSender{lane,
-				KernletObjectDescriptor{std::move(kernlet)}};
-		if(objectError != Error::success)
-			co_return objectError;
-	}else{
-		managarm::kernlet::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::kernlet::Error::ILLEGAL_REQUEST);
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError != Error::success)
-			co_return respError;
-	}
-
-	co_return Error::success;
-}
-
 } // anonymous namespace
 
 // ------------------------------------------------------------------------
@@ -422,87 +356,88 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 
 namespace {
 
-coroutine<void> handleBind(LaneHandle objectLane);
+struct KernletCtlBusObject : private KernelBusObject {
+	coroutine<void> run() {
+		Properties properties;
+		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "kernletctl"));
 
-coroutine<void> createObject(LaneHandle mbusLane) {
-	auto [offerError, lane] = co_await OfferSender{mbusLane};
-	assert(offerError == Error::success && "Unexpected mbus transaction");
+		// TODO(qookie): Better error handling here.
+		(co_await createObject(std::move(properties))).unwrap();
+	}
 
-	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
-	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
-	auto &cls_item = cls_prop.mutable_item().mutable_string_item();
-	cls_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "kernletctl"));
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
+		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		if(acceptError != Error::success)
+			co_return acceptError;
 
-	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
-	req.set_parent_id(1);
-	req.add_properties(std::move(cls_prop));
+		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+		if(reqError != Error::success)
+			co_return reqError;
+		managarm::kernlet::CntRequest<KernelAlloc> req(*kernelAlloc);
+		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	req.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-	memcpy(reqBuffer.data(), ser.data(), ser.size());
-	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
-	assert(reqError == Error::success && "Unexpected mbus transaction");
+		if(req.req_type() == managarm::kernlet::CntReqType::UPLOAD) {
+			frg::vector<KernletParameterType, KernelAlloc> bind_types{*kernelAlloc};
+			for(size_t i = 0; i < req.bind_types_size(); i++) {
+				switch(req.bind_types(i)) {
+				case managarm::kernlet::ParameterType::OFFSET:
+					bind_types.push_back(KernletParameterType::offset);
+					break;
+				case managarm::kernlet::ParameterType::MEMORY_VIEW:
+					bind_types.push_back(KernletParameterType::memoryView);
+					break;
+				case managarm::kernlet::ParameterType::BITSET_EVENT:
+					bind_types.push_back(KernletParameterType::bitsetEvent);
+					break;
+				default:
+					assert(!"Unexpected kernlet parameter type");
+				}
+			}
 
-	auto [respError, respBuffer] = co_await RecvBufferSender{lane};
-	assert(respError == Error::success && "Unexpected mbus transaction");
-	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+			auto [elfError, elfBuffer] = co_await RecvBufferSender{lane};
+			if(elfError != Error::success)
+				co_return elfError;
+			auto kernlet = processElfDso(reinterpret_cast<char *>(elfBuffer.data()), bind_types);
 
-	auto [objectError, objectDescriptor] = co_await PullDescriptorSender{lane};
-	assert(objectError == Error::success && "Unexpected mbus transaction");
-	assert(objectDescriptor.is<LaneDescriptor>());
-	auto objectLane = objectDescriptor.get<LaneDescriptor>().handle;
-	while(true)
-		co_await handleBind(objectLane);
-}
+			managarm::kernlet::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kernlet::Error::SUCCESS);
 
-coroutine<void> handleBind(LaneHandle objectLane) {
-	auto [acceptError, lane] = co_await AcceptSender{objectLane};
-	assert(acceptError == Error::success && "Unexpected mbus transaction");
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
+			auto objectError = co_await PushDescriptorSender{lane,
+					KernletObjectDescriptor{std::move(kernlet)}};
+			if(objectError != Error::success)
+				co_return objectError;
+		}else{
+			managarm::kernlet::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kernlet::Error::ILLEGAL_REQUEST);
 
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-	assert(reqError == Error::success && "Unexpected mbus transaction");
-	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-
-	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.set_error(managarm::mbus::Error::SUCCESS);
-
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	resp.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-	memcpy(respBuffer.data(), ser.data(), ser.size());
-	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-	assert(respError == Error::success && "Unexpected mbus transaction");
-
-	auto stream = createStream();
-	auto boundError = co_await PushDescriptorSender{lane, LaneDescriptor{stream.get<1>()}};
-	assert(boundError == Error::success && "Unexpected mbus transaction");
-	auto boundLane = stream.get<0>();
-
-	async::detach_with_allocator(*kernelAlloc, ([] (LaneHandle boundLane) -> coroutine<void> {
-		while(true) {
-			auto error = co_await handleReq(boundLane);
-			if(error == Error::endOfLane)
-				break;
-			if(isRemoteIpcError(error))
-				infoLogger() << "thor: Aborting svrctl request"
-						" after remote violated the protocol" << frg::endlog;
-			assert(error == Error::success);
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
 		}
-	})(boundLane));
-}
+
+		co_return frg::success;
+	}
+};
 
 } // anonymous namespace
 
 void initializeKernletCtl() {
 	// Create a fiber to manage requests to the kernletctl mbus object.
 	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, createObject(*mbusClient));
+		auto ctl = frg::construct<KernletCtlBusObject>(*kernelAlloc);
+		async::detach_with_allocator(*kernelAlloc, ctl->run());
 	});
 }
 
