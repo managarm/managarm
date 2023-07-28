@@ -1209,7 +1209,8 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats) {
+async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state,
+		async::cancellation_token ct, ResourceUsage *stats) {
 	assert(pid == -1 || pid > 0);
 
 	int result = 0;
@@ -1234,7 +1235,9 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 				*stats = resultStats;
 			co_return result;
 		}
-		co_await _notifyBell.async_wait();
+		co_await _notifyBell.async_wait(ct);
+		if (ct.is_cancellation_requested())
+			co_return result;
 	}
 }
 
