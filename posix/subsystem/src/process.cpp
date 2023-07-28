@@ -1296,7 +1296,8 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<frg::expected<Error, Process::WaitResult>> Process::wait(int pid, WaitFlags flags) {
+async::result<frg::expected<Error, Process::WaitResult>>
+Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 	assert(pid == -1 || pid > 0);
 	assert(flags & waitExited);
 	assert(!(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)));
@@ -1334,7 +1335,9 @@ async::result<frg::expected<Error, Process::WaitResult>> Process::wait(int pid, 
 		if(result || (flags & waitNonBlocking))
 			co_return result.value_or(WaitResult{});
 
-		co_await _notifyBell.async_wait();
+		co_await _notifyBell.async_wait(ct);
+		if (ct.is_cancellation_requested())
+			co_return Error::interrupted;
 	}
 }
 

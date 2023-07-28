@@ -578,7 +578,8 @@ public:
 		ResourceUsage stats = {};
 	};
 
-	async::result<frg::expected<Error, WaitResult>> wait(int pid, WaitFlags flags);
+	async::result<frg::expected<Error, WaitResult>>
+	wait(int pid, WaitFlags flags, async::cancellation_token ct);
 
 	bool hasChild(int pid);
 
