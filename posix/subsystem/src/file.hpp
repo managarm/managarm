@@ -145,7 +145,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::noChildProcesses: return managarm::posix::Errors::NO_CHILD_PROCESSES;
 		case Error::alreadyConnected: return managarm::posix::Errors::ALREADY_CONNECTED;
 		case Error::unsupportedSocketType: return managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE;
-		case Error::interrupted:
+		case Error::interrupted: return managarm::posix::Errors::INTERRUPTED;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:
