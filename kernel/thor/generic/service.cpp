@@ -153,6 +153,15 @@ namespace initrd {
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 			if(req.req_type() == managarm::fs::CntReqType::READ) {
+				//TODO(geert): Maybe use this event to cancel
+				// stuff as well?
+				auto [eventError, event] = co_await PullDescriptorSender{conversation};
+				if (eventError != Error::success) {
+					infoLogger() << "thor: Could not receive read event"
+							<< frg::endlog;
+					co_return;
+				}
+
 				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"
