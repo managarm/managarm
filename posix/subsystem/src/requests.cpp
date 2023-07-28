@@ -383,6 +383,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				flags |= waitLeaveZombie;
 
 			int wait_pid = 0;
+			// TODO (geert): make this operation cancelable.
 			if(req->idtype() == P_PID) {
 				wait_pid = req->id();
 			} else if(req->idtype() == P_ALL) {
@@ -407,7 +408,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "WAIT_ID", "pid={}", wait_pid);
 
-			auto wait_result = co_await self->wait(wait_pid, flags);
+			auto wait_result = co_await self->wait(wait_pid, flags, {});
 
 			managarm::posix::WaitIdResponse resp;
 
@@ -440,6 +441,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(sendResp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
+			auto [cancel_event] = co_await exchangeMsgs(conversation, helix_ng::pullDescriptor());
+			HEL_CHECK(cancel_event.error());
+
 			if(req.flags() & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
 				std::cout << "posix: WAIT invalid flags: " << req.flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -459,7 +463,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "WAIT", "pid={}", req.pid());
 
-			auto wait_result = co_await self->wait(req.pid(), flags);
+			async::cancellation_event ce;
+			([](helix::UniqueDescriptor event, async::cancellation_event &ce) -> async::detached {
+				co_await helix_ng::awaitEvent(event, 1);
+				ce.cancel();
+			})(cancel_event.descriptor(), ce);
+
+			auto wait_result = co_await self->wait(req.pid(), flags, {ce});
 
 			managarm::posix::SvrResponse resp;
 			if(wait_result) {
@@ -477,6 +487,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					assert(std::holds_alternative<std::monostate>(proc_state.state));
 				}
 				resp.set_mode(mode);
+			} else if (wait_result.error() == Error::interrupted) {
+				resp.set_error(managarm::posix::Errors::INTERRUPTED);
 			} else {
 				assert(wait_result.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
