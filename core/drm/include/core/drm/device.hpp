@@ -54,6 +54,7 @@ public:
 	std::unique_ptr<AtomicState> atomicState();
 
 	uint64_t installMapping(drm_core::BufferObject *bo);
+	void uninstallMapping(drm_core::BufferObject *bo);
 
 	void setupMinDimensions(uint32_t width, uint32_t height);
 	void setupMaxDimensions(uint32_t width, uint32_t height);
@@ -82,10 +83,10 @@ private:
 
 	id_allocator<uint32_t> _memorySlotAllocator;
 	std::map<uint64_t, BufferObject *> _mappings;
-	uint32_t _minWidth;
-	uint32_t _maxWidth;
-	uint32_t _minHeight;
-	uint32_t _maxHeight;
+	uint32_t _minWidth = 0;
+	uint32_t _maxWidth = 0;
+	uint32_t _minHeight = 0;
+	uint32_t _maxHeight = 0;
 	std::shared_ptr<Property> _srcWProperty;
 	std::shared_ptr<Property> _srcHProperty;
 	std::shared_ptr<Property> _fbIdProperty;

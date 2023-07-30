@@ -190,7 +190,7 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 				<< " at " << (void *)offset
 				<< ", displacement is: " << (void *)displacement << std::endl;
 	auto buffer = std::make_shared<BufferObject>(this, alignment, size,
-			offset, displacement);
+			offset, displacement, width, height);
 
 	auto mapping = installMapping(buffer.get());
 	buffer->setupMapping(mapping);
@@ -346,6 +346,14 @@ uint32_t GfxDevice::FrameBuffer::getPixelPitch() {
 	return _pixelPitch;
 }
 
+uint32_t GfxDevice::FrameBuffer::getWidth() {
+	return _bo->getWidth();
+}
+
+uint32_t GfxDevice::FrameBuffer::getHeight() {
+	return _bo->getHeight();
+}
+
 void GfxDevice::FrameBuffer::notifyDirty() {
 
 }
@@ -363,8 +371,8 @@ GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type)
 // ----------------------------------------------------------------
 
 GfxDevice::BufferObject::BufferObject(GfxDevice *device, size_t alignment, size_t size,
-		uintptr_t offset, ptrdiff_t displacement)
-: _device{device}, _alignment{alignment}, _size{size},
+		uintptr_t offset, ptrdiff_t displacement, uint32_t width, uint32_t height)
+: drm_core::BufferObject{width, height}, _device{device}, _alignment{alignment}, _size{size},
 		_offset{offset}, _displacement{displacement} {
 	assert(!((_offset + _displacement) % 0x1000));
 	assert(!((_offset + _displacement) % _alignment));

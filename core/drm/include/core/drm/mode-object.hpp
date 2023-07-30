@@ -19,11 +19,10 @@ enum struct ObjectType {
 };
 
 struct BufferObject {
-	BufferObject()
-	: _mapping(-1) { }
-
 protected:
-	~BufferObject() = default;
+	BufferObject(uint32_t w, uint32_t h) : _width{w}, _height{h} { }
+
+	virtual ~BufferObject() = default;
 
 public:
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
@@ -33,8 +32,12 @@ public:
 	void setupMapping(uint64_t mapping);
 	uint64_t getMapping();
 
+	uint32_t getWidth();
+	uint32_t getHeight();
 private:
-	uint64_t _mapping;
+	uint64_t _mapping = -1;
+	uint32_t _width;
+	uint32_t _height;
 };
 
 struct Blob {
@@ -200,8 +203,8 @@ private:
 	drm_core::Encoder *_currentEncoder;
 	uint32_t _currentStatus;
 	std::vector<Encoder *> _possibleEncoders;
-	uint32_t _physicalWidth;
-	uint32_t _physicalHeight;
+	uint32_t _physicalWidth = 0;
+	uint32_t _physicalHeight = 0;
 	uint32_t _subpixel;
 	uint32_t _connectorType;
 
@@ -219,6 +222,8 @@ protected:
 
 public:
 	virtual void notifyDirty() = 0;
+	virtual uint32_t getWidth() = 0;
+	virtual uint32_t getHeight() = 0;
 };
 
 struct Plane : ModeObject {

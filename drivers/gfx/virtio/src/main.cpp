@@ -412,6 +412,14 @@ void GfxDevice::FrameBuffer::notifyDirty() {
 	_xferAndFlush();
 }
 
+uint32_t GfxDevice::FrameBuffer::getWidth() {
+	return _bo->getWidth();
+}
+
+uint32_t GfxDevice::FrameBuffer::getHeight() {
+	return _bo->getHeight();
+}
+
 async::detached GfxDevice::FrameBuffer::_xferAndFlush() {
 	spec::XferToHost2d xfer;
 	memset(&xfer, 0, sizeof(spec::XferToHost2d));
@@ -465,20 +473,16 @@ int GfxDevice::Plane::scanoutId() {
 // GfxDevice: BufferObject.
 // ----------------------------------------------------------------
 
+GfxDevice::BufferObject::~BufferObject() {
+	_memory.release();
+}
+
 std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {
 	return this->shared_from_this();
 }
 
 size_t GfxDevice::BufferObject::getSize() {
 	return _size;
-}
-
-uint32_t GfxDevice::BufferObject::getWidth() {
-	return _width;
-}
-
-uint32_t GfxDevice::BufferObject::getHeight() {
-	return _height;
 }
 
 uint32_t GfxDevice::BufferObject::hardwareId() {
@@ -490,7 +494,7 @@ async::result<void> GfxDevice::BufferObject::wait() {
 }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	return std::make_pair(helix::BorrowedDescriptor(_memory), 0);
+	return std::make_pair(helix::BorrowedDescriptor{_memory}, 0);
 }
 
 async::detached GfxDevice::BufferObject::_initHw() {

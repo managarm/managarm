@@ -9,8 +9,10 @@
 #include <async/oneshot-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <core/drm/device.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
+#include <protocols/hw/client.hpp>
 
 struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	struct FrameBuffer;
@@ -40,15 +42,11 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
-		uint32_t getWidth();
-		uint32_t getHeight();
 		void *accessMapping();
 
 	private:
 		size_t _size;
 		helix::UniqueDescriptor _memory;
-		uint32_t _width;
-		uint32_t _height;
 		helix::Mapping _bufferMapping;
 	};
 
@@ -79,6 +77,8 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 
 		GfxDevice::BufferObject *getBufferObject();
 		void notifyDirty() override;
+		uint32_t getWidth() override;
+		uint32_t getHeight() override;
 
 	private:
 		GfxDevice *_device;

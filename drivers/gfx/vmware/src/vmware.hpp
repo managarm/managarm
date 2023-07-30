@@ -3,10 +3,13 @@
 #include <map>
 #include <unordered_map>
 
+#include <arch/io_space.hpp>
 #include <arch/mem_space.hpp>
 #include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <core/drm/device.hpp>
+#include <protocols/hw/client.hpp>
 
 #include "spec.hpp"
 
@@ -35,11 +38,12 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	};
 
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
-		BufferObject(GfxDevice *device, size_t size, helix::UniqueDescriptor mem);
+		BufferObject(GfxDevice *device, size_t size, helix::UniqueDescriptor mem, uint32_t width, uint32_t height);
 
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
+
 	private:
 		size_t _size;
 		helix::UniqueDescriptor _mem;
@@ -73,6 +77,8 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		GfxDevice::BufferObject *getBufferObject();
 		uint32_t getPixelPitch();
 		void notifyDirty() override;
+		uint32_t getWidth() override;
+		uint32_t getHeight() override;
 
 	private:
 		std::shared_ptr<GfxDevice::BufferObject> _bo;

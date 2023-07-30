@@ -72,6 +72,14 @@ uint64_t drm_core::BufferObject::getMapping() {
 	return _mapping;
 }
 
+uint32_t drm_core::BufferObject::getWidth() {
+	return _width;
+}
+
+uint32_t drm_core::BufferObject::getHeight() {
+	return _height;
+}
+
 // ----------------------------------------------------------------
 // Encoder
 // ----------------------------------------------------------------

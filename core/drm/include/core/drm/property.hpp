@@ -54,15 +54,48 @@ enum PropertyId {
 };
 
 struct Property {
+	struct RangeProperty {};
+	struct SignedRangeProperty {};
+	struct EnumProperty {};
+	struct ObjectProperty {};
+	struct BlobProperty {};
+
+private:
 	Property(PropertyId id, PropertyType property_type, std::string name) : Property(id, property_type, name, 0) { }
 
 	Property(PropertyId id, PropertyType property_type, std::string name, uint32_t flags)
 	: _id(id), _flags(flags), _propertyType(property_type), _name(name) {
 		assert(name.length() < DRM_PROP_NAME_LEN);
+	}
 
-		if(std::holds_alternative<EnumPropertyType>(_propertyType)) {
-			_flags |= DRM_MODE_PROP_ENUM;
-		}
+public:
+	Property(PropertyId id, BlobProperty, std::string name, uint32_t flags)
+	: Property{id, drm_core::BlobPropertyType{}, name, flags | DRM_MODE_PROP_BLOB} { }
+
+	Property(PropertyId id, ObjectProperty, std::string name, uint32_t flags, uint32_t type)
+	: Property{id, drm_core::ObjectPropertyType{}, name, flags | DRM_MODE_PROP_OBJECT} {
+		_type = type;
+	}
+
+	Property(PropertyId id, EnumProperty, std::string name, uint32_t flags)
+	: Property{id, drm_core::EnumPropertyType{}, name, flags | DRM_MODE_PROP_ENUM} { }
+
+	Property(PropertyId id, EnumProperty p, std::string name)
+	: Property{id, p, name, 0} { }
+
+	Property(PropertyId id, RangeProperty, std::string name, uint32_t flags, uint32_t min, uint32_t max)
+	: Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_RANGE} {
+		_rangeMin = min;
+		_rangeMax = max;
+	}
+
+	Property(PropertyId id, SignedRangeProperty, std::string name, uint32_t flags)
+	: Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_SIGNED_RANGE} {	}
+
+	Property(PropertyId id, SignedRangeProperty, std::string name, uint32_t flags, int32_t min, int32_t max)
+	: Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_SIGNED_RANGE} {
+		_signedRangeMin = min;
+		_signedRangeMax = max;
 	}
 
 	virtual ~Property() = default;
@@ -71,6 +104,29 @@ struct Property {
 
 	PropertyId id();
 	uint32_t flags();
+
+	uint32_t typeFlags() {
+		return _type;
+	}
+
+	uint64_t rangeMin() {
+		return _rangeMin;
+	}
+
+	uint64_t rangeMax() {
+		return _rangeMax;
+	}
+
+	int64_t signedRangeMin() {
+		assert((_flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_SIGNED_RANGE);
+		return _signedRangeMin;
+	}
+
+	int64_t signedRangeMax() {
+		assert((_flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_SIGNED_RANGE);
+		return _signedRangeMax;
+	}
+
 	PropertyType propertyType();
 	std::string name();
 	void addEnumInfo(uint64_t value, std::string name);
@@ -92,6 +148,11 @@ struct Property {
 private:
 	PropertyId _id;
 	uint32_t _flags;
+	uint32_t _type;
+	uint64_t _rangeMin = 0;
+	uint64_t _rangeMax = UINT32_MAX;
+	int64_t _signedRangeMin = INT32_MIN;
+	int64_t _signedRangeMax = INT32_MAX;
 	PropertyType _propertyType;
 	std::string _name;
 	std::unordered_map<uint64_t, std::string> _enum_info;
