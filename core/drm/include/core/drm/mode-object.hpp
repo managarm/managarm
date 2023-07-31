@@ -205,7 +205,7 @@ private:
 	std::vector<Encoder *> _possibleEncoders;
 	uint32_t _physicalWidth = 0;
 	uint32_t _physicalHeight = 0;
-	uint32_t _subpixel;
+	uint32_t _subpixel = 0;
 	uint32_t _connectorType;
 
 	std::shared_ptr<ConnectorState> _drmState;
