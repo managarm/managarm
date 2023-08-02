@@ -115,9 +115,13 @@ public:
 		(void)mask; // TODO: utilize mask.
 		// TODO: Return Error::fileClosed as appropriate.
 		assert(pastSeq <= _channel->currentSeq);
-		while(pastSeq == _channel->currentSeq
-				&& !cancellation.is_cancellation_requested())
+		while(_channel && !cancellation.is_cancellation_requested()
+				&& pastSeq == _channel->currentSeq)
 			co_await _channel->statusBell.async_wait(cancellation);
+
+		if(!_channel) {
+			co_return Error::fileClosed;
+		}
 
 		if(cancellation.is_cancellation_requested())
 			std::cout << "\e[33mposix: fifo::pollWait() cancellation is untested\e[39m" << std::endl;
@@ -264,9 +268,13 @@ public:
 			async::cancellation_token cancellation) override {
 		// TODO: Return Error::fileClosed as appropriate.
 		assert(pastSeq <= _channel->currentSeq);
-		while(pastSeq == _channel->currentSeq
-				&& !cancellation.is_cancellation_requested())
+		while(_channel && !cancellation.is_cancellation_requested()
+				&& pastSeq == _channel->currentSeq)
 			co_await _channel->statusBell.async_wait(cancellation);
+
+		if(!_channel) {
+			co_return Error::fileClosed;
+		}
 
 		if(cancellation.is_cancellation_requested())
 			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
