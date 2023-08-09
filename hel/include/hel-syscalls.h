@@ -326,6 +326,18 @@ extern inline __attribute__ (( always_inline )) HelError helWriteFsBase(void *po
 	return helSyscall1(kHelCallWriteFsBase, (HelWord)pointer);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helReadFsBase(void **pointer) {
+	return helSyscall1(kHelCallReadFsBase, (HelWord)pointer);
+};
+
+extern inline __attribute__ (( always_inline )) HelError helWriteGsBase(void *pointer) {
+	return helSyscall1(kHelCallWriteGsBase, (HelWord)pointer);
+};
+
+extern inline __attribute__ (( always_inline )) HelError helReadGsBase(void **pointer) {
+	return helSyscall1(kHelCallReadGsBase, (HelWord)pointer);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helGetClock(uint64_t *counter) {
 	HelWord handle_word;
 	HelError error = helSyscall0_1(kHelCallGetClock, &handle_word);

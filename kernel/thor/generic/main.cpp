@@ -771,6 +771,19 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallWriteFsBase: {
 		*image.error() = helWriteFsBase((void *)arg0);
 	} break;
+	case kHelCallReadFsBase: {
+		void *pointer;
+		*image.error() = helReadFsBase(&pointer);
+		*image.out0() = (Word)pointer;
+	} break;
+	case kHelCallWriteGsBase: {
+		*image.error() = helWriteGsBase((void *)arg0);
+	} break;
+	case kHelCallReadGsBase: {
+		void *pointer;
+		*image.error() = helReadGsBase(&pointer);
+		*image.out0() = (Word)pointer;
+	} break;
 	case kHelCallGetClock: {
 		uint64_t counter;
 		*image.error() = helGetClock(&counter);

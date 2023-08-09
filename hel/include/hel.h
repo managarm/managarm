@@ -76,6 +76,9 @@ enum {
 	kHelCallCreateVirtualizedCpu = 37,
 	kHelCallRunVirtualizedCpu = 38,
 	kHelCallGetRandomBytes = 101,
+	kHelCallWriteGsBase = 54,
+	kHelCallReadFsBase = 55,
+	kHelCallReadGsBase = 56,
 
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 79,
@@ -917,6 +920,12 @@ HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *
 HEL_C_LINKAGE HelError helQueryRegisterInfo(int set, struct HelRegisterInfo *info);
 
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
+
+HEL_C_LINKAGE HelError helReadFsBase(void **pointer);
+
+HEL_C_LINKAGE HelError helWriteGsBase(void *pointer);
+
+HEL_C_LINKAGE HelError helReadGsBase(void **pointer);
 
 //! Read the system-wide monotone clock.
 //!

@@ -2045,6 +2045,33 @@ HelError helWriteFsBase(void *pointer) {
 #endif
 }
 
+HelError helReadFsBase(void **pointer) {
+#ifdef __x86_64__
+	*pointer = (void *)common::x86::rdmsr(common::x86::kMsrIndexFsBase);
+	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
+}
+
+HelError helWriteGsBase(void *pointer) {
+#ifdef __x86_64__
+	common::x86::wrmsr(common::x86::kMsrIndexKernelGsBase, (uintptr_t)pointer);
+	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
+}
+
+HelError helReadGsBase(void **pointer) {
+#ifdef __x86_64__
+	*pointer = (void *)common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
+	return kHelErrNone;
+#else
+	return kHelErrUnsupportedOperation;
+#endif
+}
+
 HelError helGetClock(uint64_t *counter) {
 	*counter = systemClockSource()->currentNanos();
 	return kHelErrNone;
