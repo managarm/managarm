@@ -124,6 +124,7 @@ enum {
 	kHelErrRemoteFault = 21,
 	kHelErrNoHardwareSupport = 16,
 	kHelErrNoMemory = 17,
+	kHelErrAlreadyExists = 22
 };
 
 struct HelX86SegmentRegister {
@@ -245,7 +246,8 @@ enum HelMapFlags {
 	kHelMapProtWrite = 512,
 	kHelMapProtExecute = 1024,
 	kHelMapDontRequireBacking = 128,
-	kHelMapFixed = 2048
+	kHelMapFixed = 2048,
+	kHelMapFixedNoReplace = 4096
 };
 
 enum HelThreadFlags {
@@ -1096,7 +1098,9 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 	case kHelErrCancelled:
 		return "Cancelled";
 	case kHelErrOutOfBounds:
-		return "Cancelled";
+		return "Out of bounds";
+	case kHelErrAlreadyExists:
+		return "Already exists";
 	default:
 		return 0;
 	}

@@ -114,18 +114,18 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
-					co_await vmContext->mapFile(mapAddress,
+					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
 							fileMemory.dup(), file,
 							fileOffset, mapLength, true,
-							kHelMapProtRead | kHelMapProtExecute);
+							kHelMapProtRead | kHelMapProtExecute));
 				// Allow read only mappings too, ICU loves those.
 				}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
 					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
-					co_await vmContext->mapFile(mapAddress,
+					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
 							fileMemory.dup(), file,
 							fileOffset, mapLength, true,
-							kHelMapProtRead);
+							kHelMapProtRead));
 				}else{
 					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
 					co_return Error::badExecutable;
@@ -141,10 +141,10 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 
 				// Map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-					co_await vmContext->mapFile(mapAddress,
+					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
 							helix::UniqueDescriptor{segmentHandle}, file,
 							0, mapLength, true,
-							kHelMapProtRead | kHelMapProtWrite);
+							kHelMapProtRead | kHelMapProtWrite));
 				}else{
 					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
 					co_return Error::badExecutable;
@@ -279,9 +279,9 @@ execute(ViewPath root, ViewPath workdir,
 			0, stackSize, kHelMapProtRead | kHelMapProtWrite, &window));
 
 	// Map the stack into the new process and set it up.
-	void *stackBase = co_await vmContext->mapFile(0,
+	void *stackBase = FRG_CO_TRY(co_await vmContext->mapFile(0,
 			helix::UniqueDescriptor{stackHandle}, nullptr,
-			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite);
+			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite));
 
 	// the offset at which the stack image starts.
 	size_t d = stackSize;

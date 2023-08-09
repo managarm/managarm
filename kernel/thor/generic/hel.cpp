@@ -767,8 +767,10 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	auto this_universe = this_thread->getUniverse();
 
 	uint32_t map_flags = 0;
-	if(pointer != nullptr || flags & kHelMapFixed) {
+	if(flags & kHelMapFixed) {
 		map_flags |= AddressSpace::kMapFixed;
+	}else if(flags & kHelMapFixedNoReplace) {
+		map_flags |= AddressSpace::kMapFixedNoReplace;
 	}else{
 		map_flags |= AddressSpace::kMapPreferTop;
 	}
@@ -842,8 +844,14 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	}
 
 	if(!mapResult) {
-		assert(mapResult.error() == Error::bufferTooSmall);
-		return kHelErrBufferTooSmall;
+		assert(mapResult.error() == Error::bufferTooSmall || mapResult.error() == Error::alreadyExists || mapResult.error() == Error::noMemory);
+
+		if(mapResult.error() == Error::bufferTooSmall)
+			return kHelErrBufferTooSmall;
+		else if(mapResult.error() == Error::noMemory)
+			return kHelErrNoMemory;
+		else if(mapResult.error() == Error::alreadyExists)
+			return kHelErrAlreadyExists;
 	}
 
 	*actualPointer = (void *)mapResult.value();
