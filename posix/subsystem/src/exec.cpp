@@ -95,40 +95,36 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 			if(!phdr->p_memsz) // Skip empty segments.
 				continue;
 
+			bool properlyAligned = phdr->p_offset % phdr->p_align == phdr->p_vaddr % phdr->p_align;
+
 			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
 			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
+			uintptr_t fileOffset = phdr->p_offset - misalign;
 			size_t mapLength = (phdr->p_memsz + misalign + kPageSize - 1) & ~(kPageSize - 1);
+
+			if(!properlyAligned) {
+				std::cout << "posix: ELF file with differently misaligned p_offset and p_vaddr."
+						<< std::endl;
+				co_return Error::badExecutable;
+			}
 
 			// Check if we can share the segment.
 			if(!(phdr->p_flags & PF_W)) {
-				if(misalign) {
-					std::cout << "posix: ELF file with misaligned segments."
-							<< std::endl;
-					co_return Error::badExecutable;
-				}
-				if((phdr->p_offset & (kPageSize - 1))) {
-					// TODO: We could handle the case where p_offset and p_vaddr are
-					//       "equally misaligned".
-					std::cout << "posix: ELF file with misaligned p_offset."
-							<< std::endl;
-					co_return Error::badExecutable;
-				}
-
 				// Map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-					HEL_CHECK(helLoadahead(fileMemory.getHandle(), phdr->p_offset, mapLength));
+					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
 					co_await vmContext->mapFile(mapAddress,
 							fileMemory.dup(), file,
-							phdr->p_offset, mapLength, true,
+							fileOffset, mapLength, true,
 							kHelMapProtRead | kHelMapProtExecute);
 				// Allow read only mappings too, ICU loves those.
 				}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
-					HEL_CHECK(helLoadahead(fileMemory.getHandle(), phdr->p_offset, mapLength));
+					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
 
 					co_await vmContext->mapFile(mapAddress,
 							fileMemory.dup(), file,
-							phdr->p_offset, mapLength, true,
+							fileOffset, mapLength, true,
 							kHelMapProtRead);
 				}else{
 					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
