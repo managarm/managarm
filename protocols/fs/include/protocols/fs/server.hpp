@@ -233,6 +233,7 @@ struct NodeOperations {
 	async::result<Error> (*utimensat)(std::shared_ptr<void> object, uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
 
 	async::result<void> (*obstructLink)(std::shared_ptr<void> object, std::string name);
+	async::result<void> (*deobstructLink)(std::shared_ptr<void> object, std::string name);
 	async::result<TraverseLinksResult> (*traverseLinks)(std::shared_ptr<void> object, std::deque<std::string> path);
 };
 

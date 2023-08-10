@@ -34,9 +34,9 @@ struct MountView : std::enable_shared_from_this<MountView> {
 	std::shared_ptr<FsLink> getOrigin() const;
 
 	async::result<void> mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin);
+	async::result<void> unmount(std::shared_ptr<MountView> view);
 
 	std::shared_ptr<MountView> getMount(std::shared_ptr<FsLink> link) const;
-
 private:
 	struct Compare {
 		struct is_transparent { };

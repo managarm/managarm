@@ -52,6 +52,7 @@ public:
 	virtual std::string getName() = 0;
 	virtual std::shared_ptr<FsNode> getTarget() = 0;
 	virtual async::result<frg::expected<Error>> obstruct();
+	virtual async::result<frg::expected<Error>> deobstruct();
 };
 
 struct FsSuperblock {
@@ -110,7 +111,7 @@ protected:
 	~FsNode() = default;
 
 public:
-	virtual VfsType getType();
+	virtual async::result<VfsType> getType();
 
 	// TODO: This should be async.
 	virtual async::result<frg::expected<Error, FileStats>> getStats();
@@ -152,6 +153,11 @@ public:
 	// TODO: Move this to the link instead of the inode?
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags);
+
+	//! Creates and opens a regular file (directories only).
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	mkRegularAndOpen(std::shared_ptr<MountView> mount, std::string name,
 			SemanticFlags semantic_flags);
 
 	// Reads the target of a symlink (symlinks only).
@@ -220,9 +226,9 @@ private:
 	// SpecialLinks can never be linked into "real" file systems,
 	// hence the can only ever be one link per node.
 	struct EmbeddedNode final : FsNode {
-		VfsType getType() override {
+		async::result<VfsType> getType() override {
 			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
-			return node->fileType_;
+			co_return node->fileType_;
 		}
 
 		async::result<frg::expected<Error, FileStats>> getStats() override {

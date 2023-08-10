@@ -157,8 +157,8 @@ std::shared_ptr<FsNode> Link::getTarget() {
 
 RegularNode::RegularNode() = default;
 
-VfsType RegularNode::getType() {
-	return VfsType::regular;
+async::result<VfsType> RegularNode::getType() {
+	co_return VfsType::regular;
 }
 
 async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
@@ -283,8 +283,8 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	return link;
 }
 
-VfsType DirectoryNode::getType() {
-	return VfsType::directory;
+async::result<VfsType> DirectoryNode::getType() {
+	co_return VfsType::directory;
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string name,
@@ -334,8 +334,8 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 	co_return frg::expected<Error>{};
 }
 
-VfsType SelfLink::getType() {
-	return VfsType::symlink;
+async::result<VfsType> SelfLink::getType() {
+	co_return VfsType::symlink;
 }
 
 expected<std::string> SelfLink::readSymlink(FsLink *link, Process *process) {
@@ -347,8 +347,8 @@ async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
 	co_return FileStats{};
 }
 
-VfsType SelfThreadLink::getType() {
-	return VfsType::symlink;
+async::result<VfsType> SelfThreadLink::getType() {
+	co_return VfsType::symlink;
 }
 
 expected<std::string> SelfThreadLink::readSymlink(FsLink *link, Process *process) {
@@ -360,8 +360,8 @@ async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
 	co_return FileStats{};
 }
 
-VfsType ExeLink::getType() {
-	return VfsType::symlink;
+async::result<VfsType> ExeLink::getType() {
+	co_return VfsType::symlink;
 }
 
 expected<std::string> ExeLink::readSymlink(FsLink *link, Process *process) {
@@ -394,7 +394,7 @@ async::result<std::string> MapNode::show() {
 			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
 			auto fileStats = co_await fsNode->getStats();
 			DeviceId deviceId{};
-			if (fsNode->getType() == VfsType::charDevice || fsNode->getType() == VfsType::blockDevice)
+			if (co_await fsNode->getType() == VfsType::charDevice || co_await fsNode->getType() == VfsType::blockDevice)
 				deviceId = fsNode->readDevice();
 			assert(fileStats);
 
@@ -432,8 +432,8 @@ async::result<void> CommNode::store(std::string name) {
 	co_return;
 }
 
-VfsType RootLink::getType() {
-	return VfsType::symlink;
+async::result<VfsType> RootLink::getType() {
+	co_return VfsType::symlink;
 }
 
 expected<std::string> RootLink::readSymlink(FsLink *link, Process *process) {
@@ -622,8 +622,8 @@ async::result<void> StatusNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/status file!");
 }
 
-VfsType CwdLink::getType() {
-	return VfsType::symlink;
+async::result<VfsType> CwdLink::getType() {
+	co_return VfsType::symlink;
 }
 
 expected<std::string> CwdLink::readSymlink(FsLink *link, Process *process) {

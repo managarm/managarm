@@ -107,6 +107,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *o
 			co_return protocols::fs::Error::noSpaceLeft;
 		case Error::notConnected:
 			co_return protocols::fs::Error::notConnected;
+		case Error::illegalArguments:
+			co_return protocols::fs::Error::illegalArguments;
 		default:
 			assert(!"Unexpected error from writeAll()");
 			__builtin_unreachable();

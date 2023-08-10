@@ -295,8 +295,8 @@ public:
 	DeviceNode(DeviceId id)
 	: _type{VfsType::charDevice}, _id{id} { }
 
-	VfsType getType() override {
-		return _type;
+	async::result<VfsType> getType() override {
+		co_return _type;
 	}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
@@ -324,8 +324,8 @@ struct RootNode final : FsNode, std::enable_shared_from_this<RootNode> {
 	friend struct DirectoryFile;
 
 public:
-	VfsType getType() override {
-		return VfsType::directory;
+	async::result<VfsType> getType() override {
+		co_return VfsType::directory;
 	}
 
 	void linkDevice(std::string name, std::shared_ptr<DeviceNode> node) {

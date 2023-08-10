@@ -119,8 +119,8 @@ private:
 
 struct SymlinkNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::symlink;
+	async::result<VfsType> getType() override {
+		co_return VfsType::symlink;
 	}
 
 	expected<std::string> readSymlink(FsLink *, Process *) override {
@@ -136,8 +136,8 @@ private:
 
 struct DeviceNode final : Node {
 private:
-	VfsType getType() override {
-		return _type;
+	async::result<VfsType> getType() override {
+		co_return _type;
 	}
 
 	DeviceId readDevice() override {
@@ -160,15 +160,15 @@ private:
 struct SocketNode final : Node {
 	SocketNode(Superblock *superblock);
 
-	VfsType getType() override {
-		return VfsType::socket;
+	async::result<VfsType> getType() override {
+		co_return VfsType::socket;
 	}
 };
 
 struct FifoNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::fifo;
+	async::result<VfsType> getType() override {
+		co_return VfsType::fifo;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
@@ -264,8 +264,8 @@ struct DirectoryNode final : Node, std::enable_shared_from_this<DirectoryNode> {
 	static std::shared_ptr<Link> createRootDirectory(Superblock *superblock);
 
 private:
-	VfsType getType() override {
-		return VfsType::directory;
+	async::result<VfsType> getType() override {
+		co_return VfsType::directory;
 	}
 
 	std::shared_ptr<FsLink> treeLink() override {
@@ -350,8 +350,8 @@ private:
 // TODO: Remove this class in favor of MemoryNode.
 struct InheritedNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::regular;
+	async::result<VfsType> getType() override {
+		co_return VfsType::regular;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -430,8 +430,8 @@ struct MemoryNode final : Node {
 
 	MemoryNode(Superblock *superblock);
 
-	VfsType getType() override {
-		return VfsType::regular;
+	async::result<VfsType> getType() override {
+		co_return VfsType::regular;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>

@@ -415,6 +415,12 @@ async::result<void> obstructLink(std::shared_ptr<void> object, std::string name)
 	co_return;
 }
 
+async::result<void> deobstructLink(std::shared_ptr<void> object, std::string name) {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	self->obstructedLinks.erase(name);
+	co_return;
+}
+
 async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<void> object,
 		std::deque<std::string> components) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
@@ -496,6 +502,7 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 	.chmod = &chmod,
 	.utimensat = &utimensat,
 	.obstructLink = &obstructLink,
+	.deobstructLink = &deobstructLink,
 	.traverseLinks = &traverseLinks
 };
 

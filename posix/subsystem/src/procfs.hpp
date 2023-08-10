@@ -95,7 +95,7 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 	RegularNode();
 	virtual ~RegularNode() = default;
 
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -131,7 +131,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	std::shared_ptr<Link> directMkdir(std::string name);
 	std::shared_ptr<Link> createProcDirectory(std::string name, Process *process);
 
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
@@ -153,7 +153,7 @@ struct SelfLink final : FsNode, std::enable_shared_from_this<SelfLink> {
 	SelfLink() = default;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 };
 
@@ -161,7 +161,7 @@ struct SelfThreadLink final : FsNode, std::enable_shared_from_this<SelfThreadLin
 	SelfThreadLink() = default;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 };
 
@@ -171,7 +171,7 @@ struct ExeLink final : FsNode, std::enable_shared_from_this<ExeLink> {
 	{ }
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 private:
 	Process *_process;
@@ -183,7 +183,7 @@ struct RootLink final : FsNode, std::enable_shared_from_this<RootLink> {
 	{ }
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 private:
 	Process *_process;
@@ -195,7 +195,7 @@ struct CwdLink final : FsNode, std::enable_shared_from_this<CwdLink> {
 	{ }
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 private:
 	Process *_process;

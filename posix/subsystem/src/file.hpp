@@ -62,7 +62,10 @@ enum class Error {
 	noSpaceLeft,
 
 	// Corresponds with EISDIR
-	isDirectory
+	isDirectory,
+
+	// Returned by FsLink::prepareUnmount() if the expire flag is set
+	expireMount,
 };
 
 std::ostream& operator<<(std::ostream& os, const Error& err);

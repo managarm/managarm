@@ -168,8 +168,8 @@ std::shared_ptr<FsNode> Link::getTarget() {
 AttributeNode::AttributeNode(Object *object, Attribute *attr)
 : _object{object}, _attr{attr} { }
 
-VfsType AttributeNode::getType() {
-	return VfsType::regular;
+async::result<VfsType> AttributeNode::getType() {
+	co_return VfsType::regular;
 }
 
 async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
@@ -216,8 +216,8 @@ AttributeNode::open(std::shared_ptr<MountView> mount,
 SymlinkNode::SymlinkNode(std::weak_ptr<Object> target)
 : _target{std::move(target)} { }
 
-VfsType SymlinkNode::getType() {
-	return VfsType::symlink;
+async::result<VfsType> SymlinkNode::getType() {
+	co_return VfsType::symlink;
 }
 
 async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
@@ -298,8 +298,8 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
-VfsType DirectoryNode::getType() {
-	return VfsType::directory;
+async::result<VfsType> DirectoryNode::getType() {
+	co_return VfsType::directory;
 }
 
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {

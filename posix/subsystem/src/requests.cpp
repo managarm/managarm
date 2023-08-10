@@ -7,6 +7,7 @@
 #include <sys/timerfd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
 
 #include <helix/timer.hpp>
 
@@ -17,6 +18,7 @@
 #include "fifo.hpp"
 #include "inotify.hpp"
 #include "memfd.hpp"
+#include "fuse.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
 #include "signalfd.hpp"
@@ -540,8 +542,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await target.first->mount(target.second, tmp_fs::createRoot());
 			}else if(req->fs_type() == "devpts") {
 				co_await target.first->mount(target.second, pts::getFsRoot());
-			}else{
-				assert(req->fs_type() == "ext2");
+			}else if(req->fs_type() == "ext2") {
 				auto sourceResult = co_await resolve(self->fsContext()->getRoot(),
 						self->fsContext()->getWorkingDirectory(), req->path(), self.get());
 				if(!sourceResult) {
@@ -558,14 +559,127 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 				auto source = sourceResult.value();
 				assert(source.second);
-				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
+				assert(co_await source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 				auto link = co_await device->mount();
 				co_await target.first->mount(target.second, std::move(link));
+			}else{
+				std::string type;
+				for(auto c : req->fs_type()){
+					type.push_back(c);
+					if(c == '.')
+						break;
+				}
+
+				if(type != "fuse." && type != "fuseblk."){
+					co_await sendErrorResponse(managarm::posix::Errors::UNKNOWN_FILESYSTEM);
+					continue;
+				}
+
+				std::cout << "posix: " << req->fs_type() << std::endl;
+				std::cout << "posix: " << req->arguments() << std::endl;
+				std::cout << "posix: " << self->name() << std::endl;
+
+				auto o_root = fuse::getFsRoot(self, req->arguments());
+				if(!o_root.has_value()){
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+
+				co_await target.first->mount(target.second, *o_root);
 			}
 
 			if(logRequests)
 				std::cout << "posix:     MOUNT succeeds" << std::endl;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+
+			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::Umount2Request::message_id) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::Umount2Request>(recv_head, tail);
+
+			if(!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: UMOUNT2 with target '" << req->target() << "'" << std::endl;
+
+			if(req->flags() & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW)) {
+				std::cout << "posix: UMOUNT2 encountered unknown flags" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			} else if((req->flags() & MNT_EXPIRE) && ((req->flags() & MNT_FORCE) || (req->flags() & MNT_DETACH))) {
+				std::cout << "posix: UMOUNT2 MNT_EXPIRE is incompatible with MNT_FORCE and MNT_DETACH" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			bool force = false;
+			bool detach = false;
+			bool expire = false;
+			bool nofollow = false;
+
+			if(req->flags() & MNT_FORCE) {
+				std::cout << "posix: UMOUNT2 does not implement MNT_FORCE flag" << std::endl;
+				force = true;
+			}
+			if(req->flags() & MNT_DETACH) {
+				std::cout << "posix: UMOUNT2 does not implement MNT_DETACH flag" << std::endl;
+				detach = true;
+			}
+			if(req->flags() & MNT_EXPIRE) {
+				std::cout << "posix: UMOUNT2 does not implement MNT_EXPIRE flag" << std::endl;
+				expire = true;
+			}
+			if(req->flags() & UMOUNT_NOFOLLOW) {
+				std::cout << "posix: UMOUNT2 does not implement UMOUNT_NOFOLLOW flag" << std::endl;
+				nofollow = true;
+			}
+
+			auto resolveResult = co_await resolve(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req->target(), self.get());
+			if(!resolveResult) {
+				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else {
+					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+					co_return;
+				}
+			}
+			auto target = resolveResult.value();
+			auto view = target.first; //the view containing this mount
+			auto link = target.second; //the link where this fs is mounted
+			
+			if(view->getOrigin() != link) {
+				std::cout << "posix: UMOUNT2 '" << req->target() << "' is not a mountpoint" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::NOT_A_MOUNTPOINT);
+				continue;
+			}
+
+			co_await view->unmount(view);
+			co_await resolve(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(), req->target(), self.get());
+
+			if(logRequests)
+				std::cout << "posix:     UMOUNT2 succeeds" << std::endl;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -1233,7 +1347,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			DeviceId devnum;
-			switch(target_link->getTarget()->getType()) {
+			switch(co_await target_link->getTarget()->getType()) {
 			case VfsType::regular:
 				resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
 				break;
@@ -1260,7 +1374,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_file_type(managarm::posix::FileType::FT_FIFO);
 				break;
 			default:
-				assert(target_link->getTarget()->getType() == VfsType::null);
+				assert(co_await target_link->getTarget()->getType() == VfsType::null);
 			}
 
 			if(stats.mode & ~0xFFFu)
@@ -1592,23 +1706,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						assert(file);
 					}
 				}else{
-					assert(directory->superblock());
-					auto node = co_await directory->superblock()->createRegular();
-					if (!node) {
+					auto fileResult = co_await directory->mkRegularAndOpen(resolver.currentView(),
+						resolver.nextComponent(), semantic_flags);
+					if(fileResult) {
+						file = fileResult.value();
+					}
+					else if(fileResult.error() == Error::noSuchFile) {
+						if(logRequests)
+							std::cout << "posix:     OPEN failed: couldn't create file" << std::endl;
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					}
-					// Due to races, link() can fail here.
-					// TODO: Implement a version of link() that eithers links the new node
-					// or returns the current node without failing.
-					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
-					assert(linkResult);
-					auto link = linkResult.value();
-					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
-										semantic_flags);
 					assert(fileResult);
-					file = fileResult.value();
-					assert(file);
 				}
 			}else{
 				auto resolveResult = co_await resolver.resolve();

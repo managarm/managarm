@@ -48,6 +48,17 @@ async::result<void> MountView::mount(std::shared_ptr<FsLink> anchor, std::shared
 	// TODO: check insert return value
 }
 
+async::result<void> MountView::unmount(std::shared_ptr<MountView> view) {
+	_anchor->deobstruct();
+
+	if(_parent) {
+		size_t erased = _parent->_mounts.erase(shared_from_this());
+		assert(erased);
+	}
+
+	co_return;
+}
+
 std::shared_ptr<MountView> MountView::getMount(std::shared_ptr<FsLink> link) const {
 	auto it = _mounts.find(link);
 	if(it == _mounts.end())
@@ -309,7 +320,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				}
 
 				// Finally, we might need to follow symlinks.
-				if(next.second->getTarget()->getType() == VfsType::symlink
+				if(co_await next.second->getTarget()->getType() == VfsType::symlink
 						&& !(_components.empty() && (flags & resolveDontFollow))) {
 					auto result = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
 					auto link = Path::decompose(std::get<std::string>(result));
@@ -364,7 +375,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				}
 
 				// Finally, we might need to follow symlinks.
-				if(next.second->getTarget()->getType() == VfsType::symlink
+				if(co_await next.second->getTarget()->getType() == VfsType::symlink
 						&& !(_components.empty() && (flags & resolveDontFollow))) {
 					auto result = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
 					auto link = Path::decompose(std::get<std::string>(result));
@@ -400,7 +411,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 
 		// If the syntax of the path implies that the path refers to a directory
 		// (with a trailing slash), we fail if the node is not actually a directory.
-		if(_trailingSlash && _currentPath.second->getTarget()->getType() != VfsType::directory)
+		if(_trailingSlash && co_await _currentPath.second->getTarget()->getType() != VfsType::directory)
 			co_return protocols::fs::Error::notDirectory;
 	}
 

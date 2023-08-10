@@ -18,6 +18,7 @@ src = [
 	'src/fifo.cpp',
 	'src/file.cpp',
 	'src/fs.cpp',
+	'src/fuse.cpp',
 	'src/gdbserver.cpp',
 	'src/inotify.cpp',
 	'src/main.cpp',

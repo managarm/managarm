@@ -11,6 +11,7 @@
 #include "devices/random.hpp"
 #include "devices/urandom.hpp"
 #include "devices/zero.hpp"
+#include "fuse.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
 #include "subsystem/block.hpp"
@@ -158,6 +159,7 @@ int main() {
 	charRegistry.install(pts::createMasterDevice());
 	charRegistry.install(createNullDevice());
 	charRegistry.install(createFullDevice());
+	charRegistry.install(fuse::createFuseDevice());
 	charRegistry.install(createRandomDevice());
 	charRegistry.install(createUrandomDevice());
 	charRegistry.install(createZeroDevice());

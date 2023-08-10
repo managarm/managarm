@@ -18,6 +18,10 @@ struct StructName {
 		return os;
 	}
 
+	std::string type() {
+		return _type;
+	}
+
 private:
 	explicit StructName(const char *type, uint64_t id)
 	: _type{type}, _id{id} { }
