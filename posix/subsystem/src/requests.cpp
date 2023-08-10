@@ -2123,29 +2123,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						assert(file);
 					}
 				}else{
-					assert(directory->superblock());
-					auto node = co_await directory->superblock()->createRegular(self.get());
-					if (!node) {
+					auto fileResult = co_await directory->mkRegularAndOpen(resolver.currentView(),
+							resolver.nextComponent(), semantic_flags, self.get());
+					if(fileResult) {
+						file = fileResult.value();
+					}
+					else if(fileResult.error() == Error::noSuchFile) {
+						if(logRequests)
+							std::cout << "posix:     OPEN failed: couldn't create file" << std::endl;
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					}
-					auto chmodResult = co_await node->chmod(req->mode());
-					if (chmodResult != Error::success) {
-						std::cout << "posix: chmod failed when creating file for OpenAtRequest!" << std::endl;
-						co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
-						continue;
-					}
-					// Due to races, link() can fail here.
-					// TODO: Implement a version of link() that eithers links the new node
-					// or returns the current node without failing.
-					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
-					assert(linkResult);
-					auto link = linkResult.value();
-					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
-										semantic_flags);
 					assert(fileResult);
-					file = fileResult.value();
-					assert(file);
 				}
 			}else{
 				ResolveFlags resolveFlags = 0;

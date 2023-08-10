@@ -179,6 +179,11 @@ public:
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags);
 
+	//! Creates and opens a regular file (directories only).
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	mkRegularAndOpen(std::shared_ptr<MountView> mount, std::string name,
+			SemanticFlags semantic_flags, Process *process);
+
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.
 	virtual expected<std::string> readSymlink(FsLink *link, Process *process);
