@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <linux/netlink.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -64,19 +65,24 @@ public:
 	}
 
 public:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override {
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
 
 		if(_recvQueue.empty() && nonBlock_) {
 			if(logSockets)
 				std::cout << "posix: netlink socket would block" << std::endl;
-			co_return Error::wouldBlock;
+			co_return std::make_pair(protocols::fs::Error::wouldBlock, 0);
 		}
 
-		while(_recvQueue.empty())
-			co_await _statusBell.async_wait();
+		while(_recvQueue.empty()) {
+			co_await _statusBell.async_wait(ce);
+			if (logSockets)
+				std::cout << "posix: netlink socket read interrupted" << std::endl;
+			if (ce.is_cancellation_requested())
+				co_return std::make_pair(protocols::fs::Error::interrupted, 0);
+		}
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
@@ -84,7 +90,7 @@ public:
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
 		_recvQueue.pop_front();
-		co_return size;
+		co_return std::make_pair(protocols::fs::Error::none, size);
 	}
 
 	async::result<frg::expected<Error, size_t>>

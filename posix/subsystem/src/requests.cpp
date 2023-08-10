@@ -10,6 +10,7 @@
 
 #include <helix/timer.hpp>
 
+#include "helix/ipc-structs.hpp"
 #include "net.hpp"
 #include "nl-socket.hpp"
 #include "epoll.hpp"
@@ -286,6 +287,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
+			auto [cancel_event] = co_await exchangeMsgs(conversation,
+					helix_ng::pullDescriptor());
+			HEL_CHECK(cancel_event.error());
+
 			if(logRequests)
 				std::cout << "posix: WAIT" << std::endl;
 
@@ -301,24 +306,38 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(req.flags() & WCONTINUED)
 				std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
 
+			async::cancellation_event ce;
+			async::cancellation_token ct{ce};
+			([] (helix::UniqueDescriptor event,
+			     async::cancellation_event &ce) -> async::detached {
+				co_await helix_ng::awaitEvent(event, 1);
+				ce.cancel();
+			})(cancel_event.descriptor(), ce);
+
+
 			TerminationState state;
-			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state);
+			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state,
+					ct);
 
 			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(pid);
+			if (ct.is_cancellation_requested()) {
+				resp.set_error(managarm::posix::Errors::INTERRUPTED);
+			} else {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(pid);
 
-			uint32_t mode = 0;
-			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
-				mode |= W_EXITCODE(byExit->code, 0);
-			}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
-				mode |= W_EXITCODE(0, bySignal->signo);
-			}else{
-				assert(std::holds_alternative<std::monostate>(state));
+				uint32_t mode = 0;
+				if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
+					mode |= W_EXITCODE(byExit->code, 0);
+				}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
+					mode |= W_EXITCODE(0, bySignal->signo);
+				}else{
+					assert(std::holds_alternative<std::monostate>(state));
+				}
+				resp.set_mode(mode);
 			}
-			resp.set_mode(mode);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

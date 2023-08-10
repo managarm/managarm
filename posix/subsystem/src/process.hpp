@@ -270,9 +270,7 @@ public:
 
 	CheckSignalResult checkSignal();
 
-	// TODO: If we ever need to cancel this operation, it would be better to
-	//       take a cancellation token instead of nonBlock.
-	async::result<SignalItem *> fetchSignal(uint64_t mask, bool nonBlock);
+	async::result<SignalItem *> fetchSignal(uint64_t mask, async::cancellation_token ce);
 
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.
@@ -535,7 +533,8 @@ public:
 
 	async::result<void> terminate(TerminationState state);
 
-	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state);
+	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state,
+			async::cancellation_token ct);
 
 	ResourceUsage accumulatedUsage() {
 		return _childrenUsage;

@@ -137,13 +137,16 @@ void drm_core::File::postEvent(drm_core::Event event) {
 
 async::result<protocols::fs::ReadResult>
 drm_core::File::read(void *object, const char *,
-		void *buffer, size_t length) {
+		void *buffer, size_t length, async::cancellation_token ce) {
 	auto self = static_cast<drm_core::File *>(object);
 
 	if(!self->_isBlocking && self->_pendingEvents.empty())
-		co_return protocols::fs::Error::wouldBlock;
-	while(self->_pendingEvents.empty())
-		co_await self->_eventBell.async_wait();
+		co_return std::make_pair(protocols::fs::Error::wouldBlock, 0);
+	while(self->_pendingEvents.empty()) {
+		co_await self->_eventBell.async_wait(ce);
+		if (ce.is_cancellation_requested())
+			co_return std::make_pair(protocols::fs::Error::interrupted, 0);
+	}
 
 	auto ev = &self->_pendingEvents.front();
 
@@ -164,7 +167,7 @@ drm_core::File::read(void *object, const char *,
 	if(self->_pendingEvents.empty())
 		self->_statusPage.update(self->_eventSequence, 0);
 
-	co_return sizeof(drm_event_vblank);
+	co_return std::make_pair(protocols::fs::Error::none, sizeof(drm_event_vblank));
 }
 
 async::result<helix::BorrowedDescriptor>

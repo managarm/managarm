@@ -61,13 +61,13 @@ void Thread::migrateCurrent() {
 	}, &this_thread->_executor);
 }
 
-void Thread::blockCurrent() {
+bool Thread::blockCurrent(bool interruptible) {
 	auto thisThread = getCurrentThread();
 
 	// Optimistically clear the unblock latch before entering the mutex.
 	// We need acquire semantics to synchronize with unblockOther().
 	if(thisThread->_unblockLatch.exchange(false, std::memory_order_acquire))
-		return;
+		return true;
 
 	StatelessIrqLock irqLock;
 	auto lock = frg::guard(&thisThread->_mutex);
@@ -75,14 +75,14 @@ void Thread::blockCurrent() {
 	// We do not need any memory barrier here: no matter how our aquisition of _mutex
 	// is ordered to the aquisition in unblockOther(), we are still correct.
 	if(thisThread->_unblockLatch.load(std::memory_order_relaxed))
-		return;
+		return true;
 
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)thisThread.get()
 				<< " is blocked" << frg::endlog;
 
 	assert(thisThread->_runState == kRunActive);
-	thisThread->_runState = kRunBlocked;
+	thisThread->_runState = interruptible ? kRunInterruptableBlocked : kRunBlocked;
 	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
 	getCpuData()->scheduler.forceReschedule();
@@ -95,6 +95,11 @@ void Thread::blockCurrent() {
 			localScheduler()->commitReschedule();
 		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
 	}, &thisThread->_executor);
+
+	// Check if we've been interrupted
+	if (interruptible && thisThread->_pendingSignal == kSigInterrupt)
+		return false;
+	return true;
 }
 
 void Thread::deferCurrent() {
@@ -125,7 +130,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
-	
+
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is deferred" << frg::endlog;
@@ -148,7 +153,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
-	
+
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is suspended" << frg::endlog;
@@ -209,7 +214,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
-	
+
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is (synchronously) interrupted" << frg::endlog;
@@ -252,7 +257,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		infoLogger() << "thor: raiseSignals() in " << (void *)this_thread.get()
 				<< frg::endlog;
 	assert(this_thread->_runState == kRunActive);
-	
+
 	if(this_thread->_pendingKill) {
 		if(logRunStates)
 			infoLogger() << "thor: " << (void *)this_thread.get()
@@ -284,7 +289,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			localScheduler()->commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
 	}
-	
+
 	if(this_thread->_pendingSignal == kSigInterrupt) {
 		if(logRunStates)
 			infoLogger() << "thor: " << (void *)this_thread.get()
@@ -331,9 +336,9 @@ void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&thread->_mutex);
 
-	if(thread->_runState != kRunBlocked)
+	if(thread->_runState != kRunBlocked && thread->_runState != kRunInterruptableBlocked)
 		return;
-	
+
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)thread.get()
 				<< " is deferred (via unblock)" << frg::endlog;
@@ -353,7 +358,15 @@ void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
 	// TODO: Perform the interrupt immediately if possible.
 
 //	assert(thread->_pendingSignal == kSigNone);
+
 	thread->_pendingSignal = kSigInterrupt;
+	lock.unlock();
+
+	// If the thread is blocked and can be interrupted,
+	// then unblock it to notify.
+	if (thread->_runState == kRunInterruptableBlocked)
+		unblockOther(thread);
+
 }
 
 Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
@@ -364,7 +377,7 @@ Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
 		return Error::threadExited;
 	if(thread->_runState != kRunInterrupted)
 		return Error::illegalState;
-	
+
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)thread.get()
 				<< " is suspended (via resume)" << frg::endlog;
@@ -446,7 +459,7 @@ smarter::borrowed_ptr<AddressSpace, BindableHandle> Thread::getAddressSpace() {
 void Thread::invoke() {
 	assert(!intsAreEnabled());
 	auto lock = frg::guard(&_mutex);
-	
+
 	if(logRunStates)
 		infoLogger() << "thor: "
 				<< " " << _credentials[0] << " " << _credentials[1]

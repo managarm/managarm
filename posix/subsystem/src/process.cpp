@@ -542,7 +542,7 @@ CheckSignalResult SignalContext::checkSignal() {
 	return CheckSignalResult(_currentSeq, _activeSet);
 }
 
-async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBlock) {
+async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, async::cancellation_token ce) {
 	int sn;
 	while(true) {
 		for(sn = 1; sn <= 64; sn++) {
@@ -553,9 +553,9 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 		}
 		if(sn - 1 != 64)
 			break;
-		if(nonBlock)
+		co_await _signalBell.async_wait(ce);
+		if (ce.is_cancellation_requested())
 			co_return nullptr;
-		co_await _signalBell.async_wait();
 	}
 
 	assert(!_slots[sn - 1].asyncQueue.empty());
@@ -1157,7 +1157,8 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state) {
+async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state,
+		async::cancellation_token ct) {
 	assert(pid == -1 || pid > 0);
 
 	int result = 0;
@@ -1177,7 +1178,9 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 			*state = resultState;
 			co_return result;
 		}
-		co_await _notifyBell.async_wait();
+		co_await _notifyBell.async_wait(ct);
+		if (ct.is_cancellation_requested())
+			co_return result;
 	}
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/cancellation.hpp>
 #include <queue>
 #include <vector>
 
@@ -44,7 +45,8 @@ struct File {
 	// ------------------------------------------------------------------------
 
 	static async::result<protocols::fs::ReadResult>
-	read(void *object, const char *, void *buffer, size_t length);
+	read(void *object, const char *, void *buffer, size_t length,
+			async::cancellation_token ct);
 
 	static async::result<void>
 	write(void *object, const char *, const void *buffer, size_t length);

@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <cstddef>
 #include <cstring>
 #include <sys/epoll.h>
@@ -105,8 +106,8 @@ public:
 	}
 
 public:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override {
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -114,11 +115,17 @@ public:
 		if(_recvQueue.empty() && nonBlock_) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
-			co_return Error::wouldBlock;
+			co_return {protocols::fs::Error::wouldBlock, 0};
 		}
 
-		while(_recvQueue.empty())
-			co_await _statusBell.async_wait();
+		while(_recvQueue.empty()) {
+			co_await _statusBell.async_wait(ce);
+			if (ce.is_cancellation_requested()) {
+				if (logSockets)
+					std::cout << "posix:: UNIX socket read interrupted" << std::endl;
+				co_return {protocols::fs::Error::interrupted, 0};
+			}
+		}
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
@@ -128,7 +135,7 @@ public:
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
 		_recvQueue.pop_front();
-		co_return size;
+		co_return {protocols::fs::Error::none, size};
 	}
 
 	async::result<frg::expected<Error, size_t>>
