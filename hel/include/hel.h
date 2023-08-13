@@ -276,7 +276,8 @@ enum HelRegisterSets {
 	kHelRegsThread = 3,
 	kHelRegsDebug = 4,
 	kHelRegsVirtualization = 5,
-	kHelRegsSimd = 6
+	kHelRegsSimd = 6,
+	kHelRegsSignal = 7
 };
 
 //! Register-related information returned by helQueryRegisterInfo
