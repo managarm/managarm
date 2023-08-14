@@ -1082,7 +1082,71 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				prg++;
 			}
 		}else if(block_offset + prg < d_range) {
-			assert(!"TODO: Implement allocation in double indirect blocks");
+			bool doubleNeedsReset = false;
+			if(!disk_inode->data.blocks.doubleIndirect) {
+				auto block = co_await allocateBlock();
+				assert(block && "Out of disk space"); // TODO: Fix this.
+				disk_inode->blocks += (blockSize / 512);
+				disk_inode->data.blocks.doubleIndirect = block;
+				doubleNeedsReset = true;
+			}
+
+			helix::LockMemoryView lock_double_indirect;
+			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
+					&lock_double_indirect, 1 << blockPagesShift, 1 << blockPagesShift,
+					helix::Dispatcher::global());
+			co_await submit.async_wait();
+			HEL_CHECK(lock_double_indirect.error());
+
+			helix::Mapping double_indirect_map{inode->indirectOrder1,
+					1 << blockPagesShift, size_t{1} << blockPagesShift,
+					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+			auto double_window = reinterpret_cast<uint32_t *>(double_indirect_map.get());
+
+			if(doubleNeedsReset)
+				memset(double_window, 0, size_t{1} << blockPagesShift);
+
+			while(prg < num_blocks
+					&& block_offset + prg < d_range) {
+				int64_t indirect_frame = (block_offset + prg - s_range) >> (blockShift - 2);
+				int64_t indirect_index = (block_offset + prg - s_range) & ((1 << (blockShift - 2)) - 1);
+
+				bool needsReset = false;
+				if(!double_window[indirect_frame]) {
+					// Allocate the single indirect block.
+					auto block = co_await allocateBlock();
+					assert(block && "Out of disk space"); // TODO: Fix this.
+					disk_inode->blocks += (blockSize / 512);
+					double_window[indirect_frame] = block;
+					needsReset = true;
+				}
+
+				helix::LockMemoryView lock_indirect;
+				auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2,
+						&lock_indirect, indirect_frame << blockPagesShift, 1 << blockPagesShift,
+						helix::Dispatcher::global());
+				co_await submit.async_wait();
+				HEL_CHECK(lock_indirect.error());
+
+				helix::Mapping indirect_map{inode->indirectOrder2,
+						indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
+						kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+				auto window = reinterpret_cast<uint32_t *>(indirect_map.get());
+
+				if(needsReset)
+					memset(window, 0, size_t{1} << blockPagesShift);
+
+				if(window[indirect_index]) {
+					prg++;
+					continue;
+				}
+
+				auto block = co_await allocateBlock();
+				assert(block && "Out of disk space"); // TODO: Fix this.
+				disk_inode->blocks += (blockSize / 512);
+				window[indirect_index] = block;
+				prg++;
+			}
 		}else{
 			assert(!"TODO: Implement allocation in triple indirect blocks");
 		}
