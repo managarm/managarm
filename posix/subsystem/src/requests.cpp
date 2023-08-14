@@ -370,6 +370,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			if(req->rel_offset() & 0xFFF) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
 			uint32_t nativeFlags = 0;
 
 			if(req->mode() & PROT_READ)
