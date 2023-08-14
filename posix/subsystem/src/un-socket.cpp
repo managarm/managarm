@@ -54,7 +54,6 @@ struct OpenFile : File {
 		path,
 		abstract
 	};
-
 public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
 		assert(a->_currentState == State::null);
@@ -77,7 +76,9 @@ public:
 	}
 
 	OpenFile(Process *process = nullptr, bool nonBlock = false)
-	: File{StructName::get("un-socket"), File::defaultPipeLikeSeek}, _currentState{State::null},
+	: File{StructName::get("un-socket"), nullptr,
+		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
+			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
 			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
 			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false} {
