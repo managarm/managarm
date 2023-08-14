@@ -23,7 +23,8 @@ enum class Error {
 	hardwareBroken,
 	// Internal error: the remote has violated the IPC protocol.
 	protocolViolation,
-	spuriousOperation
+	spuriousOperation,
+	alreadyExists
 };
 
 } // namespace thor

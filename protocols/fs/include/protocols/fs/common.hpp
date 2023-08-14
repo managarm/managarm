@@ -102,7 +102,7 @@ struct CtrlBuilder {
 		h.cmsg_level = layer;
 		h.cmsg_type = type;
 
-		memcpy(_buffer.data(), &h, sizeof(struct cmsghdr));
+		memcpy(_buffer.data() + _offset, &h, sizeof(struct cmsghdr));
 		_offset += CMSG_ALIGN(sizeof(struct cmsghdr));
 
 		return true;

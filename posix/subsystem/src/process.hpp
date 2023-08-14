@@ -8,6 +8,7 @@
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
+#include <frg/expected.hpp>
 
 #include "vfs.hpp"
 #include "procfs.hpp"
@@ -33,7 +34,7 @@ struct VmContext {
 	}
 
 	// TODO: Pass abstract instead of hel flags to this function?
-	async::result<void *> mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
+	async::result<frg::expected<Error, void *>> mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 			smarter::shared_ptr<File, FileHandle> file,
 			intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags);
 

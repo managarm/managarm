@@ -379,6 +379,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(req->mode() & PROT_EXEC)
 				nativeFlags |= kHelMapProtExecute;
 
+			if(req->flags() & MAP_FIXED_NOREPLACE)
+				nativeFlags |= kHelMapFixedNoReplace;
+			else if(req->flags() & MAP_FIXED)
+				nativeFlags |= kHelMapFixed;
+
 			bool copyOnWrite;
 			if((req->flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_PRIVATE) {
 				copyOnWrite = true;
@@ -388,23 +393,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				throw std::runtime_error("posix: Handle illegal flags in VM_MAP");
 			}
 
-			uintptr_t hint = 0;
-			if(req->flags() & MAP_FIXED)
-				hint = req->address_hint();
+			uintptr_t hint = req->address_hint();
 
-			void *address;
+			frg::expected<Error, void *> result;
 			if(req->flags() & MAP_ANONYMOUS) {
 				assert(!req->rel_offset());
 
 				if(copyOnWrite) {
-					address = co_await self->vmContext()->mapFile(hint,
+					result = co_await self->vmContext()->mapFile(hint,
 							{}, nullptr,
 							0, req->size(), true, nativeFlags);
 				}else{
 					HelHandle handle;
 					HEL_CHECK(helAllocateMemory(req->size(), 0, nullptr, &handle));
 
-					address = co_await self->vmContext()->mapFile(hint,
+					result = co_await self->vmContext()->mapFile(hint,
 							helix::UniqueDescriptor{handle}, nullptr,
 							0, req->size(), false, nativeFlags);
 				}
@@ -413,10 +416,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(file && "Illegal FD for VM_MAP");
 				auto memory = co_await file->accessMemory();
 				assert(memory);
-				address = co_await self->vmContext()->mapFile(hint,
+				result = co_await self->vmContext()->mapFile(hint,
 						std::move(memory), std::move(file),
 						req->rel_offset(), req->size(), copyOnWrite, nativeFlags);
 			}
+
+			if(!result) {
+				assert(result.error() == Error::alreadyExists || result.error() == Error::noMemory);
+				if(result.error() == Error::alreadyExists)
+					co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+				else if(result.error() == Error::noMemory)
+					co_await sendErrorResponse(managarm::posix::Errors::NO_MEMORY);
+				continue;
+			}
+
+			void *address = result.unwrap();
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

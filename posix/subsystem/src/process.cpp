@@ -45,9 +45,12 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 			copyView = helix::UniqueDescriptor{copyHandle};
 
 			void *pointer;
-			HEL_CHECK(helMapMemory(copyView.getHandle(), context->_space.getHandle(),
+			HelError error = helMapMemory(copyView.getHandle(), context->_space.getHandle(),
 					reinterpret_cast<void *>(address),
-					0, area.areaSize, area.nativeFlags, &pointer));
+					0, area.areaSize, area.nativeFlags, &pointer);
+			if(error != kHelErrNone && error != kHelErrAlreadyExists) {
+				HEL_CHECK(error);
+			}
 		}else{
 			void *pointer;
 			HEL_CHECK(helMapMemory(area.fileView.getHandle(), context->_space.getHandle(),
@@ -114,7 +117,7 @@ auto VmContext::splitAreaOn_(uintptr_t addr, size_t size) ->
 	};
 }
 
-async::result<void *>
+async::result<frg::expected<Error, void *>>
 VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		smarter::shared_ptr<File, FileHandle> file,
 		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
@@ -124,6 +127,7 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
 	helix::UniqueDescriptor copyView;
 	void *pointer;
+	HelError error;
 	if(copyOnWrite) {
 		HelHandle handle;
 		if(memory) {
@@ -133,14 +137,21 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 		}
 		copyView = helix::UniqueDescriptor{handle};
 
-		HEL_CHECK(helMapMemory(copyView.getHandle(), _space.getHandle(),
+		error = helMapMemory(copyView.getHandle(), _space.getHandle(),
 				reinterpret_cast<void *>(hint),
-				0, alignedSize, nativeFlags, &pointer));
+				0, alignedSize, nativeFlags, &pointer);
 	}else{
-		HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
+		error = helMapMemory(memory.getHandle(), _space.getHandle(),
 				reinterpret_cast<void *>(hint),
-				offset, alignedSize, nativeFlags, &pointer));
+				offset, alignedSize, nativeFlags, &pointer);
 	}
+
+	if(error == kHelErrAlreadyExists) {
+		co_return Error::alreadyExists;
+	}else if(error == kHelErrNoMemory)
+		co_return Error::noMemory;
+	HEL_CHECK(error);
+
 	//std::cout << "posix: VM_MAP returns " << pointer
 	//		<< " (size: " << (void *)size << ")" << std::endl;
 

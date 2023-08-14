@@ -62,7 +62,9 @@ enum class Error {
 	noSpaceLeft,
 
 	// Corresponds with EISDIR
-	isDirectory
+	isDirectory,
+
+	noMemory
 };
 
 std::ostream& operator<<(std::ostream& os, const Error& err);

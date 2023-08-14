@@ -76,6 +76,9 @@ enum {
 	kHelCallCreateVirtualizedCpu = 37,
 	kHelCallRunVirtualizedCpu = 38,
 	kHelCallGetRandomBytes = 101,
+	kHelCallWriteGsBase = 54,
+	kHelCallReadFsBase = 55,
+	kHelCallReadGsBase = 56,
 
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 79,
@@ -124,6 +127,7 @@ enum {
 	kHelErrRemoteFault = 21,
 	kHelErrNoHardwareSupport = 16,
 	kHelErrNoMemory = 17,
+	kHelErrAlreadyExists = 22
 };
 
 struct HelX86SegmentRegister {
@@ -245,7 +249,8 @@ enum HelMapFlags {
 	kHelMapProtWrite = 512,
 	kHelMapProtExecute = 1024,
 	kHelMapDontRequireBacking = 128,
-	kHelMapFixed = 2048
+	kHelMapFixed = 2048,
+	kHelMapFixedNoReplace = 4096
 };
 
 enum HelThreadFlags {
@@ -916,6 +921,12 @@ HEL_C_LINKAGE HelError helQueryRegisterInfo(int set, struct HelRegisterInfo *inf
 
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 
+HEL_C_LINKAGE HelError helReadFsBase(void **pointer);
+
+HEL_C_LINKAGE HelError helWriteGsBase(void *pointer);
+
+HEL_C_LINKAGE HelError helReadGsBase(void **pointer);
+
 //! Read the system-wide monotone clock.
 //!
 //! @param[out] counter
@@ -1096,7 +1107,9 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 	case kHelErrCancelled:
 		return "Cancelled";
 	case kHelErrOutOfBounds:
-		return "Cancelled";
+		return "Out of bounds";
+	case kHelErrAlreadyExists:
+		return "Already exists";
 	default:
 		return 0;
 	}

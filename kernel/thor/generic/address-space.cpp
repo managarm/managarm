@@ -423,12 +423,24 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		auto irqLock = frg::guard(&irqMutex());
 		auto spaceLock = frg::guard(&_snapshotMutex);
 
+		assert((address % kPageSize) == 0);
 		if(flags & kMapFixed) {
-			assert((address % kPageSize) == 0);
-
-			actualAddress = _allocateAt(address, length);
+			actualAddress = FRG_CO_TRY(_allocateAt(address, length));
+		}else if(flags & kMapFixedNoReplace) {
+			if(_areMappingsInRange(address, length)) {
+				co_return Error::alreadyExists;
+			}
+			actualAddress = FRG_CO_TRY(_allocateAt(address, length));
 		}else{
-			actualAddress = _allocate(length, flags);
+			if(address && !_areMappingsInRange(address, length)) {
+				if(auto res = _allocateAt(address, length)) {
+					actualAddress = res.unwrap();
+				}else {
+					actualAddress = FRG_CO_TRY(_allocate(length, flags));
+				}
+			}else {
+				actualAddress = FRG_CO_TRY(_allocate(length, flags));
+			}
 		}
 
 	//	infoLogger() << "Creating new mapping at " << (void *)actualAddress
@@ -728,14 +740,35 @@ smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
 	return nullptr;
 }
 
-VirtualAddr VirtualSpace::_allocate(size_t length, MapFlags flags) {
+bool VirtualSpace::_areMappingsInRange(VirtualAddr address, size_t length) {
+	auto end = address + length;
+
+	auto current = _mappings.get_root();
+	while(current) {
+		auto currentEnd = current->address + current->length;
+		if(address < currentEnd && current->address < end) {
+			return true;
+		}
+
+		if(address < current->address) {
+			current = MappingTree::get_left(current);
+		}else if(address > current->address) {
+			current = MappingTree::get_right(current);
+		}else {
+			return true;
+		}
+	}
+	return false;
+}
+
+frg::expected<Error, VirtualAddr> VirtualSpace::_allocate(size_t length, MapFlags flags) {
 	assert(length > 0);
 	assert((length % kPageSize) == 0);
 //	infoLogger() << "Allocate virtual memory area"
 //			<< ", size: 0x" << frg::hex_fmt(length) << frg::endlog;
 
 	if(_holes.get_root()->largestHole < length)
-		return 0; // TODO: Return something else here?
+		return Error::noMemory;
 
 	auto current = _holes.get_root();
 	while(true) {
@@ -782,14 +815,15 @@ VirtualAddr VirtualSpace::_allocate(size_t length, MapFlags flags) {
 	}
 }
 
-VirtualAddr VirtualSpace::_allocateAt(VirtualAddr address, size_t length) {
+frg::expected<Error, VirtualAddr> VirtualSpace::_allocateAt(VirtualAddr address, size_t length) {
 	assert(!(address % kPageSize));
 	assert(!(length % kPageSize));
 
 	auto current = _holes.get_root();
 	while(true) {
-		// TODO: Otherwise, this method fails.
-		assert(current);
+		if(!current) {
+			return Error::noMemory;
+		}
 
 		if(address < current->address()) {
 			current = HoleTree::get_left(current);
@@ -802,6 +836,9 @@ VirtualAddr VirtualSpace::_allocateAt(VirtualAddr address, size_t length) {
 		}
 	}
 
+	if(address - current->address() + length > current->length()) {
+		return Error::noMemory;
+	}
 	_splitHole(current, address - current->address(), length);
 	return address;
 }

@@ -477,6 +477,7 @@ public:
 		kMapProtExecute = 0x20,
 		kMapPopulate = 0x200,
 		kMapDontRequireBacking = 0x400,
+		kMapFixedNoReplace = 0x800
 	};
 
 	enum FaultFlags : uint32_t {
@@ -601,11 +602,13 @@ public:
 
 private:
 	// Allocates a new mapping of the given length somewhere in the address space.
-	VirtualAddr _allocate(size_t length, MapFlags flags);
+	frg::expected<Error, VirtualAddr> _allocate(size_t length, MapFlags flags);
 
-	VirtualAddr _allocateAt(VirtualAddr address, size_t length);
+	frg::expected<Error, VirtualAddr> _allocateAt(VirtualAddr address, size_t length);
 
 	smarter::shared_ptr<Mapping> _findMapping(VirtualAddr address);
+
+	bool _areMappingsInRange(VirtualAddr address, VirtualAddr length);
 
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
