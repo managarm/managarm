@@ -162,7 +162,7 @@ int main() {
 //		setenv("MLIBC_DEBUG_MALLOC", "1", 1);
 		setenv("HOME", "/root", 1);
 		setenv("XDG_RUNTIME_DIR", "/run", 1);
-		setenv("MESA_GLSL_CACHE_DISABLE", "1", 1);
+		setenv("MESA_SHADER_CACHE_DISABLE", "1", 1);
 //		setenv("MESA_DEBUG", "1", 1);
 		setenv("SHELL", "/bin/bash", 1);
 
