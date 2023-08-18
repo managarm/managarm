@@ -1033,6 +1033,9 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_hull->initializeProcess(process.get());
 	process->_didExecute = false;
 
+	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
+	process->_procfs_dir = procfs_root->createProcDirectory(std::to_string(process->_hull->getPid()), process.get());
+
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
 			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
