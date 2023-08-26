@@ -376,3 +376,18 @@ DEFINE_TEST(mmap_unmap_range_before_first, ([] {
 		assert(ensureNotWritable(mem));
 	});
 }))
+
+DEFINE_TEST(mprotect_check_whether_split_mappings_get_protected_correctly, ([] {
+	void *mem = mmap(NULL, 0x6000, PROT_READ | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	assert_errno("mmap", mem != MAP_FAILED);
+	int ret = mprotect(mem, 0x1000, PROT_READ | PROT_WRITE);
+	assert_errno("mprotect", ret != -1);
+	ret = mprotect(mem, 0x1000, PROT_READ | PROT_EXEC);
+	assert_errno("mprotect", ret != -1);
+	ret = mprotect(mem, 0x5000, PROT_READ | PROT_WRITE);
+	assert_errno("mprotect", ret != -1);
+
+	runChecks([&] {
+		assert(ensureWritable(mem));
+	});
+}))

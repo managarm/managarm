@@ -552,26 +552,24 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		auto mapping = it->selfPtr.lock();
 		it = MappingTree::successor(it);
 
-		if (address >= mapping->address && (address + length) <= (mapping->address + mapping->length)) {
-			mapping->protect(static_cast<MappingFlags>(mappingFlags));
+		mapping->protect(static_cast<MappingFlags>(mappingFlags));
 
-			assert(mapping->state == MappingState::active);
+		assert(mapping->state == MappingState::active);
 
-			uint32_t pageFlags = 0;
-			if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
-				pageFlags |= page_access::write;
-			if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
-				pageFlags |= page_access::execute;
-			if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead)
-				pageFlags |= page_access::read;
+		uint32_t pageFlags = 0;
+		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+			pageFlags |= page_access::write;
+		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+			pageFlags |= page_access::execute;
+		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead)
+			pageFlags |= page_access::read;
 
-			co_await mapping->evictionMutex.async_lock();
-			frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+		co_await mapping->evictionMutex.async_lock();
+		frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
-			auto remapOutcome = _ops->remapPresentPages(mapping->address, mapping->view.get(),
-					mapping->viewOffset, mapping->length, pageFlags);
-			assert(remapOutcome);
-		}
+		auto remapOutcome = _ops->remapPresentPages(mapping->address, mapping->view.get(),
+				mapping->viewOffset, mapping->length, pageFlags);
+		assert(remapOutcome);
 	}
 
 	co_await _ops->shootdown(address, length);
