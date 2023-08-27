@@ -968,9 +968,16 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			mapping->selfPtr.ctr()->decrement();
 
 			// If start pointed to the freshly-removed mapping,
-			// point it to the left side of the split instead
-			if (start == it)
-				start = leftMapping.get();
+			// determine the correct mapping to use as our new start.
+			// Generally, this will be the left mapping, however, if we split the mapping 3 ways
+			// so as to choose the center one, this will be the right mapping.
+			if (start == it) {
+				if(address < at) {
+					start = leftMapping.get();
+				} else {
+					start = rightMapping.get();
+				}
+			}
 
 			it = rightMapping.get();
 		} else {
