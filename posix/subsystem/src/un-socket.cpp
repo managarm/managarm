@@ -155,7 +155,9 @@ public:
 	async::result<protocols::fs::RecvResult>
 	recvMsg(Process *process, uint32_t flags, void *data, size_t max_length,
 			void *, size_t, size_t max_ctrl_length) override {
-		assert(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)));
+		if((flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL))) {
+			std::cout << "posix: Unimplemented flag in un-socket " << std::hex << flags << std::dec << " for pid: " << process->pid() << std::endl;
+		}
 
 		if(_currentState == State::remoteShutDown)
 			co_return protocols::fs::RecvData{{}, 0, 0, 0};
