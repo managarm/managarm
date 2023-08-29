@@ -391,3 +391,16 @@ DEFINE_TEST(mprotect_check_whether_split_mappings_get_protected_correctly, ([] {
 		assert(ensureWritable(mem));
 	});
 }))
+
+DEFINE_TEST(mprotect_check_whether_three_way_split_mappings_are_handled_correctly, ([] {
+	void *mem = mmap(NULL, pageSize * 3, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	assert_errno("mmap", mem != MAP_FAILED);
+	int ret = mprotect(offsetBy(mem, pageSize), pageSize, PROT_READ | PROT_WRITE);
+	assert_errno("mprotect", ret != -1);
+
+	runChecks([&] {
+		assert(ensureNotWritable(mem));
+		assert(ensureWritable(offsetBy(mem, pageSize)));
+		assert(ensureNotWritable(offsetBy(mem, pageSize * 2)));
+	});
+}))
