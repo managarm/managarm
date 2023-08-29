@@ -665,3 +665,7 @@ message DrmIoctlGemCloseReply 13 {
 head(128):
 	Errors error;
 }
+
+message InitializePosixLane 14 {
+head(128):
+}

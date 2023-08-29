@@ -29,6 +29,8 @@
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 
+std::optional<helix::UniqueDescriptor> posixLane;
+
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &nic::Link::getLinks() {
 	return baseDeviceMap;
 }
@@ -122,46 +124,65 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(send.error());
 		};
 
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
+		auto preamble = bragi::read_preamble(recv_req);
 
-		if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
-			auto [local_lane, remote_lane] = helix::createStream();
+		if(preamble.id() == managarm::fs::CntRequest::message_id) {
+			managarm::fs::CntRequest req;
+			req.ParseFromArray(recv_req.data(), recv_req.length());
+			recv_req.reset();
 
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
+			if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
+				auto [local_lane, remote_lane] = helix::createStream();
 
-			if(req.domain() == AF_INET) {
-				auto err = ip4().serveSocket(std::move(local_lane),
-						req.type(), req.protocol(), req.flags());
-				if(err != managarm::fs::Errors::SUCCESS) {
-					co_await sendError(err);
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				if(req.domain() == AF_INET) {
+					auto err = ip4().serveSocket(std::move(local_lane),
+							req.type(), req.protocol(), req.flags());
+					if(err != managarm::fs::Errors::SUCCESS) {
+						co_await sendError(err);
+						continue;
+					}
+				} else if(req.domain() == AF_NETLINK) {
+					auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags());
+					async::detach(servePassthrough(std::move(local_lane), nl_socket,
+							&nl::NetlinkSocket::ops));
+				} else {
+					std::cout << "mlibc: unexpected socket domain " << req.domain() << std::endl;
+					co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 					continue;
 				}
-			} else if(req.domain() == AF_NETLINK) {
-				auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags());
-				async::detach(servePassthrough(std::move(local_lane), nl_socket,
-						&nl::NetlinkSocket::ops));
-			} else {
-				std::cout << "mlibc: unexpected socket domain " << req.domain() << std::endl;
-				co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				continue;
-			}
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, push_socket] =
-				co_await helix_ng::exchangeMsgs(
+				auto ser = resp.SerializeAsString();
+				auto [send_resp, push_socket] =
+					co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBuffer(
+							ser.data(), ser.size()),
+						helix_ng::pushDescriptor(remote_lane)
+					);
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(push_socket.error());
+			} else {
+				std::cout << "netserver: received unknown request type: "
+					<< (int32_t)req.req_type() << std::endl;
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
 					conversation,
-					helix_ng::sendBuffer(
-						ser.data(), ser.size()),
-					helix_ng::pushDescriptor(remote_lane)
+					helix_ng::dismiss()
 				);
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_socket.error());
+				HEL_CHECK(dismiss.error());
+			}
+		} else if(preamble.id() == managarm::fs::InitializePosixLane::message_id) {
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::dismiss()
+			);
+
+			*posixLane = std::move(conversation);
 		} else {
-			std::cout << "netserver: received unknown request type: "
-				<< (int32_t)req.req_type() << std::endl;
+			std::cout << "netserver: received unknown message: "
+				<< preamble.id() << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::dismiss()

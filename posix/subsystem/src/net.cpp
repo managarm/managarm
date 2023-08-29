@@ -2,6 +2,7 @@
 
 #include <async/oneshot-event.hpp>
 #include <protocols/mbus/client.hpp>
+#include <protocols/fs/client.hpp>
 
 namespace net {
 namespace {
@@ -26,6 +27,19 @@ async::result<void> enumerateNetserver() {
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
 	co_await foundNetserver.wait();
+
+	managarm::fs::InitializePosixLane req;
+
+	auto req_data = req.SerializeAsString();
+
+	auto [offer, send_req] = co_await helix_ng::exchangeMsgs(
+		netserverLane,
+		helix_ng::offer(
+			helix_ng::sendBuffer(req_data.data(), req_data.size())
+		)
+	);
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
 }
 
 async::result<helix::BorrowedLane> getNetLane() {
