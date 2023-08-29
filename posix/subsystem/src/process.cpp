@@ -5,12 +5,15 @@
 #include "common.hpp"
 #include "clock.hpp"
 #include "exec.hpp"
+#include "gdbserver.hpp"
 #include "process.hpp"
 
 #include <protocols/posix/data.hpp>
 
+#include "debug-options.hpp"
+
 static bool logFileAttach = false;
-static bool logCleanup = false;
+static bool logCleanup_ = false;
 
 async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation);
 
@@ -73,7 +76,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 }
 
 VmContext::~VmContext() {
-	if(logCleanup)
+	if(logCleanup_)
 		std::cout << "\e[33mposix: VmContext is destructed\e[39m" << std::endl;
 }
 
@@ -367,7 +370,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 }
 
 FileContext::~FileContext() {
-	if(logCleanup)
+	if(logCleanup_)
 		std::cout << "\e[33mposix: FileContext is destructed\e[39m" << std::endl;
 }
 
@@ -648,6 +651,10 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			default:
 				std::cout << "posix: Thread killed as the result of signal "
 						<< item->signalNumber << std::endl;
+				if(debugFaults) {
+					launchGdbServer(process);
+					co_await async::suspend_indefinitely({});
+				}
 				killed = true;
 				co_await process->terminate(TerminationBySignal{item->signalNumber});
 				co_return;
@@ -760,7 +767,7 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 // ----------------------------------------------------------------------------
 
 Generation::~Generation() {
-	if(logCleanup)
+	if(logCleanup_)
 		std::cout << "\e[33mposix: Generation is destructed\e[39m" << std::endl;
 }
 
