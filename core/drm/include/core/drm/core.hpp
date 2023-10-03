@@ -98,8 +98,7 @@ struct File {
 	}
 
 private:
-	async::detached _retirePageFlip(std::unique_ptr<Configuration> config,
-			uint64_t cookie, uint32_t crtc_id);
+	void _retirePageFlip(uint64_t cookie, uint32_t crtc_id);
 
 	std::shared_ptr<Device> _device;
 

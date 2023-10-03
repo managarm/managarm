@@ -200,11 +200,7 @@ drm_core::File::pollStatus(void *object) {
 	co_return protocols::fs::PollStatusResult{self->_eventSequence, s};
 }
 
-async::detached
-drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
-			uint64_t cookie, uint32_t crtc_id) {
-	co_await config->waitForCompletion();
-
+void drm_core::File::_retirePageFlip(uint64_t cookie, uint32_t crtc_id) {
 	Event event;
 	event.cookie = cookie;
 	event.crtcId = crtc_id;

@@ -502,7 +502,8 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			assert(valid);
 			config->commit(state);
 
-			self->_retirePageFlip(std::move(config), req->drm_cookie(), crtc->id());
+			co_await config->waitForCompletion();
+			self->_retirePageFlip(req->drm_cookie(), crtc->id());
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -958,8 +959,11 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			if(req->drm_flags() & DRM_MODE_PAGE_FLIP_EVENT) {
-				assert(crtc_ids.size() == 1);
-				self->_retirePageFlip(std::move(config), req->drm_cookie(), crtc_ids.front());
+				co_await config->waitForCompletion();
+
+				for(auto id : crtc_ids) {
+					self->_retirePageFlip(req->drm_cookie(), id);
+				}
 			}
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
