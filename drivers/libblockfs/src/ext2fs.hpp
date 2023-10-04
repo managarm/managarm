@@ -312,6 +312,7 @@ struct OpenFile {
 	std::shared_ptr<Inode> inode;
 	uint64_t offset;
 	Flock flock;
+	bool append;
 };
 
 } } // namespace blockfs::ext2fs

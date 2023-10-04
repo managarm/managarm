@@ -223,13 +223,13 @@ public:
 		return smarter::shared_ptr<File, FileHandle>{smarter::adopt_rc, file, file};
 	}
 
-	File(StructName struct_name, DefaultOps default_ops = 0)
-	: _structName{struct_name}, _defaultOps{default_ops}, _isOpen{true} { }
+	File(StructName struct_name, DefaultOps default_ops = 0, bool append = false)
+	: _structName{struct_name}, _defaultOps{default_ops}, _isOpen{true}, _append{append} { }
 
 	File(StructName struct_name, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			DefaultOps default_ops = 0)
+			DefaultOps default_ops = 0, bool append = false)
 	: _structName{struct_name}, _mount{std::move(mount)}, _link{std::move(link)},
-			_defaultOps{default_ops}, _isOpen{true} { }
+			_defaultOps{default_ops}, _isOpen{true}, _append{append} { }
 
 	virtual ~File();
 
@@ -373,6 +373,7 @@ private:
 	DefaultOps _defaultOps;
 
 	bool _isOpen;
+	bool _append;
 };
 
 struct DummyFile final : File {

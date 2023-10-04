@@ -207,9 +207,9 @@ private:
 
 public:
 	OpenFile(helix::UniqueLane control, helix::UniqueLane lane,
-			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool append)
 	: File{StructName::get("externfs.file"), std::move(mount), std::move(link)},
-			_control{std::move(control)}, _file{std::move(lane)} { }
+			_control{std::move(control)}, _file{std::move(lane)}, _append(append) { }
 
 	~OpenFile() {
 		// It's not necessary to do any cleanup here.
@@ -247,6 +247,7 @@ public:
 private:
 	helix::UniqueLane _control;
 	protocols::fs::File _file;
+	bool _append;
 };
 
 struct RegularNode final : Node {
@@ -261,10 +262,10 @@ private:
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
 
-		if(semantic_flags & ~(semanticRead | semanticWrite)){
+		if(semantic_flags & ~(semanticRead | semanticWrite | semanticAppend)){
 			std::cout << "\e[31mposix: open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
-				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< "\nOnly semanticRead (0x2), semanticWrite (0x4) and semanticAppend (0x8) are allowed.\e[39m"
 				<< std::endl;
 			co_return Error::illegalArguments;
 		}
@@ -274,8 +275,14 @@ private:
 		helix::PullDescriptor pull_ctrl;
 		helix::PullDescriptor pull_passthrough;
 
+		bool append = false;
+		if(semantic_flags & semanticAppend) {
+			append = true;
+		}
+
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
+		req.set_append(append);
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
@@ -296,7 +303,7 @@ private:
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
-				pull_passthrough.descriptor(), std::move(mount), std::move(link));
+				pull_passthrough.descriptor(), std::move(mount), std::move(link), append);
 		file->setupWeakFile(file);
 		co_return File::constructHandle(std::move(file));
 	}
@@ -742,10 +749,10 @@ private:
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
 
-		if(semantic_flags & ~(semanticRead | semanticWrite)){
+		if(semantic_flags & ~(semanticRead | semanticWrite | semanticAppend)){
 			std::cout << "\e[31mposix: open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
-				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< "\nOnly semanticRead (0x2), semanticWrite (0x4) and semanticAppend (0x8) are allowed.\e[39m"
 				<< std::endl;
 			co_return Error::illegalArguments;
 		}
@@ -755,8 +762,14 @@ private:
 		helix::PullDescriptor pull_ctrl;
 		helix::PullDescriptor pull_passthrough;
 
+		bool append = false;
+		if(semantic_flags & semanticAppend) {
+			append = true;
+		}
+
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
+		req.set_append(append);
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
@@ -777,7 +790,7 @@ private:
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
-				pull_passthrough.descriptor(), std::move(mount), std::move(link));
+				pull_passthrough.descriptor(), std::move(mount), std::move(link), append);
 		file->setupWeakFile(file);
 		co_return File::constructHandle(std::move(file));
 	}
@@ -951,7 +964,7 @@ std::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane 
 smarter::shared_ptr<File, FileHandle>
 createFile(helix::UniqueLane lane, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link) {
 	auto file = smarter::make_shared<OpenFile>(helix::UniqueLane{},
-			std::move(lane), std::move(mount), std::move(link));
+			std::move(lane), std::move(mount), std::move(link), false);
 	file->setupWeakFile(file);
 	return File::constructHandle(std::move(file));
 }

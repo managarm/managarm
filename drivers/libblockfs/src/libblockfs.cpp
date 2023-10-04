@@ -164,6 +164,9 @@ async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, c
 	}
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
+	if(self->append) {
+		self->offset = self->inode->fileSize();
+	}
 	co_await self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
 	self->offset += length;
 	co_return length;
@@ -330,10 +333,11 @@ getStats(std::shared_ptr<void> object) {
 }
 
 async::result<protocols::fs::OpenResult>
-open(std::shared_ptr<void> object) {
+open(std::shared_ptr<void> object, bool append) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto file = smarter::make_shared<ext2fs::OpenFile>(self);
 	co_await self->readyJump.wait();
+	file->append = append;
 
 	helix::UniqueLane local_ctrl, remote_ctrl;
 	helix::UniqueLane local_pt, remote_pt;

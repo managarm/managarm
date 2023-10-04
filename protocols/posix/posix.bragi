@@ -110,7 +110,8 @@ consts OpenFlags uint32 {
 	OF_RDWR = 32,
 	OF_TRUNC = 64,
 	OF_PATH = 128,
-	OF_NOCTTY = 512
+	OF_NOCTTY = 512,
+	OF_APPEND = 1024
 }
 
 message CntRequest 1 {

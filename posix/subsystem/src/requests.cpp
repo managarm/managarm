@@ -1534,7 +1534,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_WRONLY
 					| managarm::posix::OpenFlags::OF_RDWR
 					| managarm::posix::OpenFlags::OF_PATH
-					| managarm::posix::OpenFlags::OF_NOCTTY))) {
+					| managarm::posix::OpenFlags::OF_NOCTTY
+					| managarm::posix::OpenFlags::OF_APPEND))) {
 				std::cout << "posix: OPENAT flags not recognized: " << req->flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
@@ -1550,6 +1551,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				semantic_flags |= semanticWrite;
 			else if (req->flags() & managarm::posix::OpenFlags::OF_RDWR)
 				semantic_flags |= semanticRead | semanticWrite;
+
+			if(req->flags() & managarm::posix::OpenFlags::OF_APPEND)
+				semantic_flags |= semanticAppend;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
