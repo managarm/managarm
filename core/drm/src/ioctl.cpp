@@ -358,6 +358,31 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req->command() == DRM_IOCTL_MODE_ADDFB2) {
+			helix::SendBuffer send_resp;
+			managarm::fs::GenericIoctlReply resp;
+
+			if(logDrmRequests)
+				std::cout << "core/drm: ADDFB2(" << req->drm_width() << "x" << req->drm_height() << ", pitch " << req->drm_pitch() << ")";
+
+			auto bo = self->resolveHandle(req->drm_handle());
+			assert(bo);
+			auto buffer = bo->sharedBufferObject();
+
+			auto fb = self->_device->createFrameBuffer(buffer, req->drm_width(), req->drm_height(),
+					req->drm_fourcc(), req->drm_pitch());
+			self->attachFrameBuffer(fb);
+			resp.set_drm_fb_id(fb->id());
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			if(logDrmRequests)
+				std::cout << " -> [" << fb->id() << "]" << std::endl;
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req->command() == DRM_IOCTL_MODE_RMFB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;

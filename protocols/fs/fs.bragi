@@ -509,6 +509,7 @@ head(128):
 
 		tag(15) uint32 drm_pitch;
 		tag(16) uint32 drm_depth;
+		tag(43) uint32 drm_fourcc;
 
 		tag(17) uint32 drm_handle;
 
