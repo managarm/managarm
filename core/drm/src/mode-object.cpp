@@ -173,6 +173,14 @@ drm_core::FrameBuffer::FrameBuffer(Device *dev, uint32_t id)
 	:drm_core::ModeObject { dev, ObjectType::frameBuffer, id } {
 }
 
+uint32_t drm_core::FrameBuffer::format() {
+	return _format;
+}
+
+void drm_core::FrameBuffer::setFormat(uint32_t format) {
+	_format = format;
+}
+
 // ----------------------------------------------------------------
 // Plane
 // ----------------------------------------------------------------

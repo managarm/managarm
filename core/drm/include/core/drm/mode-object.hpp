@@ -1,6 +1,7 @@
 #pragma once
 
 #include <core/id-allocator.hpp>
+#include <libdrm/drm_fourcc.h>
 
 #include "fwd-decls.hpp"
 
@@ -222,7 +223,13 @@ struct FrameBuffer : ModeObject {
 protected:
 	~FrameBuffer() = default;
 
+private:
+	uint32_t _format = DRM_FORMAT_XRGB8888;
+
 public:
+	uint32_t format();
+	void setFormat(uint32_t format);
+
 	virtual void notifyDirty() = 0;
 	virtual uint32_t getWidth() = 0;
 	virtual uint32_t getHeight() = 0;

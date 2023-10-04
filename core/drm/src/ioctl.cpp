@@ -325,7 +325,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				auto fb = obj->asFrameBuffer();
 				resp.set_drm_width(fb->getWidth());
 				resp.set_drm_height(fb->getHeight());
-				resp.set_pixel_format(DRM_FORMAT_XRGB8888);
+				resp.set_pixel_format(fb->format());
 				resp.set_modifier(DRM_FORMAT_MOD_INVALID);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			}
