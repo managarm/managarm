@@ -206,6 +206,18 @@ const std::vector<drm_core::Crtc *> &drm_core::Plane::getPossibleCrtcs() {
 	return _possibleCrtcs;
 }
 
+void drm_core::Plane::addFormat(uint32_t f) {
+	_formats.push_back(f);
+}
+
+std::vector<uint32_t> &drm_core::Plane::getFormats() {
+	return _formats;
+}
+
+void drm_core::Plane::clearFormats() {
+	_formats.clear();
+}
+
 std::shared_ptr<drm_core::PlaneState> drm_core::Plane::drmState() {
 	return _drmState;
 }

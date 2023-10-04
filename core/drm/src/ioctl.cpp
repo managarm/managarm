@@ -279,7 +279,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			resp.set_drm_gamma_size(0);
-			resp.add_drm_format_type(DRM_FORMAT_XRGB8888);
+
+			for(auto f : plane->getFormats()) {
+				resp.add_drm_format_type(f);
+			}
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 

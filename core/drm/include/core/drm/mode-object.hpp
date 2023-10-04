@@ -249,6 +249,10 @@ struct Plane : ModeObject {
 	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
 	const std::vector<Crtc *> &getPossibleCrtcs();
 
+	void addFormat(uint32_t);
+	std::vector<uint32_t> &getFormats();
+	void clearFormats();
+
 	std::shared_ptr<drm_core::PlaneState> drmState();
 	void setDrmState(std::shared_ptr<drm_core::PlaneState> new_state);
 
@@ -257,6 +261,7 @@ private:
 	drm_core::FrameBuffer *_fb;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::shared_ptr<PlaneState> _drmState;
+	std::vector<uint32_t> _formats = { DRM_FORMAT_XRGB8888 };
 };
 
 struct PlaneState {
