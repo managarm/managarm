@@ -273,6 +273,8 @@ struct PlaneState {
 	uint32_t src_y = 0;
 	uint32_t src_w = 0;
 	uint32_t src_h = 0;
+
+	std::shared_ptr<Blob> in_formats;
 };
 
 } //namespace drm_core

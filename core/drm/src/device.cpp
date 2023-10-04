@@ -181,6 +181,10 @@ drm_core::Property *drm_core::Device::crtcHProperty() {
 	return _crtcHProperty.get();
 }
 
+drm_core::Property *drm_core::Device::inFormatsProperty() {
+	return _inFormatsProperty.get();
+}
+
 void drm_core::Device::registerProperty(std::shared_ptr<drm_core::Property> p) {
 	_properties.insert({p->id(), p});
 }

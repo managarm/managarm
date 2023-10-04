@@ -414,4 +414,18 @@ drm_core::Device::Device() {
 		}
 	};
 	registerProperty(_crtcHProperty = std::make_shared<CrtcHProperty>());
+
+	struct InFormatsProperty : drm_core::Property {
+		InFormatsProperty()
+		: drm_core::Property(inFormats, BlobProperty{}, "IN_FORMATS", DRM_MODE_PROP_ATOMIC | DRM_MODE_PROP_IMMUTABLE) { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		}
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->in_formats = assignment.blobValue;
+		}
+	};
+	registerProperty(_inFormatsProperty = std::make_shared<InFormatsProperty>());
 }

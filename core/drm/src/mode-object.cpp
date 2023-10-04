@@ -227,6 +227,7 @@ std::vector<drm_core::Assignment> drm_core::Plane::getAssignments(std::shared_pt
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcXProperty(), drmState()->crtc_x));
 	assignments.push_back(drm_core::Assignment::withInt(this->sharedModeObject(), dev->crtcYProperty(), drmState()->crtc_y));
 	assignments.push_back(drm_core::Assignment::withModeObj(this->sharedModeObject(), dev->fbIdProperty(), drmState()->fb));
+	assignments.push_back(drm_core::Assignment::withBlob(this->sharedModeObject(), dev->inFormatsProperty(), drmState()->in_formats));
 
 	return assignments;
 }
