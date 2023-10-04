@@ -7,6 +7,7 @@
 #include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <core/drm/core.hpp>
 
 #include "spec.hpp"
 

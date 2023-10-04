@@ -84,8 +84,8 @@ uint32_t drm_core::BufferObject::getHeight() {
 // Encoder
 // ----------------------------------------------------------------
 
-drm_core::Encoder::Encoder(uint32_t id)
-	:drm_core::ModeObject { ObjectType::encoder, id } {
+drm_core::Encoder::Encoder(Device *dev, uint32_t id)
+	:drm_core::ModeObject { dev, ObjectType::encoder, id } {
 	index = -1;
 	_currentCrtc = nullptr;
 }
@@ -126,8 +126,8 @@ const std::vector<drm_core::Encoder *> &drm_core::Encoder::getPossibleClones() {
 // Crtc
 // ----------------------------------------------------------------
 
-drm_core::Crtc::Crtc(uint32_t id)
-	:drm_core::ModeObject { ObjectType::crtc, id } {
+drm_core::Crtc::Crtc(Device *dev, uint32_t id)
+	:drm_core::ModeObject { dev, ObjectType::crtc, id } {
 	index = -1;
 }
 
@@ -169,16 +169,17 @@ std::weak_ptr<drm_core::Crtc> drm_core::CrtcState::crtc(void) {
 // FrameBuffer
 // ----------------------------------------------------------------
 
-drm_core::FrameBuffer::FrameBuffer(uint32_t id)
-	:drm_core::ModeObject { ObjectType::frameBuffer, id } {
+drm_core::FrameBuffer::FrameBuffer(Device *dev, uint32_t id)
+	:drm_core::ModeObject { dev, ObjectType::frameBuffer, id } {
 }
 
 // ----------------------------------------------------------------
 // Plane
 // ----------------------------------------------------------------
 
-drm_core::Plane::Plane(uint32_t id, PlaneType type)
-	:drm_core::ModeObject { ObjectType::plane, id }, _type(type) {
+drm_core::Plane::Plane(Device *dev, uint32_t id, PlaneType type)
+	:drm_core::ModeObject { dev, ObjectType::plane, id }, _type(type) {
+
 }
 
 void drm_core::Plane::setupState(std::shared_ptr<drm_core::Plane> plane) {
@@ -240,8 +241,8 @@ drm_core::Plane::PlaneType drm_core::PlaneState::type(void) {
 // Connector
 // ----------------------------------------------------------------
 
-drm_core::Connector::Connector(uint32_t id)
-	:drm_core::ModeObject { ObjectType::connector, id } {
+drm_core::Connector::Connector(Device *dev, uint32_t id)
+	:drm_core::ModeObject { dev, ObjectType::connector, id } {
 	_currentEncoder = nullptr;
 	_connectorType = 0;
 }

@@ -251,7 +251,7 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 // ----------------------------------------------------------------
 
 GfxDevice::Connector::Connector(GfxDevice *device)
-	: drm_core::Connector { device->allocator.allocate() } {
+	: drm_core::Connector { device, device->allocator.allocate() } {
 //	_encoders.push_back(device->_theEncoder.get());
 }
 
@@ -260,7 +260,7 @@ GfxDevice::Connector::Connector(GfxDevice *device)
 // ----------------------------------------------------------------
 
 GfxDevice::Encoder::Encoder(GfxDevice *device)
-	:drm_core::Encoder { device->allocator.allocate() } {
+	:drm_core::Encoder { device, device->allocator.allocate() } {
 }
 
 // ----------------------------------------------------------------
@@ -268,7 +268,7 @@ GfxDevice::Encoder::Encoder(GfxDevice *device)
 // ----------------------------------------------------------------
 
 GfxDevice::Crtc::Crtc(GfxDevice *device)
-: drm_core::Crtc{device->allocator.allocate()} {
+: drm_core::Crtc{device, device->allocator.allocate()} {
 	_device = device;
 }
 
@@ -282,7 +282,7 @@ drm_core::Plane *GfxDevice::Crtc::primaryPlane() {
 
 GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device,
 		std::shared_ptr<GfxDevice::BufferObject> bo, size_t pitch)
-: drm_core::FrameBuffer{device->allocator.allocate()},
+: drm_core::FrameBuffer{device, device->allocator.allocate()},
 		_device{device}, _bo{std::move(bo)}, _pitch{pitch} {
 	if(!_device->_hardwareFbIsAligned) {
 		_fastScanout = false;
@@ -319,7 +319,7 @@ uint32_t GfxDevice::FrameBuffer::getHeight() {
 // ----------------------------------------------------------------
 
 GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type)
-: drm_core::Plane{device->allocator.allocate(), type} { }
+: drm_core::Plane{device, device->allocator.allocate(), type} { }
 
 // ----------------------------------------------------------------
 // GfxDevice: BufferObject.
