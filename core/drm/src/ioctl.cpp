@@ -457,9 +457,11 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				auto fb = self->_device->findObject(req->drm_fb_id());
 				assert(fb);
 
+				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), true));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), mode_blob));
 				assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 			}else{
+				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), false));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), nullptr));
 			}
 
