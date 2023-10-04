@@ -12,6 +12,10 @@
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
 
+#define __MLIBC_ABI_ONLY
+#include <sys/mman.h>
+#undef __MLIBC_ABI_ONLY
+
 namespace thor {
 
 extern frg::manual_box<LaneHandle> mbusClient;
@@ -557,18 +561,18 @@ namespace posix {
 				}
 
 				uint32_t protFlags = 0;
-				if(req->mode() & 1)
+				if(req->mode() & PROT_READ)
 					protFlags |= AddressSpace::kMapProtRead;
-				if(req->mode() & 2)
+				if(req->mode() & PROT_WRITE)
 					protFlags |= AddressSpace::kMapProtWrite;
-				if(req->mode() & 4)
+				if(req->mode() & PROT_EXEC)
 					protFlags |= AddressSpace::kMapProtExecute;
-				if(req->flags() & 4) // MAP_FIXED.
+				if(req->flags() & MAP_FIXED) // MAP_FIXED.
 					protFlags |= AddressSpace::kMapFixed;
 				else
 					protFlags |= AddressSpace::kMapPreferTop;
 
-				if (req->flags() & ~(8 | 4 | 1)) {
+				if (req->flags() & ~(MAP_ANONYMOUS | MAP_FIXED | MAP_PRIVATE)) {
 					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
@@ -584,8 +588,8 @@ namespace posix {
 				}
 
 				smarter::shared_ptr<MemoryView> fileMemory;
-				if(req->flags() & 8) { // MAP_ANONYMOUS.
-					if(req->flags() & 1) { // MAP_PRIVATE.
+				if(req->flags() & MAP_ANONYMOUS) { // MAP_ANONYMOUS.
+					if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
 						fileMemory = getZeroMemory();
 					}else{
 						auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
@@ -602,7 +606,7 @@ namespace posix {
 				}
 
 				smarter::shared_ptr<MemorySlice> slice;
-				if(req->flags() & 1) { // MAP_PRIVATE.
+				if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
 					auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
 							std::move(fileMemory), req->rel_offset(), req->size());
 					cowMemory->selfPtr = cowMemory;
