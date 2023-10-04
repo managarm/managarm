@@ -207,6 +207,7 @@ drm_core::Device::Device() {
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
 			assert(!assignment.objectValue || assignment.objectValue->type() == ObjectType::frameBuffer);
 			state->plane(assignment.object->id())->fb = static_pointer_cast<FrameBuffer>(assignment.objectValue);
+			state->plane(assignment.object->id())->plane->setCurrentFrameBuffer(static_pointer_cast<FrameBuffer>(assignment.objectValue).get());
 		}
 
 		std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj) override {
