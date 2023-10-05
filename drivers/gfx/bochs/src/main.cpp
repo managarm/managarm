@@ -255,7 +255,6 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
 	drm_mode_modeinfo last_mode;
-	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
 	if(_device->_theCrtc->drmState()->mode)
 		memcpy(&last_mode, _device->_theCrtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 
