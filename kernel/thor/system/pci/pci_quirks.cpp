@@ -29,16 +29,19 @@ struct {
 	int pci_subclass;
 	int pci_interface;
 	int pci_vendor;
+	long int pci_bus;
+	long int pci_slot;
+	long int pci_func;
 	void (*func)(smarter::shared_ptr<pci::PciDevice> dev);
 } quirks[] = {
-	{0x0C, 0x03, 0x00, -1, uhciSmiDisable},
-	{0x0C, 0x03, 0x30, 0x8086, switchUsbPortsToXhci},
+	{0x0C, 0x03, 0x00, -1, -1, -1, -1, uhciSmiDisable},
+	{0x0C, 0x03, 0x30, 0x8086, -1, -1, -1, switchUsbPortsToXhci},
 };
 
 } // namespace
 
 void applyPciDeviceQuirks(smarter::shared_ptr<pci::PciDevice> dev) {
-	for(auto [class_id, subclass, interface, vendor, handler] : quirks) {
+	for(auto [class_id, subclass, interface, vendor, bus, slot, func, handler] : quirks) {
 		if(class_id >= 0 && dev->classCode != class_id)
 			continue;
 
@@ -49,6 +52,15 @@ void applyPciDeviceQuirks(smarter::shared_ptr<pci::PciDevice> dev) {
 			continue;
 
 		if(vendor >= 0 && dev->vendor != vendor)
+			continue;
+
+		if(bus >= 0 && dev->bus != bus)
+			continue;
+
+		if(slot >= 0 && dev->slot != slot)
+			continue;
+
+		if(func >= 0 && dev->function != func)
 			continue;
 
 		handler(dev);
