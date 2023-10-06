@@ -175,8 +175,9 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 			case kMb2TagFramebuffer: {
 				auto *framebuffer_tag = reinterpret_cast<Mb2TagFramebuffer*>(tag);
 				if(framebuffer_tag->address + framebuffer_tag->width * framebuffer_tag->pitch >= UINTPTR_MAX) {
-					eir::panicLogger() << "eir: Framebuffer outside of addressable memory!"
+					eir::infoLogger() << "eir: Framebuffer outside of addressable memory!"
 						<< frg::endlog;
+					framebuffer = framebuffer_tag;
 				}else if(framebuffer_tag->bpp != 32) {
 					eir::panicLogger() << "eir: Framebuffer does not use 32 bpp!"
 						<< frg::endlog;
@@ -336,7 +337,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	framebuf->fbType = framebuffer->type;
 
 	// Map the framebuffer.
-	assert(framebuffer->address & ~(pageSize - 1));
+	assert(framebuffer->address & ~static_cast<EirPtr>(pageSize - 1));
 	for(address_t pg = 0; pg < framebuffer->pitch * framebuffer->height; pg += 0x1000)
 		mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, framebuffer->address + pg,
 				PageFlags::write, CachingMode::writeCombine);
