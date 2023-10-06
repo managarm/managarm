@@ -949,6 +949,26 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				auto mode_obj = self->_device->findObject(req->drm_obj_ids(i));
 				assert(mode_obj);
 
+				if(logDrmRequests) {
+					switch(mode_obj->type()) {
+						case ObjectType::crtc:
+							std::cout << "\tCRTC (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::connector:
+							std::cout << "\tConnector (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::encoder:
+							std::cout << "\tEncoder (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::frameBuffer:
+							std::cout << "\tFB (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::plane:
+							std::cout << "\tPlane (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+					}
+				}
+
 				if(mode_obj->type() == ObjectType::crtc) {
 					crtc_ids.push_back(mode_obj->id());
 				}
@@ -962,16 +982,24 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 					if(std::holds_alternative<IntPropertyType>(prop_type)) {
 						assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << value << " (int)" << std::endl;
 					} else if(std::holds_alternative<EnumPropertyType>(prop_type)) {
 						assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << value << " " << prop->enumInfo().at(value) << " (enum)" << std::endl;
 					} else if(std::holds_alternative<BlobPropertyType>(prop_type)) {
 						auto blob = self->_device->findBlob(value);
 
 						assignments.push_back(Assignment::withBlob(mode_obj, prop.get(), blob));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << (blob ? std::to_string(blob->id()) : "<none>") << " (blob)" << std::endl;
 					} else if(std::holds_alternative<ObjectPropertyType>(prop_type)) {
 						auto obj = self->_device->findObject(value);
 
 						assignments.push_back(Assignment::withModeObj(mode_obj, prop.get(), obj));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << (obj ? std::to_string(obj->id()) : "<none>") << " (modeobject)" << std::endl;
 					}
 				}
 
@@ -984,6 +1012,8 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			if(!(req->drm_flags() & DRM_MODE_ATOMIC_TEST_ONLY)) {
+				if(logDrmRequests)
+					std::cout << "\tCommitting configuration ..." << std::endl;
 				config->commit(state);
 				co_await config->waitForCompletion();
 			}
