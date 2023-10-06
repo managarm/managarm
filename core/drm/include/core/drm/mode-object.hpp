@@ -281,6 +281,9 @@ struct Plane : ModeObject {
 	std::shared_ptr<drm_core::PlaneState> drmState();
 	void setDrmState(std::shared_ptr<drm_core::PlaneState> new_state);
 
+	// commit formats to the "IN_FORMATS" blob
+	void updateInFormatsBlob(std::shared_ptr<drm_core::Plane> plane);
+
 private:
 	PlaneType _type;
 	drm_core::FrameBuffer *_fb = nullptr;
