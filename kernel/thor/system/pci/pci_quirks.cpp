@@ -26,31 +26,47 @@ void switchUsbPortsToXhci(PciDevice *dev) {
 }
 
 struct {
-	int pci_class;
-	int pci_subclass;
-	int pci_interface;
-	int pci_vendor;
+	std::optional<uint8_t> pci_class = std::nullopt;
+	std::optional<uint8_t> pci_subclass = std::nullopt;
+	std::optional<uint8_t> pci_interface = std::nullopt;
+	std::optional<uint16_t> pci_vendor = std::nullopt;
+	std::optional<uint16_t> pci_segment = std::nullopt;
+	std::optional<uint16_t> pci_bus = std::nullopt;
+	std::optional<uint16_t> pci_slot = std::nullopt;
+	std::optional<uint16_t> pci_func = std::nullopt;
 	void (*func)(PciDevice *dev);
 } quirks[] = {
-	{0x0C, 0x03, 0x00, -1, uhciSmiDisable},
-	{0x0C, 0x03, 0x30, 0x8086, switchUsbPortsToXhci},
-	{0x0C, 0x03, 0x30, 0x1106, uploadRaspberryPi4Vl805Firmware},
+	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x00, .func = uhciSmiDisable},
+	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x30, .pci_vendor = 0x8086, .func = switchUsbPortsToXhci},
+	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x30, .pci_vendor = 0x1106, .func = uploadRaspberryPi4Vl805Firmware},
 };
 
 } // namespace
 
 void applyPciDeviceQuirks(PciDevice *dev) {
-	for(auto [class_id, subclass, interface, vendor, handler] : quirks) {
-		if(class_id >= 0 && dev->classCode != class_id)
+	for (auto [class_id, subclass, interface, vendor, seg, bus, slot, func, handler] : quirks) {
+		if(class_id && dev->classCode != *class_id)
 			continue;
 
-		if(subclass >= 0 && dev->subClass != subclass)
+		if(subclass && dev->subClass != *subclass)
 			continue;
 
-		if(interface >= 0 && dev->interface != interface)
+		if(interface && dev->interface != *interface)
 			continue;
 
-		if(vendor >= 0 && dev->vendor != vendor)
+		if(vendor && dev->vendor != *vendor)
+			continue;
+
+		if(seg && dev->seg != *seg)
+			continue;
+
+		if(bus && dev->bus != *bus)
+			continue;
+
+		if(slot && dev->slot != *slot)
+			continue;
+
+		if(func && dev->function != *func)
 			continue;
 
 		handler(dev);
