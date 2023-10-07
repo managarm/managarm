@@ -1709,6 +1709,8 @@ HelError helSubmitObserve(HelHandle handle, uint64_t inSeq,
 		HelObserveResult helResult{translateError(error), 0, sequence};
 		if(interrupt == kIntrNull) {
 			helResult.observation = kHelObserveNull;
+		}else if(interrupt == kIntrDivByZero) {
+			helResult.observation = kHelObserveDivByZero;
 		}else if(interrupt == kIntrRequested) {
 			helResult.observation = kHelObserveInterrupt;
 		}else if(interrupt == kIntrPanic) {

@@ -591,6 +591,27 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveDivByZero) {
+			printf("\e[31mposix: Divide by zero in process %s\n", self->path().c_str());
+			dumpRegisters(self);
+			printf("\e[39m");
+			fflush(stdout);
+
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
+
+			auto item = new SignalItem;
+			item->signalNumber = SIGFPE;
+			if(!self->checkSignalRaise())
+				std::cout << "\e[33m" "posix: Ignoring global signal flag "
+						"during synchronous SIGFPE" "\e[39m" << std::endl;
+			bool killed;
+			co_await self->signalContext()->raiseContext(item, self.get(), killed);
+			if(killed)
+				break;
+			HEL_CHECK(helResume(thread.getHandle()));
 		}else{
 			printf("\e[31mposix: Unexpected observation in process %s\n", self->path().c_str());
 			dumpRegisters(self);

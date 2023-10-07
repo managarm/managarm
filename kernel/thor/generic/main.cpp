@@ -483,6 +483,7 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 
 	const char *name;
 	switch(fault) {
+	case kIntrDivByZero: name = "div-by-zero"; break;
 	case kIntrBreakpoint: name = "breakpoint"; break;
 	case kIntrGeneralFault: name = "general"; break;
 	case kIntrIllegalInstruction: name = "illegal-instruction"; break;

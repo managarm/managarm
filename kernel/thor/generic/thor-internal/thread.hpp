@@ -15,6 +15,7 @@ namespace thor {
 
 enum Interrupt {
 	kIntrNull,
+	kIntrDivByZero,
 	kIntrRequested,
 	kIntrPanic,
 	kIntrBreakpoint,
