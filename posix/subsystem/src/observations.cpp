@@ -503,11 +503,6 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			printf("\e[39m");
 			fflush(stdout);
 
-			if(debugFaults) {
-				launchGdbServer(self.get());
-				co_await async::suspend_indefinitely({});
-			}
-
 			auto item = new SignalItem;
 			item->signalNumber = SIGABRT;
 			if(!self->checkSignalRaise())
@@ -515,8 +510,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous user space panic" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			if(killed) {			
+				if(debugFaults) {
+					launchGdbServer(self.get());
+					co_await async::suspend_indefinitely({});
+				}
 				break;
+			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveBreakpoint) {
 			printf("\e[35mposix: Breakpoint in process %s\n", self->path().c_str());
@@ -534,11 +534,6 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			printf("\e[39m");
 			fflush(stdout);
 
-			if(debugFaults) {
-				launchGdbServer(self.get());
-				co_await async::suspend_indefinitely({});
-			}
-
 			auto item = new SignalItem;
 			item->signalNumber = SIGSEGV;
 			if(!self->checkSignalRaise())
@@ -546,8 +541,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			if(killed) {			
+				if(debugFaults) {
+					launchGdbServer(self.get());
+					co_await async::suspend_indefinitely({});
+				}
 				break;
+			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveGeneralFault) {
 			printf("\e[31mposix: General fault in process %s\n", self->path().c_str());
@@ -555,11 +555,6 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			printf("\e[39m");
 			fflush(stdout);
 
-			if(debugFaults) {
-				launchGdbServer(self.get());
-				co_await async::suspend_indefinitely({});
-			}
-
 			auto item = new SignalItem;
 			item->signalNumber = SIGSEGV;
 			if(!self->checkSignalRaise())
@@ -567,19 +562,19 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			if(killed) {			
+				if(debugFaults) {
+					launchGdbServer(self.get());
+					co_await async::suspend_indefinitely({});
+				}
 				break;
+			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveIllegalInstruction) {
 			printf("\e[31mposix: Illegal instruction in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
-
-			if(debugFaults) {
-				launchGdbServer(self.get());
-				co_await async::suspend_indefinitely({});
-			}
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGILL;
@@ -588,19 +583,19 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			if(killed) {			
+				if(debugFaults) {
+					launchGdbServer(self.get());
+					co_await async::suspend_indefinitely({});
+				}
 				break;
+			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveDivByZero) {
 			printf("\e[31mposix: Divide by zero in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
-
-			if(debugFaults) {
-				launchGdbServer(self.get());
-				co_await async::suspend_indefinitely({});
-			}
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGFPE;
@@ -609,8 +604,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGFPE" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			if(killed) {			
+				if(debugFaults) {
+					launchGdbServer(self.get());
+					co_await async::suspend_indefinitely({});
+				}
 				break;
+			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else{
 			printf("\e[31mposix: Unexpected observation in process %s\n", self->path().c_str());
@@ -625,8 +625,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed)
+			if(killed) {			
+				if(debugFaults) {
+					launchGdbServer(self.get());
+					co_await async::suspend_indefinitely({});
+				}
 				break;
+			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}
 	}
