@@ -265,6 +265,7 @@ enum HelObservation {
 	kHelObservePageFault = 2,
 	kHelObserveGeneralFault = 5,
 	kHelObserveIllegalInstruction = 6,
+	kHelObserveDivByZero = 7,
 	kHelObserveSuperCall = 0x80000000
 };
 

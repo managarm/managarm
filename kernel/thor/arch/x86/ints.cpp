@@ -335,6 +335,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	disableUserAccess();
 
 	switch(number) {
+	case 0: {
+		handleOtherFault(image, kIntrDivByZero);
+	} break;
 	case 1: {
 		handleDebugFault(image);
 	} break;

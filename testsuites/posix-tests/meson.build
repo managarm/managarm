@@ -2,6 +2,7 @@ src = [
 	'src/main.cpp',
 	'src/badfd.cpp',
 	'src/epoll.cpp',
+	'src/faults.cpp',
 	'src/inotify.cpp',
 	'src/pipes.cpp',
 	'src/processgroups.cpp',

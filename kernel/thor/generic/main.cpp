@@ -25,6 +25,7 @@ namespace thor {
 static constexpr bool logInitialization = false;
 static constexpr bool logEveryPageFault = false;
 static constexpr bool logEveryIrq = false;
+static constexpr bool logOtherFaults = false;
 static constexpr bool logPreemptionIrq = false;
 static constexpr bool logEverySyscall = false;
 
@@ -482,6 +483,7 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 
 	const char *name;
 	switch(fault) {
+	case kIntrDivByZero: name = "div-by-zero"; break;
 	case kIntrBreakpoint: name = "breakpoint"; break;
 	case kIntrGeneralFault: name = "general"; break;
 	case kIntrIllegalInstruction: name = "illegal-instruction"; break;
@@ -489,8 +491,9 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 		panicLogger() << "Unexpected fault code" << frg::endlog;
 	}
 
-	infoLogger() << "thor: Unhandled " << name << " fault"
-			<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
+	if(logOtherFaults)
+		infoLogger() << "thor: Unhandled " << name << " fault"
+				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 
 	if(this_thread->flags & Thread::kFlagServer) {
 		infoLogger() << "\e[31m" "thor: " << name << " fault in server.\n"
