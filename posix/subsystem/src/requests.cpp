@@ -1617,6 +1617,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					}
+					auto chmodResult = co_await node->chmod(req->mode());
+					if (chmodResult != Error::success) {
+						std::cout << "posix: chmod failed when creating file for OpenAtRequest!" << std::endl;
+						co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+						continue;
+					}
 					// Due to races, link() can fail here.
 					// TODO: Implement a version of link() that eithers links the new node
 					// or returns the current node without failing.
