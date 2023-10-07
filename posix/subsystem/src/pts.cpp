@@ -596,7 +596,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 		assert(req);
 
 		if(req->command() == TIOCGPTN) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_pts_index(_channel->ptsIndex);
@@ -608,7 +608,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req->command() == TIOCSWINSZ) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			if(logAttrs)
 				std::cout << "posix: PTS window size is now "
@@ -635,7 +635,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 			UserSignal info;
 			_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
 		}else if(req->command() == FIONREAD) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			size_t count = std::transform_reduce(_channel->masterQueue.begin(), _channel->masterQueue.end(), size_t{0}, std::plus<>(), [] (const Packet &p) {
 				return p.buffer.size() - p.offset;
@@ -798,7 +798,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 		req.reset();
 
 		if(req->command() == TCGETS) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 			struct termios attrs;
 
 			// Element-wise copy to avoid information leaks in padding.
@@ -822,7 +822,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			HEL_CHECK(send_attrs.error());
 		}else if(req->command() == TCSETS) {
 			struct termios attrs;
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			auto [recv_attrs] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -854,7 +854,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req->command() == TIOCGWINSZ) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_pts_width(_channel->width);
@@ -869,7 +869,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req->command() == TIOCSWINSZ) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			if(logAttrs)
 				std::cout << "posix: PTS window size is now "
@@ -899,7 +899,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID) {
 			co_await _channel->commonIoctl(process, id, std::move(msg), std::move(conversation));
 		}else if(req->command() == TIOCINQ) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -917,7 +917,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			);
 			HEL_CHECK(send_resp.error());
 		} else if(req->command() == TIOCGPTN) {
-			managarm::fs::SvrResponse resp;
+			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_pts_index(_channel->ptsIndex);
