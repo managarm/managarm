@@ -266,6 +266,8 @@ head(128):
 		tag(69) int64 pgid;
 
 		tag(84) int32 seals;
+
+		tag(85) byte append;
 	}
 }
 

@@ -1532,7 +1532,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
-			auto result = co_await node_ops->open(node);
+			auto result = co_await node_ops->open(node, req.append());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

@@ -89,6 +89,7 @@ using SemanticFlags = uint32_t;
 inline constexpr SemanticFlags semanticNonBlock = 1;
 inline constexpr SemanticFlags semanticRead = 2;
 inline constexpr SemanticFlags semanticWrite = 4;
+inline constexpr SemanticFlags semanticAppend = 8;
 
 // Represents an inode on an actual file system (i.e. not in the VFS).
 struct FsNode {
