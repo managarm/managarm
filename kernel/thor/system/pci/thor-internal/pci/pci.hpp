@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <thor-internal/mbus.hpp>
+
 #include <frg/vector.hpp>
 #include <frg/hash_map.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
@@ -281,8 +283,7 @@ struct PciBridge final : PciEntity {
 	uint32_t subordinateId;
 };
 
-struct PciDevice final : PciEntity {
-
+struct PciDevice final : PciEntity, private KernelBusObject {
 	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
 			uint16_t vendor, uint16_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
@@ -291,6 +292,8 @@ struct PciDevice final : PciEntity {
 			classCode{class_code}, subClass{sub_class}, interface{interface},
 			subsystemVendor{subsystem_vendor}, subsystemDevice{subsystem_device},
 			interrupt{nullptr}, associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
+
+	void runDevice();
 
 	smarter::shared_ptr<IrqObject> obtainIrqObject();
 	IrqPin *getIrqPin();
@@ -337,6 +340,9 @@ struct PciDevice final : PciEntity {
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
 	BootScreen *associatedScreen;
+
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
 };
 
 enum {

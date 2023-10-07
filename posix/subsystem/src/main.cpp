@@ -20,7 +20,8 @@
 #include "subsystem/pci.hpp"
 #include "observations.hpp"
 
-#include <kerncfg.pb.h>
+#include <bragi/helpers-std.hpp>
+#include <kerncfg.bragi.hpp>
 #include <posix.bragi.hpp>
 
 #include "debug-options.hpp"
@@ -82,30 +83,28 @@ namespace {
 
 struct CmdlineNode final : public procfs::RegularNode {
 	async::result<std::string> show() override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::RecvInline recv_cmdline;
 
-		managarm::kerncfg::CntRequest req;
-		req.set_req_type(managarm::kerncfg::CntReqType::GET_CMDLINE);
+		managarm::kerncfg::GetCmdlineRequest req;
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(kerncfgLane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&recv_cmdline));
-		co_await transmit.async_wait();
+		auto [offer, sendReq, recvResp, recvCmdline] =
+			co_await helix_ng::exchangeMsgs(
+				kerncfgLane,
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+					helix_ng::recvInline(),
+					helix_ng::recvInline() // What about a cmdline larger than 128 bytes?
+				)
+			);
+
 		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
-		HEL_CHECK(recv_cmdline.error());
+		HEL_CHECK(sendReq.error());
+		HEL_CHECK(recvResp.error());
+		HEL_CHECK(recvCmdline.error());
 
-		managarm::kerncfg::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
 		assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
-		co_return std::string{(const char *)recv_cmdline.data(), recv_cmdline.length()} + '\n';
+
+		co_return std::string{(const char *)recvCmdline.data(), recvCmdline.length()} + '\n';
 	}
 
 	async::result<void> store(std::string) override {

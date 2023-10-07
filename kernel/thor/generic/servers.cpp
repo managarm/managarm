@@ -9,7 +9,7 @@
 #include <thor-internal/module.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
-#include "mbus.frigg_pb.hpp"
+#include <thor-internal/mbus.hpp>
 #include "svrctl.frigg_pb.hpp"
 
 namespace thor {
@@ -417,58 +417,35 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 
 // ------------------------------------------------------------------------
 // svrctl interface to user space.
+// mbus object creation and management.
 // ------------------------------------------------------------------------
 
-namespace {
 
-coroutine<Error> handleReq(LaneHandle boundLane) {
-	auto [acceptError, lane] = co_await AcceptSender{boundLane};
-	if(acceptError != Error::success)
-		co_return acceptError;
+struct SvrctlBusObject : private KernelBusObject {
+	coroutine<void> run() {
+		Properties properties;
+		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "svrctl"));
 
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-	if(reqError != Error::success)
-		co_return reqError;
-	managarm::svrctl::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+		// TODO(qookie): Better error handling here.
+		(co_await createObject(std::move(properties))).unwrap();
+	}
 
-	if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD) {
-		auto file = resolveModule(req.name());
-		if(file) {
-			// The file data is already known to us.
-			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::svrctl::Error::SUCCESS);
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
+		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		if(acceptError != Error::success)
+			co_return acceptError;
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
-		}else{
-			// Ask user space for the file data.
-			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::svrctl::Error::DATA_REQUIRED);
+		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+		if(reqError != Error::success)
+			co_return reqError;
+		managarm::svrctl::CntRequest<KernelAlloc> req(*kernelAlloc);
+		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
-		}
-	}else if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD_DATA) {
-		auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
-		if(dataError != Error::success)
-			co_return dataError;
-		MfsRegular *file;
-		if(!(co_await createMfsFile(req.name(), dataBuffer.data(), dataBuffer.size(), &file))) {
-			// TODO: Verify that the file data matches. This is somewhat expensive because
-			//       we would have to map the file's memory. Hence, we do not implement
-			//       it for now.
-			if(file->size() != dataBuffer.size()) {
+		if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD) {
+			auto file = resolveModule(req.name());
+			if(file) {
+				// The file data is already known to us.
 				managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::svrctl::Error::SUCCESS);
 
@@ -479,143 +456,93 @@ coroutine<Error> handleReq(LaneHandle boundLane) {
 				auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 				if(respError != Error::success)
 					co_return respError;
-				co_return Error::success;
+			}else{
+				// Ask user space for the file data.
+				managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::svrctl::Error::DATA_REQUIRED);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+				if(respError != Error::success)
+					co_return respError;
 			}
+		}else if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD_DATA) {
+			auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
+			if(dataError != Error::success)
+				co_return dataError;
+			MfsRegular *file;
+			if(!(co_await createMfsFile(req.name(), dataBuffer.data(), dataBuffer.size(), &file))) {
+				// TODO: Verify that the file data matches. This is somewhat expensive because
+				//       we would have to map the file's memory. Hence, we do not implement
+				//       it for now.
+				if(file->size() != dataBuffer.size()) {
+					managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::svrctl::Error::SUCCESS);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+					if(respError != Error::success)
+						co_return respError;
+					co_return Error::success;
+				}
+			}
+
+			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::svrctl::Error::SUCCESS);
+
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
+		}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
+			auto controlLane = co_await runServer(req.name());
+
+			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::svrctl::Error::SUCCESS);
+
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
+			auto controlError = co_await PushDescriptorSender{lane, LaneDescriptor{controlLane}};
+			if(controlError != Error::success)
+				co_return controlError;
+		}else{
+			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
+
+			frg::string<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+			memcpy(respBuffer.data(), ser.data(), ser.size());
+			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
 		}
 
-		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::svrctl::Error::SUCCESS);
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError != Error::success)
-			co_return respError;
-	}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
-		auto controlLane = co_await runServer(req.name());
-
-		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::svrctl::Error::SUCCESS);
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError != Error::success)
-			co_return respError;
-		auto controlError = co_await PushDescriptorSender{lane, LaneDescriptor{controlLane}};
-		if(controlError != Error::success)
-			co_return controlError;
-	}else{
-		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
-		
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		if(respError != Error::success)
-			co_return respError;
+		co_return frg::success;
 	}
-
-	co_return Error::success;
-}
-
-} // anonymous namespace
-
-// ------------------------------------------------------------------------
-// mbus object creation and management.
-// ------------------------------------------------------------------------
-
-namespace {
-
-coroutine<void> handleBind(LaneHandle objectLane);
-
-coroutine<void> createObject(LaneHandle mbusLane) {
-	auto [offerError, lane] = co_await OfferSender{mbusLane};
-	assert(offerError == Error::success && "Unexpected mbus transaction");
-
-	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
-	cls_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "class"));
-	auto &cls_item = cls_prop.mutable_item().mutable_string_item();
-	cls_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "svrctl"));
-
-	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
-	req.set_parent_id(1);
-	req.add_properties(std::move(cls_prop));
-
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	req.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-	memcpy(reqBuffer.data(), ser.data(), ser.size());
-	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
-	assert(reqError == Error::success && "Unexpected mbus transaction");
-
-	auto [respError, respBuffer] = co_await RecvBufferSender{lane};
-	assert(respError == Error::success && "Unexpected mbus transaction");
-	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-	
-	auto [objectError, objectDescriptor] = co_await PullDescriptorSender{lane};
-	assert(objectError == Error::success && "Unexpected mbus transaction");
-	assert(objectDescriptor.is<LaneDescriptor>());
-	auto objectLane = objectDescriptor.get<LaneDescriptor>().handle;
-	while(true)
-		co_await handleBind(objectLane);
-}
-
-coroutine<void> handleBind(LaneHandle objectLane) {
-	auto [acceptError, lane] = co_await AcceptSender{objectLane};
-	assert(acceptError == Error::success && "Unexpected mbus transaction");
-
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-	assert(reqError == Error::success && "Unexpected mbus transaction");
-	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-
-	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.set_error(managarm::mbus::Error::SUCCESS);
-
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	resp.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-	memcpy(respBuffer.data(), ser.data(), ser.size());
-	auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-	assert(respError == Error::success && "Unexpected mbus transaction");
-
-	auto stream = createStream();
-	auto boundError = co_await PushDescriptorSender{lane, LaneDescriptor{stream.get<1>()}};
-	assert(boundError == Error::success && "Unexpected mbus transaction");
-	auto boundLane = stream.get<0>();
-
-	async::detach_with_allocator(*kernelAlloc, ([] (LaneHandle boundLane) -> coroutine<void> {
-		while(true) {
-			auto error = co_await handleReq(boundLane);
-			if(error == Error::endOfLane)
-				break;
-			if(isRemoteIpcError(error))
-				infoLogger() << "thor: Aborting svrctl request"
-						" after remote violated the protocol" << frg::endlog;
-			assert(error == Error::success);
-		}
-	})(boundLane));
-}
-
-} // anonymous namespace
+};
 
 void initializeSvrctl() {
 	allServers.initialize(frg::hash<frg::string<KernelAlloc>>{}, *kernelAlloc);
 
 	// Create a fiber to manage requests to the svrctl mbus object.
 	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, createObject(*mbusClient));
+		auto svrctl = frg::construct<SvrctlBusObject>(*kernelAlloc);
+		async::detach_with_allocator(*kernelAlloc, svrctl->run());
 	});
 }
 

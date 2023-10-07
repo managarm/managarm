@@ -5,8 +5,9 @@
 #include <helix/ipc.hpp>
 #include <protocols/kernlet/compiler.hpp>
 #include <protocols/mbus/client.hpp>
+#include <bragi/helpers-std.hpp>
 
-#include "kernlet.pb.h"
+#include "kernlet.bragi.hpp"
 
 namespace {
 	helix::UniqueLane kernletCompilerLane;
@@ -44,15 +45,14 @@ async::result<void> connectKernletCompiler() {
 async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 		std::vector<BindType> bind_types) {
 	// Compile the kernlet object.
-	managarm::kernlet::CntRequest req;
-	req.set_req_type(managarm::kernlet::CntReqType::COMPILE);
+	managarm::kernlet::CompileRequest req;
 
 	for(auto bt : bind_types) {
 		managarm::kernlet::ParameterType proto;
 		switch(bt) {
-		case BindType::offset: proto = managarm::kernlet::OFFSET; break;
-		case BindType::memoryView: proto = managarm::kernlet::MEMORY_VIEW; break;
-		case BindType::bitsetEvent: proto = managarm::kernlet::BITSET_EVENT; break;
+		case BindType::offset: proto = managarm::kernlet::ParameterType::OFFSET; break;
+		case BindType::memoryView: proto = managarm::kernlet::ParameterType::MEMORY_VIEW; break;
+		case BindType::bitsetEvent: proto = managarm::kernlet::ParameterType::BITSET_EVENT; break;
 		default:
 			assert(!"Unexpected binding type");
 			__builtin_unreachable();
@@ -60,27 +60,27 @@ async::result<helix::UniqueDescriptor> compile(void *code, size_t size,
 		req.add_bind_types(proto);
 	}
 
-	auto ser = req.SerializeAsString();
-	auto [offer, send_req, send_code, recv_resp, pull_kernlet]
+	auto [offer, sendHead, sendTail, sendCode, recvResp, pullKernlet]
 			= co_await helix_ng::exchangeMsgs(kernletCompilerLane,
 		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 			helix_ng::sendBuffer(code, size),
 			helix_ng::recvInline(),
 			helix_ng::pullDescriptor()
 		)
 	);
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(send_code.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_kernlet.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
+	HEL_CHECK(sendCode.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(pullKernlet.error());
 
-	managarm::kernlet::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-	recv_resp.reset();
+	auto resp = *bragi::parse_head_only<managarm::kernlet::SvrResponse>(recvResp);
+
+	recvResp.reset();
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
 
-	co_return pull_kernlet.descriptor();
+	co_return pullKernlet.descriptor();
 }
 

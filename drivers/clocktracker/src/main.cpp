@@ -5,7 +5,8 @@
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
-#include <clock.pb.h>
+#include <bragi/helpers-std.hpp>
+#include <clock.bragi.hpp>
 
 // ----------------------------------------------------------------------------
 // RTC handling.
@@ -23,7 +24,7 @@ async::result<void> enumerateRtc() {
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("class", "rtc")
 	});
-	
+
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
 		std::cout << "drivers/clocktracker: Found RTC" << std::endl;
@@ -37,26 +38,24 @@ async::result<void> enumerateRtc() {
 }
 
 async::result<RtcTime> getRtcTime() {
-	managarm::clock::CntRequest req;
-	req.set_req_type(managarm::clock::CntReqType::RTC_GET_TIME);
+	managarm::clock::GetRtcTimeRequest req;
 
 	auto ser = req.SerializeAsString();
-	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
 		rtcLane,
 		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline())
 	);
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
 
-	managarm::clock::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-	recv_resp.reset();
+	auto resp = *bragi::parse_head_only<managarm::clock::SvrResponse>(recvResp);
+	recvResp.reset();
 	assert(resp.error() == managarm::clock::Error::SUCCESS);
-	
-	co_return RtcTime{resp.ref_nanos(), resp.time_nanos()};
+
+	co_return RtcTime{resp.ref_nanos(), resp.rtc_nanos()};
 }
 
 // ----------------------------------------------------------------------------
@@ -76,33 +75,47 @@ TrackerPage *accessPage() {
 
 async::detached serve(helix::UniqueLane lane) {
 	while(true) {
-		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
+		auto [accept, recvReq] = co_await helix_ng::exchangeMsgs(
 			lane,
 			helix_ng::accept(
 				helix_ng::recvInline())
 		);
 		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-		
+		HEL_CHECK(recvReq.error());
+
 		auto conversation = accept.descriptor();
 
-		managarm::clock::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
-		if(req.req_type() == managarm::clock::CntReqType::ACCESS_PAGE) {
+		auto preamble = bragi::read_preamble(recvReq);
+		assert(!preamble.error());
+
+		if (preamble.id() == bragi::message_id<managarm::clock::AccessPageRequest>) {
+			auto req = bragi::parse_head_only<managarm::clock::AccessPageRequest>(recvReq);
+			if (!req) {
+				std::cout << "clocktracker: Ignoring IPC request due to decoding error." << std::endl;
+				continue;
+			}
+
 			managarm::clock::SvrResponse resp;
 			resp.set_error(managarm::clock::Error::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, send_memory] = co_await helix_ng::exchangeMsgs(
+			auto [sendResp, sendMemory] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
 				helix_ng::pushDescriptor(trackerPageMemory)
 			);
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_memory.error());
-		}else{
-			throw std::runtime_error("Unexpected request type");
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(sendMemory.error());
+
+		} else {
+			managarm::clock::SvrResponse resp;
+			resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
+
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(sendResp.error());
 		}
 	}
 }

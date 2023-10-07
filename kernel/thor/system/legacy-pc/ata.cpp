@@ -3,26 +3,28 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/mbus.hpp>
 #include <thor-internal/stream.hpp>
 #include <hw.frigg_bragi.hpp>
-#include <mbus.frigg_pb.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
 
-namespace thor {
-	extern frg::manual_box<LaneHandle> mbusClient;
-}
-
 namespace thor::legacy_pc {
 
-namespace {
-	// TODO: Distinguish protocol errors and end-of-lane.
-	//       Print a log message on protocol errors.
+struct AtaBusObject : private KernelBusObject {
+	coroutine<void> run() {
+		Properties properties;
+		properties.stringProperty("legacy", frg::string<KernelAlloc>(*kernelAlloc, "ata"));
 
-	coroutine<Error> handleRequest(LaneHandle boundLane) {
+		// TODO(qookie): Better error handling here.
+		(co_await createObject(std::move(properties))).unwrap();
+	}
+
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
 		auto sendResponse = [] (LaneHandle &conversation,
-				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::tuple<Error, Error>> {
+				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
 			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 				resp.head_size};
 
@@ -32,9 +34,16 @@ namespace {
 			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
 			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+
+			if (respHeadError != Error::success)
+				co_return respHeadError;
+
 			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
 
-			co_return {respHeadError, respTailError};
+			if (respTailError != Error::success)
+				co_return respTailError;
+
+			co_return frg::success;
 		};
 
 		auto [acceptError, lane] = co_await AcceptSender{boundLane};
@@ -78,12 +87,7 @@ namespace {
 				resp.add_bars(std::move(noBar));
 			}
 
-			auto [headError, tailError] = co_await sendResponse(lane, std::move(resp));
-
-			if(headError != Error::success)
-				co_return headError;
-			if(tailError != Error::success)
-				co_return tailError;
+			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
 
@@ -106,12 +110,7 @@ namespace {
 				resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);
 			}
 
-			auto [headError, tailError] = co_await sendResponse(lane, std::move(resp));
-
-			if(headError != Error::success)
-				co_return headError;
-			if(tailError != Error::success)
-				co_return tailError;
+			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
 			auto ioError = co_await PushDescriptorSender{lane, IoDescriptor{space}};
 			if(ioError != Error::success)
@@ -134,12 +133,7 @@ namespace {
 			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
 #endif
 
-			auto [headError, tailError] = co_await sendResponse(lane, std::move(resp));
-
-			if(headError != Error::success)
-				co_return headError;
-			if(tailError != Error::success)
-				co_return tailError;
+			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
 			auto irqError = co_await PushDescriptorSender{lane, IrqDescriptor{object}};
 			if(irqError != Error::success)
@@ -150,88 +144,17 @@ namespace {
 			co_return Error::protocolViolation;
 		}
 
-		co_return Error::success;
+		co_return frg::success;
 	}
-
-	coroutine<void> handleBind(LaneHandle objectLane) {
-		auto [acceptError, lane] = co_await AcceptSender{objectLane};
-		assert(acceptError == Error::success && "Unexpected mbus transaction");
-
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-		assert(reqError == Error::success && "Unexpected mbus transaction");
-		managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-		assert(req.req_type() == managarm::mbus::SvrReqType::BIND
-				&& "Unexpected mbus transaction");
-
-		auto stream = createStream();
-		managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::mbus::Error::SUCCESS);
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-		assert(respError == Error::success && "Unexpected mbus transaction");
-		auto boundError = co_await PushDescriptorSender{lane, LaneDescriptor{stream.get<1>()}};
-		assert(boundError == Error::success && "Unexpected mbus transaction");
-
-		auto boundLane = stream.get<0>();
-		while(true) {
-			// Terminate the connection on protocol errors.
-			auto error = co_await handleRequest(boundLane);
-			if(error == Error::endOfLane)
-				break;
-			if(isRemoteIpcError(error))
-				infoLogger() << "thor: Aborting legacy-pc.ata request"
-						" after remote violated the protocol" << frg::endlog;
-			assert(error == Error::success);
-		}
-	}
-}
-
-coroutine<void> initializeAtaDevice() {
-	managarm::mbus::Property<KernelAlloc> legacy_prop(*kernelAlloc);
-	legacy_prop.set_name(frg::string<KernelAlloc>(*kernelAlloc, "legacy"));
-	auto &legacy_item = legacy_prop.mutable_item().mutable_string_item();
-	legacy_item.set_value(frg::string<KernelAlloc>(*kernelAlloc, "ata"));
-
-	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
-	req.set_parent_id(1);
-	req.add_properties(std::move(legacy_prop));
-
-	frg::string<KernelAlloc> ser{*kernelAlloc};
-	req.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-	memcpy(reqBuffer.data(), ser.data(), ser.size());
-	auto [offerError, lane] = co_await OfferSender{*mbusClient};
-	assert(offerError == Error::success && "Unexpected mbus transaction");
-	auto reqError = co_await SendBufferSender{lane, std::move(reqBuffer)};
-	assert(reqError == Error::success && "Unexpected mbus transaction");
-
-	auto [respError, respBuffer] = co_await RecvBufferSender{lane};
-	assert(respError == Error::success && "Unexpected mbus transaction");
-	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
-	assert(resp.error() == managarm::mbus::Error::SUCCESS && "Unexpected mbus transaction");
-
-	auto [objectError, objectDescriptor] = co_await PullDescriptorSender{lane};
-	assert(objectError == Error::success && "Unexpected mbus transaction");
-	assert(objectDescriptor.is<LaneDescriptor>() && "Unexpected mbus transaction");
-	auto objectLane = objectDescriptor.get<LaneDescriptor>().handle;
-
-	while(true)
-		co_await handleBind(objectLane);
-}
+};
 
 static initgraph::Task initAtaTask{&globalInitEngine, "legacy_pc.init-ata",
 	initgraph::Requires{getFibersAvailableStage()},
 	[] {
 		// For now, we only need the kernel fiber to make sure mbusClient is already initialized.
 		KernelFiber::run([=] {
-			async::detach_with_allocator(*kernelAlloc, initializeAtaDevice());
+			auto ata = frg::construct<AtaBusObject>(*kernelAlloc);
+			async::detach_with_allocator(*kernelAlloc, ata->run());
 		});
 	}
 };

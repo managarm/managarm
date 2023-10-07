@@ -1,0 +1,28 @@
+namespace "managarm::kerncfg";
+
+enum Error {
+	SUCCESS = 0,
+	ILLEGAL_REQUEST
+}
+
+message GetCmdlineRequest 1 {
+head(128):
+}
+
+message GetBufferContentsRequest 2 {
+head(128):
+	uint64 watermark;
+	uint64 size;
+	uint64 dequeue;
+}
+
+message SvrResponse 3 {
+head(128):
+	Error error;
+
+	tags {
+		tag(1) uint64 size;
+		tag(2) uint64 effective_dequeue;
+		tag(3) uint64 new_dequeue;
+	}
+}

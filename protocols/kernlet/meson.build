@@ -1,10 +1,7 @@
-here = meson.current_source_dir()
-kernlet_pb = protocxx.process(here/'kernlet.proto', 
-	extra_args : [ '-I' + here ]
-)
+kernlet_bragi = cxxbragi.process('kernlet.bragi')
 
 deps = [ mbus_proto_dep, frigg ]
-src = [ 'src/compiler.cpp', kernlet_pb ]
+src = [ 'src/compiler.cpp', kernlet_bragi ]
 inc = [ 'include' ]
 
 libkernlet = shared_library('kernlet_protocol', src,
@@ -16,7 +13,7 @@ libkernlet = shared_library('kernlet_protocol', src,
 kernlet_proto_dep = declare_dependency(
 	link_with : libkernlet,
 	dependencies : deps,
-	sources : kernlet_pb,
+	sources : kernlet_bragi,
 	include_directories : inc
 )
 

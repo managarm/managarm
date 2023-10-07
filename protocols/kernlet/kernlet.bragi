@@ -1,0 +1,29 @@
+namespace "managarm::kernlet";
+
+enum Error {
+	SUCCESS = 0,
+	ILLEGAL_REQUEST
+}
+
+enum ParameterType {
+	OFFSET = 1,
+	MEMORY_VIEW,
+	BITSET_EVENT
+}
+
+message UploadRequest 1 {
+head(128):
+tail:
+	ParameterType[] bind_types;
+}
+
+message CompileRequest 2 {
+head(128):
+tail:
+	ParameterType[] bind_types;
+}
+
+message SvrResponse 3 {
+head(128):
+	Error error;
+}

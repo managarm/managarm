@@ -55,667 +55,525 @@ initgraph::Stage *getDevicesEnumeratedStage() {
 	return &s;
 }
 
-namespace {
-	coroutine<bool> handleReq(LaneHandle lane, smarter::shared_ptr<PciDevice> device) {
-		auto [acceptError, conversation] = co_await AcceptSender{lane};
-		if(acceptError == Error::endOfLane)
-			co_return false;
-		// TODO: improve error handling here.
-		assert(acceptError == Error::success);
-
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-		// TODO: improve error handling here.
-		assert(reqError == Error::success);
-
-		auto preamble = bragi::read_preamble(reqBuffer);
-		assert(!preamble.error());
-
-		auto sendResponse = [] (LaneHandle &conversation,
-				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::tuple<Error, Error>> {
-			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
-				resp.head_size};
-
-			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
-				resp.size_of_tail()};
-
-			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
-
-			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
-			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
-
-			co_return {respHeadError, respTailError};
-		};
-
-		if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			if (device->parentBus->msiController)
-				resp.set_num_msis(device->numMsis);
-
-			for(size_t i = 0; i < device->caps.size(); i++) {
-				managarm::hw::PciCapability<KernelAlloc> msg(*kernelAlloc);
-				msg.set_type(device->caps[i].type);
-				msg.set_offset(device->caps[i].offset);
-				msg.set_length(device->caps[i].length);
-				resp.add_capabilities(std::move(msg));
-			}
-
-			for(size_t k = 0; k < 6; k++) {
-				managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
-				if(device->bars[k].type == PciBar::kBarIo) {
-					msg.set_io_type(managarm::hw::IoType::PORT);
-				}else if(device->bars[k].type == PciBar::kBarMemory) {
-					msg.set_io_type(managarm::hw::IoType::MEMORY);
-				}else{
-					assert(device->bars[k].type == PciBar::kBarNone);
-					msg.set_io_type(managarm::hw::IoType::NO_BAR);
-				}
-
-				if(device->bars[k].hostType == PciBar::kBarIo) {
-					msg.set_host_type(managarm::hw::IoType::PORT);
-					msg.set_address(device->bars[k].address);
-					msg.set_length(device->bars[k].length);
-				}else if(device->bars[k].hostType == PciBar::kBarMemory) {
-					msg.set_host_type(managarm::hw::IoType::MEMORY);
-					msg.set_address(device->bars[k].address);
-					msg.set_length(device->bars[k].length);
-					msg.set_offset(device->bars[k].offset);
-				}else{
-					assert(device->bars[k].hostType == PciBar::kBarNone);
-					msg.set_host_type(managarm::hw::IoType::NO_BAR);
-				}
-				resp.add_bars(std::move(msg));
-			}
-
-			managarm::hw::PciExpansionRom<KernelAlloc> msg(*kernelAlloc);
-			msg.set_address(device->expansionRom.address);
-			msg.set_length(device->expansionRom.length);
-			resp.set_expansion_rom(msg);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			auto index = req->index();
-
-			AnyDescriptor descriptor;
-			if(device->bars[index].type == PciBar::kBarIo) {
-				descriptor = IoDescriptor{device->bars[index].io};
-			}else{
-				assert(device->bars[index].type == PciBar::kBarMemory);
-				descriptor = MemoryViewDescriptor{device->bars[index].memory};
-			}
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-
-			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
-			// TODO: improve error handling here.
-			assert(descError == Error::success);
-		} else if(preamble.id() == bragi::message_id<managarm::hw::AccessExpansionRomRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::AccessExpansionRomRequest>(reqBuffer, *kernelAlloc);
-
-			if(!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			assert(device->expansionRom.address);
-			AnyDescriptor descriptor = MemoryViewDescriptor{device->expansionRom.memory};
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-
-			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
-			// TODO: improve error handling here.
-			assert(descError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			auto object = device->obtainIrqObject();
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-
-			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
-			// TODO: improve error handling here.
-			assert(descError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::InstallMsiRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::InstallMsiRequest>(
-					reqBuffer, *kernelAlloc);
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			if ((device->msiIndex < 0 && device->msixIndex < 0)
-					|| !device->parentBus->msiController
-					|| req->index() >= device->numMsis) {
-				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-
-				auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-				// TODO: improve error handling here.
-				assert(headError == Error::success);
-				assert(tailError == Error::success);
-				co_return true;
-			}
-
-			// Allocate the MSI.
-			auto interrupt = device->parentBus->msiController->allocateMsiPin(
-					frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
-					+ frg::to_allocated_string(*kernelAlloc, device->bus)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-					+ frg::to_allocated_string(*kernelAlloc, device->slot)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-					+ frg::to_allocated_string(*kernelAlloc, device->function)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "."}
-					+ frg::to_allocated_string(*kernelAlloc, req->index()));
-			if(!interrupt) {
-				infoLogger() << "thor: Could not allocate interrupt vector for MSI" << frg::endlog;
-
-				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-				resp.set_error(managarm::hw::Errors::RESOURCE_EXHAUSTION);
-
-				auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-				// TODO: improve error handling here.
-				assert(headError == Error::success);
-				assert(tailError == Error::success);
-				co_return true;
-			}
-
-			// Obtain an IRQ object for the interrupt.
-			auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
-					frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
-					+ frg::to_allocated_string(*kernelAlloc, device->bus)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-					+ frg::to_allocated_string(*kernelAlloc, device->slot)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-					+ frg::to_allocated_string(*kernelAlloc, device->function)
-					+ frg::string<KernelAlloc>{*kernelAlloc, "."}
-					+ frg::to_allocated_string(*kernelAlloc, req->index()));
-			IrqPin::attachSink(interrupt, object.get());
-
-			device->setupMsi(interrupt, req->index());
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-
-			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
-			// TODO: improve error handling here.
-			assert(descError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::ClaimDeviceRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::ClaimDeviceRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			if(device->associatedScreen) {
-				infoLogger() << "thor: Disabling screen associated with PCI device "
-						<< device->bus << "." << device->slot << "." << device->function
-						<< frg::endlog;
-				disableLogHandler(device->associatedScreen);
-			}
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusIrqRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::EnableBusIrqRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			device->enableIrq();
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableMsiRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::EnableMsiRequest>(
-					reqBuffer, *kernelAlloc);
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			if ((device->msiIndex < 0 && device->msixIndex < 0)
-					|| !device->parentBus->msiController) {
-				managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-
-				auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-				// TODO: improve error handling here.
-				assert(headError == Error::success);
-				assert(tailError == Error::success);
-				co_return true;
-			}
-
-			device->enableMsi();
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusmasterRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::EnableBusmasterRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			auto io = device->parentBus->io;
-
-			auto command = io->readConfigHalf(device->parentBus,
-					device->slot, device->function, kPciCommand);
-			io->writeConfigHalf(device->parentBus, device->slot, device->function,
-					kPciCommand, command | 0x0004);
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciSpaceRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::LoadPciSpaceRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-
-			auto io = device->parentBus->io;
-
-			if(req->size() == 1) {
-				if(isValidConfigAccess(1, req->offset())) {
-					auto word = io->readConfigByte(device->parentBus,
-							device->slot, device->function, req->offset());
-					resp.set_error(managarm::hw::Errors::SUCCESS);
-					resp.set_word(word);
-				}else{
-					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-				}
-			}else if(req->size() == 2) {
-				if(isValidConfigAccess(2, req->offset())) {
-					auto word = io->readConfigHalf(device->parentBus,
-							device->slot, device->function, req->offset());
-					resp.set_error(managarm::hw::Errors::SUCCESS);
-					resp.set_word(word);
-				}else{
-					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-				}
-			}else if(req->size() == 4) {
-				if(isValidConfigAccess(4, req->offset())) {
-					auto word = io->readConfigWord(device->parentBus,
-							device->slot, device->function, req->offset());
-					resp.set_error(managarm::hw::Errors::SUCCESS);
-					resp.set_word(word);
-				}else{
-					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-				}
-			}else{
-				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-			}
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::StorePciSpaceRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::StorePciSpaceRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-
-			auto io = device->parentBus->io;
-
-			if(req->size() == 1) {
-				if(isValidConfigAccess(1, req->offset())) {
-					io->writeConfigByte(device->parentBus, device->slot, device->function,
-							req->offset(), req->word());
-					resp.set_error(managarm::hw::Errors::SUCCESS);
-				}else{
-					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-				}
-			}else if(req->size() == 2) {
-				if(isValidConfigAccess(2, req->offset())) {
-					io->writeConfigHalf(device->parentBus, device->slot, device->function,
-							req->offset(), req->word());
-					resp.set_error(managarm::hw::Errors::SUCCESS);
-				}else{
-					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-				}
-			}else if(req->size() == 4) {
-				if(isValidConfigAccess(4, req->offset())) {
-					io->writeConfigWord(device->parentBus, device->slot, device->function,
-							req->offset(), req->word());
-					resp.set_error(managarm::hw::Errors::SUCCESS);
-				}else{
-					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-				}
-			}else{
-				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-			}
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciCapabilityRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::LoadPciCapabilityRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-
-			auto io = device->parentBus->io;
-
-			if(static_cast<size_t>(req->index()) < device->caps.size()) {
-				if(req->size() == 1) {
-					if(isValidConfigAccess(1, req->offset())) {
-						auto word = io->readConfigByte(device->parentBus,
-								device->slot, device->function,
-								device->caps[req->index()].offset + req->offset());
-						resp.set_error(managarm::hw::Errors::SUCCESS);
-						resp.set_word(word);
-					}else{
-						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-					}
-				}else if(req->size() == 2) {
-					if(isValidConfigAccess(2, req->offset())) {
-						auto word = io->readConfigHalf(device->parentBus,
-								device->slot, device->function,
-								device->caps[req->index()].offset + req->offset());
-						resp.set_error(managarm::hw::Errors::SUCCESS);
-						resp.set_word(word);
-					}else{
-						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-					}
-				}else if(req->size() == 4) {
-					if(isValidConfigAccess(4, req->offset())) {
-						auto word = io->readConfigWord(device->parentBus,
-								device->slot, device->function,
-								device->caps[req->index()].offset + req->offset());
-						resp.set_error(managarm::hw::Errors::SUCCESS);
-						resp.set_word(word);
-					}else{
-						resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-					}
-				}else{
-					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-				}
-			}else{
-				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-			}
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::GetFbInfoRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::GetFbInfoRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			auto fb = device->associatedFrameBuffer;
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-
-			if (!fb) {
-				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-			} else {
-				resp.set_error(managarm::hw::Errors::SUCCESS);
-
-				resp.set_fb_pitch(fb->pitch);
-				resp.set_fb_width(fb->width);
-				resp.set_fb_height(fb->height);
-				resp.set_fb_bpp(fb->bpp);
-				resp.set_fb_type(fb->type);
-			}
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
-
-			if (!req) {
-				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
-				co_return true;
-			}
-
-			auto fb = device->associatedFrameBuffer;
-			MemoryViewDescriptor descriptor{nullptr};
-
-			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-
-			if (!fb) {
-				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
-			} else {
-				descriptor = MemoryViewDescriptor{fb->memory};
-				resp.set_error(managarm::hw::Errors::SUCCESS);
-			}
-
-			auto [headError, tailError] = co_await sendResponse(conversation, std::move(resp));
-
-			// TODO: improve error handling here.
-			assert(headError == Error::success);
-			assert(tailError == Error::success);
-
-			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
-			// TODO: improve error handling here.
-			assert(descError == Error::success);
-		}else{
-			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
-			co_await DismissSender{conversation};
-		}
-
-		co_return true;
-	}
-
-	// ------------------------------------------------------------------------
-	// mbus object creation and management.
-	// ------------------------------------------------------------------------
-
-	void addStringProperty(managarm::mbus::CntRequest<KernelAlloc> &req, const char *name,
-		frg::string<KernelAlloc> text) {
-		managarm::mbus::Property<KernelAlloc> property(*kernelAlloc);
-		property.set_name(frg::string<KernelAlloc>(*kernelAlloc, name));
-		auto &mutable_item = property.mutable_item().mutable_string_item();
-		mutable_item.set_value(std::move(text));
-		req.add_properties(std::move(property));
-	}
-
-	void addHexStringProperty(managarm::mbus::CntRequest<KernelAlloc> &req, const char *name,
-		unsigned int value, int padding) {
-		addStringProperty(req, name, frg::to_allocated_string(*kernelAlloc, value, 16, padding));
-	}
-
-	coroutine<LaneHandle> createObject(LaneHandle mbusLane, smarter::shared_ptr<PciDevice> device) {
-		auto [offerError, conversation] = co_await OfferSender{mbusLane};
-		// TODO: improve error handling here.
-		assert(offerError == Error::success);
-
-		managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
-		req.set_parent_id(1);
-
-		addStringProperty(req, "unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
-		addHexStringProperty(req, "pci-bus", device->bus, 2);
-		addHexStringProperty(req, "pci-slot", device->slot, 2);
-		addHexStringProperty(req, "pci-function", device->function, 1);
-		addHexStringProperty(req, "pci-vendor", device->vendor, 4);
-		addHexStringProperty(req, "pci-device", device->deviceId, 4);
-		addHexStringProperty(req, "pci-revision", device->revision, 2);
-		addHexStringProperty(req, "pci-class", device->classCode, 2);
-		addHexStringProperty(req, "pci-subclass", device->subClass, 2);
-		addHexStringProperty(req, "pci-interface", device->interface, 2);
-		addHexStringProperty(req, "pci-subsystem-vendor", device->subsystemVendor, 2);
-		addHexStringProperty(req, "pci-subsystem-device", device->subsystemDevice, 2);
-
-		if(device->associatedFrameBuffer) {
-			addStringProperty(req, "class", frg::string<KernelAlloc>(*kernelAlloc, "framebuffer"));
-		}
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		req.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-		memcpy(reqBuffer.data(), ser.data(), ser.size());
-		auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
-		// TODO: improve error handling here.
-		assert(reqError == Error::success);
-
-		auto [respError, respBuffer] = co_await RecvBufferSender{conversation};
-		// TODO: improve error handling here.
-		assert(respError == Error::success);
-		managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.ParseFromArray(respBuffer.data(), respBuffer.size());
-		assert(resp.error() == managarm::mbus::Error::SUCCESS);
-
-		auto [descError, descriptor] = co_await PullDescriptorSender{conversation};
-		// TODO: improve error handling here.
-		assert(descError == Error::success);
-		assert(descriptor.is<LaneDescriptor>());
-		co_return descriptor.get<LaneDescriptor>().handle;
-	}
-
-	coroutine<void> handleBind(LaneHandle objectLane, smarter::shared_ptr<PciDevice> device) {
-		auto [acceptError, conversation] = co_await AcceptSender{objectLane};
-		// TODO: improve error handling here.
-		assert(acceptError == Error::success);
-
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-		// TODO: improve error handling here.
-		assert(reqError == Error::success);
-		managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-		assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-
-		managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::mbus::Error::SUCCESS);
-
-		frg::string<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-		memcpy(respBuffer.data(), ser.data(), ser.size());
-		auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-		// TODO: improve error handling here.
-		assert(respError == Error::success);
-
-		auto stream = createStream();
-		auto descError = co_await PushDescriptorSender{conversation,
-				LaneDescriptor{stream.get<1>()}};
-		// TODO: improve error handling here.
-		assert(descError == Error::success);
-
-		async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane,
-				smarter::shared_ptr<PciDevice> device) -> coroutine<void> {
-			while(true) {
-				if(!(co_await handleReq(lane, device)))
-					break;
-			}
-		}(std::move(stream.get<0>()), std::move(device)));
-	}
-}
-
-void runDevice(smarter::shared_ptr<PciDevice> device) {
-	KernelFiber::run([=] {
-		async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<PciDevice> device)
-				-> coroutine<void> {
-			auto objectLane = co_await createObject(*mbusClient, device);
-			while(true)
-				co_await handleBind(objectLane, device);
-		}(device));
-	});
-}
-
 // --------------------------------------------------------
 // PciDevice implementation.
 // --------------------------------------------------------
+
+void PciDevice::runDevice() {
+	KernelFiber::run([=] {
+		async::detach_with_allocator(*kernelAlloc, [] (PciDevice *device)
+				-> coroutine<void> {
+			Properties properties;
+
+			properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
+			properties.hexStringProperty("pci-bus", device->bus, 2);
+			properties.hexStringProperty("pci-slot", device->slot, 2);
+			properties.hexStringProperty("pci-function", device->function, 1);
+			properties.hexStringProperty("pci-vendor", device->vendor, 4);
+			properties.hexStringProperty("pci-device", device->deviceId, 4);
+			properties.hexStringProperty("pci-revision", device->revision, 2);
+			properties.hexStringProperty("pci-class", device->classCode, 2);
+			properties.hexStringProperty("pci-subclass", device->subClass, 2);
+			properties.hexStringProperty("pci-interface", device->interface, 2);
+			properties.hexStringProperty("pci-subsystem-vendor", device->subsystemVendor, 2);
+			properties.hexStringProperty("pci-subsystem-device", device->subsystemDevice, 2);
+
+			if(device->associatedFrameBuffer) {
+				properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "framebuffer"));
+			}
+
+			// TODO(qookie): Better error handling here.
+			(co_await device->createObject(std::move(properties))).unwrap();
+		}(this));
+	});
+}
+
+coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
+	auto [acceptError, conversation] = co_await AcceptSender{lane};
+	if(acceptError != Error::success)
+		co_return acceptError;
+
+	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+	if(reqError != Error::success)
+		co_return reqError;
+
+	auto preamble = bragi::read_preamble(reqBuffer);
+	if (preamble.error())
+		co_return Error::protocolViolation;
+
+	auto sendResponse = [] (LaneHandle &conversation,
+			managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
+		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+			resp.head_size};
+
+		frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+			resp.size_of_tail()};
+
+		bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+		auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+
+		if (respHeadError != Error::success)
+			co_return respHeadError;
+
+		auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+
+		if (respTailError != Error::success)
+			co_return respTailError;
+
+		co_return frg::success;
+	};
+
+	if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		if (parentBus->msiController)
+			resp.set_num_msis(numMsis);
+
+		for(size_t i = 0; i < caps.size(); i++) {
+			managarm::hw::PciCapability<KernelAlloc> msg(*kernelAlloc);
+			msg.set_type(caps[i].type);
+			msg.set_offset(caps[i].offset);
+			msg.set_length(caps[i].length);
+			resp.add_capabilities(std::move(msg));
+		}
+
+		for(size_t k = 0; k < 6; k++) {
+			managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
+			if(bars[k].type == PciBar::kBarIo) {
+				msg.set_io_type(managarm::hw::IoType::PORT);
+			}else if(bars[k].type == PciBar::kBarMemory) {
+				msg.set_io_type(managarm::hw::IoType::MEMORY);
+			}else{
+				assert(bars[k].type == PciBar::kBarNone);
+				msg.set_io_type(managarm::hw::IoType::NO_BAR);
+			}
+
+			if(bars[k].hostType == PciBar::kBarIo) {
+				msg.set_host_type(managarm::hw::IoType::PORT);
+				msg.set_address(bars[k].address);
+				msg.set_length(bars[k].length);
+			}else if(bars[k].hostType == PciBar::kBarMemory) {
+				msg.set_host_type(managarm::hw::IoType::MEMORY);
+				msg.set_address(bars[k].address);
+				msg.set_length(bars[k].length);
+				msg.set_offset(bars[k].offset);
+			}else{
+				assert(bars[k].hostType == PciBar::kBarNone);
+				msg.set_host_type(managarm::hw::IoType::NO_BAR);
+			}
+			resp.add_bars(std::move(msg));
+		}
+
+		managarm::hw::PciExpansionRom<KernelAlloc> msg(*kernelAlloc);
+		msg.set_address(expansionRom.address);
+		msg.set_length(expansionRom.length);
+		resp.set_expansion_rom(msg);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		auto index = req->index();
+
+		AnyDescriptor descriptor;
+		if(bars[index].type == PciBar::kBarIo) {
+			descriptor = IoDescriptor{bars[index].io};
+		}else{
+			assert(bars[index].type == PciBar::kBarMemory);
+			descriptor = MemoryViewDescriptor{bars[index].memory};
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+
+		if (descError != Error::success)
+			co_return descError;
+	} else if(preamble.id() == bragi::message_id<managarm::hw::AccessExpansionRomRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AccessExpansionRomRequest>(reqBuffer, *kernelAlloc);
+
+		if(!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		assert(expansionRom.address);
+		AnyDescriptor descriptor = MemoryViewDescriptor{expansionRom.memory};
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+
+		if (descError != Error::success)
+			co_return descError;
+	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		auto object = obtainIrqObject();
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+
+		if (descError != Error::success)
+			co_return descError;
+	}else if(preamble.id() == bragi::message_id<managarm::hw::InstallMsiRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::InstallMsiRequest>(
+				reqBuffer, *kernelAlloc);
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		if ((msiIndex < 0 && msixIndex < 0)
+				|| !parentBus->msiController
+				|| req->index() >= numMsis) {
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+			co_return frg::success;
+		}
+
+		// Allocate the MSI.
+		auto interrupt = parentBus->msiController->allocateMsiPin(
+				frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
+				+ frg::to_allocated_string(*kernelAlloc, bus)
+				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+				+ frg::to_allocated_string(*kernelAlloc, slot)
+				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+				+ frg::to_allocated_string(*kernelAlloc, function)
+				+ frg::string<KernelAlloc>{*kernelAlloc, "."}
+				+ frg::to_allocated_string(*kernelAlloc, req->index()));
+		if(!interrupt) {
+			infoLogger() << "thor: Could not allocate interrupt vector for MSI" << frg::endlog;
+
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::RESOURCE_EXHAUSTION);
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+			co_return frg::success;
+		}
+
+		// Obtain an IRQ object for the interrupt.
+		auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+				frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
+				+ frg::to_allocated_string(*kernelAlloc, bus)
+				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+				+ frg::to_allocated_string(*kernelAlloc, slot)
+				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+				+ frg::to_allocated_string(*kernelAlloc, function)
+				+ frg::string<KernelAlloc>{*kernelAlloc, "."}
+				+ frg::to_allocated_string(*kernelAlloc, req->index()));
+		IrqPin::attachSink(interrupt, object.get());
+
+		setupMsi(interrupt, req->index());
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+
+		if (descError != Error::success)
+			co_return descError;
+	}else if(preamble.id() == bragi::message_id<managarm::hw::ClaimDeviceRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::ClaimDeviceRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		if(associatedScreen) {
+			infoLogger() << "thor: Disabling screen associated with PCI device "
+					<< bus << "." << slot << "." << function
+					<< frg::endlog;
+			disableLogHandler(associatedScreen);
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusIrqRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::EnableBusIrqRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		enableIrq();
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableMsiRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::EnableMsiRequest>(
+				reqBuffer, *kernelAlloc);
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		if ((msiIndex < 0 && msixIndex < 0)
+				|| !parentBus->msiController) {
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+			co_return frg::success;
+		}
+
+		enableMsi();
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusmasterRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::EnableBusmasterRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		auto io = parentBus->io;
+
+		auto command = io->readConfigHalf(parentBus,
+				slot, function, kPciCommand);
+		io->writeConfigHalf(parentBus, slot, function,
+				kPciCommand, command | 0x0004);
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciSpaceRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::LoadPciSpaceRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+
+		auto io = parentBus->io;
+
+		if(req->size() == 1) {
+			if(isValidConfigAccess(1, req->offset())) {
+				auto word = io->readConfigByte(parentBus,
+						slot, function, req->offset());
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+				resp.set_word(word);
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+		}else if(req->size() == 2) {
+			if(isValidConfigAccess(2, req->offset())) {
+				auto word = io->readConfigHalf(parentBus,
+						slot, function, req->offset());
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+				resp.set_word(word);
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+		}else if(req->size() == 4) {
+			if(isValidConfigAccess(4, req->offset())) {
+				auto word = io->readConfigWord(parentBus,
+						slot, function, req->offset());
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+				resp.set_word(word);
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+		}else{
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::StorePciSpaceRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::StorePciSpaceRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+
+		auto io = parentBus->io;
+
+		if(req->size() == 1) {
+			if(isValidConfigAccess(1, req->offset())) {
+				io->writeConfigByte(parentBus, slot, function,
+						req->offset(), req->word());
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+		}else if(req->size() == 2) {
+			if(isValidConfigAccess(2, req->offset())) {
+				io->writeConfigHalf(parentBus, slot, function,
+						req->offset(), req->word());
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+		}else if(req->size() == 4) {
+			if(isValidConfigAccess(4, req->offset())) {
+				io->writeConfigWord(parentBus, slot, function,
+						req->offset(), req->word());
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+		}else{
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciCapabilityRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::LoadPciCapabilityRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+
+		auto io = parentBus->io;
+
+		if(static_cast<size_t>(req->index()) < caps.size()) {
+			if(req->size() == 1) {
+				if(isValidConfigAccess(1, req->offset())) {
+					auto word = io->readConfigByte(parentBus,
+							slot, function,
+							caps[req->index()].offset + req->offset());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+					resp.set_word(word);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else if(req->size() == 2) {
+				if(isValidConfigAccess(2, req->offset())) {
+					auto word = io->readConfigHalf(parentBus,
+							slot, function,
+							caps[req->index()].offset + req->offset());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+					resp.set_word(word);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else if(req->size() == 4) {
+				if(isValidConfigAccess(4, req->offset())) {
+					auto word = io->readConfigWord(parentBus,
+							slot, function,
+							caps[req->index()].offset + req->offset());
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+					resp.set_word(word);
+				}else{
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+				}
+			}else{
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+		}else{
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::GetFbInfoRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::GetFbInfoRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		auto fb = associatedFrameBuffer;
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+
+		if (!fb) {
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+		} else {
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			resp.set_fb_pitch(fb->pitch);
+			resp.set_fb_width(fb->width);
+			resp.set_fb_height(fb->height);
+			resp.set_fb_bpp(fb->bpp);
+			resp.set_fb_type(fb->type);
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		auto fb = associatedFrameBuffer;
+		MemoryViewDescriptor descriptor{nullptr};
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+
+		if (!fb) {
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+		} else {
+			descriptor = MemoryViewDescriptor{fb->memory};
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+		// TODO: improve error handling here.
+		assert(descError == Error::success);
+	}else{
+		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
+		co_await DismissSender{conversation};
+	}
+
+	co_return frg::success;
+}
 
 namespace {
 	struct PciIrqObject final : IrqObject {
@@ -1349,7 +1207,7 @@ void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
 
 void runAllDevices() {
 	for (auto dev : *allDevices)
-		runDevice(dev);
+		dev->runDevice();
 }
 
 void addToEnumerationQueue(PciBus *bus) {
