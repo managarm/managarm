@@ -5,6 +5,7 @@ endif
 src = files(
 	'src/gfx.cpp',
 	'src/main.cpp',
+	'src/imports.cpp',
 )
 
 executable('gfx_intel_lil', src,
