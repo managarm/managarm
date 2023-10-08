@@ -393,6 +393,8 @@ struct PciDevice final : PciEntity {
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
 	BootScreen *associatedScreen;
+
+	smarter::shared_ptr<MemoryView> igdVbt;
 };
 
 enum {

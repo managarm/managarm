@@ -1,6 +1,7 @@
 #include <frg/optional.hpp>
 
 #include <thor-internal/debug.hpp>
+#include <thor-internal/pci/intel-igd.hpp>
 #include <thor-internal/pci/pci.hpp>
 
 namespace thor::pci {
@@ -25,6 +26,81 @@ void switchUsbPortsToXhci(PciDevice *dev) {
 	io->writeConfigWord(dev->parentBus, dev->slot, dev->function, 0xD0, usb2PortsAvail);
 }
 
+void readIntelIntegratedGraphicsVbt(pci::PciDevice *dev) {
+	auto io = dev->parentBus->io;
+
+	uint32_t aslsPhys = io->readConfigWord(dev->parentBus, dev->slot, dev->function, 0xFC);
+	if (!aslsPhys) {
+		// ACPI OpRegion not supported
+		warningLogger() << "            ASLS unset, broken firmware? GPU unusable" << frg::endlog;
+		return;
+	}
+
+	debugLogger() << "            OpRegion physical address " << frg::hex_fmt{aslsPhys}
+	             << frg::endlog;
+
+	PhysicalWindow opregionWindow{aslsPhys, 0x2000};
+	auto opregion = reinterpret_cast<IgdOpregionHeader *>(opregionWindow.get());
+
+	if (memcmp(opregion, IGD_OPREGION_SIGNATURE, 16) != 0) {
+		warningLogger() << "            OpRegion signature invalid, GPU unusable" << frg::endlog;
+		return;
+	}
+
+	debugLogger() << "            \e[32mfound ACPI OpRegion " << opregion->over.major << "."
+	             << opregion->over.minor << "." << opregion->over.revision << "\e[39m"
+	             << frg::endlog;
+
+	IgdOpregionAsle *asle = nullptr;
+
+	if (opregion->mbox & IGD_MBOX_ASLE)
+		asle = reinterpret_cast<IgdOpregionAsle *>((uintptr_t)opregion + IGD_OPREGION_ASLE_OFFSET);
+
+	if (opregion->over.major >= 2 && asle && asle->rvda && asle->rvds) {
+		uint64_t rvda = asle->rvda;
+
+		// In OpRegion v2.1+, rvda was changed to a relative offset
+		if (opregion->over.major > 2 || (opregion->over.major == 2 && opregion->over.minor >= 1)) {
+			if (rvda < IGD_OPREGION_SIZE) {
+				debugLogger()
+				    << "            \e[33mVBT base shouldn't be within OpRegion, but it is!"
+				    << "\e[39m" << frg::endlog;
+			}
+
+			rvda += aslsPhys;
+		}
+
+		// OpRegion 2.0: rvda is a physical address
+		auto vbt = smarter::allocate_shared<HardwareMemory>(
+		    *kernelAlloc,
+		    rvda & ~(kPageSize - 1),
+		    (asle->rvds + (kPageSize - 1)) & ~(kPageSize - 1),
+		    CachingMode::uncached
+		);
+
+		dev->igdVbt = std::move(vbt);
+		return;
+	}
+
+	if (!(opregion->mbox & IGD_MBOX_VBT)) {
+		// ACPI OpRegion does not support VBT mailbox when it should
+		return;
+	}
+
+	size_t vbtSize =
+	    ((opregion->mbox & IGD_MBOX_ASLE_EXT) ? IGD_OPREGION_ASLE_EXT_OFFSET : IGD_OPREGION_SIZE)
+	    - IGD_OPREGION_VBT_OFFSET;
+
+	auto vbt = smarter::allocate_shared<HardwareMemory>(
+	    *kernelAlloc,
+	    (aslsPhys + IGD_OPREGION_VBT_OFFSET) & ~(kPageSize - 1),
+	    (vbtSize + (kPageSize - 1)) & ~(kPageSize - 1),
+	    CachingMode::uncached
+	);
+
+	dev->igdVbt = std::move(vbt);
+}
+
 struct {
 	std::optional<uint8_t> pci_class = std::nullopt;
 	std::optional<uint8_t> pci_subclass = std::nullopt;
@@ -39,6 +115,7 @@ struct {
 	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x00, .func = uhciSmiDisable},
 	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x30, .pci_vendor = 0x8086, .func = switchUsbPortsToXhci},
 	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x30, .pci_vendor = 0x1106, .func = uploadRaspberryPi4Vl805Firmware},
+	{.pci_class = 0x03, .pci_subclass = 0x00, .pci_vendor = 0x8086, .pci_bus = 0, .pci_slot = 2, .pci_func = 0, .func = readIntelIntegratedGraphicsVbt},
 };
 
 } // namespace
