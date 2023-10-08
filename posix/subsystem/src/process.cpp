@@ -714,9 +714,10 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	HEL_CHECK(storeFrame.error());
 	HEL_CHECK(storeSimd.error());
 
-	std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
-	std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
-
+	if(logSignals) {
+		std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
+		std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
+	}
 	// Setup the new register image and resume.
 	// TODO: Linux sets rdx to the ucontext.
 #if defined(__x86_64__)
@@ -745,7 +746,8 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 	auto frame = pcrs[kHelRegSp] - stackCallMisalign;
 
-	std::cout << "posix: Restoring post-signal stack from " << (void *)frame << std::endl;
+	if(logSignals)
+		std::cout << "posix: Restoring post-signal stack from " << (void *)frame << std::endl;
 
 	std::vector<std::byte> simdState(simdStateSize);
 
