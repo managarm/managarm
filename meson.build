@@ -177,6 +177,7 @@ if build_drivers
 	bakesvr = find_program('bakesvr')
 
 	libudev_dep = dependency('libudev')
+	lil_dep = dependency('lil', method: 'pkg-config')
 endif
 
 if build_drivers or build_testsuite
@@ -210,7 +211,7 @@ if build_drivers or provide_deps
 		# net
 		'nic/usb_net', 'nic/rtl8168', 'nic/freebsd-e1000', 'nic/k1x-emac', 'nic/bcmgenet',
 		# gfx
-		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware', 'gfx/nvidia-open',
+		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware', 'gfx/nvidia-open', 'gfx/intel-lil',
 		# io
 		'kbd', 'tty/virtio-console', 'uart',
 		# usb
