@@ -572,5 +572,43 @@ async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 	co_return std::move(bar);
 }
 
+async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
+	managarm::hw::GetVbtRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
+	HEL_CHECK(pull_bar.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	auto bar = pull_bar.descriptor();
+	co_return { std::move(bar), resp.vbt_size() };
+}
+
 } } // namespace protocols::hw
 
