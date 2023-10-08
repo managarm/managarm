@@ -171,6 +171,13 @@ if build_drivers
 	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
 	cli11_dep = dependency('CLI11')
+	lil_dep = cxx.find_library('lil', static: true)
+	lil_header_dep = declare_dependency(include_directories: subproject('lil', default_options: ['header_only=true']).get_variable('include_directories'))
+
+	# TODO: once https://github.com/mesonbuild/meson/commit/e3c007aefe72d9f896028c6c45906707181d3a07
+	# gets picked up by a meson release (probably 1.3.0), we can switch from using a separate
+	# lil package to using this:
+		# lil_dep = dependency('lil', default_options: ['cpp_std=c++2b'])
 
 	# this produces the helix dependency which
 	# all protocols depend on
@@ -185,7 +192,7 @@ if build_drivers
 		# storage
 		'block/ata', 'block/virtio-blk', 'block/ahci', 'block/nvme',
 		# gfx
-		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware',
+		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware', 'gfx/intel-lil',
 		# io
 		'kbd', 'tty/virtio-console', 'uart',
 		# usb
