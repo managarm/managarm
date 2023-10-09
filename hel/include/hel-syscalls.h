@@ -455,9 +455,15 @@ extern inline __attribute__ (( always_inline )) HelError helBindKernlet(HelHandl
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSetAffinity(HelHandle thread,
+extern inline __attribute__ (( always_inline )) HelError helGetAffinity(HelHandle handle,
+		uint8_t *mask, size_t size, size_t *actualSize) {
+	return helSyscall4(kHelCallGetAffinity, (HelWord)handle,
+			(HelWord)mask, (HelWord)size, (HelWord)actualSize);
+};
+
+extern inline __attribute__ (( always_inline )) HelError helSetAffinity(HelHandle handle,
 		uint8_t *mask, size_t size) {
-	return helSyscall3(kHelCallSetAffinity, (HelWord)thread,
+	return helSyscall3(kHelCallSetAffinity, (HelWord)handle,
 			(HelWord)mask, (HelWord)size);
 };
 
