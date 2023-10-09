@@ -3170,6 +3170,107 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 				);
 			HEL_CHECK(sendResp.error());
+		}else if(preamble.id() == managarm::posix::SetAffinityRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::SetAffinityRequest>(recv_head, tail);
+			
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: SET_AFFINITY" << std::endl;
+
+			auto handle = self->threadDescriptor().getHandle();
+
+			if(self->pid() != req->pid()) {
+				// TODO: permission checking
+				auto target_process = self->findProcess(req->pid());
+				if(target_process == nullptr) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+				handle = target_process->threadDescriptor().getHandle();
+			}
+
+			HelError e = helSetAffinity(handle, req->mask().data(), req->mask().size());
+
+			if(e == kHelErrIllegalArgs) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			} else if(e != kHelErrNone) {
+				std::cout << "posix: SET_AFFINITY hel call returned unexpected error: " << e << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+				continue;
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(sendResp.error());
+		}else if(preamble.id() == managarm::posix::GetAffinityRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::GetAffinityRequest>(recv_head);
+			
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: GET_AFFINITY" << std::endl;
+
+			if(!req->size()) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			std::vector<uint8_t> affinity(req->size());
+
+			auto handle = self->threadDescriptor().getHandle();
+
+			if(self->pid() != req->pid()) {
+				// TODO: permission checking
+				auto target_process = self->findProcess(req->pid());
+				if(target_process == nullptr) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+				handle = target_process->threadDescriptor().getHandle();
+			}
+
+			size_t actual_size;
+			HelError e = helGetAffinity(handle, affinity.data(), req->size(), &actual_size);
+
+			if(e == kHelErrBufferTooSmall) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			} else if(e != kHelErrNone) {
+				std::cout << "posix: GET_AFFINITY hel call returned unexpected error: " << e << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+				continue;
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(self->pid());
+
+			auto [sendResp, sendData] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(affinity.data(), affinity.size())
+			);
+			HEL_CHECK(sendResp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;

@@ -508,3 +508,16 @@ head(128):
 tail:
 	string path;
 }
+
+message GetAffinityRequest 89 {
+head(128):
+	int64 pid;
+	uint64 size;
+}
+
+message SetAffinityRequest 90 {
+head(128):
+	int64 pid;
+tail:
+	uint8[] mask;
+}
