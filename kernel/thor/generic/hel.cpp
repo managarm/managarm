@@ -3272,10 +3272,41 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	return kHelErrNone;
 }
 
-HelError helSetAffinity(HelHandle thread, uint8_t *mask, size_t size) {
-	if (thread != kHelThisThread)
-		return kHelErrIllegalArgs;
+HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *actualSize) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
 
+	smarter::borrowed_ptr<Thread> thread;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+
+		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!thread_wrapper)
+			return kHelErrNoDescriptor;
+		if(!thread_wrapper->is<ThreadDescriptor>())
+			return kHelErrBadDescriptor;
+		thread = remove_tag_cast(thread_wrapper->get<ThreadDescriptor>().thread);
+	}
+
+	frg::vector<uint8_t, KernelAlloc> buf = thread->getAffinityMask();
+
+	if(buf.size() > size)
+		return kHelErrBufferTooSmall;
+
+	size_t used_size = size > buf.size() ? buf.size() : size;
+
+	if (!writeUserArray(mask, buf.data(), used_size))
+		return kHelErrFault;
+
+	if (actualSize != nullptr)
+		if (!writeUserObject<size_t>(actualSize, used_size))
+			return kHelErrFault;
+
+	return kHelErrNone;
+}
+
+HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
 	frg::vector<uint8_t, KernelAlloc> buf{*kernelAlloc};
 	buf.resize(size);
 
@@ -3287,15 +3318,33 @@ HelError helSetAffinity(HelHandle thread, uint8_t *mask, size_t size) {
 		n += __builtin_popcount(i);
 	}
 
-	// TODO: support allowing to run on multiple CPUs
-	if (n != 1) {
+	if (n < 1) {
 		return kHelErrIllegalArgs;
 	}
 
 	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
 
-	this_thread->setAffinityMask(std::move(buf));
-	Thread::migrateCurrent();
+	if(handle == kHelThisThread) {
+		this_thread->setAffinityMask(std::move(buf));
+		Thread::migrateCurrent();
+	} else {
+		smarter::borrowed_ptr<Thread> thread;
+		{
+			auto irq_lock = frg::guard(&irqMutex());
+			Universe::Guard universe_guard(this_universe->lock);
+
+			auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
+			if(!thread_wrapper)
+				return kHelErrNoDescriptor;
+			if(!thread_wrapper->is<ThreadDescriptor>())
+				return kHelErrBadDescriptor;
+			thread = remove_tag_cast(thread_wrapper->get<ThreadDescriptor>().thread);
+		}
+
+		thread->setAffinityMask(std::move(buf));
+		infoLogger() << "thor: TODO: helSetAffinity does not migrate other threads!" << frg::endlog;
+	}
 
 	return kHelErrNone;
 }

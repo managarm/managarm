@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 103,
+	kHelNumCalls = 104,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -101,6 +101,7 @@ enum {
 
 	kHelCallBindKernlet = 93,
 
+	kHelCallGetAffinity = 103,
 	kHelCallSetAffinity = 100,
 
 	kHelCallSuper = 0x80000000
@@ -950,6 +951,17 @@ HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitRe
 
 HEL_C_LINKAGE HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize);
 
+//! Get a thread's CPU affinity mask.
+//! @param[in] handle
+//!     Handle to the thread.
+//! @param[out] mask
+//!     Buffer to write the affinity bitmask to.
+//! @param[in] size
+//!     Size of bit mask buffer.
+//! @param[out] actual_size
+//!     Amount of bytes actually written to mask.
+HEL_C_LINKAGE HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *actualSize);
+
 //! Set a thread's CPU affinity mask.
 //! @param[in] handle
 //!     Handle to the thread.
@@ -957,8 +969,7 @@ HEL_C_LINKAGE HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t
 //!     Pointer to a bit mask of CPUs to schedule on.
 //! @param[in] size
 //!     Size of bit mask.
-HEL_C_LINKAGE HelError helSetAffinity(HelHandle thread,
-		uint8_t *mask, size_t size);
+HEL_C_LINKAGE HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size);
 
 //! @}
 //! @name Message Passing
