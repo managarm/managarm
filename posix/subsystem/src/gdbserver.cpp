@@ -515,20 +515,20 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 static bool launched = false;
 
 void launchGdbServer(Process *process) {
-	if(!launched) {
-		launched = true;
-		async::detach([] (Process *process) -> async::result<void> {
-			std::cout << "posix: Starting GDB server" << std::endl;
+	if(launched)
+		return;
+	launched = true;
+	async::detach([] (Process *process) -> async::result<void> {
+		std::cout << "posix: Starting GDB server" << std::endl;
 
-			auto root = rootPath();
-			auto fileOrError = co_await open(root, root, "dev/ttyS0", process);
-			if(!fileOrError) {
-				std::cout << "posix, gdbserver: Could not open /dev/ttyS0" << std::endl;
-				co_return;
-			}
+		auto root = rootPath();
+		auto fileOrError = co_await open(root, root, "dev/ttyS0", process);
+		if(!fileOrError) {
+			std::cout << "posix, gdbserver: Could not open /dev/ttyS0" << std::endl;
+			co_return;
+		}
 
-			GdbServer server{process, fileOrError.value()};
-			co_await server.run();
-		}(process));
-	}
+		GdbServer server{process, fileOrError.value()};
+		co_await server.run();
+	}(process));
 }
