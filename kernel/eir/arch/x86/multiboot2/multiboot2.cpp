@@ -263,12 +263,10 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		eir::infoLogger() << "    Type " << map->type << " mapping."
 				<< " Base: 0x" << frg::hex_fmt{map->base}
 				<< ", length: 0x" << frg::hex_fmt{map->length} << frg::endlog;
-	}
-
-	for(Mb2MmapEntry* map = (Mb2MmapEntry*)mmap_start; map < (Mb2MmapEntry*)mmap_end; map++) {
 		if(map->type == 1)
 			createInitialRegions({map->base, map->length}, {reservedRegions, nReservedRegions});
 	}
+
 	setupRegionStructs();
 
 	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
