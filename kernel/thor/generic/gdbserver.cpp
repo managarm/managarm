@@ -440,8 +440,13 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 
 } // anonymous namespace
 
+static bool launched = false;
+
 void launchGdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread,
 		frg::string_view path, smarter::shared_ptr<WorkQueue> wq) {
+	if(launched)
+		return;
+	launched = true;
 	auto channel = solicitIoChannel("kernel-gdbserver");
 	if(!channel) {
 		infoLogger() << "thor: No I/O channel available for gdbserver" << frg::endlog;
