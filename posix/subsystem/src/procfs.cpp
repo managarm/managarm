@@ -52,7 +52,13 @@ void RegularFile::handleClose() {
 }
 
 async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSeek whence) {
-	assert(whence == VfsSeek::relative && !offset);
+	if(whence == VfsSeek::relative)
+		_offset = _offset + offset;
+	else if(whence == VfsSeek::absolute)
+		_offset = offset;
+	else if(whence == VfsSeek::eof)
+		// TODO: Unimplemented!
+		assert(whence == VfsSeek::eof);
 	co_return _offset;
 }
 
