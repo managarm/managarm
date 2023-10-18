@@ -212,6 +212,13 @@ private:
 	Process *_process;
 };
 
+struct UptimeNode final : RegularNode {
+	UptimeNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+};
+
 struct CommNode final : RegularNode {
 	CommNode(Process *process)
 	: _process(process)

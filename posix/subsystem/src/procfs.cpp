@@ -227,6 +227,8 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto self_thread_link = std::make_shared<Link>(the_node->shared_from_this(), "thread-self", std::make_shared<SelfThreadLink>());
 	the_node->_entries.insert(std::move(self_thread_link));
 
+	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
+
 	return link;
 }
 
@@ -332,6 +334,22 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 		co_return Error::noSuchFile;
 	_entries.erase(it);
 	co_return frg::expected<Error>{};
+}
+
+async::result<std::string> UptimeNode::show() {
+	auto uptime = clk::getTimeSinceBoot();
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	// TODO: Add time spent in the idle thread here.
+	std::stringstream stream;
+	stream << uptime.tv_sec << "." << std::setw(2) << std::setfill('0') << (uptime.tv_nsec / 10000000) << std::setw(1) << "0.00" << "\n";
+	co_return stream.str();
+}
+
+async::result<void> UptimeNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/uptime file" << std::endl;
+	co_return;
 }
 
 VfsType SelfLink::getType() {
