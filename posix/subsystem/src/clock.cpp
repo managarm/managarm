@@ -98,4 +98,14 @@ struct timespec getRealtime() {
 	return result;
 }
 
+struct timespec getTimeSinceBoot() {
+	uint64_t now;
+	HEL_CHECK(helGetClock(&now));
+
+	struct timespec result;
+	result.tv_sec = now / 1'000'000'000;
+	result.tv_nsec = now % 1'000'000'000;
+	return result;
+}
+
 } // namespace clk
