@@ -472,5 +472,16 @@ extern inline __attribute__ (( always_inline )) HelError helQueryRegisterInfo(in
 	return helSyscall2(kHelCallQueryRegisterInfo, (HelWord)set, (HelWord)info);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helGetCpuInformation(uint32_t *cores) {
+	HelWord cores_word;
+	HelError error = helSyscall0_1(kHelCallGetCpuInformation, &cores_word);
+	*cores = (uint32_t)cores_word;
+	return error;
+}
+
+extern inline __attribute__ (( always_inline )) HelError helGetSchedulerInformation(size_t buffer_size, HelSchedulerStats* cpu_buffer, HelSchedulerStats* global) {
+	return helSyscall3(kHelCallGetSchedulerInformation, (HelWord)buffer_size, (HelWord)cpu_buffer, (HelWord)global);
+}
+
 #endif // HEL_SYSCALLS_H
 

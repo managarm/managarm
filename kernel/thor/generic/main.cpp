@@ -881,6 +881,14 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helQueryRegisterInfo((int)arg0, (HelRegisterInfo *)arg1);
 	} break;
 
+	case kHelCallGetCpuInformation: {
+		*image.error() = kHelErrNone;
+		*image.out0() = getCpuCount();
+	} break;
+	case kHelCallGetSchedulerInformation: {
+		*image.error() = helGetSchedulerInformation((size_t)arg0, (HelSchedulerStats *)arg1, (HelSchedulerStats *)arg2);
+	} break;
+
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}

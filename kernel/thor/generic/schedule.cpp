@@ -201,6 +201,35 @@ void Scheduler::update() {
 	if(n)
 		_systemProgress += deltaTime * fixedInverse(n);
 
+	switch(_current->type()) {
+		case ScheduleType::none: {
+			_noneTime += deltaTime;
+			break;
+		} 
+		case ScheduleType::regular: {
+			_spentTime += deltaTime;
+			
+			// Save the time that we last scheduled a busy task
+			if(_scheduledType != ScheduleType::regular) {
+				_scheduledBusyTime = now;
+			}
+			_scheduledIdleTime = 0;
+			break;
+		}
+		case ScheduleType::idle: {
+			_idleTime += deltaTime;
+			
+			// Save the time that we last scheduled an idle task
+			if(_scheduledType != ScheduleType::idle) {
+				_scheduledIdleTime = now;
+			}
+			_scheduledBusyTime = 0;
+			break;
+		}
+	}
+
+	_scheduledType = _current->type();
+
 	_updateCurrentEntity();
 
 	// Finally, process all pending entities.
