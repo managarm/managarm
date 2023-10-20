@@ -3403,3 +3403,7 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 	return kHelErrNone;
 }
 
+HelError helGetCurrentCpu(int *cpu) {
+	*cpu = getCpuData()->cpuIndex;
+	return kHelErrNone;
+}

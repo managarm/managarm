@@ -79,6 +79,7 @@ enum {
 	kHelCallWriteGsBase = 54,
 	kHelCallReadFsBase = 55,
 	kHelCallReadGsBase = 56,
+	kHelCallGetCurrentCpu = 57,
 
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 79,
@@ -928,6 +929,9 @@ HEL_C_LINKAGE HelError helReadFsBase(void **pointer);
 HEL_C_LINKAGE HelError helWriteGsBase(void *pointer);
 
 HEL_C_LINKAGE HelError helReadGsBase(void **pointer);
+
+//! Gets the index of the cpu which the calling thread is running on.
+HEL_C_LINKAGE HelError helGetCurrentCpu(int *cpu);
 
 //! Read the system-wide monotone clock.
 //!

@@ -876,6 +876,11 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallSetAffinity: {
 		*image.error() = helSetAffinity((HelHandle)arg0, (uint8_t *)arg1, (size_t)arg2);
 	} break;
+	case kHelCallGetCurrentCpu: {
+		int cpu;
+		*image.error() = helGetCurrentCpu(&cpu);
+		*image.out0() = (Word)cpu;
+	} break;
 
 	case kHelCallQueryRegisterInfo: {
 		*image.error() = helQueryRegisterInfo((int)arg0, (HelRegisterInfo *)arg1);
