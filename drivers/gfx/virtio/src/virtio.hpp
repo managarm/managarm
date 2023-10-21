@@ -9,12 +9,17 @@
 #include <async/oneshot-event.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <core/drm/core.hpp>
 #include <core/virtio/core.hpp>
 #include <helix/ipc.hpp>
 
 #include "spec.hpp"
 
+struct Cmd;
+
 struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
+	friend struct Cmd;
+
 	struct FrameBuffer;
 
 	struct ScanoutState {
@@ -53,7 +58,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
 		BufferObject(GfxDevice *device, uint32_t id, size_t size, helix::UniqueDescriptor memory,
 			uint32_t width, uint32_t height)
-		: drm_core::BufferObject{width, height}, _device{device}, _hardwareId{id}, _size{size}, _memory{std::move(memory)} {
+		: drm_core::BufferObject{width, height}, _device{device}, _resourceId{id}, _size{size}, _memory{std::move(memory)} {
 		};
 
 		~BufferObject();
@@ -63,11 +68,11 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
 		async::detached _initHw();
 		async::result<void> wait();
-		uint32_t hardwareId();
+		uint32_t resourceId();
 
 	private:
 		GfxDevice *_device;
-		uint32_t _hardwareId;
+		uint32_t _resourceId;
 		size_t _size;
 		helix::UniqueDescriptor _memory;
 		helix::Mapping _mapping;
@@ -127,11 +132,14 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 private:
 	std::shared_ptr<Crtc> _theCrtcs[16];
 	std::shared_ptr<Encoder> _theEncoders[16];
+	std::shared_ptr<Plane> _thePlanes[16];
 	std::shared_ptr<Connector> _activeConnectors[16];
 
 	std::unique_ptr<virtio_core::Transport> _transport;
 	virtio_core::Queue *_controlQ;
 	virtio_core::Queue *_cursorQ;
 	bool _claimedDevice;
-	id_allocator<uint32_t> _hwAllocator;
+	id_allocator<uint32_t> _resourceIdAllocator;
+
+	bool _virgl3D = false;
 };
