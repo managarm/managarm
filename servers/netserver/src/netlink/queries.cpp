@@ -58,15 +58,15 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	}
 
 	if(!msg || msg->ifi_index == 0) {
-		auto links = nic::Link::getLinks();
+		auto links = nic::getLinks();
 
 		for(auto m = links.begin(); m != links.end(); m++) {
-			if(!if_name.has_value() || if_name == m->second->name()) {
-				sendLinkPacket(m->second, hdr);
+			if(!if_name.has_value() || if_name == (*m)->name()) {
+				sendLinkPacket(*m, hdr);
 			}
 		}
 	} else {
-		auto nic = nic::Link::byIndex(msg->ifi_index);
+		auto nic = nic::byIndex(msg->ifi_index);
 
 		if(!nic) {
 			sendError(hdr, ENODEV);
@@ -126,7 +126,7 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 			}
 			case RTA_OIF: {
 				int if_index = attr.data<int>().value_or(0);
-				auto nic = nic::Link::byIndex(if_index);
+				auto nic = nic::byIndex(if_index);
 				if(nic) {
 					route.link = nic;
 					route_changed = true;
@@ -211,7 +211,7 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 
 	uint32_t addr = 0;
 	uint8_t prefix = msg->ifa_prefixlen;
-	auto nic = nic::Link::byIndex(msg->ifa_index);
+	auto nic = nic::byIndex(msg->ifa_index);
 
 	if(!nic) {
 		sendError(hdr, ENODEV);
@@ -254,12 +254,12 @@ void NetlinkSocket::getAddr(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	auto links = nic::Link::getLinks();
+	auto links = nic::getLinks();
 	for(auto m = links.begin(); m != links.end(); m++) {
 		if(!msg || msg->ifa_index == 0) {
-			sendAddrPacket(hdr, msg, m->second);
-		} else if(static_cast<uint32_t>(m->second->index()) == msg->ifa_index) {
-			sendAddrPacket(hdr, msg, m->second);
+			sendAddrPacket(hdr, msg, (*m));
+		} else if(static_cast<uint32_t>((*m)->index()) == msg->ifa_index) {
+			sendAddrPacket(hdr, msg, (*m));
 			break;
 		}
 	}
@@ -287,7 +287,7 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 	}
 
 	uint32_t addr = 0;
-	auto nic = nic::Link::byIndex(msg->ifa_index);
+	auto nic = nic::byIndex(msg->ifa_index);
 
 	if(!nic) {
 		sendError(hdr, ENODEV);

@@ -15,15 +15,7 @@ src = [
 inc = [ 'include', 'src' ]
 
 executable('netserver', src,
-	dependencies : [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep, core_dep ],
+	dependencies : [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, net_proto_dep, libarch, nic_core_dep, core_dep ],
 	include_directories : inc,
 	install : true
-)
-
-custom_target('netserver-server',
-	command : [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
-	output : 'netserver.bin',
-	input : 'netserver.yml',
-	install : true,
-	install_dir : server
 )

@@ -1,14 +1,15 @@
-deps = [ virtio_core_dep ]
 inc = [ 'include' ]
 
-nic_virtio_lib = static_library('nic-virtio', 'src/virtio.cpp',
-	include_directories : [ '../../../servers/netserver/include', inc ],
-	dependencies : deps,
+executable('nic-virtio', 'src/virtio.cpp',
+	include_directories : [ inc ],
+	dependencies : [ net_proto_dep, svrctl_proto_dep, virtio_core_dep, nic_core_dep, core_dep ],
 	install : true
 )
 
-nic_virtio_dep = declare_dependency(
-	include_directories : inc,
-	dependencies : deps,
-	link_with : nic_virtio_lib
+custom_target('nic-virtio-server',
+	command : [bakesvr, '-o', '@OUTPUT@', '@INPUT@'],
+	output : 'nic-virtio.bin',
+	input : 'nic-virtio.yml',
+	install : true,
+	install_dir : server
 )

@@ -172,8 +172,8 @@ if build_drivers
 	# all protocols depend on
 	subdir('hel')
 
-	protocols = [ 'posix', 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
-	core = [ 'core', 'core/drm', 'core/virtio', 'mbus' ]
+	protocols = [ 'posix', 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace', 'net' ]
+	core = [ 'core', 'core/drm', 'core/virtio', 'core/nic', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [
 		# libraries

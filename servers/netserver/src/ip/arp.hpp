@@ -24,7 +24,7 @@ struct Neighbours {
 	};
 	async::result<std::optional<nic::MacAddress>> tryResolve(uint32_t addr,
 		uint32_t sender);
-	void feedArp(nic::MacAddress destination, arch::dma_buffer_view arpData, std::weak_ptr<nic::Link> link);
+	void feedArp(nic::MacAddress destination, nic_core::buffer_view arpData, std::weak_ptr<nic::Link> link);
 	void updateTable(uint32_t proto, nic::MacAddress hardware, std::weak_ptr<nic::Link> link);
 	std::map<uint32_t, Neighbours::Entry> &getTable();
 private:

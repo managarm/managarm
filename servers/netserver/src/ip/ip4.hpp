@@ -2,6 +2,7 @@
 
 #include <arch/bit.hpp>
 #include <arch/dma_structs.hpp>
+#include <core/nic/buffer.hpp>
 #include <helix/ipc.hpp>
 #include <map>
 #include <smarter.hpp>
@@ -73,7 +74,7 @@ private:
 };
 
 class Ip4Packet {
-	arch::dma_buffer buffer_;
+	nic_core::buffer_view buffer_;
 public:
 	struct Header {
 		uint8_t ihl;
@@ -105,18 +106,18 @@ public:
 		}
 	} header;
 	static_assert(sizeof(header) == 20, "bad header size");
-	arch::dma_buffer_view data;
+	nic_core::buffer_view data;
 
-	inline arch::dma_buffer_view payload() const {
+	inline nic_core::buffer_view payload() const {
 		return data.subview(header.ihl * 4);
 	}
 
-	inline arch::dma_buffer_view header_view() const {
+	inline nic_core::buffer_view header_view() const {
 		return data.subview(0, header.ihl * 4);
 	}
 
 	// assumes frame is a valid view into owner
-	bool parse(arch::dma_buffer owner, arch::dma_buffer_view frame);
+	bool parse(nic_core::buffer_view owner, nic_core::buffer_view frame);
 };
 
 struct Ip4TargetInfo {
@@ -131,7 +132,7 @@ struct Ip4 {
 	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto, int flags);
 	// frame is a view into the owner buffer, stripping away eth bits
 	void feedPacket(nic::MacAddress dest, nic::MacAddress src,
-		arch::dma_buffer owner, arch::dma_buffer_view frame);
+		nic_core::buffer_view owner, nic_core::buffer_view frame);
 
 	bool hasIp(uint32_t ip);
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);

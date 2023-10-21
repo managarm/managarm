@@ -68,7 +68,7 @@ bool operator==(const Route &lhs, const Route &rhs) {
 	return operator<=>(lhs, rhs) == 0;
 }
 
-bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame) {
+bool Ip4Packet::parse(nic_core::buffer_view owner, nic_core::buffer_view frame) {
 	buffer_ = std::move(owner);
 	data = frame;
 	if (data.size() < sizeof(header)) {
@@ -273,7 +273,7 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 	}
 
 	auto &target = ti.link;
-	if (target->mtu < packet_size) {
+	if (target->mtu() < packet_size) {
 		std::cout << "netserver: cant fragment 2" << std::endl;
 		co_return protocols::fs::Error::messageSize;
 	}
@@ -319,7 +319,7 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 }
 
 void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
-		arch::dma_buffer owner, arch::dma_buffer_view frame) {
+		nic_core::buffer_view owner, nic_core::buffer_view frame) {
 	Ip4Packet hdr;
 	if (!hdr.parse(std::move(owner), frame)) {
 		std::cout << "netserver: runt, or otherwise invalid, ip4 frame received"

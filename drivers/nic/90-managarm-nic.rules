@@ -2,7 +2,7 @@ ACTION!="add", GOTO="managarm_nic_end"
 SUBSYSTEM!="pci", GOTO="managarm_nic_end"
 
 # TODO: Support the legacy virtio transport.
-ATTR{vendor}=="0x1af4", ATTR{device}=="0x1000", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
-ATTR{vendor}=="0x1af4", ATTR{device}=="0x1041", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x1af4", ATTR{device}=="0x1000", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/nic-virtio.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x1af4", ATTR{device}=="0x1041", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/nic-virtio.bin", GOTO="managarm_nic_end"
 
 LABEL="managarm_nic_end"

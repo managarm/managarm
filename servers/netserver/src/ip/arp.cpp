@@ -53,7 +53,7 @@ async::result<void> sendArp(uint16_t op,
 		sizeof(leader)
 		+ 2 * sizeof(nic::MacAddress)
 		+ 2 * sizeof(uint32_t));
-	arch::dma_buffer_view bufv { buffer.payload };
+	nic_core::buffer_view bufv { buffer.payload };
 	auto appendData = [&bufv] (auto data) {
 		std::memcpy(bufv.data(), &data, sizeof(data));
 		bufv = bufv.subview(sizeof(data));
@@ -70,7 +70,7 @@ async::result<void> sendArp(uint16_t op,
 }
 }
 
-void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view, std::weak_ptr<nic::Link> link) {
+void Neighbours::feedArp(nic::MacAddress, nic_core::buffer_view view, std::weak_ptr<nic::Link> link) {
 	using namespace nic;
 	auto ensureEndian = [] (auto &x) {
 		using namespace arch;
