@@ -44,12 +44,15 @@ private:
 	helix::UniqueLane _lane;
 };
 
+id_allocator<uint64_t> ttyUsbAllocator;
 id_allocator<uint64_t> ttySAllocator;
 id_allocator<uint64_t> driCardAllocator;
 
 uint64_t allocateDeviceIds(std::string type) {
 	if(type == "ttyS") {
 		return ttySAllocator.allocate();
+	} else if(type == "ttyUSB") {
+		return ttyUsbAllocator.allocate();
 	} else if(type == "dri/card") {
 		return driCardAllocator.allocate();
 	} else {
@@ -64,6 +67,7 @@ uint64_t allocateDeviceIds(std::string type) {
 async::detached run() {
 	auto root = co_await mbus::Instance::global().getRoot();
 
+	ttyUsbAllocator.use_range(0);
 	ttySAllocator.use_range(0);
 	driCardAllocator.use_range(0);
 
