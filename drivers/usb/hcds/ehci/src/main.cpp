@@ -179,12 +179,12 @@ async::result<frg::expected<proto::UsbError, size_t>> EndpointState::transfer(pr
 // Controller.
 // ----------------------------------------------------------------
 
-Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
+Controller::Controller(protocols::hw::Device hw_device, mbus::Entity entity, helix::Mapping mapping,
 		helix::UniqueDescriptor mmio, helix::UniqueIrq irq)
 : _hwDevice{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
-		_space{_mapping.get()},
-		_enumerator{this} {
+		_space{_mapping.get()}, _enumerator{this},
+		_entity{std::move(entity)} {
 	auto offset = _space.load(cap_regs::caplength);
 	_operational = _space.subspace(offset);
 	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;
@@ -375,6 +375,9 @@ async::result<void> Controller::probeDevice() {
 	snprintf(product, 5, "%.4x", descriptor->idProduct);
 	snprintf(release, 5, "%.4x", descriptor->bcdDevice);
 
+	char name[3];
+	snprintf(name, 3, "%.2x", address);
+
 	mbus::Properties mbus_desc{
 		{"usb.type", mbus::StringItem{"device"}},
 		{"usb.vendor", mbus::StringItem{vendor}},
@@ -382,13 +385,14 @@ async::result<void> Controller::probeDevice() {
 		{"usb.class", mbus::StringItem{class_code}},
 		{"usb.subclass", mbus::StringItem{sub_class}},
 		{"usb.protocol", mbus::StringItem{protocol}},
-		{"usb.release", mbus::StringItem{release}}
+		{"usb.release", mbus::StringItem{release}},
+		{"usb.hub_port", mbus::StringItem{name}},
+		{"usb.bus", mbus::StringItem{std::to_string(_entity.getId())}},
+		{"usb.speed", mbus::StringItem{"480"}},
+		{"unix.subsystem", mbus::StringItem{"usb"}},
 	};
 
 	auto root = co_await mbus::Instance::global().getRoot();
-
-	char name[3];
-	sprintf(name, "%.2x", address);
 
 	auto handler = mbus::ObjectHandler{}
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
@@ -1065,7 +1069,19 @@ async::detached bindController(mbus::Entity entity) {
 	auto irq = co_await device.accessIrq();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
-	auto controller = std::make_shared<Controller>(std::move(device), std::move(mapping),
+
+	auto root = co_await mbus::Instance::global().getRoot();
+	mbus::Properties descriptor{
+		{"generic.devtype", mbus::StringItem{"usb-controller"}},
+		{"generic.devsubtype", mbus::StringItem{"ehci"}},
+		{"usb.version.major", mbus::StringItem{"2"}},
+		{"usb.version.minor", mbus::StringItem{"0"}},
+		{"usb.root.parent", mbus::StringItem{std::to_string(entity.getId())}},
+	};
+
+	auto e = co_await root.createObject("ehci-controller", descriptor, mbus::ObjectHandler{});
+
+	auto controller = std::make_shared<Controller>(std::move(device), std::move(e), std::move(mapping),
 			std::move(bar), std::move(irq));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
