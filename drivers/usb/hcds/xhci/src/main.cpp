@@ -742,6 +742,13 @@ arch::dma_pool *Controller::Device::bufferPool() {
 }
 
 async::result<frg::expected<proto::UsbError, std::string>>
+Controller::Device::deviceDescriptor() {
+	arch::dma_object<proto::DeviceDescriptor> descriptor{bufferPool()};
+	FRG_CO_TRY(co_await readDescriptor(descriptor.view_buffer(), 0x0100));
+	co_return std::string{(char *)descriptor.data(), descriptor.view_buffer().size()};
+}
+
+async::result<frg::expected<proto::UsbError, std::string>>
 Controller::Device::configurationDescriptor() {
 	arch::dma_object<proto::ConfigDescriptor> header{&_controller->_memoryPool};
 	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200));

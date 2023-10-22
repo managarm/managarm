@@ -107,6 +107,10 @@ arch::dma_pool *DeviceState::bufferPool() {
 	return &schedulePool;
 }
 
+async::result<frg::expected<proto::UsbError, std::string>> DeviceState::deviceDescriptor() {
+	return _controller->deviceDescriptor(_device);
+}
+
 async::result<frg::expected<proto::UsbError, std::string>> DeviceState::configurationDescriptor() {
 	return _controller->configurationDescriptor(_device);
 }
@@ -502,6 +506,37 @@ async::detached Controller::handleIrqs() {
 // ------------------------------------------------------------------------
 // Controller: Device management.
 // ------------------------------------------------------------------------
+
+async::result<frg::expected<proto::UsbError, std::string>>
+Controller::deviceDescriptor(int address) {
+	arch::dma_object<proto::SetupPacket> get_header{&schedulePool};
+	get_header->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
+			| proto::setup_type::toHost;
+	get_header->request = proto::request_type::getDescriptor;
+	get_header->value = proto::descriptor_type::device << 8;
+	get_header->index = 0;
+	get_header->length = 8;
+
+	arch::dma_object<proto::DeviceDescriptor> descriptor{&schedulePool};
+	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			get_header, descriptor.view_buffer().subview(0, 8)}));
+
+	// Read the rest of the device descriptor.
+	arch::dma_object<proto::SetupPacket> get_descriptor{&schedulePool};
+	get_descriptor->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
+			| proto::setup_type::toHost;
+	get_descriptor->request = proto::request_type::getDescriptor;
+	get_descriptor->value = proto::descriptor_type::device << 8;
+	get_descriptor->index = 0;
+	get_descriptor->length = sizeof(proto::DeviceDescriptor);
+
+	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			get_descriptor, descriptor.view_buffer()}));
+	assert(descriptor->length == sizeof(proto::DeviceDescriptor));
+
+	std::string copy((char *)descriptor.data(), sizeof(proto::DeviceDescriptor));
+	co_return std::move(copy);
+}
 
 async::result<frg::expected<proto::UsbError, std::string>>
 Controller::configurationDescriptor(int address) {

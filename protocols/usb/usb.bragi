@@ -65,6 +65,10 @@ head(128):
 	}
 }
 
+message GetDeviceDescriptorRequest 6 {
+head(128):
+}
+
 }
 
 group {

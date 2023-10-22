@@ -152,6 +152,7 @@ public:
 	virtual arch::dma_pool *setupPool() = 0;
 	virtual arch::dma_pool *bufferPool() = 0;
 
+	virtual async::result<frg::expected<UsbError, std::string>> deviceDescriptor() = 0;
 	virtual async::result<frg::expected<UsbError, std::string>> configurationDescriptor() = 0;
 	virtual async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) = 0;
 	virtual async::result<frg::expected<UsbError>> transfer(ControlTransfer info) = 0;
@@ -163,7 +164,9 @@ struct Device {
 	arch::dma_pool *setupPool() const;
 	arch::dma_pool *bufferPool() const;
 
+	async::result<frg::expected<UsbError, std::string>> deviceDescriptor() const;
 	async::result<frg::expected<UsbError, std::string>> configurationDescriptor() const;
+	async::result<frg::expected<UsbError, uint8_t>> currentConfigurationValue() const;
 	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) const;
 	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) const;
 
