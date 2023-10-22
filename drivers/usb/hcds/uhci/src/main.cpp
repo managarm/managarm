@@ -461,12 +461,12 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];
-	sprintf(class_code, "%.2x", descriptor->deviceClass);
-	sprintf(sub_class, "%.2x", descriptor->deviceSubclass);
-	sprintf(protocol, "%.2x", descriptor->deviceProtocol);
-	sprintf(vendor, "%.4x", descriptor->idVendor);
-	sprintf(product, "%.4x", descriptor->idProduct);
-	sprintf(release, "%.4x", descriptor->bcdDevice);
+	snprintf(class_code, 3, "%.2x", descriptor->deviceClass);
+	snprintf(sub_class, 3, "%.2x", descriptor->deviceSubclass);
+	snprintf(protocol, 3, "%.2x", descriptor->deviceProtocol);
+	snprintf(vendor, 5, "%.4x", descriptor->idVendor);
+	snprintf(product, 5, "%.4x", descriptor->idProduct);
+	snprintf(release, 5, "%.4x", descriptor->bcdDevice);
 
 	std::cout << "uhci: Enumerating device of class: 0x" << class_code
 			<< ", sub class: 0x" << sub_class << ", protocol: 0x" << protocol << std::endl;
