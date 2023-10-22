@@ -102,7 +102,7 @@ struct InterfaceDescriptor : public DescriptorBase {
 	uint8_t numEndpoints;
 	uint8_t interfaceClass;
 	uint8_t interfaceSubClass;
-	uint8_t interfaceProtocoll;
+	uint8_t interfaceProtocol;
 	uint8_t iInterface;
 };
 

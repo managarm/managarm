@@ -236,7 +236,7 @@ async::detached bindDevice(mbus::Entity entity) {
 			auto desc = (InterfaceDescriptor *)p;
 			intf_class = desc->interfaceClass;
 			intf_subclass = desc->interfaceSubClass;
-			intf_protocol = desc->interfaceProtocoll;
+			intf_protocol = desc->interfaceProtocol;
 		}
 	});
 
