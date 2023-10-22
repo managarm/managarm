@@ -256,6 +256,14 @@ private:
 	Process *_process;
 };
 
+struct KernelStatNode final : RegularNode {
+	KernelStatNode()
+	{ }
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+};
+
 } // namespace procfs
 
 std::shared_ptr<FsLink> getProcfs();

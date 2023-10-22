@@ -122,6 +122,42 @@ public:
 
 	ScheduleEntity *currentRunnable();
 
+	static constexpr uint64_t timeKeepingGranularity = (1000 * 1000) * 10;
+
+	constexpr uint64_t getTotalSpentTime() {
+		return _spentTime / timeKeepingGranularity;
+	}
+
+	constexpr uint64_t getTotalIdleTime() {
+		return _idleTime / timeKeepingGranularity;
+	}
+
+	constexpr uint64_t getTotalNoneTime() {
+		return _noneTime / timeKeepingGranularity;
+	}
+
+
+	constexpr bool isIdle() {
+		return _scheduledType == ScheduleType::idle;
+	}
+
+	constexpr uint64_t getIdleScheduledTime() {
+		if(!_scheduledIdleTime)
+			return 0;
+		return _refClock - _scheduledIdleTime;
+	}
+
+
+	constexpr bool isBusy() {
+		return _scheduledType == ScheduleType::regular;
+	}
+
+	constexpr uint64_t getBusyScheduledTime() {
+		if(!_scheduledBusyTime)
+			return 0;
+		return _refClock - _scheduledBusyTime;
+	}
+
 private:
 	void _unschedule();
 	void _schedule();
@@ -161,6 +197,15 @@ private:
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
 	Progress _systemProgress = 0;
+
+	uint64_t _spentTime = 0;
+	uint64_t _idleTime = 0;
+	uint64_t _noneTime = 0;
+
+	ScheduleType _scheduledType = ScheduleType::none;
+
+	uint64_t _scheduledIdleTime = 0;
+	uint64_t _scheduledBusyTime = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Management of pending entities.

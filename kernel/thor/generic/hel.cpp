@@ -3403,3 +3403,35 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 	return kHelErrNone;
 }
 
+HelError helGetSchedulerInformation(size_t bufferSize, HelSchedulerStats* cpuBuffer, HelSchedulerStats* global) {
+	if(cpuBuffer != nullptr && bufferSize < (size_t)getCpuCount()) {
+		infoLogger() << "thor: helGetSchedulerInformation: buffer too small, core count is " << getCpuCount() << ", vector size is " << bufferSize << frg::endlog;
+		return kHelErrBufferTooSmall;
+	}
+
+	if (cpuBuffer == nullptr && global == nullptr)
+		return kHelErrIllegalArgs;
+
+	HelSchedulerStats global_stats{.spentTime = 0, .idleTime = 0};
+
+	for(int i = 0; i < getCpuCount(); i++) {
+		CpuData *core = getCpuData(i);
+		uint64_t spentTime = core->scheduler.getTotalSpentTime();
+		uint64_t idleTime = core->scheduler.getTotalIdleTime();
+		global_stats.spentTime += spentTime;
+		global_stats.idleTime += idleTime;
+	
+		// If the cpuBuffer is given, write to it now.
+		// We do not allocate a buffer for this, since on many-core systems the buffer could get very large.
+		if (cpuBuffer != nullptr) {
+			HelSchedulerStats core_stats{.spentTime = spentTime, .idleTime = idleTime};
+			if(!writeUserObject(cpuBuffer + i, core_stats))
+				return kHelErrFault;
+		}
+	}
+
+	if (global != nullptr && !writeUserObject<HelSchedulerStats>(global, global_stats))
+		return kHelErrFault;
+
+	return kHelErrNone;
+}

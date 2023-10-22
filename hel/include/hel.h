@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 104,
+	kHelNumCalls = 106,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -103,6 +103,9 @@ enum {
 
 	kHelCallGetAffinity = 103,
 	kHelCallSetAffinity = 100,
+
+	kHelCallGetCpuInformation = 104,
+	kHelCallGetSchedulerInformation = 105,
 
 	kHelCallSuper = 0x80000000
 };
@@ -522,6 +525,11 @@ struct HelVmexitReason {
 	uint32_t code;
 	size_t address;
 	size_t flags;
+};
+
+struct HelSchedulerStats {
+	uint64_t spentTime;
+	uint64_t idleTime;
 };
 
 //! @name Logging
@@ -1077,6 +1085,21 @@ HEL_C_LINKAGE HelError helEnableFullIo();
 //!     Handle to the bound kernlet.
 HEL_C_LINKAGE HelError helBindKernlet(HelHandle handle,
 		const union HelKernletData *data, size_t numData, HelHandle *boundHandle);
+
+//! @}
+//! @name Performance measurement
+//! @{
+
+//! Get performance information about the schedulers.
+//! @param[in] bufferSize
+//!     Length of the buffer allocated for cpu_buffer.
+//!     Buffer must be at least big enough to store the information required for all cores.
+//! @param[out] cpuBuffer
+//!     Pointer to the location of the allocated buffer.
+//! @param[out] global
+//!     Summarised information from all schedulers.
+//!     This is optional; if this information is not required, pass a nullptr.
+HEL_C_LINKAGE HelError helGetSchedulerInformation(size_t bufferSize, HelSchedulerStats *cpuBuffer, HelSchedulerStats *global);
 
 //! @}
 

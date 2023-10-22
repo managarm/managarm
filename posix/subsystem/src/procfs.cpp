@@ -1,3 +1,5 @@
+#include <memory>
+#include <stdexcept>
 #include <string.h>
 #include <sstream>
 #include <iomanip>
@@ -226,6 +228,8 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 
 	auto self_thread_link = std::make_shared<Link>(the_node->shared_from_this(), "thread-self", std::make_shared<SelfThreadLink>());
 	the_node->_entries.insert(std::move(self_thread_link));
+
+	the_node->directMkregular("stat", std::make_shared<KernelStatNode>());
 
 	return link;
 }
@@ -633,6 +637,48 @@ expected<std::string> CwdLink::readSymlink(FsLink *link, Process *process) {
 async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs CwdLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+async::result<std::string> KernelStatNode::show() {
+	std::stringstream stream;
+	auto appendCpu = [&stream](HelSchedulerStats stat, int core) {
+		if(core < 0) { stream << "cpu "; } else { stream << "cpu" << core << " "; }
+		// User
+		stream << stat.spentTime << " ";
+		// Niced
+		stream << "0 ";
+		// System (Kernel mode)
+		stream << "0 ";
+		// Idle
+		stream << stat.idleTime << " ";
+		// IO wait
+		stream << "0 ";
+		// IRQ
+		stream << "0 ";
+		// SoftIRQs
+		stream << "0\n";
+	};
+
+	uint32_t core_count;
+	HEL_CHECK(helGetCpuInformation(&core_count));
+
+	std::vector<HelSchedulerStats> per_core_stats;
+	per_core_stats.resize(core_count);
+	HelSchedulerStats global_stats;
+
+	HEL_CHECK(helGetSchedulerInformation(per_core_stats.size(), per_core_stats.data(), &global_stats));
+
+	appendCpu(global_stats, -1);
+	for(int i = 0; i < (int)core_count; i++) {
+		appendCpu(per_core_stats[i], i);
+	}
+
+	co_return stream.str();
+}
+
+async::result<void> KernelStatNode::store(std::string) {
+	// TODO: proper error reporting.
+	throw std::runtime_error("Cant store to /proc/stat!");
 }
 
 } // namespace procfs
