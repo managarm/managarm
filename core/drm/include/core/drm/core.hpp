@@ -98,8 +98,7 @@ struct File {
 	}
 
 private:
-	async::detached _retirePageFlip(std::unique_ptr<Configuration> config,
-			uint64_t cookie, uint32_t crtc_id);
+	void _retirePageFlip(uint64_t cookie, uint32_t crtc_id);
 
 	std::shared_ptr<Device> _device;
 
@@ -169,11 +168,21 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 
 uint32_t convertLegacyFormat(uint32_t bpp, uint32_t depth);
 
+#define DRM_FORMAT_MAX_PLANES 4
+
 struct FormatInfo {
-	int cpp;
+	uint32_t format;
+	bool has_alpha;
+	uint8_t char_per_block[DRM_FORMAT_MAX_PLANES];
+	uint8_t block_w[DRM_FORMAT_MAX_PLANES] = {1, 0, 0, 0};
+	uint8_t block_h[DRM_FORMAT_MAX_PLANES] = {1, 0, 0, 0};
+	size_t planes = 1;
 };
 
 std::optional<FormatInfo> getFormatInfo(uint32_t fourcc);
+uint8_t getFormatBlockHeight(const FormatInfo &info, size_t plane);
+uint8_t getFormatBlockWidth(const FormatInfo &info, size_t plane);
+uint8_t getFormatBpp(const FormatInfo &info, size_t plane);
 
 drm_mode_modeinfo makeModeInfo(const char *name, uint32_t type,
 		uint32_t clock, unsigned int hdisplay, unsigned int hsync_start,

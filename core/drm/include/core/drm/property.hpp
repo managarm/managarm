@@ -51,6 +51,7 @@ enum PropertyId {
 	srcY,
 	crtcW,
 	crtcH,
+	inFormats,
 };
 
 struct Property {

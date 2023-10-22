@@ -627,7 +627,7 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 // ----------------------------------------------------------------
 
 GfxDevice::Connector::Connector(GfxDevice *dev)
-	: drm_core::Connector { dev->allocator.allocate() } {
+	: drm_core::Connector { dev, dev->allocator.allocate() } {
 	_encoders.push_back(dev->_encoder.get());
 }
 
@@ -636,7 +636,7 @@ GfxDevice::Connector::Connector(GfxDevice *dev)
 // ----------------------------------------------------------------
 
 GfxDevice::Encoder::Encoder(GfxDevice *dev)
-	: drm_core::Encoder { dev->allocator.allocate() } {
+	: drm_core::Encoder { dev, dev->allocator.allocate() } {
 }
 
 // ----------------------------------------------------------------
@@ -644,7 +644,7 @@ GfxDevice::Encoder::Encoder(GfxDevice *dev)
 // ----------------------------------------------------------------
 
 GfxDevice::Crtc::Crtc(GfxDevice *dev)
-	: drm_core::Crtc { dev->allocator.allocate() } {
+	: drm_core::Crtc { dev, dev->allocator.allocate() } {
 	_device = dev;
 }
 
@@ -662,7 +662,7 @@ drm_core::Plane *GfxDevice::Crtc::Crtc::cursorPlane() {
 
 GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *dev,
 		std::shared_ptr<GfxDevice::BufferObject> bo, uint32_t pixel_pitch)
-	: drm_core::FrameBuffer { dev->allocator.allocate() } {
+	: drm_core::FrameBuffer { dev, dev->allocator.allocate() } {
 	_bo = bo;
 	_pixelPitch = pixel_pitch;
 }
@@ -692,7 +692,7 @@ uint32_t GfxDevice::FrameBuffer::getHeight() {
 // ----------------------------------------------------------------
 
 GfxDevice::Plane::Plane(GfxDevice *dev, PlaneType type)
-	:drm_core::Plane { dev->allocator.allocate(), type } {
+	:drm_core::Plane { dev, dev->allocator.allocate(), type } {
 }
 
 // ----------------------------------------------------------------

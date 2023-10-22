@@ -207,6 +207,7 @@ drm_core::Device::Device() {
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
 			assert(!assignment.objectValue || assignment.objectValue->type() == ObjectType::frameBuffer);
 			state->plane(assignment.object->id())->fb = static_pointer_cast<FrameBuffer>(assignment.objectValue);
+			state->plane(assignment.object->id())->plane->setCurrentFrameBuffer(static_pointer_cast<FrameBuffer>(assignment.objectValue).get());
 		}
 
 		std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj) override {
@@ -414,4 +415,18 @@ drm_core::Device::Device() {
 		}
 	};
 	registerProperty(_crtcHProperty = std::make_shared<CrtcHProperty>());
+
+	struct InFormatsProperty : drm_core::Property {
+		InFormatsProperty()
+		: drm_core::Property(inFormats, BlobProperty{}, "IN_FORMATS", DRM_MODE_PROP_ATOMIC | DRM_MODE_PROP_IMMUTABLE) { }
+
+		bool validate(const Assignment&) override {
+			return true;
+		}
+
+		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			state->plane(assignment.object->id())->in_formats = assignment.blobValue;
+		}
+	};
+	registerProperty(_inFormatsProperty = std::make_shared<InFormatsProperty>());
 }

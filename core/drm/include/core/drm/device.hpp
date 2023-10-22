@@ -101,6 +101,7 @@ private:
 	std::shared_ptr<Property> _srcYProperty;
 	std::shared_ptr<Property> _crtcWProperty;
 	std::shared_ptr<Property> _crtcHProperty;
+	std::shared_ptr<Property> _inFormatsProperty;
 
 	std::map<std::array<char, 16>, std::shared_ptr<drm_core::BufferObject>> _exportedBufferObjects;
 
@@ -144,6 +145,7 @@ public:
 	Property *srcYProperty();
 	Property *crtcWProperty();
 	Property *crtcHProperty();
+	Property *inFormatsProperty();
 };
 
 } //namespace drm_core

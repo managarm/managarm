@@ -1,6 +1,7 @@
 #pragma once
 
 #include <core/id-allocator.hpp>
+#include <libdrm/drm_fourcc.h>
 
 #include "fwd-decls.hpp"
 
@@ -58,8 +59,8 @@ private:
  * It can represent Connectors, CRTCs, Encoders, Framebuffers and Planes.
  */
 struct ModeObject {
-	ModeObject(ObjectType type, uint32_t id)
-	: _type(type), _id(id) { };
+	ModeObject(Device *dev, ObjectType type, uint32_t id)
+	: _device{dev}, _type(type), _id(id) { };
 
 	virtual ~ModeObject() = default;
 
@@ -82,6 +83,8 @@ struct ModeObject {
 	 * @return std::vector<drm_core::Assignment>
 	 */
 	virtual std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
+protected:
+	Device *_device;
 private:
 	ObjectType _type;
 	uint32_t _id;
@@ -108,7 +111,7 @@ struct CrtcState {
 };
 
 struct Crtc : ModeObject {
-	Crtc(uint32_t id);
+	Crtc(Device *dev, uint32_t id);
 
 protected:
 	~Crtc() = default;
@@ -135,7 +138,7 @@ private:
  * Together with a Connector, it forms what xrandr would understand as an output.
  */
 struct Encoder : ModeObject {
-	Encoder(uint32_t id);
+	Encoder(Device *dev, uint32_t id);
 
 	drm_core::Crtc *currentCrtc();
 	void setCurrentCrtc(drm_core::Crtc *crtc);
@@ -169,7 +172,7 @@ struct ConnectorState {
  * It transmits the signal to the display, detects display connection and removal and exposes the display's supported modes.
  */
 struct Connector : ModeObject {
-	Connector(uint32_t id);
+	Connector(Device *dev, uint32_t id);
 
 	void setupState(std::shared_ptr<drm_core::Connector> connector);
 
@@ -215,12 +218,18 @@ private:
  * Holds all info relating to a framebuffer, such as size and pixel format.
  */
 struct FrameBuffer : ModeObject {
-	FrameBuffer(uint32_t id);
+	FrameBuffer(Device *dev, uint32_t id);
 
 protected:
 	~FrameBuffer() = default;
 
+private:
+	uint32_t _format = DRM_FORMAT_XRGB8888;
+
 public:
+	uint32_t format();
+	void setFormat(uint32_t format);
+
 	virtual void notifyDirty() = 0;
 	virtual uint32_t getWidth() = 0;
 	virtual uint32_t getHeight() = 0;
@@ -233,7 +242,7 @@ struct Plane : ModeObject {
 		CURSOR = 2,
 	};
 
-	Plane(uint32_t id, PlaneType type);
+	Plane(Device *dev, uint32_t id, PlaneType type);
 
 	void setupState(std::shared_ptr<Plane> plane);
 
@@ -247,6 +256,10 @@ struct Plane : ModeObject {
 	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
 	const std::vector<Crtc *> &getPossibleCrtcs();
 
+	void addFormat(uint32_t);
+	std::vector<uint32_t> &getFormats();
+	void clearFormats();
+
 	std::shared_ptr<drm_core::PlaneState> drmState();
 	void setDrmState(std::shared_ptr<drm_core::PlaneState> new_state);
 
@@ -255,6 +268,7 @@ private:
 	drm_core::FrameBuffer *_fb;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::shared_ptr<PlaneState> _drmState;
+	std::vector<uint32_t> _formats = { DRM_FORMAT_XRGB8888 };
 };
 
 struct PlaneState {
@@ -273,6 +287,8 @@ struct PlaneState {
 	uint32_t src_y = 0;
 	uint32_t src_w = 0;
 	uint32_t src_h = 0;
+
+	std::shared_ptr<Blob> in_formats;
 };
 
 } //namespace drm_core

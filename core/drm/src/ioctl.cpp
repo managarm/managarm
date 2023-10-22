@@ -279,7 +279,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			resp.set_drm_gamma_size(0);
-			resp.add_drm_format_type(DRM_FORMAT_XRGB8888);
+
+			for(auto f : plane->getFormats()) {
+				resp.add_drm_format_type(f);
+			}
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -322,7 +325,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				auto fb = obj->asFrameBuffer();
 				resp.set_drm_width(fb->getWidth());
 				resp.set_drm_height(fb->getHeight());
-				resp.set_pixel_format(DRM_FORMAT_XRGB8888);
+				resp.set_pixel_format(fb->format());
 				resp.set_modifier(DRM_FORMAT_MOD_INVALID);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			}
@@ -346,6 +349,31 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto fourcc = convertLegacyFormat(req->drm_bpp(), req->drm_depth());
 			auto fb = self->_device->createFrameBuffer(buffer, req->drm_width(), req->drm_height(),
 					fourcc, req->drm_pitch());
+			self->attachFrameBuffer(fb);
+			resp.set_drm_fb_id(fb->id());
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			if(logDrmRequests)
+				std::cout << " -> [" << fb->id() << "]" << std::endl;
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req->command() == DRM_IOCTL_MODE_ADDFB2) {
+			helix::SendBuffer send_resp;
+			managarm::fs::GenericIoctlReply resp;
+
+			if(logDrmRequests)
+				std::cout << "core/drm: ADDFB2(" << req->drm_width() << "x" << req->drm_height() << ", pitch " << req->drm_pitch() << ")";
+
+			auto bo = self->resolveHandle(req->drm_handle());
+			assert(bo);
+			auto buffer = bo->sharedBufferObject();
+
+			auto fb = self->_device->createFrameBuffer(buffer, req->drm_width(), req->drm_height(),
+					req->drm_fourcc(), req->drm_pitch());
 			self->attachFrameBuffer(fb);
 			resp.set_drm_fb_id(fb->id());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -457,9 +485,11 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				auto fb = self->_device->findObject(req->drm_fb_id());
 				assert(fb);
 
+				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), true));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), mode_blob));
 				assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 			}else{
+				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), false));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), nullptr));
 			}
 
@@ -502,7 +532,8 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			assert(valid);
 			config->commit(state);
 
-			self->_retirePageFlip(std::move(config), req->drm_cookie(), crtc->id());
+			co_await config->waitForCompletion();
+			self->_retirePageFlip(req->drm_cookie(), crtc->id());
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -918,6 +949,26 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				auto mode_obj = self->_device->findObject(req->drm_obj_ids(i));
 				assert(mode_obj);
 
+				if(logDrmRequests) {
+					switch(mode_obj->type()) {
+						case ObjectType::crtc:
+							std::cout << "\tCRTC (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::connector:
+							std::cout << "\tConnector (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::encoder:
+							std::cout << "\tEncoder (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::frameBuffer:
+							std::cout << "\tFB (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+						case ObjectType::plane:
+							std::cout << "\tPlane (ID " << mode_obj->id() << ")" << std::endl;
+							break;
+					}
+				}
+
 				if(mode_obj->type() == ObjectType::crtc) {
 					crtc_ids.push_back(mode_obj->id());
 				}
@@ -931,16 +982,24 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 					if(std::holds_alternative<IntPropertyType>(prop_type)) {
 						assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << value << " (int)" << std::endl;
 					} else if(std::holds_alternative<EnumPropertyType>(prop_type)) {
 						assignments.push_back(Assignment::withInt(mode_obj, prop.get(), value));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << value << " " << prop->enumInfo().at(value) << " (enum)" << std::endl;
 					} else if(std::holds_alternative<BlobPropertyType>(prop_type)) {
 						auto blob = self->_device->findBlob(value);
 
 						assignments.push_back(Assignment::withBlob(mode_obj, prop.get(), blob));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << (blob ? std::to_string(blob->id()) : "<none>") << " (blob)" << std::endl;
 					} else if(std::holds_alternative<ObjectPropertyType>(prop_type)) {
 						auto obj = self->_device->findObject(value);
 
 						assignments.push_back(Assignment::withModeObj(mode_obj, prop.get(), obj));
+						if(logDrmRequests)
+							std::cout << "\t\t" << prop->name() << " = " << (obj ? std::to_string(obj->id()) : "<none>") << " (modeobject)" << std::endl;
 					}
 				}
 
@@ -953,13 +1012,18 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			if(!(req->drm_flags() & DRM_MODE_ATOMIC_TEST_ONLY)) {
+				if(logDrmRequests)
+					std::cout << "\tCommitting configuration ..." << std::endl;
 				config->commit(state);
 				co_await config->waitForCompletion();
 			}
 
 			if(req->drm_flags() & DRM_MODE_PAGE_FLIP_EVENT) {
-				assert(crtc_ids.size() == 1);
-				self->_retirePageFlip(std::move(config), req->drm_cookie(), crtc_ids.front());
+				co_await config->waitForCompletion();
+
+				for(auto id : crtc_ids) {
+					self->_retirePageFlip(req->drm_cookie(), id);
+				}
 			}
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);

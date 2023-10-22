@@ -200,11 +200,7 @@ drm_core::File::pollStatus(void *object) {
 	co_return protocols::fs::PollStatusResult{self->_eventSequence, s};
 }
 
-async::detached
-drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
-			uint64_t cookie, uint32_t crtc_id) {
-	co_await config->waitForCompletion();
-
+void drm_core::File::_retirePageFlip(uint64_t cookie, uint32_t crtc_id) {
 	Event event;
 	event.cookie = cookie;
 	event.crtcId = crtc_id;
@@ -363,19 +359,6 @@ uint32_t drm_core::convertLegacyFormat(uint32_t bpp, uint32_t depth) {
 
 		default:
 			throw std::runtime_error("Bad BPP");
-	}
-}
-
-std::optional<drm_core::FormatInfo> drm_core::getFormatInfo(uint32_t fourcc) {
-	switch(fourcc) {
-		case(DRM_FORMAT_C8): return FormatInfo{1};
-		case(DRM_FORMAT_XRGB1555): return FormatInfo{2};
-		case(DRM_FORMAT_RGB565): return FormatInfo{2};
-		case(DRM_FORMAT_RGB888): return FormatInfo{3};
-		case(DRM_FORMAT_XRGB8888): return FormatInfo{4};
-		case(DRM_FORMAT_XRGB2101010): return FormatInfo{4};
-		case(DRM_FORMAT_ARGB8888): return FormatInfo{4};
-		default: return std::nullopt;
 	}
 }
 
