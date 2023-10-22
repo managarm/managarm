@@ -10,6 +10,7 @@
 #include "../../drvcore.hpp"
 #include "../../util.hpp"
 #include "../pci.hpp"
+#include "attributes.hpp"
 #include "devices.hpp"
 #include "root-hub.hpp"
 #include "usb.hpp"
@@ -32,6 +33,35 @@ protocols::usb::Device &UsbInterface::device() {
 	return std::static_pointer_cast<UsbDevice>(parentDevice())->device();
 }
 
+VendorAttribute vendorAttr{"idVendor"};
+DeviceAttribute deviceAttr{"idProduct"};
+DeviceClassAttribute deviceClassAttr{"bDeviceClass"};
+DeviceSubClassAttribute deviceSubClassAttr{"bDeviceSubClass"};
+DeviceProtocolAttribute deviceProtocolAttr{"bDeviceProtocol"};
+BcdDeviceAttribute bcdDeviceAttr{"bcdDevice"};
+VersionAttribute versionAttr{"version"};
+SpeedAttribute speedAttr{"speed"};
+MaxPowerAttribute maxPowerAttr{"bMaxPower"};
+MaxChildAttribute maxChildAttr{"maxchild"};
+NumInterfacesAttribute numInterfacesAttr{"bNumInterfaces"};
+BusNumAttribute busNumAttr{"busnum"};
+DevNumAttribute devNumAttr{"devnum"};
+DescriptorsAttribute descriptorsAttr{"descriptors"};
+RxLanesAttribute rxLanesAttr{"rx_lanes"};
+TxLanesAttribute txLanesAttr{"tx_lanes"};
+ConfigValueAttribute configValueAttr{"bConfigurationValue"};
+MaxPacketSize0Attribute maxPacketSize0Attr{"bMaxPacketSize0"};
+ConfigurationAttribute configurationAttr{"configuration"};
+BmAttributesAttribute bmAttributesAttr{"bmAttributes"};
+NumConfigurationsAttribute numConfigurationsAttr{"bNumConfigurations"};
+
+/* USB Interface-specific attributes */
+InterfaceClassAttribute interfaceClassAttr{"bInterfaceClass"};
+InterfaceSubClassAttribute interfaceSubClassAttr{"bInterfaceSubClass"};
+InterfaceProtocolAttribute interfaceProtocolAttr{"bInterfaceProtocol"};
+AlternateSettingAttribute alternateSettingAttr{"bAlternateSetting"};
+InterfaceNumberAttribute interfaceNumAttr{"bInterfaceNumber"};
+EndpointNumAttribute numEndpointsAttr{"bNumEndpoints"};
 
 async::detached bindController(mbus::Entity entity, mbus::Properties properties, uint64_t bus_num) {
 	auto pci_parent_id = std::stoi(std::get<mbus::StringItem>(properties["usb.root.parent"]).value);
@@ -94,6 +124,22 @@ async::detached bindController(mbus::Entity entity, mbus::Properties properties,
 	assert(device->descriptors.size() >= 18 + 25);
 
 	drvcore::installDevice(device);
+
+	device->realizeAttribute(&vendorAttr);
+	device->realizeAttribute(&deviceAttr);
+	device->realizeAttribute(&deviceClassAttr);
+	device->realizeAttribute(&deviceSubClassAttr);
+	device->realizeAttribute(&deviceProtocolAttr);
+	device->realizeAttribute(&versionAttr);
+	device->realizeAttribute(&speedAttr);
+	device->realizeAttribute(&maxPowerAttr);
+	device->realizeAttribute(&maxChildAttr);
+	device->realizeAttribute(&numInterfacesAttr);
+	device->realizeAttribute(&busNumAttr);
+	device->realizeAttribute(&devNumAttr);
+	device->realizeAttribute(&descriptorsAttr);
+	device->realizeAttribute(&rxLanesAttr);
+	device->realizeAttribute(&txLanesAttr);
 
 	mbusMap.insert({entity.getId(), device});
 
@@ -167,7 +213,38 @@ async::detached bindDevice(mbus::Entity entity, mbus::Properties properties) {
 	for(auto interface : device->interfaces) {
 		drvcore::installDevice(interface);
 		sysfsSubsystem->devicesObject()->createSymlink(interface->sysfs_name, interface);
+
+		interface->realizeAttribute(&interfaceClassAttr);
+		interface->realizeAttribute(&interfaceSubClassAttr);
+		interface->realizeAttribute(&interfaceProtocolAttr);
+		interface->realizeAttribute(&alternateSettingAttr);
+		interface->realizeAttribute(&interfaceNumAttr);
+		interface->realizeAttribute(&numEndpointsAttr);
 	}
+
+	// TODO: Call realizeAttribute *before* installing the device.
+	device->realizeAttribute(&vendorAttr);
+	device->realizeAttribute(&deviceAttr);
+	device->realizeAttribute(&deviceClassAttr);
+	device->realizeAttribute(&deviceSubClassAttr);
+	device->realizeAttribute(&deviceProtocolAttr);
+	device->realizeAttribute(&bcdDeviceAttr);
+
+	device->realizeAttribute(&versionAttr);
+	device->realizeAttribute(&speedAttr);
+	device->realizeAttribute(&maxPowerAttr);
+	device->realizeAttribute(&maxChildAttr);
+	device->realizeAttribute(&numInterfacesAttr);
+	device->realizeAttribute(&busNumAttr);
+	device->realizeAttribute(&devNumAttr);
+	device->realizeAttribute(&descriptorsAttr);
+	device->realizeAttribute(&rxLanesAttr);
+	device->realizeAttribute(&txLanesAttr);
+	device->realizeAttribute(&configValueAttr);
+	device->realizeAttribute(&maxPacketSize0Attr);
+	device->realizeAttribute(&configurationAttr);
+	device->realizeAttribute(&bmAttributesAttr);
+	device->realizeAttribute(&numConfigurationsAttr);
 
 	mbusMap.insert({entity.getId(), device});
 }

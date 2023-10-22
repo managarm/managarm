@@ -35,6 +35,7 @@ src = [
 	'src/subsystem/generic.cpp',
 	'src/subsystem/input.cpp',
 	'src/subsystem/pci.cpp',
+	'src/subsystem/usb/attributes.cpp',
 	'src/subsystem/usb/usb.cpp',
 	'src/sysfs.cpp',
 	'src/timerfd.cpp',
