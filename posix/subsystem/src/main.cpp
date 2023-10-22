@@ -18,6 +18,7 @@
 #include "subsystem/generic.hpp"
 #include "subsystem/input.hpp"
 #include "subsystem/pci.hpp"
+#include "subsystem/usb/usb.hpp"
 #include "observations.hpp"
 
 #include <bragi/helpers-std.hpp>
@@ -165,6 +166,7 @@ int main() {
 	generic_subsystem::run();
 	input_subsystem::run();
 	pci_subsystem::run();
+	usb_subsystem::run();
 
 	runInit();
 
