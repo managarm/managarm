@@ -8,6 +8,8 @@
 
 #include "usb.hpp"
 
+namespace protocols::usb {
+
 enum class UsbError {
 	none,
 	stall,
@@ -186,3 +188,5 @@ protected:
 public:
 	virtual async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) = 0;
 };
+
+} // namespace protocols::usb

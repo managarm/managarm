@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <protocols/usb/client.hpp>
+
 namespace pages {
 	constexpr int genericDesktop = 0x01;
 	constexpr int simulationControls = 0x02;
@@ -25,7 +28,7 @@ namespace item {
 	constexpr uint32_t relative = (1 << 2);
 }
 
-struct HidDescriptor : public DescriptorBase {
+struct HidDescriptor : public protocols::usb::DescriptorBase {
 	struct [[ gnu::packed ]] Entry {
 		uint8_t descriptorType;
 		uint16_t descriptorLength;

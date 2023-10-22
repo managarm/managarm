@@ -50,8 +50,8 @@ struct Element {
 
 struct HidDevice {
 	HidDevice();
-	void parseReportDescriptor(Device device, uint8_t* p, uint8_t* limit);
-	async::detached run(Device device, int intf_num, int config_num);
+	void parseReportDescriptor(protocols::usb::Device device, uint8_t* p, uint8_t* limit);
+	async::detached run(protocols::usb::Device device, int intf_num, int config_num);
 
 	std::vector<Field> fields;
 	std::vector<Element> elements;

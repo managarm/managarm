@@ -1,7 +1,11 @@
 #pragma once
 
-#include <optional>
 #include <assert.h>
+#include <cstdint>
+#include <string>
+#include <optional>
+
+namespace protocols::usb {
 
 namespace setup_type {
 	enum : uint8_t {
@@ -170,3 +174,5 @@ void walkConfiguration(std::string buffer, F functor) {
 		functor(base->descriptorType, base->length, base, info);
 	}
 }
+
+} // namespace protocols::usb

@@ -1,6 +1,8 @@
 
 #include "protocols/usb/api.hpp"
 
+namespace protocols::usb {
+
 // ----------------------------------------------------------------------------
 // Device.
 // ----------------------------------------------------------------------------
@@ -67,3 +69,4 @@ async::result<frg::expected<UsbError, size_t>> Endpoint::transfer(BulkTransfer i
 	return _state->transfer(info);
 }
 
+} // namespace protocols::usb

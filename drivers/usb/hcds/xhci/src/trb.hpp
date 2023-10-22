@@ -103,7 +103,7 @@ namespace Command {
 } // namespace Command
 
 namespace Transfer {
-	constexpr RawTrb setupStage(SetupPacket setup, bool hasDataStage, bool dataIn) {
+	constexpr RawTrb setupStage(protocols::usb::SetupPacket setup, bool hasDataStage, bool dataIn) {
 		return RawTrb{
 			(uint32_t{setup.value} << 16) | (uint32_t{setup.request} << 8) | uint32_t{setup.type},
 			(uint32_t{setup.length} << 16) | uint32_t{setup.index},
@@ -164,7 +164,7 @@ namespace Transfer {
 	}
 
 	template <typename FU>
-	inline void buildControlChain(FU use, SetupPacket setup, arch::dma_buffer_view view, bool dataIn) {
+	inline void buildControlChain(FU use, protocols::usb::SetupPacket setup, arch::dma_buffer_view view, bool dataIn) {
 		bool statusIn = true;
 
 		if (view.size() && dataIn)

@@ -10,6 +10,8 @@
 #include "usb.hpp"
 #include "api.hpp"
 
+namespace protocols::usb {
+
 // ----------------------------------------------------------------
 // Hub.
 // ----------------------------------------------------------------
@@ -82,3 +84,5 @@ private:
 	BaseController *controller_;
 	async::mutex enumerateMutex_;
 };
+
+} // namespace protocols::usb
