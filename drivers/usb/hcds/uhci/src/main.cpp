@@ -146,11 +146,11 @@ async::result<frg::expected<proto::UsbError, size_t>> EndpointState::transfer(pr
 // Controller.
 // ----------------------------------------------------------------------------
 
-Controller::Controller(protocols::hw::Device hw_device, uintptr_t base,
+Controller::Controller(protocols::hw::Device hw_device, mbus::Entity entity, uintptr_t base,
 		arch::io_space space, helix::UniqueIrq irq)
 : _hwDevice{std::move(hw_device)}, _ioBase{base}, _ioSpace{space}, _irq{std::move(irq)},
 		_lastFrame{0}, _frameCounter{0},
-		_enumerator{this} {
+		_entity{std::move(entity)}, _enumerator{this} {
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
@@ -485,6 +485,11 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 		_enumerator.observeHub(std::move(hub));
 	}
 
+	char name[3];
+	snprintf(name, 3, "%.2x", address);
+
+	std::string mbps = protocols::usb::getSpeedMbps(speed);
+
 	mbus::Properties mbus_desc {
 		{ "usb.type", mbus::StringItem{"device"}},
 		{ "usb.vendor", mbus::StringItem{vendor}},
@@ -492,13 +497,14 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 		{ "usb.class", mbus::StringItem{class_code}},
 		{ "usb.subclass", mbus::StringItem{sub_class}},
 		{ "usb.protocol", mbus::StringItem{protocol}},
-		{ "usb.release", mbus::StringItem{release}}
+		{ "usb.release", mbus::StringItem{release}},
+		{ "usb.hub_port", mbus::StringItem{name}},
+		{ "usb.bus", mbus::StringItem{std::to_string(_entity.getId())}},
+		{ "usb.speed", mbus::StringItem{mbps}},
+		{ "unix.subsystem", mbus::StringItem{"usb"}},
 	};
 
 	auto root = co_await mbus::Instance::global().getRoot();
-
-	char name[3];
-	sprintf(name, "%.2x", address);
 
 	auto handler = mbus::ObjectHandler{}
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
@@ -968,6 +974,17 @@ async::detached bindController(mbus::Entity entity) {
 	auto bar = co_await device.accessBar(4);
 	auto irq = co_await device.accessIrq();
 
+	auto root = co_await mbus::Instance::global().getRoot();
+	mbus::Properties descriptor{
+		{"generic.devtype", mbus::StringItem{"usb-controller"}},
+		{"generic.devsubtype", mbus::StringItem{"uhci"}},
+		{"usb.version.major", mbus::StringItem{"1"}},
+		{"usb.version.minor", mbus::StringItem{"16"}},
+		{"usb.root.parent", mbus::StringItem{std::to_string(entity.getId())}},
+	};
+
+	auto e = co_await root.createObject("uhci-controller", descriptor, mbus::ObjectHandler{});
+
 	// TODO: Disable the legacy support registers of all UHCI devices
 	// before using one of them!
 	auto legsup = co_await device.loadPciSpace(kPciLegacySupport, 2);
@@ -976,7 +993,7 @@ async::detached bindController(mbus::Entity entity) {
 	HEL_CHECK(helEnableIo(bar.getHandle()));
 
 	arch::io_space base = arch::global_io.subspace(info.barInfo[4].address);
-	auto controller = std::make_shared<Controller>(std::move(device),
+	auto controller = std::make_shared<Controller>(std::move(device), std::move(e),
 			info.barInfo[4].address, base, std::move(irq));
 	controller->initialize();
 

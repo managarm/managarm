@@ -5,7 +5,11 @@
 #include <async/recurring-event.hpp>
 #include <async/promise.hpp>
 #include <async/mutex.hpp>
+#include <boost/intrusive/list.hpp>
 #include <protocols/hw/client.hpp>
+#include <protocols/mbus/client.hpp>
+#include <protocols/usb/api.hpp>
+#include <protocols/usb/hub.hpp>
 
 #include <frg/std_compat.hpp>
 
@@ -30,8 +34,8 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 		Controller *_controller;
 	};
 
-	Controller(protocols::hw::Device hw_device, uintptr_t base,
-			arch::io_space space, helix::UniqueIrq irq);
+	Controller(protocols::hw::Device hw_device, mbus::Entity entity,
+			uintptr_t base, arch::io_space space, helix::UniqueIrq irq);
 
 	void initialize();
 	async::detached _handleIrqs();
@@ -49,6 +53,8 @@ private:
 	int64_t _frameCounter;
 	proto::PortState _portState[2];
 	async::recurring_event _portDoorbell;
+
+	mbus::Entity _entity;
 
 	void _updateFrame();
 
