@@ -748,7 +748,7 @@ async::result<void> setupDevice(mbus::Entity entity) {
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
 		{"unix.subsystem", mbus::StringItem{"drm"}},
-		{"unix.devname", mbus::StringItem{"dri/card0"}}
+		{"unix.devname", mbus::StringItem{"dri/card"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}

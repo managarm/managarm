@@ -463,7 +463,7 @@ async::result<void> doBind(mbus::Entity base_entity) {
 	mbus::Properties descriptor{
 		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(base_entity.getId())}},
 		{"unix.subsystem", mbus::StringItem{"drm"}},
-		{"unix.devname", mbus::StringItem{"dri/card0"}}
+		{"unix.devname", mbus::StringItem{"dri/card"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}
