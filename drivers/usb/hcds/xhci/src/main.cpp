@@ -52,14 +52,15 @@ inline frg::expected<proto::UsbError> completionToError(Event ev) {
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
-Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
+Controller::Controller(protocols::hw::Device hw_device, mbus::Entity entity, helix::Mapping mapping,
 		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, bool useMsis)
 : _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
 		_space{_mapping.get()}, _memoryPool{},
 		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
 		_eventRing{this}, _useMsis{useMsis},
-		_enumerator{this}, _largeCtx{false} {
+		_enumerator{this}, _largeCtx{false},
+		_entity{std::move(entity)} {
 	auto op_offset = _space.load(cap_regs::caplength);
 	auto runtime_offset = _space.load(cap_regs::rtsoff);
 	auto doorbell_offset = _space.load(cap_regs::dboff);
@@ -299,7 +300,19 @@ async::detached Controller::initialize() {
 	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
 
 	for (auto &p : _supportedProtocols) {
-		auto hub = std::make_shared<RootHub>(this, p);
+		auto root = co_await mbus::Instance::global().getRoot();
+
+		mbus::Properties descriptor{
+			{"generic.devtype", mbus::StringItem{"usb-controller"}},
+			{"generic.devsubtype", mbus::StringItem{"xhci"}},
+			{"usb.version.major", mbus::StringItem{std::to_string(p.major)}},
+			{"usb.version.minor", mbus::StringItem{std::to_string(p.minor)}},
+			{"usb.root.parent", mbus::StringItem{std::to_string(_entity.getId())}},
+		};
+
+		auto e = co_await root.createObject("xhci-controller", descriptor, mbus::ObjectHandler{});
+
+		auto hub = std::make_shared<RootHub>(this, p, std::move(e));
 		_rootHubs.push_back(hub);
 		_enumerator.observeHub(hub);
 	}
@@ -413,6 +426,13 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 		_enumerator.observeHub(std::move(hub));
 	}
 
+	char name[3];
+	snprintf(name, 3, "%.2lx", device->slot());
+
+	std::string mbps = protocols::usb::getSpeedMbps(speed);
+
+	auto entity_id = std::static_pointer_cast<RootHub>(h)->entityId();
+
 	mbus::Properties mbus_desc{
 		{"usb.type", mbus::StringItem{"device"}},
 		{"usb.vendor", mbus::StringItem{vendor}},
@@ -420,13 +440,14 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 		{"usb.class", mbus::StringItem{class_code}},
 		{"usb.subclass", mbus::StringItem{sub_class}},
 		{"usb.protocol", mbus::StringItem{protocol}},
-		{"usb.release", mbus::StringItem{release}}
+		{"usb.release", mbus::StringItem{release}},
+		{"usb.hub_port", mbus::StringItem{name}},
+		{"usb.bus", mbus::StringItem{std::to_string(entity_id)}},
+		{"usb.speed", mbus::StringItem{mbps}},
+		{"unix.subsystem", mbus::StringItem{"usb"}},
 	};
 
 	auto root = co_await mbus::Instance::global().getRoot();
-
-	char name[3];
-	sprintf(name, "%.2lx", device->slot());
 
 	auto handler = mbus::ObjectHandler{}
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
@@ -682,8 +703,8 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 // Controller::RootHub
 // ------------------------------------------------------------------------
 
-Controller::RootHub::RootHub(Controller *controller, SupportedProtocol &proto)
-: Hub{nullptr, 0}, _controller{controller}, _proto{&proto} {
+Controller::RootHub::RootHub(Controller *controller, SupportedProtocol &proto, mbus::Entity entity)
+: Hub{nullptr, 0}, _controller{controller}, _proto{&proto}, _entity{std::move(entity)} {
 	for (size_t i = 0; i < proto.compatiblePortCount; i++) {
 		_ports.push_back(std::make_unique<Port>(i + proto.compatiblePortStart, controller, &proto));
 		_ports.back()->initPort();
@@ -1155,7 +1176,7 @@ async::detached bindController(mbus::Entity entity) {
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
-	auto controller = std::make_shared<Controller>(std::move(device), std::move(mapping),
+	auto controller = std::make_shared<Controller>(std::move(device), std::move(entity), std::move(mapping),
 			std::move(bar), std::move(irq), info.numMsis > 0);
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));

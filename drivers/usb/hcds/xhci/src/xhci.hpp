@@ -9,6 +9,7 @@
 #include <async/result.hpp>
 #include <helix/memory.hpp>
 #include <helix/timer.hpp>
+#include <protocols/mbus/client.hpp>
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/hub.hpp>
 #include <protocols/hw/client.hpp>
@@ -66,6 +67,7 @@ constexpr const char *completionCodeNames[256] = {
 
 struct Controller final : proto::BaseController {
 	Controller(protocols::hw::Device hw_device,
+			mbus::Entity entity,
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio,
 			helix::UniqueIrq irq, bool useMsis);
@@ -154,10 +156,15 @@ private:
 			return _proto;
 		}
 
+		auto entityId() {
+			return _entity.getId();
+		}
+
 	private:
 		Controller *_controller;
 		SupportedProtocol *_proto;
 		std::vector<std::unique_ptr<Port>> _ports;
+		mbus::Entity _entity;
 	};
 
 	struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
@@ -308,6 +315,8 @@ private:
 	proto::Enumerator _enumerator;
 
 	bool _largeCtx;
+
+	mbus::Entity _entity;
 };
 
 
