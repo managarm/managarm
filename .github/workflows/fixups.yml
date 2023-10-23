@@ -1,0 +1,24 @@
+name: Check if PR has fixups
+
+on:
+  pull_request:
+
+jobs:
+  find-fixups:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - run: |
+          set -e -o pipefail
+
+          git rev-list 'HEAD^..HEAD' \
+            | while read -r COMMIT; do
+            printf 'pondering commit %s\n' "$COMMIT"
+            git show -s "$COMMIT"
+            if git show -s --format='%s' "$COMMIT" | grep -q '^fixup! '; then
+              exit 1
+            fi
+          done
+          printf 'ready to merge!\n'
