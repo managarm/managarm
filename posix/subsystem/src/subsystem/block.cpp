@@ -61,6 +61,21 @@ private:
 
 } // anonymous namepsace
 
+struct ReadOnlyAttribute : sysfs::Attribute {
+	ReadOnlyAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
+ReadOnlyAttribute roAttr{"ro"};
+
+async::result<std::string> ReadOnlyAttribute::show(sysfs::Object *object) {
+	// The format is 0\n\0.
+	// Hardcode to zero as we don't support ro mounts yet.
+	co_return "0\n";
+}
+
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"block"};
 
@@ -113,6 +128,9 @@ async::detached run() {
 		device->assignId({8, minorAllocator.allocate()});
 		blockRegistry.install(device);
 		drvcore::installDevice(device);
+
+		// TODO: Call realizeAttribute *before* installing the device.
+		device->realizeAttribute(&roAttr);
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
