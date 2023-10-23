@@ -68,12 +68,27 @@ struct ReadOnlyAttribute : sysfs::Attribute {
 	async::result<std::string> show(sysfs::Object *object) override;
 };
 
+struct DevAttribute : sysfs::Attribute {
+	DevAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
 ReadOnlyAttribute roAttr{"ro"};
+DevAttribute devAttr{"dev"};
 
 async::result<std::string> ReadOnlyAttribute::show(sysfs::Object *object) {
 	// The format is 0\n\0.
 	// Hardcode to zero as we don't support ro mounts yet.
 	co_return "0\n";
+}
+
+async::result<std::string> DevAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<Device *>(object);
+	auto dev = device->getId();
+	// The format is 0:0\n\0.
+	co_return std::to_string(dev.first) + ":" + std::to_string(dev.second) + "\n";
 }
 
 async::detached run() {
@@ -131,6 +146,7 @@ async::detached run() {
 
 		// TODO: Call realizeAttribute *before* installing the device.
 		device->realizeAttribute(&roAttr);
+		device->realizeAttribute(&devAttr);
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
