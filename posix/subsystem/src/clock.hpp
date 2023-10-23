@@ -10,5 +10,6 @@ helix::BorrowedDescriptor trackerPageMemory();
 async::result<void> enumerateTracker();
 
 struct timespec getRealtime();
+struct timespec getTimeSinceBoot();
 
 } // namespace clk
