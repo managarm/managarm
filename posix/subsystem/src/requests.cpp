@@ -2266,6 +2266,42 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::NetserverIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::NetserverIoctlRequest>(recv_head);
+
+			if(!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: Netserver ioctl" << std::endl;
+
+			auto req_data = req->SerializeAsString();
+			char buffer[128];
+
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+				co_await net::getNetLane(),
+				helix_ng::offer(
+					helix_ng::sendBuffer(req_data.data(), req_data.size()),
+					helix_ng::recvBuffer(buffer, sizeof(buffer))
+				)
+			);
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(recv_resp.error());
+
+			managarm::fs::SvrResponse resp;
+			resp.ParseFromArray(buffer, recv_resp.actualLength());
+			// TODO: this may fail
+			assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::SocketRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::SocketRequest>(recv_head);
 

@@ -521,3 +521,30 @@ head(128):
 tail:
 	uint8[] mask;
 }
+
+message NetserverIoctlRequest 91 {
+head(128):
+	int32 command;
+	tags {
+		tag(1) string name;
+	}
+}
+
+struct IfConf {
+	string name;
+	tags {
+		tag(1) int32 ip4;
+	}
+	int16 port;
+}
+
+message NetserverIoctlReply 92 {
+head(128):
+	Errors error;
+	tags {
+		tag(1) IfConf[] if_confs;
+		tag(2) int32 ip4_netmask;
+		tag(3) int32 nic_index;
+		tag(4) int32 flags;
+	}
+}
