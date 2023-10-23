@@ -1910,6 +1910,46 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		if(!writeUserMemory(image, &thread->_executor.general()->fp, sizeof(FpRegisters)))
 			return kHelErrFault;
 #endif
+	}else if(set == kHelRegsSignal) {
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
+#if defined(__x86_64__)
+		uintptr_t regs[19];
+		regs[0] = thread->_executor.general()->r8;
+		regs[1] = thread->_executor.general()->r9;
+		regs[2] = thread->_executor.general()->r10;
+		regs[3] = thread->_executor.general()->r11;
+		regs[4] = thread->_executor.general()->r12;
+		regs[5] = thread->_executor.general()->r13;
+		regs[6] = thread->_executor.general()->r14;
+		regs[7] = thread->_executor.general()->r15;
+		regs[8] = thread->_executor.general()->rdi;
+		regs[9] = thread->_executor.general()->rsi;
+		regs[10] = thread->_executor.general()->rbp;
+		regs[11] = thread->_executor.general()->rbx;
+		regs[12] = thread->_executor.general()->rdx;
+		regs[13] = thread->_executor.general()->rax;
+		regs[14] = thread->_executor.general()->rcx;
+		regs[15] = thread->_executor.general()->rsp;
+		regs[16] = thread->_executor.general()->rip;
+		regs[17] = thread->_executor.general()->rflags;
+		regs[18] = thread->_executor.general()->cs;
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 19))
+			return kHelErrFault;
+#elif defined(__aarch64__)
+		uintptr_t regs[35];
+		regs[0] = thread->_executor.general()->far;
+		for (int i = 0; i < 31; i++)
+			regs[1 + i] = thread->_executor.general()->x[i];
+		regs[32] = thread->_executor.general()->sp;
+		regs[33] = thread->_executor.general()->elr;
+		regs[34] = thread->_executor.general()->spsr;
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 35))
+			return kHelErrFault;
+#else
+		return kHelErrUnsupportedOperation;
+#endif
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -2031,7 +2071,57 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserMemory(&thread->_executor.general()->fp, image, sizeof(FpRegisters)))
 			return kHelErrFault;
 #endif
-	}else{
+	}else if(set == kHelRegsSignal) {
+		if(!thread) {
+			return kHelErrIllegalArgs;
+		}
+#ifdef __x86_64__
+		uintptr_t regs[19];
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 19))
+			return kHelErrFault;
+		thread->_executor.general()->r8 = regs[0];
+		thread->_executor.general()->r9 = regs[1];
+		thread->_executor.general()->r10 = regs[2];
+		thread->_executor.general()->r11 = regs[3];
+		thread->_executor.general()->r12 = regs[4];
+		thread->_executor.general()->r13 = regs[5];
+		thread->_executor.general()->r14 = regs[6];
+		thread->_executor.general()->r15 = regs[7];
+		thread->_executor.general()->rdi = regs[8];
+		thread->_executor.general()->rsi = regs[9];
+		thread->_executor.general()->rbp = regs[10];
+		thread->_executor.general()->rbx = regs[11];
+		thread->_executor.general()->rdx = regs[12];
+		thread->_executor.general()->rax = regs[13];
+		thread->_executor.general()->rcx = regs[14];
+		thread->_executor.general()->rsp = regs[15];
+		thread->_executor.general()->rip = regs[16];
+
+		// Allow modifying the normal non-privileged flags.
+		constexpr uintptr_t allowedFlagsMask = 0b1000011000110111111111;
+		thread->_executor.general()->rflags &= ~allowedFlagsMask;
+		thread->_executor.general()->rflags |= regs[17] & allowedFlagsMask;
+
+		// Make sure that the cs is in usermode by or'ing it with 3.
+		thread->_executor.general()->cs = regs[18] | 3;
+#elif defined(__aarch64__)
+		uintptr_t regs[35];
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 35))
+			return kHelErrFault;
+		thread->_executor.general()->far = regs[0];
+		for (int i = 0; i < 31; i++)
+			thread->_executor.general()->x[i] = regs[1 + i];
+		thread->_executor.general()->sp = regs[32];
+		thread->_executor.general()->elr = regs[33];
+
+		// Allow N, Z, C, V and SS modifications.
+		constexpr uintptr_t allowedFlagsMask = 0b1111U << 28 | 1U << 21;
+		thread->_executor.general()->spsr &= ~allowedFlagsMask;
+		thread->_executor.general()->spsr |= regs[34] & allowedFlagsMask;
+#else
+		return kHelErrUnsupportedOperation;
+#endif
+	}else {
 		return kHelErrIllegalArgs;
 	}
 
@@ -3388,6 +3478,16 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = Executor::determineSimdSize();
 #elif defined (__aarch64__)
 			outInfo.setSize = sizeof(FpRegisters);
+#else
+#			error Unknown architecture
+#endif
+			break;
+
+		case kHelRegsSignal:
+#if defined (__x86_64__)
+			outInfo.setSize = 19 * sizeof(uintptr_t);
+#elif defined (__aarch64__)
+			outInfo.setSize = 35 * sizeof(uintptr_t);
 #else
 #			error Unknown architecture
 #endif

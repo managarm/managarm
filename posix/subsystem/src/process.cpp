@@ -593,16 +593,14 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 // This is our signal frame, similar to Linux' struct rt_sigframe.
 #if defined(__x86_64__)
 struct SignalFrame {
-	uint64_t returnAddress; // Address for 'ret' instruction.
-	uintptr_t gprs[kHelNumGprs];
-	uintptr_t pcrs[2];
+	uintptr_t returnAddress;
+	ucontext_t ucontext;
 	siginfo_t info;
 };
 #else
 // Return address for 'ret' is stored in X30 and not on the stack
 struct SignalFrame {
-	uintptr_t gprs[kHelNumGprs];
-	uintptr_t pcrs[2];
+	ucontext_t ucontext;
 	siginfo_t info;
 };
 #endif
@@ -670,12 +668,18 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 
 	SignalFrame sf;
 	memset(&sf, 0, sizeof(SignalFrame));
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
 #if defined (__x86_64__)
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
+
 	sf.returnAddress = handler.restorerIp;
+#elif defined(__aarch64__)
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
+#else
+#error Signal register loading code is missing for architecture
 #endif
+
+	sf.ucontext.uc_sigmask = handler.mask;
 
 	std::vector<std::byte> simdState(simdStateSize);
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
@@ -687,7 +691,13 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	}
 
 	// Setup the stack frame.
-	uintptr_t threadSp = sf.pcrs[kHelRegSp];
+#if defined(__x86_64__)
+	uintptr_t threadSp = sf.ucontext.uc_mcontext.gregs[REG_RSP];
+#elif defined(__aarch64__)
+	uintptr_t threadSp = sf.ucontext.uc_mcontext.sp;
+#else
+#error Code to get stack pointer is missing for architecture
+#endif
 
 	if (handler.flags & signalOnStack && process->isAltStackEnabled()) {
 		if (!process->isOnAltStack(threadSp)) {
@@ -707,6 +717,12 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	// Store the current register stack on the stack.
 	assert(alignof(SignalFrame) == 8);
 	auto frame = alignFrame(totalFrameSize);
+
+#if defined(__x86_64__)
+	sf.ucontext.uc_mcontext.fpregs = (struct _fpstate*)(frame + sizeof(SignalFrame));
+#endif
+	// TODO: aarch64
+
 	auto storeFrame = co_await helix_ng::writeMemory(thread, frame,
 			sizeof(SignalFrame), &sf);
 	auto storeSimd = co_await helix_ng::writeMemory(thread, frame + sizeof(SignalFrame),
@@ -719,24 +735,31 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 		std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
 	}
 	// Setup the new register image and resume.
-	// TODO: Linux sets rdx to the ucontext.
 #if defined(__x86_64__)
-	sf.gprs[kHelRegRdi] = item->signalNumber;
-	sf.gprs[kHelRegRsi] = frame + offsetof(SignalFrame, info);
-	sf.gprs[kHelRegRax] = 0; // Number of variable arguments.
+	sf.ucontext.uc_mcontext.gregs[REG_RDI] = item->signalNumber;
+	sf.ucontext.uc_mcontext.gregs[REG_RSI] = frame + offsetof(SignalFrame, info);
+	sf.ucontext.uc_mcontext.gregs[REG_RDX] = frame + offsetof(SignalFrame, ucontext);
+	sf.ucontext.uc_mcontext.gregs[REG_RAX] = 0; // Number of variable arguments.
+
+	sf.ucontext.uc_mcontext.gregs[REG_RIP] = handler.handlerIp;
+	sf.ucontext.uc_mcontext.gregs[REG_RSP] = frame;
+
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
 #elif defined(__aarch64__)
-	sf.gprs[kHelRegX0] = item->signalNumber;
-	sf.gprs[kHelRegX1] = frame + offsetof(SignalFrame, info);
+	sf.ucontext.uc_mcontext.regs[0] = item->signalNumber;
+	sf.ucontext.uc_mcontext.regs[1] = frame + offsetof(SignalFrame, info);
+	sf.ucontext.uc_mcontext.regs[2] = frame + offsetof(SignalFrame, ucontext);
 
 	// Return address for the 'ret' instruction
-	sf.gprs[kHelRegX30] = handler.restorerIp;
+	sf.ucontext.uc_mcontext.regs[30] = handler.restorerIp;
+
+	sf.ucontext.uc_mcontext.pc = handler.handlerIp;
+	sf.ucontext.uc_mcontext.sp = frame;
+
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
+#else
+#error Signal frame register setup code is missing for architecture
 #endif
-
-	sf.pcrs[kHelRegIp] = handler.handlerIp;
-	sf.pcrs[kHelRegSp] = frame;
-
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
 	delete item;
 }
@@ -759,8 +782,14 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 	HEL_CHECK(loadFrame.error());
 	HEL_CHECK(loadSimd.error());
 
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
+#if defined(__x86_64__)
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
+#elif defined(__aarch64__)
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
+#else
+#error Signal register storing code is missing for architecture
+#endif
+
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
 }
 
