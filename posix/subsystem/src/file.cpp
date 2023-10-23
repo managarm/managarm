@@ -24,8 +24,11 @@ File::ptSeekAbs(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
 	auto result = co_await self->seek(offset, VfsSeek::absolute);
 	if(!result) {
-		assert(result.error() == Error::seekOnPipe);
-		co_return protocols::fs::Error::seekOnPipe;
+		if(result.error() == Error::seekOnPipe)
+			co_return protocols::fs::Error::seekOnPipe;
+		else if(result.error() == Error::illegalArguments)
+			co_return protocols::fs::Error::illegalArguments;
+		assert(!"Unexpected error!");
 	}else{
 		co_return result.value();
 	}
@@ -36,8 +39,11 @@ File::ptSeekRel(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
 	auto result = co_await self->seek(offset, VfsSeek::relative);
 	if(!result) {
-		assert(result.error() == Error::seekOnPipe);
-		co_return protocols::fs::Error::seekOnPipe;
+		if(result.error() == Error::seekOnPipe)
+			co_return protocols::fs::Error::seekOnPipe;
+		else if(result.error() == Error::illegalArguments)
+			co_return protocols::fs::Error::illegalArguments;
+		assert(!"Unexpected error!");
 	}else{
 		co_return result.value();
 	}
@@ -48,8 +54,11 @@ File::ptSeekEof(void *object, int64_t offset) {
 	auto self = static_cast<File *>(object);
 	auto result = co_await self->seek(offset, VfsSeek::eof);
 	if(!result) {
-		assert(result.error() == Error::seekOnPipe);
-		co_return protocols::fs::Error::seekOnPipe;
+		if(result.error() == Error::seekOnPipe)
+			co_return protocols::fs::Error::seekOnPipe;
+		else if(result.error() == Error::illegalArguments)
+			co_return protocols::fs::Error::illegalArguments;
+		assert(!"Unexpected error!");
 	}else{
 		co_return result.value();
 	}
