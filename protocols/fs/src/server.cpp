@@ -38,10 +38,18 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 		auto result = co_await file_ops->seekAbs(file.get(), req.rel_offset());
+		auto error = std::get_if<Error>(&result);
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(std::get<int64_t>(result));
+		if(error && *error == Error::seekOnPipe) {
+			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
+		} else if(error && *error == Error::illegalArguments) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			assert(!error);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(std::get<int64_t>(result));
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -68,7 +76,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		managarm::fs::SvrResponse resp;
 		if(error && *error == Error::seekOnPipe) {
 			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
-		}else{
+		} else if(error && *error == Error::illegalArguments) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
 			assert(!error);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_offset(std::get<int64_t>(result));
@@ -94,10 +104,18 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 		auto result = co_await file_ops->seekEof(file.get(), req.rel_offset());
+		auto error = std::get_if<Error>(&result);
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(std::get<int64_t>(result));
+		if(error && *error == Error::seekOnPipe) {
+			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
+		} else if(error && *error == Error::illegalArguments) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			assert(!error);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(std::get<int64_t>(result));
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
