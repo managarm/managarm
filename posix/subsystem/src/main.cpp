@@ -82,6 +82,10 @@ namespace {
 	helix::UniqueLane kerncfgLane;
 };
 
+helix::UniqueLane &getKerncfgLane() {
+	return kerncfgLane;
+}
+
 struct CmdlineNode final : public procfs::RegularNode {
 	async::result<std::string> show() override {
 
