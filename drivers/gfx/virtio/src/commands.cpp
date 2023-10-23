@@ -142,6 +142,8 @@ async::result<void> Cmd::create2d(uint32_t width, uint32_t height, uint32_t reso
 }
 
 async::result<void> Cmd::attachBacking(uint32_t resourceId, void *ptr, size_t size, GfxDevice *device) {
+	assert(ptr);
+	
 	std::vector<spec::MemEntry> entries;
 	for(size_t page = 0; page < size; page += 4096) {
 		spec::MemEntry entry;
