@@ -56,7 +56,10 @@ struct Device final : UnixDevice, drvcore::BlockDevice {
 	}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
+		std::pair<int, int> dev = getId();
 		ue.set("SUBSYSTEM", "block");
+		ue.set("MAJOR", std::to_string(dev.first));
+		ue.set("MINOR", std::to_string(dev.second));
 	}
 
 private:
