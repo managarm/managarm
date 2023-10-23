@@ -119,6 +119,11 @@ void DirectoryFile::handleClose() {
 	_cancelServe.cancel();
 }
 
+// TODO: Verify that this is correct
+async::result<frg::expected<Error, off_t>> DirectoryFile::seek(off_t, VfsSeek) {
+	co_return Error::illegalArguments;
+}
+
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 async::result<ReadEntriesResult> DirectoryFile::readEntries() {
 	if(_iter != _node->_entries.end()) {
