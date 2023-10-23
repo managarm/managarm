@@ -338,6 +338,13 @@ extern inline __attribute__ (( always_inline )) HelError helReadGsBase(void **po
 	return helSyscall1(kHelCallReadGsBase, (HelWord)pointer);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helGetCurrentCpu(int *cpu) {
+	HelWord cpu_word;
+	HelError error = helSyscall0_1(kHelCallGetCurrentCpu, &cpu_word);
+	*cpu = (int)cpu_word;
+	return error;
+}
+
 extern inline __attribute__ (( always_inline )) HelError helGetClock(uint64_t *counter) {
 	HelWord handle_word;
 	HelError error = helSyscall0_1(kHelCallGetClock, &handle_word);
