@@ -697,3 +697,33 @@ head(128):
 	int32 number;
 	uint64 optlen;
 }
+
+message IfreqRequest 18 {
+head(128):
+	int32 command;
+	string name;
+	int32 index;
+}
+
+struct Ifconf {
+	string name;
+	int32 ip4;
+}
+
+message IfreqReply 19 {
+head(128):
+	Errors error;
+	string name;
+	int32 mtu;
+	int32 ip4_addr;
+	int32 ip4_netmask;
+	int32 index;
+	int32 flags;
+}
+
+message IfconfReply 20 {
+head(128):
+	Errors error;
+tail:
+	Ifconf[] ifconf;
+}

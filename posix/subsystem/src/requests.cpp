@@ -2366,6 +2366,60 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::NetserverRequest::message_id) {
+			auto [pt_msg] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::RecvInline());
+
+			HEL_CHECK(pt_msg.error());
+
+			if(logRequests)
+				std::cout << "posix: passing through ioctl to netserver" << std::endl;
+
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+				co_await net::getNetLane(),
+				helix_ng::offer(
+					helix_ng::want_lane,
+					helix_ng::sendBuffer(pt_msg.data(), pt_msg.size()),
+					helix_ng::recvInline()
+				)
+			);
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(recv_resp.error());
+
+			auto recv_preamble = bragi::read_preamble(recv_resp);
+			assert(!recv_preamble.error());
+
+			if(recv_preamble.id() == managarm::fs::IfreqReply::message_id) {
+				auto resp = *bragi::parse_head_only<managarm::fs::IfreqReply>(recv_resp);
+
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+				HEL_CHECK(send_resp.error());
+			} else if(recv_preamble.id() == managarm::fs::IfconfReply::message_id) {
+				std::vector<std::byte> tail(recv_preamble.tail_size());
+				auto [recv_tail] =
+					co_await helix_ng::exchangeMsgs(
+						offer.descriptor(),
+						helix_ng::recvBuffer(tail.data(), tail.size())
+					);
+				HEL_CHECK(recv_tail.error());
+
+				auto resp = *bragi::parse_head_tail<managarm::fs::IfconfReply>(recv_resp, tail);
+
+				auto [send_resp, send_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+				);
+
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(send_tail.error());
+			} else {
+				std::cout << "posix: unexpected message in netserver forward" << std::endl;
+				break;
+			}
 		}else if(preamble.id() == managarm::posix::SocketRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::SocketRequest>(recv_head);
 

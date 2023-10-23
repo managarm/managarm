@@ -66,6 +66,7 @@ struct Link {
 	unsigned int mtu;
 
 	static std::shared_ptr<Link> byIndex(int index);
+	static std::shared_ptr<Link> byName(std::string name);
 
 	static std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &getLinks();
 protected:
