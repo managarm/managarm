@@ -189,4 +189,24 @@ public:
 	virtual async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) = 0;
 };
 
+inline std::string getSpeedMbps(DeviceSpeed speed) {
+	switch(speed) {
+		case DeviceSpeed::fullSpeed: {
+			return "12";
+		}
+		case DeviceSpeed::lowSpeed: {
+			return "1.5";
+		}
+		case DeviceSpeed::highSpeed: {
+			return "480";
+		}
+		case DeviceSpeed::superSpeed: {
+			return "5000";
+		}
+		default: {
+			return "unknown";
+		}
+	}
+}
+
 } // namespace protocols::usb
