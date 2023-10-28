@@ -234,6 +234,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	the_node->_entries.insert(std::move(self_thread_link));
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
+	the_node->directMkregular("filesystems", std::make_shared<FilesystemsNode>());
 
 	return link;
 }
@@ -355,6 +356,27 @@ async::result<std::string> UptimeNode::show() {
 async::result<void> UptimeNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/uptime file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> FilesystemsNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	// TODO: When the blockstack rework is done, pull the information
+	// out of some registry.
+	std::stringstream stream;
+	stream << "nodev\tsysfs\n";
+	stream << "nodev\ttmpfs\n";
+	stream << "nodev\tproc\n";
+	stream << "nodev\tdevpts\n";
+	stream << "nodev\tdevtmpfs\n";
+	stream << "\text2\n";
+	co_return stream.str();
+}
+
+async::result<void> FilesystemsNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/filesystems file" << std::endl;
 	co_return;
 }
 
