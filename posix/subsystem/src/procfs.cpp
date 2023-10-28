@@ -235,6 +235,12 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
 
+	auto fsLink = the_node->directMkdir("fs");
+	auto fs = std::static_pointer_cast<DirectoryNode>(fsLink->getTarget());
+	auto ext2Link = fs->directMkdir("ext2");
+	auto ext2 = std::static_pointer_cast<DirectoryNode>(ext2Link->getTarget());
+	ext2->directMkdir("sda0");
+
 	return link;
 }
 
