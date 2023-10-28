@@ -14,6 +14,8 @@
 #include <arpa/inet.h>
 #include <netinet/ip.h>
 
+#include <bragi/helpers-std.hpp>
+
 #include "checksum.hpp"
 #include "ip4.hpp"
 #include "tcp4.hpp"
@@ -214,8 +216,10 @@ struct Tcp4Socket {
 			co_return protocols::fs::Error::accessDenied;
 		}
 
-		if (!ip4().hasIp(bindEp.ipAddress))
+		if (bindEp.ipAddress != INADDR_ANY && !ip4().hasIp(bindEp.ipAddress)) {
+			std::cout << "netserver: IP address " << std::setw(8) << std::hex << bindEp.ipAddress << std::dec << " is not available" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
+		}
 
 		// Bind the socket.
 		if (!bindEp.port) {
@@ -228,6 +232,29 @@ struct Tcp4Socket {
 		}
 
 		co_return protocols::fs::Error::none;
+	}
+
+	static async::result<size_t> sockname(void *object, void *addr_ptr, size_t max_addr_length) {
+		auto self = static_cast<Tcp4Socket *>(object);
+		sockaddr_in sa { .sin_family = AF_INET };
+		sa.sin_port = htons(self->localEp_.port);
+		sa.sin_addr.s_addr = htonl(self->localEp_.ipAddress);
+		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
+
+		co_return sizeof(sockaddr_in);
+	}
+
+	static async::result<frg::expected<protocols::fs::Error, size_t>> peername(void *object, void *addr_ptr, size_t max_addr_length) {
+		auto self = static_cast<Tcp4Socket *>(object);
+		if(self->connectState_ != ConnectState::connected) {
+			co_return protocols::fs::Error::notConnected;
+		}
+		sockaddr_in sa { .sin_family = AF_INET };
+		sa.sin_port = htons(self->remoteEp_.port);
+		sa.sin_addr.s_addr = htonl(self->remoteEp_.ipAddress);
+		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
+
+		co_return sizeof(sockaddr_in);
 	}
 
 	static async::result<protocols::fs::Error> connect(void *object,
@@ -417,10 +444,12 @@ struct Tcp4Socket {
 		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.connect = &connect,
+		.sockname = &sockname,
 		.getFileFlags = &getFileFlags,
 		.setFileFlags = &setFileFlags,
 		.recvMsg = &recvMsg,
 		.sendMsg = &sendMsg,
+		.peername = &peername,
 	};
 
 	bool bindAvailable(uint32_t ipAddress = INADDR_ANY) {
