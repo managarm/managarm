@@ -10,6 +10,7 @@
 #include <random>
 #include <fcntl.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
@@ -257,6 +258,47 @@ struct Tcp4Socket {
 		co_return sizeof(sockaddr_in);
 	}
 
+	static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
+		auto self = static_cast<Tcp4Socket *>(object);
+		managarm::fs::GenericIoctlReply resp;
+
+		if(id == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			assert(req);
+
+			switch(req->command()) {
+				case FIONREAD: {
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					if(self->connectState_ != ConnectState::connected) {
+						resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
+					}else {
+						resp.set_fionread_count(self->recvRing_.availableToDequeue());
+					}
+					break;
+				}
+				default: {
+					std::cout << "Invalid ioctl for tcp-socket" << std::endl;
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					break;
+				}
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		}else {
+			std::cout << "Unknown ioctl() message with ID " << id << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
+		co_return;
+	}
+
 	static async::result<protocols::fs::Error> connect(void *object,
 			const char *creds,
 			const void *addrPtr, size_t addrLength) {
@@ -440,6 +482,7 @@ struct Tcp4Socket {
 	constexpr static protocols::fs::FileOperations ops {
 		.read = &read,
 		.write = &write,
+		.ioctl = &ioctl,
 		.pollWait = &pollWait,
 		.pollStatus = &pollStatus,
 		.bind = &bind,
