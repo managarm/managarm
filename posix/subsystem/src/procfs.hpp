@@ -226,6 +226,13 @@ struct OstypeNode final : RegularNode {
 	async::result<void> store(std::string) override;
 };
 
+struct OsreleaseNode final : RegularNode {
+	OsreleaseNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+};
+
 struct CommNode final : RegularNode {
 	CommNode(Process *process)
 	: _process(process)

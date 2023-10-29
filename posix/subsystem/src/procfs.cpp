@@ -241,6 +241,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto kernel = std::static_pointer_cast<DirectoryNode>(kernelLink->getTarget());
 
 	kernel->directMkregular("ostype", std::make_shared<OstypeNode>());
+	kernel->directMkregular("osrelease", std::make_shared<OsreleaseNode>());
 
 	return link;
 }
@@ -376,6 +377,21 @@ async::result<std::string> OstypeNode::show() {
 async::result<void> OstypeNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/sys/kernel/ostype file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> OsreleaseNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	// TODO: The version is a placeholder!
+	std::stringstream stream;
+	stream << "0.0.1\n";
+	co_return stream.str();
+}
+
+async::result<void> OsreleaseNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/sys/kernel/osrelease file" << std::endl;
 	co_return;
 }
 
