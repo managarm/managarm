@@ -240,6 +240,8 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto kernelLink = sys->directMkdir("kernel");
 	auto kernel = std::static_pointer_cast<DirectoryNode>(kernelLink->getTarget());
 
+	kernel->directMkregular("ostype", std::make_shared<OstypeNode>());
+
 	return link;
 }
 
@@ -360,6 +362,20 @@ async::result<std::string> UptimeNode::show() {
 async::result<void> UptimeNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/uptime file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> OstypeNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "Managarm\n";
+	co_return stream.str();
+}
+
+async::result<void> OstypeNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/sys/kernel/ostype file" << std::endl;
 	co_return;
 }
 
