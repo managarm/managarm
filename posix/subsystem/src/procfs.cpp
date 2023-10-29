@@ -235,6 +235,11 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
 
+	auto sysLink = the_node->directMkdir("sys");
+	auto sys = std::static_pointer_cast<DirectoryNode>(sysLink->getTarget());
+	auto kernelLink = sys->directMkdir("kernel");
+	auto kernel = std::static_pointer_cast<DirectoryNode>(kernelLink->getTarget());
+
 	return link;
 }
 
