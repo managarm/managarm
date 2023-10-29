@@ -97,7 +97,7 @@ struct Read32 {
 
 struct StorageDevice : blockfs::BlockDevice {
 	//TODO(geert): hook up USB to sysfs too
-	StorageDevice(Device usb_device)
+	StorageDevice(protocols::usb::Device usb_device)
 	: blockfs::BlockDevice(512, -1), _usbDevice(std::move(usb_device)) { }
 
 	async::detached run(int config_num, int intf_num);
@@ -123,7 +123,7 @@ private:
 		boost::intrusive::list_member_hook<> requestHook;
 	};
 
-	Device _usbDevice;
+	protocols::usb::Device _usbDevice;
 	async::recurring_event _doorbell;
 
 	boost::intrusive::list<

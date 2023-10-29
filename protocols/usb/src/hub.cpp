@@ -2,6 +2,8 @@
 
 #include <async/recurring-event.hpp>
 
+namespace protocols::usb {
+
 // ----------------------------------------------------------------
 // Enumerator.
 // ----------------------------------------------------------------
@@ -326,3 +328,5 @@ createHubFromDevice(std::shared_ptr<Hub> parentHub, Device device, size_t port) 
 	FRG_CO_TRY(co_await hub->initialize());
 	co_return hub;
 }
+
+} // namespace protocols::usb

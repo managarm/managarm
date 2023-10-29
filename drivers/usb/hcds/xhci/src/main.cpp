@@ -26,12 +26,16 @@
 #include "xhci.hpp"
 #include "trb.hpp"
 
+namespace proto = protocols::usb;
+
 // When set to true, the driver ignores any speeds defined in the supported protocols
 // in favor of the default values defined in the XHCI spec. This behavior imitates
 // what Linux is doing in it's driver.
 inline constexpr bool ignoreControllerSpeeds = true;
 
-inline frg::expected<UsbError> completionToError(Event ev) {
+inline frg::expected<proto::UsbError> completionToError(Event ev) {
+	using proto::UsbError;
+
 	switch (ev.completionCode) {
 		case 1: return frg::success;
 		case 13: return frg::success; // Should short packets always be treated as success?
@@ -48,14 +52,15 @@ inline frg::expected<UsbError> completionToError(Event ev) {
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
-Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
+Controller::Controller(protocols::hw::Device hw_device, mbus::Entity entity, helix::Mapping mapping,
 		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, bool useMsis)
 : _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
 		_space{_mapping.get()}, _memoryPool{},
 		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
 		_eventRing{this}, _useMsis{useMsis},
-		_enumerator{this}, _largeCtx{false} {
+		_enumerator{this}, _largeCtx{false},
+		_entity{std::move(entity)} {
 	auto op_offset = _space.load(cap_regs::caplength);
 	auto runtime_offset = _space.load(cap_regs::rtsoff);
 	auto doorbell_offset = _space.load(cap_regs::dboff);
@@ -97,7 +102,7 @@ std::vector<std::pair<uint8_t, uint16_t>> Controller::getExtendedCapabilityOffse
 async::detached Controller::initialize() {
 	auto caps = getExtendedCapabilityOffsets();
 
-	auto usb_legacy_cap = std::find_if(caps.begin(), caps.end(), 
+	auto usb_legacy_cap = std::find_if(caps.begin(), caps.end(),
 			[](auto &a){
 				return a.first == 0x1;
 			});
@@ -182,7 +187,7 @@ async::detached Controller::initialize() {
 	for (auto &p : _supportedProtocols) {
 		printf("xhci: supported protocol:\n");
 		printf("xhci: name: \"%s\" %u.%u\n", p.name.c_str(), p.major, p.minor);
-		printf("xhci: compatible ports: %lu to %lu\n", p.compatiblePortStart, 
+		printf("xhci: compatible ports: %lu to %lu\n", p.compatiblePortStart,
 				p.compatiblePortStart + p.compatiblePortCount - 1);
 		printf("xhci: protocol defined: %03x\n", p.protocolDefined);
 		printf("xhci: protocol slot type: %lu\n", p.protocolSlotType);
@@ -210,13 +215,13 @@ async::detached Controller::initialize() {
 
 		printf("xhci: supported speeds:\n");
 		for (auto &s : p.speeds) {
-			printf("xhci:\tspeed:%u %s\n", s.mantissa, 
+			printf("xhci:\tspeed:%u %s\n", s.mantissa,
 					exponent[s.exponent]);
 			printf("xhci:\tfull duplex? %s\n",
 					s.fullDuplex ? "yes" : "no");
 			printf("xhci:\ttype: %s\n", type[s.type]);
 			if (p.major == 3)
-				printf("xhci:\tlink protocol: %s\n", 
+				printf("xhci:\tlink protocol: %s\n",
 						linkProtocol[s.linkProtocol]);
 		}
 	}
@@ -295,7 +300,19 @@ async::detached Controller::initialize() {
 	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
 
 	for (auto &p : _supportedProtocols) {
-		auto hub = std::make_shared<RootHub>(this, p);
+		auto root = co_await mbus::Instance::global().getRoot();
+
+		mbus::Properties descriptor{
+			{"generic.devtype", mbus::StringItem{"usb-controller"}},
+			{"generic.devsubtype", mbus::StringItem{"xhci"}},
+			{"usb.version.major", mbus::StringItem{std::to_string(p.major)}},
+			{"usb.version.minor", mbus::StringItem{std::to_string(p.minor)}},
+			{"usb.root.parent", mbus::StringItem{std::to_string(_entity.getId())}},
+		};
+
+		auto e = co_await root.createObject("xhci-controller", descriptor, mbus::ObjectHandler{});
+
+		auto hub = std::make_shared<RootHub>(this, p, std::move(e));
 		_rootHubs.push_back(hub);
 		_enumerator.observeHub(hub);
 	}
@@ -352,7 +369,7 @@ void Controller::ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_
 			target | (stream_id << 16));
 }
 
-async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, int port, DeviceSpeed speed) {
+async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
 	uint32_t route = 0;
 	size_t rootPort = port;
 
@@ -360,7 +377,7 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 		route |= port > 14 ? 14 : (port + 1);
 	}
 
-	std::shared_ptr<Hub> h = parentHub;
+	std::shared_ptr<proto::Hub> h = parentHub;
 
 	while (h->parent()) {
 		if (h->parent()->parent()) {
@@ -388,26 +405,33 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 	// TODO: if isFullSpeed is set, read the first 8 bytes of the device descriptor
 	// and update the control endpoint's max packet size to match the bMaxPacketSize0 value
 
-	arch::dma_object<DeviceDescriptor> descriptor{&_memoryPool};
+	arch::dma_object<proto::DeviceDescriptor> descriptor{&_memoryPool};
 	(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100)).unwrap();
 
 	// Advertise the USB device on mbus.
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];
-	sprintf(class_code, "%.2x", descriptor->deviceClass);
-	sprintf(sub_class, "%.2x", descriptor->deviceSubclass);
-	sprintf(protocol, "%.2x", descriptor->deviceProtocol);
-	sprintf(vendor, "%.4x", descriptor->idVendor);
-	sprintf(product, "%.4x", descriptor->idProduct);
-	sprintf(release, "%.4x", descriptor->bcdDevice);
+	snprintf(class_code, 3, "%.2x", descriptor->deviceClass);
+	snprintf(sub_class, 3, "%.2x", descriptor->deviceSubclass);
+	snprintf(protocol, 3, "%.2x", descriptor->deviceProtocol);
+	snprintf(vendor, 5, "%.4x", descriptor->idVendor);
+	snprintf(product, 5, "%.4x", descriptor->idProduct);
+	snprintf(release, 5, "%.4x", descriptor->bcdDevice);
 
 	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
-		auto hub = (co_await createHubFromDevice(parentHub, ::Device{device}, port)).unwrap();
+		auto hub = (co_await createHubFromDevice(parentHub, proto::Device{device}, port)).unwrap();
 
 		(co_await device->configureHub(hub, speed)).unwrap();
 
 		_enumerator.observeHub(std::move(hub));
 	}
+
+	char name[3];
+	snprintf(name, 3, "%.2lx", device->slot());
+
+	std::string mbps = protocols::usb::getSpeedMbps(speed);
+
+	auto entity_id = std::static_pointer_cast<RootHub>(h)->entityId();
 
 	mbus::Properties mbus_desc{
 		{"usb.type", mbus::StringItem{"device"}},
@@ -416,19 +440,20 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<Hub> parentHub, 
 		{"usb.class", mbus::StringItem{class_code}},
 		{"usb.subclass", mbus::StringItem{sub_class}},
 		{"usb.protocol", mbus::StringItem{protocol}},
-		{"usb.release", mbus::StringItem{release}}
+		{"usb.release", mbus::StringItem{release}},
+		{"usb.hub_port", mbus::StringItem{name}},
+		{"usb.bus", mbus::StringItem{std::to_string(entity_id)}},
+		{"usb.speed", mbus::StringItem{mbps}},
+		{"unix.subsystem", mbus::StringItem{"usb"}},
 	};
 
 	auto root = co_await mbus::Instance::global().getRoot();
-
-	char name[3];
-	sprintf(name, "%.2lx", device->slot());
 
 	auto handler = mbus::ObjectHandler{}
 	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		protocols::usb::serve(::Device{device}, std::move(local_lane));
+		proto::serve(proto::Device{device}, std::move(local_lane));
 
 		co_return std::move(remote_lane);
 	});
@@ -594,37 +619,37 @@ async::detached Controller::Port::initPort() {
 		assert(linkStatus == 0); // U0
 	}
 
-	_state.changes |= HubStatus::connect | HubStatus::enable;
-	_state.status |= HubStatus::connect | HubStatus::enable;
+	_state.changes |= proto::HubStatus::connect | proto::HubStatus::enable;
+	_state.status |= proto::HubStatus::connect | proto::HubStatus::enable;
 	_pollEv.raise();
 }
 
-async::result<PortState> Controller::Port::pollState() {
+async::result<proto::PortState> Controller::Port::pollState() {
 	_pollSeq = co_await _pollEv.async_wait(_pollSeq);
 	co_return _state;
 }
 
-async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGenericSpeed() {
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Port::getGenericSpeed() {
 	uint8_t speedId = getSpeed();
 
-	std::optional<DeviceSpeed> speed;
+	std::optional<proto::DeviceSpeed> speed;
 
 	if (ignoreControllerSpeeds || _proto->speeds.empty()) {
 		switch(speedId) {
 			case 1:
-				speed = DeviceSpeed::fullSpeed;
+				speed = proto::DeviceSpeed::fullSpeed;
 				break;
 			case 2:
-				speed = DeviceSpeed::lowSpeed;
+				speed = proto::DeviceSpeed::lowSpeed;
 				break;
 			case 3:
-				speed = DeviceSpeed::highSpeed;
+				speed = proto::DeviceSpeed::highSpeed;
 				break;
 			case 4:
 			case 5:
 			case 6:
 			case 7:
-				speed = DeviceSpeed::superSpeed;
+				speed = proto::DeviceSpeed::superSpeed;
 		}
 	} else {
 		for (auto &pSpeed : _proto->speeds) {
@@ -632,21 +657,21 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 				if (pSpeed.exponent == 2
 						&& pSpeed.mantissa == 12) {
 					// Full Speed
-					speed = DeviceSpeed::fullSpeed;
+					speed = proto::DeviceSpeed::fullSpeed;
 				} else if (pSpeed.exponent == 1
 						&& pSpeed.mantissa == 1500) {
 					// Low Speed
-					speed = DeviceSpeed::lowSpeed;
+					speed = proto::DeviceSpeed::lowSpeed;
 				} else if (pSpeed.exponent == 2
 						&& pSpeed.mantissa == 480) {
 					// High Speed
-					speed = DeviceSpeed::highSpeed;
+					speed = proto::DeviceSpeed::highSpeed;
 				} else if (pSpeed.exponent == 3
 						&& (pSpeed.mantissa == 5
 							|| pSpeed.mantissa == 10
 							|| pSpeed.mantissa == 20)) {
 					// SuperSpeed
-					speed = DeviceSpeed::superSpeed;
+					speed = proto::DeviceSpeed::superSpeed;
 				}else if (pSpeed.exponent == 2
 						&& (pSpeed.mantissa == 1248
 							|| pSpeed.mantissa == 2496
@@ -655,7 +680,7 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 							|| pSpeed.mantissa == 2915
 							|| pSpeed.mantissa == 5830)) {
 					// SSIC SuperSpeed
-					speed = DeviceSpeed::superSpeed;
+					speed = proto::DeviceSpeed::superSpeed;
 				}
 
 				break;
@@ -670,7 +695,7 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 		co_return speed.value();
 	} else {
 		printf("xhci: Invalid speed ID: %u\n", speedId);
-		co_return UsbError::unsupported;
+		co_return proto::UsbError::unsupported;
 	}
 }
 
@@ -678,12 +703,12 @@ async::result<frg::expected<UsbError, DeviceSpeed>> Controller::Port::getGeneric
 // Controller::RootHub
 // ------------------------------------------------------------------------
 
-Controller::RootHub::RootHub(Controller *controller, SupportedProtocol &proto)
-: Hub{nullptr, 0}, _controller{controller}, _proto{&proto} {
+Controller::RootHub::RootHub(Controller *controller, SupportedProtocol &proto, mbus::Entity entity)
+: Hub{nullptr, 0}, _controller{controller}, _proto{&proto}, _entity{std::move(entity)} {
 	for (size_t i = 0; i < proto.compatiblePortCount; i++) {
 		_ports.push_back(std::make_unique<Port>(i + proto.compatiblePortStart, controller, &proto));
 		_ports.back()->initPort();
-		_controller->_ports[(i + proto.compatiblePortStart - 1)] = 
+		_controller->_ports[(i + proto.compatiblePortStart - 1)] =
 				_ports.back().get();
 	}
 }
@@ -692,11 +717,11 @@ size_t Controller::RootHub::numPorts() {
 	return _proto->compatiblePortCount;
 }
 
-async::result<PortState> Controller::RootHub::pollState(int port) {
+async::result<proto::PortState> Controller::RootHub::pollState(int port) {
 	co_return co_await _ports[port]->pollState();
 }
 
-async::result<frg::expected<UsbError, DeviceSpeed>> Controller::RootHub::issueReset(int port) {
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::RootHub::issueReset(int port) {
 	co_return FRG_CO_TRY(co_await _ports[port]->getGenericSpeed());
 }
 
@@ -716,9 +741,16 @@ arch::dma_pool *Controller::Device::bufferPool() {
 	return &_controller->_memoryPool;
 }
 
-async::result<frg::expected<UsbError, std::string>>
+async::result<frg::expected<proto::UsbError, std::string>>
+Controller::Device::deviceDescriptor() {
+	arch::dma_object<proto::DeviceDescriptor> descriptor{bufferPool()};
+	FRG_CO_TRY(co_await readDescriptor(descriptor.view_buffer(), 0x0100));
+	co_return std::string{(char *)descriptor.data(), descriptor.view_buffer().size()};
+}
+
+async::result<frg::expected<proto::UsbError, std::string>>
 Controller::Device::configurationDescriptor() {
-	arch::dma_object<ConfigDescriptor> header{&_controller->_memoryPool};
+	arch::dma_object<proto::ConfigDescriptor> header{&_controller->_memoryPool};
 	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200));
 
 	arch::dma_buffer descriptor{&_controller->_memoryPool, header->totalLength};
@@ -726,25 +758,25 @@ Controller::Device::configurationDescriptor() {
 	co_return std::string{(char *)descriptor.data(), descriptor.size()};
 }
 
-async::result<frg::expected<UsbError, Configuration>>
+async::result<frg::expected<proto::UsbError, proto::Configuration>>
 Controller::Device::useConfiguration(int number) {
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor());
 
 	struct EndpointInfo {
 		int pipe;
-		PipeType dir;
+		proto::PipeType dir;
 		int packetSize;
-		EndpointType type;
+		proto::EndpointType type;
 	};
 
 	std::vector<EndpointInfo> _eps = {};
 
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
 
-		if(type != descriptor_type::endpoint)
+		if(type != proto::descriptor_type::endpoint)
 			return;
-		auto desc = (EndpointDescriptor *)p;
+		auto desc = (proto::EndpointDescriptor *)p;
 
 		// TODO: Pay attention to interface/alternative.
 		auto packetSize = desc->maxPacketSize & 0x7FF;
@@ -752,15 +784,15 @@ Controller::Device::useConfiguration(int number) {
 
 		int pipe = info.endpointNumber.value();
 		if (info.endpointIn.value()) {
-			_eps.push_back({pipe, PipeType::in, packetSize, epType});
+			_eps.push_back({pipe, proto::PipeType::in, packetSize, epType});
 		} else {
-			_eps.push_back({pipe, PipeType::out, packetSize, epType});
+			_eps.push_back({pipe, proto::PipeType::out, packetSize, epType});
 		}
 	});
 
 	for (auto &ep : _eps) {
-		printf("xhci: setting up %s endpoint %d (max packet size: %d)\n", 
-			ep.dir == PipeType::in ? "in" : "out", ep.pipe, ep.packetSize);
+		printf("xhci: setting up %s endpoint %d (max packet size: %d)\n",
+			ep.dir == proto::PipeType::in ? "in" : "out", ep.pipe, ep.packetSize);
 		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
 	}
 
@@ -770,7 +802,7 @@ Controller::Device::useConfiguration(int number) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
 		pushRawTransfer(0, trb, last ? &comp : nullptr);
-	}, { .request = request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false);
+	}, { .request = proto::request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false);
 
 	submit(1);
 
@@ -783,18 +815,18 @@ Controller::Device::useConfiguration(int number) {
 	FRG_CO_TRY(completionToError(comp.event));
 	printf("xhci: configuration set\n");
 
-	co_return Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
+	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
 }
 
-async::result<frg::expected<UsbError>>
-Controller::Device::transfer(ControlTransfer info) {
+async::result<frg::expected<proto::UsbError>>
+Controller::Device::transfer(proto::ControlTransfer info) {
 	ProducerRing::Completion ev;
 
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
 		pushRawTransfer(0, trb, last ? &ev : nullptr);
-	}, *info.setup.data(), info.buffer, info.flags == kXferToHost);
+	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost);
 
 	submit(1);
 
@@ -809,9 +841,9 @@ void Controller::Device::submit(int endpoint) {
 	_controller->ringDoorbell(_slotId, endpoint, /* stream */ 0);
 }
 
-static inline uint8_t getHcdSpeedId(DeviceSpeed speed) {
+static inline uint8_t getHcdSpeedId(proto::DeviceSpeed speed) {
 	switch (speed) {
-		using enum DeviceSpeed;
+		using enum proto::DeviceSpeed;
 
 		case lowSpeed: return 2;
 		case fullSpeed: return 1;
@@ -822,8 +854,8 @@ static inline uint8_t getHcdSpeedId(DeviceSpeed speed) {
 	return 0;
 }
 
-async::result<frg::expected<UsbError>>
-Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<Hub> hub, DeviceSpeed speed, int slotType) {
+async::result<frg::expected<proto::UsbError>>
+Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType) {
 	auto event = co_await _controller->submitCommand(
 			Command::enableSlot(slotType));
 
@@ -850,7 +882,7 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 	slotCtx |= SlotFields::ctxEntries(1);
 	slotCtx |= SlotFields::speed(getHcdSpeedId(speed));
 
-	if ((speed == DeviceSpeed::lowSpeed || speed == DeviceSpeed::fullSpeed)
+	if ((speed == proto::DeviceSpeed::lowSpeed || speed == proto::DeviceSpeed::fullSpeed)
 			&& hub->parent()) {
 		// We need to fill these fields out for split transactions.
 
@@ -864,7 +896,7 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 
 	size_t packetSize = 0;
 	switch (speed) {
-		using enum DeviceSpeed;
+		using enum proto::DeviceSpeed;
 
 		case lowSpeed:
 		case fullSpeed: packetSize = 8; break;
@@ -872,7 +904,7 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 		case superSpeed: packetSize = 512; break;
 	}
 
-	_initEpCtx(inputCtx, 0, PipeType::control, packetSize, EndpointType::control);
+	_initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control);
 
 	_controller->_dcbaa[_slotId] = helix::ptrToPhysical(_devCtx.rawData());
 
@@ -895,7 +927,7 @@ void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing:
 	_transferRings[endpoint]->pushRawTrb(cmd, comp);
 }
 
-async::result<frg::expected<UsbError>>
+async::result<frg::expected<proto::UsbError>>
 Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	ProducerRing::Completion ev;
 
@@ -903,8 +935,8 @@ Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
 		pushRawTransfer(0, trb, last ? &ev : nullptr);
-	}, { .type = 0x80, .request = request_type::getDescriptor,
-		.value = static_cast<uint16_t>(desc), .length = static_cast<uint16_t>(dest.size()) }, dest, true);
+	}, { .type = 0x80, .request = proto::request_type::getDescriptor,
+		.value = desc, .length = static_cast<uint16_t>(dest.size()) }, dest, true);
 
 	submit(1);
 
@@ -921,7 +953,10 @@ Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	co_return frg::success;
 }
 
-static inline uint32_t getHcdEndpointType(PipeType dir, EndpointType type) {
+static inline uint32_t getHcdEndpointType(proto::PipeType dir, proto::EndpointType type) {
+	using proto::EndpointType;
+	using proto::PipeType;
+
 	if (type == EndpointType::control)
 		return 4;
 	if (type == EndpointType::isochronous)
@@ -933,7 +968,9 @@ static inline uint32_t getHcdEndpointType(PipeType dir, EndpointType type) {
 	return 0;
 }
 
-static inline uint32_t getDefaultAverageTrbLen(EndpointType type) {
+static inline uint32_t getDefaultAverageTrbLen(proto::EndpointType type) {
+	using proto::EndpointType;
+
 	if (type == EndpointType::control)
 		return 8;
 	if (type == EndpointType::isochronous)
@@ -945,8 +982,8 @@ static inline uint32_t getDefaultAverageTrbLen(EndpointType type) {
 	return 0;
 }
 
-async::result<frg::expected<UsbError>>
-Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type) {
+async::result<frg::expected<proto::UsbError>>
+Controller::Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
 	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -956,7 +993,7 @@ Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSi
 	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type);
 
 	auto event = co_await _controller->submitCommand(
-			Command::configureEndpoint(_slotId, 
+			Command::configureEndpoint(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
 
 	if (event.completionCode != 1)
@@ -970,8 +1007,8 @@ Controller::Device::setupEndpoint(int endpoint, PipeType dir, size_t maxPacketSi
 	co_return frg::success;
 }
 
-async::result<frg::expected<UsbError>>
-Controller::Device::configureHub(std::shared_ptr<Hub> hub, DeviceSpeed speed) {
+async::result<frg::expected<proto::UsbError>>
+Controller::Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) {
 	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -980,7 +1017,7 @@ Controller::Device::configureHub(std::shared_ptr<Hub> hub, DeviceSpeed speed) {
 	inputCtx.get(inputCtxSlot) |= SlotFields::hub(true);
 	inputCtx.get(inputCtxSlot) |= SlotFields::portCount(hub->numPorts());
 
-	if (speed == DeviceSpeed::highSpeed)
+	if (speed == proto::DeviceSpeed::highSpeed)
 		inputCtx.get(inputCtxSlot) |= SlotFields::ttThinkTime(
 				hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
 
@@ -998,9 +1035,9 @@ Controller::Device::configureHub(std::shared_ptr<Hub> hub, DeviceSpeed speed) {
 	co_return frg::success;
 }
 
-void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, PipeType dir, size_t maxPacketSize, EndpointType type) {
+void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
 	int endpointId = endpoint * 2
-			+ ((dir == PipeType::in || dir == PipeType::control)
+			+ ((dir == proto::PipeType::in || dir == proto::PipeType::control)
 				? 1
 				: 0);
 
@@ -1029,42 +1066,42 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, PipeType di
 // Controller::ConfigurationState
 // ------------------------------------------------------------------------
 
-Controller::ConfigurationState::ConfigurationState(Controller *controller, 
+Controller::ConfigurationState::ConfigurationState(Controller *controller,
 		std::shared_ptr<Device> device, int)
 :_controller{controller}, _device{device} {
 }
 
-async::result<frg::expected<UsbError, Interface>>
+async::result<frg::expected<proto::UsbError, proto::Interface>>
 Controller::ConfigurationState::useInterface(int number, int alternative) {
 	assert(!alternative);
-	co_return Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
+	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
 }
 
 // ------------------------------------------------------------------------
 // Controller::InterfaceState
 // ------------------------------------------------------------------------
 
-Controller::InterfaceState::InterfaceState(Controller *controller, 
+Controller::InterfaceState::InterfaceState(Controller *controller,
 		std::shared_ptr<Device> device, int)
 : _controller{controller}, _device{device} {
 }
 
-async::result<frg::expected<UsbError, Endpoint>>
-Controller::InterfaceState::getEndpoint(PipeType type, int number) {
-	co_return Endpoint{std::make_shared<Controller::EndpointState>(_controller, _device, number, type)};
+async::result<frg::expected<proto::UsbError, proto::Endpoint>>
+Controller::InterfaceState::getEndpoint(proto::PipeType type, int number) {
+	co_return proto::Endpoint{std::make_shared<Controller::EndpointState>(_controller, _device, number, type)};
 }
 
 // ------------------------------------------------------------------------
 // Controller::EndpointState
 // ------------------------------------------------------------------------
 
-Controller::EndpointState::EndpointState(Controller *, 
-		std::shared_ptr<Device> device, int endpoint, PipeType type)
+Controller::EndpointState::EndpointState(Controller *,
+		std::shared_ptr<Device> device, int endpoint, proto::PipeType type)
 : _device{device}, _endpoint{endpoint}, _type{type} {
 }
 
-async::result<frg::expected<UsbError>>
-Controller::EndpointState::transfer(ControlTransfer info) {
+async::result<frg::expected<proto::UsbError>>
+Controller::EndpointState::transfer(proto::ControlTransfer info) {
 	int endpointId = _endpoint * 2;
 
 	ProducerRing::Completion ev;
@@ -1073,7 +1110,7 @@ Controller::EndpointState::transfer(ControlTransfer info) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
 		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
-	}, *info.setup.data(), info.buffer, info.flags == kXferToHost);
+	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost);
 
 	_device->submit(endpointId);
 
@@ -1083,9 +1120,9 @@ Controller::EndpointState::transfer(ControlTransfer info) {
 	co_return frg::success;
 }
 
-async::result<frg::expected<UsbError, size_t>>
-Controller::EndpointState::transfer(InterruptTransfer info) {
-	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
+async::result<frg::expected<proto::UsbError, size_t>>
+Controller::EndpointState::transfer(proto::InterruptTransfer info) {
+	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
 
 	ProducerRing::Completion ev;
 
@@ -1103,9 +1140,9 @@ Controller::EndpointState::transfer(InterruptTransfer info) {
 	co_return info.buffer.size() - ev.event.transferLen;
 }
 
-async::result<frg::expected<UsbError, size_t>>
-Controller::EndpointState::transfer(BulkTransfer info) {
-	int endpointId = _endpoint * 2 + (_type == PipeType::in ? 1 : 0);
+async::result<frg::expected<proto::UsbError, size_t>>
+Controller::EndpointState::transfer(proto::BulkTransfer info) {
+	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
 
 	ProducerRing::Completion ev;
 
@@ -1146,7 +1183,7 @@ async::detached bindController(mbus::Entity entity) {
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
-	auto controller = std::make_shared<Controller>(std::move(device), std::move(mapping),
+	auto controller = std::make_shared<Controller>(std::move(device), std::move(entity), std::move(mapping),
 			std::move(bar), std::move(irq), info.numMsis > 0);
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
@@ -1180,4 +1217,4 @@ int main() {
 	observeControllers();
 	async::run_forever(helix::currentDispatcher);
 }
- 
+

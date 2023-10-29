@@ -29,6 +29,8 @@ namespace {
 	constexpr bool logInputCodes = false;
 }
 
+namespace proto = protocols::usb;
+
 void setupInputTranslation(Element *element) {
 	auto setInput = [&] (int type, int code) {
 		element->inputType = type;
@@ -278,7 +280,7 @@ HidDevice::HidDevice() {
 	_eventDev = std::make_shared<libevbackend::EventDevice>();
 }
 
-void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
+void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit) {
 	LocalState local;
 	GlobalState global;
 
@@ -517,7 +519,7 @@ void HidDevice::parseReportDescriptor(Device, uint8_t *p, uint8_t* limit) {
 	}
 }
 
-async::detached HidDevice::run(Device device, int config_num, int intf_num) {
+async::detached HidDevice::run(proto::Device device, int config_num, int intf_num) {
 	auto descriptor = (co_await device.configurationDescriptor()).unwrap();
 
 	std::vector<size_t> report_descs;
@@ -525,9 +527,9 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 	size_t in_endp_pktsize;
 
 //	std::cout << "usb-hid: Device configuration:" << std::endl;
-	walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
+	proto::walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
 //		std::cout << "    Descriptor: " << type << std::endl;
-		if(type == descriptor_type::hid) {
+		if(type == proto::descriptor_type::hid) {
 			if(info.configNumber.value() != config_num
 					|| info.interfaceNumber.value() != intf_num)
 				return;
@@ -537,15 +539,15 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 					+ (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
 
 			for(size_t i = 0; i < desc->numDescriptors; i++) {
-				assert(desc->entries[i].descriptorType == descriptor_type::report);
+				assert(desc->entries[i].descriptorType == proto::descriptor_type::report);
 				report_descs.push_back(desc->entries[i].descriptorLength);
 			}
-		}else if(type == descriptor_type::endpoint) {
+		}else if(type == proto::descriptor_type::endpoint) {
 			if(info.configNumber.value() != config_num
 					|| info.interfaceNumber.value() != intf_num)
 				return;
 
-			auto desc = static_cast<EndpointDescriptor *>(p);
+			auto desc = static_cast<proto::EndpointDescriptor *>(p);
 			assert(!in_endp_number);
 
 			in_endp_number = info.endpointNumber.value();
@@ -558,17 +560,17 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 	// Parse all report descriptors.
 	std::cout << "usb-hid: Parsing report descriptor" << std::endl;
 	for(size_t i = 0; i < report_descs.size(); i++) {
-		arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
-		get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
-				| setup_type::toHost;
-		get_descriptor->request = request_type::getDescriptor;
-		get_descriptor->value = (descriptor_type::report << 8) | i;
+		arch::dma_object<proto::SetupPacket> get_descriptor{device.setupPool()};
+		get_descriptor->type = proto::setup_type::targetInterface | proto::setup_type::byStandard
+				| proto::setup_type::toHost;
+		get_descriptor->request = proto::request_type::getDescriptor;
+		get_descriptor->value = (proto::descriptor_type::report << 8) | i;
 		get_descriptor->index = intf_num;
 		get_descriptor->length = report_descs[i];
 
 		arch::dma_buffer buffer{device.bufferPool(), report_descs[i]};
 
-		(co_await device.transfer(ControlTransfer{kXferToHost,
+		(co_await device.transfer(proto::ControlTransfer{proto::kXferToHost,
 				get_descriptor, buffer})).unwrap();
 
 		auto p = reinterpret_cast<uint8_t *>(buffer.data());
@@ -615,7 +617,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 
 	auto config = (co_await device.useConfiguration(config_num)).unwrap();
 	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
-	auto endp = (co_await intf.getEndpoint(PipeType::in, in_endp_number.value())).unwrap();
+	auto endp = (co_await intf.getEndpoint(proto::PipeType::in, in_endp_number.value())).unwrap();
 
 	// Read reports from the USB device.
 	std::cout << "usb-hid: Entering report loop" << std::endl;
@@ -625,7 +627,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 	while(true) {
 //		std::cout << "usb-hid: Requesting new report" << std::endl;
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
-		InterruptTransfer transfer{XferFlags::kXferToHost, report};
+		proto::InterruptTransfer transfer{proto::XferFlags::kXferToHost, report};
 		transfer.allowShortPackets = true;
 		auto length = (co_await endp.transfer(transfer)).unwrap();
 
@@ -680,7 +682,7 @@ async::detached HidDevice::run(Device device, int config_num, int intf_num) {
 
 async::detached bindDevice(mbus::Entity entity) {
 	auto lane = helix::UniqueLane(co_await entity.bind());
-	auto device = protocols::usb::connect(std::move(lane));
+	auto device = proto::connect(std::move(lane));
 
 	auto descriptorOrError = co_await device.configurationDescriptor();
 	if(!descriptorOrError) {
@@ -692,12 +694,12 @@ async::detached bindDevice(mbus::Entity entity) {
 	std::optional<int> intf_number;
 	std::optional<int> intf_alternative;
 
-	walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
-		if(type == descriptor_type::configuration) {
+	proto::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
+		if(type == proto::descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
-		}else if(type == descriptor_type::interface) {
-			auto desc = reinterpret_cast<InterfaceDescriptor *>(p);
+		}else if(type == proto::descriptor_type::interface) {
+			auto desc = reinterpret_cast<proto::InterfaceDescriptor *>(p);
 			if(desc->interfaceClass != 3)
 				return;
 

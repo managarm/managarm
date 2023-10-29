@@ -4,9 +4,8 @@
 #include <helix/ipc.hpp>
 #include "api.hpp"
 
-namespace protocols {
-namespace usb {
+namespace protocols::usb {
 
 async::detached serve(Device device, helix::UniqueLane lane);
 
-} } // namespace protocols::usb
+} // namespace protocols::usb

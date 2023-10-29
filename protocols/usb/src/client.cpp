@@ -22,6 +22,7 @@ struct DeviceState final : DeviceData {
 	arch::dma_pool *setupPool() override;
 	arch::dma_pool *bufferPool() override;
 
+	async::result<frg::expected<UsbError, std::string>> deviceDescriptor() override;
 	async::result<frg::expected<UsbError, std::string>> configurationDescriptor() override;
 	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) override;
 	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
@@ -89,6 +90,33 @@ frg::expected<UsbError> transformProtocolError(managarm::usb::Errors error) {
 	}
 
 	return UsbError::other;
+}
+
+async::result<frg::expected<UsbError, std::string>> DeviceState::deviceDescriptor() {
+	managarm::usb::GetDeviceDescriptorRequest req;
+
+	auto [offer, sendReq, recvResp, recvData] = co_await helix_ng::exchangeMsgs(
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline(),
+			helix_ng::recvInline()
+		)
+	);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+
+	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+
+	FRG_CO_TRY(transformProtocolError(resp->error()));
+
+	HEL_CHECK(recvData.error());
+
+	std::string data(recvData.length(), 0);
+	memcpy(&data[0], recvData.data(), recvData.length());
+	co_return std::move(data);
 }
 
 async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDescriptor() {

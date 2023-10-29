@@ -336,6 +336,32 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(sendData.error());
+		} else if (preamble.id() == bragi::message_id<managarm::usb::GetDeviceDescriptorRequest>) {
+			auto req = bragi::parse_head_only<managarm::usb::GetDeviceDescriptorRequest>(recvReq);
+			if (!req) {
+				co_return;
+			}
+
+			auto outcome = co_await device.deviceDescriptor();
+
+			if (!outcome) {
+				co_await respondWithError(conversation, outcome.error());
+				continue;
+			}
+
+			auto data = std::move(outcome.value());
+
+			managarm::usb::SvrResponse resp;
+			resp.set_error(managarm::usb::Errors::SUCCESS);
+
+			auto [sendResp, sendData] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(data.data(), data.size())
+			);
+
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(sendData.error());
 		} else if (preamble.id() == bragi::message_id<managarm::usb::TransferRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::TransferRequest>(recvReq);
 			if (!req) {

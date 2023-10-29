@@ -313,7 +313,7 @@ async::detached runTerminal() {
 
 	mbus::Properties descriptor{
 		{"generic.devtype", mbus::StringItem{"block"}},
-		{"generic.devname", mbus::StringItem{"ttyS0"}}
+		{"generic.devname", mbus::StringItem{"ttyS"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}

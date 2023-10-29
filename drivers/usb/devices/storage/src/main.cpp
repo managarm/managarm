@@ -24,14 +24,16 @@ namespace {
 	constexpr bool enableRead6 = false;
 }
 
+namespace proto = protocols::usb;
+
 async::detached StorageDevice::run(int config_num, int intf_num) {
 	auto descriptor = (co_await _usbDevice.configurationDescriptor()).unwrap();
 
 	std::optional<int> in_endp_number;
 	std::optional<int> out_endp_number;
 
-	walkConfiguration(descriptor, [&] (int type, size_t, void *, const auto &info) {
-		if(type == descriptor_type::endpoint) {
+	proto::walkConfiguration(descriptor, [&] (int type, size_t, void *, const auto &info) {
+		if(type == proto::descriptor_type::endpoint) {
 			if(info.endpointIn.value()) {
 				in_endp_number = info.endpointNumber.value();
 			}else if(!info.endpointIn.value()) {
@@ -50,8 +52,8 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 
 	auto config = (co_await _usbDevice.useConfiguration(config_num)).unwrap();
 	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
-	auto endp_in = (co_await intf.getEndpoint(PipeType::in, in_endp_number.value())).unwrap();
-	auto endp_out = (co_await intf.getEndpoint(PipeType::out, out_endp_number.value())).unwrap();
+	auto endp_in = (co_await intf.getEndpoint(proto::PipeType::in, in_endp_number.value())).unwrap();
+	auto endp_out = (co_await intf.getEndpoint(proto::PipeType::out, out_endp_number.value())).unwrap();
 
 	if(logSteps)
 		std::cout << "block-usb: Device is ready" << std::endl;
@@ -134,26 +136,26 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 
 			if(logSteps)
 				std::cout << "block-usb: Sending CBW" << std::endl;
-			(co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
+			(co_await endp_out.transfer(proto::BulkTransfer{proto::XferFlags::kXferToDevice,
 					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}})).unwrap();
 
 			if(logSteps)
 				std::cout << "block-usb: Waiting for data" << std::endl;
 			if(!req->isWrite) {
-				BulkTransfer data_info{XferFlags::kXferToHost,
+				proto::BulkTransfer data_info{proto::XferFlags::kXferToHost,
 						arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}};
 				// TODO: We want this to be lazy but that only works if can ensure that
 				// the next transaction is also posted to the queue.
 	//			data_info.lazyNotification = true;
 				(co_await endp_in.transfer(data_info)).unwrap();
 			}else{
-				(co_await endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
+				(co_await endp_out.transfer(proto::BulkTransfer{proto::XferFlags::kXferToDevice,
 						arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}})).unwrap();
 			}
 
 			if(logSteps)
 				std::cout << "block-usb: Waiting for CSW" << std::endl;
-			(co_await endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
+			(co_await endp_in.transfer(proto::BulkTransfer{proto::XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}})).unwrap();
 
 			if(logSteps)
@@ -198,7 +200,7 @@ async::result<size_t> StorageDevice::getSize() {
 
 async::detached bindDevice(mbus::Entity entity) {
 	auto lane = helix::UniqueLane(co_await entity.bind());
-	auto device = protocols::usb::connect(std::move(lane));
+	auto device = proto::connect(std::move(lane));
 
 	std::optional<int> config_number;
 	std::optional<int> intf_number;
@@ -215,11 +217,11 @@ async::detached bindDevice(mbus::Entity entity) {
 		co_return;
 	}
 
-	walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
-		if(type == descriptor_type::configuration) {
+	proto::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
+		if(type == proto::descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
-		}else if(type == descriptor_type::interface) {
+		}else if(type == proto::descriptor_type::interface) {
 			if(intf_number) {
 				std::cout << "block-usb: Ignoring interface "
 						<< info.interfaceNumber.value() << std::endl;
@@ -233,10 +235,10 @@ async::detached bindDevice(mbus::Entity entity) {
 			assert(!intf_class);
 			assert(!intf_subclass);
 			assert(!intf_protocol);
-			auto desc = (InterfaceDescriptor *)p;
+			auto desc = (proto::InterfaceDescriptor *)p;
 			intf_class = desc->interfaceClass;
 			intf_subclass = desc->interfaceSubClass;
-			intf_protocol = desc->interfaceProtocoll;
+			intf_protocol = desc->interfaceProtocol;
 		}
 	});
 

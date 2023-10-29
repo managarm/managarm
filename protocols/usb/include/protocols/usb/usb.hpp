@@ -1,7 +1,11 @@
 #pragma once
 
-#include <optional>
 #include <assert.h>
+#include <cstdint>
+#include <string>
+#include <optional>
+
+namespace protocols::usb {
 
 namespace setup_type {
 	enum : uint8_t {
@@ -102,7 +106,7 @@ struct InterfaceDescriptor : public DescriptorBase {
 	uint8_t numEndpoints;
 	uint8_t interfaceClass;
 	uint8_t interfaceSubClass;
-	uint8_t interfaceProtocoll;
+	uint8_t interfaceProtocol;
 	uint8_t iInterface;
 };
 
@@ -129,6 +133,7 @@ void walkConfiguration(std::string buffer, F functor) {
 		std::optional<int> endpointNumber;
 		std::optional<bool> endpointIn;
 		std::optional<EndpointType> endpointType;
+		std::optional<DescriptorBase *> desc;
 	} info;
 
 	auto p = &buffer[0];
@@ -140,6 +145,7 @@ void walkConfiguration(std::string buffer, F functor) {
 		if(base->descriptorType == descriptor_type::configuration) {
 			auto desc = (ConfigDescriptor *)base;
 			assert(desc->length == sizeof(ConfigDescriptor));
+			info.desc = base;
 
 			info.configNumber = desc->configValue;
 			info.interfaceNumber = std::nullopt;
@@ -149,6 +155,7 @@ void walkConfiguration(std::string buffer, F functor) {
 		}else if(base->descriptorType == descriptor_type::interface) {
 			auto desc = (InterfaceDescriptor *)base;
 			assert(desc->length == sizeof(InterfaceDescriptor));
+			info.desc = base;
 
 			info.interfaceNumber = desc->interfaceNumber;
 			info.interfaceAlternative = desc->alternateSetting;
@@ -157,6 +164,7 @@ void walkConfiguration(std::string buffer, F functor) {
 		}else if(base->descriptorType == descriptor_type::endpoint) {
 			auto desc = (EndpointDescriptor *)base;
 			assert(desc->length == sizeof(EndpointDescriptor));
+			info.desc = base;
 
 			info.endpointNumber = desc->endpointAddress & 0x0F;
 			info.endpointIn = desc->endpointAddress & 0x80;
@@ -166,3 +174,5 @@ void walkConfiguration(std::string buffer, F functor) {
 		functor(base->descriptorType, base->length, base, info);
 	}
 }
+
+} // namespace protocols::usb

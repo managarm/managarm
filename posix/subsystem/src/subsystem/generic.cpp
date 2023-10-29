@@ -44,10 +44,28 @@ private:
 	helix::UniqueLane _lane;
 };
 
+id_allocator<uint64_t> ttySAllocator;
+id_allocator<uint64_t> driCardAllocator;
+
+uint64_t allocateDeviceIds(std::string type) {
+	if(type == "ttyS") {
+		return ttySAllocator.allocate();
+	} else if(type == "dri/card") {
+		return driCardAllocator.allocate();
+	} else {
+		std::cout << "unhandled device type '" << type << "'" << std::endl;
+		assert(!"unhandled device type");
+		__builtin_unreachable();
+	}
+}
+
 } // anonymous namepsace
 
 async::detached run() {
 	auto root = co_await mbus::Instance::global().getRoot();
+
+	ttySAllocator.use_range(0);
+	driCardAllocator.use_range(0);
 
 	auto blockFilter = mbus::Conjunction({
 		mbus::EqualsFilter("generic.devtype", "block")
@@ -59,13 +77,17 @@ async::detached run() {
 	
 	auto blockHandler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+		auto name = std::get<mbus::StringItem>(properties.at("generic.devname"));
+		auto id = allocateDeviceIds(name.value);
+
+		auto sysfs_name = name.value + std::to_string(id);
+
 		std::cout << "POSIX: Installing block device "
-				<< std::get<mbus::StringItem>(properties.at("generic.devname")).value << std::endl;
+				<< sysfs_name << std::endl;
 
 		auto lane = helix::UniqueLane(co_await entity.bind());
 		auto device = std::make_shared<Device>(VfsType::blockDevice,
-				std::get<mbus::StringItem>(properties.at("generic.devname")).value,
-				std::move(lane));
+				sysfs_name, std::move(lane));
 		// We use 240 here, the major for block devices local and experimental use and allocate minors sequentially.
 		device->assignId({240, minorAllocator.allocate()});
 		blockRegistry.install(device);
@@ -73,13 +95,17 @@ async::detached run() {
 
 	auto charHandler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+		auto name = std::get<mbus::StringItem>(properties.at("generic.devname"));
+		auto id = allocateDeviceIds(name.value);
+
+		auto sysfs_name = name.value + std::to_string(id);
+
 		std::cout << "POSIX: Installing char device "
-				<< std::get<mbus::StringItem>(properties.at("generic.devname")).value << std::endl;
+				<< sysfs_name << std::endl;
 
 		auto lane = helix::UniqueLane(co_await entity.bind());
 		auto device = std::make_shared<Device>(VfsType::charDevice,
-				std::get<mbus::StringItem>(properties.at("generic.devname")).value,
-				std::move(lane));
+				sysfs_name, std::move(lane));
 		// We use 234 here, the major for char devices dynamic allocation and allocate minors sequentially.
 		device->assignId({234, minorAllocator.allocate()});
 		charRegistry.install(device);

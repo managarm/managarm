@@ -3,9 +3,8 @@
 #include <helix/ipc.hpp>
 #include "api.hpp"
 
-namespace protocols {
-namespace usb {
+namespace protocols::usb {
 
 Device connect(helix::UniqueLane lane);
 
-} } // namespace protocols::usb
+} // namespace protocols::usb
