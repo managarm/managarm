@@ -219,6 +219,13 @@ struct UptimeNode final : RegularNode {
 	async::result<void> store(std::string) override;
 };
 
+struct FilesystemsNode final : RegularNode {
+	FilesystemsNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+};
+
 struct CommNode final : RegularNode {
 	CommNode(Process *process)
 	: _process(process)
