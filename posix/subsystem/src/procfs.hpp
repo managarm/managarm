@@ -219,6 +219,27 @@ struct UptimeNode final : RegularNode {
 	async::result<void> store(std::string) override;
 };
 
+struct OstypeNode final : RegularNode {
+	OstypeNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+};
+
+struct OsreleaseNode final : RegularNode {
+	OsreleaseNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+};
+
+struct ArchNode final : RegularNode {
+	ArchNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+};
+
 struct CommNode final : RegularNode {
 	CommNode(Process *process)
 	: _process(process)

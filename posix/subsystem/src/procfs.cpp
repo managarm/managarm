@@ -235,6 +235,15 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
 
+	auto sysLink = the_node->directMkdir("sys");
+	auto sys = std::static_pointer_cast<DirectoryNode>(sysLink->getTarget());
+	auto kernelLink = sys->directMkdir("kernel");
+	auto kernel = std::static_pointer_cast<DirectoryNode>(kernelLink->getTarget());
+
+	kernel->directMkregular("ostype", std::make_shared<OstypeNode>());
+	kernel->directMkregular("osrelease", std::make_shared<OsreleaseNode>());
+	kernel->directMkregular("arch", std::make_shared<ArchNode>());
+
 	return link;
 }
 
@@ -355,6 +364,57 @@ async::result<std::string> UptimeNode::show() {
 async::result<void> UptimeNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/uptime file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> OstypeNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "Managarm\n";
+	co_return stream.str();
+}
+
+async::result<void> OstypeNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/sys/kernel/ostype file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> OsreleaseNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	// TODO: The version is a placeholder!
+	std::stringstream stream;
+	stream << "0.0.1\n";
+	co_return stream.str();
+}
+
+async::result<void> OsreleaseNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/sys/kernel/osrelease file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> ArchNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+#if defined(__x86_64__)
+	stream << "x86_64\n";
+#elif defined(__aarch64__)
+	stream << "AArch64\n";
+#elif defined(__riscv) && __riscv_xlen == 64
+	stream << "riscv64";
+#else
+	#error "Unknown architecture"
+#endif
+	co_return stream.str();
+}
+
+async::result<void> ArchNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/sys/kernel/arch file" << std::endl;
 	co_return;
 }
 
