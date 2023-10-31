@@ -65,21 +65,29 @@ async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, Vfs
 }
 
 async::result<frg::expected<Error, size_t>>
-AttributeFile::readSome(Process *, void *data, size_t max_length) {
-	assert(max_length > 0);
+AttributeFile::readSome(Process *process, void *data, size_t max_length) {
+	auto ret = co_await pread(process, _offset, data, max_length);
+
+	if(ret)
+		_offset += ret.value();
+
+	co_return ret;
+}
+
+async::result<frg::expected<Error, size_t>>
+AttributeFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
+	assert(length > 0);
 
 	if(!_cached) {
-		assert(!_offset);
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
 		_buffer = co_await node->_attr->show(node->_object);
 		_cached = true;
 	}
 
-	if(_offset >= _buffer.size())
+	if(offset >= 0 && static_cast<size_t>(offset) >= _buffer.size())
 		co_return 0;
-	size_t chunk = std::min(_buffer.size() - _offset, max_length);
-	memcpy(data, _buffer.data() + _offset, chunk);
-	_offset += chunk;
+	size_t chunk = std::min(_buffer.size() - offset, length);
+	memcpy(buffer, _buffer.data() + offset, chunk);
 	co_return chunk;
 }
 

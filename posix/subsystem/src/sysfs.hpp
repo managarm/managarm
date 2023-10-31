@@ -43,6 +43,9 @@ public:
 	readSome(Process *, void *data, size_t max_length) override;
 
 	async::result<frg::expected<Error, size_t>>
+	pread(Process *, int64_t offset, void *buffer, size_t length) override;
+
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override;
