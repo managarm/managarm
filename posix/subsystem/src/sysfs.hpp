@@ -48,6 +48,8 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
+	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
+
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
@@ -170,6 +172,7 @@ public:
 
 	virtual async::result<std::string> show(Object *object) = 0;
 	virtual async::result<void> store(Object *object, std::string data);
+	virtual async::result<helix::UniqueDescriptor> accessMemory(Object *object);
 
 private:
 	const std::string _name;

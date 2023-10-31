@@ -35,6 +35,11 @@ async::result<void> Attribute::store(Object *, std::string) {
 	throw std::runtime_error("Attribute does not support store()");
 }
 
+async::result<helix::UniqueDescriptor> Attribute::accessMemory(Object *) {
+	// FIXME: Return an error to the caller.
+	throw std::runtime_error("Attribute does not support accessMemory()");
+}
+
 // ----------------------------------------------------------------------------
 // AttributeFile implementation.
 // ----------------------------------------------------------------------------
@@ -99,6 +104,12 @@ AttributeFile::writeAll(Process *, const void *data, size_t length)  {
 	co_await node->_attr->store(node->_object,
 			std::string{reinterpret_cast<const char *>(data), length});
 	co_return length;
+}
+
+FutureMaybe<helix::UniqueDescriptor> AttributeFile::accessMemory() {
+	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
+
+	co_return co_await node->_attr->accessMemory(node->_object);
 }
 
 helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {

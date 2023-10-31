@@ -272,6 +272,12 @@ File::ptSendMsg(void *object, const char *creds, uint32_t flags,
 			std::move(files));
 }
 
+async::result<helix::BorrowedDescriptor>
+File::ptAccessMemory(void *object) {
+	auto self = static_cast<File *>(object);
+	co_return co_await self->accessMemory();
+}
+
 File::~File() {
 	// Nothing to do here.
 	if(logDestruction)
