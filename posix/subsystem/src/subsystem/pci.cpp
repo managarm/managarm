@@ -55,7 +55,7 @@ struct SubsystemDeviceAttribute : sysfs::Attribute {
 
 struct ConfigAttribute : sysfs::Attribute {
 	ConfigAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	: sysfs::Attribute{std::move(name), false, 256} { }
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
@@ -78,12 +78,20 @@ struct ResourceNAttribute : sysfs::Attribute {
 	size_t _barIndex;
 };
 
+struct ClassAttribute : sysfs::Attribute {
+	ClassAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 VendorAttribute vendorAttr{"vendor"};
 DeviceAttribute deviceAttr{"device"};
 PlainfbAttribute plainfbAttr{"owns_plainfb"};
 SubsystemVendorAttribute subsystemVendorAttr{"subsystem_vendor"};
 SubsystemDeviceAttribute subsystemDeviceAttr{"subsystem_device"};
 ConfigAttribute configAttr{"config"};
+ClassAttribute classAttr{"class"};
 ResourceAttribute resourceAttr{"resource"};
 
 std::vector<std::shared_ptr<ResourceNAttribute>> resources;
@@ -160,6 +168,14 @@ async::result<frg::expected<Error, std::string>> ConfigAttribute::show(sysfs::Ob
 	}
 
 	co_return std::string{reinterpret_cast<char *>(data), 256};
+}
+
+async::result<frg::expected<Error, std::string>> ClassAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<Device *>(object);
+	char buf[10];
+	snprintf(buf, 10, "0x%06x\n", co_await device->hwDevice().loadPciSpace(8, 4) >> 8);
+
+	co_return std::string{buf};
 }
 
 constexpr size_t IORESOURCE_IO = 0x100;
@@ -239,6 +255,7 @@ async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 	device->realizeAttribute(&subsystemVendorAttr);
 	device->realizeAttribute(&subsystemDeviceAttr);
 	device->realizeAttribute(&configAttr);
+	device->realizeAttribute(&classAttr);
 	device->realizeAttribute(&resourceAttr);
 
 	auto info = co_await device->hwDevice().getPciInfo();
