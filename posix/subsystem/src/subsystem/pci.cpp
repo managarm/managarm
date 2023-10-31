@@ -60,12 +60,33 @@ struct ConfigAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct ResourceAttribute : sysfs::Attribute {
+	ResourceAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
+struct ResourceNAttribute : sysfs::Attribute {
+	ResourceNAttribute(size_t num, std::shared_ptr<drvcore::Device> dev, size_t size)
+	: sysfs::Attribute{"resource" + std::to_string(num), true, size}, _device{std::move(dev)}, _barIndex{num} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, helix::UniqueDescriptor>> accessMemory(sysfs::Object *object) override;
+
+	std::shared_ptr<drvcore::Device> _device;
+	size_t _barIndex;
+};
+
 VendorAttribute vendorAttr{"vendor"};
 DeviceAttribute deviceAttr{"device"};
 PlainfbAttribute plainfbAttr{"owns_plainfb"};
 SubsystemVendorAttribute subsystemVendorAttr{"subsystem_vendor"};
 SubsystemDeviceAttribute subsystemDeviceAttr{"subsystem_device"};
 ConfigAttribute configAttr{"config"};
+ResourceAttribute resourceAttr{"resource"};
+
+std::vector<std::shared_ptr<ResourceNAttribute>> resources;
 
 struct Device final : drvcore::BusDevice {
 	Device(std::string sysfs_name, int64_t mbus_id, protocols::hw::Device hw_device)
@@ -141,6 +162,43 @@ async::result<frg::expected<Error, std::string>> ConfigAttribute::show(sysfs::Ob
 	co_return std::string{reinterpret_cast<char *>(data), 256};
 }
 
+constexpr size_t IORESOURCE_IO = 0x100;
+constexpr size_t IORESOURCE_MEM = 0x200;
+
+async::result<frg::expected<Error, std::string>> ResourceAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<Device *>(object);
+
+	std::string res{};
+	char buf[58];
+	auto info = co_await device->hwDevice().getPciInfo();
+
+	for(auto e : info.barInfo) {
+		if(e.hostType == protocols::hw::IoType::kIoTypeNone) {
+			res.append("0x0000000000000000 0x0000000000000000 0x0000000000000000\n\0", 58);
+		} else if(e.hostType == protocols::hw::IoType::kIoTypeMemory) {
+			memset(buf, 0, 58);
+			snprintf(buf, 58, "0x%016lx 0x%016lx 0x%016lx\n", e.address, e.address + e.length - 1, IORESOURCE_MEM);
+			res.append(buf, 58);
+		} else if(e.hostType == protocols::hw::IoType::kIoTypePort) {
+			memset(buf, 0, 58);
+			snprintf(buf, 58, "0x%016lx 0x%016lx 0x%016lx\n", e.address, e.address + e.length - 1, IORESOURCE_IO);
+			res.append(buf, 58);
+		}
+	}
+
+	co_return res;
+}
+
+async::result<frg::expected<Error, helix::UniqueDescriptor>> ResourceNAttribute::accessMemory(sysfs::Object *object) {
+	auto device = static_cast<Device *>(object);
+
+	co_return co_await device->hwDevice().accessBar(_barIndex);
+}
+
+async::result<frg::expected<Error, std::string>> ResourceNAttribute::show(sysfs::Object *) {
+	co_return Error::illegalOperationTarget;
+}
+
 async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 	std::string sysfs_name = "0000:" + std::get<mbus::StringItem>(properties["pci-bus"]).value
 			+ ":" + std::get<mbus::StringItem>(properties["pci-slot"]).value
@@ -181,6 +239,23 @@ async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 	device->realizeAttribute(&subsystemVendorAttr);
 	device->realizeAttribute(&subsystemDeviceAttr);
 	device->realizeAttribute(&configAttr);
+	device->realizeAttribute(&resourceAttr);
+
+	auto info = co_await device->hwDevice().getPciInfo();
+
+	for(size_t i = 0; i < 6; i++) {
+		auto e = info.barInfo[i];
+
+		if(e.hostType == protocols::hw::IoType::kIoTypeMemory) {
+			auto res = std::make_shared<ResourceNAttribute>(i, device, e.length);
+			resources.push_back(res);
+			device->realizeAttribute(res.get());
+		} else if(e.hostType == protocols::hw::IoType::kIoTypePort) {
+			auto res = std::make_shared<ResourceNAttribute>(i, device, e.length);
+			resources.push_back(res);
+			device->realizeAttribute(res.get());
+		}
+	}
 
 	mbusMap.insert(std::make_pair(entity.getId(), device));
 }
