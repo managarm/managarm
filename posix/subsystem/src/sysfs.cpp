@@ -62,8 +62,13 @@ void AttributeFile::handleClose() {
 async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, VfsSeek whence) {
 	// TODO: it's unclear whether we should allow seeks past the end.
 	// TODO: re-cache the file for seeks to zero.
-	assert(whence == VfsSeek::relative);
-	_offset += offset;
+	if(whence == VfsSeek::relative)
+		_offset = _offset + offset;
+	else if(whence == VfsSeek::absolute)
+		_offset = offset;
+	else if(whence == VfsSeek::eof)
+		// TODO: Unimplemented!
+		assert(!"unimplemented");
 	co_return _offset;
 }
 
