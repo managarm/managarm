@@ -57,8 +57,13 @@ async::result<std::string> SpeedAttribute::show(sysfs::Object *object) {
 	co_return device->speed + "\n";
 }
 
-async::result<std::string> MaxPowerAttribute::show(sysfs::Object *object) {
+async::result<std::string> DeviceMaxPowerAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbDevice *>(object);
+	co_return std::to_string(device->maxPower) + "mA\n";
+}
+
+async::result<std::string> ControllerMaxPowerAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbController *>(object);
 	co_return std::to_string(device->maxPower) + "mA\n";
 }
 

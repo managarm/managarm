@@ -60,8 +60,15 @@ struct SpeedAttribute : sysfs::Attribute {
 	async::result<std::string> show(sysfs::Object *object) override;
 };
 
-struct MaxPowerAttribute : sysfs::Attribute {
-	MaxPowerAttribute(std::string name)
+struct DeviceMaxPowerAttribute : sysfs::Attribute {
+	DeviceMaxPowerAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
+struct ControllerMaxPowerAttribute : sysfs::Attribute {
+	ControllerMaxPowerAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
 	async::result<std::string> show(sysfs::Object *object) override;

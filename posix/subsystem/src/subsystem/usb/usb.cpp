@@ -41,7 +41,8 @@ DeviceProtocolAttribute deviceProtocolAttr{"bDeviceProtocol"};
 BcdDeviceAttribute bcdDeviceAttr{"bcdDevice"};
 VersionAttribute versionAttr{"version"};
 SpeedAttribute speedAttr{"speed"};
-MaxPowerAttribute maxPowerAttr{"bMaxPower"};
+DeviceMaxPowerAttribute deviceMaxPowerAttr{"bMaxPower"};
+ControllerMaxPowerAttribute controllerMaxPowerAttr{"bMaxPower"};
 MaxChildAttribute maxChildAttr{"maxchild"};
 NumInterfacesAttribute numInterfacesAttr{"bNumInterfaces"};
 BusNumAttribute busNumAttr{"busnum"};
@@ -132,7 +133,7 @@ async::detached bindController(mbus::Entity entity, mbus::Properties properties,
 	device->realizeAttribute(&deviceProtocolAttr);
 	device->realizeAttribute(&versionAttr);
 	device->realizeAttribute(&speedAttr);
-	device->realizeAttribute(&maxPowerAttr);
+	device->realizeAttribute(&controllerMaxPowerAttr);
 	device->realizeAttribute(&maxChildAttr);
 	device->realizeAttribute(&numInterfacesAttr);
 	device->realizeAttribute(&busNumAttr);
@@ -232,7 +233,7 @@ async::detached bindDevice(mbus::Entity entity, mbus::Properties properties) {
 
 	device->realizeAttribute(&versionAttr);
 	device->realizeAttribute(&speedAttr);
-	device->realizeAttribute(&maxPowerAttr);
+	device->realizeAttribute(&deviceMaxPowerAttr);
 	device->realizeAttribute(&maxChildAttr);
 	device->realizeAttribute(&numInterfacesAttr);
 	device->realizeAttribute(&busNumAttr);
