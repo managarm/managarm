@@ -30,14 +30,12 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 // Attribute implementation.
 // ----------------------------------------------------------------------------
 
-async::result<void> Attribute::store(Object *, std::string) {
-	// FIXME: Return an error to the caller.
-	throw std::runtime_error("Attribute does not support store()");
+async::result<Error> Attribute::store(Object *, std::string) {
+	co_return Error::illegalOperationTarget;
 }
 
-async::result<helix::UniqueDescriptor> Attribute::accessMemory(Object *) {
-	// FIXME: Return an error to the caller.
-	throw std::runtime_error("Attribute does not support accessMemory()");
+async::result<frg::expected<Error, helix::UniqueDescriptor>> Attribute::accessMemory(Object *) {
+	co_return Error::noBackingDevice;
 }
 
 // ----------------------------------------------------------------------------
@@ -85,8 +83,11 @@ AttributeFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 
 	if(!_cached) {
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
-		_buffer = co_await node->_attr->show(node->_object);
-		_cached = true;
+		if(auto res = co_await node->_attr->show(node->_object); res) {
+			_buffer = res.value();
+			_cached = true;
+		} else
+			co_return res.error();
 	}
 
 	if(offset >= 0 && static_cast<size_t>(offset) >= _buffer.size())
@@ -101,15 +102,22 @@ AttributeFile::writeAll(Process *, const void *data, size_t length)  {
 	assert(length > 0);
 
 	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
-	co_await node->_attr->store(node->_object,
+	auto err = co_await node->_attr->store(node->_object,
 			std::string{reinterpret_cast<const char *>(data), length});
+
+	if(err != Error::success)
+		co_return err;
+
 	co_return length;
 }
 
 FutureMaybe<helix::UniqueDescriptor> AttributeFile::accessMemory() {
 	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
 
-	co_return co_await node->_attr->accessMemory(node->_object);
+	auto res = co_await node->_attr->accessMemory(node->_object);
+	assert(res);
+
+	co_return std::move(res.value());
 }
 
 helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {

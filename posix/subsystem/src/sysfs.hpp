@@ -170,9 +170,9 @@ public:
 		return _writable;
 	}
 
-	virtual async::result<std::string> show(Object *object) = 0;
-	virtual async::result<void> store(Object *object, std::string data);
-	virtual async::result<helix::UniqueDescriptor> accessMemory(Object *object);
+	virtual async::result<frg::expected<Error, std::string>> show(Object *object) = 0;
+	virtual async::result<Error> store(Object *object, std::string data);
+	virtual async::result<frg::expected<Error, helix::UniqueDescriptor>> accessMemory(Object *object);
 
 private:
 	const std::string _name;

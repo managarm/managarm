@@ -31,7 +31,7 @@ struct CapabilityAttribute : sysfs::Attribute {
 	CapabilityAttribute(std::string name, int index, size_t bits)
 	: sysfs::Attribute{std::move(name), false}, _index{index}, _bits{bits} { }
 
-	virtual async::result<std::string> show(sysfs::Object *object) override;
+	virtual async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 
 private:
 	int _index;
@@ -68,7 +68,7 @@ private:
 	helix::UniqueLane _lane;
 };
 
-async::result<std::string> CapabilityAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	auto fileMaybe = co_await device->open(nullptr, nullptr, 0);
 	if(!fileMaybe){

@@ -22,42 +22,42 @@ struct VendorAttribute : sysfs::Attribute {
 	VendorAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DeviceAttribute : sysfs::Attribute {
 	DeviceAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct PlainfbAttribute : sysfs::Attribute {
 	PlainfbAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct SubsystemVendorAttribute : sysfs::Attribute {
 	SubsystemVendorAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct SubsystemDeviceAttribute : sysfs::Attribute {
 	SubsystemDeviceAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct ConfigAttribute : sysfs::Attribute {
 	ConfigAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 VendorAttribute vendorAttr{"vendor"};
@@ -98,40 +98,40 @@ struct Device final : drvcore::BusDevice {
 	protocols::hw::Device _hwDevice;
 };
 
-async::result<std::string> VendorAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> VendorAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
 	sprintf(buffer, "0x%.4x", device->vendorId);
 	co_return std::string{buffer};
 }
 
-async::result<std::string> DeviceAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> DeviceAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
 	sprintf(buffer, "0x%.4x", device->deviceId);
 	co_return std::string{buffer};
 }
 
-async::result<std::string> SubsystemVendorAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> SubsystemVendorAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
 	sprintf(buffer, "0x%.4x", device->subsystemVendorId);
 	co_return std::string{buffer};
 }
 
-async::result<std::string> SubsystemDeviceAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> SubsystemDeviceAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
 	sprintf(buffer, "0x%.4x", device->subsystemDeviceId);
 	co_return std::string{buffer};
 }
 
-async::result<std::string> PlainfbAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> PlainfbAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	co_return device->ownsPlainfb ? "1" : "0";
 }
 
-async::result<std::string> ConfigAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> ConfigAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	uint32_t data[256/sizeof(uint32_t)];
 	for(size_t i = 0; i < 256/sizeof(uint32_t); i++) {
