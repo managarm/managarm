@@ -211,7 +211,7 @@ async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 	FileStats stats;
 	stats.inodeNumber = 0; // FIXME
 	stats.numLinks = 1;
-	stats.fileSize = 4096; // Same as in Linux.
+	stats.fileSize = _attr->size();
 	stats.mode = _attr->writable() ? 0666 : 0444; // TODO: Some files can be written.
 	stats.uid = 0;
 	stats.gid = 0;
@@ -374,6 +374,9 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getL
 
 Attribute::Attribute(std::string name, bool writable)
 : _name{std::move(name)}, _writable{writable} { }
+
+Attribute::Attribute(std::string name, bool writable, size_t size)
+: _name{std::move(name)}, _writable{writable}, _size{size} { }
 
 // ----------------------------------------------------------------------------
 // Object implementation

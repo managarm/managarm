@@ -158,6 +158,7 @@ private:
 
 struct Attribute {
 	Attribute(std::string name, bool writable);
+	Attribute(std::string name, bool writable, size_t size);
 
 	virtual ~Attribute() = default;
 
@@ -170,10 +171,16 @@ public:
 		return _writable;
 	}
 
+	size_t size() {
+		return _size;
+	}
+
 	virtual async::result<frg::expected<Error, std::string>> show(Object *object) = 0;
 	virtual async::result<Error> store(Object *object, std::string data);
 	virtual async::result<frg::expected<Error, helix::UniqueDescriptor>> accessMemory(Object *object);
 
+protected:
+	size_t _size = 4096;
 private:
 	const std::string _name;
 	bool _writable;
