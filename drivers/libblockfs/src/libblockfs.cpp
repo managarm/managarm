@@ -5,6 +5,7 @@
 #include <string>
 #include <sys/epoll.h>
 #include <linux/cdrom.h>
+#include <linux/fs.h>
 
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -753,6 +754,33 @@ async::detached servePartition(helix::UniqueLane lane) {
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
+		} else if(preamble.id() == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(recv_head);
+
+			if(!req) {
+				std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(req->command() == BLKGETSIZE64) {
+				managarm::fs::GenericIoctlReply rsp;
+				rsp.set_error(managarm::fs::Errors::SUCCESS);
+				rsp.set_size(co_await fs->device->getSize());
+
+				auto ser = rsp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			} else {
+				std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
+						<< req->command() << "\e[39m" << std::endl;
+
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+			}
 		}else{
 			throw std::runtime_error("Unexpected request type " + std::to_string((int)req.req_type()));
 		}

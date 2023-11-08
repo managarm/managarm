@@ -656,6 +656,8 @@ head(128):
 		tag(70) uint32[] drm_pitches;
 		tag(71) uint32[] drm_offsets;
 		tag(72) uint32[] drm_handles;
+
+		tag(73) uint64 size;
 	}
 }
 
