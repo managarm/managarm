@@ -125,8 +125,8 @@ BusSubsystem::BusSubsystem(std::string name)
 }
 
 BusDevice::BusDevice(BusSubsystem *subsystem, std::string name,
-		UnixDevice *unix_device)
-: Device{nullptr, std::move(name), unix_device},
+		UnixDevice *unix_device, std::shared_ptr<Device> parent)
+: Device{parent, std::move(name), unix_device},
 		_subsystem{subsystem} { }
 
 void BusDevice::linkToSubsystem() {

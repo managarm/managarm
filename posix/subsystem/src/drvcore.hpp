@@ -80,7 +80,7 @@ private:
 
 struct BusDevice : Device {
 	BusDevice(BusSubsystem *subsystem, std::string name,
-			UnixDevice *unix_device);
+			UnixDevice *unix_device, std::shared_ptr<Device> parent = nullptr);
 
 protected:
 	~BusDevice() = default;

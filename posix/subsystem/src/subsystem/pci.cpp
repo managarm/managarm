@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 
+#include <async/recurring-event.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
 
@@ -11,12 +12,14 @@
 #include "../util.hpp"
 #include "../vfs.hpp"
 #include "fs.bragi.hpp"
+#include "pci.hpp"
 
 namespace pci_subsystem {
 
 drvcore::BusSubsystem *sysfsSubsystem;
 
 std::unordered_map<int, std::shared_ptr<drvcore::Device>> mbusMap;
+async::recurring_event mbusMapAddition;
 
 struct VendorAttribute : sysfs::Attribute {
 	VendorAttribute(std::string name)
@@ -105,8 +108,8 @@ IrqAttribute irqAttr{"irq"};
 std::vector<std::shared_ptr<ResourceNAttribute>> resources;
 
 struct Device final : drvcore::BusDevice {
-	Device(std::string sysfs_name, int64_t mbus_id, protocols::hw::Device hw_device)
-	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr},
+	Device(std::string sysfs_name, int64_t mbus_id, protocols::hw::Device hw_device, std::shared_ptr<drvcore::Device> parent = nullptr)
+	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr, parent},
 			mbusId{mbus_id}, _hwDevice{std::move(hw_device)} { }
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
@@ -133,6 +136,18 @@ struct Device final : drvcore::BusDevice {
 	bool ownsPlainfb = false;
 
 	protocols::hw::Device _hwDevice;
+};
+
+struct RootPort final : drvcore::Device {
+	RootPort(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent = nullptr)
+	: drvcore::Device{parent, std::move(sysfs_name), nullptr},
+			mbusId{mbus_id} { }
+
+	void composeUevent(drvcore::UeventProperties &) override {
+
+	}
+
+	int64_t mbusId;
 };
 
 async::result<frg::expected<Error, std::string>> VendorAttribute::show(sysfs::Object *object) {
@@ -229,66 +244,107 @@ async::result<frg::expected<Error, std::string>> IrqAttribute::show(sysfs::Objec
 }
 
 async::detached bind(mbus::Entity entity, mbus::Properties properties) {
-	std::string sysfs_name = "0000:" + std::get<mbus::StringItem>(properties["pci-bus"]).value
-			+ ":" + std::get<mbus::StringItem>(properties["pci-slot"]).value
-			+ "." + std::get<mbus::StringItem>(properties["pci-function"]).value;
+	auto type = std::get<mbus::StringItem>(properties["pci-type"]).value;
 
-	// TODO: Add bus/slot/function to this message.
-	std::cout << "POSIX: Installing PCI device " << sysfs_name
-			<< " (mbus ID: " << entity.getId() << ")" << std::endl;
+	if(type == "pci-device" || type == "pci-bridge") {
+		auto segment = std::get<mbus::StringItem>(properties["pci-segment"]).value;
+		auto bus = std::get<mbus::StringItem>(properties["pci-bus"]).value;
+		auto parentId = std::stoi(std::get<mbus::StringItem>(properties["drvcore.mbus-parent"]).value);
 
-	protocols::hw::Device hw_device{co_await entity.bind()};
+		std::string sysfs_name = segment + ":" + bus
+				+ ":" + std::get<mbus::StringItem>(properties["pci-slot"]).value
+				+ "." + std::get<mbus::StringItem>(properties["pci-function"]).value;
 
-	auto device = std::make_shared<Device>(sysfs_name, entity.getId(), std::move(hw_device));
-	device->pciBus = std::stoi(std::get<mbus::StringItem>(
-			properties["pci-bus"]).value, 0, 16);
-	device->pciSlot = std::stoi(std::get<mbus::StringItem>(
-			properties["pci-slot"]).value, 0, 16);
-	device->pciFunction = std::stoi(std::get<mbus::StringItem>(
-			properties["pci-function"]).value, 0, 16);
-	device->vendorId = std::stoi(std::get<mbus::StringItem>(
-			properties["pci-vendor"]).value, 0, 16);
-	device->deviceId = std::stoi(std::get<mbus::StringItem>(
-			properties["pci-device"]).value, 0, 16);
-	device->subsystemVendorId = std::stoi(std::get<mbus::StringItem>(
-			properties["pci-subsystem-vendor"]).value, 0, 16);
-	device->subsystemDeviceId = std::stoi(std::get<mbus::StringItem>(
-			properties["pci-subsystem-device"]).value, 0, 16);
+		// TODO: Add bus/slot/function to this message.
+		std::cout << "POSIX: Installing PCI device " << sysfs_name
+				<< " (mbus ID: " << entity.getId() << ")" << std::endl;
 
-	if(properties.find("class") != properties.end()
-			&& std::get<mbus::StringItem>(properties["class"]).value == "framebuffer")
-		device->ownsPlainfb = true;
+		std::shared_ptr<drvcore::Device> parentObj;
 
-	drvcore::installDevice(device);
-
-	// TODO: Call realizeAttribute *before* installing the device.
-	device->realizeAttribute(&vendorAttr);
-	device->realizeAttribute(&deviceAttr);
-	device->realizeAttribute(&plainfbAttr);
-	device->realizeAttribute(&subsystemVendorAttr);
-	device->realizeAttribute(&subsystemDeviceAttr);
-	device->realizeAttribute(&configAttr);
-	device->realizeAttribute(&classAttr);
-	device->realizeAttribute(&resourceAttr);
-	device->realizeAttribute(&irqAttr);
-
-	auto info = co_await device->hwDevice().getPciInfo();
-
-	for(size_t i = 0; i < 6; i++) {
-		auto e = info.barInfo[i];
-
-		if(e.hostType == protocols::hw::IoType::kIoTypeMemory) {
-			auto res = std::make_shared<ResourceNAttribute>(i, device, e.length);
-			resources.push_back(res);
-			device->realizeAttribute(res.get());
-		} else if(e.hostType == protocols::hw::IoType::kIoTypePort) {
-			auto res = std::make_shared<ResourceNAttribute>(i, device, e.length);
-			resources.push_back(res);
-			device->realizeAttribute(res.get());
+		while(!parentObj) {
+			auto ret = getDeviceByMbus(parentId);
+			if(ret) {
+				parentObj = std::static_pointer_cast<drvcore::Device>(ret);
+				break;
+			}
+			co_await mbusMapAddition.async_wait();
 		}
-	}
 
-	mbusMap.insert(std::make_pair(entity.getId(), device));
+		protocols::hw::Device hw_device{co_await entity.bind()};
+
+		auto device = std::make_shared<Device>(sysfs_name, entity.getId(), std::move(hw_device), parentObj);
+		device->pciBus = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-bus"]).value, 0, 16);
+		device->pciSlot = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-slot"]).value, 0, 16);
+		device->pciFunction = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-function"]).value, 0, 16);
+		device->vendorId = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-vendor"]).value, 0, 16);
+		device->deviceId = std::stoi(std::get<mbus::StringItem>(
+				properties["pci-device"]).value, 0, 16);
+		if(type == "pci-device") {
+			device->subsystemVendorId = std::stoi(std::get<mbus::StringItem>(
+					properties["pci-subsystem-vendor"]).value, 0, 16);
+			device->subsystemDeviceId = std::stoi(std::get<mbus::StringItem>(
+					properties["pci-subsystem-device"]).value, 0, 16);
+		}
+
+		if(properties.find("class") != properties.end()
+				&& std::get<mbus::StringItem>(properties["class"]).value == "framebuffer")
+			device->ownsPlainfb = true;
+
+		drvcore::installDevice(device);
+
+		// TODO: Call realizeAttribute *before* installing the device.
+		device->realizeAttribute(&vendorAttr);
+		device->realizeAttribute(&deviceAttr);
+		device->realizeAttribute(&plainfbAttr);
+		if(type == "pci-device") {
+			device->realizeAttribute(&subsystemVendorAttr);
+			device->realizeAttribute(&subsystemDeviceAttr);
+		}
+		device->realizeAttribute(&configAttr);
+		device->realizeAttribute(&classAttr);
+		device->realizeAttribute(&resourceAttr);
+		device->realizeAttribute(&irqAttr);
+
+		auto info = co_await device->hwDevice().getPciInfo();
+
+		for(size_t i = 0; i < 6; i++) {
+			auto e = info.barInfo[i];
+
+			if(e.hostType == protocols::hw::IoType::kIoTypeMemory) {
+				auto res = std::make_shared<ResourceNAttribute>(i, device, e.length);
+				resources.push_back(res);
+				device->realizeAttribute(res.get());
+			} else if(e.hostType == protocols::hw::IoType::kIoTypePort) {
+				auto res = std::make_shared<ResourceNAttribute>(i, device, e.length);
+				resources.push_back(res);
+				device->realizeAttribute(res.get());
+			}
+		}
+
+		mbusMap.insert(std::make_pair(entity.getId(), device));
+		mbusMapAddition.raise();
+	} else if(type == "pci-root-bus") {
+		auto segment = std::get<mbus::StringItem>(properties["pci-segment"]).value;
+		auto bus = std::get<mbus::StringItem>(properties["pci-bus"]).value;
+
+		std::string sysfs_name = "pci" + segment + ":" + bus;
+
+		auto device = std::make_shared<RootPort>(sysfs_name, entity.getId());
+		drvcore::installDevice(device);
+
+		std::cout << "POSIX: Installed PCI root bus " << sysfs_name
+				<< " (mbus ID: " << entity.getId() << ")" << std::endl;
+
+		mbusMap.insert(std::make_pair(entity.getId(), device));
+		mbusMapAddition.raise();
+	} else {
+		std::cout << "posix: unsupported PCI dev type '" << type << "'" << std::endl;
+		assert(!"unsupported");
+	}
 }
 
 async::detached run() {
