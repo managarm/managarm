@@ -67,6 +67,7 @@ EndpointNumAttribute numEndpointsAttr{"bNumEndpoints"};
 async::detached bindController(mbus::Entity entity, mbus::Properties properties, uint64_t bus_num) {
 	auto pci_parent_id = std::stoi(std::get<mbus::StringItem>(properties["usb.root.parent"]).value);
 	auto pci = pci_subsystem::getDeviceByMbus(pci_parent_id);
+	assert(pci);
 
 	auto sysfs_name = "usb" + std::to_string(bus_num);
 	auto device = std::make_shared<UsbController>(sysfs_name, entity.getId(), pci);

@@ -73,10 +73,11 @@ async::detached run() {
 				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
 		auto parent_property = std::get<mbus::StringItem>(properties.at("drvcore.mbus-parent"));
 		auto mbus_parent = std::stoi(parent_property.value);
+		auto pci_parent = pci_subsystem::getDeviceByMbus(mbus_parent);
+		assert(pci_parent);
 
 		auto lane = helix::UniqueLane(co_await entity.bind());
-		auto device = std::make_shared<Device>(index, std::move(lane),
-				pci_subsystem::getDeviceByMbus(mbus_parent));
+		auto device = std::make_shared<Device>(index, std::move(lane), pci_parent);
 		// The minor is only correct for card* devices but not for control* and render*.
 		device->assignId({226, index});
 

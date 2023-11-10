@@ -310,8 +310,9 @@ async::detached run() {
 
 std::shared_ptr<drvcore::Device> getDeviceByMbus(int id) {
 	auto it = mbusMap.find(id);
-	assert(it != mbusMap.end());
-	return it->second;
+	if(it != mbusMap.end())
+		return it->second;
+	return {};
 }
 
 } // namespace pci_subsystem
