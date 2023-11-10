@@ -85,6 +85,13 @@ struct ClassAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct IrqAttribute : sysfs::Attribute {
+	IrqAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 VendorAttribute vendorAttr{"vendor"};
 DeviceAttribute deviceAttr{"device"};
 PlainfbAttribute plainfbAttr{"owns_plainfb"};
@@ -93,6 +100,7 @@ SubsystemDeviceAttribute subsystemDeviceAttr{"subsystem_device"};
 ConfigAttribute configAttr{"config"};
 ClassAttribute classAttr{"class"};
 ResourceAttribute resourceAttr{"resource"};
+IrqAttribute irqAttr{"irq"};
 
 std::vector<std::shared_ptr<ResourceNAttribute>> resources;
 
@@ -215,6 +223,11 @@ async::result<frg::expected<Error, std::string>> ResourceNAttribute::show(sysfs:
 	co_return Error::illegalOperationTarget;
 }
 
+async::result<frg::expected<Error, std::string>> IrqAttribute::show(sysfs::Object *) {
+	// TODO: we have no sane way of resolving this yet
+	co_return "0\n";
+}
+
 async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 	std::string sysfs_name = "0000:" + std::get<mbus::StringItem>(properties["pci-bus"]).value
 			+ ":" + std::get<mbus::StringItem>(properties["pci-slot"]).value
@@ -257,6 +270,7 @@ async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 	device->realizeAttribute(&configAttr);
 	device->realizeAttribute(&classAttr);
 	device->realizeAttribute(&resourceAttr);
+	device->realizeAttribute(&irqAttr);
 
 	auto info = co_await device->hwDevice().getPciInfo();
 
