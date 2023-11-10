@@ -56,7 +56,16 @@ async::result<PciInfo> Device::getPciInfo() {
 	for(size_t i = 0; i < resp.capabilities_size(); i++)
 		info.caps.push_back({resp.capabilities(i).type()});
 
-	for(int i = 0; i < 6; i++) {
+	for(size_t i = 0; i < 6; i++) {
+		if(i >= resp.bars_size()) {
+			info.barInfo[i].ioType = IoType::kIoTypeNone;
+			info.barInfo[i].hostType = IoType::kIoTypeNone;
+			info.barInfo[i].address = 0;
+			info.barInfo[i].length = 0;
+			info.barInfo[i].offset = 0;
+			continue;
+		}
+
 		if(resp.bars(i).io_type() == managarm::hw::IoType::NO_BAR) {
 			info.barInfo[i].ioType = IoType::kIoTypeNone;
 		}else if(resp.bars(i).io_type() == managarm::hw::IoType::PORT) {
