@@ -56,6 +56,68 @@ initgraph::Stage *getDevicesEnumeratedStage() {
 }
 
 // --------------------------------------------------------
+// PciBus implementation.
+// --------------------------------------------------------
+
+void PciBus::runRootBus() {
+	KernelFiber::run([=] {
+		async::detach_with_allocator(*kernelAlloc, [] (PciBus *device)
+				-> coroutine<void> {
+			Properties properties;
+
+			properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
+			properties.stringProperty("pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-root-bus"));
+			properties.hexStringProperty("pci-segment", device->segId, 4);
+			properties.hexStringProperty("pci-bus", device->busId, 2);
+
+			auto ret = co_await device->createObject(std::move(properties));
+			assert(ret);
+			device->mbusId = ret.value();
+			device->mbusPublished.raise();
+		}(this));
+	});
+}
+
+// --------------------------------------------------------
+// PciBridge implementation.
+// --------------------------------------------------------
+
+void PciBridge::runBridge() {
+	KernelFiber::run([=] {
+		async::detach_with_allocator(*kernelAlloc, [] (PciBridge *device)
+				-> coroutine<void> {
+			Properties properties;
+
+			properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
+			properties.stringProperty("pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-bridge"));
+			properties.hexStringProperty("pci-segment", device->seg, 4);
+			properties.hexStringProperty("pci-bus", device->bus, 2);
+			properties.hexStringProperty("pci-slot", device->slot, 2);
+			properties.hexStringProperty("pci-function", device->function, 1);
+			properties.hexStringProperty("pci-vendor", device->vendor, 4);
+			properties.hexStringProperty("pci-device", device->deviceId, 4);
+			properties.hexStringProperty("pci-revision", device->revision, 2);
+			properties.hexStringProperty("pci-class", device->classCode, 2);
+			properties.hexStringProperty("pci-subclass", device->subClass, 2);
+			properties.hexStringProperty("pci-interface", device->interface, 2);
+
+			if(device->parentBus->associatedBridge) {
+				co_await device->parentBus->associatedBridge->mbusPublished.wait();
+				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->associatedBridge->mbusId, 1);
+			} else {
+				co_await device->parentBus->mbusPublished.wait();
+				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->mbusId, 1);
+			}
+
+			auto ret = co_await device->createObject(std::move(properties));
+			assert(ret);
+			device->mbusId = ret.value();
+			device->mbusPublished.raise();
+		}(this));
+	});
+}
+
+// --------------------------------------------------------
 // PciDevice implementation.
 // --------------------------------------------------------
 
@@ -66,6 +128,8 @@ void PciDevice::runDevice() {
 			Properties properties;
 
 			properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
+			properties.stringProperty("pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-device"));
+			properties.hexStringProperty("pci-segment", device->seg, 4);
 			properties.hexStringProperty("pci-bus", device->bus, 2);
 			properties.hexStringProperty("pci-slot", device->slot, 2);
 			properties.hexStringProperty("pci-function", device->function, 1);
@@ -78,17 +142,31 @@ void PciDevice::runDevice() {
 			properties.hexStringProperty("pci-subsystem-vendor", device->subsystemVendor, 2);
 			properties.hexStringProperty("pci-subsystem-device", device->subsystemDevice, 2);
 
+			if(device->parentBus->associatedBridge) {
+				co_await device->parentBus->associatedBridge->mbusPublished.wait();
+				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->associatedBridge->mbusId, 1);
+			} else {
+				co_await device->parentBus->mbusPublished.wait();
+				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->mbusId, 1);
+			}
+
 			if(device->associatedFrameBuffer) {
 				properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "framebuffer"));
 			}
 
 			// TODO(qookie): Better error handling here.
-			(co_await device->createObject(std::move(properties))).unwrap();
+			auto ret = co_await device->createObject(std::move(properties));
+			assert(ret);
+			device->mbusId = ret.value();
 		}(this));
 	});
 }
 
-coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
+// --------------------------------------------------------
+// PciEntity implementation.
+// --------------------------------------------------------
+
+coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 	auto [acceptError, conversation] = co_await AcceptSender{lane};
 	if(acceptError != Error::success)
 		co_return acceptError;
@@ -146,7 +224,9 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 			resp.add_capabilities(std::move(msg));
 		}
 
-		for(size_t k = 0; k < 6; k++) {
+		auto bars = getBars();
+
+		for(size_t k = 0; k < bars.size(); k++) {
 			managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
 			if(bars[k].type == PciBar::kBarIo) {
 				msg.set_io_type(managarm::hw::IoType::PORT);
@@ -188,6 +268,12 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 		}
 
 		auto index = req->index();
+		auto bars = getBars();
+
+		if(index < 0 || std::size_t(index) >= bars.size()) {
+			infoLogger() << "thor: Closing lane due to out-ouf-bounds BAR " << index << " in HW request." << frg::endlog;
+			co_return Error::illegalArgs;
+		}
 
 		AnyDescriptor descriptor;
 		if(bars[index].type == PciBar::kBarIo) {
@@ -234,7 +320,13 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
-		auto object = obtainIrqObject();
+		if(type() != PciEntityType::Device) {
+			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+
+		auto object = static_cast<PciDevice *>(this)->obtainIrqObject();
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -252,6 +344,12 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
+
+		if(type() != PciEntityType::Device) {
+			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
 
 		if ((msiIndex < 0 && msixIndex < 0)
 				|| !parentBus->msiController
@@ -295,7 +393,7 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 				+ frg::to_allocated_string(*kernelAlloc, req->index()));
 		IrqPin::attachSink(interrupt, object.get());
 
-		setupMsi(interrupt, req->index());
+		static_cast<PciDevice *>(this)->setupMsi(interrupt, req->index());
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -314,11 +412,16 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
-		if(associatedScreen) {
+		if(type() != PciEntityType::Device) {
+			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		if(static_cast<PciDevice *>(this)->associatedScreen) {
 			infoLogger() << "thor: Disabling screen associated with PCI device "
 					<< bus << "." << slot << "." << function
 					<< frg::endlog;
-			disableLogHandler(associatedScreen);
+			disableLogHandler(static_cast<PciDevice *>(this)->associatedScreen);
 		}
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -333,7 +436,12 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
-		enableIrq();
+		if(type() != PciEntityType::Device) {
+			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		static_cast<PciDevice *>(this)->enableIrq();
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -347,6 +455,11 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
+		if(type() != PciEntityType::Device) {
+			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
 		if ((msiIndex < 0 && msixIndex < 0)
 				|| !parentBus->msiController) {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -356,7 +469,7 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 			co_return frg::success;
 		}
 
-		enableMsi();
+		static_cast<PciDevice *>(this)->enableMsi();
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -520,12 +633,12 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 	}else if(preamble.id() == bragi::message_id<managarm::hw::GetFbInfoRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::GetFbInfoRequest>(reqBuffer, *kernelAlloc);
 
-		if (!req) {
+		if (!req || type() != PciEntityType::Device) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		auto fb = associatedFrameBuffer;
+		auto fb = static_cast<PciDevice *>(this)->associatedFrameBuffer;
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
@@ -545,12 +658,12 @@ coroutine<frg::expected<Error>> PciDevice::handleRequest(LaneHandle lane) {
 	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
 
-		if (!req) {
+		if (!req || type() != PciEntityType::Device) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		auto fb = associatedFrameBuffer;
+		auto fb = static_cast<PciDevice *>(this)->associatedFrameBuffer;
 		MemoryViewDescriptor descriptor{nullptr};
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -982,6 +1095,32 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		EnumFunc &&enumerateDownstream) {
 	auto io = bus->io;
 
+	auto parseExpansionRom = [&io, bus, slot, function](PciEntity *device, uint32_t offset) {
+		uint32_t expansion_rom_addr = io->readConfigWord(bus, slot, function, offset);
+		// write all 1s to the expansion rom addr and read it back to determine this its length.
+		io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
+
+		uint32_t expansion_rom_mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFFC;
+		io->writeConfigWord(bus, slot, function, offset, expansion_rom_addr);
+
+		if(expansion_rom_mask) {
+			auto expansion_rom_length = computeBarLength(expansion_rom_mask);
+			// Enable it
+			io->writeConfigWord(bus, slot, function, offset, expansion_rom_addr | 1);
+			// Map it
+			auto offset = expansion_rom_addr & (kPageSize - 1);
+			device->expansionRom.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+						expansion_rom_addr & ~(kPageSize - 1),
+						(expansion_rom_length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+						CachingMode::uncached); // Some cards have problems with caching the PCI Expansion Rom
+			device->expansionRom.offset = offset;
+			device->expansionRom.address = expansion_rom_addr;
+			device->expansionRom.length = expansion_rom_length;
+		} else {
+			device->expansionRom.address = 0;
+		}
+	};
+
 	uint16_t vendor = io->readConfigHalf(bus, slot, function, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
@@ -1054,30 +1193,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		}
 
 		readEntityBars(device.get(), 6);
-		
-		uint32_t expansion_rom_addr = io->readConfigWord(bus, slot, function, kPciRegularExpansionRomBaseAddress);
-		// write all 1s to the expansion rom addr and read it back to determine this its length.
-		io->writeConfigWord(bus, slot, function, kPciRegularExpansionRomBaseAddress, 0xFFFFFFFF);
-		
-		uint32_t expansion_rom_mask = io->readConfigWord(bus, slot, function, kPciRegularExpansionRomBaseAddress) & 0xFFFFFFFC;
-		io->writeConfigWord(bus, slot, function, kPciRegularExpansionRomBaseAddress, expansion_rom_addr);
-			
-		if(expansion_rom_mask) {
-			auto expansion_rom_length = computeBarLength(expansion_rom_mask);
-			// Enable it
-			io->writeConfigWord(bus, slot, function, kPciRegularExpansionRomBaseAddress, expansion_rom_addr | 1);
-			// Map it
-			auto offset = expansion_rom_addr & (kPageSize - 1);
-			device->expansionRom.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-						expansion_rom_addr & ~(kPageSize - 1),
-						(expansion_rom_length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::uncached); // Some cards have problems with caching the PCI Expansion Rom
-			device->expansionRom.offset = offset;
-			device->expansionRom.address = expansion_rom_addr;
-			device->expansionRom.length = expansion_rom_length;
-		} else {
-			device->expansionRom.address = 0;
-		}
+		parseExpansionRom(device.get(), kPciRegularExpansionRomBaseAddress);
 
 		auto irq_index = static_cast<IrqIndex>(io->readConfigByte(bus, slot, function,
 				kPciRegularInterruptPin));
@@ -1155,6 +1271,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		findPciCaps(bridge);
 
 		readEntityBars(bridge, 2);
+		parseExpansionRom(bridge, kPciBridgeExpansionRomBaseAddress);
 
 		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
 
@@ -1204,6 +1321,16 @@ void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
 
 	for(uint32_t slot = 0; slot < nSlots; slot++)
 		checkPciDevice(bus, slot, enumerateDownstream);
+}
+
+void runAllBridges() {
+	for(auto root_bus : *allRootBuses) {
+		root_bus->runRootBus();
+
+		for(auto bridge : root_bus->childBridges) {
+			bridge->runBridge();
+		}
+	}
 }
 
 void runAllDevices() {

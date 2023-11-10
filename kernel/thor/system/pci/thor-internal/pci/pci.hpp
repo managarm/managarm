@@ -7,6 +7,7 @@
 
 #include <frg/vector.hpp>
 #include <frg/hash_map.hpp>
+#include <frg/span.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
@@ -167,7 +168,7 @@ private:
 	bool isHostMmio_;
 };
 
-struct PciBus {
+struct PciBus : private KernelBusObject {
 	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_, PciConfigIo *io,
 			PciMsiController *msiController_,
 			uint32_t segId_, uint32_t busId_)
@@ -190,6 +191,8 @@ struct PciBus {
 		return newBus;
 	}
 
+	void runRootBus();
+
 	PciBridge *associatedBridge;
 	PciIrqRouter *irqRouter;
 	PciConfigIo *io;
@@ -201,6 +204,10 @@ struct PciBus {
 
 	uint32_t segId;
 	uint32_t busId;
+
+	int64_t mbusId = 0;
+
+	async::oneshot_event mbusPublished;
 };
 
 struct PciBar {
@@ -232,8 +239,13 @@ struct PciExpansionRom {
 	ptrdiff_t offset;
 };
 
+enum class PciEntityType {
+	Device,
+	Bridge,
+};
+
 // Either a device or a bridge.
-struct PciEntity {
+struct PciEntity : protected KernelBusObject {
 	PciEntity(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
 			uint16_t vendor, uint16_t device_id, uint8_t revision, uint8_t class_code,
 			uint8_t sub_class, uint8_t interface)
@@ -246,9 +258,11 @@ struct PciEntity {
 
 	PciEntity &operator= (const PciEntity &) = delete;
 
+	virtual PciEntityType type() = 0;
+
 	PciBus *parentBus;
 
-	virtual PciBar *getBars() = 0;
+	virtual frg::span<PciBar> getBars() = 0;
 
 	// Location of the device on the PCI bus.
 	uint32_t seg;
@@ -280,6 +294,19 @@ struct PciEntity {
 
 	frg::vector<Capability, KernelAlloc> caps{*kernelAlloc};
 
+	PciExpansionRom expansionRom;
+
+	// MSI / MSI-X support.
+	unsigned int numMsis = 0;
+	int msixIndex = -1;
+	void *msixMapping = nullptr;
+	int msiIndex = -1;
+	bool msiEnabled = false;
+	bool msiInstalled = false;
+
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
+
 protected:
 	~PciEntity() = default;
 };
@@ -292,18 +319,26 @@ struct PciBridge final : PciEntity {
 			sub_class, interface}, associatedBus{nullptr},
 			downstreamId{0}, subordinateId{0} { }
 
+	PciEntityType type() override {
+		return PciEntityType::Bridge;
+	}
+
+	void runBridge();
+
 	PciBar bars[2];
 
-	PciBar *getBars() override {
-		return bars;
+	frg::span<PciBar> getBars() override {
+		return {bars, sizeof(bars) / sizeof(*bars)};
 	}
 
 	PciBus *associatedBus;
 	uint32_t downstreamId;
 	uint32_t subordinateId;
+
+	async::oneshot_event mbusPublished;
 };
 
-struct PciDevice final : PciEntity, private KernelBusObject {
+struct PciDevice final : PciEntity {
 	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
 			uint16_t vendor, uint16_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
@@ -311,6 +346,10 @@ struct PciDevice final : PciEntity, private KernelBusObject {
 			sub_class, interface},
 			subsystemVendor{subsystem_vendor}, subsystemDevice{subsystem_device},
 			interrupt{nullptr}, associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
+
+	PciEntityType type() override {
+		return PciEntityType::Device;
+	}
 
 	void runDevice();
 
@@ -329,26 +368,14 @@ struct PciDevice final : PciEntity, private KernelBusObject {
 
 	// device configuration
 	PciBar bars[6];
-	PciExpansionRom expansionRom;
 
-	PciBar *getBars() override {
-		return bars;
+	frg::span<PciBar> getBars() override {
+		return {bars, sizeof(bars) / sizeof(*bars)};
 	}
-
-	// MSI / MSI-X support.
-	unsigned int numMsis = 0;
-	int msixIndex = -1;
-	void *msixMapping = nullptr;
-	int msiIndex = -1;
-	bool msiEnabled = false;
-	bool msiInstalled = false;
 
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
 	BootScreen *associatedScreen;
-
-private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
 };
 
 enum {
@@ -373,6 +400,7 @@ enum {
 	kPciRegularInterruptPin = 0x3D,
 
 	// PCI-to-PCI bridge header fields
+	kPciBridgeExpansionRomBaseAddress = 0x38,
 	kPciBridgeIoBase = 0x1C,
 	kPciBridgeIoLimit = 0x1D,
 	kPciBridgeMemBase = 0x20,
@@ -408,6 +436,7 @@ extern frg::manual_box<
 	>
 > allConfigSpaces;
 
+void runAllBridges();
 void runAllDevices();
 
 void addToEnumerationQueue(PciBus *bus);
