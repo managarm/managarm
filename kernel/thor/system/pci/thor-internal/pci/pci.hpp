@@ -234,8 +234,13 @@ struct PciExpansionRom {
 
 // Either a device or a bridge.
 struct PciEntity {
-	PciEntity(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function)
-	: parentBus{parentBus_}, seg{seg}, bus{bus}, slot{slot}, function{function} { }
+	PciEntity(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
+			uint16_t vendor, uint16_t device_id, uint8_t revision, uint8_t class_code,
+			uint8_t sub_class, uint8_t interface)
+	: parentBus{parentBus_}, seg{seg}, bus{bus}, slot{slot}, function{function},
+			mbusId{0},
+			vendor{vendor}, deviceId{device_id}, revision{revision},
+			classCode{class_code}, subClass{sub_class}, interface{interface} { }
 
 	PciEntity(const PciEntity &) = delete;
 
@@ -250,6 +255,19 @@ struct PciEntity {
 	uint32_t bus;
 	uint32_t slot;
 	uint32_t function;
+
+	// mbus object ID of the device
+	int64_t mbusId;
+
+	// vendor-specific device information
+	uint16_t vendor;
+	uint16_t deviceId;
+	uint8_t revision;
+
+	// generic device information
+	uint8_t classCode;
+	uint8_t subClass;
+	uint8_t interface;
 
 	bool isPcie = false;
 	bool isDownstreamPort = false;
@@ -268,8 +286,10 @@ protected:
 
 struct PciBridge final : PciEntity {
 	PciBridge(PciBus *parentBus_, uint32_t seg, uint32_t bus,
-			uint32_t slot, uint32_t function)
-	: PciEntity{parentBus_, seg, bus, slot, function}, associatedBus{nullptr},
+			uint32_t slot, uint32_t function, uint16_t vendor, uint16_t device_id, uint8_t revision,
+			uint8_t class_code, uint8_t sub_class, uint8_t interface)
+	: PciEntity{parentBus_, seg, bus, slot, function, vendor, device_id, revision, class_code,
+			sub_class, interface}, associatedBus{nullptr},
 			downstreamId{0}, subordinateId{0} { }
 
 	PciBar bars[2];
@@ -287,9 +307,8 @@ struct PciDevice final : PciEntity, private KernelBusObject {
 	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
 			uint16_t vendor, uint16_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
-	: PciEntity{parentBus_, seg, bus, slot, function}, mbusId{0},
-			vendor{vendor}, deviceId{device_id}, revision{revision},
-			classCode{class_code}, subClass{sub_class}, interface{interface},
+	: PciEntity{parentBus_, seg, bus, slot, function, vendor, device_id, revision, class_code,
+			sub_class, interface},
 			subsystemVendor{subsystem_vendor}, subsystemDevice{subsystem_device},
 			interrupt{nullptr}, associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
 
@@ -302,19 +321,6 @@ struct PciDevice final : PciEntity, private KernelBusObject {
 
 	void setupMsi(MsiPin *msi, size_t index);
 	void enableMsi();
-
-	// mbus object ID of the device
-	int64_t mbusId;
-
-	// vendor-specific device information
-	uint16_t vendor;
-	uint16_t deviceId;
-	uint8_t revision;
-
-	// generic device information
-	uint8_t classCode;
-	uint8_t subClass;
-	uint8_t interface;
 
 	uint16_t subsystemVendor;
 	uint16_t subsystemDevice;

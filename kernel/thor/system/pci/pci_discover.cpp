@@ -1148,7 +1148,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 
 		applyPciDeviceQuirks(device);
 	} else if ((header_type & 0x7F) == 1) {
-		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function);
+		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function,
+				vendor, device_id, revision, class_code, sub_class, interface);
 		bus->childBridges.push_back(bridge);
 
 		findPciCaps(bridge);
