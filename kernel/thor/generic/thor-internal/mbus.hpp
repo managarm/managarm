@@ -18,6 +18,10 @@ struct Properties {
 		stringProperty(name, frg::to_allocated_string(*kernelAlloc, value, 16, padding));
 	}
 
+	void decStringProperty(frg::string_view name, uint32_t value, int padding) {
+		stringProperty(name, frg::to_allocated_string(*kernelAlloc, value, 10, padding));
+	}
+
 private:
 	struct Property {
 		Property(frg::string_view name,
