@@ -36,7 +36,7 @@ private:
 };
 
 struct KernelBusObject {
-	coroutine<frg::expected<Error>> createObject(Properties &&properties);
+	coroutine<frg::expected<Error, size_t>> createObject(Properties &&properties);
 
 	virtual LaneHandle initiateClient() {
 		auto stream = createStream();

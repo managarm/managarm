@@ -8,7 +8,7 @@ namespace thor {
 // TODO: Move this to a header file.
 extern frg::manual_box<LaneHandle> mbusClient;
 
-coroutine<frg::expected<Error>> KernelBusObject::createObject(Properties &&properties) {
+coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(Properties &&properties) {
 	auto [offerError, conversation] = co_await OfferSender{*mbusClient};
 	if (offerError != Error::success)
 		co_return offerError;
@@ -55,7 +55,7 @@ coroutine<frg::expected<Error>> KernelBusObject::createObject(Properties &&prope
 	async::detach_with_allocator(*kernelAlloc, handleMbusComms_(
 			descriptor.get<LaneDescriptor>().handle));
 
-	co_return frg::success;
+	co_return resp.id();
 }
 
 coroutine<void> KernelBusObject::handleMbusComms_(LaneHandle objectLane) {
