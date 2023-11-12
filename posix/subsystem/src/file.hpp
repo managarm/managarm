@@ -186,6 +186,8 @@ public:
 	static async::result<frg::expected<protocols::fs::Error, int>> ptGetSeals(void *object);
 	static async::result<frg::expected<protocols::fs::Error, int>> ptAddSeals(void *object, int seals);
 
+	static async::result<helix::BorrowedDescriptor> ptAccessMemory(void *object);
+
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
 		.seekRel = &ptSeekRel,
@@ -195,6 +197,7 @@ public:
 		.write = &ptWrite,
 		.pwrite = &ptPwrite,
 		.readEntries = &ptReadEntries,
+		.accessMemory = &ptAccessMemory,
 		.truncate = &ptTruncate,
 		.fallocate = &ptAllocate,
 		.ioctl = &ptIoctl,

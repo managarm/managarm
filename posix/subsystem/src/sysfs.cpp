@@ -30,9 +30,12 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 // Attribute implementation.
 // ----------------------------------------------------------------------------
 
-async::result<void> Attribute::store(Object *, std::string) {
-	// FIXME: Return an error to the caller.
-	throw std::runtime_error("Attribute does not support store()");
+async::result<Error> Attribute::store(Object *, std::string) {
+	co_return Error::illegalOperationTarget;
+}
+
+async::result<frg::expected<Error, helix::UniqueDescriptor>> Attribute::accessMemory(Object *) {
+	co_return Error::noBackingDevice;
 }
 
 // ----------------------------------------------------------------------------
@@ -59,27 +62,43 @@ void AttributeFile::handleClose() {
 async::result<frg::expected<Error, off_t>> AttributeFile::seek(off_t offset, VfsSeek whence) {
 	// TODO: it's unclear whether we should allow seeks past the end.
 	// TODO: re-cache the file for seeks to zero.
-	assert(whence == VfsSeek::relative);
-	_offset += offset;
+	if(whence == VfsSeek::relative)
+		_offset = _offset + offset;
+	else if(whence == VfsSeek::absolute)
+		_offset = offset;
+	else if(whence == VfsSeek::eof)
+		// TODO: Unimplemented!
+		assert(!"unimplemented");
 	co_return _offset;
 }
 
 async::result<frg::expected<Error, size_t>>
-AttributeFile::readSome(Process *, void *data, size_t max_length) {
-	assert(max_length > 0);
+AttributeFile::readSome(Process *process, void *data, size_t max_length) {
+	auto ret = co_await pread(process, _offset, data, max_length);
+
+	if(ret)
+		_offset += ret.value();
+
+	co_return ret;
+}
+
+async::result<frg::expected<Error, size_t>>
+AttributeFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
+	assert(length > 0);
 
 	if(!_cached) {
-		assert(!_offset);
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
-		_buffer = co_await node->_attr->show(node->_object);
-		_cached = true;
+		if(auto res = co_await node->_attr->show(node->_object); res) {
+			_buffer = res.value();
+			_cached = true;
+		} else
+			co_return res.error();
 	}
 
-	if(_offset >= _buffer.size())
+	if(offset >= 0 && static_cast<size_t>(offset) >= _buffer.size())
 		co_return 0;
-	size_t chunk = std::min(_buffer.size() - _offset, max_length);
-	memcpy(data, _buffer.data() + _offset, chunk);
-	_offset += chunk;
+	size_t chunk = std::min(_buffer.size() - offset, length);
+	memcpy(buffer, _buffer.data() + offset, chunk);
 	co_return chunk;
 }
 
@@ -88,9 +107,22 @@ AttributeFile::writeAll(Process *, const void *data, size_t length)  {
 	assert(length > 0);
 
 	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
-	co_await node->_attr->store(node->_object,
+	auto err = co_await node->_attr->store(node->_object,
 			std::string{reinterpret_cast<const char *>(data), length});
+
+	if(err != Error::success)
+		co_return err;
+
 	co_return length;
+}
+
+FutureMaybe<helix::UniqueDescriptor> AttributeFile::accessMemory() {
+	auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
+
+	auto res = co_await node->_attr->accessMemory(node->_object);
+	assert(res);
+
+	co_return std::move(res.value());
 }
 
 helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {
@@ -184,7 +216,7 @@ async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 	FileStats stats;
 	stats.inodeNumber = 0; // FIXME
 	stats.numLinks = 1;
-	stats.fileSize = 4096; // Same as in Linux.
+	stats.fileSize = _attr->size();
 	stats.mode = _attr->writable() ? 0666 : 0444; // TODO: Some files can be written.
 	stats.uid = 0;
 	stats.gid = 0;
@@ -347,6 +379,9 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getL
 
 Attribute::Attribute(std::string name, bool writable)
 : _name{std::move(name)}, _writable{writable} { }
+
+Attribute::Attribute(std::string name, bool writable, size_t size)
+: _name{std::move(name)}, _writable{writable}, _size{size} { }
 
 // ----------------------------------------------------------------------------
 // Object implementation

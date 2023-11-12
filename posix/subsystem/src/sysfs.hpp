@@ -43,7 +43,12 @@ public:
 	readSome(Process *, void *data, size_t max_length) override;
 
 	async::result<frg::expected<Error, size_t>>
+	pread(Process *, int64_t offset, void *buffer, size_t length) override;
+
+	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
+
+	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
@@ -153,6 +158,7 @@ private:
 
 struct Attribute {
 	Attribute(std::string name, bool writable);
+	Attribute(std::string name, bool writable, size_t size);
 
 	virtual ~Attribute() = default;
 
@@ -165,9 +171,16 @@ public:
 		return _writable;
 	}
 
-	virtual async::result<std::string> show(Object *object) = 0;
-	virtual async::result<void> store(Object *object, std::string data);
+	size_t size() {
+		return _size;
+	}
 
+	virtual async::result<frg::expected<Error, std::string>> show(Object *object) = 0;
+	virtual async::result<Error> store(Object *object, std::string data);
+	virtual async::result<frg::expected<Error, helix::UniqueDescriptor>> accessMemory(Object *object);
+
+protected:
+	size_t _size = 4096;
 private:
 	const std::string _name;
 	bool _writable;

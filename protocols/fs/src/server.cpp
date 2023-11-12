@@ -277,6 +277,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
 			} else if(res.error() == Error::notConnected) {
 				resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
+			} else if(res.error() == Error::illegalOperationTarget) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
 			} else {
 				std::cout << "Unknown error from write()" << std::endl;
 				co_return;

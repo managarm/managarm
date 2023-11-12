@@ -116,6 +116,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *o
 			co_return protocols::fs::Error::noSpaceLeft;
 		case Error::notConnected:
 			co_return protocols::fs::Error::notConnected;
+		case Error::illegalOperationTarget:
+			co_return protocols::fs::Error::illegalOperationTarget;
 		default:
 			assert(!"Unexpected error from writeAll()");
 			__builtin_unreachable();
@@ -270,6 +272,12 @@ File::ptSendMsg(void *object, const char *creds, uint32_t flags,
 			data, len,
 			addr, addr_len,
 			std::move(files));
+}
+
+async::result<helix::BorrowedDescriptor>
+File::ptAccessMemory(void *object) {
+	auto self = static_cast<File *>(object);
+	co_return co_await self->accessMemory();
 }
 
 File::~File() {
