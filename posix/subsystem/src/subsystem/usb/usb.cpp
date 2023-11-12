@@ -181,17 +181,17 @@ async::detached bindDevice(mbus::Entity entity, mbus::Properties properties) {
 
 	auto config_val = (co_await device->device().currentConfigurationValue()).value();
 
-	protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *, const auto &info) {
+	protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &info) {
 		if(type == protocols::usb::descriptor_type::configuration) {
-			auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(*info.desc);
+			auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor);
 			device->maxPower = desc->maxPower * 2;
 
 			if(info.configNumber == config_val) {
 				device->bmAttributes = desc->bmAttributes;
-				device->numInterfaces = reinterpret_cast<protocols::usb::ConfigDescriptor *>(*info.desc)->numInterfaces;
+				device->numInterfaces = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor)->numInterfaces;
 			}
 		} else if(type == protocols::usb::descriptor_type::interface) {
-			auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(*info.desc);
+			auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
 
 			auto if_sysfs_name = sysfs_name + ":" + std::to_string(*info.configNumber) + "-" + std::to_string(desc->interfaceNumber);
 			auto interface = std::make_shared<UsbInterface>(if_sysfs_name, entity.getId(), device);
