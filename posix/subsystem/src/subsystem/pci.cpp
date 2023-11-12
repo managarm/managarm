@@ -103,7 +103,7 @@ struct Device final : drvcore::BusDevice {
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char slot[13]; // The format is 1234:56:78:9\0.
-		sprintf(slot, "0000:%.2x:%.2x.%.1x", pciBus, pciSlot, pciFunction);
+		snprintf(slot, 13, "0000:%.2x:%.2x.%.1x", pciBus, pciSlot, pciFunction);
 
 		ue.set("SUBSYSTEM", "pci");
 		ue.set("PCI_SLOT_NAME", slot);
@@ -130,28 +130,28 @@ struct Device final : drvcore::BusDevice {
 async::result<frg::expected<Error, std::string>> VendorAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	sprintf(buffer, "0x%.4x", device->vendorId);
+	snprintf(buffer, 7, "0x%.4x", device->vendorId);
 	co_return std::string{buffer};
 }
 
 async::result<frg::expected<Error, std::string>> DeviceAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	sprintf(buffer, "0x%.4x", device->deviceId);
+	snprintf(buffer, 7, "0x%.4x", device->deviceId);
 	co_return std::string{buffer};
 }
 
 async::result<frg::expected<Error, std::string>> SubsystemVendorAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	sprintf(buffer, "0x%.4x", device->subsystemVendorId);
+	snprintf(buffer, 7, "0x%.4x", device->subsystemVendorId);
 	co_return std::string{buffer};
 }
 
 async::result<frg::expected<Error, std::string>> SubsystemDeviceAttribute::show(sysfs::Object *object) {
 	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	sprintf(buffer, "0x%.4x", device->subsystemDeviceId);
+	snprintf(buffer, 7, "0x%.4x", device->subsystemDeviceId);
 	co_return std::string{buffer};
 }
 
