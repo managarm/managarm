@@ -294,7 +294,7 @@ void Emulator::printString(std::string string){
 	for(unsigned int i = 0; i < string.size(); i++) {
 		if(logSequences) {
 			char buffer[128];
-			sprintf(buffer, "U+%d", string[i]);
+			snprintf(buffer, 128, "U+%d", string[i]);
 			puts(buffer);
 		}
 		printChar(string[i]);
