@@ -200,6 +200,7 @@ extern "C" void thorMain() {
 
 		transitionBootFb();
 
+		pci::runAllBridges();
 		pci::runAllDevices();
 
 		// Parse the initrd image.

@@ -152,8 +152,10 @@ async::detached run() {
 		auto parent_property = std::get<mbus::StringItem>(properties.at("drvcore.mbus-parent"));
 		auto mbus_parent = std::stoi(parent_property.value);
 		std::shared_ptr<drvcore::Device> parent_device;
-		if (mbus_parent != -1)
+		if (mbus_parent != -1) {
 			parent_device = pci_subsystem::getDeviceByMbus(mbus_parent);
+			assert(parent_device);
+		}
 
 		auto lane = helix::UniqueLane(co_await entity.bind());
 

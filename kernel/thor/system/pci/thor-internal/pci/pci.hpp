@@ -7,6 +7,7 @@
 
 #include <frg/vector.hpp>
 #include <frg/hash_map.hpp>
+#include <frg/span.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
@@ -167,7 +168,7 @@ private:
 	bool isHostMmio_;
 };
 
-struct PciBus {
+struct PciBus : private KernelBusObject {
 	PciBus(PciBridge *associatedBridge_, PciIrqRouter *irqRouter_, PciConfigIo *io,
 			PciMsiController *msiController_,
 			uint32_t segId_, uint32_t busId_)
@@ -190,6 +191,8 @@ struct PciBus {
 		return newBus;
 	}
 
+	void runRootBus();
+
 	PciBridge *associatedBridge;
 	PciIrqRouter *irqRouter;
 	PciConfigIo *io;
@@ -201,6 +204,10 @@ struct PciBus {
 
 	uint32_t segId;
 	uint32_t busId;
+
+	int64_t mbusId = 0;
+
+	async::oneshot_event mbusPublished;
 };
 
 struct PciBar {
@@ -232,76 +239,36 @@ struct PciExpansionRom {
 	ptrdiff_t offset;
 };
 
+enum class PciEntityType {
+	Device,
+	Bridge,
+};
+
 // Either a device or a bridge.
-struct PciEntity {
-	PciEntity(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function)
-	: parentBus{parentBus_}, seg{seg}, bus{bus}, slot{slot}, function{function} { }
+struct PciEntity : protected KernelBusObject {
+	PciEntity(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
+			uint16_t vendor, uint16_t device_id, uint8_t revision, uint8_t class_code,
+			uint8_t sub_class, uint8_t interface)
+	: parentBus{parentBus_}, seg{seg}, bus{bus}, slot{slot}, function{function},
+			mbusId{0},
+			vendor{vendor}, deviceId{device_id}, revision{revision},
+			classCode{class_code}, subClass{sub_class}, interface{interface} { }
 
 	PciEntity(const PciEntity &) = delete;
 
 	PciEntity &operator= (const PciEntity &) = delete;
 
+	virtual PciEntityType type() = 0;
+
 	PciBus *parentBus;
 
-	virtual PciBar *getBars() = 0;
+	virtual frg::span<PciBar> getBars() = 0;
 
 	// Location of the device on the PCI bus.
 	uint32_t seg;
 	uint32_t bus;
 	uint32_t slot;
 	uint32_t function;
-
-	bool isPcie = false;
-	bool isDownstreamPort = false;
-
-	struct Capability {
-		unsigned int type;
-		ptrdiff_t offset;
-		size_t length;
-	};
-
-	frg::vector<Capability, KernelAlloc> caps{*kernelAlloc};
-
-protected:
-	~PciEntity() = default;
-};
-
-struct PciBridge final : PciEntity {
-	PciBridge(PciBus *parentBus_, uint32_t seg, uint32_t bus,
-			uint32_t slot, uint32_t function)
-	: PciEntity{parentBus_, seg, bus, slot, function}, associatedBus{nullptr},
-			downstreamId{0}, subordinateId{0} { }
-
-	PciBar bars[2];
-
-	PciBar *getBars() override {
-		return bars;
-	}
-
-	PciBus *associatedBus;
-	uint32_t downstreamId;
-	uint32_t subordinateId;
-};
-
-struct PciDevice final : PciEntity, private KernelBusObject {
-	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
-			uint16_t vendor, uint16_t device_id, uint8_t revision,
-			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
-	: PciEntity{parentBus_, seg, bus, slot, function}, mbusId{0},
-			vendor{vendor}, deviceId{device_id}, revision{revision},
-			classCode{class_code}, subClass{sub_class}, interface{interface},
-			subsystemVendor{subsystem_vendor}, subsystemDevice{subsystem_device},
-			interrupt{nullptr}, associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
-
-	void runDevice();
-
-	smarter::shared_ptr<IrqObject> obtainIrqObject();
-	IrqPin *getIrqPin();
-
-	void enableIrq();
-
-	void setupMsi(MsiPin *msi, size_t index);
-	void enableMsi();
 
 	// mbus object ID of the device
 	int64_t mbusId;
@@ -316,18 +283,18 @@ struct PciDevice final : PciEntity, private KernelBusObject {
 	uint8_t subClass;
 	uint8_t interface;
 
-	uint16_t subsystemVendor;
-	uint16_t subsystemDevice;
+	bool isPcie = false;
+	bool isDownstreamPort = false;
 
-	IrqPin *interrupt;
+	struct Capability {
+		unsigned int type;
+		ptrdiff_t offset;
+		size_t length;
+	};
 
-	// device configuration
-	PciBar bars[6];
+	frg::vector<Capability, KernelAlloc> caps{*kernelAlloc};
+
 	PciExpansionRom expansionRom;
-
-	PciBar *getBars() override {
-		return bars;
-	}
 
 	// MSI / MSI-X support.
 	unsigned int numMsis = 0;
@@ -337,12 +304,78 @@ struct PciDevice final : PciEntity, private KernelBusObject {
 	bool msiEnabled = false;
 	bool msiInstalled = false;
 
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
+
+protected:
+	~PciEntity() = default;
+};
+
+struct PciBridge final : PciEntity {
+	PciBridge(PciBus *parentBus_, uint32_t seg, uint32_t bus,
+			uint32_t slot, uint32_t function, uint16_t vendor, uint16_t device_id, uint8_t revision,
+			uint8_t class_code, uint8_t sub_class, uint8_t interface)
+	: PciEntity{parentBus_, seg, bus, slot, function, vendor, device_id, revision, class_code,
+			sub_class, interface}, associatedBus{nullptr},
+			downstreamId{0}, subordinateId{0} { }
+
+	PciEntityType type() override {
+		return PciEntityType::Bridge;
+	}
+
+	void runBridge();
+
+	PciBar bars[2];
+
+	frg::span<PciBar> getBars() override {
+		return {bars, sizeof(bars) / sizeof(*bars)};
+	}
+
+	PciBus *associatedBus;
+	uint32_t downstreamId;
+	uint32_t subordinateId;
+
+	async::oneshot_event mbusPublished;
+};
+
+struct PciDevice final : PciEntity {
+	PciDevice(PciBus *parentBus_, uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function,
+			uint16_t vendor, uint16_t device_id, uint8_t revision,
+			uint8_t class_code, uint8_t sub_class, uint8_t interface, uint16_t subsystem_vendor, uint16_t subsystem_device)
+	: PciEntity{parentBus_, seg, bus, slot, function, vendor, device_id, revision, class_code,
+			sub_class, interface},
+			subsystemVendor{subsystem_vendor}, subsystemDevice{subsystem_device},
+			interrupt{nullptr}, associatedFrameBuffer{nullptr}, associatedScreen{nullptr} { }
+
+	PciEntityType type() override {
+		return PciEntityType::Device;
+	}
+
+	void runDevice();
+
+	smarter::shared_ptr<IrqObject> obtainIrqObject();
+	IrqPin *getIrqPin();
+
+	void enableIrq();
+
+	void setupMsi(MsiPin *msi, size_t index);
+	void enableMsi();
+
+	uint16_t subsystemVendor;
+	uint16_t subsystemDevice;
+
+	IrqPin *interrupt;
+
+	// device configuration
+	PciBar bars[6];
+
+	frg::span<PciBar> getBars() override {
+		return {bars, sizeof(bars) / sizeof(*bars)};
+	}
+
 	// Device attachments.
 	FbInfo *associatedFrameBuffer;
 	BootScreen *associatedScreen;
-
-private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
 };
 
 enum {
@@ -367,6 +400,7 @@ enum {
 	kPciRegularInterruptPin = 0x3D,
 
 	// PCI-to-PCI bridge header fields
+	kPciBridgeExpansionRomBaseAddress = 0x38,
 	kPciBridgeIoBase = 0x1C,
 	kPciBridgeIoLimit = 0x1D,
 	kPciBridgeMemBase = 0x20,
@@ -402,6 +436,7 @@ extern frg::manual_box<
 	>
 > allConfigSpaces;
 
+void runAllBridges();
 void runAllDevices();
 
 void addToEnumerationQueue(PciBus *bus);
