@@ -75,41 +75,41 @@ struct ReadOnlyAttribute : sysfs::Attribute {
 	ReadOnlyAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DevAttribute : sysfs::Attribute {
 	DevAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct SizeAttribute : sysfs::Attribute {
 	SizeAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
-	async::result<std::string> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 ReadOnlyAttribute roAttr{"ro"};
 DevAttribute devAttr{"dev"};
 SizeAttribute sizeAttr{"size"};
 
-async::result<std::string> ReadOnlyAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> ReadOnlyAttribute::show(sysfs::Object *object) {
 	// The format is 0\n\0.
 	// Hardcode to zero as we don't support ro mounts yet.
 	co_return "0\n";
 }
 
-async::result<std::string> DevAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> DevAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	auto dev = device->getId();
 	// The format is 0:0\n\0.
 	co_return std::to_string(dev.first) + ":" + std::to_string(dev.second) + "\n";
 }
 
-async::result<std::string> SizeAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>> SizeAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	co_return std::to_string(device->size() / 512) + "\n";
 }
