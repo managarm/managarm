@@ -1,6 +1,7 @@
 
 #include <string.h>
 #include <iostream>
+#include <linux/fs.h>
 
 #include <protocols/mbus/client.hpp>
 
@@ -30,14 +31,18 @@ struct Subsystem {
 
 struct Device final : UnixDevice, drvcore::BlockDevice {
 	Device(VfsType type, std::string name, helix::UniqueLane lane,
-			std::shared_ptr<drvcore::Device> parent)
+			std::shared_ptr<drvcore::Device> parent, size_t size)
 	: UnixDevice{type},
 			drvcore::BlockDevice{sysfsSubsystem, std::move(parent), name,
 					this},
-			_name{std::move(name)}, _lane{std::move(lane)} { }
+			_name{std::move(name)}, _lane{std::move(lane)}, _size{size} { }
 
 	std::string nodePath() override {
 		return _name;
+	}
+
+	size_t size() {
+		return _size;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -51,15 +56,63 @@ struct Device final : UnixDevice, drvcore::BlockDevice {
 	}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
+		std::pair<int, int> dev = getId();
 		ue.set("SUBSYSTEM", "block");
+		ue.set("MAJOR", std::to_string(dev.first));
+		ue.set("MINOR", std::to_string(dev.second));
 	}
 
 private:
 	std::string _name;
 	helix::UniqueLane _lane;
+
+	size_t _size;
 };
 
 } // anonymous namepsace
+
+struct ReadOnlyAttribute : sysfs::Attribute {
+	ReadOnlyAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
+struct DevAttribute : sysfs::Attribute {
+	DevAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
+struct SizeAttribute : sysfs::Attribute {
+	SizeAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<std::string> show(sysfs::Object *object) override;
+};
+
+ReadOnlyAttribute roAttr{"ro"};
+DevAttribute devAttr{"dev"};
+SizeAttribute sizeAttr{"size"};
+
+async::result<std::string> ReadOnlyAttribute::show(sysfs::Object *object) {
+	// The format is 0\n\0.
+	// Hardcode to zero as we don't support ro mounts yet.
+	co_return "0\n";
+}
+
+async::result<std::string> DevAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<Device *>(object);
+	auto dev = device->getId();
+	// The format is 0:0\n\0.
+	co_return std::to_string(dev.first) + ":" + std::to_string(dev.second) + "\n";
+}
+
+async::result<std::string> SizeAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<Device *>(object);
+	co_return std::to_string(device->size() / 512) + "\n";
+}
 
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"block"};
@@ -103,16 +156,44 @@ async::detached run() {
 			parent_device = pci_subsystem::getDeviceByMbus(mbus_parent);
 
 		auto lane = helix::UniqueLane(co_await entity.bind());
+
+		managarm::fs::GenericIoctlRequest req;
+		req.set_command(BLKGETSIZE64);
+
+		auto ser = req.SerializeAsString();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::GenericIoctlReply resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+		size_t size = resp.size();
+
 		auto device = std::make_shared<Device>(VfsType::blockDevice,
 				name,
 				std::move(lane),
-				parent_device);
+				parent_device,
+				size);
 		// We use 8 here, the major for SCSI devices and allocate minors sequentially.
 		// Note that this is not really correct as the minor of a partition
 		// depends on the minor of the whole device (see Linux devices.txt documentation).
 		device->assignId({8, minorAllocator.allocate()});
 		blockRegistry.install(device);
 		drvcore::installDevice(device);
+
+		// TODO: Call realizeAttribute *before* installing the device.
+		device->realizeAttribute(&roAttr);
+		device->realizeAttribute(&devAttr);
+		device->realizeAttribute(&sizeAttr);
 	});
 
 	co_await root.linkObserver(std::move(filter), std::move(handler));
