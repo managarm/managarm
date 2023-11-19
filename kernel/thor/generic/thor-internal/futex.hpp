@@ -88,10 +88,8 @@ private:
 						if(sit->queue.empty())
 							realm_->_slots.remove(id_);
 					}else{
-						// The identiy is gone; this can happen due to race conditions from other CPUs on the system.
-						// Log it and then return.
-						urgentLogger() << "thor: FutexRealm::Node: sit disappeared in cancel_()!" << frg::endlog;
-						result_ = Error::cancelled;
+						// The futex has already woken up; simply return success.
+						result_ = Error::success;
 					}
 				}else{
 					assert(!queueHook_.in_list);
