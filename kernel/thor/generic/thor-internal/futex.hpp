@@ -13,6 +13,8 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/work-queue.hpp>
 
+#include <thor-internal/debug.hpp>
+
 namespace thor {
 
 struct FutexRealm;
@@ -74,15 +76,23 @@ private:
 
 				if(!result_) {
 					auto sit = realm_->_slots.get(id_);
-					// Invariant: If the slot exists then its queue is not empty.
-					assert(!sit->queue.empty());
 
-					auto nit = sit->queue.iterator_to(this);
-					sit->queue.erase(nit);
-					result_ = Error::cancelled;
+					if(sit) {
+						// Invariant: If the slot exists then its queue is not empty.
+						assert(!sit->queue.empty());
 
-					if(sit->queue.empty())
-						realm_->_slots.remove(id_);
+						auto nit = sit->queue.iterator_to(this);
+						sit->queue.erase(nit);
+						result_ = Error::cancelled;
+
+						if(sit->queue.empty())
+							realm_->_slots.remove(id_);
+					}else{
+						// The identiy is gone; this can happen due to race conditions from other CPUs on the system.
+						// Log it and then return.
+						urgentLogger() << "thor: FutexRealm::Node: sit disappeared in cancel_()!" << frg::endlog;
+						result_ = Error::cancelled;
+					}
 				}else{
 					assert(!queueHook_.in_list);
 				}
