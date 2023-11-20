@@ -76,21 +76,17 @@ private:
 
 				if(!result_) {
 					auto sit = realm_->_slots.get(id_);
+					assert(sit);			
 
-					if(sit) {
-						// Invariant: If the slot exists then its queue is not empty.
-						assert(!sit->queue.empty());
+					// Invariant: If the slot exists then its queue is not empty.
+					assert(!sit->queue.empty());
 
-						auto nit = sit->queue.iterator_to(this);
-						sit->queue.erase(nit);
-						result_ = Error::cancelled;
+					auto nit = sit->queue.iterator_to(this);
+					sit->queue.erase(nit);
+					result_ = Error::cancelled;
 
-						if(sit->queue.empty())
-							realm_->_slots.remove(id_);
-					}else{
-						// The futex has already woken up; simply return success.
-						result_ = Error::success;
-					}
+					if(sit->queue.empty())
+						realm_->_slots.remove(id_);
 				}else{
 					assert(!queueHook_.in_list);
 				}
@@ -243,8 +239,8 @@ public:
 				assert(!node->result_);
 				sit->queue.pop_front();
 
+				node->result_ = Error::success;
 				if(node->cobs_.try_reset()) {
-					node->result_ = Error::success;
 					pending.push_back(node);
 				}
 			}
