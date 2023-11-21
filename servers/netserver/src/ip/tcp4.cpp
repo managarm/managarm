@@ -3,6 +3,7 @@
 #include <async/result.hpp>
 #include <arch/bit.hpp>
 #include <arch/variable.hpp>
+#include <core/nic/buffer.hpp>
 #include <protocols/fs/server.hpp>
 #include <cstring>
 #include <deque>
@@ -126,7 +127,7 @@ struct TcpHeader {
 static_assert(sizeof(TcpHeader) == 20);
 
 struct TcpPacket {
-	arch::dma_buffer_view payload() {
+	nic_core::buffer_view payload() {
 		auto words = header.flags.load() & TcpHeader::headerWords;
 		return packet->payload().subview(words * 4);
 	}

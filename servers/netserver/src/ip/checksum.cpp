@@ -10,7 +10,6 @@ void Checksum::update(uint16_t word)  {
 }
 
 void Checksum::update(const void *data, size_t size) {
-	using namespace arch;
 	auto iter = static_cast<const unsigned char*>(data);
 	if (size % 2 != 0) {
 		size--;
@@ -22,7 +21,7 @@ void Checksum::update(const void *data, size_t size) {
 	}
 }
 
-void Checksum::update(arch::dma_buffer_view view) {
+void Checksum::update(nic_core::buffer_view view) {
 	update(view.data(), view.size());
 }
 

@@ -2,9 +2,14 @@
 
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
+#include <core/nic/buffer.hpp>
+#include <frg/logging.hpp>
+#include <frg/formatting.hpp>
+#include <helix/ipc.hpp>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ostream>
 
 namespace nic {
 struct MacAddress {
@@ -40,37 +45,50 @@ enum EtherType : uint16_t {
 	ETHER_TYPE_ARP = 0x0806,
 };
 
-// TODO(arsen): Expose interface for csum offloading, constructing frames, and
-// other features of NICs
 struct Link {
 	struct AllocatedBuffer {
-		arch::dma_buffer frame;
-		arch::dma_buffer_view payload;
+		nic_core::buffer_view frame;
+		nic_core::buffer_view payload;
 	};
 
-	Link(unsigned int mtu, arch::dma_pool *dmaPool);
-	virtual ~Link() = default;
-	//! Receives an entire frame from the network
-	virtual async::result<void> receive(arch::dma_buffer_view) = 0;
-	//! Sends an entire ethernet frame
-	virtual async::result<void> send(const arch::dma_buffer_view) = 0;
-	arch::dma_pool *dmaPool();
+	Link(helix::UniqueLane lane, unsigned int mtu);
+	~Link() = default;
+	
+	async::result<void> send(const nic_core::buffer_view);
 	AllocatedBuffer allocateFrame(MacAddress to, EtherType type,
 		size_t payloadSize);
 
-	MacAddress deviceMac();
+	MacAddress& deviceMac();
 	int index();
 	std::string name();
-	unsigned int mtu;
 
-	static std::shared_ptr<Link> byIndex(int index);
+	constexpr unsigned int mtu() {
+		return _mtu;
+	}
+	
+	async::result<bool> updateMtu(unsigned int mtu, bool ask = true);
 
-	static std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &getLinks();
+	static async::detached runDevice(helix::UniqueLane lane, std::shared_ptr<nic::Link> dev);
+
 protected:
-	arch::dma_pool *dmaPool_;
 	MacAddress mac_;
 	int index_;
+
+	unsigned int _mtu;
+
+	helix::UniqueLane _lane;
 };
 
-async::detached runDevice(std::shared_ptr<Link> dev);
+
+std::vector<std::shared_ptr<nic::Link>> &getLinks();
+std::shared_ptr<Link> byIndex(int index);
+
+async::result<void> registerNic(std::shared_ptr<nic::Link> nic);
+async::result<void> unregisterNic(std::shared_ptr<nic::Link> nic);
+
 } // namespace nic
+
+inline std::ostream &operator<<(std::ostream &os, const nic::MacAddress &mac) {
+    frg::to(os) << frg::fmt("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return os;
+}

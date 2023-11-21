@@ -64,7 +64,7 @@ struct Udp {
 	} header;
 	static_assert(sizeof(header) == 8, "udp header size wrong");
 
-	arch::dma_buffer_view payload() const {
+	nic_core::buffer_view payload() const {
 		return packet->payload().subview(sizeof(header));
 	}
 

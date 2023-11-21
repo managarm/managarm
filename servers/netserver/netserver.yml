@@ -1,5 +1,0 @@
-name: netserver
-exec: /usr/bin/netserver
-files:
-  - /usr/bin/netserver
-

@@ -49,8 +49,8 @@ void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 
 	if(!nic->name().empty())
 		b.rtattr_string(IFLA_IFNAME, nic->name());
-	if(nic->mtu)
-		b.rtattr(IFLA_MTU, nic->mtu);
+	if(nic->mtu())
+		b.rtattr(IFLA_MTU, nic->mtu());
 	b.rtattr(IFLA_TXQLEN, 1000);
 	b.rtattr(IFLA_BROADCAST, broadcast_addr);
 	//TODO(no92): separate out the concept of permanent MAC addresses from userspace-configurable ones

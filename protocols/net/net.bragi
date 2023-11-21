@@ -1,0 +1,44 @@
+namespace "managarm::net";
+
+enum Errors {
+	SUCCESS = 0,
+	ILLEGAL_REQUEST,
+	PACKET_TOO_LARGE,
+	UPDATE_NOT_ALLOWED,
+	INTERNAL_ERROR = 99
+}
+
+enum NicType {
+	HARDWARE = 0,
+	VIRTUAL
+}
+
+message RegisterNicRequest 50 {
+head(128):
+	NicType type;
+	uint8[6] mac;
+	int32 mtu;
+}
+
+message SvrResponse 51 {
+head(128):
+	Errors error;
+
+	tags {
+		tag(1) uint64 id;
+	}
+}
+
+// The main packet message.
+message Packet 52 {
+head(128):
+	uint64 size;
+}
+
+
+/// Control information
+// These are sent by both the client and server on their respective lanes.
+message UpdateMTU 53 {
+head(128):
+	int32 mtu;
+}

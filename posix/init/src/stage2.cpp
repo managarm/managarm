@@ -27,6 +27,13 @@ int main() {
 
 	waitpid(xbps_reconfigure, nullptr, 0);
 
+	// Start netserver
+	std::cout << "init: Starting netserver" << std::endl;
+	auto netserver = fork();
+	if(!netserver) {
+		execl("/usr/bin/netserver", nullptr);
+	}else assert(netserver != -1);
+
 	// Start udev which loads the remaining drivers.
 	std::cout << "init: Starting udevd" << std::endl;
 	auto udev = fork();

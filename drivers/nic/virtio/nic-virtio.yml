@@ -1,0 +1,5 @@
+name: nic-virtio
+exec: /usr/bin/nic-virtio
+files:
+  - /usr/bin/nic-virtio
+  - /usr/lib/libnic_core.so
