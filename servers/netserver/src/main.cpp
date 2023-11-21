@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <queue>
+#include <unordered_set>
 #include <vector>
 
 #include <async/result.hpp>
@@ -25,6 +26,63 @@
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
+#include <nic/rtl8168/rtl8168.hpp>
+
+const std::string VENDOR_REALTEK = "10ec";
+const std::string VENDOR_DLINK = "1186";
+const std::string VENDOR_TPLINK = "10ff";
+const std::string VENDOR_COREGA = "1259";
+const std::string VENDOR_LINKSYS = "1737";
+const std::string VENDOR_US_ROBOTICS = "16ec";
+const std::string VENDOR_REDHAT = "1af4";
+
+std::unordered_set<std::string_view> nic_vendor_ids = {
+	VENDOR_REDHAT, /* virtio */
+	VENDOR_REALTEK, /* Realtek */
+};
+
+std::unordered_set<std::string_view> virtio_device_ids = {
+	"1000",
+	"1041",
+};
+
+std::unordered_set<std::string_view> rtl8168_device_ids = {
+	"8129", /* RTL8129 */
+	"8136", /* RTL8136 */
+	"8161", /* RTL8161 */
+	"8162", /* RTL8162 */
+	"8167", /* RTL8167 */
+	"8168", /* RTL8168 */
+	"8169", /* RTL8169 */
+};
+
+std::unordered_set<std::string_view> rtl8168_dlink_device_ids = {
+	"4300",
+	"4302",
+};
+
+namespace {
+
+async::result<std::shared_ptr<nic::Link>> setupVirtioDevice(mbus::Entity &base_entity, protocols::hw::Device hwDevice) {
+	virtio_core::DiscoverMode discover_mode = virtio_core::DiscoverMode::null;
+	auto properties = co_await base_entity.getProperties();
+
+	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+		device_str) {
+		if(device_str->value == "1000")
+			discover_mode = virtio_core::DiscoverMode::transitional;
+		else if(device_str->value == "1041")
+			discover_mode = virtio_core::DiscoverMode::modernOnly;
+		else
+			assert(!"Unhandled virtio device");
+	}
+
+	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
+
+	co_return nic::virtio::makeShared(std::move(transport));
+}
+
+} // namespace anonymous
 
 // Maps mbus IDs to device objects
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
@@ -46,26 +104,33 @@ std::shared_ptr<nic::Link> nic::Link::byIndex(int index) {
 	return {};
 }
 
-async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
-	protocols::hw::Device hwDevice(co_await base_entity.bind());
-	co_await hwDevice.enableBusmaster();
-	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
-
-	auto device = nic::virtio::makeShared(std::move(transport));
-	if (baseDeviceMap.empty()) {
-		// default via 10.0.2.2 src 10.10.2.15
-		Ip4Router::Route wan { { 0, 0 }, device };
-		wan.gateway = 0x0a000202;
-		wan.source = 0x0a0a020f;
-		ip4Router().addRoute(std::move(wan));
-
-		// 10.0.2.0/24
-		ip4Router().addRoute({ { 0x0a000200, 24 }, device });
-		// inet 10.10.2.15/24
-		ip4().setLink({ 0x0a0a020f, 24 }, device);
+bool determineRTL8168Support(const std::string& vendor_str, const std::string& device_str) {
+	if(vendor_str == VENDOR_REALTEK) {
+		if(rtl8168_device_ids.contains(device_str)) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_DLINK) {
+		if(rtl8168_dlink_device_ids.contains(device_str)) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_TPLINK) {
+		if(device_str == std::string("8168")) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_COREGA) {
+		if(device_str == std::string("c107")) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_LINKSYS) {
+		if(device_str == std::string("1032")) {
+			return true;
+		}
+	} else if(vendor_str == VENDOR_US_ROBOTICS) {
+		if(device_str == std::string("0116")) {
+			return true;
+		}
 	}
-	baseDeviceMap.insert({base_entity.getId(), device});
-	nic::runDevice(device);
+	return false;
 }
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
@@ -78,23 +143,44 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 	// Make sure that we only bind to supported devices.
 	auto properties = co_await base_entity.getProperties();
-	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
-			!vendor_str || vendor_str->value != "1af4")
+	auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+
+	if(!vendor_str || !nic_vendor_ids.contains(vendor_str->value))
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	virtio_core::DiscoverMode discover_mode;
+	protocols::hw::Device hwDevice(co_await base_entity.bind());
+	co_await hwDevice.enableBusmaster();
+
+	std::shared_ptr<nic::Link> device;
 	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
-		if(device_str->value == "1000")
-			discover_mode = virtio_core::DiscoverMode::transitional;
-		else if(device_str->value == "1041")
-			discover_mode = virtio_core::DiscoverMode::modernOnly;
-		else
+		if(vendor_str->value == VENDOR_REDHAT) {
+			if(!virtio_device_ids.contains(device_str->value))
+				co_return protocols::svrctl::Error::deviceNotSupported;
+
+			device = co_await setupVirtioDevice(base_entity, std::move(hwDevice));
+		} else if(determineRTL8168Support(vendor_str->value, device_str->value)) {
+			device = nic::rtl8168::makeShared(std::move(hwDevice));	
+		} else {
 			co_return protocols::svrctl::Error::deviceNotSupported;
-	}else{
-		co_return protocols::svrctl::Error::deviceNotSupported;
+		}
 	}
 
-	co_await doBind(base_entity, discover_mode);
+	if (baseDeviceMap.empty()) {
+		// default via 10.0.2.2 src 10.10.2.15
+		Ip4Router::Route wan { { 0, 0 }, device };
+		wan.gateway = 0x0a000202;
+		wan.source = 0x0a0a020f;
+		ip4Router().addRoute(std::move(wan));
+
+		// 10.0.2.0/24
+		ip4Router().addRoute({ { 0x0a000200, 24 }, device });
+		// inet 10.10.2.15/24
+		ip4().setLink({ 0x0a0a020f, 24 }, device);
+	}
+
+	baseDeviceMap.insert({base_entity.getId(), device});
+	nic::runDevice(device);
+
 	co_return protocols::svrctl::Error::success;
 }
 
