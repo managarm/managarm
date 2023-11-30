@@ -5,3 +5,5 @@
 .type fastCopy16, @function
 fastCopy16:
 	b memcpy
+
+	.section .note.GNU-stack,"",%progbits

@@ -32,3 +32,4 @@ earlyStubPage:
 	call handleEarlyPageFault
 	ud2
 
+	.section .note.GNU-stack,"",%progbits

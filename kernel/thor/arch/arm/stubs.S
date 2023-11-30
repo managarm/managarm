@@ -451,3 +451,5 @@ restoreFpSimdRegisters:
 	msr fpsr, x2
 
 	ret
+
+	.section .note.GNU-stack,"",%progbits

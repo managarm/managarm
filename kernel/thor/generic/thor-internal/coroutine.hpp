@@ -395,7 +395,7 @@ struct detached_coroutine_promise {
 
 template<typename... Ts>
 struct last_type {
-    using type = typename decltype((std::detail::type_identity<Ts>{}, ...))::type;
+    using type = typename decltype((std::type_identity<Ts>{}, ...))::type;
 };
 
 template<typename... Ts>

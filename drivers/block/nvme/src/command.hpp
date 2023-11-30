@@ -7,6 +7,8 @@
 
 #include "spec.hpp"
 
+#include <vector>
+
 struct Command {
 	using Result = std::pair<uint16_t, spec::CompletionEntry::Result>;
 

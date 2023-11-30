@@ -1,3 +1,5 @@
+#include <vector>
+
 #include <protocols/usb/hub.hpp>
 
 #include <async/recurring-event.hpp>

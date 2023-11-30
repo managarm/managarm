@@ -16,3 +16,5 @@ thorRtEntry:
 	bl thorInitialize
 	bl thorRunConstructors
 	bl thorMain
+
+	.section .note.GNU-stack,"",%progbits

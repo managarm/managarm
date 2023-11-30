@@ -5,6 +5,8 @@
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 
+#include <functional>
+
 namespace helix {
 
 template<typename F>

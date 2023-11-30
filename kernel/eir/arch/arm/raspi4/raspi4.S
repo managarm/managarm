@@ -94,3 +94,5 @@ eirEntry:
 .halt:
 	wfe
 	b .halt
+
+	.section .note.GNU-stack,"",%progbits

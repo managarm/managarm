@@ -139,8 +139,12 @@ elif flavor == 'userspace'
 endif
 
 if build_kernel or build_drivers
-	cxxshim_dep = dependency('cxxshim', fallback: ['cxxshim', 'cxxshim_dep'])
-	coroutines = dependency('cxxshim-coroutine-std', fallback: ['cxxshim', 'std_coroutine_dep'])
+	cxxshim_dep = dependency('cxxshim',
+				 required: false,
+				 fallback: ['cxxshim', 'cxxshim_dep'])
+	coroutines = dependency('cxxshim-coroutine-std',
+				 required: false,
+				 fallback: ['cxxshim', 'std_coroutine_dep'])
 
 	libarch = subproject('libarch',
 		default_options : libarch_opts

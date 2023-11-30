@@ -29,3 +29,5 @@ eirEnterKernel:
 	mov sp, x3
 	mov x0, x4
 	br x2
+
+	.section .note.GNU-stack,"",%progbits

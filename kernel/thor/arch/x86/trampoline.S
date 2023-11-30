@@ -147,3 +147,4 @@ trampoline:
 	.long 0
 	.short 0x18
 
+	.section .note.GNU-stack,"",%progbits

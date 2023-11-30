@@ -12,3 +12,5 @@ _start:
 eirStackBase:
 	.space 0x10000
 eirStackTop:
+
+	.section .note.GNU-stack,"",%progbits
