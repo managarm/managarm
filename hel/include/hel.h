@@ -1155,6 +1155,9 @@ extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError er
 #define HEL_SOFT_CHECK(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
 		_helCheckFailed(__error, "HEL_SOFT_CHECK failed: " #expr "\n" \
 		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 0); } while(0)
+#define HEL_CHECK_OR_EIEIO(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
+		_helCheckFailed(__error, "HEL_CHECK_OR_EIEIO failed: " #expr "\n" \
+		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 0); return EIEIO; } while(0)
 
 #endif // HEL_H
 
