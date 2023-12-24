@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <mbus.frigg_pb.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>

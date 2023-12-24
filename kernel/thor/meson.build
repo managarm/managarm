@@ -1,7 +1,7 @@
 libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
 link_args = [ '-nostdlib' ]
 
-args = [ 
+args = [
 	'-DLIBASYNC_CUSTOM_PLATFORM',
 	'-DFRG_DONT_USE_LONG_DOUBLE',
 	'-fno-threadsafe-statics'
@@ -16,13 +16,10 @@ inc = [ cralgo_includes ]
 link_with = []
 want_acpi = false
 
-src = [
-	protofrg.process(protos/'mbus/mbus.proto', extra_args : [ '-I' + protos/'mbus' ]),
-]
-
-src += frgbragi.process([
+src = frgbragi.process([
 	protos/'fs/fs.bragi',
 	protos/'hw/hw.bragi',
+	protos/'mbus/mbus.bragi',
 	protos/'ostrace/ostrace.bragi',
 	protos/'posix/posix.bragi',
 	protos/'clock/clock.bragi',

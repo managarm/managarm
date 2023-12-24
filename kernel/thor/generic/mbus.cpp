@@ -1,7 +1,10 @@
 #include <thor-internal/stream.hpp>
 #include <thor-internal/mbus.hpp>
 
-#include <mbus.frigg_pb.hpp>
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-frigg.hpp>
+
+#include <mbus.frigg_bragi.hpp>
 
 namespace thor {
 
@@ -13,36 +16,38 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(Properties
 	if (offerError != Error::success)
 		co_return offerError;
 
-	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
+	managarm::mbus::CreateObjectRequest<KernelAlloc> req(*kernelAlloc);
 	req.set_parent_id(1);
 
 	for (auto property : properties.properties_) {
 		managarm::mbus::Property<KernelAlloc> reqProperty(*kernelAlloc);
 		reqProperty.set_name(frg::string<KernelAlloc>(*kernelAlloc, property.name));
-
-		auto &mutable_item = reqProperty.mutable_item().mutable_string_item();
-		mutable_item.set_value(std::move(property.value));
+		reqProperty.set_string_item(std::move(property.value));
 		req.add_properties(std::move(reqProperty));
 	}
 
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	req.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> reqBuffer{*kernelAlloc, ser.size()};
-	memcpy(reqBuffer.data(), ser.data(), ser.size());
-	auto reqError = co_await SendBufferSender{conversation, std::move(reqBuffer)};
 
-	if (reqError != Error::success)
-		co_return reqError;
+	frg::unique_memory<KernelAlloc> headBuffer{*kernelAlloc, req.size_of_head()};
+	frg::unique_memory<KernelAlloc> tailBuffer{*kernelAlloc, req.size_of_tail()};
+	bragi::write_head_tail(req, headBuffer, tailBuffer);
+	auto headError = co_await SendBufferSender{conversation, std::move(headBuffer)};
+	auto tailError = co_await SendBufferSender{conversation, std::move(tailBuffer)};
+
+	if (headError != Error::success)
+		co_return headError;
+	if (tailError != Error::success)
+		co_return tailError;
 
 	auto [respError, respBuffer] = co_await RecvBufferSender{conversation};
 
 	if (respError != Error::success)
 		co_return respError;
 
-	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(respBuffer.data(), respBuffer.size());
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+	auto resp = bragi::parse_head_only<managarm::mbus::SvrResponse>(respBuffer, *kernelAlloc);
+	if (!resp)
+		co_return Error::protocolViolation;
+	if (resp->error() != managarm::mbus::Error::SUCCESS)
+		co_return Error::illegalState;
 
 	auto [descError, descriptor] = co_await PullDescriptorSender{conversation};
 
@@ -55,7 +60,7 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(Properties
 	async::detach_with_allocator(*kernelAlloc, handleMbusComms_(
 			descriptor.get<LaneDescriptor>().handle));
 
-	co_return resp.id();
+	co_return resp->id();
 }
 
 coroutine<void> KernelBusObject::handleMbusComms_(LaneHandle objectLane) {
@@ -77,19 +82,15 @@ coroutine<frg::expected<Error>> KernelBusObject::handleBind_(LaneHandle objectLa
 	if (reqError != Error::success)
 		co_return reqError;
 
-	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-
-	if (req.req_type() != managarm::mbus::SvrReqType::BIND)
+	auto req = bragi::parse_head_only<managarm::mbus::S2CBindRequest>(reqBuffer, *kernelAlloc);
+	if (!req)
 		co_return Error::protocolViolation;
 
 	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
 	resp.set_error(managarm::mbus::Error::SUCCESS);
 
-	frg::string<KernelAlloc> ser(*kernelAlloc);
-	resp.SerializeToString(&ser);
-	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-	memcpy(respBuffer.data(), ser.data(), ser.size());
+	frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+	bragi::write_head_only(resp, respBuffer);
 	auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 
 	if (respError != Error::success)

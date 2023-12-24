@@ -1,11 +1,8 @@
-here = meson.current_source_dir()
-mbus_pb = protocxx.process(here/'mbus.proto', 
-	extra_args : [ '-I' + here ]
-)
+mbus_bragi = cxxbragi.process('mbus.bragi')
 
-src = [ 'src/client.cpp', mbus_pb ]
+src = [ 'src/client.cpp', mbus_bragi ]
 inc = [ 'include' ]
-deps = [ helix_dep, proto_lite_dep, posix_extra_dep, frigg ]
+deps = [ helix_dep, posix_extra_dep, frigg ]
 
 libmbus = shared_library('mbus', src,
 	dependencies : deps,
@@ -16,7 +13,7 @@ libmbus = shared_library('mbus', src,
 mbus_proto_dep = declare_dependency(
 	link_with : libmbus,
 	dependencies : deps,
-	sources : mbus_pb,
+	sources : mbus_bragi,
 	include_directories : inc
 )
 

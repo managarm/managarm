@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <frg/algorithm.hpp>
 #include <hw.frigg_bragi.hpp>
-#include <mbus.frigg_pb.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
