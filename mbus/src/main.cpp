@@ -29,18 +29,14 @@ struct Group;
 struct Observer;
 
 struct Entity {
-	explicit Entity(int64_t id, std::weak_ptr<Group> parent,
+	explicit Entity(int64_t id,
 			std::unordered_map<std::string, std::string> properties)
-	: _id(id), _parent(std::move(parent)), _properties(std::move(properties)) { }
+	: _id(id), _properties(std::move(properties)) { }
 
 	virtual ~Entity() { }
 
 	int64_t getId() const {
 		return _id;
-	}
-
-	std::shared_ptr<Group> getParent() const {
-		return _parent.lock();
 	}
 
 	const std::unordered_map<std::string, std::string> &getProperties() const {
@@ -49,39 +45,14 @@ struct Entity {
 
 private:
 	int64_t _id;
-	std::weak_ptr<Group> _parent;
 	std::unordered_map<std::string, std::string> _properties;
 };
 
-struct Group final : Entity {
-	explicit Group(int64_t id, std::weak_ptr<Group> parent,
-			std::unordered_map<std::string, std::string> properties)
-	: Entity(id, std::move(parent), std::move(properties)) { }
-
-	void addChild(std::shared_ptr<Entity> child) {
-		_children.insert(std::move(child));
-	}
-
-	const std::unordered_set<std::shared_ptr<Entity>> &getChildren() {
-		return _children;
-	}
-
-	void linkObserver(std::shared_ptr<Observer> observer) {
-		_observers.insert(std::move(observer));
-	}
-
-	void processAttach(std::shared_ptr<Entity> entity);
-
-private:
-	std::unordered_set<std::shared_ptr<Entity>> _children;
-	std::unordered_set<std::shared_ptr<Observer>> _observers;
-};
-
 struct Object final : Entity {
-	explicit Object(int64_t id, std::weak_ptr<Group> parent,
+	explicit Object(int64_t id,
 			std::unordered_map<std::string, std::string> properties,
 			helix::UniqueLane lane)
-	: Entity(id, std::move(parent), std::move(properties)),
+	: Entity(id, std::move(properties)),
 			_lane(std::move(lane)) { }
 
 	async::result<helix::UniqueDescriptor> bind();
@@ -150,8 +121,6 @@ struct Observer {
 	explicit Observer(AnyFilter filter, helix::UniqueLane lane)
 	: _filter(std::move(filter)), _lane(std::move(lane)) { }
 
-	async::detached traverse(std::shared_ptr<Entity> root);
-
 	async::result<void> onAttach(std::shared_ptr<Entity> entity);
 
 private:
@@ -173,27 +142,6 @@ static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
 		});
 	}else{
 		throw std::runtime_error("Unexpected filter");
-	}
-}
-
-void Group::processAttach(std::shared_ptr<Entity> entity) {
-	for(auto &observer_ptr : _observers)
-		async::detach(observer_ptr->onAttach(entity));
-}
-
-async::detached Observer::traverse(std::shared_ptr<Entity> root) {
-	std::queue<std::shared_ptr<Entity>> entities;
-	entities.push(root);
-	while(!entities.empty()) {
-		std::shared_ptr<Entity> entity = entities.front();
-		entities.pop();
-		if(const Entity &er = *entity; typeid(er) == typeid(Group)) {
-			auto group = std::static_pointer_cast<Group>(entity);
-			for(auto child : group->getChildren())
-				entities.push(std::move(child));
-		}
-
-		co_await onAttach(entity);
 	}
 }
 
@@ -224,7 +172,21 @@ async::result<void> Observer::onAttach(std::shared_ptr<Entity> entity) {
 }
 
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
-int64_t nextEntityId = 1;
+// NOTE(qookie): ID 1 is for temporarily reserved as the root group ID for backwards compat.
+int64_t nextEntityId = 2;
+
+std::vector<std::shared_ptr<Observer>> allObservers;
+
+void processAttach(std::shared_ptr<Entity> entity) {
+	for(auto &observer : allObservers)
+		async::detach(observer->onAttach(entity));
+}
+
+async::detached processObserver(std::shared_ptr<Observer> observer) {
+	for(auto &[_, entity] : allEntities)
+		co_await observer->onAttach(entity);
+}
+
 
 std::shared_ptr<Entity> getEntityById(int64_t id) {
 	auto it = allEntities.find(id);
@@ -316,8 +278,9 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(recvTail.error());
 
 			auto req = bragi::parse_head_tail<managarm::mbus::CreateObjectRequest>(recvHead, tail);
-			auto parent = getEntityById(req->parent_id());
-			if(!parent) {
+
+			// NOTE(qookie): ID 1 is the old root group ID.
+			if(req->parent_id() != 1) {
 				managarm::mbus::SvrResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 
@@ -330,10 +293,6 @@ async::detached serve(helix::UniqueLane lane) {
 				continue;
 			}
 
-			if(const Entity &pr = *parent; typeid(pr) != typeid(Group))
-				throw std::runtime_error("Objects can only be created inside groups");
-			auto group = std::static_pointer_cast<Group>(parent);
-
 			std::unordered_map<std::string, std::string> properties;
 			for(auto &kv : req->properties()) {
 				properties.insert({ kv.name(), kv.string_item() });
@@ -342,17 +301,11 @@ async::detached serve(helix::UniqueLane lane) {
 			helix::UniqueLane localLane, remoteLane;
 			std::tie(localLane, remoteLane) = helix::createStream();
 			auto child = std::make_shared<Object>(nextEntityId++,
-					group, std::move(properties), std::move(localLane));
+					std::move(properties), std::move(localLane));
 			allEntities.insert({ child->getId(), child });
 
-			group->addChild(child);
-
-			// issue 'attach' events for all observers linked to parents of the entity.
-			std::shared_ptr<Group> current = group;
-			while(current) {
-				current->processAttach(child);
-				current = current->getParent();
-			}
+			// Issue 'attach' events for all observers
+			processAttach(child);
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -375,8 +328,9 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(recvTail.error());
 
 			auto req = bragi::parse_head_tail<managarm::mbus::LinkObserverRequest>(recvHead, tail);
-			auto parent = getEntityById(req->id());
-			if(!parent) {
+
+			// NOTE(qookie): ID 1 is the old root group ID.
+			if(req->id() != 1) {
 				managarm::mbus::SvrResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 
@@ -389,17 +343,13 @@ async::detached serve(helix::UniqueLane lane) {
 				continue;
 			}
 
-			if(const Entity &pr = *parent; typeid(pr) != typeid(Group))
-				throw std::runtime_error("Observers can only be attached to groups");
-			auto group = std::static_pointer_cast<Group>(parent);
-
 			helix::UniqueLane localLane, remoteLane;
 			std::tie(localLane, remoteLane) = helix::createStream();
 			auto observer = std::make_shared<Observer>(decodeFilter(req->filter()),
 					std::move(localLane));
-			group->linkObserver(observer);
+			allObservers.push_back(observer);
 
-			observer->traverse(parent);
+			processObserver(observer);
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -457,10 +407,6 @@ async::detached serve(helix::UniqueLane lane) {
 
 int main() {
 	std::cout << "Entering mbus" << std::endl;
-
-	auto root = std::make_shared<Group>(nextEntityId++, std::weak_ptr<Group>(),
-			std::unordered_map<std::string, std::string>());
-	allEntities.insert({ root->getId(), root });
 
 	unsigned long xpipe;
 	if(peekauxval(AT_XPIPE, &xpipe))
