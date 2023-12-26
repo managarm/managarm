@@ -25,15 +25,11 @@
 // Entity
 // --------------------------------------------------------
 
-struct Group;
-struct Observer;
-
 struct Entity {
 	explicit Entity(int64_t id,
-			std::unordered_map<std::string, std::string> properties)
-	: _id(id), _properties(std::move(properties)) { }
-
-	virtual ~Entity() { }
+			std::unordered_map<std::string, std::string> properties,
+			helix::UniqueLane lane)
+	: _id(id), _properties(std::move(properties)), _lane(std::move(lane)) { }
 
 	int64_t getId() const {
 		return _id;
@@ -43,25 +39,15 @@ struct Entity {
 		return _properties;
 	}
 
-private:
-	int64_t _id;
-	std::unordered_map<std::string, std::string> _properties;
-};
-
-struct Object final : Entity {
-	explicit Object(int64_t id,
-			std::unordered_map<std::string, std::string> properties,
-			helix::UniqueLane lane)
-	: Entity(id, std::move(properties)),
-			_lane(std::move(lane)) { }
-
 	async::result<helix::UniqueDescriptor> bind();
 
 private:
+	int64_t _id;
+	std::unordered_map<std::string, std::string> _properties;
 	helix::UniqueLane _lane;
 };
 
-async::result<helix::UniqueDescriptor> Object::bind() {
+async::result<helix::UniqueDescriptor> Entity::bind() {
 	managarm::mbus::S2CBindRequest req;
 
 	auto [offer, sendReq, recvResp, pullLane] =
@@ -300,7 +286,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 			helix::UniqueLane localLane, remoteLane;
 			std::tie(localLane, remoteLane) = helix::createStream();
-			auto child = std::make_shared<Object>(nextEntityId++,
+			auto child = std::make_shared<Entity>(nextEntityId++,
 					std::move(properties), std::move(localLane));
 			allEntities.insert({ child->getId(), child });
 
@@ -378,11 +364,7 @@ async::detached serve(helix::UniqueLane lane) {
 				continue;
 			}
 
-			if(const Entity &er = *entity; typeid(er) != typeid(Object))
-				throw std::runtime_error("Bind can only be invoked on objects");
-			auto object = std::static_pointer_cast<Object>(entity);
-
-			auto remoteLane = co_await object->bind();
+			auto remoteLane = co_await entity->bind();
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
