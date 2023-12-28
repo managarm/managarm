@@ -194,41 +194,17 @@ async::result<Entity> Entity::createObject(std::string name,
 }
 
 async::detached handleObserver(std::shared_ptr<Connection> connection,
-		ObserverHandler handler, helix::UniqueLane lane) {
+		ObserverHandler handler, AnyFilter filter) {
+	uint64_t curSeq = 0;
+
 	while(true) {
-		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-				)
-			);
+		auto [outSeq, actualSeq, entities] =
+			co_await connection->enumerate(curSeq, filter);
 
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recvHead.error());
-
-		auto conversation = accept.descriptor();
-
-		auto preamble = bragi::read_preamble(recvHead);
-		assert(!preamble.error());
-		assert(preamble.id() == bragi::message_id<managarm::mbus::AttachRequest>);
-
-		std::vector<std::byte> tail(preamble.tail_size());
-		auto [recvTail] =
-			co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::recvBuffer(tail.data(), tail.size())
-			);
-		HEL_CHECK(recvTail.error());
-
-		auto req = *bragi::parse_head_tail<managarm::mbus::AttachRequest>(recvHead, tail);
-
-		recvHead.reset();
-
-		Properties properties;
-		for(auto &kv : req.properties())
-			properties.insert({ kv.name(), StringItem{ kv.string_item() } });
-
-		handler.attach(Entity{connection, req.id()}, std::move(properties));
+		curSeq = outSeq;
+		for (auto &entity : entities) {
+			handler.attach(Entity{connection, entity.id}, std::move(entity.properties));
+		}
 	}
 }
 
@@ -261,32 +237,7 @@ static void encodeFilter(const AnyFilter &filter, auto &msg) {
 
 async::result<Observer> Entity::linkObserver(const AnyFilter &filter,
 		ObserverHandler handler) const {
-	managarm::mbus::LinkObserverRequest req;
-	req.set_id(_id);
-	encodeFilter(filter, req);
-
-	auto [offer, sendHead, sendTail, recvResp, pullLane] =
-		co_await helix_ng::exchangeMsgs(
-			_connection->lane,
-			helix_ng::offer(
-				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
-				helix_ng::recvInline(),
-				helix_ng::pullDescriptor()
-			)
-		);
-
-	HEL_CHECK(offer.error());
-	HEL_CHECK(sendHead.error());
-	HEL_CHECK(sendTail.error());
-	HEL_CHECK(recvResp.error());
-	HEL_CHECK(pullLane.error());
-
-	auto resp = *bragi::parse_head_only<managarm::mbus::SvrResponse>(recvResp);
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-
-	auto lane = pullLane.descriptor();
-	handleObserver(_connection, handler, std::move(lane));
-
+	handleObserver(_connection, handler, filter);
 	co_return Observer();
 }
 
