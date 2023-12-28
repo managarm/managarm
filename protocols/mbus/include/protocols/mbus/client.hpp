@@ -8,9 +8,11 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
+
 
 namespace mbus {
 
@@ -84,6 +86,19 @@ namespace _detail {
 	struct Connection {
 		Connection(helix::UniqueLane lane)
 		: lane(std::move(lane)) { }
+
+		struct EnumeratedEntity {
+			EntityId id;
+			Properties properties;
+		};
+
+		struct EnumerationResult {
+			uint64_t outSeq;
+			uint64_t actualSeq;
+			std::vector<EnumeratedEntity> entities;
+		};
+
+		async::result<EnumerationResult> enumerate(uint64_t seq, const AnyFilter &filter) const;
 
 		helix::UniqueLane lane;
 	};

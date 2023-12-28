@@ -232,7 +232,7 @@ async::detached handleObserver(std::shared_ptr<Connection> connection,
 	}
 }
 
-static void encodeFilter(const AnyFilter &filter, managarm::mbus::LinkObserverRequest &msg) {
+static void encodeFilter(const AnyFilter &filter, auto &msg) {
 	managarm::mbus::AnyFilter flt;
 	if(auto alt = std::get_if<EqualsFilter>(&filter); alt) {
 		managarm::mbus::EqualsFilter eqf;
@@ -288,6 +288,61 @@ async::result<Observer> Entity::linkObserver(const AnyFilter &filter,
 	handleObserver(_connection, handler, std::move(lane));
 
 	co_return Observer();
+}
+
+async::result<Connection::EnumerationResult> Connection::enumerate(uint64_t seq,
+		const AnyFilter &filter) const {
+	managarm::mbus::EnumerateRequest req;
+	req.set_seq(seq);
+	encodeFilter(filter, req);
+
+	auto [offer, sendHead, sendTail, recvRespHead] =
+		co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
+	HEL_CHECK(recvRespHead.error());
+
+	auto conversation = offer.descriptor();
+
+	auto preamble = bragi::read_preamble(recvRespHead);
+	assert(!preamble.error());
+	assert(preamble.id() == bragi::message_id<managarm::mbus::EnumerateResponse>);
+
+	std::vector<std::byte> tail(preamble.tail_size());
+	auto [recvRespTail] =
+		co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(tail.data(), tail.size())
+		);
+	HEL_CHECK(recvRespTail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::mbus::EnumerateResponse>(recvRespHead, tail);
+	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+
+	recvRespHead.reset();
+
+	EnumerationResult result{};
+	result.outSeq = resp.out_seq();
+	result.actualSeq = resp.actual_seq();
+
+	for (auto &entity : resp.entities()) {
+		EnumeratedEntity enumEntity{};
+		enumEntity.id = entity.id();
+		for(auto &kv : entity.properties())
+			enumEntity.properties.insert({ kv.name(), StringItem{ kv.string_item() } });
+		result.entities.push_back(enumEntity);
+	}
+
+	co_return result;
 }
 
 async::result<helix::UniqueDescriptor> Entity::bind() const {

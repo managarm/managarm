@@ -13,6 +13,9 @@
 #include <variant>
 #include <vector>
 
+#include <frg/rbtree.hpp>
+
+#include <async/sequenced-event.hpp>
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 
@@ -26,13 +29,17 @@
 // --------------------------------------------------------
 
 struct Entity {
-	explicit Entity(int64_t id,
+	explicit Entity(int64_t id, uint64_t seq,
 			std::unordered_map<std::string, std::string> properties,
 			helix::UniqueLane lane)
-	: _id(id), _properties(std::move(properties)), _lane(std::move(lane)) { }
+	: _id(id), _seq(seq), _properties(std::move(properties)), _lane(std::move(lane)) { }
 
 	int64_t getId() const {
 		return _id;
+	}
+
+	uint64_t seq() const {
+		return _seq;
 	}
 
 	const std::unordered_map<std::string, std::string> &getProperties() const {
@@ -41,10 +48,18 @@ struct Entity {
 
 	async::result<helix::UniqueDescriptor> bind();
 
+	frg::rbtree_hook seqNode;
 private:
 	int64_t _id;
+	uint64_t _seq;
 	std::unordered_map<std::string, std::string> _properties;
 	helix::UniqueLane _lane;
+};
+
+struct EntitySeqLess {
+	bool operator()(const Entity &a, const Entity &b) {
+		return a.seq() < b.seq();
+	}
 };
 
 async::result<helix::UniqueDescriptor> Entity::bind() {
@@ -157,9 +172,22 @@ async::result<void> Observer::onAttach(std::shared_ptr<Entity> entity) {
 	HEL_CHECK(sendTail.error());
 }
 
+
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
 // NOTE(qookie): ID 1 is for temporarily reserved as the root group ID for backwards compat.
 int64_t nextEntityId = 2;
+
+// Store the entities in an RB tree ordered by their sequence numbers to speed up lookup.
+// TODO(qookie): Once we add a way to change properties (which requires a sequence number update),
+//               we'll need to protect this tree with an async::mutex if we ever want to make mbus
+//               multithreaded (to prevent concurrent update & traversal).
+async::sequenced_event globalSeq;
+using EntitySeqTree = frg::rbtree<
+	Entity,
+	&Entity::seqNode,
+	EntitySeqLess
+>;
+EntitySeqTree entitySeqTree;
 
 std::vector<std::shared_ptr<Observer>> allObservers;
 
@@ -172,7 +200,6 @@ async::detached processObserver(std::shared_ptr<Observer> observer) {
 	for(auto &[_, entity] : allEntities)
 		co_await observer->onAttach(entity);
 }
-
 
 std::shared_ptr<Entity> getEntityById(int64_t id) {
 	auto it = allEntities.find(id);
@@ -202,6 +229,68 @@ static AnyFilter decodeFilter(managarm::mbus::AnyFilter &protoFilter) {
 	}
 }
 
+async::detached doEnumerate(helix::UniqueLane conversation, uint64_t inSeq, AnyFilter filter) {
+	auto outSeq = co_await globalSeq.async_wait(inSeq);
+
+	managarm::mbus::EnumerateResponse resp;
+	resp.set_error(managarm::mbus::Error::SUCCESS);
+	resp.set_actual_seq(outSeq);
+
+	// Find the first entity with an interesting seq number.
+	auto cur = entitySeqTree.get_root();
+	while (cur) {
+		if (auto left = EntitySeqTree::get_left(cur);
+				left && left->seq() >= inSeq) {
+			cur = left;
+		} else if (auto right = EntitySeqTree::get_right(cur);
+				right && cur->seq() != inSeq) {
+			cur = right;
+		} else {
+			break;
+		}
+	}
+
+	constexpr size_t maxEntitiesPerMessage = 16;
+
+	// At this point, cur and all successors should have ->seq() >= inSeq
+	for (; cur; cur = EntitySeqTree::successor(cur)) {
+		assert(cur->seq() >= inSeq);
+		// The client doesn't want to see this.
+		if (!matchesFilter(cur, filter)) continue;
+
+		managarm::mbus::Entity protoEntity;
+		protoEntity.set_id(cur->getId());
+		for(auto kv : cur->getProperties()) {
+			managarm::mbus::Property prop;
+			prop.set_name(kv.first);
+			prop.set_string_item(kv.second);
+			protoEntity.add_properties(prop);
+		}
+
+		resp.add_entities(protoEntity);
+
+		// Limit the amount of entities we send at once.
+		// Send back the seq number of the successor of the last entity
+		// to the client, so it can pick back up where we left off.
+		// This is correct since in the non-paginated case, the returned
+		// seq number is the seq of the first new entity.
+		if (resp.entities().size() >= maxEntitiesPerMessage) {
+			outSeq = cur->seq() + 1;
+			break;
+		}
+	}
+
+	resp.set_out_seq(outSeq);
+
+	auto [sendResp, sendTail] =
+		co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+		);
+	HEL_CHECK(sendResp.error());
+	HEL_CHECK(sendTail.error());
+}
+
 async::detached serve(helix::UniqueLane lane) {
 	while(true) {
 		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
@@ -218,7 +307,6 @@ async::detached serve(helix::UniqueLane lane) {
 
 		auto preamble = bragi::read_preamble(recvHead);
 		assert(!preamble.error());
-		recvHead.reset();
 
 		if(preamble.id() == bragi::message_id<managarm::mbus::GetRootRequest>) {
 			managarm::mbus::SvrResponse resp;
@@ -286,9 +374,20 @@ async::detached serve(helix::UniqueLane lane) {
 
 			helix::UniqueLane localLane, remoteLane;
 			std::tie(localLane, remoteLane) = helix::createStream();
-			auto child = std::make_shared<Entity>(nextEntityId++,
+
+			// TODO(qookie): Introduce async::sequenced_event::current_sequence?
+			//               We want the current seq because the input seq from the
+			//               user is the seq of the first item to be returned
+			//               (e.g. see doEnumerate pagination logic).
+			auto seq = globalSeq.next_sequence() - 1;
+			auto child = std::make_shared<Entity>(nextEntityId++, seq,
 					std::move(properties), std::move(localLane));
+
 			allEntities.insert({ child->getId(), child });
+			entitySeqTree.insert(child.get());
+
+			// Wake up all pending enumeration operations.
+			globalSeq.raise();
 
 			// Issue 'attach' events for all observers
 			processAttach(child);
@@ -377,6 +476,18 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushLane.error());
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::EnumerateRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
+
+			auto req = bragi::parse_head_tail<managarm::mbus::EnumerateRequest>(recvHead, tail);
+
+			doEnumerate(std::move(conversation), req->seq(),
+					decodeFilter(req->filter()));
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}

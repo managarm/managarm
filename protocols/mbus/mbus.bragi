@@ -37,6 +37,11 @@ struct AnyFilter {
 	}
 }
 
+struct Entity {
+	int64 id;
+	Property[] properties;
+}
+
 // Client -> server
 
 group {
@@ -69,7 +74,14 @@ head(128):
 	int64 id;
 }
 
-message SvrResponse 6 {
+message EnumerateRequest 6 {
+head(128):
+	uint64 seq;
+tail:
+	AnyFilter filter;
+}
+
+message SvrResponse 7 {
 head(128):
 	Error error;
 	tags {
@@ -77,11 +89,20 @@ head(128):
 	}
 }
 
-message GetPropertiesResponse 7 {
+message GetPropertiesResponse 8 {
 head(128):
 	Error error;
 tail:
 	Property[] properties;
+}
+
+message EnumerateResponse 9 {
+head(128):
+	Error error;
+	uint64 out_seq;    // Sequence of last entity we returned
+	uint64 actual_seq; // Actual latest sequence (out_seq != actual_seq means request was split).
+tail:
+	Entity[] entities;
 }
 
 }
