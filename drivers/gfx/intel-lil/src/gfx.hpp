@@ -1,5 +1,6 @@
 #pragma once
 
+#include <arch/dma_pool.hpp>
 #include <core/drm/core.hpp>
 #include <protocols/hw/client.hpp>
 
@@ -21,7 +22,9 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 private:
 	protocols::hw::Device _hwDevice;
 	range_allocator _vramAllocator;
+	LilGpu _gpu;
 	uint16_t _pchDevId;
+	arch::os::contiguous_pool _pool = {};
 
 public:
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
@@ -52,6 +55,35 @@ public:
 	private:
 		std::shared_ptr<GfxDevice::BufferObject> _bo;
 		uint32_t _pixelPitch;
+	};
+
+	struct Connector : drm_core::Connector {
+		Connector(GfxDevice *device, LilConnector *lil);
+
+		LilConnector *_lil;
+	private:
+		std::vector<drm_core::Encoder *> _encoders;
+	};
+
+	struct Encoder : drm_core::Encoder {
+		Encoder(GfxDevice *device);
+	};
+
+	struct Plane : drm_core::Plane {
+		Plane(GfxDevice *device, PlaneType type, LilPlane *lil);
+
+		LilPlane *_lil;
+	};
+
+	struct Crtc final : drm_core::Crtc {
+		Crtc(GfxDevice *device, LilCrtc *lil, Plane *primaryPlane);
+
+		drm_core::Plane *primaryPlane() override;
+
+		LilCrtc *_lil;
+	private:
+		GfxDevice *_device;
+		Plane *_primaryPlane;
 	};
 
 	struct Configuration : drm_core::Configuration {
