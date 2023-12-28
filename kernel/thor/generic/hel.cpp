@@ -2496,6 +2496,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					if(node->error() == Error::success
 							&& (recipe->flags & kHelItemWantLane)) {
 						auto universe = closure->weakUniverse.lock();
+						if (!universe) {
+							item->helHandleResult = {kHelErrBadDescriptor, 0, handle};
+							item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+							link(&item->mainSource);
+							continue;
+						}
 						assert(universe);
 
 						auto irq_lock = frg::guard(&irqMutex());
@@ -2506,7 +2512,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					}
 
 					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelHandleResult));
+					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
 				}else if(recipe->type == kHelActionAccept) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
