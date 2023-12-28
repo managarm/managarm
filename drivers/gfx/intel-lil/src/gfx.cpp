@@ -1,5 +1,7 @@
+#include <core/drm/debug.hpp>
 #include <lil/intel.h>
 
+#include "debug.hpp"
 #include "gfx.hpp"
 
 GfxDevice::GfxDevice(protocols::hw::Device hw_device, uint16_t pch_devid)
@@ -69,9 +71,47 @@ std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
 }
 
 bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> &state) {
+	if(logDrmRequests)
+		std::cout << "gfx/intel-lil: Configuration capture" << std::endl;
+
 	for(auto &assign: assignment) {
 		assert(assign.property->validate(assign));
 		assign.property->writeToState(assign, state);
+
+		if(!logDrmRequests)
+			continue;
+
+		auto mode_obj = assign.object;
+
+		switch(mode_obj->type()) {
+			case drm_core::ObjectType::crtc:
+				std::cout << "\tCRTC (ID " << mode_obj->id() << ")" << std::endl;
+				break;
+			case drm_core::ObjectType::connector:
+				std::cout << "\tConnector (ID " << mode_obj->id() << ")" << std::endl;
+				break;
+			case drm_core::ObjectType::encoder:
+				std::cout << "\tEncoder (ID " << mode_obj->id() << ")" << std::endl;
+				break;
+			case drm_core::ObjectType::frameBuffer:
+				std::cout << "\tFB (ID " << mode_obj->id() << ")" << std::endl;
+				break;
+			case drm_core::ObjectType::plane:
+				std::cout << "\tPlane (ID " << mode_obj->id() << ")" << std::endl;
+				break;
+		}
+
+		auto prop_type = assign.property->propertyType();
+
+		if(std::holds_alternative<drm_core::IntPropertyType>(prop_type)) {
+			std::cout << "\t\t" << assign.property->name() << " = " << assign.intValue << " (int)" << std::endl;
+		} else if(std::holds_alternative<drm_core::EnumPropertyType>(prop_type)) {
+			std::cout << "\t\t" << assign.property->name() << " = " << assign.intValue << " " << assign.property->enumInfo().at(assign.intValue) << " (enum)" << std::endl;
+		} else if(std::holds_alternative<drm_core::BlobPropertyType>(prop_type)) {
+			std::cout << "\t\t" << assign.property->name() << " = " << (assign.blobValue ? std::to_string(assign.blobValue->id()) : "<none>") << " (blob)" << std::endl;
+		} else if(std::holds_alternative<drm_core::ObjectPropertyType>(prop_type)) {
+			std::cout << "\t\t" << assign.property->name() << " = " << (assign.objectValue ? std::to_string(assign.objectValue->id()) : "<none>") << " (modeobject)" << std::endl;
+		}
 	}
 
 	return true;
