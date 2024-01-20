@@ -297,7 +297,7 @@ async::result<Connection::EnumerationResult> Connection::enumerate(uint64_t seq,
 }
 
 async::result<helix::UniqueDescriptor> Entity::bind() const {
-	managarm::mbus::C2SBindRequest req;
+	managarm::mbus::GetRemoteLaneRequest req;
 	req.set_id(_id);
 
 	auto [offer, sendReq, recvResp, pullLane] =
@@ -315,7 +315,7 @@ async::result<helix::UniqueDescriptor> Entity::bind() const {
 	HEL_CHECK(recvResp.error());
 	HEL_CHECK(pullLane.error());
 
-	auto resp = *bragi::parse_head_only<managarm::mbus::SvrResponse>(recvResp);
+	auto resp = *bragi::parse_head_only<managarm::mbus::GetRemoteLaneResponse>(recvResp);
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
 	co_return pullLane.descriptor();

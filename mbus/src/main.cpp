@@ -15,8 +15,10 @@
 
 #include <frg/rbtree.hpp>
 
+#include <async/oneshot-event.hpp>
 #include <async/sequenced-event.hpp>
 #include <async/result.hpp>
+#include <async/queue.hpp>
 #include <helix/ipc.hpp>
 
 #include <bragi/helpers-all.hpp>
@@ -30,9 +32,13 @@
 
 struct Entity {
 	explicit Entity(int64_t id, uint64_t seq,
+			std::unordered_map<std::string, std::string> properties)
+	: _id{id}, _seq{seq}, _properties{std::move(properties)}, _lane{kHelNullHandle}, _doBind{false} { }
+
+	explicit Entity(int64_t id, uint64_t seq,
 			std::unordered_map<std::string, std::string> properties,
 			helix::UniqueLane lane)
-	: _id(id), _seq(seq), _properties(std::move(properties)), _lane(std::move(lane)) { }
+	: _id{id}, _seq{seq}, _properties{std::move(properties)}, _lane{std::move(lane)}, _doBind{true} { }
 
 	int64_t getId() const {
 		return _id;
@@ -46,6 +52,12 @@ struct Entity {
 		return _properties;
 	}
 
+	async::result<void> submitRemoteLane(helix::UniqueLane &&lane) {
+		SubmittedLane pending{std::move(lane), {}};
+		_submittedLanes.put(&pending);
+		co_await pending.complete.wait();
+	}
+
 	async::result<helix::UniqueDescriptor> bind();
 
 	frg::rbtree_hook seqNode;
@@ -54,6 +66,15 @@ private:
 	uint64_t _seq;
 	std::unordered_map<std::string, std::string> _properties;
 	helix::UniqueLane _lane;
+
+	struct SubmittedLane {
+		helix::UniqueLane lane;
+		async::oneshot_event complete;
+	};
+
+	async::queue<SubmittedLane *, frg::stl_allocator> _submittedLanes;
+
+	bool _doBind;
 };
 
 struct EntitySeqLess {
@@ -63,6 +84,14 @@ struct EntitySeqLess {
 };
 
 async::result<helix::UniqueDescriptor> Entity::bind() {
+	if (!_doBind) {
+		auto pending = *(co_await _submittedLanes.async_get());
+		auto lane = std::move(pending->lane);
+		pending->complete.raise(); // This destroys *pending
+
+		co_return lane;
+	}
+
 	managarm::mbus::S2CBindRequest req;
 
 	auto [offer, sendReq, recvResp, pullLane] =
@@ -313,6 +342,67 @@ async::detached doEnumerate(helix::UniqueLane conversation, uint64_t inSeq, AnyF
 	HEL_CHECK(sendTail.error());
 }
 
+async::detached doGetRemoteLane(helix::UniqueLane conversation, std::shared_ptr<Entity> entity) {
+	auto remoteLane = co_await entity->bind();
+
+	managarm::mbus::GetRemoteLaneResponse resp;
+	resp.set_error(managarm::mbus::Error::SUCCESS);
+
+	auto [sendResp, pushLane] =
+		co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::pushDescriptor(remoteLane)
+		);
+	HEL_CHECK(sendResp.error());
+	HEL_CHECK(pushLane.error());
+}
+
+async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> entity) {
+	while(true) {
+		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::accept(
+					helix_ng::recvInline()
+				)
+			);
+
+		// TODO(qookie): Destroy the entity once the lane is closed.
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recvHead.error());
+
+		auto conversation = accept.descriptor();
+
+		auto preamble = bragi::read_preamble(recvHead);
+		assert(!preamble.error());
+
+		if(preamble.id() == bragi::message_id<managarm::mbus::ServeRemoteLaneRequest>) {
+			/* Don't care about the request contents */
+
+			auto [pullLane] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::pullDescriptor()
+				);
+			HEL_CHECK(pullLane.error());
+
+			co_await entity->submitRemoteLane(pullLane.descriptor());
+
+			managarm::mbus::ServeRemoteLaneResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+
+			auto [sendResp] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
+		}else{
+			throw std::runtime_error("Unexpected request type");
+		}
+	}
+}
+
 async::detached serve(helix::UniqueLane lane) {
 	while(true) {
 		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
@@ -469,11 +559,11 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushLane.error());
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::C2SBindRequest>) {
-			auto req = bragi::parse_head_only<managarm::mbus::C2SBindRequest>(recvHead);
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::GetRemoteLaneRequest>) {
+			auto req = bragi::parse_head_only<managarm::mbus::GetRemoteLaneRequest>(recvHead);
 			auto entity = getEntityById(req->id());
 			if(!entity) {
-				managarm::mbus::SvrResponse resp;
+				managarm::mbus::GetRemoteLaneResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 
 				auto [sendResp] =
@@ -485,19 +575,7 @@ async::detached serve(helix::UniqueLane lane) {
 				continue;
 			}
 
-			auto remoteLane = co_await entity->bind();
-
-			managarm::mbus::SvrResponse resp;
-			resp.set_error(managarm::mbus::Error::SUCCESS);
-
-			auto [sendResp, pushLane] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-					helix_ng::pushDescriptor(remoteLane)
-				);
-			HEL_CHECK(sendResp.error());
-			HEL_CHECK(pushLane.error());
+			doGetRemoteLane(std::move(conversation), std::move(entity));
 		} else if(preamble.id() == bragi::message_id<managarm::mbus::EnumerateRequest>) {
 			std::vector<std::byte> tail(preamble.tail_size());
 			auto [recvTail] = co_await helix_ng::exchangeMsgs(
@@ -510,6 +588,55 @@ async::detached serve(helix::UniqueLane lane) {
 
 			doEnumerate(std::move(conversation), req->seq(),
 					decodeFilter(req->filter()));
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::CreateObjectNgRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
+
+			auto req = bragi::parse_head_tail<managarm::mbus::CreateObjectNgRequest>(recvHead, tail);
+
+			// TODO(qookie): This is a largely duplicate of the CreateObject logic
+			std::unordered_map<std::string, std::string> properties;
+			for(auto &kv : req->properties()) {
+				properties.insert({ kv.name(), kv.string_item() });
+			}
+
+			// TODO(qookie): Introduce async::sequenced_event::current_sequence?
+			//               We want the current seq because the input seq from the
+			//               user is the seq of the first item to be returned
+			//               (e.g. see doEnumerate pagination logic).
+			auto seq = globalSeq.next_sequence() - 1;
+			auto child = std::make_shared<Entity>(nextEntityId++, seq,
+					std::move(properties));
+
+			allEntities.insert({ child->getId(), child });
+			entitySeqTree.insert(child.get());
+
+			// Wake up all pending enumeration operations.
+			globalSeq.raise();
+
+			// Issue 'attach' events for all observers
+			processAttach(child);
+
+			// Set up the management lane
+			auto [localLane, remoteLane] = helix::createStream();
+			serveMgmtLane(std::move(localLane), child);
+
+			managarm::mbus::CreateObjectNgResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+			resp.set_id(child->getId());
+
+			auto [sendResp, pushLane] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::pushDescriptor(remoteLane)
+				);
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(pushLane.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
