@@ -1,6 +1,6 @@
 mbus_bragi = cxxbragi.process('mbus.bragi')
 
-src = [ 'src/client.cpp', mbus_bragi ]
+src = [ 'src/client.cpp', 'src/client_ng.cpp', mbus_bragi ]
 inc = [ 'include' ]
 deps = [ helix_dep, posix_extra_dep, frigg ]
 
