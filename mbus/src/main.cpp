@@ -229,12 +229,12 @@ static AnyFilter decodeFilter(managarm::mbus::AnyFilter &protoFilter) {
 	}
 }
 
-async::detached doEnumerate(helix::UniqueLane conversation, uint64_t inSeq, AnyFilter filter) {
-	auto outSeq = co_await globalSeq.async_wait(inSeq);
 
-	managarm::mbus::EnumerateResponse resp;
-	resp.set_error(managarm::mbus::Error::SUCCESS);
-	resp.set_actual_seq(outSeq);
+
+async::result<std::tuple<uint64_t, uint64_t>>
+tryEnumerate(managarm::mbus::EnumerateResponse &resp, uint64_t inSeq, const AnyFilter &filter) {
+	auto actualSeq = co_await globalSeq.async_wait(inSeq);
+	auto outSeq = actualSeq;
 
 	// Find the first entity with an interesting seq number.
 	auto cur = entitySeqTree.get_root();
@@ -280,7 +280,29 @@ async::detached doEnumerate(helix::UniqueLane conversation, uint64_t inSeq, AnyF
 		}
 	}
 
-	resp.set_out_seq(outSeq);
+	co_return {outSeq, actualSeq};
+}
+
+async::detached doEnumerate(helix::UniqueLane conversation, uint64_t inSeq, AnyFilter filter) {
+	managarm::mbus::EnumerateResponse resp;
+	resp.set_error(managarm::mbus::Error::SUCCESS);
+
+	uint64_t curSeq = inSeq;
+
+	while(true) {
+		auto [outSeq, actualSeq] = co_await tryEnumerate(resp, curSeq, filter);
+
+		if(!resp.entities().empty()) {
+			// At least one entity was added into our response
+			resp.set_out_seq(outSeq);
+			resp.set_actual_seq(actualSeq);
+			break;
+		} else {
+			// Something changed, but nothing of interest was inserted
+			assert(outSeq == actualSeq);
+			curSeq = actualSeq;
+		}
+	}
 
 	auto [sendResp, sendTail] =
 		co_await helix_ng::exchangeMsgs(
