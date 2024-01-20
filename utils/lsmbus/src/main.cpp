@@ -6,7 +6,7 @@
 
 namespace {
 struct PrintVisitor {
-	void operator()(mbus::StringItem &item) {
+	void operator()(mbus_ng::StringItem &item) {
 		std::cout << item.value;
 	}
 
@@ -16,26 +16,31 @@ struct PrintVisitor {
 	}
 };
 
-async::detached enumerateBus() {
-	auto root = co_await mbus::Instance::global().getRoot();
+async::result<void> enumerateBus() {
+	auto filter = mbus_ng::Conjunction({});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 
-	auto filter = mbus::Conjunction({});
+	while(true) {
+		auto [paginated, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler {}
-	.withAttach([] (mbus::Entity, mbus::Properties props) {
-		std::cout << "found mbus entry:\n";
-		for (auto &[name, value] : props) {
-			std::cout << "\tproperty: \"" << name << "\": ";
-			std::visit(PrintVisitor {}, value);
-			std::cout << std::endl;
+		for(auto &event : events) {
+			if(event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
+
+			std::cout << "found mbus entity:\n";
+			for(auto &[name, value] : event.properties) {
+				std::cout << "\tproperty: \"" << name << "\": ";
+				std::visit(PrintVisitor {}, value);
+				std::cout << std::endl;
+			}
 		}
-	});
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+		if (!paginated)
+			break;
+	}
 }
 }
 
 int main() {
-	enumerateBus();
-	async::run_forever(helix::currentDispatcher);
+	async::run(enumerateBus(), helix::currentDispatcher);
 }
