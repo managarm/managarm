@@ -105,6 +105,33 @@ tail:
 	Entity[] entities;
 }
 
+message CreateObjectNgRequest 10 {
+head(128):
+tail:
+	string name;
+	Property[] properties;
+}
+
+message CreateObjectNgResponse 11 {
+head(128):
+	Error error;
+	int64 id;
+}
+
+message GetRemoteLaneResponse 12 {
+head(128):
+	Error error;
+}
+
+message ServeRemoteLaneRequest 13 {
+head(128):
+}
+
+message ServeRemoteLaneResponse 14 {
+head(128):
+	Error error;
+}
+
 }
 
 // TODO(qookie): Ideally we get rid of these, turning BIND into a client -> client request,
