@@ -72,22 +72,16 @@ helix::UniqueLane svrctlLane;
 async::oneshot_event foundSvrctl;
 
 async::result<void> enumerateSvrctl() {
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "svrctl")
+	auto filter = mbus_ng::Conjunction({
+		mbus_ng::EqualsFilter("class", "svrctl")
 	});
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
-//		std::cout << "runsvr: Found svrctl" << std::endl;
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-		svrctlLane = helix::UniqueLane(co_await entity.bind());
-		foundSvrctl.raise();
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundSvrctl.wait();
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	svrctlLane = (co_await entity.getRemoteLane()).unwrap();
 }
 
 async::result<helix::UniqueLane> runServer(const char *name) {
@@ -317,9 +311,8 @@ int main(int argc, const char **argv) {
 			log("runsvr: Forking off to %d\n", pid);
 			return 0;
 		}
-		mbus::recreateInstance();
+		mbus_ng::recreateInstance();
 	}
 
 	async::run(asyncMain(act, std::move(path)), helix::currentDispatcher);
 }
-
