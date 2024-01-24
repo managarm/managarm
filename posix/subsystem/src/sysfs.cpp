@@ -381,7 +381,7 @@ Attribute::Attribute(std::string name, bool writable)
 : _name{std::move(name)}, _writable{writable} { }
 
 Attribute::Attribute(std::string name, bool writable, size_t size)
-: _name{std::move(name)}, _writable{writable}, _size{size} { }
+: _size{size}, _name{std::move(name)}, _writable{writable} { }
 
 // ----------------------------------------------------------------------------
 // Object implementation

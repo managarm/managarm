@@ -332,10 +332,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HelThreadStats stats;
 			HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
 
+			int32_t mode = static_cast<int32_t>(req.mode());
 			uint64_t user_time;
-			if(req.mode() == RUSAGE_SELF) {
+			if(mode == RUSAGE_SELF) {
 				user_time = stats.userTime;
-			}else if(req.mode() == RUSAGE_CHILDREN) {
+			}else if(mode == RUSAGE_CHILDREN) {
 				user_time = self->accumulatedUsage().userTime;
 			}else{
 				std::cout << "\e[31mposix: GET_RESOURCE_USAGE mode is not supported\e[39m"

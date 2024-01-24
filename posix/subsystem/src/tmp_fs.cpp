@@ -590,7 +590,7 @@ async::result<frg::expected<Error, size_t>>
 MemoryFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
-	if(!(offset <= node->_fileSize))
+	if(static_cast<size_t>(offset) >= node->_fileSize)
 		co_return 0;
 	auto chunk = std::min(node->_fileSize - offset, length);
 
