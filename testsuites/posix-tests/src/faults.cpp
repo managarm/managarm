@@ -23,6 +23,7 @@ namespace {
 		}
 
 		volatile int result = a / b;
+		(void) result;
 
 		return false;
 	}
