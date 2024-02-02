@@ -181,6 +181,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
 			);
 			HEL_CHECK(send_resp.error());
+			if (send_data.error() == kHelErrThreadTerminated) {
+				std::cout << std::get<size_t>(res) << std::endl;
+			}
 			HEL_CHECK(send_data.error());
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {

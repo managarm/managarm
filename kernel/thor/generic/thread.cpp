@@ -407,7 +407,9 @@ void Thread::dispose(ActiveHandle) {
 	if(logCleanup)
 		infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m"
 				<< frg::endlog;
+	infoLogger() << "killing " << (void*) this << frg::endlog;
 	_kill();
+	workOnExecutor(&_executor);
 	_mainWorkQueue.selfPtr = {};
 	_pagingWorkQueue.selfPtr = {};
 }

@@ -573,6 +573,10 @@ public:
 		_enteredSignalSeq++;
 	}
 
+	async::cancellation_token processTerminationToken() {
+		return {_processTerminated};
+	}
+
 private:
 	Process *_parent;
 
@@ -626,6 +630,7 @@ private:
 	> _notifyQueue;
 
 	async::recurring_event _notifyBell;
+	async::cancellation_event _processTerminated;
 
 	// Resource usage accumulated from previous generations.
 	ResourceUsage _generationUsage = {};

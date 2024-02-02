@@ -359,8 +359,9 @@ private:
 	AssociatedWorkQueue _pagingWorkQueue;
 
 	Mutex _mutex;
-
+public:
 	RunState _runState;
+private:
 
 	// If this flag is set, blockCurrent() returns immediately.
 	// In blockCurrent(), the flag is checked within _mutex.
