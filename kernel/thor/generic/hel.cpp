@@ -2730,7 +2730,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					&& peer->tag() == kTagRecvKernelBuffer) {
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
 
-				co_await thread->mainWorkQueue()->enter();
+				auto res = co_await thread->mainWorkQueue()->enter();
+				if (res)
+					infoLogger() << "whattutututtpp" << frg::endlog;
 				auto outcome = readUserMemory(buffer.data(), recipe->buffer, recipe->length);
 				if(!outcome) {
 					// We complete with fault; the remote with success.
@@ -2807,7 +2809,9 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					auto chunkSize = frg::min(recipe->length - progress, xb.size());
 					assert(chunkSize);
 
-					co_await thread->mainWorkQueue()->enter();
+					auto res = co_await thread->mainWorkQueue()->enter();
+					if (res)
+						infoLogger() << "hgfkjhdgfs" << frg::endlog;
 					auto outcome = readUserMemory(xb.data(),
 							reinterpret_cast<std::byte *>(recipe->buffer) + progress, chunkSize);
 					if(!outcome) {
@@ -2841,10 +2845,17 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				node->complete();
 			}else if(recipe->type == kHelActionRecvToBuffer
 					&& peer->tag() == kTagSendKernelBuffer) {
-				co_await thread->mainWorkQueue()->enter();
+				auto res = co_await thread->mainWorkQueue()->enter();
+				if (res) {
+					peer->_error = Error::threadExited;
+					node->_error = Error::threadExited;
+					peer->complete();
+					node->complete();
+					continue;
+				}
 				auto outcome = writeUserMemory(recipe->buffer,
 						peer->_inBuffer.data(), peer->_inBuffer.size());
-				if(!outcome) {
+				if(!outcome || res) {
 					// We complete with fault; the remote with success.
 					// TODO: it probably makes sense to introduce a "remote fault" error.
 					peer->_error = Error::success;

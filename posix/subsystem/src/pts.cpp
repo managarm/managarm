@@ -645,7 +645,7 @@ MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink>
 }
 
 async::result<protocols::fs::ReadResult>
-MasterFile::readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) {
+MasterFile::readSome(Process *process, void *data, size_t maxLength, async::cancellation_token ce) {
 	if(logReadWrite)
 		std::cout << std::format("posix: Read from tty {}\n", structName());
 	if(!maxLength)
@@ -658,6 +658,9 @@ MasterFile::readSome(Process *, void *data, size_t maxLength, async::cancellatio
 		co_await _channel->statusBell.async_wait(ce);
 		if (ce.is_cancellation_requested())
 			co_return std::make_pair(protocols::fs::Error::interrupted, 0);
+		if (process->processTerminationToken().is_cancellation_requested()) {
+			co_return {protocols::fs::Error::none, 0};
+		}
 	}
 
 	auto packet = &_channel->masterQueue.front();
@@ -836,7 +839,7 @@ SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> l
 		_channel{std::move(channel)}, nonBlock_{nonBlock} { }
 
 async::result<protocols::fs::ReadResult>
-SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) {
+SlaveFile::readSome(Process *process, void *data, size_t maxLength, async::cancellation_token ce) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
 	if(!maxLength)
@@ -853,6 +856,9 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation
 			if (logReadWrite)
 				std::cout << "posix: tty read interrupted" << std::endl;
 			co_return std::make_pair(protocols::fs::Error::interrupted, 0);
+		}
+		if (process->processTerminationToken().is_cancellation_requested()) {
+			co_return {protocols::fs::Error::none, 0};
 		}
 	}
 

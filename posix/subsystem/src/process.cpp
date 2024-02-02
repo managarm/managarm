@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <signal.h>
 #include <string.h>
 
@@ -1195,6 +1196,7 @@ async::result<void> Process::terminate(TerminationState state) {
 		assert(result);
 		(void)result;
 	}
+	_processTerminated.cancel();
 
 	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);

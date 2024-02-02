@@ -406,7 +406,9 @@ Thread::~Thread() {
 void Thread::dispose(ActiveHandle) {
 	if(logCleanup)
 		urgentLogger() << "thor: Killing thread due to destruction" << frg::endlog;
+
 	_kill();
+	workOnExecutor(&_executor);
 	_mainWorkQueue.selfPtr = {};
 	_pagingWorkQueue.selfPtr = {};
 }
