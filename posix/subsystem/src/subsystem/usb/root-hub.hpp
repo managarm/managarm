@@ -5,6 +5,26 @@
 
 namespace usb_subsystem::root_hub {
 
+constexpr std::array<uint8_t, 18> descUsb3_1 = {
+	0x12, /* bLength */
+	0x01, /* bDescriptorType */
+	0x10, 0x03, /* bcdUsb */
+
+	0x09, /* bDeviceClass */
+	0x00, /* bDeviceSubClass */
+	0x03, /* bDeviceProtocol */
+	0x09, /* bMaxPacketSize0 */
+
+	0x6b, 0x1d, /* idVendor */
+	0x03, 0x00, /* idProduct */
+	0x00, 0x00, /* bcdDevice */
+
+	0x03, /* iManufacturer */
+	0x02, /* iProduct */
+	0x01, /* iSerialNumber */
+	0x01, /* bNumConfigurations */
+};
+
 constexpr std::array<uint8_t, 18> descUsb3_0 = {
 	0x12, /* bLength */
 	0x01, /* bDescriptorType */
@@ -157,11 +177,12 @@ constexpr std::array<uint8_t, 31> descSuperSpeed = {
 	0x04, 0x00, /* wMaxPacketSize */
 	0x0c, /* bInterval */
 
-	0x06,
-	0x30,
-	0x00,
-	0x00,
-	0x02, 0x00,
+	/* SuperSpeed endpoint companion descriptor */
+	0x06, /* bLength */
+	0x30, /* bDescriptorType */
+	0x00, /* bMaxBurst */
+	0x00, /* bmAttributes */
+	0x02, 0x00, /* wBytesPerInterval */
 };
 
 } // namespace usb_subsystem
