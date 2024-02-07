@@ -113,12 +113,13 @@ async::detached bindController(mbus::Entity entity, mbus::Properties properties,
 					device->descriptors.insert(device->descriptors.end(), root_hub::descUsb3_0.begin(), root_hub::descUsb3_0.end());
 					device->descriptors.insert(device->descriptors.end(), root_hub::descSuperSpeed.begin(), root_hub::descSuperSpeed.end());
 					break;
-				case 1:
+				case 0x10:
 					device->speed = "10000";
 					device->descriptors.insert(device->descriptors.end(), root_hub::descUsb3_1.begin(), root_hub::descUsb3_1.end());
 					device->descriptors.insert(device->descriptors.end(), root_hub::descSuperSpeed.begin(), root_hub::descSuperSpeed.end());
 					break;
 				default:
+					std::cerr << "unhandled USB 3 minor revision: " << minor << '\n';
 					assert(!"unhandled USB 3 minor revision");
 					break;
 			}
