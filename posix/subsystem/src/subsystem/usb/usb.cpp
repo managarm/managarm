@@ -219,6 +219,11 @@ async::detached bindDevice(mbus::Entity entity, mbus::Properties properties) {
 	sysfsSubsystem->devicesObject()->createSymlink(sysfs_name, device);
 
 	for(auto interface : device->interfaces) {
+		if(interface->alternateSetting != 0) {
+			// TODO(no92): currently we don't support anything but bAlternateSetting 0
+			continue;
+		}
+
 		drvcore::installDevice(interface);
 		sysfsSubsystem->devicesObject()->createSymlink(interface->sysfs_name, interface);
 
