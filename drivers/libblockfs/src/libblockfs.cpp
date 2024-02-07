@@ -808,22 +808,28 @@ async::detached runDevice(BlockDevice *device) {
 
 	int64_t diskId = 0;
 	{
-		auto root = co_await mbus::Instance::global().getRoot();
-
-		mbus::Properties descriptor {
-			{"unix.devtype", mbus::StringItem{"block"}},
-			{"unix.blocktype", mbus::StringItem{"disk"}},
-			{"drvcore.mbus-parent", mbus::StringItem{std::to_string(device->parentId)}}
+		mbus_ng::Properties descriptor {
+			{"unix.devtype", mbus_ng::StringItem{"block"}},
+			{"unix.blocktype", mbus_ng::StringItem{"disk"}},
+			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}}
 		};
 
-		auto handler = mbus::ObjectHandler{}
-		.withBind([] () -> async::result<helix::UniqueDescriptor> {
-			std::cout << "\e[31mlibblockfs: Disks don't currently serve requests\e[39m" << std::endl;
-			co_return {};
-		});
+		auto entity = (co_await mbus_ng::Instance::global().createEntity(
+					"disk", descriptor)).unwrap();
+		diskId = entity.id();
 
-		auto obj = co_await root.createObject("disk", descriptor, std::move(handler));
-		diskId = obj.getId();
+		// See comment in mbus_ng::~EntityManager as to why this is necessary.
+		[] (mbus_ng::EntityManager entity) -> async::detached {
+			while (true) {
+				auto [localLane, remoteLane] = helix::createStream();
+
+				// If this fails, too bad!
+				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+				// TODO(qookie): Handle requests on disks
+				std::cout << "\e[31mlibblockfs: Disks don't currently serve requests\e[39m" << std::endl;
+			}
+		}(std::move(entity));
 	}
 
 	int partId = 0;
@@ -846,26 +852,27 @@ async::detached runDevice(BlockDevice *device) {
 		printf("rawfs is ready!\n");
 
 		// Create an mbus object for the partition.
-		auto root = co_await mbus::Instance::global().getRoot();
-
-		mbus::Properties descriptor{
-			{"unix.devtype", mbus::StringItem{"block"}},
-			{"unix.blocktype", mbus::StringItem{"partition"}},
-			{"unix.partid", mbus::StringItem{std::to_string(partId++)}},
-			{"unix.diskid", mbus::StringItem{std::to_string(diskId)}},
-			{"drvcore.mbus-parent", mbus::StringItem{std::to_string(device->parentId)}}
+		mbus_ng::Properties descriptor{
+			{"unix.devtype", mbus_ng::StringItem{"block"}},
+			{"unix.blocktype", mbus_ng::StringItem{"partition"}},
+			{"unix.partid", mbus_ng::StringItem{std::to_string(partId++)}},
+			{"unix.diskid", mbus_ng::StringItem{std::to_string(diskId)}},
+			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}}
 		};
 
-		auto handler = mbus::ObjectHandler{}
-		.withBind([] () -> async::result<helix::UniqueDescriptor> {
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			servePartition(std::move(local_lane));
+		auto entity = (co_await mbus_ng::Instance::global().createEntity(
+					"partition", descriptor)).unwrap();
 
-			co_return std::move(remote_lane);
-		});
+		[] (mbus_ng::EntityManager entity) -> async::detached {
+			while (true) {
+				auto [localLane, remoteLane] = helix::createStream();
 
-		co_await root.createObject("partition", descriptor, std::move(handler));
+				// If this fails, too bad!
+				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+				servePartition(std::move(localLane));
+			}
+		}(std::move(entity));
 	}
 }
 
