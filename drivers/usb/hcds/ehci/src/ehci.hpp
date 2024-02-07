@@ -53,7 +53,7 @@ private:
 
 struct Controller : std::enable_shared_from_this<Controller> {
 	Controller(protocols::hw::Device hw_device,
-			mbus::Entity entity,
+			mbus_ng::EntityManager entity,
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio, helix::UniqueIrq irq);
 
@@ -189,7 +189,7 @@ private:
 	int _numPorts;
 	Enumerator _enumerator;
 
-	mbus::Entity _entity;
+	mbus_ng::EntityManager _entity;
 };
 
 // ----------------------------------------------------------------------------
