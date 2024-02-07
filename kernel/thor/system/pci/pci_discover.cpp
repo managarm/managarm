@@ -69,12 +69,21 @@ void PciBus::runRootBus() {
 			properties.hexStringProperty("pci-segment", device->segId, 4);
 			properties.hexStringProperty("pci-bus", device->busId, 2);
 
-			auto ret = co_await device->createObject(std::move(properties));
+			auto ret = co_await device->createObject("pci-root-bus", std::move(properties));
 			assert(ret);
 			device->mbusId = ret.value();
 			device->mbusPublished.raise();
 		}(this));
 	});
+}
+
+coroutine<frg::expected<Error>> PciBus::handleRequest(LaneHandle lane) {
+	// TODO(qookie): Implement this properly :^)
+	auto dismissError = co_await DismissSender{lane};
+	if (dismissError != Error::success)
+		co_return dismissError;
+
+	co_return frg::success;
 }
 
 // --------------------------------------------------------
@@ -108,7 +117,7 @@ void PciBridge::runBridge() {
 				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->mbusId, 1);
 			}
 
-			auto ret = co_await device->createObject(std::move(properties));
+			auto ret = co_await device->createObject("pci-bridge", std::move(properties));
 			assert(ret);
 			device->mbusId = ret.value();
 			device->mbusPublished.raise();
@@ -154,7 +163,7 @@ void PciDevice::runDevice() {
 			}
 
 			// TODO(qookie): Better error handling here.
-			auto ret = co_await device->createObject(std::move(properties));
+			auto ret = co_await device->createObject("pci-device", std::move(properties));
 			assert(ret);
 			device->mbusId = ret.value();
 		}(this));

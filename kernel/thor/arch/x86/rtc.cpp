@@ -82,7 +82,7 @@ struct RtcBusObject : private KernelBusObject {
 		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "rtc"));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("legacy-pc/rtc", std::move(properties))).unwrap();
 	}
 
 private:
