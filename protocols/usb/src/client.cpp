@@ -122,11 +122,11 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::deviceDescripto
 async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDescriptor() {
 	managarm::usb::GetConfigurationDescriptorRequest req;
 
-	auto [offer, sendReq, recvResp, recvData] = co_await helix_ng::exchangeMsgs(
+	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
 		_lane,
 		helix_ng::offer(
+			helix_ng::want_lane,
 			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-			helix_ng::recvInline(),
 			helix_ng::recvInline()
 		)
 	);
@@ -137,13 +137,17 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDe
 
 	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
+	std::string recvBuffer(resp->size(), 0);
+	auto [recvData] = co_await helix_ng::exchangeMsgs(
+		offer.descriptor(),
+		helix_ng::recvBuffer(recvBuffer.data(), recvBuffer.size())
+	);
+
 	FRG_CO_TRY(transformProtocolError(resp->error()));
 
 	HEL_CHECK(recvData.error());
 
-	std::string data(recvData.length(), 0);
-	memcpy(&data[0], recvData.data(), recvData.length());
-	co_return std::move(data);
+	co_return recvBuffer;
 }
 
 async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfiguration(int number) {
