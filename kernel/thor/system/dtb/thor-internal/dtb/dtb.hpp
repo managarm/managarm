@@ -233,7 +233,7 @@ DeviceTreeNode *getDeviceTreeRoot();
 
 initgraph::Stage *getDeviceTreeParsedStage();
 
-static inline frg::array<frg::string_view, 12> dtGicCompatible = {
+static inline frg::array<frg::string_view, 12> dtGicV2Compatible = {
 	"arm,arm11mp-gic",
 	"arm,cortex-a15-gic",
 	"arm,cortex-a7-gic",

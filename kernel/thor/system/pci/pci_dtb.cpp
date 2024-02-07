@@ -13,7 +13,6 @@
 
 namespace thor {
 
-extern frg::manual_box<GicDistributor> dist;
 extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
 
 } // namespace thor
@@ -80,7 +79,7 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 			// TODO: care about polarity
 			auto irq = ent.parentIrq.id;
 			if (globalIrqSlots[irq]->isAvailable()) {
-				auto pin = dist->setupIrq(irq, ent.parentIrq.trigger);
+				auto pin = gic->setupIrq(irq, ent.parentIrq.trigger);
 				routingTable.push({slot, index, pin});
 			} else {
 				auto pin = globalIrqSlots[irq]->pin();

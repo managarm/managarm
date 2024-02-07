@@ -327,6 +327,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
+			resp.set_size(data.size());
 
 			auto [sendResp, sendData] = co_await helix_ng::exchangeMsgs(
 				conversation,
