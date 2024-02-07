@@ -46,8 +46,8 @@ std::shared_ptr<nic::Link> nic::Link::byIndex(int index) {
 	return {};
 }
 
-async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
-	protocols::hw::Device hwDevice(co_await base_entity.bind());
+async::result<void> doBind(mbus_ng::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
+	protocols::hw::Device hwDevice((co_await base_entity.getRemoteLane()).unwrap());
 	co_await hwDevice.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
@@ -64,26 +64,26 @@ async::result<void> doBind(mbus::Entity base_entity, virtio_core::DiscoverMode d
 		// inet 10.10.2.15/24
 		ip4().setLink({ 0x0a0a020f, 24 }, device);
 	}
-	baseDeviceMap.insert({base_entity.getId(), device});
+	baseDeviceMap.insert({base_entity.id(), device});
 	nic::runDevice(device);
 }
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	std::cout << "netserver: Binding to device " << base_id << std::endl;
-	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
+	auto baseEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
 
 	// Do not bind to devices that are already bound to this driver.
-	if(baseDeviceMap.find(base_entity.getId()) != baseDeviceMap.end())
+	if(baseDeviceMap.find(baseEntity.id()) != baseDeviceMap.end())
 		co_return protocols::svrctl::Error::success;
 
 	// Make sure that we only bind to supported devices.
-	auto properties = co_await base_entity.getProperties();
-	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+	auto properties = (co_await baseEntity.getProperties()).unwrap();
+	if(auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
 			!vendor_str || vendor_str->value != "1af4")
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
 	virtio_core::DiscoverMode discover_mode;
-	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]); device_str) {
+	if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]); device_str) {
 		if(device_str->value == "1000")
 			discover_mode = virtio_core::DiscoverMode::transitional;
 		else if(device_str->value == "1041")
@@ -94,7 +94,7 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}
 
-	co_await doBind(base_entity, discover_mode);
+	co_await doBind(std::move(baseEntity), discover_mode);
 	co_return protocols::svrctl::Error::success;
 }
 
@@ -193,21 +193,23 @@ async::detached serve(helix::UniqueLane lane) {
 }
 
 async::detached advertise() {
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor {
-		{"class", mbus::StringItem{"netserver"}}
+	mbus_ng::Properties descriptor {
+		{"class", mbus_ng::StringItem{"netserver"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		auto [local_lane, remote_lane] = helix::createStream();
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+		"netserver", descriptor)).unwrap();
 
-		serve(std::move(local_lane));
-		co_return std::move(remote_lane);
-	});
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject("netserver", descriptor, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			serve(std::move(localLane));
+		}
+	}(std::move(entity));
 }
 
 static constexpr protocols::svrctl::ControlOperations controlOps = {
