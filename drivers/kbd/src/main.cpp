@@ -381,22 +381,23 @@ async::result<void> Controller::KbdDevice::run() {
 	_evDev->enableEvent(EV_KEY, KEY_KPENTER);
 
 	// Create an mbus object for the partition.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"unix.subsystem", mbus::StringItem{"input"}}
+	mbus_ng::Properties descriptor{
+		{"unix.subsystem", mbus_ng::StringItem{"input"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		libevbackend::serveDevice(_evDev, std::move(local_lane));
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+		"ps2kbd", descriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (auto evDev, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject("ps2kbd", descriptor, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			libevbackend::serveDevice(evDev, std::move(localLane));
+		}
+	}(_evDev, std::move(entity));
 
 	// Finalize the device initialization.
 	auto res3 = co_await _port->submitCommand(device_cmd::EnableScan{});
@@ -465,22 +466,23 @@ async::result<void> Controller::MouseDevice::run() {
 	}
 
 	// Create an mbus object for the partition.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"unix.subsystem", mbus::StringItem{"input"}}
+	mbus_ng::Properties descriptor{
+		{"unix.subsystem", mbus_ng::StringItem{"input"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		libevbackend::serveDevice(_evDev, std::move(local_lane));
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+		"ps2mouse", descriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (auto evDev, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject("ps2mouse", descriptor, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			libevbackend::serveDevice(evDev, std::move(localLane));
+		}
+	}(_evDev, std::move(entity));
 
 	// Finalize the device initialization.
 	auto res3 = co_await _port->submitCommand(device_cmd::EnableScan{});
