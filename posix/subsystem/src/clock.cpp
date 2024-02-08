@@ -12,13 +12,11 @@ namespace clk {
 
 namespace {
 
-async::oneshot_event foundTracker;
-
 helix::UniqueLane trackerLane;
 helix::UniqueDescriptor globalTrackerPageMemory;
 helix::Mapping trackerPageMapping;
 
-async::detached fetchTrackerPage() {
+async::result<void> fetchTrackerPage() {
 	managarm::clock::AccessPageRequest req;
 
 	auto [offer, sendReq, recvResp, pullMemory] = co_await helix_ng::exchangeMsgs(
@@ -42,8 +40,6 @@ async::detached fetchTrackerPage() {
 	globalTrackerPageMemory = pullMemory.descriptor();
 
 	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000};
-
-	foundTracker.raise();
 }
 
 } // anonymous namespace
@@ -53,22 +49,17 @@ helix::BorrowedDescriptor trackerPageMemory() {
 }
 
 async::result<void> enumerateTracker() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "clocktracker"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "clocktracker")
-	});
-	
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
-		std::cout << "POSIX: Found clocktracker" << std::endl;
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-		trackerLane = helix::UniqueLane(co_await entity.bind());
-		fetchTrackerPage();
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundTracker.wait();
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	trackerLane = (co_await entity.getRemoteLane()).unwrap();
+	co_await fetchTrackerPage();
 }
 
 struct timespec getRealtime() {
