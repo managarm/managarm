@@ -60,32 +60,39 @@ private:
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"drm"};
 
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"unix.subsystem", "drm"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.subsystem", "drm")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
-		int index = minorAllocator.allocate();
-		std::cout << "POSIX: Installing DRM device "
-				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
-		auto parent_property = std::get<mbus::StringItem>(properties.at("drvcore.mbus-parent"));
-		auto mbus_parent = std::stoi(parent_property.value);
-		auto pci_parent = pci_subsystem::getDeviceByMbus(mbus_parent);
-		assert(pci_parent);
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-		auto lane = helix::UniqueLane(co_await entity.bind());
-		auto device = std::make_shared<Device>(index, std::move(lane), pci_parent);
-		// The minor is only correct for card* devices but not for control* and render*.
-		device->assignId({226, index});
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			auto &properties = event.properties;
 
-		charRegistry.install(device);
-		drvcore::installDevice(device);
-	});
+			int index = minorAllocator.allocate();
+			std::cout << "POSIX: Installing DRM device "
+				<< std::get<mbus_ng::StringItem>(properties.at("unix.devname")).value << std::endl;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto parentProperty = std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
+			auto mbusParent = std::stoi(parentProperty.value);
+			auto pciParent = pci_subsystem::getDeviceByMbus(mbusParent);
+			assert(pciParent);
+
+			auto lane = (co_await entity.getRemoteLane()).unwrap();
+			auto device = std::make_shared<Device>(index, std::move(lane), pciParent);
+			// The minor is only correct for card* devices but not for control* and render*.
+			device->assignId({226, index});
+
+			charRegistry.install(device);
+			drvcore::installDevice(device);
+		}
+	}
 }
 
 } // namespace drm_subsystem
