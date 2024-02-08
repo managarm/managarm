@@ -16,7 +16,7 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	if (offerError != Error::success)
 		co_return offerError;
 
-	managarm::mbus::CreateObjectNgRequest<KernelAlloc> req(*kernelAlloc);
+	managarm::mbus::CreateObjectRequest<KernelAlloc> req(*kernelAlloc);
 	req.set_name(frg::string<KernelAlloc>{name, *kernelAlloc});
 
 	for (auto property : properties.properties_) {
@@ -49,7 +49,7 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	if (!descriptor.is<LaneDescriptor>())
 		co_return Error::protocolViolation;
 
-	auto resp = bragi::parse_head_only<managarm::mbus::CreateObjectNgResponse>(respBuffer, *kernelAlloc);
+	auto resp = bragi::parse_head_only<managarm::mbus::CreateObjectResponse>(respBuffer, *kernelAlloc);
 	if (!resp)
 		co_return Error::protocolViolation;
 	if (resp->error() != managarm::mbus::Error::SUCCESS)

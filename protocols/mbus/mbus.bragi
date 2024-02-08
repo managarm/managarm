@@ -42,61 +42,53 @@ struct Entity {
 	Property[] properties;
 }
 
-// Client -> server
 
-group {
-
-message GetRootRequest 1 {
+message CreateObjectRequest 1 {
 head(128):
+tail:
+	string name;
+	Property[] properties;
 }
 
-message GetPropertiesRequest 2 {
+message CreateObjectResponse 2 {
+head(128):
+	Error error;
+	int64 id;
+}
+
+
+message GetPropertiesRequest 3 {
 head(128):
 	int64 id;
 }
 
-message CreateObjectRequest 3 {
+message GetPropertiesResponse 4 {
 head(128):
-	int64 parent_id;
+	Error error;
 tail:
 	Property[] properties;
 }
 
-message LinkObserverRequest 4 {
-head(128):
-	int64 id;
-tail:
-	AnyFilter filter;
-}
 
 message GetRemoteLaneRequest 5 {
 head(128):
 	int64 id;
 }
 
-message EnumerateRequest 6 {
+message GetRemoteLaneResponse 6 {
+head(128):
+	Error error;
+}
+
+
+message EnumerateRequest 7 {
 head(128):
 	uint64 seq;
 tail:
 	AnyFilter filter;
 }
 
-message SvrResponse 7 {
-head(128):
-	Error error;
-	tags {
-		tag(1) int64 id;
-	}
-}
-
-message GetPropertiesResponse 8 {
-head(128):
-	Error error;
-tail:
-	Property[] properties;
-}
-
-message EnumerateResponse 9 {
+message EnumerateResponse 8 {
 head(128):
 	Error error;
 	uint64 out_seq;    // Sequence of last entity we returned
@@ -105,55 +97,12 @@ tail:
 	Entity[] entities;
 }
 
-message CreateObjectNgRequest 10 {
+
+message ServeRemoteLaneRequest 9 {
 head(128):
-tail:
-	string name;
-	Property[] properties;
 }
 
-message CreateObjectNgResponse 11 {
+message ServeRemoteLaneResponse 10 {
 head(128):
 	Error error;
-	int64 id;
-}
-
-message GetRemoteLaneResponse 12 {
-head(128):
-	Error error;
-}
-
-message ServeRemoteLaneRequest 13 {
-head(128):
-}
-
-message ServeRemoteLaneResponse 14 {
-head(128):
-	Error error;
-}
-
-}
-
-// TODO(qookie): Ideally we get rid of these, turning BIND into a client -> client request,
-//               and reworking how observing works.
-// Server -> client
-
-group {
-
-message S2CBindRequest 1 {
-head(128):
-}
-
-message AttachRequest 2 {
-head(128):
-	int64 id;
-tail:
-	Property[] properties;
-}
-
-message CntResponse 3 {
-head(128):
-	Error error;
-}
-
 }
