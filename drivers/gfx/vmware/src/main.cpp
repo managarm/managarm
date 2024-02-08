@@ -719,10 +719,10 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 
 // ----------------------------------------------------------------
 
-async::result<void> setupDevice(mbus::Entity entity) {
+async::result<void> setupDevice(mbus_ng::Entity hwEntity) {
 	std::cout << "gfx/vmware: setting up the device" << std::endl;
 
-	protocols::hw::Device pci_device(co_await entity.bind());
+	protocols::hw::Device pci_device((co_await hwEntity.getRemoteLane()).unwrap());
 	auto info = co_await pci_device.getPciInfo();
 
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
@@ -737,52 +737,57 @@ async::result<void> setupDevice(mbus::Entity entity) {
 	auto fb_bar_info = info.barInfo[1];
 	auto fifo_bar_info = info.barInfo[2];
 
-	auto gfx_device = std::make_shared<GfxDevice>(std::move(pci_device),
+	auto gfxDevice = std::make_shared<GfxDevice>(std::move(pci_device),
 			helix::Mapping{fb_bar, 0, fb_bar_info.length},
 			helix::Mapping{fifo_bar, 0, fifo_bar_info.length},
 			std::move(io_bar), io_bar_info.address);
 
-	auto config = co_await gfx_device->initialize();
+	auto config = co_await gfxDevice->initialize();
 
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
-		{"unix.subsystem", mbus::StringItem{"drm"}},
-		{"unix.devname", mbus::StringItem{"dri/card"}}
+	// Create an mbus object for the device.
+	mbus_ng::Properties descriptor{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(hwEntity.id())}},
+		{"unix.subsystem", mbus_ng::StringItem{"drm"}},
+		{"unix.devname", mbus_ng::StringItem{"dri/card"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		drm_core::serveDrmDevice(gfx_device, std::move(local_lane));
-
-		co_return std::move(remote_lane);
-	});
-
 	co_await config->waitForCompletion();
-	co_await root.createObject("gfx_vmware", descriptor, std::move(handler));
+
+	auto gfxEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"gfx_vmware", descriptor)).unwrap();
+
+	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			drm_core::serveDrmDevice(device, std::move(localLane));
+		}
+	}(gfxDevice, std::move(gfxEntity));
+
+	baseDeviceMap.insert({hwEntity.id(), gfxDevice});
 }
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	std::cout << "gfx/vmware: Binding to device " << base_id << std::endl;
-	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
+	auto baseEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
 
 	// Do not bind to devices that are already bound to this driver.
-	if(baseDeviceMap.find(base_entity.getId()) != baseDeviceMap.end())
+	if(baseDeviceMap.find(baseEntity.id()) != baseDeviceMap.end())
 		co_return protocols::svrctl::Error::success;
 
 	// Make sure that we only bind to supported devices.
-	auto properties = co_await base_entity.getProperties();
-	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+	auto properties = (co_await baseEntity.getProperties()).unwrap();
+	if(auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
 			!vendor_str || vendor_str->value != "15ad")
 		co_return protocols::svrctl::Error::deviceNotSupported;
-	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+	if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]);
 			!device_str || device_str->value != "0405")
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	co_await setupDevice(base_entity);
+	co_await setupDevice(std::move(baseEntity));
 	co_return protocols::svrctl::Error::success;
 }
 
