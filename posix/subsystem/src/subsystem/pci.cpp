@@ -243,21 +243,21 @@ async::result<frg::expected<Error, std::string>> IrqAttribute::show(sysfs::Objec
 	co_return "0\n";
 }
 
-async::detached bind(mbus::Entity entity, mbus::Properties properties) {
-	auto type = std::get<mbus::StringItem>(properties["pci-type"]).value;
+async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
+	auto type = std::get<mbus_ng::StringItem>(properties["pci-type"]).value;
 
 	if(type == "pci-device" || type == "pci-bridge") {
-		auto segment = std::get<mbus::StringItem>(properties["pci-segment"]).value;
-		auto bus = std::get<mbus::StringItem>(properties["pci-bus"]).value;
-		auto parentId = std::stoi(std::get<mbus::StringItem>(properties["drvcore.mbus-parent"]).value);
+		auto segment = std::get<mbus_ng::StringItem>(properties["pci-segment"]).value;
+		auto bus = std::get<mbus_ng::StringItem>(properties["pci-bus"]).value;
+		auto parentId = std::stoi(std::get<mbus_ng::StringItem>(properties["drvcore.mbus-parent"]).value);
 
 		std::string sysfs_name = segment + ":" + bus
-				+ ":" + std::get<mbus::StringItem>(properties["pci-slot"]).value
-				+ "." + std::get<mbus::StringItem>(properties["pci-function"]).value;
+				+ ":" + std::get<mbus_ng::StringItem>(properties["pci-slot"]).value
+				+ "." + std::get<mbus_ng::StringItem>(properties["pci-function"]).value;
 
 		// TODO: Add bus/slot/function to this message.
 		std::cout << "POSIX: Installing PCI device " << sysfs_name
-				<< " (mbus ID: " << entity.getId() << ")" << std::endl;
+				<< " (mbus ID: " << entity.id() << ")" << std::endl;
 
 		std::shared_ptr<drvcore::Device> parentObj;
 
@@ -270,28 +270,28 @@ async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 			co_await mbusMapAddition.async_wait();
 		}
 
-		protocols::hw::Device hw_device{co_await entity.bind()};
+		protocols::hw::Device hwDevice{(co_await entity.getRemoteLane()).unwrap()};
 
-		auto device = std::make_shared<Device>(sysfs_name, entity.getId(), std::move(hw_device), parentObj);
-		device->pciBus = std::stoi(std::get<mbus::StringItem>(
+		auto device = std::make_shared<Device>(sysfs_name, entity.id(), std::move(hwDevice), parentObj);
+		device->pciBus = std::stoi(std::get<mbus_ng::StringItem>(
 				properties["pci-bus"]).value, 0, 16);
-		device->pciSlot = std::stoi(std::get<mbus::StringItem>(
+		device->pciSlot = std::stoi(std::get<mbus_ng::StringItem>(
 				properties["pci-slot"]).value, 0, 16);
-		device->pciFunction = std::stoi(std::get<mbus::StringItem>(
+		device->pciFunction = std::stoi(std::get<mbus_ng::StringItem>(
 				properties["pci-function"]).value, 0, 16);
-		device->vendorId = std::stoi(std::get<mbus::StringItem>(
+		device->vendorId = std::stoi(std::get<mbus_ng::StringItem>(
 				properties["pci-vendor"]).value, 0, 16);
-		device->deviceId = std::stoi(std::get<mbus::StringItem>(
+		device->deviceId = std::stoi(std::get<mbus_ng::StringItem>(
 				properties["pci-device"]).value, 0, 16);
 		if(type == "pci-device") {
-			device->subsystemVendorId = std::stoi(std::get<mbus::StringItem>(
+			device->subsystemVendorId = std::stoi(std::get<mbus_ng::StringItem>(
 					properties["pci-subsystem-vendor"]).value, 0, 16);
-			device->subsystemDeviceId = std::stoi(std::get<mbus::StringItem>(
+			device->subsystemDeviceId = std::stoi(std::get<mbus_ng::StringItem>(
 					properties["pci-subsystem-device"]).value, 0, 16);
 		}
 
 		if(properties.find("class") != properties.end()
-				&& std::get<mbus::StringItem>(properties["class"]).value == "framebuffer")
+				&& std::get<mbus_ng::StringItem>(properties["class"]).value == "framebuffer")
 			device->ownsPlainfb = true;
 
 		drvcore::installDevice(device);
@@ -325,21 +325,21 @@ async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 			}
 		}
 
-		mbusMap.insert(std::make_pair(entity.getId(), device));
+		mbusMap.insert(std::make_pair(entity.id(), device));
 		mbusMapAddition.raise();
 	} else if(type == "pci-root-bus") {
-		auto segment = std::get<mbus::StringItem>(properties["pci-segment"]).value;
-		auto bus = std::get<mbus::StringItem>(properties["pci-bus"]).value;
+		auto segment = std::get<mbus_ng::StringItem>(properties["pci-segment"]).value;
+		auto bus = std::get<mbus_ng::StringItem>(properties["pci-bus"]).value;
 
 		std::string sysfs_name = "pci" + segment + ":" + bus;
 
-		auto device = std::make_shared<RootPort>(sysfs_name, entity.getId());
+		auto device = std::make_shared<RootPort>(sysfs_name, entity.id());
 		drvcore::installDevice(device);
 
 		std::cout << "POSIX: Installed PCI root bus " << sysfs_name
-				<< " (mbus ID: " << entity.getId() << ")" << std::endl;
+				<< " (mbus ID: " << entity.id() << ")" << std::endl;
 
-		mbusMap.insert(std::make_pair(entity.getId(), device));
+		mbusMap.insert(std::make_pair(entity.id(), device));
 		mbusMapAddition.raise();
 	} else {
 		std::cout << "posix: unsupported PCI dev type '" << type << "'" << std::endl;
@@ -350,18 +350,23 @@ async::detached bind(mbus::Entity entity, mbus::Properties properties) {
 async::detached run() {
 	sysfsSubsystem = new drvcore::BusSubsystem{"pci"};
 
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.subsystem", "pci")
+	auto filter = mbus_ng::Conjunction({
+		mbus_ng::EqualsFilter{"unix.subsystem", "pci"}
 	});
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
-		bind(std::move(entity), std::move(properties));
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+
+			bind(std::move(entity), std::move(event.properties));
+		}
+	}
 }
 
 std::shared_ptr<drvcore::Device> getDeviceByMbus(int id) {
