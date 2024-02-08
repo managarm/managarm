@@ -64,7 +64,7 @@ constexpr const char *completionCodeNames[256] = {
 
 struct Controller final : proto::BaseController {
 	Controller(protocols::hw::Device hw_device,
-			mbus::Entity entity,
+			mbus_ng::Entity entity,
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio,
 			helix::UniqueIrq irq, bool useMsis);
@@ -142,7 +142,7 @@ private:
 	};
 
 	struct RootHub final : proto::Hub {
-		RootHub(Controller *controller, SupportedProtocol &proto, mbus::Entity entity);
+		RootHub(Controller *controller, SupportedProtocol &proto, mbus_ng::EntityManager entity);
 
 		size_t numPorts() override;
 		async::result<proto::PortState> pollState(int port) override;
@@ -153,14 +153,14 @@ private:
 		}
 
 		auto entityId() {
-			return _entity.getId();
+			return _entity.id();
 		}
 
 	private:
 		Controller *_controller;
 		SupportedProtocol *_proto;
 		std::vector<std::unique_ptr<Port>> _ports;
-		mbus::Entity _entity;
+		mbus_ng::EntityManager _entity;
 	};
 
 	struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
@@ -313,7 +313,7 @@ private:
 
 	bool _largeCtx;
 
-	mbus::Entity _entity;
+	mbus_ng::Entity _entity;
 };
 
 
