@@ -11,8 +11,8 @@
 
 #include "console.hpp"
 
-async::detached bindDevice(mbus::Entity entity) {
-	protocols::hw::Device hwDevice(co_await entity.bind());
+async::detached bindDevice(mbus_ng::Entity hwEntity) {
+	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
 	co_await hwDevice.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::transitional);
@@ -22,20 +22,24 @@ async::detached bindDevice(mbus::Entity entity) {
 }
 
 async::detached observeDevices() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"pci-vendor", "1af4"},
+		mbus_ng::EqualsFilter{"pci-device", "1003"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-vendor", "1af4"),
-		mbus::EqualsFilter("pci-device", "1003")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		std::cout << "virtio-console: Detected device" << std::endl;
-		bindDevice(std::move(entity));
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			std::cout << "virtio-console: Detected controller" << std::endl;
+			bindDevice(std::move(entity));
+		}
+	}
 }
 
 // --------------------------------------------------------
