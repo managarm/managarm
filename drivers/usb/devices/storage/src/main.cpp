@@ -198,8 +198,8 @@ async::result<size_t> StorageDevice::getSize() {
 	co_return 0;
 }
 
-async::detached bindDevice(mbus::Entity entity) {
-	auto lane = helix::UniqueLane(co_await entity.bind());
+async::detached bindDevice(mbus_ng::Entity entity) {
+	auto lane = (co_await entity.getRemoteLane()).unwrap();
 	auto device = proto::connect(std::move(lane));
 
 	std::optional<int> config_number;
@@ -261,20 +261,23 @@ async::detached bindDevice(mbus::Entity entity) {
 }
 
 async::detached observeDevices() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"usb.type", "device"},
+		mbus_ng::EqualsFilter{"usb.class", "00"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("usb.type", "device"),
-		mbus::EqualsFilter("usb.class", "00")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		bindDevice(std::move(entity));
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			bindDevice(std::move(entity));
+		}
+	}
 }
 
 // --------------------------------------------------------
