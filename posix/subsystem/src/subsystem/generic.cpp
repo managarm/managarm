@@ -62,61 +62,51 @@ uint64_t allocateDeviceIds(std::string type) {
 	}
 }
 
+async::detached observeDevices(VfsType devType, auto registry, int major) {
+	const char *typeStr = devType == VfsType::blockDevice ? "block" : "char";
+
+	auto filter = mbus_ng::Conjunction({
+		mbus_ng::EqualsFilter {"generic.devtype", typeStr}
+	});
+
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+
+			auto name = std::get<mbus_ng::StringItem>(event.properties.at("generic.devname"));
+			auto id = allocateDeviceIds(name.value);
+
+			auto sysfs_name = name.value + std::to_string(id);
+
+			std::cout << "POSIX: Installing " << typeStr << " device "
+					<< sysfs_name << std::endl;
+
+			auto lane = (co_await entity.getRemoteLane()).unwrap();
+			auto device = std::make_shared<Device>(devType,
+					sysfs_name, std::move(lane));
+
+			// We use a fixed major here, and allocate minors sequentially.
+			device->assignId({major, minorAllocator.allocate()});
+			registry.install(device);
+		}
+	}
+}
+
 } // anonymous namepsace
 
-async::detached run() {
-	auto root = co_await mbus::Instance::global().getRoot();
-
+void run() {
 	ttyUsbAllocator.use_range(0);
 	ttySAllocator.use_range(0);
 	driCardAllocator.use_range(0);
 
-	auto blockFilter = mbus::Conjunction({
-		mbus::EqualsFilter("generic.devtype", "block")
-	});
-
-	auto charFilter = mbus::Conjunction({
-		mbus::EqualsFilter("generic.devtype", "char")
-	});
-	
-	auto blockHandler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
-		auto name = std::get<mbus::StringItem>(properties.at("generic.devname"));
-		auto id = allocateDeviceIds(name.value);
-
-		auto sysfs_name = name.value + std::to_string(id);
-
-		std::cout << "POSIX: Installing block device "
-				<< sysfs_name << std::endl;
-
-		auto lane = helix::UniqueLane(co_await entity.bind());
-		auto device = std::make_shared<Device>(VfsType::blockDevice,
-				sysfs_name, std::move(lane));
-		// We use 240 here, the major for block devices local and experimental use and allocate minors sequentially.
-		device->assignId({240, minorAllocator.allocate()});
-		blockRegistry.install(device);
-	});
-
-	auto charHandler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
-		auto name = std::get<mbus::StringItem>(properties.at("generic.devname"));
-		auto id = allocateDeviceIds(name.value);
-
-		auto sysfs_name = name.value + std::to_string(id);
-
-		std::cout << "POSIX: Installing char device "
-				<< sysfs_name << std::endl;
-
-		auto lane = helix::UniqueLane(co_await entity.bind());
-		auto device = std::make_shared<Device>(VfsType::charDevice,
-				sysfs_name, std::move(lane));
-		// We use 234 here, the major for char devices dynamic allocation and allocate minors sequentially.
-		device->assignId({234, minorAllocator.allocate()});
-		charRegistry.install(device);
-	});
-
-	co_await root.linkObserver(std::move(blockFilter), std::move(blockHandler));
-	co_await root.linkObserver(std::move(charFilter), std::move(charHandler));
+	observeDevices(VfsType::blockDevice, blockRegistry, 240);
+	observeDevices(VfsType::charDevice, charRegistry, 234);
 }
 
 } // namespace generic_subsystem
