@@ -27,12 +27,13 @@ async::result<void> enumerateBus() {
 			if(event.type != mbus_ng::EnumerationEvent::Type::created)
 				continue;
 
-			std::cout << "found mbus entity:\n";
+			std::cout << "Entity \"" << event.name << "\" (ID " << event.id << "):\n";
 			for(auto &[name, value] : event.properties) {
-				std::cout << "\tproperty: \"" << name << "\": ";
+				std::cout << "\t" << name << ": ";
 				std::visit(PrintVisitor {}, value);
 				std::cout << std::endl;
 			}
+			std::cout << "\n";
 		}
 
 		if (!paginated)
