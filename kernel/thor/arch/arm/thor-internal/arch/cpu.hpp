@@ -303,7 +303,7 @@ struct AssemblyCpuData {
 
 static inline constexpr size_t maxAsid = 256;
 
-struct GicCpuInterface;
+struct GicCpuInterfaceV2;
 
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
@@ -321,7 +321,8 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	bool preemptionIsArmed = false;
 
-	GicCpuInterface *gicCpuInterface = nullptr;
+	GicCpuInterfaceV2 *gicCpuInterfaceV2 = nullptr;
+	uint32_t affinity;
 
 	// TODO: This is not really arch-specific!
 	smarter::borrowed_ptr<Thread> activeExecutor;

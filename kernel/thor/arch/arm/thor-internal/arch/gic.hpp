@@ -7,92 +7,42 @@
 
 namespace thor {
 
-struct GicCpuInterface;
+struct Gic {
+	virtual void sendIpi(int cpuId, uint8_t id) = 0;
+	virtual void sendIpiToOthers(uint8_t id) = 0;
 
-struct GicDistributor {
-	friend struct GicCpuInterface;
-
-	GicDistributor(uintptr_t addr);
-
-	void init();
-	void initOnThisCpu();
-	void sendIpi(uint8_t ifaceNo, uint8_t id);
-	void sendIpiToOthers(uint8_t id);
-	void dumpPendingSgis();
-
-	frg::string<KernelAlloc> buildPinName(uint32_t irq);
-
-	struct Pin : IrqPin {
-		virtual ~Pin() = default;
-
-		friend struct GicDistributor;
-
-		Pin(GicDistributor *parent, uint32_t irq)
-		: IrqPin{parent->buildPinName(irq)}, parent_{parent}, irq_{irq} {}
-
-		IrqStrategy program(TriggerMode mode, Polarity polarity) override;
-		void mask() override;
-		void unmask() override;
-		void sendEoi() override;
-
-		void activate();
-		void deactivate();
-
-		bool setMode(TriggerMode trigger, Polarity polarity);
-
-	private:
-		void setAffinity_(uint8_t ifaceNo);
-		void setPriority_(uint8_t prio);
-
-		GicDistributor *parent_;
-		uint32_t irq_;
+	struct CpuIrq {
+		uint32_t cpu;
+		uint32_t irq;
 	};
 
-	Pin *setupIrq(uint32_t irq, TriggerMode mode);
-	Pin *getPin(uint32_t irq) {
-		if (irq >= irqPins_.size())
-			return nullptr;
+	virtual CpuIrq getIrq() = 0;
+	virtual void eoi(uint32_t cpuId, uint32_t id) = 0;
 
-		return irqPins_[irq];
-	}
+	struct Pin : public IrqPin {
+		virtual ~Pin() = default;
 
-private:
-	uint8_t getCurrentCpuIfaceNo_();
+		Pin(frg::string<KernelAlloc> name)
+		: IrqPin{std::move(name)} {}
 
-	uintptr_t base_;
-	arch::mem_space space_;
-	frg::vector<Pin *, KernelAlloc> irqPins_;
-};
+		virtual bool setMode(TriggerMode trigger, Polarity polarity) = 0;
 
-struct GicCpuInterface {
-	GicCpuInterface(GicDistributor *dist, uintptr_t addr, size_t size);
+		virtual IrqStrategy program(TriggerMode mode, Polarity polarity) override = 0;
 
-	void init();
+		virtual void mask() override = 0;
+		virtual void unmask() override = 0;
 
-	// returns {cpuId, irqId}
-	frg::tuple<uint8_t, uint32_t> get();
-	void eoi(uint8_t cpuId, uint32_t irqId);
+		virtual void sendEoi() override = 0;
+	};
 
-	uint8_t getCurrentPriority();
-
-	GicDistributor *getDistributor() const {
-		return dist_;
-	}
-
-	uint8_t interfaceNumber() const {
-		return ifaceNo_;
-	}
-
-private:
-	GicDistributor *dist_;
-	arch::mem_space space_;
-	bool useSplitEoiDeact_;
-
-	uint8_t ifaceNo_;
+	virtual Pin *setupIrq(uint32_t irq, TriggerMode trigger) = 0;
+	virtual Pin *getPin(uint32_t irq) = 0;
 };
 
 initgraph::Stage *getIrqControllerReadyStage();
 
 void initGicOnThisCpu();
+
+extern Gic *gic;
 
 }

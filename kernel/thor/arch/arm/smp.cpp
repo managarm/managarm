@@ -82,8 +82,6 @@ namespace {
 	}
 }
 
-extern frg::manual_box<GicDistributor> dist;
-
 bool bootSecondary(DeviceTreeNode *node) {
 	infoLogger() << "thor: Starting CPU \"" << node->path() << "\"" << frg::endlog;
 	uint8_t id = node->reg()[0].addr;

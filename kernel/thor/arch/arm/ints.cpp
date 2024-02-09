@@ -21,14 +21,12 @@ void suspendSelf() {
 	enableIntsAndHaltForever();
 }
 
-extern frg::manual_box<GicDistributor> dist;
-
 void sendPingIpi(int id) {
-	dist->sendIpi(getCpuData(id)->gicCpuInterface->interfaceNumber(), 0);
+	gic->sendIpi(id, 0);
 }
 
 void sendShootdownIpi() {
-	dist->sendIpiToOthers(1);
+	gic->sendIpiToOthers(1);
 }
 
 extern "C" void onPlatformInvalidException(FaultImageAccessor image) {
@@ -207,9 +205,7 @@ static constexpr bool logSGIs = false;
 static constexpr bool logSpurious = false;
 
 extern "C" void onPlatformIrq(IrqImageAccessor image) {
-	auto &cpuInterface = getCpuData()->gicCpuInterface;
-
-	auto [cpu, irq] = cpuInterface->get();
+	auto [cpu, irq] = gic->getIrq();
 
 	asm volatile ("isb" ::: "memory");
 
@@ -217,7 +213,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 		if constexpr (logSGIs)
 			infoLogger() << "thor: onPlatformIrq: on CPU " << getCpuData()->cpuIndex << ", got a SGI (no. " << irq << ") that originated from CPU " << cpu << frg::endlog;
 
-		cpuInterface->eoi(cpu, irq);
+		gic->eoi(cpu, irq);
 
 		if (irq == 0) {
 			handlePreemption(image);
