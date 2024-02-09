@@ -18,8 +18,8 @@ namespace thor {
 struct DeviceTreeNode {
 	DeviceTreeNode(DeviceTreeNode *parent)
 	: parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
-	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{2}, hasAddressCells_{false},
-	sizeCells_{1}, hasSizeCells_{false}, interruptCells_{}, hasInterruptCells_{false},
+	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
+	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
 	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
 	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
 	interruptMapRaw_{nullptr, 0}, interruptController_{false},
