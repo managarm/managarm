@@ -248,6 +248,10 @@ static inline frg::array<frg::string_view, 12> dtGicV2Compatible = {
 	"qcom,msm-qgic2"
 };
 
+static inline frg::array<frg::string_view, 1> dtGicV3Compatible = {
+	"arm,gic-v3"
+};
+
 static inline frg::array<frg::string_view, 3> dtPciCompatible = {
 	"pci-host-cam-generic",
 	"pci-host-ecam-generic",

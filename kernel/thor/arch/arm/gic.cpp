@@ -1,5 +1,6 @@
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/gic_v2.hpp>
+#include <thor-internal/arch/gic_v3.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 
@@ -15,6 +16,8 @@ static initgraph::Task initGic{&globalInitEngine, "arm.init-gic",
 	[] {
 		if (initGicV2()) {
 			gicVersion = 2;
+		} else if (initGicV3()) {
+			gicVersion = 3;
 		} else {
 			assert(!"Failed to find GIC");
 		}
@@ -30,6 +33,8 @@ initgraph::Stage *getIrqControllerReadyStage() {
 void initGicOnThisCpu() {
 	if (gicVersion == 2) {
 		initGicOnThisCpuV2();
+	} else if (gicVersion == 3) {
+		initGicOnThisCpuV3();
 	} else {
 		assert(!"Unhandled gic version");
 	}

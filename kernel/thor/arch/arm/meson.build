@@ -7,6 +7,7 @@ src += files(
 	'debug.cpp',
 	'gic.cpp',
 	'gic_v2.cpp',
+	'gic_v3.cpp',
 	'ints.cpp',
 	'paging.cpp',
 	'system.cpp',
