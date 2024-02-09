@@ -298,6 +298,7 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 
 		EnumerationEvent event{};
 		event.id = entity.id();
+		event.name = entity.name();
 		event.type = unseen ? created : propertiesChanged;
 		for(auto &kv : entity.properties())
 			event.properties.insert({ kv.name(), StringItem{ kv.string_item() } });

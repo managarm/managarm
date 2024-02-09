@@ -110,6 +110,7 @@ struct EnumerationEvent {
 	} type;
 
 	EntityId id;
+	std::string name;
 	Properties properties;
 };
 

@@ -31,9 +31,9 @@
 // --------------------------------------------------------
 
 struct Entity {
-	explicit Entity(int64_t id, uint64_t seq,
+	explicit Entity(int64_t id, uint64_t seq, std::string name,
 			std::unordered_map<std::string, std::string> properties)
-	: _id{id}, _seq{seq}, _properties{std::move(properties)} { }
+	: _id{id}, _seq{seq}, _name{name}, _properties{std::move(properties)} { }
 
 	int64_t id() const {
 		return _id;
@@ -41,6 +41,10 @@ struct Entity {
 
 	uint64_t seq() const {
 		return _seq;
+	}
+
+	const std::string &name() const & {
+		return _name;
 	}
 
 	const std::unordered_map<std::string, std::string> &getProperties() const {
@@ -59,6 +63,7 @@ struct Entity {
 private:
 	int64_t _id;
 	uint64_t _seq;
+	std::string _name;
 	std::unordered_map<std::string, std::string> _properties;
 
 	struct SubmittedLane {
@@ -207,6 +212,7 @@ tryEnumerate(managarm::mbus::EnumerateResponse &resp, uint64_t inSeq, const AnyF
 
 		managarm::mbus::Entity protoEntity;
 		protoEntity.set_id(cur->id());
+		protoEntity.set_name(cur->name());
 		for(auto kv : cur->getProperties()) {
 			managarm::mbus::Property prop;
 			prop.set_name(kv.first);
@@ -413,7 +419,7 @@ async::detached serve(helix::UniqueLane lane) {
 			//               (e.g. see doEnumerate pagination logic).
 			auto seq = globalSeq.next_sequence() - 1;
 			auto child = std::make_shared<Entity>(nextEntityId++, seq,
-					std::move(properties));
+					std::move(req->name()), std::move(properties));
 
 			allEntities.insert({ child->id(), child });
 			entitySeqTree.insert(child.get());

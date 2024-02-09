@@ -39,6 +39,7 @@ struct AnyFilter {
 
 struct Entity {
 	int64 id;
+	string name;
 	Property[] properties;
 }
 
