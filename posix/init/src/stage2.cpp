@@ -156,6 +156,29 @@ int main() {
 		udev_device_unref(dev);
 	}
 
+	// Launch dbus if it's available.
+	if(!access("/usr/bin/dbus-daemon", X_OK)) {
+		mkdir("/run/dbus", 01777);
+		mkdir("/var/lib/dbus", 01777);
+		if(access("/var/lib/dbus/machine-id", F_OK)) {
+			auto dbus_uuidgen = fork();
+			if(!dbus_uuidgen) {
+				execl("/usr/bin/dbus-uuidgen", "dbus-uuidgen", "--ensure", nullptr);
+			}else assert(dbus_uuidgen != -1);
+
+			waitpid(dbus_uuidgen, nullptr, 0);
+		}
+
+		if(access("/etc/machine-id", F_OK)) {
+			symlink("/var/lib/dbus/machine-id", "/etc/machine-id");
+		}
+
+		auto dbus = fork();
+		if(!dbus) {
+			execl("/usr/bin/dbus-daemon", "dbus-daemon", "--system", nullptr);
+		}else assert(dbus != -1);
+	}
+
 	// Finally, launch into kmscon/Weston.
 	auto desktop = fork();
 	if(!desktop) {
