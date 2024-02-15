@@ -248,7 +248,7 @@ void Controller::run() {
 	auto plane = reinterpret_cast<uint32_t *>(_memory);
 	for(size_t x = 0; x < fb.width; x++)
 		for(size_t y = 0; y < fb.height; y++)
-			plane[y * fb.width + x] = (x / 5) | ((y / 4) << 8);
+			plane[y * fb.width + x] = (x / 5) | ((y >> 2) << 8);
 
 	// Perform the mode setting.
 	auto multiplier = computeSdvoMultiplier(mode.dot);
