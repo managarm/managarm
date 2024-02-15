@@ -43,26 +43,22 @@ struct Packet {
 struct Channel {
 	Channel(int pts_index)
 	: ptsIndex{pts_index}, currentSeq{1}, masterInSeq{0}, slaveInSeq{0} {
-		auto ctrl = [] (char c) -> char { // Convert ^X to X.
-			return c - 64;
-		};
-
 		memset(&activeSettings, 0, sizeof(struct termios));
 		// cflag: Linux also stores a baud rate here.
 		// lflag: Linux additionally sets ECHOCTL, ECHOKE (which we do not have).
 		activeSettings.c_iflag = ICRNL | IXON;
 		activeSettings.c_oflag = OPOST | ONLCR;
 		activeSettings.c_cflag = CS8 | CREAD | HUPCL;
-		activeSettings.c_lflag = ECHO | ECHOE | ECHOK | ISIG | ICANON | IEXTEN;
-		activeSettings.c_cc[VINTR] = ctrl('C');
-		activeSettings.c_cc[VEOF] = ctrl('D');
-		activeSettings.c_cc[VKILL] = ctrl('U');
-		activeSettings.c_cc[VSTART] = ctrl('Q');
-		activeSettings.c_cc[VSTOP] = ctrl('S');
-		activeSettings.c_cc[VSUSP] = ctrl('Z');
-		activeSettings.c_cc[VQUIT] = ctrl('\\');
-		activeSettings.c_cc[VERASE] = 127; // DEL character.
-		activeSettings.c_cc[VMIN] = 1;
+		activeSettings.c_lflag = TTYDEF_LFLAG;
+		activeSettings.c_cc[VINTR] = CINTR;
+		activeSettings.c_cc[VEOF] = CEOF;
+		activeSettings.c_cc[VKILL] = CKILL;
+		activeSettings.c_cc[VSTART] = CSTART;
+		activeSettings.c_cc[VSTOP] = CSTOP;
+		activeSettings.c_cc[VSUSP] = CSUSP;
+		activeSettings.c_cc[VQUIT] = CQUIT;
+		activeSettings.c_cc[VERASE] = CERASE; // DEL character.
+		activeSettings.c_cc[VMIN] = CMIN;
 	}
 
 	async::result<void> commonIoctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation);

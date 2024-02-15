@@ -1,0 +1,5 @@
+
+name: usb-serial
+exec: /usr/bin/usb_serial
+files:
+  - /usr/bin/usb_serial

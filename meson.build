@@ -190,7 +190,7 @@ if build_drivers
 		'kbd', 'tty/virtio-console', 'uart',
 		# usb
 		'usb/hcds/uhci', 'usb/hcds/ehci', 'usb/hcds/xhci',
-		'usb/devices/hid', 'usb/devices/storage',
+		'usb/devices/hid', 'usb/devices/storage', 'usb/devices/serial',
 		# misc
 		'kernletcc'
 	]
@@ -229,7 +229,7 @@ if build_drivers
 		subdir(dir)
 	endforeach
 
-	rules = [ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules' ]
+	rules = [ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules', 'drivers/usb/90-managarm-usb.rules' ]
 
 	install_data(rules, install_dir : 'lib/udev/rules.d')
 endif
