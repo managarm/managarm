@@ -109,6 +109,10 @@ int main() {
 
 	std::cout << "init: On /realfs" << std::endl;
 
+	// /run needs to be 0700 or programs start complaining.
+	if(chmod("/run", 0700))
+		throw std::runtime_error("chmod() failed");
+
 	execl("/usr/bin/init-stage2", "/usr/bin/init-stage2", nullptr);
 	std::cout << "init: Failed to execve() second stage" << std::endl;
 	abort();
