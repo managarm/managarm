@@ -543,16 +543,20 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 		auto indirectWrapper = thisUniverse->getDescriptor(universeLock, indirectHandle);
 		if(!indirectWrapper)
 			return kHelErrNoDescriptor;
-		if(!indirectWrapper->is<MemoryViewDescriptor>())
+		if(indirectWrapper->is<MemoryViewDescriptor>())
+			indirectView = indirectWrapper->get<MemoryViewDescriptor>().memory;
+		else
 			return kHelErrBadDescriptor;
-		indirectView = indirectWrapper->get<MemoryViewDescriptor>().memory;
 
 		auto memoryWrapper = thisUniverse->getDescriptor(universeLock, memoryHandle);
 		if(!memoryWrapper)
 			return kHelErrNoDescriptor;
-		if(!memoryWrapper->is<MemoryViewDescriptor>())
+		if(memoryWrapper->is<MemoryViewDescriptor>())
+			memoryView = memoryWrapper->get<MemoryViewDescriptor>().memory;
+		else if(memoryWrapper->is<MemorySliceDescriptor>())
+			memoryView = memoryWrapper->get<MemorySliceDescriptor>().slice->getView();
+		else
 			return kHelErrBadDescriptor;
-		memoryView = memoryWrapper->get<MemoryViewDescriptor>().memory;
 	}
 
 	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size);

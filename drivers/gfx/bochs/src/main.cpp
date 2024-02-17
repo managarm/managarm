@@ -36,7 +36,7 @@ namespace {
 GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 		helix::UniqueDescriptor video_ram, void *)
 : _videoRam{std::move(video_ram)}, _hwDevice{std::move(hw_device)},
-		_vramAllocator{24, 12}, _claimedDevice{false} {
+		_vramAllocator{24, 10}, _claimedDevice{false} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
@@ -73,6 +73,7 @@ async::detached GfxDevice::initialize() {
 	registerObject(_primaryPlane.get());
 
 	assignments.push_back(drm_core::Assignment::withInt(_theCrtc, activeProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), nullptr));
 
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, planeTypeProperty(), 1));
 	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _theCrtc));
@@ -95,6 +96,7 @@ async::detached GfxDevice::initialize() {
 	_theConnector->setCurrentStatus(1);
 	_theEncoder->setupPossibleCrtcs({_theCrtc.get()});
 	_theEncoder->setupPossibleClones({_theEncoder.get()});
+	_primaryPlane->setupPossibleCrtcs({_theCrtc.get()});
 
 	setupCrtc(_theCrtc.get());
 	setupEncoder(_theEncoder.get());
@@ -102,6 +104,10 @@ async::detached GfxDevice::initialize() {
 
 	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, 1024, 768);
+	std::sort(supported_modes.begin(), supported_modes.end(),
+			[] (const drm_mode_modeinfo &u, const drm_mode_modeinfo &v) {
+		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
+	});
 	_theConnector->setModeList(supported_modes);
 
 	setupMinDimensions(640, 480);
@@ -185,6 +191,9 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 
 	auto offset = _vramAllocator.allocate(alignment + size);
 	auto displacement = alignment - (offset % alignment);
+	if(displacement == alignment)
+		displacement = 0;
+
 	if(logBuffers)
 		std::cout << "gfx-bochs: Allocating buffer of size " << (void *)(size_t)size
 				<< " at " << (void *)offset
@@ -233,6 +242,10 @@ void GfxDevice::Configuration::dispose() {
 
 void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
 	_doCommit(state);
+
+	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
+	_device->_theConnector->setDrmState(state->connector(_device->_theConnector->id()));
+	_device->_primaryPlane->setDrmState(state->plane(_device->_primaryPlane->id()));
 }
 
 async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::AtomicState> &state) {
@@ -392,7 +405,7 @@ size_t GfxDevice::BufferObject::getSize() {
 }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	return std::make_pair(helix::BorrowedDescriptor{_memoryView}, 0);
+	return std::make_pair(helix::BorrowedDescriptor{_memoryView}, getAddress());
 }
 
 size_t GfxDevice::BufferObject::getAlignment() {
@@ -447,7 +460,8 @@ async::detached observeControllers() {
 	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-vendor", "1234")
+		mbus::EqualsFilter("pci-vendor", "1234"),
+		mbus::EqualsFilter("pci-device", "1111")
 	});
 
 	auto handler = mbus::ObserverHandler{}
