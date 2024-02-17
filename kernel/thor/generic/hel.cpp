@@ -2354,6 +2354,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					}
 					if(wrapper->is<ThreadDescriptor>())
 						creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
+					else if(wrapper->is<TokenDescriptor>())
+						creds = wrapper->get<TokenDescriptor>().credentials;
 					else
 						return kHelErrBadDescriptor;
 				}
@@ -3511,5 +3513,22 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 
 HelError helGetCurrentCpu(int *cpu) {
 	*cpu = getCpuData()->cpuIndex;
+	return kHelErrNone;
+}
+
+HelError helCreateToken(HelHandle *handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto creds = smarter::allocate_shared<Credentials>(*kernelAlloc);
+
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universeGuard(thisUniverse->lock);
+
+		*handle = thisUniverse->attachDescriptor(universeGuard,
+				TokenDescriptor(std::move(creds)));
+	}
+
 	return kHelErrNone;
 }

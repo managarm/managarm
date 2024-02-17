@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 104,
+	kHelNumCalls = 105,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -104,6 +104,8 @@ enum {
 
 	kHelCallGetAffinity = 103,
 	kHelCallSetAffinity = 100,
+
+	kHelCallCreateToken = 104,
 
 	kHelCallSuper = 0x80000000
 };
@@ -998,6 +1000,15 @@ HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const struct HelAction *
 		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
 
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
+
+//! Create a token object.
+//!
+//! A token object represents some unnamed credentials which can be shared.
+//! Token objects can be passed to ImbueCredentials to send the credentials they
+//! hold instead of the thread's credentials.
+//! @param[out] handle
+//!     Handle to the token object
+HEL_C_LINKAGE HelError helCreateToken(HelHandle *handle);
 
 //! @}
 //! @name Inter-Thread Synchronization
