@@ -259,8 +259,6 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 				return kHelErrNoDescriptor;
 			if(wrapper->is<ThreadDescriptor>())
 				creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
-			else if(wrapper->is<LaneDescriptor>())
-				creds = wrapper->get<LaneDescriptor>().handle.getStream().lock();
 			else
 				return kHelErrBadDescriptor;
 		}
@@ -2356,8 +2354,6 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					}
 					if(wrapper->is<ThreadDescriptor>())
 						creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
-					else if(wrapper->is<LaneDescriptor>())
-						creds = wrapper->get<LaneDescriptor>().handle.getStream().lock();
 					else
 						return kHelErrBadDescriptor;
 				}
