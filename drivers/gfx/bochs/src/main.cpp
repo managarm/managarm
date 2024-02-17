@@ -36,7 +36,7 @@ namespace {
 GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 		helix::UniqueDescriptor video_ram, void *)
 : _videoRam{std::move(video_ram)}, _hwDevice{std::move(hw_device)},
-		_vramAllocator{24, 12}, _claimedDevice{false} {
+		_vramAllocator{24, 10}, _claimedDevice{false} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
