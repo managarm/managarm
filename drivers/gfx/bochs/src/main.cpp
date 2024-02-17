@@ -186,6 +186,9 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 
 	auto offset = _vramAllocator.allocate(alignment + size);
 	auto displacement = alignment - (offset % alignment);
+	if(displacement == alignment)
+		displacement = 0;
+
 	if(logBuffers)
 		std::cout << "gfx-bochs: Allocating buffer of size " << (void *)(size_t)size
 				<< " at " << (void *)offset
