@@ -393,7 +393,7 @@ size_t GfxDevice::BufferObject::getSize() {
 }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	return std::make_pair(helix::BorrowedDescriptor{_memoryView}, 0);
+	return std::make_pair(helix::BorrowedDescriptor{_memoryView}, getAddress());
 }
 
 size_t GfxDevice::BufferObject::getAlignment() {
