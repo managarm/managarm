@@ -447,7 +447,8 @@ async::detached observeControllers() {
 	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-vendor", "1234")
+		mbus::EqualsFilter("pci-vendor", "1234"),
+		mbus::EqualsFilter("pci-device", "1111")
 	});
 
 	auto handler = mbus::ObserverHandler{}
