@@ -95,6 +95,7 @@ async::detached GfxDevice::initialize() {
 	_theConnector->setCurrentStatus(1);
 	_theEncoder->setupPossibleCrtcs({_theCrtc.get()});
 	_theEncoder->setupPossibleClones({_theEncoder.get()});
+	_primaryPlane->setupPossibleCrtcs({_theCrtc.get()});
 
 	setupCrtc(_theCrtc.get());
 	setupEncoder(_theEncoder.get());
