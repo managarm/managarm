@@ -143,7 +143,7 @@ struct Configuration {
 
 	virtual bool capture(std::vector<Assignment> assignment, std::unique_ptr<AtomicState> &state) = 0;
 	virtual void dispose() = 0;
-	virtual void commit(std::unique_ptr<AtomicState> &state) = 0;
+	virtual void commit(std::unique_ptr<AtomicState> state) = 0;
 
 	auto waitForCompletion() {
 		return _ev.wait();

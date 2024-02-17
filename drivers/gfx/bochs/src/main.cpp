@@ -45,7 +45,7 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 	_operational = arch::global_io;
 }
 
-async::detached GfxDevice::initialize() {
+async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() {
 	std::vector<drm_core::Assignment> assignments;
 
 	_operational.store(regs::index, (uint16_t)RegisterIndex::id);
@@ -120,10 +120,9 @@ async::detached GfxDevice::initialize() {
 	auto config = createConfiguration();
 	auto state = atomicState();
 	assert(config->capture(assignments, state));
-	config->commit(state);
-	co_await config->waitForCompletion();
+	config->commit(std::move(state));
 
-	co_return;
+	co_return std::move(config);
 }
 
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
@@ -240,15 +239,15 @@ void GfxDevice::Configuration::dispose() {
 
 }
 
-void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
-	_doCommit(state);
-
+void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> state) {
 	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
 	_device->_theConnector->setDrmState(state->connector(_device->_theConnector->id()));
 	_device->_primaryPlane->setDrmState(state->plane(_device->_primaryPlane->id()));
+
+	_doCommit(std::move(state));
 }
 
-async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::AtomicState> &state) {
+async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::AtomicState> state) {
 	if(logCommits)
 		std::cout << "gfx-bochs: Committing configuration" << std::endl;
 
@@ -433,7 +432,7 @@ async::detached bindController(mbus::Entity entity) {
 
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(pci_device),
 			std::move(bar), actual_pointer);
-	gfx_device->initialize();
+	auto config = co_await gfx_device->initialize();
 
 	// Create an mbus object for the device.
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -453,6 +452,7 @@ async::detached bindController(mbus::Entity entity) {
 		co_return std::move(remote_lane);
 	});
 
+	co_await config->waitForCompletion();
 	co_await root.createObject("gfx_bochs", descriptor, std::move(handler));
 }
 

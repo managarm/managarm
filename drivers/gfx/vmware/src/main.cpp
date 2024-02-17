@@ -52,7 +52,7 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_dev,
 	_operational = arch::io_space{io_base};
 }
 
-async::detached GfxDevice::initialize() {
+async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() {
 	auto pci_info = co_await _hwDev.getPciInfo();
 
 	// negotiate version
@@ -172,8 +172,9 @@ async::detached GfxDevice::initialize() {
 	auto state = atomicState();
 	auto valid = config->capture(assignments, state);
 	assert(valid);
-	config->commit(state);
-	co_await config->waitForCompletion();
+	config->commit(std::move(state));
+
+	co_return std::move(config);
 }
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
@@ -556,15 +557,15 @@ void GfxDevice::Configuration::dispose() {
 
 }
 
-void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> & state) {
-	commitConfiguration(state);
-
+void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> state) {
 	_device->_crtc->setDrmState(state->crtc(_device->_crtc->id()));
 	_device->_primaryPlane->setDrmState(state->plane(_device->_primaryPlane->id()));
 	_device->_cursorPlane->setDrmState(state->plane(_device->_cursorPlane->id()));
+
+	commitConfiguration(std::move(state));
 }
 
-async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<drm_core::AtomicState> & state) {
+async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<drm_core::AtomicState> state) {
 	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
 	auto cursor_plane_state = state->plane(_device->_cursorPlane->id());
 	auto crtc_state = state->crtc(_device->_crtc->id());
@@ -741,7 +742,7 @@ async::result<void> setupDevice(mbus::Entity entity) {
 			helix::Mapping{fifo_bar, 0, fifo_bar_info.length},
 			std::move(io_bar), io_bar_info.address);
 
-	gfx_device->initialize();
+	auto config = co_await gfx_device->initialize();
 
 	auto root = co_await mbus::Instance::global().getRoot();
 
@@ -759,6 +760,8 @@ async::result<void> setupDevice(mbus::Entity entity) {
 
 		co_return std::move(remote_lane);
 	});
+
+	co_await config->waitForCompletion();
 	co_await root.createObject("gfx_vmware", descriptor, std::move(handler));
 }
 

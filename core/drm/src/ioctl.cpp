@@ -497,7 +497,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto state = self->_device->atomicState();
 			auto valid = config->capture(assignments, state);
 			assert(valid);
-			config->commit(state);
+			config->commit(std::move(state));
 
 			co_await config->waitForCompletion();
 
@@ -530,7 +530,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto state = self->_device->atomicState();
 			auto valid = config->capture(assignments, state);
 			assert(valid);
-			config->commit(state);
+			config->commit(std::move(state));
 
 			co_await config->waitForCompletion();
 			self->_retirePageFlip(req->drm_cookie(), crtc->id());
@@ -621,7 +621,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto state = self->_device->atomicState();
 			auto valid = config->capture(assignments, state);
 			assert(valid);
-			config->commit(state);
+			config->commit(std::move(state));
 
 			co_await config->waitForCompletion();
 
@@ -819,7 +819,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto valid = config->capture(assignments, state);
 			assert(valid);
 
-			config->commit(state);
+			config->commit(std::move(state));
 			co_await config->waitForCompletion();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -1014,7 +1014,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			if(!(req->drm_flags() & DRM_MODE_ATOMIC_TEST_ONLY)) {
 				if(logDrmRequests)
 					std::cout << "\tCommitting configuration ..." << std::endl;
-				config->commit(state);
+				config->commit(std::move(state));
 				co_await config->waitForCompletion();
 			}
 
