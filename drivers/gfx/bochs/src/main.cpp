@@ -73,6 +73,7 @@ async::detached GfxDevice::initialize() {
 	registerObject(_primaryPlane.get());
 
 	assignments.push_back(drm_core::Assignment::withInt(_theCrtc, activeProperty(), 0));
+	assignments.push_back(drm_core::Assignment::withBlob(_theCrtc, modeIdProperty(), nullptr));
 
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, planeTypeProperty(), 1));
 	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _theCrtc));
@@ -237,6 +238,10 @@ void GfxDevice::Configuration::dispose() {
 
 void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
 	_doCommit(state);
+
+	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
+	_device->_theConnector->setDrmState(state->connector(_device->_theConnector->id()));
+	_device->_primaryPlane->setDrmState(state->plane(_device->_primaryPlane->id()));
 }
 
 async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::AtomicState> &state) {
