@@ -38,7 +38,7 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 	}
 }
 
-async::detached GfxDevice::initialize() {
+async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() {
 	// Setup planes, encoders and CRTCs (i.e. the static entities).
 	_plane = std::make_shared<Plane>(this, Plane::PlaneType::PRIMARY);
 	_theCrtc = std::make_shared<Crtc>(this);
@@ -117,8 +117,9 @@ async::detached GfxDevice::initialize() {
 	auto config = createConfiguration();
 	auto state = atomicState();
 	assert(config->capture(assignments, state));
-	config->commit(state);
-	co_await config->waitForCompletion();
+	config->commit(std::move(state));
+
+	co_return config;
 }
 
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
@@ -197,15 +198,15 @@ void GfxDevice::Configuration::dispose() {
 
 }
 
-void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
-	_dispatch(state);
-
+void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> state) {
 	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
 	_device->_theConnector->setDrmState(state->connector(_device->_theConnector->id()));
 	_device->_plane->setDrmState(state->plane(_device->_plane->id()));
+
+	_dispatch(std::move(state));
 }
 
-async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> &state) {
+async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> state) {
 	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
 	if(crtc_state->mode != nullptr) {
@@ -366,7 +367,7 @@ async::detached bindController(mbus::Entity entity) {
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(hw_device),
 			info.width, info.height, info.pitch,
 			helix::Mapping{fb_memory, 0, info.pitch * info.height});
-	gfx_device->initialize();
+	auto config = co_await gfx_device->initialize();
 
 	// Create an mbus object for the device.
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -386,6 +387,7 @@ async::detached bindController(mbus::Entity entity) {
 		co_return std::move(remote_lane);
 	});
 
+	co_await config->waitForCompletion();
 	co_await root.createObject("gfx_plainfb", descriptor, std::move(handler));
 }
 

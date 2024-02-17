@@ -65,7 +65,7 @@ private:
 GfxDevice::GfxDevice(std::unique_ptr<virtio_core::Transport> transport)
 : _transport{std::move(transport)}, _claimedDevice{false} { }
 
-async::detached GfxDevice::initialize() {
+async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() {
 	if(_transport->checkDeviceFeature(VIRTIO_GPU_F_VIRGL)) {
 		_transport->acknowledgeDriverFeature(VIRTIO_GPU_F_VIRGL);
 		_virgl3D = true;
@@ -173,8 +173,9 @@ async::detached GfxDevice::initialize() {
 	auto config = createConfiguration();
 	auto state = atomicState();
 	assert(config->capture(assignments, state));
-	config->commit(state);
-	co_await config->waitForCompletion();
+	config->commit(std::move(state));
+
+	co_return config;
 }
 
 std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
@@ -257,9 +258,7 @@ void GfxDevice::Configuration::dispose() {
 
 }
 
-void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &state) {
-	_dispatch(state);
-
+void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> state) {
 	for(auto &[_, cs] : state->crtc_states()) {
 		cs->crtc().lock()->setDrmState(cs);
 	}
@@ -271,9 +270,11 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> &st
 	for(auto &[_, cs] : state->connector_states()) {
 		cs->connector->setDrmState(cs);
 	}
+
+	_dispatch(std::move(state));
 }
 
-async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> &state) {
+async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> state) {
 	if(!_device->_claimedDevice) {
 		co_await _device->_transport->hwDevice().claimDevice();
 		_device->_claimedDevice = true;
@@ -455,7 +456,7 @@ async::result<void> doBind(mbus::Entity base_entity) {
 			virtio_core::DiscoverMode::modernOnly);
 
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(transport));
-	gfx_device->initialize();
+	auto config = co_await gfx_device->initialize();
 
 	// Create an mbus object for the device.
 	auto root = co_await mbus::Instance::global().getRoot();
@@ -475,6 +476,7 @@ async::result<void> doBind(mbus::Entity base_entity) {
 		co_return std::move(remote_lane);
 	});
 
+	co_await config->waitForCompletion();
 	co_await root.createObject("gfx_virtio", descriptor, std::move(handler));
 	baseDeviceMap.insert({base_entity.getId(), gfx_device});
 }

@@ -20,10 +20,10 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 
 		bool capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> &state) override;
 		void dispose() override;
-		void commit(std::unique_ptr<drm_core::AtomicState> &state) override;
+		void commit(std::unique_ptr<drm_core::AtomicState> state) override;
 
 	private:
-		async::detached _doCommit(std::unique_ptr<drm_core::AtomicState> &state);
+		async::detached _doCommit(std::unique_ptr<drm_core::AtomicState> state);
 
 		GfxDevice *_device;
 	};
@@ -90,7 +90,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	GfxDevice(protocols::hw::Device hw_device,
 			helix::UniqueDescriptor video_ram, void* frame_buffer);
 
-	async::detached initialize();
+	async::result<std::unique_ptr<drm_core::Configuration>> initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
 	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) override;
