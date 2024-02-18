@@ -521,3 +521,19 @@ head(128):
 tail:
 	uint8[] mask;
 }
+
+message WaitIdRequest 91 {
+head(128):
+	uint16 idtype;
+	uint64 id;
+	int32 flags;
+}
+
+message WaitIdResponse 92 {
+head(128):
+	Errors error;
+	int64 pid;
+	int64 uid;
+	uint64 sig_status;
+	uint64 sig_code;
+}
