@@ -2290,7 +2290,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						|| req->socktype() == SOCK_SEQPACKET);
 				assert(!req->protocol());
 
-				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK);
+				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK, req->socktype());
 			}else if(req->domain() == AF_NETLINK) {
 				assert(req->socktype() == SOCK_RAW || req->socktype() == SOCK_DGRAM);
 				// NL_ROUTE gets handled by the netserver.
