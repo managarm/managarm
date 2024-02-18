@@ -341,6 +341,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else{
 				std::cout << "\e[31mposix: GET_RESOURCE_USAGE mode is not supported\e[39m"
 						<< std::endl;
+				user_time = 0;
 				// TODO: Return an error response.
 			}
 
@@ -348,7 +349,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_ru_user_time(stats.userTime);
+			resp.set_ru_user_time(user_time);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
