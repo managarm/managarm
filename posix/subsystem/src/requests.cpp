@@ -2207,10 +2207,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_sig_handler(saved_handler.handlerIp);
 				resp.set_sig_restorer(saved_handler.restorerIp);
 			}else if(saved_handler.disposition == SignalDisposition::none) {
-				resp.set_sig_handler(-2);
+				resp.set_sig_handler((uint64_t)SIG_DFL);
 			}else{
 				assert(saved_handler.disposition == SignalDisposition::ignore);
-				resp.set_sig_handler(-3);
+				resp.set_sig_handler((uint64_t)SIG_IGN);
 			}
 
 			auto ser = resp.SerializeAsString();
