@@ -1,9 +1,12 @@
 #include <assert.h>
+#include <net/if.h>
+#include <netinet/in.h>
 #include <optional>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <iostream>
 #include <memory>
 #include <queue>
@@ -19,6 +22,7 @@
 #include <protocols/fs/server.hpp>
 #include <sys/socket.h>
 #include "fs.bragi.hpp"
+#include "posix.bragi.hpp"
 
 #include "ip/ip4.hpp"
 #include "netlink/netlink.hpp"
@@ -173,6 +177,80 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 				HEL_CHECK(dismiss.error());
 			}
+		}else if(preamble.id() == managarm::posix::NetserverIoctlRequest::message_id) {
+			managarm::posix::NetserverIoctlRequest req;
+			req.ParseFromArray(recv_req.data(), recv_req.length());
+			recv_req.reset();
+
+			managarm::posix::NetserverIoctlReply resp;
+			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			auto links = nic::Link::getLinks();
+			if(req.command() == SIOCGIFCONF) {
+				std::vector<managarm::posix::IfConf> confs;
+
+				for(auto m = links.begin(); m != links.end(); m++) {
+					const auto &nic = m->second;
+
+					auto addr_check = ip4().getCidrByIndex(nic->index());
+					if(!addr_check)
+						continue;
+
+					auto addr = addr_check.value();
+
+					managarm::posix::IfConf conf;
+					conf.set_name(nic->name());
+					conf.set_ip4(addr.ip);
+					conf.set_port(0);
+					confs.push_back(conf);
+				}
+
+				resp.set_if_confs(std::move(confs));
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+			}else if(req.command() == SIOCGIFNETMASK) {
+				for(auto m = links.begin(); m != links.end(); m++) {
+					const auto &nic = m->second;
+					if(nic->name() != req.name())
+						continue;
+
+					auto addr_check = ip4().getCidrByIndex(nic->index());
+					// TODO: Not sure what should be done in the case this fails.
+					if(addr_check) {
+						resp.set_ip4_netmask(addr_check.value().mask());
+						resp.set_error(managarm::posix::Errors::SUCCESS);
+					}else {
+						resp.set_ip4_netmask(0);
+					}
+					break;
+				}
+			}else if(req.command() == SIOCGIFINDEX) {
+				for(auto m = links.begin(); m != links.end(); m++) {
+					const auto &nic = m->second;
+					if(nic->name() != req.name())
+						continue;
+
+					resp.set_nic_index(nic->index());
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					break;
+				}
+			}else if(req.command() == SIOCGIFFLAGS) {
+				for(auto m = links.begin(); m != links.end(); m++) {
+					const auto &nic = m->second;
+					if(nic->name() != req.name())
+						continue;
+
+					resp.set_flags(IFF_UP | IFF_RUNNING | IFF_MULTICAST | IFF_BROADCAST);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					break;
+				}
+			}
+
+			auto buff = resp.SerializeAsString();
+			auto [send] =
+				co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(
+						buff.data(), buff.size())
+				);
+			HEL_CHECK(send.error());
 		} else if(preamble.id() == managarm::fs::InitializePosixLane::message_id) {
 			co_await helix_ng::exchangeMsgs(
 				conversation,

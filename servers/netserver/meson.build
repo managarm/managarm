@@ -10,6 +10,7 @@ src = [
 	'src/netlink/packets.cpp',
 	'src/netlink/queries.cpp',
 	'src/netlink/utils.cpp',
+	posix_bragi
 ]
 
 inc = [ 'include', 'src' ]
