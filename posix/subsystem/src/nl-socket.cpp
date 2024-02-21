@@ -34,6 +34,8 @@ struct Packet {
 
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
+
+	size_t offset = 0;
 };
 
 struct OpenFile : File {
@@ -127,15 +129,18 @@ public:
 		auto packet = &_recvQueue.front();
 
 		auto size = packet->buffer.size();
-		assert(max_length >= size);
-		memcpy(data, packet->buffer.data(), size);
+		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
+		memcpy(data, packet->buffer.data() + packet->offset, chunk);
+		packet->offset += chunk;
 
-		struct sockaddr_nl sa;
-		memset(&sa, 0, sizeof(struct sockaddr_nl));
-		sa.nl_family = AF_NETLINK;
-		sa.nl_pid = packet->senderPort;
-		sa.nl_groups = packet->group ? (1 << (packet->group - 1)) : 0;
-		memcpy(addr_ptr, &sa, sizeof(struct sockaddr_nl));
+		if(addr_ptr) {
+			struct sockaddr_nl sa;
+			memset(&sa, 0, sizeof(struct sockaddr_nl));
+			sa.nl_family = AF_NETLINK;
+			sa.nl_pid = packet->senderPort;
+			sa.nl_groups = packet->group ? (1 << (packet->group - 1)) : 0;
+			memcpy(addr_ptr, &sa, sizeof(struct sockaddr_nl));
+		}
 
 		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
@@ -149,7 +154,8 @@ public:
 			ctrl.write<struct ucred>(creds);
 		}
 
-		_recvQueue.pop_front();
+		if(packet->offset == packet->buffer.size())
+			_recvQueue.pop_front();
 		co_return RecvData{ctrl.buffer(), size, sizeof(struct sockaddr_nl), 0};
 	}
 

@@ -75,13 +75,13 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(Process *process = nullptr, bool nonBlock = false)
+	OpenFile(Process *process = nullptr, bool nonBlock = false, int32_t socktype = SOCK_STREAM)
 	: File{StructName::get("un-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
 			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
-			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false} {
+			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype} {
 		if(process)
 			_ownerPid = process->pid();
 	}
@@ -123,13 +123,24 @@ public:
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
-		assert(!packet->offset);
-		assert(packet->files.empty());
-		auto size = packet->buffer.size();
-		assert(max_length >= size);
-		memcpy(data, packet->buffer.data(), size);
-		_recvQueue.pop_front();
-		co_return size;
+		if(socktype_ == SOCK_STREAM) {
+			assert(packet->files.empty());
+
+			auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
+			memcpy(data, packet->buffer.data() + packet->offset, chunk);
+			packet->offset += chunk;
+			if(packet->offset == packet->buffer.size())
+				_recvQueue.pop_front();
+			co_return chunk;
+		} else {
+			assert(!packet->offset);
+			assert(packet->files.empty());
+			auto size = packet->buffer.size();
+			assert(max_length >= size);
+			memcpy(data, packet->buffer.data(), size);
+			_recvQueue.pop_front();
+			co_return size;
+		}
 	}
 
 	async::result<frg::expected<Error, size_t>>
@@ -573,10 +584,12 @@ private:
 	NameType _nameType;
 
 	bool _isInherited;
+
+	int32_t socktype_;
 };
 
-smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock) {
-	auto file = smarter::make_shared<OpenFile>(nullptr, nonBlock);
+smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
+	auto file = smarter::make_shared<OpenFile>(nullptr, nonBlock, socktype);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
