@@ -257,7 +257,7 @@ head(128):
 	}
 }
 
-message VmMapRequest 26 {
+message VmMapRequest 3 {
 head(128):
 	int32 fd;
 	uint32 mode;
@@ -267,7 +267,7 @@ head(128):
 	uint64 size;
 }
 
-message OpenAtRequest 64 {
+message OpenAtRequest 4 {
 head(128):
 	int32 fd;
 	OpenFlags flags;
@@ -281,12 +281,12 @@ head(128):
 	int32 fd;
 }
 
-message IsTtyRequest 22 {
+message IsTtyRequest 6 {
 head(128):
 	int32 fd;
 }
 
-message RenameAtRequest 51 {
+message RenameAtRequest 7 {
 head(128):
 	int32 fd;
 	int32 newfd;
@@ -295,43 +295,43 @@ tail:
 	string target_path;
 }
 
-message GetUidRequest 67 {
+message GetUidRequest 8 {
 head(128):
 }
 
-message SetUidRequest 68 {
-head(128):
-	uint64 uid;
-}
-
-message GetEuidRequest 69 {
-head(128):
-}
-
-message SetEuidRequest 70 {
+message SetUidRequest 9 {
 head(128):
 	uint64 uid;
 }
 
-message GetGidRequest 71 {
+message GetEuidRequest 10 {
 head(128):
 }
 
-message GetEgidRequest 72 {
-head(128):
-}
-
-message SetGidRequest 73 {
+message SetEuidRequest 11 {
 head(128):
 	uint64 uid;
 }
 
-message SetEgidRequest 74 {
+message GetGidRequest 12 {
+head(128):
+}
+
+message GetEgidRequest 13 {
+head(128):
+}
+
+message SetGidRequest 14 {
 head(128):
 	uint64 uid;
 }
 
-message UnlinkAtRequest 40 {
+message SetEgidRequest 15 {
+head(128):
+	uint64 uid;
+}
+
+message UnlinkAtRequest 16 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -339,7 +339,7 @@ tail:
 	string path;
 }
 
-message FstatAtRequest 63 {
+message FstatAtRequest 17 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -347,7 +347,7 @@ tail:
 	string path;
 }
 
-message MkfifoAtRequest 65 {
+message MkfifoAtRequest 18 {
 head(128):
 	int32 fd;
 	int32 mode;
@@ -355,7 +355,7 @@ tail:
 	string path;
 }
 
-message LinkAtRequest 66 {
+message LinkAtRequest 19 {
 head(128):
 	int32 fd;
 	int32 newfd;
@@ -365,7 +365,7 @@ tail:
 	string target_path;
 }
 
-message FchmodAtRequest 75 {
+message FchmodAtRequest 20 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -374,7 +374,7 @@ tail:
 	string path;
 }
 
-message UtimensAtRequest 78 {
+message UtimensAtRequest 21 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -387,13 +387,13 @@ tail:
 	string path;
 }
 
-message RmdirRequest 77 {
+message RmdirRequest 22 {
 head(128):
 tail:
 	string path;
 }
 
-message InotifyAddRequest 49 {
+message InotifyAddRequest 23 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -401,18 +401,18 @@ tail:
 	string path;
 }
 
-message InotifyCreateRequest 48 {
+message InotifyCreateRequest 24 {
 head(128):
 	int32 flags;
 }
 
-message EventfdCreateRequest 60 {
+message EventfdCreateRequest 25 {
 head(128):
 	uint32 initval;
 	int32 flags;
 }
 
-message SocketRequest 35 {
+message SocketRequest 26 {
 head(128):
 	int32 flags;
 	int32 domain;
@@ -420,7 +420,7 @@ head(128):
 	int32 protocol;
 }
 
-message SockpairRequest 25 {
+message SockpairRequest 27 {
 head(128):
 	int32 flags;
 	int32 domain;
@@ -428,12 +428,12 @@ head(128):
 	int32 protocol;
 }
 
-message AcceptRequest 19 {
+message AcceptRequest 28 {
 head(128):
 	int32 fd;
 }
 
-message MountRequest 21 {
+message MountRequest 29 {
 head(128):
 tail:
 	string path;
@@ -441,7 +441,7 @@ tail:
 	string fs_type;
 }
 
-message SymlinkAtRequest 47 {
+message SymlinkAtRequest 30 {
 head(128):
 	int32 fd;
 tail:
@@ -449,11 +449,11 @@ tail:
 	string target_path;
 }
 
-message GetPpidRequest 79 {
+message GetPpidRequest 31 {
 head(128):
 }
 
-message MknodAtRequest 80 {
+message MknodAtRequest 32 {
 head(128):
 	int32 dirfd;
 	int32 mode;
@@ -462,39 +462,39 @@ tail:
 	string path;
 }
 
-message GetPgidRequest 81 {
+message GetPgidRequest 33 {
 head(128):
 	int64 pid;
 }
 
-message SetPgidRequest 85 {
+message SetPgidRequest 34 {
 head(128):
 	int64 pid;
 	int64 pgid;
 }
 
-message GetSidRequest 82 {
+message GetSidRequest 35 {
 head(128):
 	int64 pid;
 }
 
-message IoctlFioclexRequest 83 {
+message IoctlFioclexRequest 36 {
 head(128):
 	int32 fd;
 }
 
-message MemFdCreateRequest 84 {
+message MemFdCreateRequest 37 {
 head(128):
 	int32 flags;
 tail:
 	string name;
 }
 
-message GetPidRequest 86 {
+message GetPidRequest 38 {
 head(128):
 }
 
-message AccessAtRequest 87 {
+message AccessAtRequest 39 {
 head(128):
 	int32 fd;
 	int32 flags;
@@ -502,34 +502,34 @@ tail:
 	string path;
 }
 
-message MkdirAtRequest 88 {
+message MkdirAtRequest 40 {
 head(128):
 	int32 fd;
 tail:
 	string path;
 }
 
-message GetAffinityRequest 89 {
+message GetAffinityRequest 41 {
 head(128):
 	int64 pid;
 	uint64 size;
 }
 
-message SetAffinityRequest 90 {
+message SetAffinityRequest 42 {
 head(128):
 	int64 pid;
 tail:
 	uint8[] mask;
 }
 
-message WaitIdRequest 91 {
+message WaitIdRequest 43 {
 head(128):
 	uint16 idtype;
 	uint64 id;
 	int32 flags;
 }
 
-message WaitIdResponse 92 {
+message WaitIdResponse 44 {
 head(128):
 	Errors error;
 	int64 pid;
