@@ -4,6 +4,6 @@ executable('kernel-tests',
 		'src/faults.cpp',
 		'src/mapping.cpp'
 	],
-	include_directories : '../../hel/include',
+	dependencies : [ helix_dep ],
 	install : true
 )
