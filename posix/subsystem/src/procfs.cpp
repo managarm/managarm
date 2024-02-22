@@ -204,7 +204,7 @@ RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular() {
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
 	co_return nullptr;
 }
 
