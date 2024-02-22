@@ -598,7 +598,7 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 	return new_inode;
 }
 
-async::result<std::shared_ptr<Inode>> FileSystem::createRegular() {
+async::result<std::shared_ptr<Inode>> FileSystem::createRegular(int uid, int gid) {
 	auto ino = co_await allocateInode();
 	assert(ino);
 
@@ -628,6 +628,8 @@ async::result<std::shared_ptr<Inode>> FileSystem::createRegular() {
 	disk_inode->atime = time.tv_sec;
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
+	disk_inode->uid = uid;
+	disk_inode->gid = gid;
 
 	co_return accessInode(ino);
 }

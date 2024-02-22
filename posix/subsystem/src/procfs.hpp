@@ -110,7 +110,7 @@ struct SuperBlock final : FsSuperblock {
 public:
 	SuperBlock() = default;
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular() override;
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>

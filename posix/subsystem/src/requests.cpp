@@ -1680,7 +1680,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					}
 				}else{
 					assert(directory->superblock());
-					auto node = co_await directory->superblock()->createRegular();
+					auto node = co_await directory->superblock()->createRegular(self.get());
 					if (!node) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;

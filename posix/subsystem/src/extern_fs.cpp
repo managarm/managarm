@@ -5,6 +5,7 @@
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
 #include "extern_fs.hpp"
+#include "process.hpp"
 #include "fs.bragi.hpp"
 
 #include <bitset>
@@ -19,7 +20,7 @@ struct DirectoryNode;
 struct Superblock final : FsSuperblock {
 	Superblock(helix::UniqueLane lane);
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular() override;
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *process) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
@@ -817,7 +818,7 @@ std::shared_ptr<FsNode> StructuralLink::getTarget() {
 Superblock::Superblock(helix::UniqueLane lane)
 : _lane{std::move(lane)} { }
 
-FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular() {
+FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -825,6 +826,8 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular() {
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
+	req.set_uid(process->uid());
+	req.set_gid(process->gid());
 
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),

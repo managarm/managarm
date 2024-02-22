@@ -495,7 +495,7 @@ private:
 };
 
 struct Superblock final : FsSuperblock {
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular() override {
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
 		auto node = std::make_shared<MemoryNode>(this);
 		co_return std::move(node);
 	}

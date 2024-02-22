@@ -252,7 +252,7 @@ struct FileSystem {
 
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
-	async::result<std::shared_ptr<Inode>> createRegular();
+	async::result<std::shared_ptr<Inode>> createRegular(int uid, int gid);
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
 
