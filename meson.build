@@ -13,6 +13,24 @@ add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation'
 # build documentation
 if get_option('build_docs')
 	subdir('docs')
+
+	doxyfile = configure_file(
+		input : 'hel/Doxyfile.in',
+		output : 'Doxyfile',
+		configuration : {
+			'ROOTDIR': meson.current_source_dir()/'hel'
+		}
+	)
+
+	doxygen = find_program('doxygen', required : false)
+	if doxygen.found()
+		custom_target('hel-doxygen',
+			input : doxyfile,
+			output : 'hel-api',
+			depend_files : 'hel/include/hel.h',
+			command : [ doxygen, doxyfile ]
+		)
+	endif
 endif
 
 build_kernel = get_option('build_kernel')
@@ -111,7 +129,7 @@ frgbragi = generator(bragi,
 )
 
 # declare dependencies that subdirs are going to use
-bragi_dep = subproject('bragi').get_variable('bragi_dep')
+bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include')
 
 # If we are building the kernel, we need the freestanding subset of libarch.
 if flavor == 'kernel'
@@ -143,8 +161,6 @@ if build_kernel
 	lai_includes = lai.get_variable('includes')
 	libasync_dep = libasync.get_variable('libasync_dep')
 
-	hel = subproject('hel').get_variable('hel_dep')
-
 	subdir('kernel/eir')
 	subdir('kernel/thor')
 endif
@@ -156,7 +172,9 @@ if build_drivers
 	libudev_dep = dependency('libudev')
 	cli11_dep = dependency('CLI11')
 
-	helix_dep = subproject('helix').get_variable('helix_dep')
+	# this produces the helix dependency which
+	# all protocols depend on
+	subdir('hel')
 
 	protocols = [ 'posix', 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
 	core = [ 'core', 'core/drm', 'core/virtio', 'mbus' ]

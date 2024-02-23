@@ -2,6 +2,6 @@ executable('virt-test',
 	[
 		'main.cpp'
 	],
-	dependencies : helix_dep,
+	include_directories : '../../hel/include',
 	install : true
 )
