@@ -37,7 +37,9 @@ pkg.generate(
 	description : 'Hel IPC headers'
 )
 
-if get_option('build_docs')
+doxygen = find_program('doxygen', required : get_option('build_docs'))
+
+if doxygen.found()
 	doxyfile = configure_file(
 		input : 'docs/Doxyfile.in',
 		output : 'Doxyfile',
@@ -46,13 +48,5 @@ if get_option('build_docs')
 		}
 	)
 
-	doxygen = find_program('doxygen', required : false)
-	if doxygen.found()
-		custom_target('hel-doxygen',
-			input : doxyfile,
-			output : 'hel-api',
-			depend_files : 'hel/include/hel.h',
-			command : [ doxygen, doxyfile ]
-		)
-	endif
+	run_target('hel-doxygen', command : [ doxygen, doxyfile ])
 endif
