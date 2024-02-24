@@ -48,5 +48,5 @@ if doxygen.found()
 		}
 	)
 
-	run_target('hel-doxygen', command : [ doxygen, doxyfile ])
+	run_target('docs', command : [ doxygen, doxyfile ])
 endif

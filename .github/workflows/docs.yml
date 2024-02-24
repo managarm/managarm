@@ -34,7 +34,7 @@ jobs:
             run: ninja mdbook
             working-directory: build/
           - name: Build hel reference
-            run: ninja hel-doxygen
+            run: ninja hel@@docs
             working-directory: build/
           - name: Upload handbook artifact
             uses: actions/upload-artifact@v2
