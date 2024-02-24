@@ -13,6 +13,7 @@ add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation'
 # build documentation
 if get_option('build_docs')
 	subdir('docs')
+	subproject('hel')
 endif
 
 build_kernel = get_option('build_kernel')
