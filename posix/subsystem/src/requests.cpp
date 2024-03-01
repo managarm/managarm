@@ -950,7 +950,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto parent = resolver.currentLink()->getTarget();
-			if(co_await parent->getLink(resolver.nextComponent())) {
+			if((co_await parent->getLink(resolver.nextComponent())).unwrap()) {
 				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 				continue;
 			}
