@@ -439,10 +439,12 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 			drm_mode_modeinfo mode_info;
 			if(crtc->drmState()->mode) {
-				/* TODO: Set x, y, fb_id, gamma_size */
-				std::cout << "\e[33mcore/drm: MODE_GETCRTC does not handle x, y or gamma_size\e[39m" << std::endl;
 				memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 				resp.set_drm_mode_valid(1);
+				resp.set_drm_x(crtc->primaryPlane()->drmState()->src_x);
+				resp.set_drm_y(crtc->primaryPlane()->drmState()->src_y);
+				/* TODO: wire up gamma once we support that */
+				resp.set_drm_gamma_size(0);
 				resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
 			}else{
 				memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
