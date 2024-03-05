@@ -76,6 +76,10 @@ enum {
 	R_X86_64_TPOFF64 = 18,
 };
 
+enum {
+	R_AARCH64_RELATIVE = 1027
+};
+
 struct Elf64_Rela {
 	Elf64_Addr r_offset;
 	Elf64_Xword r_info;

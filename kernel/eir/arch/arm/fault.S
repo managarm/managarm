@@ -50,7 +50,8 @@ eirCommonHandler:
 	and x1, x1, #0xFFFFFFFFFFFFFFFE
 	msr sctlr_el1, x1
 
-	ldr x1, =eirStackTop
+	adrp x1, eirStackTop
+	add x1, x1, :lo12:eirStackTop
 	mov sp, x1
 	mrs x1, esr_el1
 	mrs x2, elr_el1

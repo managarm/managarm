@@ -31,6 +31,17 @@ static constexpr size_t numRegions = 64;
 extern Region regions[numRegions];
 extern address_t allocatedMemory;
 
+struct GenericInfo {
+	uintptr_t deviceTreePtr;
+	const char *cmdline;
+	EirFramebuffer fb;
+	uint32_t debugFlags;
+	bool hasFb;
+};
+
+void eirRelocate();
+[[noreturn]] void eirGenericMain(const GenericInfo &genericInfo);
+
 uintptr_t bootReserve(size_t length, size_t alignment);
 uintptr_t allocPage();
 void allocLogRingBuffer();
