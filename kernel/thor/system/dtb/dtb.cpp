@@ -93,12 +93,24 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 						reg.addr = prop.asPropArrayEntry(addrCells - 1, j + 1);
 						j += addrCells * 4;
 					} else {
+						if(j + addrCells * 4 > prop.size()) {
+							infoLogger() << "thor: warning: node \"" << name() << "\": reg field isn't conforming to #addr-cells" << frg::endlog;
+							reg.addr = prop.asPropArrayEntry((j + addrCells * 4 - prop.size()) / 4);
+							reg_.push_back(reg);
+							break;
+						}
 						reg.addr = prop.asPropArrayEntry(addrCells, j);
 						j += addrCells * 4;
 					}
 				}
 
 				if (sizeCells) {
+					if(j + sizeCells * 4 > prop.size()) {
+						infoLogger() << "thor: warning: node \"" << name() << "\": reg field isn't conforming to #size-cells" << frg::endlog;
+						reg.size = prop.asPropArrayEntry((j + sizeCells * 4 - prop.size()) / 4);
+						reg_.push_back(reg);
+						break;
+					}
 					reg.size = prop.asPropArrayEntry(sizeCells, j);
 					j += sizeCells * 4;
 				}
