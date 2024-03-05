@@ -84,14 +84,14 @@ namespace Mbox {
 	}
 
 	void write(Channel channel, uint32_t value) {
-		while (space.load(reg::status) & status::full)
+		while(space.load(reg::status) & status::full)
 			;
 
 		space.store(reg::write, io::channel(channel) | io::value(value >> 4));
 	}
 
 	uint32_t read(Channel channel) {
-		while (space.load(reg::status) & status::empty)
+		while(space.load(reg::status) & status::empty)
 			;
 
 		auto f = space.load(reg::read);
@@ -128,7 +128,7 @@ namespace PropertyMbox {
 		assert(val == ret);
 	}
 
-	frg::tuple<int, int, void *, size_t> setupFb(int width, int height, int bpp) {
+	frg::tuple<int, int, void *, size_t> setupFb(unsigned int width, unsigned int height, unsigned int bpp) {
 		constexpr uint32_t req_size = 36 * 4;
 		frg::aligned_storage<req_size, 16> stor;
 		auto ptr = reinterpret_cast<volatile uint32_t *>(stor.buffer);
@@ -191,7 +191,7 @@ namespace PropertyMbox {
 		auto fbPtr = 0;
 
 		// if depth is not the expected depth, pretend we failed
-		if (ptr[20] == bpp) { // depth == expected depth
+		if(ptr[20] == bpp) { // depth == expected depth
 #ifndef RASPI3
 			// Translate legacy master view address into our address space
 			fbPtr = ptr[28] - 0xC0000000;
@@ -243,7 +243,7 @@ void debugPrintChar(char c) {
 	debugUart->send(c);
 }
 
-extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
+extern "C" [[noreturn]] void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	// the device tree pointer is 32-bit and the upper bits are undefined
 	deviceTreePtr &= 0x00000000FFFFFFFF;
 
@@ -260,7 +260,7 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	eir::infoLogger() << "Got cmdline: " << cmd_sv << frg::endlog;
 
 	eir::infoLogger() << "Attempting to set up a framebuffer:" << frg::endlog;
-	int fb_width = 0, fb_height = 0;
+	unsigned int fb_width = 0, fb_height = 0;
 
 	// Parse the command line.
 	{
@@ -277,15 +277,15 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 
 			frg::string_view token{l, static_cast<size_t>(s - l)};
 
-			if (auto equals = token.find_first('='); equals != size_t(-1)) {
+			if(auto equals = token.find_first('='); equals != size_t(-1)) {
 				auto key = token.sub_string(0, equals);
 				auto value = token.sub_string(equals + 1, token.size() - equals - 1);
 
-				if (key == "bcm2708_fb.fbwidth") {
-					if (auto width = value.to_number<int>(); width)
+				if(key == "bcm2708_fb.fbwidth") {
+					if(auto width = value.to_number<unsigned int>(); width)
 						fb_width = *width;
-				} else if (key == "bcm2708_fb.fbheight") {
-					if (auto height = value.to_number<int>(); height)
+				} else if(key == "bcm2708_fb.fbheight") {
+					if(auto height = value.to_number<unsigned int>(); height)
 						fb_height = *height;
 				}
 			}
@@ -297,12 +297,12 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 	uintptr_t fb_ptr = 0;
 	size_t fb_pitch = 0;
 	bool have_fb = false;
-	if (!fb_width || !fb_height) {
+	if(!fb_width || !fb_height) {
 		eir::infoLogger() << "No display attached" << frg::endlog;
 	} else {
 		auto [actualW, actualH, ptr, pitch] = PropertyMbox::setupFb(fb_width, fb_height, 32);
 
-		if (!ptr || !pitch) {
+		if(!ptr || !pitch) {
 			eir::infoLogger() << "Mode setting failed..." << frg::endlog;
 		} else {
 			eir::infoLogger() << "Success!" << frg::endlog;
@@ -319,182 +319,26 @@ extern "C" void eirRaspi4Main(uintptr_t deviceTreePtr) {
 		}
 	}
 
-	initProcessorEarly();
+	GenericInfo info{
+		.deviceTreePtr = deviceTreePtr,
+		.cmdline = cmd_buf,
+		.fb {},
+		.debugFlags = eirDebugSerial,
+		.hasFb = have_fb
+	};
 
-	DeviceTree dt{reinterpret_cast<void *>(deviceTreePtr)};
-
-	eir::infoLogger() << "DTB pointer " << dt.data() << frg::endlog;
-	eir::infoLogger() << "DTB size: 0x" << frg::hex_fmt{dt.size()} << frg::endlog;
-
-	DeviceTreeNode chosenNode;
-	bool hasChosenNode = false;
-
-	DeviceTreeNode memoryNodes[32];
-	size_t nMemoryNodes = 0;
-
-	dt.rootNode().discoverSubnodes(
-		[](DeviceTreeNode &node) {
-			return !memcmp("memory@", node.name(), 7)
-				|| !memcmp("chosen", node.name(), 7);
-		},
-		[&](DeviceTreeNode node) {
-			if (!memcmp("chosen", node.name(), 7)) {
-				assert(!hasChosenNode);
-
-				chosenNode = node;
-				hasChosenNode = true;
-			} else {
-				assert(nMemoryNodes < 32);
-
-				memoryNodes[nMemoryNodes++] = node;
-			}
-			infoLogger() << "Node \"" << node.name() << "\" discovered" << frg::endlog;
-		});
-
-	uint32_t addressCells = 2, sizeCells = 1;
-
-	for (auto prop : dt.rootNode().properties()) {
-		if (!memcmp("#address-cells", prop.name(), 15)) {
-			addressCells = prop.asU32();
-		} else if (!memcmp("#size-cells", prop.name(), 12)) {
-			sizeCells = prop.asU32();
-		}
+	if(have_fb) {
+		info.fb = {
+			.fbAddress = fb_ptr,
+			.fbPitch = fb_pitch,
+			.fbWidth = static_cast<EirSize>(fb_width),
+			.fbHeight = static_cast<EirSize>(fb_height),
+			.fbBpp = 32,
+			.fbType = 0
+		};
 	}
 
-	assert(nMemoryNodes && hasChosenNode);
-
-	InitialRegion reservedRegions[32];
-	size_t nReservedRegions = 0;
-
-	eir::infoLogger() << "Memory reservation entries:" << frg::endlog;
-	for (auto ent : dt.memoryReservations()) {
-		eir::infoLogger() << "At 0x" << frg::hex_fmt{ent.address}
-			<< ", ends at 0x" << frg::hex_fmt{ent.address + ent.size}
-			<< " (0x" << frg::hex_fmt{ent.size} << " bytes)" << frg::endlog;
-
-		reservedRegions[nReservedRegions++] = {ent.address, ent.size};
-	}
-	eir::infoLogger() << "End of memory reservation entries" << frg::endlog;
-
-	uintptr_t eirStart = reinterpret_cast<uintptr_t>(&eirImageFloor);
-	uintptr_t eirEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
-	reservedRegions[nReservedRegions++] = {eirStart, eirEnd - eirStart};
-
-	uintptr_t initrd = 0;
-	if (auto p = chosenNode.findProperty("linux,initrd-start"); p) {
-		if (p->size() == 4)
-			initrd = p->asU32();
-		else if (p->size() == 8)
-			initrd = p->asU64();
-		else
-			assert(!"Invalid linux,initrd-start size");
-
-		eir::infoLogger() << "Initrd is at " << (void *)initrd << frg::endlog;
-	} else {
-		initrd = 0x8000000;
-		eir::infoLogger() << "Assuming initrd is at " << (void *)initrd << frg::endlog;
-	}
-
-	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
-
-	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
-	eir::infoLogger() << "Initrd ends at " << (void *)initrd_end << frg::endlog;
-
-	reservedRegions[nReservedRegions++] = {initrd, initrd_end - initrd};
-	reservedRegions[nReservedRegions++] = {deviceTreePtr, dt.size()};
-
-	for (int i = 0; i < nMemoryNodes; i++) {
-		auto reg = memoryNodes[i].findProperty("reg");
-		assert(reg);
-
-		size_t j = 0;
-		while (j < reg->size()) {
-			auto base = reg->asPropArrayEntry(addressCells, j);
-			j += addressCells * 4;
-
-			auto size = reg->asPropArrayEntry(sizeCells, j);
-			j += sizeCells * 4;
-
-			createInitialRegions({base, size}, {reservedRegions, nReservedRegions});
-		}
-	}
-
-	setupRegionStructs();
-
-	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
-	for(size_t i = 0; i < numRegions; ++i) {
-		if(regions[i].regionType == RegionType::null)
-			continue;
-		eir::infoLogger() << "    Memory region [" << i << "]."
-				<< " Base: 0x" << frg::hex_fmt{regions[i].address}
-				<< ", length: 0x" << frg::hex_fmt{regions[i].size} << frg::endlog;
-		if(regions[i].regionType == RegionType::allocatable)
-			eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
-					<< ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
-					<< frg::endlog;
-	}
-
-	frg::span<uint8_t> kernel_image{nullptr, 0};
-
-	for (auto entry : cpio_range) {
-		if (entry.name == "thor") {
-			kernel_image = entry.data;
-		}
-	}
-
-	assert(kernel_image.data() && kernel_image.size());
-
-	uint64_t kernel_entry = 0;
-	initProcessorPaging(kernel_image.data(), kernel_entry);
-
-	auto info_ptr = generateInfo(cmd_buf);
-
-	auto module = bootAlloc<EirModule>();
-	module->physicalBase = initrd;
-	module->length = initrd_end - initrd;
-
-	char *name_ptr = bootAlloc<char>(11);
-	memcpy(name_ptr, "initrd.cpio", 11);
-	module->namePtr = mapBootstrapData(name_ptr);
-	module->nameLength = 11;
-
-	info_ptr->numModules = 1;
-	info_ptr->moduleInfo = mapBootstrapData(module);
-
-	info_ptr->dtbPtr = deviceTreePtr;
-	info_ptr->dtbSize = dt.size();
-
-	if (have_fb) {
-		auto framebuf = &info_ptr->frameBuffer;
-		framebuf->fbAddress = fb_ptr;
-		framebuf->fbPitch = fb_pitch;
-		framebuf->fbWidth = fb_width;
-		framebuf->fbHeight = fb_height;
-		framebuf->fbBpp = 32;
-		framebuf->fbType = 0;
-
-		assert(fb_ptr & ~(pageSize - 1));
-		for(address_t pg = 0; pg < fb_pitch * fb_height; pg += 0x1000)
-			mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, fb_ptr + pg,
-					PageFlags::write, CachingMode::writeCombine);
-		mapKasanShadow(0xFFFF'FE00'4000'0000, fb_pitch * fb_height);
-		unpoisonKasanShadow(0xFFFF'FE00'4000'0000, fb_pitch * fb_height);
-		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
-	}
-
-	info_ptr->debugFlags |= eirDebugSerial;
-
-	mapSingle4kPage(0xFFFF'0000'0000'0000, mmioBase + 0x201000,
-			PageFlags::write, CachingMode::mmio);
-	mapKasanShadow(0xFFFF'0000'0000'0000, 0x1000);
-	unpoisonKasanShadow(0xFFFF'0000'0000'0000, 0x1000);
-
-	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
-
-	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry,
-			0xFFFF'FE80'0001'0000, 0xFFFF'FE80'0001'0000);
-
-	while(true);
+	eirGenericMain(info);
 }
 
 } // namespace eir

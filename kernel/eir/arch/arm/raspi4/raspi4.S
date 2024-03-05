@@ -16,7 +16,8 @@ eirEntry:
 	mov x7, x0
 
 	.extern eirStackTop
-	ldr x1, =eirStackTop
+	adrp x1, eirStackTop
+	add x1, x1, :lo12:eirStackTop
 	mov sp, x1
 
 	// Get current execution level
@@ -60,7 +61,8 @@ eirEntry:
 
 	// Load vector table
 	.extern eirExcVectors
-	ldr x0, =eirExcVectors
+	adrp x0, eirExcVectors
+	add x0, x0, :lo12:eirExcVectors
 	msr vbar_el1, x0
 
 	// "Return" into EL1
@@ -76,8 +78,10 @@ eirEntry:
 	// Zero out BSS
 	.extern eirBssStart
 	.extern eirBssEnd
-	ldr x5, =eirBssStart
-	ldr x6, =eirBssEnd
+	adrp x5, eirBssStart
+	adrp x6, eirBssEnd
+	add x5, x5, :lo12:eirBssStart
+	add x6, x6, :lo12:eirBssEnd
 .loop:
 	cmp x5, x6
 	b.eq .enter

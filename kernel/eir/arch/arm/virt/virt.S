@@ -2,7 +2,8 @@
 .global eirEntry
 eirEntry:
 	.extern eirStackTop
-	ldr x1, =eirStackTop
+	adrp x1, eirStackTop
+	add x1, x1, :lo12:eirStackTop
 	mov sp, x1
 
 	mov x2, xzr
@@ -18,14 +19,17 @@ eirEntry:
 
 	// Load vector table
 	.extern eirExcVectors
-	ldr x1, =eirExcVectors
+	adrp x1, eirExcVectors
+	add x1, x1, :lo12:eirExcVectors
 	msr vbar_el1, x1
 
 	// Zero out BSS
 	.extern eirBssStart
 	.extern eirBssEnd
-	ldr x5, =eirBssStart
-	ldr x6, =eirBssEnd
+	adrp x5, eirBssStart
+	adrp x6, eirBssEnd
+	add x5, x5, :lo12:eirBssStart
+	add x6, x6, :lo12:eirBssEnd
 .loop:
 	cmp x5, x6
 	b.eq .enter

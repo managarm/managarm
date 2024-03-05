@@ -1,7 +1,7 @@
 ENTRY(eirEntry)
 
 SECTIONS {
-	. = 0x40080000;
+	. = 0;
 	eirImageFloor = .;
 
 	.text : ALIGN(0x1000) {
@@ -11,6 +11,10 @@ SECTIONS {
 
 	.rodata : ALIGN(0x1000) {
 		*(.rodata*)
+	}
+
+	.dynamic : {
+		*(.dynamic)
 	}
 
 	.data : ALIGN(0x1000) {
