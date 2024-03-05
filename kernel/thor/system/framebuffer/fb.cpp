@@ -159,8 +159,11 @@ void transitionBootFb() {
 		}
 	}
 
-	if(!owner)
-		panicLogger() << "thor: Could not find owner for boot framebuffer" << frg::endlog;
+	if(!owner) {
+		infoLogger() << "thor: Could not find owner for boot framebuffer" << frg::endlog;
+		return;
+	}
+
 	infoLogger() << "thor: Boot framebuffer is attached to PCI device "
 			<< owner->bus << "." << owner->slot << "." << owner->function << frg::endlog;
 	owner->associatedFrameBuffer = bootInfo.get();

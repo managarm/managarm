@@ -6,8 +6,11 @@ namespace thor {
 
 constinit UartLogHandler uartLogHandler;
 
+extern bool debugToSerial;
+
 void setupDebugging() {
-	enableLogHandler(&uartLogHandler);
+	if (debugToSerial)
+		enableLogHandler(&uartLogHandler);
 }
 
 namespace {
