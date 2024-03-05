@@ -14,6 +14,7 @@ src += files(
 	'smp.cpp',
 	'timer.cpp',
 	'../../system/dtb/dtb.cpp',
+	'../../system/dtb/dtb_discover.cpp',
 	'../../system/pci/pci_dtb.cpp'
 )
 
