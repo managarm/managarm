@@ -57,7 +57,7 @@ void eirRelocate() {
 
 	dt.rootNode().discoverSubnodes(
 		[](DeviceTreeNode &node) {
-			return !memcmp("memory@", node.name(), 7)
+			return !memcmp("memory", node.name(), 6)
 				|| !memcmp("chosen", node.name(), 7)
 				|| !memcmp("reserved-memory", node.name(), 15);
 		},
