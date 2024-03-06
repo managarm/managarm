@@ -63,7 +63,8 @@ void LogSink::operator()(const char *c) {
 void PanicSink::operator()(const char *c) {
 	infoSink.print(c);
 	infoSink.print('\n');
-	while(true);
+	while(true)
+		asm volatile("" : : : "memory");
 }
 
 } // namespace eir
