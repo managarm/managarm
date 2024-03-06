@@ -9,7 +9,7 @@
 
 namespace thor {
 
-static inline constexpr bool logNodeInfo = true;
+static inline constexpr bool logNodeInfo = false;
 
 initgraph::Stage *getDeviceTreeParsedStage() {
 	static initgraph::Stage s{&globalInitEngine, "dtb.tree-parsed"};
@@ -78,6 +78,8 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 			hasInterruptCells_ = true;
 		} else if (pn == "interrupt-parent") {
 			interruptParentId_ = prop.asU32();
+		} else if (pn == "interrupt-controller") {
+			interruptController_ = true;
 		} else if (pn == "reg") {
 			auto addrCells = parent_->addressCells_;
 			auto sizeCells = parent_->sizeCells_;
