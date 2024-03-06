@@ -407,7 +407,7 @@ auto DeviceTreeNode::parseIrqs_(frg::span<const std::byte> data) -> frg::vector<
 	::DeviceTreeProperty prop{"", data};
 
 	// We only support GIC irqs for now
-	if (!isCompatible(dtGicCompatible)) {
+	if (!isCompatible(dtGicV2Compatible) && !isCompatible(dtGicV3Compatible)) {
 		infoLogger() << "thor: warning: Skipping parsing IRQs using node \"" << path()
 			<< "\", it's not compatible with the GIC" << frg::endlog;
 		return ret;

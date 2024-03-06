@@ -278,6 +278,10 @@ void initializeThisProcessor() {
 	asm volatile ("msr sctlr_el1, %0" :: "r"(sctlr));
 
 	cpu_data->cpuIndex = allCpuContexts->size();
+	uint64_t mpidr;
+	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
+	cpu_data->affinity = (mpidr & 0xFFFFFF) | (mpidr >> 32 & 0xFF) << 24;
+
 	allCpuContexts->push(cpu_data);
 
 	cpu_data->irqStack = UniqueKernelStack::make();

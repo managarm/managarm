@@ -112,7 +112,6 @@ bool preemptionIsArmed() {
 }
 
 static bool timersFound = false;
-extern frg::manual_box<GicDistributor> dist;
 
 static DeviceTreeNode *timerNode = nullptr;
 
@@ -142,10 +141,10 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 		auto irqPhys = timerNode->irqs()[1];
 		auto irqVirt = timerNode->irqs()[2];
 
-		auto ppin = dist->setupIrq(irqPhys.id, irqPhys.trigger);
+		auto ppin = gic->setupIrq(irqPhys.id, irqPhys.trigger);
 		IrqPin::attachSink(ppin, globalPGTInstance.get());
 
-		auto vpin = dist->setupIrq(irqVirt.id, irqVirt.trigger);
+		auto vpin = gic->setupIrq(irqVirt.id, irqVirt.trigger);
 		IrqPin::attachSink(vpin, globalVGTInstance.get());
 
 		timersFound = true;
@@ -159,11 +158,11 @@ bool haveTimer() {
 // Sets up the proper interrupt trigger and polarity for the PPI
 void initTimerOnThisCpu() {
 	auto irqPhys = timerNode->irqs()[1];
-	auto physPin = dist->getPin(irqPhys.id);
+	auto physPin = gic->getPin(irqPhys.id);
 	physPin->setMode(irqPhys.trigger, irqPhys.polarity);
 
 	auto irqVirt = timerNode->irqs()[2];
-	auto virtPin = dist->getPin(irqVirt.id);
+	auto virtPin = gic->getPin(irqVirt.id);
 	virtPin->setMode(irqVirt.trigger, irqVirt.polarity);
 }
 

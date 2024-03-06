@@ -233,7 +233,7 @@ DeviceTreeNode *getDeviceTreeRoot();
 
 initgraph::Stage *getDeviceTreeParsedStage();
 
-static inline frg::array<frg::string_view, 12> dtGicCompatible = {
+static inline frg::array<frg::string_view, 12> dtGicV2Compatible = {
 	"arm,arm11mp-gic",
 	"arm,cortex-a15-gic",
 	"arm,cortex-a7-gic",
@@ -246,6 +246,10 @@ static inline frg::array<frg::string_view, 12> dtGicCompatible = {
 	"nvidia,tegra210-agic",
 	"qcom,msm-8660-qgic",
 	"qcom,msm-qgic2"
+};
+
+static inline frg::array<frg::string_view, 1> dtGicV3Compatible = {
+	"arm,gic-v3"
 };
 
 static inline frg::array<frg::string_view, 3> dtPciCompatible = {
