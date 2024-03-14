@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 104,
+	kHelNumCalls = 105,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -104,6 +104,8 @@ enum {
 
 	kHelCallGetAffinity = 103,
 	kHelCallSetAffinity = 100,
+
+	kHelCallReboot = 104,
 
 	kHelCallSuper = 0x80000000
 };
@@ -1082,6 +1084,8 @@ HEL_C_LINKAGE HelError helEnableFullIo();
 //!     Handle to the bound kernlet.
 HEL_C_LINKAGE HelError helBindKernlet(HelHandle handle,
 		const union HelKernletData *data, size_t numData, HelHandle *boundHandle);
+
+HEL_C_LINKAGE HelError helReboot(int cmd);
 
 //! @}
 

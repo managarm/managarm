@@ -479,5 +479,9 @@ extern inline __attribute__ (( always_inline )) HelError helQueryRegisterInfo(in
 	return helSyscall2(kHelCallQueryRegisterInfo, (HelWord)set, (HelWord)info);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helReboot(int cmd) {
+	return helSyscall1(kHelCallReboot, (HelWord)cmd);
+};
+
 #endif // HEL_SYSCALLS_H
 
