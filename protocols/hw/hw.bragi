@@ -121,3 +121,9 @@ tail:
 		tag(8) uint32 fb_type;
 	}
 }
+
+message RebootRequest 17 {
+head(128):
+	Errors error;
+	int64 cmd;
+}
