@@ -24,7 +24,8 @@ struct DeviceTreeNode {
 	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
 	interruptMapRaw_{nullptr, 0}, interruptController_{false},
 	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF},
-	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0}, method_{} { }
+	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0},
+	cpuOn_{0xc4000003}, method_{} { }
 
 	void initializeWith(::DeviceTreeNode dtNode);
 	void finalizeInit();

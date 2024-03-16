@@ -34,7 +34,7 @@ namespace {
 				assert(node->method() == "smc");
 		}
 
-		int turnOnCpu(uint8_t id, uintptr_t addr) {
+		int turnOnCpu(uint64_t id, uintptr_t addr) {
 			register int64_t regResult asm("x0");
 			register uint64_t regCmd asm("x0") = cpuOn_;
 			register uint64_t regCpu asm("x1") = id;
@@ -84,7 +84,7 @@ namespace {
 
 bool bootSecondary(DeviceTreeNode *node) {
 	infoLogger() << "thor: Starting CPU \"" << node->path() << "\"" << frg::endlog;
-	uint8_t id = node->reg()[0].addr;
+	uint64_t id = node->reg()[0].addr;
 
 	// TODO: We assume CPU 0 is the boot CPU, but potentially it could be some other one
 	if (id == 0)
@@ -224,7 +224,7 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 	initgraph::Requires{getDeviceTreeParsedStage(), getTaskingAvailableStage()},
 	[] {
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-			if (node->isCompatible<1>({"arm,psci"})) {
+			if (node->isCompatible<2>({"arm,psci", "arm,psci-1.0"})) {
 				psci_.initialize(node);
 				return true;
 			}
@@ -233,7 +233,7 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 		});
 
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-			if (node->isCompatible<3>({"arm,cortex-a72", "arm,cortex-a53", "arm,arm-v8"})) {
+			if (node->isCompatible<4>({"arm,cortex-a72", "arm,cortex-a53", "arm,arm-v8", "arm,armv8"})) {
 				bootSecondary(node);
 			}
 
