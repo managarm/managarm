@@ -34,6 +34,8 @@ public:
 			uint32_t inotifyEvents = 0;
 			if(events & FsObserver::deleteEvent)
 				inotifyEvents |= IN_DELETE;
+			if(events & FsObserver::createEvent)
+				inotifyEvents |= IN_CREATE;
 			if(!(inotifyEvents & mask))
 				return;
 			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
@@ -116,7 +118,7 @@ public:
 
 	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
 		// TODO: Coalesce watch descriptors for the same inode.
-		if(mask & ~(IN_DELETE))
+		if(mask & ~(IN_DELETE | IN_CREATE))
 			std::cout << "posix: inotify mask " << mask << " is partially ignored" << std::endl;
 		auto descriptor = _nextDescriptor++;
 		auto watch = std::make_shared<Watch>(this, descriptor, mask);

@@ -76,6 +76,7 @@ protected:
 
 public:
 	static constexpr uint32_t deleteEvent = 1;
+	static constexpr uint32_t createEvent = 2;
 
 	virtual void observeNotification(uint32_t events,
 			const std::string &name, uint32_t cookie) = 0;
