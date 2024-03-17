@@ -1508,15 +1508,44 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await target->utimensat(req->atimeSec(), req->atimeNsec(), req->mtimeSec(), req->mtimeNsec());
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
-		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
+		}else if(preamble.id() == bragi::message_id<managarm::posix::ReadlinkAtRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
+
+			auto req = bragi::parse_head_tail<managarm::posix::ReadlinkAtRequest>(recv_head, tail);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			if(logRequests || logPaths)
-				std::cout << "posix: READLINK path: " << req.path() << std::endl;
+				std::cout << "posix: READLINKAT path: " << req->path() << std::endl;
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+
+			if(req->fd() == AT_FDCWD) {
+				relative_to = self->fsContext()->getWorkingDirectory();
+			} else {
+				file = self->fileContext()->getFile(req->fd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				relative_to = {file->associatedMount(), file->associatedLink()};
+			}
+
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path(), self.get(), resolveDontFollow);
+					relative_to, req->path(), self.get(), resolveDontFollow);
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					managarm::posix::SvrResponse resp;
