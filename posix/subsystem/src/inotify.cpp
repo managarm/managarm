@@ -1,9 +1,11 @@
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <sys/inotify.h>
 #include <iostream>
 
 #include <async/recurring-event.hpp>
+#include <bragi/helpers-std.hpp>
 #include <helix/ipc.hpp>
 #include "fs.hpp"
 #include "inotify.hpp"
@@ -120,6 +122,44 @@ public:
 		auto watch = std::make_shared<Watch>(this, descriptor, mask);
 		node->addObserver(watch);
 		return descriptor;
+	}
+
+	async::result<void>
+	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+		managarm::fs::GenericIoctlReply resp;
+
+		if(id == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			assert(req);
+
+			switch(req->command()) {
+				case FIONREAD: {
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					if(_queue.empty()) {
+						resp.set_fionread_count(0);
+					} else {
+						auto packet = &_queue.front();
+						auto size = sizeof(Packet) + packet->name.size() + 1;
+						resp.set_fionread_count(size);
+					}
+					break;
+				}
+				default: {
+					std::cout << "Invalid ioctl for inotify" << std::endl;
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					break;
+				}
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
 	}
 
 private:
