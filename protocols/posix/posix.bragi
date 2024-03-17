@@ -537,3 +537,10 @@ head(128):
 	uint64 sig_status;
 	uint64 sig_code;
 }
+
+message ReadlinkAtRequest 45 {
+head(128):
+	int32 fd;
+tail:
+	string path;
+}
