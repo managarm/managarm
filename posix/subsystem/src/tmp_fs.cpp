@@ -736,6 +736,7 @@ DirectoryNode::mkdir(std::string name) {
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
+	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
@@ -758,6 +759,7 @@ DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 			type, id);
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
+	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
@@ -768,6 +770,7 @@ DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
+	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
@@ -777,6 +780,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkso
 	auto node = std::make_shared<SocketNode>(static_cast<Superblock *>(superblock()));
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
+	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
 }
 
