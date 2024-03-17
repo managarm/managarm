@@ -387,6 +387,30 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::RebootRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::RebootRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: REBOOT with sleep state: " << req->cmd() << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			if(self->uid() != 0)
+				sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			HEL_CHECK(helReboot(req->cmd()));
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::GET_RESOURCE_USAGE) {
 			if(logRequests)
 				std::cout << "posix: GET_RESOURCE_USAGE" << std::endl;

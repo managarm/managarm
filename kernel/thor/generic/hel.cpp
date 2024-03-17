@@ -26,6 +26,8 @@
 #endif
 #include <hel.h>
 
+#include <lai/helpers/pm.h>
+
 using namespace thor;
 
 namespace {
@@ -3509,5 +3511,10 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 
 HelError helGetCurrentCpu(int *cpu) {
 	*cpu = getCpuData()->cpuIndex;
+	return kHelErrNone;
+}
+
+HelError helReboot(int cmd) {
+	lai_enter_sleep(cmd);
 	return kHelErrNone;
 }

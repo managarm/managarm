@@ -887,6 +887,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helQueryRegisterInfo((int)arg0, (HelRegisterInfo *)arg1);
 	} break;
 
+	case kHelCallReboot: {
+		*image.error() = helReboot((int)arg0);
+	} break;
+
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}
