@@ -50,7 +50,7 @@ public:
 	}
 
 	OpenFile(int protocol, bool nonBlock = false)
-	: File{StructName::get("nl-socket"), File::defaultPipeLikeSeek}, _protocol{protocol},
+	: File{StructName::get("nl-socket"), nullptr, SpecialLink::makeSpecialLink(VfsType::socket, 0777), File::defaultPipeLikeSeek}, _protocol{protocol},
 			_currentSeq{1}, _inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
 
 	void deliver(Packet packet) {
