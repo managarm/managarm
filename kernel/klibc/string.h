@@ -35,6 +35,7 @@ char *strstr(const char *, const char *);
 
 // memset is defined as a macro above.
 size_t strlen(const char *);
+size_t strnlen(const char *, size_t);
 
 #ifdef __cplusplus
 }

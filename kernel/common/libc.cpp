@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <frg/string.hpp>
+
 // We need to define the true memcpy / memset symbols
 // (string.h expands them to the __builtin variants).
 #undef memcpy
@@ -64,6 +66,10 @@ size_t strlen(const char *str) {
 	while(*str++ != 0)
 		length++;
 	return length;
+}
+
+size_t strnlen(const char *str, size_t maxlen) {
+	return frg::generic_strnlen(str, maxlen);
 }
 
 // --------------------------------------------------------------------------------------
