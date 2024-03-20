@@ -4,6 +4,8 @@
 #include <thor-internal/arch/ints.hpp>
 #include <stdlib.h>
 
+#include <frg/optional.hpp>
+
 #include <uacpi/kernel_api.h>
 #include <uacpi/acpi.h>
 #include <uacpi/uacpi.h>
@@ -13,6 +15,8 @@
 #include <uacpi/resources.h>
 #include <uacpi/io.h>
 #include <uacpi/opregion.h>
+#include <uacpi/sleep.h>
+#include <uacpi/notify.h>
 
 namespace thor::acpi {
 
@@ -54,6 +58,7 @@ void waitForBit(acpi_gas &gas, uint8_t bit, bool value) {
 struct ECDevice {
 	uacpi_namespace_node *node;
 	uacpi_namespace_node *gpeNode;
+	frg::optional<uint16_t> gpeIdx;
 
 	acpi_gas control;
 	acpi_gas data;
@@ -98,6 +103,21 @@ struct ECDevice {
 		writeOne(data, offset);
 		writeOne(data, value);
 	}
+
+	bool checkEvent(uint8_t &idx) {
+		auto status = regRead(control);
+
+		// We get an extra EC event when disabling burst, that's ok.
+		if(!(status & EC_SCI_EVT))
+			return false;
+
+		burstEnable();
+		writeOne(control, QR_EC);
+		idx = readOne(data);
+		burstDisable();
+
+		return true;
+	}
 };
 static frg::manual_box<ECDevice> ecDevice;
 
@@ -134,6 +154,48 @@ static uacpi_status handleEcRegion(uacpi_region_op op, uacpi_handle op_data) {
 		default:
 			return ecDoRw(op, reinterpret_cast<uacpi_region_rw_data *>(op_data));
 	}
+}
+
+struct ECQuery {
+	uint8_t idx;
+	ECDevice *device;
+};
+
+void handleEcQuery(uacpi_handle opaque) {
+	auto *query = reinterpret_cast<ECQuery *>(opaque);
+	char method_name[5];
+
+	snprintf(method_name, sizeof(method_name), "_Q%02X", query->idx);
+	infoLogger() << "thor: evaluating EC query " << method_name << frg::endlog;
+
+	uacpi_eval(query->device->node, method_name, UACPI_NULL, UACPI_NULL);
+	uacpi_finish_handling_gpe(query->device->gpeNode, *query->device->gpeIdx);
+
+	frg::destruct(*kernelAlloc, query);
+}
+
+uacpi_interrupt_ret handleEcEvent(uacpi_handle ctx, uacpi_namespace_node*, uacpi_u16) {
+	auto *ecDevice = reinterpret_cast<ECDevice *>(ctx);
+	uacpi_interrupt_ret ret = UACPI_GPE_REENABLE | UACPI_INTERRUPT_HANDLED;
+
+	uint8_t idx;
+	if(!ecDevice->checkEvent(idx))
+		return ret;
+
+	if(idx == 0) {
+		infoLogger() << "thor: EC indicates no outstanding events" << frg::endlog;
+		return ret;
+	}
+
+	infoLogger() << "thor: scheduling EC event " << idx << " for execution" << frg::endlog;
+
+	auto *query = frg::construct<ECQuery>(*kernelAlloc);
+	query->device = ecDevice;
+	query->idx = idx;
+	uacpi_kernel_schedule_work(UACPI_WORK_GPE_EXECUTION, handleEcQuery, query);
+
+	// Don't re-enable the event handling here, it will be enabled asynchronously
+	return UACPI_INTERRUPT_HANDLED;
 }
 
 static bool initFromEcdt() {
@@ -236,6 +298,86 @@ void initEc() {
 	uacpi_eval_integer(ecDevice->node, "_GLK", UACPI_NULL, &value);
 	if(value)
 		infoLogger() << "thor: EC requires locking (this is a TODO)" << frg::endlog;
+
+	auto ret = uacpi_eval_integer(ecDevice->node, "_GPE", UACPI_NULL, &value);
+	if (ret != UACPI_STATUS_OK) {
+		infoLogger() << "thor: EC has no associated _GPE" << frg::endlog;
+		return;
+	}
+
+	ecDevice->gpeIdx = value;
+	ret = uacpi_install_gpe_handler(
+		nullptr, *ecDevice->gpeIdx, UACPI_GPE_TRIGGERING_EDGE,
+		handleEcEvent, ecDevice.get()
+	);
+	assert(ret == UACPI_STATUS_OK);
+}
+
+static void asyncShutdown(uacpi_handle) {
+	infoLogger() << "thor: shutting down..." << frg::endlog;
+
+	auto ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
+	assert(ret == UACPI_STATUS_OK);
+
+	disableInts();
+	ret = uacpi_enter_sleep_state(UACPI_SLEEP_STATE_S5);
+	assert(ret == UACPI_STATUS_OK);
+}
+
+static uacpi_interrupt_ret handlePowerButton(uacpi_handle) {
+	infoLogger() << "thor: scheduling shut down because of power button press" << frg::endlog;
+
+	/*
+	 * This must be executed outside of interrupt context because this
+	 * potentially requires quite a lot of work, involving sending more
+	 * interrupts, acquiring mutexes, sleeping, etc.
+	 */
+	uacpi_kernel_schedule_work(UACPI_WORK_GPE_EXECUTION, asyncShutdown, nullptr);
+	return UACPI_INTERRUPT_HANDLED;
+}
+
+static uacpi_status handlePowerButtonNotify(uacpi_handle, uacpi_namespace_node*, uacpi_u64 value) {
+	// 0x80: S0 Power Button Pressed
+	if (value != 0x80) {
+		infoLogger() << "thor: ignoring unknown power button notify value " << value
+					<< frg::endlog;
+		return UACPI_STATUS_OK;
+	}
+
+	infoLogger() << "thor: shutting down because of power button notification"
+				<< frg::endlog;
+
+	// We're already in an async callback, so no need to schedule this. Just call right away.
+	asyncShutdown(nullptr);
+
+	return UACPI_STATUS_OK;
+}
+
+void initEvents() {
+	/*
+	 * We don't have any sort of power management subsystem,
+	 * so just enable all GPEs that have an AML handler.
+	 */
+	uacpi_finalize_gpe_initialization();
+
+	if(ecDevice && ecDevice->gpeIdx) {
+		infoLogger() << "thor: enabling EC GPE " << *ecDevice->gpeIdx << frg::endlog;
+		uacpi_enable_gpe(ecDevice->gpeNode, *ecDevice->gpeIdx);
+	}
+
+	uacpi_install_fixed_event_handler(
+		UACPI_FIXED_EVENT_POWER_BUTTON,
+		handlePowerButton, nullptr
+	);
+
+	/*
+	 * Modern hardware uses power button devices instead of the fixed event.
+	 * Search for them here and hook AML notifications.
+	 */
+	uacpi_find_devices("PNP0C0C", [](void*, uacpi_namespace_node *node) {
+		uacpi_install_notify_handler(node, handlePowerButtonNotify, nullptr);
+		return UACPI_NS_ITERATION_DECISION_CONTINUE;
+	}, nullptr);
 }
 
 }

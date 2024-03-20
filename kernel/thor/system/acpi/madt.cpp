@@ -352,6 +352,8 @@ static initgraph::Task loadAcpiNamespaceTask{&globalInitEngine, "acpi.load-names
 		configureIrq(resolveIsaIrq(4));
 		configureIrq(resolveIsaIrq(12));
 		configureIrq(resolveIsaIrq(14));
+
+		initEvents();
 	}
 };
 
