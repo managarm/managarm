@@ -21,6 +21,44 @@ int memcmp(const void *lhs, const void *rhs, size_t count) {
 	return 0;
 }
 
+int strcmp(const char *lhs, const char *rhs) {
+	auto lhs_bytes = (const uint8_t *)lhs;
+	auto rhs_bytes = (const uint8_t *)rhs;
+
+	size_t i = 0;
+
+	while (lhs_bytes[i] && rhs_bytes[i]) {
+		if (lhs_bytes[i] != rhs_bytes[i])
+			return lhs_bytes[i] - rhs_bytes[i];
+
+		i++;
+	}
+
+	return lhs_bytes[i] - rhs_bytes[i];
+}
+
+int strncmp(const char *lhs, const char *rhs, size_t count) {
+	auto lhs_bytes = (const uint8_t *)lhs;
+	auto rhs_bytes = (const uint8_t *)rhs;
+
+	if (count == 0)
+		return 0;
+
+	size_t i = 0;
+
+	while (lhs_bytes[i] && rhs_bytes[i] && i < count) {
+		if (lhs_bytes[i] != rhs_bytes[i])
+			return lhs_bytes[i] - rhs_bytes[i];
+
+		i++;
+	}
+
+	if (i == count)
+		i--;
+
+	return lhs_bytes[i] - rhs_bytes[i];
+}
+
 size_t strlen(const char *str) {
 	size_t length = 0;
 	while(*str++ != 0)
