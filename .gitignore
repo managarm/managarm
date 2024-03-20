@@ -1,3 +1,5 @@
-subprojects
+subprojects/*
 !subprojects/*.wrap
+!subprojects/hel
+!subprojects/helix
 *.xbstrap

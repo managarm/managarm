@@ -1,0 +1,5 @@
+option('build_docs',
+    type : 'boolean',
+    value : false,
+    yield : true
+)
