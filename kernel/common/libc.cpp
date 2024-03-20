@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <frg/printf.hpp>
 #include <frg/string.hpp>
 
 // We need to define the true memcpy / memset symbols
@@ -263,5 +264,72 @@ void *memset(void *dest, int byte, size_t count) {
 }
 
 #endif // __LP64__ / !__LP64__
+
+int vsnprintf(char *__restrict buf, size_t bufsz, const char *__restrict format, va_list va) {
+	frg::va_struct vs;
+
+	va_copy(vs.args, va);
+	size_t bytes_written = 0;
+
+	struct {
+		char *buf;
+		size_t *bytes_written;
+		size_t size;
+		frg::va_struct *va;
+
+		void append(char c) {
+			if((*bytes_written)++ >= size)
+				return;
+
+			buf[*bytes_written - 1] = c;
+		}
+
+		void append(const char *s) {
+			while(*s)
+				append(*s++);
+		}
+
+		frg::expected<frg::format_error> operator()(char c) {
+			append(c);
+			return {};
+		}
+
+		frg::expected<frg::format_error> operator()(const char *s, size_t n) {
+			while(n-- > 0)
+				append(*s++);
+			return {};
+		}
+
+		frg::expected<frg::format_error> operator()(char t, frg::format_options opts, frg::printf_size_mod szmod) {
+			switch(t) {
+				case 'p': case 'c': case 's':
+					frg::do_printf_chars(*this, t, opts, szmod, va);
+					break;
+				case 'd': case 'i': case 'o': case 'x': case 'X': case 'u':
+					frg::do_printf_ints(*this, t, opts, szmod, va);
+					break;
+			}
+
+			return {};
+		}
+	} buffer_formatter { buf, &bytes_written, bufsz, &vs };
+
+	frg::printf_format(buffer_formatter, format, &vs).unwrap();
+	
+	buffer_formatter.append('\0');
+	if (bufsz)
+		buf[bufsz - 1] = '\0';
+
+	return bytes_written ? bytes_written - 1 : 0;
+}
+
+int snprintf(char *__restrict buf, size_t bufsz, const char *__restrict format, ... ) {
+	va_list list;
+	va_start(list, format);
+	int val = vsnprintf(buf, bufsz, format, list);
+	va_end(list);
+
+	return val;
+}
 
 } // extern "C"

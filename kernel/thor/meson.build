@@ -3,6 +3,7 @@ link_args = [ '-nostdlib' ]
 
 args = [ 
 	'-DLIBASYNC_CUSTOM_PLATFORM',
+	'-DFRG_DONT_USE_LONG_DOUBLE',
 	'-fno-threadsafe-statics'
 ]
 c_args = [ ]
