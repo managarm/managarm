@@ -59,6 +59,7 @@ struct ECDevice {
 	uacpi_namespace_node *node;
 	uacpi_namespace_node *gpeNode;
 	frg::optional<uint16_t> gpeIdx;
+	bool initialized = false;
 
 	acpi_gas control;
 	acpi_gas data;
@@ -280,15 +281,7 @@ static void initFromNamespace() {
 	}, nullptr);
 }
 
-void initEc() {
-	if(!initFromEcdt())
-		initFromNamespace();
-
-	if(!ecDevice) {
-		infoLogger() << "thor: no EC devices on the system" << frg::endlog;
-		return;
-	}
-
+static void installEcHandlers() {
 	uacpi_install_address_space_handler(
 		ecDevice->node, UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER,
 		handleEcRegion, ecDevice.get()
@@ -311,6 +304,30 @@ void initEc() {
 		handleEcEvent, ecDevice.get()
 	);
 	assert(ret == UACPI_STATUS_OK);
+
+	ecDevice->initialized = true;
+}
+
+void initEc() {
+	bool earlyReg = true;
+
+	if(!initFromEcdt()) {
+		earlyReg = false;
+		initFromNamespace();
+	}
+
+	if(!ecDevice) {
+		infoLogger() << "thor: no EC devices on the system" << frg::endlog;
+		return;
+	}
+
+	/*
+	 * Don't attempt to run _REG early if firmware didn't explicitly ask for
+	 * it in the form of providing an ECDT table. It might rely on the namespace
+	 * being fully initialized in the _REG method(s).
+	 */
+	if (earlyReg)
+		installEcHandlers();
 }
 
 static void asyncShutdown(uacpi_handle) {
@@ -360,9 +377,14 @@ void initEvents() {
 	 */
 	uacpi_finalize_gpe_initialization();
 
-	if(ecDevice && ecDevice->gpeIdx) {
-		infoLogger() << "thor: enabling EC GPE " << *ecDevice->gpeIdx << frg::endlog;
-		uacpi_enable_gpe(ecDevice->gpeNode, *ecDevice->gpeIdx);
+	if(ecDevice) {
+		if(!ecDevice->initialized)
+			installEcHandlers();
+
+		if(ecDevice->gpeIdx) {
+			infoLogger() << "thor: enabling EC GPE " << *ecDevice->gpeIdx << frg::endlog;
+			uacpi_enable_gpe(ecDevice->gpeNode, *ecDevice->gpeIdx);
+		}
 	}
 
 	uacpi_install_fixed_event_handler(
