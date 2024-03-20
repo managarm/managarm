@@ -11,27 +11,30 @@
 #include <thor-internal/pci/pcie_ecam.hpp>
 #include <thor-internal/main.hpp>
 
-#include <lai/core.h>
-#include <lai/helpers/pci.h>
+#include <uacpi/acpi.h>
+#include <uacpi/uacpi.h>
+#include <uacpi/resources.h>
+#include <uacpi/tables.h>
+#include <uacpi/utilities.h>
+#include <uacpi/namespace.h>
 
 namespace thor::pci {
 
 struct AcpiPciIrqRouter : PciIrqRouter {
-	AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_, lai_nsnode_t *handle);
+	AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_, uacpi_namespace_node *node);
 
 	PciIrqRouter *makeDownstreamRouter(PciBus *bus) override;
 
 private:
-	lai_nsnode_t *acpiHandle = nullptr;
+	uacpi_namespace_node *acpiNode = nullptr;
 };
 
 AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
-		lai_nsnode_t *handle)
-: PciIrqRouter{parent_, associatedBus_}, acpiHandle{handle} {
-	LAI_CLEANUP_STATE lai_state_t laiState;
-	lai_init_state(&laiState);
+		uacpi_namespace_node *node)
+: PciIrqRouter{parent_, associatedBus_}, acpiNode{node} {
+	uacpi_pci_routing_table pci_routes;
 
-	if (!acpiHandle) {
+	if(!acpiNode) {
 		for(int i = 0; i < 4; i++) {
 			bridgeIrqs[i] = parent->resolveIrqRoute(
 					associatedBus->associatedBridge->slot, static_cast<IrqIndex>(i + 1));
@@ -44,10 +47,9 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 		return;
 	}
 
-	// Look for a PRT and evaluate it.
-	lai_nsnode_t *prtHandle = lai_resolve_path(acpiHandle, "_PRT");
-	if(!prtHandle) {
-		if (parent) {
+	auto ret = uacpi_get_pci_routing_table(acpiNode, &pci_routes);
+	if(ret == UACPI_STATUS_NOT_FOUND) {
+		if(parent) {
 			infoLogger() << "thor: There is no _PRT for bus " << associatedBus->busId << ";"
 					" assuming expansion bridge routing" << frg::endlog;
 			for(int i = 0; i < 4; i++) {
@@ -64,51 +66,117 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 					" giving up IRQ routing of this bus" << frg::endlog;
 		}
 		return;
-	}
+	} else if (ret != UACPI_STATUS_OK) {
+		infoLogger() << "thor: Failed to evaluate _PRT: "
+					<< uacpi_status_to_string(ret) << frg::endlog;
 
-	LAI_CLEANUP_VAR lai_variable_t prt = LAI_VAR_INITIALIZER;
-	if (lai_eval(&prt, prtHandle, &laiState)) {
-		infoLogger() << "thor: Failed to evaluate _PRT;"
-				" giving up IRQ routing of this bus" << frg::endlog;
+		auto *bus = uacpi_namespace_node_generate_absolute_path(node);
+		infoLogger() << "giving up IRQ routing of bus: " << bus << frg::endlog;
+		uacpi_kernel_free(const_cast<char*>(bus));
 		return;
 	}
 
 	// Walk through the PRT and determine the routing.
-	struct lai_prt_iterator iter = LAI_PRT_ITERATOR_INITIALIZER(&prt);
-	lai_api_error_t e;
-	while (!(e = lai_pci_parse_prt(&iter))) {
-		assert(iter.function == -1 && "TODO: support routing of individual functions");
-		auto index = static_cast<IrqIndex>(iter.pin + 1);
+	for (size_t i = 0; i < pci_routes.num_entries; ++i) {
+		auto *entry = &pci_routes.entries[i];
 
-		infoLogger() << "    Route for slot " << iter.slot
+		// These are the defaults
+		auto triggering = TriggerMode::level;
+		auto polarity = Polarity::low;
+		auto gsi = entry->index;
+		auto slot = (entry->address >> 16) & 0xFFFF;
+
+		assert((entry->address & 0xFFFF) == 0xFFFF && "TODO: support routing of individual functions");
+		if(entry->source) {
+			// linux doesn't support this, we should be fine as well
+			assert(entry->index == 0 && "TODO: support routing multi-irq links");
+
+			uacpi_resources resources;
+			ret = uacpi_get_current_resources(entry->source, &resources);
+			assert(ret == UACPI_STATUS_OK);
+
+			switch (resources.head->type) {
+				case UACPI_RESOURCE_TYPE_IRQ: {
+					auto *irq = &resources.head->irq;
+					assert(irq->num_irqs >= 1);
+					gsi = irq->irqs[0];
+					if(irq->triggering == UACPI_TRIGGERING_EDGE)
+						triggering = TriggerMode::edge;
+					if(irq->polarity == UACPI_POLARITY_ACTIVE_HIGH)
+						polarity = Polarity::high;
+					break;
+				}
+				case UACPI_RESOURCE_TYPE_EXTENDED_IRQ: {
+					auto *irq = &resources.head->extended_irq;
+					assert(irq->num_irqs >= 1);
+					gsi = irq->irqs[0];
+					if(irq->triggering == UACPI_TRIGGERING_EDGE)
+						triggering = TriggerMode::edge;
+					if(irq->polarity == UACPI_POLARITY_ACTIVE_HIGH)
+						polarity = Polarity::high;
+					break;
+				}
+				default:
+					assert(false && "invalid link _CRS type");
+			}
+
+			uacpi_kernel_free(resources.head);
+		}
+
+		auto index = static_cast<IrqIndex>(entry->pin + 1);
+
+		infoLogger() << "    Route for slot " << slot
 				<< ", " << nameOf(index) << ": "
-				<< "GSI " << iter.gsi << frg::endlog;
+				<< "GSI " << gsi << frg::endlog;
 
-		// In contrast to the previous ACPICA code, LAI can resolve _CRS automatically.
-		// Hence, for now we do not deal with link devices.
-		configureIrq(GlobalIrqInfo{iter.gsi, {
-				iter.level_triggered ? TriggerMode::level : TriggerMode::edge,
-				iter.active_low ? Polarity::low : Polarity::high}});
-		auto pin = getGlobalSystemIrq(iter.gsi);
-		routingTable.push({static_cast<unsigned int>(iter.slot), index, pin});
+		configureIrq(GlobalIrqInfo{gsi, { triggering, polarity}});
+		auto pin = getGlobalSystemIrq(gsi);
+		routingTable.push({slot, index, pin});
 	}
 
+	uacpi_kernel_free(pci_routes.entries);
 	routingModel = RoutingModel::rootTable;
 }
 
 PciIrqRouter *AcpiPciIrqRouter::makeDownstreamRouter(PciBus *bus) {
-	lai_nsnode_t *deviceHandle = nullptr;
-	if (acpiHandle) {
-		LAI_CLEANUP_STATE lai_state_t laiState;
-		lai_init_state(&laiState);
-		deviceHandle = lai_pci_find_device(acpiHandle, bus->associatedBridge->slot,
-				bus->associatedBridge->function, &laiState);
+	uacpi_namespace_node *deviceHandle = nullptr;
+
+	if (acpiNode) {
+		struct DeviceSearchCtx {
+			uint64_t targetAddr;
+			uacpi_namespace_node *outHandle;
+		} ctx = {
+			.targetAddr = (bus->associatedBridge->slot << 16) | bus->associatedBridge->function,
+		};
+
+		uacpi_namespace_for_each_node_depth_first(acpiNode,
+			[] (uacpi_handle opaque, uacpi_namespace_node *node) {
+				auto *ctx = reinterpret_cast<DeviceSearchCtx *>(opaque);
+				uint64_t addr = 0;
+
+				auto *obj = uacpi_namespace_node_get_object(node);
+				if(obj == nullptr || obj->type != UACPI_OBJECT_DEVICE)
+					return UACPI_NS_ITERATION_DECISION_CONTINUE;
+
+				auto ret = uacpi_eval_integer(node, "_ADR", UACPI_NULL, &addr);
+				if(ret != UACPI_STATUS_OK && ret != UACPI_STATUS_NOT_FOUND)
+					return UACPI_NS_ITERATION_DECISION_CONTINUE;
+
+				if(addr == ctx->targetAddr) {
+					ctx->outHandle = node;
+					return UACPI_NS_ITERATION_DECISION_BREAK;
+				}
+
+				return UACPI_NS_ITERATION_DECISION_CONTINUE;
+			}, &ctx);
+
+		deviceHandle = ctx.outHandle;
 	}
 
 	if (deviceHandle) {
-		LAI_CLEANUP_FREE_STRING char *acpiPath = lai_stringify_node_path(deviceHandle);
-		infoLogger() << "            ACPI: " << const_cast<const char *>(acpiPath)
-				<< frg::endlog;
+		const char *acpiPath = uacpi_namespace_node_generate_absolute_path(deviceHandle);
+		infoLogger() << "            ACPI: " << acpiPath << frg::endlog;
+		uacpi_kernel_free(const_cast<char*>(acpiPath));
 	}
 
 	return frg::construct<AcpiPciIrqRouter>(*kernelAlloc, this, bus, deviceHandle);
@@ -133,23 +201,24 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	initgraph::Requires{acpi::getTablesDiscoveredStage()},
 	initgraph::Entails{getBus0AvailableStage()},
 	[] {
-		void *mcfgWindow = laihost_scan("MCFG", 0);
-		if(!mcfgWindow) {
+		uacpi_table *mcfgTbl;
+
+		auto ret = uacpi_table_find_by_signature(acpi::makeSignature("MCFG"), &mcfgTbl);
+		if(ret == UACPI_STATUS_NOT_FOUND) {
 			infoLogger() << "\e[31m" "thor: No MCFG table!" "\e[39m" << frg::endlog;
 			addLegacyConfigIo();
 			return;
 		}
 
-		auto mcfg = reinterpret_cast<acpi_header_t *>(mcfgWindow);
-		if(mcfg->length < sizeof(acpi_header_t) + 8 + sizeof(McfgEntry)) {
+		if(mcfgTbl->hdr->length < sizeof(acpi_sdt_hdr) + 8 + sizeof(McfgEntry)) {
 			infoLogger() << "\e[31m" "thor: MCFG table has no entries, assuming legacy PCI!" "\e[39m"
 					<< frg::endlog;
 			addLegacyConfigIo();
 			return;
 		}
 
-		size_t nEntries = (mcfg->length - 44) / 16;
-		auto mcfgEntries = (McfgEntry *)((uintptr_t)mcfgWindow + sizeof(acpi_header_t) + 8);
+		size_t nEntries = (mcfgTbl->hdr->length - 44) / 16;
+		auto mcfgEntries = (McfgEntry *)((uintptr_t)mcfgTbl->virt_addr + sizeof(acpi_sdt_hdr) + 8);
 		for (size_t i = 0; i < nEntries; i++) {
 			auto &entry = mcfgEntries[i];
 			infoLogger() << "Found config space for segment " << entry.segment
@@ -167,66 +236,44 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	}
 };
 
-static uint64_t evaluateAmlOr0(lai_state_t *state, lai_nsnode_t *node, const char *path) {
-	uint64_t result = 0;
-	LAI_CLEANUP_VAR lai_variable_t var = LAI_VAR_INITIALIZER;
-
-	lai_nsnode_t *handle = lai_resolve_path(node, path);
-	if (handle) {
-		if (lai_eval(&var, handle, state)) {
-			infoLogger() << "thor: Failed to evaluate " << path << frg::endlog;
-			return 0;
-		}
-
-		lai_obj_get_integer(&var, &result);
-	}
-
-	return result;
-}
-
 static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-acpi-root-buses",
 	initgraph::Requires{getTaskingAvailableStage(), acpi::getNsAvailableStage()},
 	initgraph::Entails{getDevicesEnumeratedStage()},
 	[] {
-		LAI_CLEANUP_STATE lai_state_t laiState;
-		lai_init_state(&laiState);
+		static const char *pciRootIds[] = {
+			"PNP0A03",
+			"PNP0A08",
+			nullptr,
+		};
 
-		LAI_CLEANUP_VAR lai_variable_t pci_pnp_id = LAI_VAR_INITIALIZER;
-		LAI_CLEANUP_VAR lai_variable_t pcie_pnp_id = LAI_VAR_INITIALIZER;
-		lai_eisaid(&pci_pnp_id, "PNP0A03");
-		lai_eisaid(&pcie_pnp_id, "PNP0A08");
+		uacpi_find_devices_at(
+			uacpi_namespace_get_predefined(UACPI_PREDEFINED_NAMESPACE_SB),
+			pciRootIds, [](void*, uacpi_namespace_node *node) {
+				uint64_t seg = 0, bus = 0;
 
-		lai_nsnode_t *sb_handle = lai_resolve_path(NULL, "\\_SB_");
-		LAI_ENSURE(sb_handle);
-		struct lai_ns_child_iterator iter = LAI_NS_CHILD_ITERATOR_INITIALIZER(sb_handle);
-		lai_nsnode_t *handle;
-		while ((handle = lai_ns_child_iterate(&iter))) {
-			if (lai_check_device_pnp_id(handle, &pci_pnp_id, &laiState)
-					&& lai_check_device_pnp_id(handle, &pcie_pnp_id, &laiState))
-				continue;
+				uacpi_eval_integer(node, "_SEG", nullptr, &seg);
+				uacpi_eval_integer(node, "_BBN", nullptr, &bus);
 
-			auto seg = evaluateAmlOr0(&laiState, handle, "_SEG");
-			auto bus = evaluateAmlOr0(&laiState, handle, "_BBN");
+				infoLogger() << "thor: Found PCI host bridge " << frg::hex_fmt{seg} << ":"
+					<< frg::hex_fmt{bus} << frg::endlog;
 
-			infoLogger() << "thor: Found PCI host bridge " << frg::hex_fmt{seg} << ":"
-				<< frg::hex_fmt{bus} << frg::endlog;
+				PciMsiController *msiController = nullptr;
+				#ifdef __x86_64__
+					struct ApicMsiController final : PciMsiController {
+						MsiPin *allocateMsiPin(frg::string<KernelAlloc> name) override {
+							return allocateApicMsi(std::move(name));
+						}
+					};
 
-			PciMsiController *msiController = nullptr;
-			#ifdef __x86_64__
-				struct ApicMsiController final : PciMsiController {
-					MsiPin *allocateMsiPin(frg::string<KernelAlloc> name) override {
-						return allocateApicMsi(std::move(name));
-					}
-				};
+					msiController = frg::construct<ApicMsiController>(*kernelAlloc);
+				#endif
 
-				msiController = frg::construct<ApicMsiController>(*kernelAlloc);
-			#endif
-
-			auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr,
-					getConfigIoFor(seg, bus), msiController, seg, bus);
-			rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, handle);
-			addRootBus(rootBus);
-		}
+				auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr,
+						getConfigIoFor(seg, bus), msiController, seg, bus);
+				rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, node);
+				addRootBus(rootBus);
+				return UACPI_NS_ITERATION_DECISION_CONTINUE;
+		}, nullptr);
 
 		infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
 		enumerateAll();

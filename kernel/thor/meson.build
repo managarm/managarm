@@ -138,14 +138,16 @@ if want_acpi
 		'system/pci/pci_acpi.cpp'
 	)
 
-	lai_lib = static_library('lai', lai_sources,
-		include_directories : lai_includes,
+	uacpi_args = [ '-DUACPI_OVERRIDE_STDLIB' ]
+
+	uacpi_lib = static_library('uacpi', uacpi_sources,
+		include_directories : [uacpi_includes, 'system/acpi'],
 		c_args : c_args + args,
 		pic : false
 	)
 
-	inc += lai_includes
-	link_with += lai_lib
+	inc += uacpi_includes
+	link_with += uacpi_lib
 endif
 
 link_with += static_library('cralgo', cralgo_sources,

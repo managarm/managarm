@@ -5,7 +5,7 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
 
-#include <acpispec/tables.h>
+#include <uacpi/acpi.h>
 
 namespace eir {
 
@@ -69,28 +69,15 @@ static bool findAcpiRsdp(EirInfo *info) {
 		uint8_t *region = reinterpret_cast<uint8_t *>(base);
 	
 		for(size_t off = 0; off < len; off += 16) {
-			acpi_rsdp_t *rsdp = reinterpret_cast<acpi_rsdp_t *>(region + off);
+			auto *rsdp = reinterpret_cast<acpi_rsdp *>(region + off);
 
 			if(memcmp(rsdp->signature, "RSD PTR ", 8))
 				continue;
 
-			if(doChecksum(static_cast<void *>(rsdp), sizeof(acpi_rsdp_t)) != 0)
+			if(doChecksum(static_cast<void *>(rsdp), offsetof(acpi_rsdp, length)) != 0)
 				continue;
 
-			if(!rsdp->revision) {
-				info->acpiRevision = 1;
-				info->acpiRsdt = rsdp->rsdt;
-				return true;
-			} else {
-				acpi_xsdp_t *xsdp = reinterpret_cast<acpi_xsdp_t *>(rsdp);
-
-				if(doChecksum(static_cast<void *>(xsdp), sizeof(acpi_xsdp_t)))
-					continue;
-
-				info->acpiRevision = 2;
-				info->acpiRsdt = xsdp->xsdt;
-				return true;
-			}
+			info->acpiRsdp = reinterpret_cast<uint64_t>(rsdp);
 		}
 
 		return false;

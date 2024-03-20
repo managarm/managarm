@@ -14,7 +14,7 @@
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
 
-#include <lai/helpers/pm.h>
+#include <uacpi/sleep.h>
 
 namespace thor::acpi {
 
@@ -62,8 +62,9 @@ private:
 				co_return Error::protocolViolation;
 			}
 
-			if(lai_acpi_reset())
-				infoLogger() << "thor: ACPI reset failed" << frg::endlog;
+			auto ret = uacpi_reboot();
+			if(uacpi_unlikely_error(ret))
+				infoLogger() << "thor: ACPI reset failed: " << uacpi_status_to_string(ret) << frg::endlog;
 
 #ifdef __x86_64__
 			issuePs2Reset();

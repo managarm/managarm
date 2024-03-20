@@ -4,7 +4,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
-#include <acpispec/tables.h>
+#include <uacpi/acpi.h>
 
 namespace eir {
 
@@ -93,18 +93,11 @@ struct Mb2TagCmdline {
 	char string[];
 };
 
-struct Mb2TagRSDPv1 {
+struct Mb2TagRSDP {
 	uint32_t type;
 	uint32_t length;
 
-	struct acpi_rsdp_t rsdp;
-};
-
-struct Mb2TagRSDPv2 {
-	uint32_t type;
-	uint32_t length;
-
-	struct acpi_xsdp_t xsdp;
+	uint8_t data[];
 };
 
 enum {
@@ -158,8 +151,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	
 	frg::string_view cmdline{};
 
-	uint64_t rsdt = 0;
-	uint64_t acpiRevision = 0;
+	Mb2Tag *acpiTag = nullptr;
 
 	for(size_t i = 8 /* Skip size and reserved fields*/; i < mb_info->size; i += add_size){
 		Mb2Tag* tag = (Mb2Tag*)((uint8_t*)info + i);
@@ -223,25 +215,9 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 				break;
 			}
 
-			case kMb2TagAcpiOld: {
-				auto *rsdp_tag = reinterpret_cast<Mb2TagRSDPv1*>(tag);
-
-				if(acpiRevision)
-					eir::infoLogger() << "eir: Parsing old acpi tag but acpiRevision is alreay set?" << frg::endlog;
-				rsdt = rsdp_tag->rsdp.rsdt;
-				acpiRevision = 1;
-
-				break;
-			}
-
+			case kMb2TagAcpiOld:
 			case kMb2TagAcpiNew: {
-				auto *rsdp_tag = reinterpret_cast<Mb2TagRSDPv2*>(tag);
-
-				if(acpiRevision)
-					eir::infoLogger() << "eir: Parsing new acpi tag but acpiRevision is alreay set?" << frg::endlog;
-				rsdt = rsdp_tag->xsdp.xsdt;
-				acpiRevision = 2;
-
+				acpiTag = tag;
 				break;
 			}
 		}
@@ -322,10 +298,14 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		}
 	}
 
+	if(acpiTag) {
+		auto *rsdpPtr = bootAlloc<uint8_t>(acpiTag->size - sizeof(Mb2TagRSDP));
+		memcpy(rsdpPtr, acpiTag->data, acpiTag->size - sizeof(Mb2TagRSDP));
+		info_ptr->acpiRsdp = reinterpret_cast<uint64_t>(rsdpPtr);
+	}
+
 	info_ptr->numModules = n_modules - 1;
 	info_ptr->moduleInfo = mapBootstrapData(modules);
-	info_ptr->acpiRevision = acpiRevision;
-	info_ptr->acpiRsdt = rsdt;
 
 	if(framebuffer) {
 		auto framebuf = &info_ptr->frameBuffer;

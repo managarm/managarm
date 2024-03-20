@@ -11,7 +11,7 @@ eir_generic_main = files(
 eir_includes = [include_directories(
 	'../klibc',
 	'../common',
-	'../../subprojects/lai/include',
+	'../../subprojects/uacpi/include',
 	'generic')]
 
 cxx = meson.get_compiler('cpp')
