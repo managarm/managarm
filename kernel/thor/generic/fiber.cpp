@@ -67,24 +67,24 @@ void KernelFiber::unblockOther(FiberBlocker *blocker) {
 }
 
 void KernelFiber::run(UniqueKernelStack stack,
-		void (*function)(void *), void *argument) {
+		void (*function)(void *), void *argument, Scheduler *scheduler) {
 	AbiParameters params;
 	params.ip = (uintptr_t)function;
 	params.argument = (uintptr_t)argument;
 
 	auto fiber = frg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
-	Scheduler::associate(fiber, localScheduler());
+	Scheduler::associate(fiber, scheduler);
 	Scheduler::resume(fiber);
 }
 
 KernelFiber *KernelFiber::post(UniqueKernelStack stack,
-		void (*function)(void *), void *argument) {
+		void (*function)(void *), void *argument, Scheduler *scheduler) {
 	AbiParameters params;
 	params.ip = (uintptr_t)function;
 	params.argument = (uintptr_t)argument;
 
 	auto fiber = frg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
-	Scheduler::associate(fiber, localScheduler());
+	Scheduler::associate(fiber, scheduler);
 	return fiber;
 }
 
