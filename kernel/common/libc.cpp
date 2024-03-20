@@ -265,6 +265,24 @@ void *memset(void *dest, int byte, size_t count) {
 
 #endif // __LP64__ / !__LP64__
 
+void *memmove(void *dest, const void *src, size_t count) {
+	auto *byte_dest = reinterpret_cast<unsigned char *>(dest);
+	auto *byte_src = reinterpret_cast<const unsigned char *>(src);
+
+	if(reinterpret_cast<uintptr_t>(byte_src) < reinterpret_cast<uintptr_t>(byte_dest)) {
+		byte_src += count;
+		byte_dest += count;
+
+		while (count--)
+			*--byte_dest = *--byte_src;
+	} else {
+		while (count--)
+			*byte_dest++ = *byte_src++;
+	}
+
+	return dest;
+}
+
 int vsnprintf(char *__restrict buf, size_t bufsz, const char *__restrict format, va_list va) {
 	frg::va_struct vs;
 
