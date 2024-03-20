@@ -134,6 +134,7 @@ if want_acpi
 	src += files(
 		'system/acpi/glue.cpp',
 		'system/acpi/madt.cpp',
+		'system/acpi/ec.cpp',
 		'system/acpi/pm-interface.cpp',
 		'system/pci/pci_acpi.cpp'
 	)

@@ -26,6 +26,7 @@ initgraph::Stage *getTablesDiscoveredStage();
 initgraph::Stage *getNsAvailableStage();
 
 void initGlue();
+void initEc();
 
 inline uacpi_object_name makeSignature(const char(&sig)[5]) {
 	return {{sig[0], sig[1], sig[2], sig[3]}};

@@ -339,6 +339,8 @@ static initgraph::Task loadAcpiNamespaceTask{&globalInitEngine, "acpi.load-names
 		ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_IOAPIC);
 		assert(ret == UACPI_STATUS_OK);
 
+		initEc();
+
 		ret = uacpi_namespace_initialize();
 		assert(ret == UACPI_STATUS_OK);
 
