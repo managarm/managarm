@@ -17,3 +17,4 @@ eir_includes += include_directories(
 
 subdir('platform/allwinner-d1')
 subdir('platform/virt')
+subdir('platform/efi')

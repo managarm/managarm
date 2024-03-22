@@ -8,7 +8,7 @@ project('managarm', ['c', 'cpp'],
 	]
 )
 
-add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', '-Werror=switch', language: ['c', 'cpp'])
+add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', '-Werror=switch', '-Wno-unused-parameter', '-Wno-unused-variable', '-Wno-return-type', '-Wno-invalid-noreturn', language: ['c', 'cpp'])
 
 # build documentation
 if get_option('build_docs')

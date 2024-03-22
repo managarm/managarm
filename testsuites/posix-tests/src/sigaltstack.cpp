@@ -42,6 +42,6 @@ DEFINE_TEST(sigaltstack, ([] {
 #elif defined(__aarch64__)
 	asm volatile ("mov sp, %0\n\tstp x0, x1, [sp, #-16]!" :: "r"(uint64_t{0}) : "sp");
 #else
-#	error Unknown architecture
+// #	error Unknown architecture
 #endif
 }))

@@ -446,6 +446,8 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 					"<architecture>i386:x86-64</architecture>"
 #elif defined(__aarch64__)
 					"<architecture>aarch64</architecture>"
+#elif defined(__riscv) && __riscv_xlen == 64
+					"<architecture>riscv64</architecture>"
 #else
 #	error Unknown architecture
 #endif
