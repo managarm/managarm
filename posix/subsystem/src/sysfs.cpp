@@ -258,8 +258,10 @@ VfsType SymlinkNode::getType() {
 }
 
 async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
-	std::cout << "\e[31mposix: Fix sysfs SymlinkNode::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
+	co_return FileStats{
+		.numLinks = 1,
+		.mode = 0777,
+	};
 }
 
 expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *process) {
@@ -340,8 +342,13 @@ VfsType DirectoryNode::getType() {
 }
 
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
-	std::cout << "\e[31mposix: Fix sysfs Directory::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
+	co_return FileStats{
+		.numLinks = 2,
+		.fileSize = 0,
+		.mode = 0755,
+		.uid = 0,
+		.gid = 0,
+	};
 }
 
 std::shared_ptr<FsLink> DirectoryNode::treeLink() {
