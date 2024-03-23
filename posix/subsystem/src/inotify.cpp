@@ -1,9 +1,11 @@
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <sys/inotify.h>
 #include <iostream>
 
 #include <async/recurring-event.hpp>
+#include <bragi/helpers-std.hpp>
 #include <helix/ipc.hpp>
 #include "fs.hpp"
 #include "inotify.hpp"
@@ -32,6 +34,8 @@ public:
 			uint32_t inotifyEvents = 0;
 			if(events & FsObserver::deleteEvent)
 				inotifyEvents |= IN_DELETE;
+			if(events & FsObserver::createEvent)
+				inotifyEvents |= IN_CREATE;
 			if(!(inotifyEvents & mask))
 				return;
 			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
@@ -114,12 +118,50 @@ public:
 
 	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
 		// TODO: Coalesce watch descriptors for the same inode.
-		if(mask & ~(IN_DELETE))
+		if(mask & ~(IN_DELETE | IN_CREATE))
 			std::cout << "posix: inotify mask " << mask << " is partially ignored" << std::endl;
 		auto descriptor = _nextDescriptor++;
 		auto watch = std::make_shared<Watch>(this, descriptor, mask);
 		node->addObserver(watch);
 		return descriptor;
+	}
+
+	async::result<void>
+	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+		managarm::fs::GenericIoctlReply resp;
+
+		if(id == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			assert(req);
+
+			switch(req->command()) {
+				case FIONREAD: {
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					if(_queue.empty()) {
+						resp.set_fionread_count(0);
+					} else {
+						auto packet = &_queue.front();
+						auto size = sizeof(Packet) + packet->name.size() + 1;
+						resp.set_fionread_count(size);
+					}
+					break;
+				}
+				default: {
+					std::cout << "Invalid ioctl for inotify" << std::endl;
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					break;
+				}
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
 	}
 
 private:
