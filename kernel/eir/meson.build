@@ -11,14 +11,14 @@ eir_generic_main = files(
 eir_includes = [include_directories(
 	'../klibc',
 	'../common',
-	'../../subprojects/lai/include',
+	'../../subprojects/uacpi/include',
 	'generic')]
 
 cxx = meson.get_compiler('cpp')
 libgcc = cxx.find_library('gcc')
 
 eir_c_args = []
-eir_cpp_args = ['-fno-threadsafe-statics']
+eir_cpp_args = ['-fno-threadsafe-statics', '-DFRG_DONT_USE_LONG_DOUBLE']
 eir_link_args = ['-nostdlib']
 eir_dependencies = [libgcc, cxxshim_dep, frigg, libarch]
 

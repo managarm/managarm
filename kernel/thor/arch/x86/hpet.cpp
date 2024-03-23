@@ -3,7 +3,8 @@
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <frg/intrusive.hpp>
-#include <lai/core.h>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/arch/paging.hpp>
@@ -212,7 +213,7 @@ void pollSleepNano(uint64_t nanotime) {
 
 struct HpetEntry {
 	uint32_t generalCapsAndId;
-	acpi_gas_t address;
+	acpi_gas address;
 	uint8_t hpetNumber;
 	uint16_t minimumTick;
 	uint8_t pageProtection;
@@ -229,21 +230,22 @@ static initgraph::Task initHpetTask{&globalInitEngine, "x86.init-hpet",
 	initgraph::Entails{getHpetInitializedStage()},
 	// Initialize the HPET.
 	[] {
-		void *hpetWindow = laihost_scan("HPET", 0);
-		if(!hpetWindow) {
+		uacpi_table *hpetTbl;
+
+		auto ret = uacpi_table_find_by_signature(acpi::makeSignature("HPET"), &hpetTbl);
+		if(ret != UACPI_STATUS_OK) {
 			infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frg::endlog;
 			return;
 		}
-		auto hpet = reinterpret_cast<acpi_header_t *>(hpetWindow);
-		if(hpet->length < sizeof(acpi_header_t) + sizeof(HpetEntry)) {
+		if(hpetTbl->hdr->length < sizeof(acpi_sdt_hdr) + sizeof(HpetEntry)) {
 			infoLogger() << "\e[31m" "thor: HPET table has no entries!" "\e[39m"
 					<< frg::endlog;
 			return;
 		}
-		auto hpetEntry = (HpetEntry *)((uintptr_t)hpetWindow + sizeof(acpi_header_t));
+		auto hpetEntry = (HpetEntry *)(hpetTbl->virt_addr + sizeof(acpi_sdt_hdr));
 		infoLogger() << "thor: Setting up HPET" << frg::endlog;
-		assert(hpetEntry->address.address_space == ACPI_GAS_MMIO);
-		setupHpet(hpetEntry->address.base);
+		assert(hpetEntry->address.address_space_id == ACPI_AS_ID_SYS_MEM);
+		setupHpet(hpetEntry->address.address);
 	}
 };
 

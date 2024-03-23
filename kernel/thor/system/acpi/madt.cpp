@@ -11,11 +11,11 @@
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/pci/pci.hpp>
 
-#include <lai/core.h>
-#include <lai/helpers/pc-bios.h>
-#include <lai/helpers/pci.h>
-#include <lai/helpers/pm.h>
-#include <lai/helpers/sci.h>
+#include <uacpi/acpi.h>
+#include <uacpi/utilities.h>
+#include <uacpi/tables.h>
+#include <uacpi/event.h>
+#include <uacpi/sleep.h>
 
 namespace thor {
 namespace acpi {
@@ -120,36 +120,18 @@ void configureIrq(GlobalIrqInfo info) {
 namespace thor {
 namespace acpi {
 
-struct SciDevice final : IrqSink {
-	SciDevice()
-	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "acpi-sci"}} { }
-
-	IrqStatus raise() override {
-		auto isr = lai_get_sci_event();
-		if(isr & ACPI_POWER_BUTTON)
-			lai_enter_sleep(5); // Shut down.
-
-		// Ack the IRQ if any interesting event occurred.
-		if(isr & ACPI_POWER_BUTTON)
-			return IrqStatus::acked;
-		return IrqStatus::nacked;
-	}
-};
-
-frg::manual_box<SciDevice> sciDevice;
-
-// --------------------------------------------------------
-
 void bootOtherProcessors() {
-	void *madtWindow = laihost_scan("APIC", 0);
-	assert(madtWindow);
-	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
+	uacpi_table *madtTbl;
+
+	auto ret = uacpi_table_find_by_signature(makeSignature("APIC"), &madtTbl);
+	assert(ret == UACPI_STATUS_OK);
+	auto *madt = madtTbl->hdr;
 
 	infoLogger() << "thor: Booting APs." << frg::endlog;
 
-	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while(offset < madt->length) {
-		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
+		auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			// TODO: Support BSPs with APIC ID != 0.
@@ -164,15 +146,17 @@ void bootOtherProcessors() {
 // --------------------------------------------------------
 
 void dumpMadt() {
-	void *madtWindow = laihost_scan("APIC", 0);
-	assert(madtWindow);
-	auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
+	uacpi_table *madtTbl;
+
+	auto ret = uacpi_table_find_by_signature(makeSignature("APIC"), &madtTbl);
+	assert(ret == UACPI_STATUS_OK);
+	auto *madt = madtTbl->hdr;
 
 	infoLogger() << "thor: Dumping MADT" << frg::endlog;
 
-	size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while(offset < madt->length) {
-		auto generic = (MadtGenericEntry *)((uintptr_t)madt + offset);
+		auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			infoLogger() << "    Local APIC id: "
@@ -233,9 +217,6 @@ void dumpMadt() {
 	}
 }
 
-void *globalRsdtWindow;
-int globalRsdtVersion;
-
 extern "C" EirInfo *thorBootInfoPtr;
 
 initgraph::Stage *getTablesDiscoveredStage() {
@@ -248,36 +229,17 @@ initgraph::Stage *getNsAvailableStage() {
 	return &s;
 }
 
-static initgraph::Task initTablesTask{&globalInitEngine, "acpi.init-tables",
+static initgraph::Task initTablesTask{&globalInitEngine, "acpi.initialize",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
-		lai_rsdp_info rsdp_info;
-		if(thorBootInfoPtr->acpiRsdt) {
-			if(thorBootInfoPtr->acpiRevision == 1) {
-				rsdp_info.acpi_version = 1;
-				rsdp_info.rsdt_address = thorBootInfoPtr->acpiRsdt;
-				rsdp_info.xsdt_address = 0;
-			} else if(thorBootInfoPtr->acpiRevision == 2) {
-				rsdp_info.acpi_version = 2;
-				rsdp_info.rsdt_address = 0;
-				rsdp_info.xsdt_address = thorBootInfoPtr->acpiRsdt;
-			} else {
-				panicLogger() << "thor: Eir gave unknown acpi revision: " << thorBootInfoPtr->acpiRevision << frg::endlog;
+		uacpi_init_params params = {
+			.rsdp = thorBootInfoPtr->acpiRsdp,
+			.rt_params = {
+				.log_level = UACPI_LOG_INFO,
 			}
-		} else {
-			panicLogger() << "thor: Could not detect ACPI" << frg::endlog;
-		}
-
-		globalRsdtVersion = rsdp_info.acpi_version;
-		if(rsdp_info.acpi_version == 2){
-			globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, 0x1000);
-			auto xsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
-			globalRsdtWindow = laihost_map(rsdp_info.xsdt_address, xsdt->header.length);
-		} else if(rsdp_info.acpi_version == 1) {
-			globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, 0x1000);
-			auto rsdt = reinterpret_cast<acpi_rsdt_t *>(globalRsdtWindow);
-			globalRsdtWindow = laihost_map(rsdp_info.rsdt_address, rsdt->header.length);
-		}
+		};
+		auto ret = uacpi_initialize(&params);
+		assert(ret == UACPI_STATUS_OK);
 	}
 };
 
@@ -288,17 +250,19 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 	[] {
 		dumpMadt();
 
-		void *madtWindow = laihost_scan("APIC", 0);
-		assert(madtWindow);
-		auto madt = reinterpret_cast<acpi_header_t *>(madtWindow);
+		uacpi_table *madtTbl;
+
+		auto ret = uacpi_table_find_by_signature(makeSignature("APIC"), &madtTbl);
+		assert(ret == UACPI_STATUS_OK);
+		auto *madt = madtTbl->hdr;
 
 		// Configure all interrupt controllers.
 		// TODO: This should be done during thor's initialization in order to avoid races.
 		infoLogger() << "thor: Configuring I/O APICs." << frg::endlog;
 
-		size_t offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+		size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 		while(offset < madt->length) {
-			auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
+			auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
 			if(generic->type == 1) { // I/O APIC
 				auto entry = (MadtIoEntry *)generic;
 #ifdef __x86_64__
@@ -312,9 +276,9 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 		for(int i = 0; i < 16; i++)
 			isaIrqOverrides[i].initialize();
 
-		offset = sizeof(acpi_header_t) + sizeof(MadtHeader);
+		offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 		while(offset < madt->length) {
-			auto generic = (MadtGenericEntry *)((uint8_t *)madtWindow + offset);
+			auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
 			if(generic->type == 2) { // interrupt source override
 				auto entry = (MadtIntOverrideEntry *)generic;
 
@@ -362,12 +326,24 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 	}
 };
 
-static initgraph::Task enterAcpiModeTask{&globalInitEngine, "acpi.enter-acpi-mode",
+static initgraph::Task loadAcpiNamespaceTask{&globalInitEngine, "acpi.load-namespace",
 	initgraph::Requires{getTaskingAvailableStage(),
 		pci::getBus0AvailableStage()},
 	initgraph::Entails{getNsAvailableStage()},
 	[] {
-		lai_create_namespace();
+		initGlue();
+
+		auto ret = uacpi_namespace_load();
+		assert(ret == UACPI_STATUS_OK);
+
+		ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_IOAPIC);
+		assert(ret == UACPI_STATUS_OK);
+
+		initEc();
+
+		ret = uacpi_namespace_initialize();
+		assert(ret == UACPI_STATUS_OK);
+
 		// Configure the ISA IRQs.
 		// TODO: This is a hack. We assume that HPET will use legacy replacement.
 		infoLogger() << "thor: Configuring ISA IRQs." << frg::endlog;
@@ -377,35 +353,19 @@ static initgraph::Task enterAcpiModeTask{&globalInitEngine, "acpi.enter-acpi-mod
 		configureIrq(resolveIsaIrq(12));
 		configureIrq(resolveIsaIrq(14));
 
-		// Install the SCI before enabling ACPI.
-		void *fadtWindow = laihost_scan("FACP", 0);
-		assert(fadtWindow);
-		auto fadt = reinterpret_cast<acpi_fadt_t *>(fadtWindow);
-
-		auto sciOverride = resolveIsaIrq(fadt->sci_irq);
-		configureIrq(sciOverride);
-		sciDevice.initialize();
-		lai_set_sci_event(ACPI_POWER_BUTTON);
-#ifdef __x86_64__
-		IrqPin::attachSink(getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
-#endif
-
-		// Enable ACPI.
-		infoLogger() << "thor: Entering ACPI mode." << frg::endlog;
-		lai_enable_acpi(1);
-		infoLogger() << "thor: ACPI configuration complete." << frg::endlog;
+		initEvents();
 	}
 };
 
 static initgraph::Task bootApsTask{&globalInitEngine, "acpi.boot-aps",
-	initgraph::Requires{&enterAcpiModeTask},
+	initgraph::Requires{&loadAcpiNamespaceTask},
 	[] {
 		bootOtherProcessors();
 	}
 };
 
 static initgraph::Task initPmInterfaceTask{&globalInitEngine, "acpi.init-pm-interface",
-	initgraph::Requires{&enterAcpiModeTask},
+	initgraph::Requires{&loadAcpiNamespaceTask},
 	[] {
 		initializePmInterface();
 	}

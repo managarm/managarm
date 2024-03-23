@@ -101,7 +101,7 @@ public:
 	static void unblockOther(FiberBlocker *blocker);
 
 	template<typename F>
-	static void run(F functor) {
+	static void run(F functor, Scheduler *scheduler = localScheduler()) {
 		auto frame = [] (void *argument) {
 			auto object = reinterpret_cast<F *>(argument);
 			(*object)();
@@ -109,11 +109,11 @@ public:
 		};
 		auto stack = UniqueKernelStack::make();
 		auto target = stack.embed<F>(functor);
-		run(std::move(stack), frame, target);
+		run(std::move(stack), frame, target, scheduler);
 	}
 
 	template<typename F>
-	static KernelFiber *post(F functor) {
+	static KernelFiber *post(F functor, Scheduler *scheduler = localScheduler()) {
 		auto frame = [] (void *argument) {
 			auto object = reinterpret_cast<F *>(argument);
 			(*object)();
@@ -121,11 +121,11 @@ public:
 		};
 		auto stack = UniqueKernelStack::make();
 		auto target = stack.embed<F>(functor);
-		return post(std::move(stack), frame, target);
+		return post(std::move(stack), frame, target, scheduler);
 	}
 
-	static void run(UniqueKernelStack stack, void (*function)(void *), void *argument);
-	static KernelFiber *post(UniqueKernelStack stack, void (*function)(void *), void *argument);
+	static void run(UniqueKernelStack stack, void (*function)(void *), void *argument, Scheduler* = localScheduler());
+	static KernelFiber *post(UniqueKernelStack stack, void (*function)(void *), void *argument, Scheduler* = localScheduler());
 
 	explicit KernelFiber(UniqueKernelStack stack, AbiParameters abi);
 

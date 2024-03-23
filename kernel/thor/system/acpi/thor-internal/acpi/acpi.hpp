@@ -1,6 +1,7 @@
 #pragma once
 
 #include <thor-internal/irq.hpp>
+#include <uacpi/uacpi.h>
 #include <initgraph.hpp>
 
 namespace thor {
@@ -23,5 +24,13 @@ namespace acpi {
 
 initgraph::Stage *getTablesDiscoveredStage();
 initgraph::Stage *getNsAvailableStage();
+
+void initGlue();
+void initEc();
+void initEvents();
+
+inline uacpi_object_name makeSignature(const char(&sig)[5]) {
+	return {{sig[0], sig[1], sig[2], sig[3]}};
+}
 
 } } // namespace thor::acpi

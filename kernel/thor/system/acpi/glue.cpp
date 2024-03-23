@@ -1,45 +1,86 @@
 #include <limits.h>
 
 #include <frg/allocation.hpp>
+#include <frg/manual_box.hpp>
+#include <frg/spinlock.hpp>
+#include <thor-internal/cpu-data.hpp>
+#include <thor-internal/fiber.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/pci/pci.hpp>
+#include <thor-internal/acpi/acpi.hpp>
+#include <async/queue.hpp>
+#include <async/recurring-event.hpp>
+#include <async/mutex.hpp>
+#include <stdlib.h>
 
-#include <acpispec/tables.h>
-#include <lai/host.h>
-
-namespace thor {
-namespace acpi {
-	extern void *globalRsdtWindow;
-	extern int globalRsdtVersion;
-} }
+#include <uacpi/kernel_api.h>
 
 using namespace thor;
 
-void laihost_log(int, const char *msg) {
-	infoLogger() << "lai: " << msg << frg::endlog;
+void uacpi_kernel_vlog(enum uacpi_log_level lvl, const char *msg, uacpi_va_list va) {
+	const char *lvlStr;
+	char buf[128];
+
+	switch(lvl) {
+		case UACPI_LOG_TRACE:
+			lvlStr = "trace";
+			break;
+		case UACPI_LOG_INFO:
+			lvlStr = "info";
+			break;
+		case UACPI_LOG_WARN:
+			lvlStr = "warn";
+			break;
+		case UACPI_LOG_ERROR:
+			lvlStr = "error";
+			break;
+		default:
+			lvlStr = "<invalid>";
+	}
+
+	auto chars = vsnprintf(buf, sizeof(buf), msg, va);
+	if(chars < 0)
+		return;
+
+	// frg::endlog inserts its own \n
+	if ((unsigned)chars < sizeof(buf) && buf[chars - 1] == '\n')
+		buf[chars - 1] = '\0';
+
+	infoLogger() << "uacpi-" << lvlStr << ": " << buf << frg::endlog;
 }
 
-void laihost_panic(const char *msg) {
-	panicLogger() << "\e[31m" "lai panic: " << msg << "\e[39m" << frg::endlog;
-	__builtin_unreachable();
+void uacpi_kernel_log(enum uacpi_log_level lvl, const char *fmt, ...) {
+	va_list va;
+	va_start(va, fmt);
+
+	uacpi_kernel_vlog(lvl, fmt, va);
+
+	va_end(va);
 }
 
-void *laihost_malloc(size_t size) {
+void *uacpi_kernel_alloc(uacpi_size size) {
 	return kernelAlloc->allocate(size);
 }
 
-void *laihost_realloc(void *ptr, size_t size, size_t) {
-	return kernelAlloc->reallocate(ptr, size);
+void *uacpi_kernel_calloc(uacpi_size count, uacpi_size size) {
+	auto bytes = count * size;
+
+	auto *ptr = uacpi_kernel_alloc(bytes);
+	if (ptr == nullptr)
+		return ptr;
+
+	memset(ptr, 0, bytes);
+	return ptr;
 }
 
-void laihost_free(void *ptr, size_t) {
+void uacpi_kernel_free(void *ptr) {
 	kernelAlloc->free(ptr);
 }
 
 // TODO: We do not want to keep things mapped forever.
-void *laihost_map(size_t physical, size_t length) {
+void *uacpi_kernel_map(uacpi_phys_addr physical, uacpi_size length) {
 	auto pow2ceil = [] (unsigned long s) {
 		assert(s);
 		return 1 << (sizeof(unsigned long) * CHAR_BIT - __builtin_clzl(s - 1));
@@ -56,7 +97,7 @@ void *laihost_map(size_t physical, size_t length) {
 	return reinterpret_cast<char *>(ptr) + (physical & (kPageSize - 1));
 }
 
-void laihost_unmap(void *ptr, size_t length) {
+void uacpi_kernel_unmap(void *ptr, uacpi_size length) {
 	auto pow2ceil = [] (unsigned long s) {
 		assert(s);
 		return 1 << (sizeof(unsigned long) * CHAR_BIT - __builtin_clzl(s - 1));
@@ -72,115 +113,444 @@ void laihost_unmap(void *ptr, size_t length) {
 	(void)msize;
 }
 
-static void *mapTable(uintptr_t address) {
-	auto headerWindow = laihost_map(address, sizeof(acpi_header_t));
-	auto headerPtr = reinterpret_cast<acpi_header_t *>(headerWindow);
-	return laihost_map(address, headerPtr->length);
-}
+uacpi_status uacpi_kernel_raw_memory_read(
+	uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 *out
+) {
+	auto *ptr = uacpi_kernel_map(address, byte_width);
 
-static void *scanRsdt(const char *name, size_t index) {
-	if(thor::acpi::globalRsdtVersion == 1){
-		auto rsdt = reinterpret_cast<acpi_rsdt_t *>(thor::acpi::globalRsdtWindow);
-		assert(rsdt->header.length >= sizeof(acpi_header_t));
-
-		size_t n = 0;
-		int numPtrs = (rsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint32_t);
-		for(int i = 0; i < numPtrs; i++) {
-			auto tableWindow = reinterpret_cast<acpi_header_t *>(mapTable(rsdt->tables[i]));
-			char sig[5];
-			sig[4] = 0;
-			memcpy(sig, tableWindow->signature, 4);
-			if(memcmp(tableWindow->signature, name, 4))
-				continue;
-			if(n == index)
-				return tableWindow;
-			n++;
-		}
-	} else if(thor::acpi::globalRsdtVersion == 2){
-		auto xsdt = reinterpret_cast<acpi_xsdt_t *>(thor::acpi::globalRsdtWindow);
-		assert(xsdt->header.length >= sizeof(acpi_header_t));
-
-		size_t n = 0;
-		int numPtrs = (xsdt->header.length - sizeof(acpi_header_t)) / sizeof(uint64_t);
-		for(int i = 0; i < numPtrs; i++) {
-			auto tableWindow = reinterpret_cast<acpi_header_t *>(mapTable(xsdt->tables[i]));
-			char sig[5];
-			sig[4] = 0;
-			memcpy(sig, tableWindow->signature, 4);
-			if(memcmp(tableWindow->signature, name, 4))
-				continue;
-			if(n == index)
-				return tableWindow;
-			n++;
-		}
-	} else {
-		assert(!"Unknown acpi version in scanRsdt");
+	switch (byte_width) {
+	case 1:
+		*out = *(volatile uint8_t *)ptr;
+		break;
+	case 2:
+		*out = *(volatile uint16_t *)ptr;
+		break;
+	case 4:
+		*out = *(volatile uint32_t *)ptr;
+		break;
+	case 8:
+		*out = *(volatile uint64_t *)ptr;
+		break;
+	default:
+		uacpi_kernel_unmap(ptr, byte_width);
+		return UACPI_STATUS_INVALID_ARGUMENT;
 	}
 
-	return nullptr;
+	uacpi_kernel_unmap(ptr, byte_width);
+	return UACPI_STATUS_OK;
 }
 
-void *laihost_scan(const char *name, size_t index) {
-	if(!memcmp(name, "DSDT", 4)) {
-		void *fadtWindow = scanRsdt("FACP", 0);
-		assert(fadtWindow);
-		auto fadt = reinterpret_cast<acpi_fadt_t *>(fadtWindow);
-		void *dsdtWindow = mapTable(fadt->dsdt);
-		return dsdtWindow;
-	}else{
-		return scanRsdt(name, index);
+uacpi_status uacpi_kernel_raw_memory_write(
+	uacpi_phys_addr address, uacpi_u8 byte_width, uacpi_u64 in
+) {
+	auto *ptr = uacpi_kernel_map(address, byte_width);
+
+	switch (byte_width) {
+	case 1:
+		*(volatile uint8_t *)ptr = in;
+		break;
+	case 2:
+		*(volatile uint16_t *)ptr = in;
+		break;
+	case 4:
+		*(volatile uint32_t *)ptr = in;
+		break;
+	case 8:
+		*(volatile uint64_t *)ptr = in;
+		break;
+	default:
+		uacpi_kernel_unmap(ptr, byte_width);
+		return UACPI_STATUS_INVALID_ARGUMENT;
 	}
+
+	uacpi_kernel_unmap(ptr, byte_width);
+	return UACPI_STATUS_OK;
 }
 
 #ifdef THOR_ARCH_SUPPORTS_PIO
-void laihost_outb(uint16_t p, uint8_t v) {
-	asm volatile ("outb %0, %1" : : "a"(v), "d"(p));
-}
-void laihost_outw(uint16_t p, uint16_t v) {
-	asm volatile ("outw %0, %1" : : "a"(v), "d"(p));
-}
-void laihost_outd(uint16_t p, uint32_t v) {
-	asm volatile ("outl %0, %1" : : "a"(v), "d"(p));
+uacpi_status uacpi_kernel_raw_io_write(
+	uacpi_io_addr address, uacpi_u8 byte_width, uacpi_u64 in_value
+) {
+	uint16_t p = address;
+
+	switch (byte_width) {
+	case 1: {
+		uint8_t v = in_value;
+		asm volatile ("outb %0, %1" : : "a"(v), "d"(p));
+		break;
+	}
+	case 2: {
+		uint16_t v = in_value;
+		asm volatile ("outw %0, %1" : : "a"(v), "d"(p));
+		break;
+	}
+	case 4: {
+		uint32_t v = in_value;
+		asm volatile ("outl %0, %1" : : "a"(v), "d"(p));
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
 }
 
-uint8_t laihost_inb(uint16_t p) {
-	uint8_t v;
-	asm volatile ("inb %1, %0" : "=a"(v) : "d"(p));
-	return v;
+uacpi_status uacpi_kernel_raw_io_read(
+	uacpi_io_addr address, uacpi_u8 byte_width, uacpi_u64 *out_value
+) {
+	uint16_t p = address;
+
+	switch (byte_width) {
+	case 1: {
+		uint8_t v;
+		asm volatile ("inb %1, %0" : "=a"(v) : "d"(p));
+		*out_value = v;
+		break;
+	}
+	case 2: {
+		uint16_t v;
+		asm volatile ("inw %1, %0" : "=a"(v) : "d"(p));
+		*out_value = v;
+		break;
+	}
+	case 4: {
+		uint32_t v;
+		asm volatile ("inl %1, %0" : "=a"(v) : "d"(p));
+		*out_value = v;
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
 }
-uint16_t laihost_inw(uint16_t p) {
-	uint16_t v;
-	asm volatile ("inw %1, %0" : "=a"(v) : "d"(p));
-	return v;
+#else
+uacpi_status uacpi_kernel_raw_io_read(
+	uacpi_io_addr, uacpi_u8, uacpi_u64*
+) {
+	return UACPI_STATUS_UNIMPLEMENTED;
 }
-uint32_t laihost_ind(uint16_t p) {
-	uint32_t v;
-	asm volatile ("inl %1, %0" : "=a"(v) : "d"(p));
-	return v;
+
+uacpi_status uacpi_kernel_raw_io_write(
+	uacpi_io_addr, uacpi_u8, uacpi_u64
+) {
+	return UACPI_STATUS_UNIMPLEMENTED;
 }
+
 #endif
 
-void laihost_pci_writeb(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn,
-		uint16_t offset, uint8_t v) {
-	pci::writeConfigByte(seg, bus, slot, fn, offset, v);
+uacpi_status uacpi_kernel_io_map(
+	uacpi_io_addr base, uacpi_size, uacpi_handle *out_handle
+) {
+	*out_handle = reinterpret_cast<uacpi_handle>(base);
+	return UACPI_STATUS_OK;
 }
-void laihost_pci_writew(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn,
-		uint16_t offset, uint16_t v) {
-	pci::writeConfigHalf(seg, bus, slot, fn, offset, v);
-}
-void laihost_pci_writed(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn,
-		uint16_t offset, uint32_t v) {
-	pci::writeConfigWord(seg, bus, slot, fn, offset, v);
+void uacpi_kernel_io_unmap(uacpi_handle) { }
+
+
+uacpi_status uacpi_kernel_io_read(
+	uacpi_handle handle, uacpi_size offset,
+	uacpi_u8 byte_width, uacpi_u64 *value
+) {
+	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
+	return uacpi_kernel_raw_io_read(addr + offset, byte_width, value);
 }
 
-uint8_t laihost_pci_readb(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
-	return pci::readConfigByte(seg, bus, slot, fn, offset);
-}
-uint16_t laihost_pci_readw(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
-	return pci::readConfigHalf(seg, bus, slot, fn, offset);
-}
-uint32_t laihost_pci_readd(uint16_t seg, uint8_t bus, uint8_t slot, uint8_t fn, uint16_t offset) {
-	return pci::readConfigWord(seg, bus, slot, fn, offset);
+uacpi_status uacpi_kernel_io_write(
+	uacpi_handle handle, uacpi_size offset,
+	uacpi_u8 byte_width, uacpi_u64 value
+) {
+	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
+	return uacpi_kernel_raw_io_write(addr + offset, byte_width, value);
 }
 
-void laihost_sleep(uint64_t) { }
+uacpi_status uacpi_kernel_pci_read(
+	uacpi_pci_address *address, uacpi_size offset,
+	uacpi_u8 byte_width, uacpi_u64 *value
+) {
+	switch (byte_width) {
+	case 1: {
+		*value = pci::readConfigByte(
+			address->segment, address->bus, address->device,
+			address->function, offset
+		);
+		break;
+	}
+	case 2: {
+		*value = pci::readConfigHalf(
+			address->segment, address->bus, address->device,
+			address->function, offset
+		);
+		break;
+	}
+	case 4: {
+		*value = pci::readConfigWord(
+			address->segment, address->bus, address->device,
+			address->function, offset
+		);
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
+}
+
+uacpi_status uacpi_kernel_pci_write(
+	uacpi_pci_address *address, uacpi_size offset,
+	uacpi_u8 byte_width, uacpi_u64 value
+) {
+	switch (byte_width) {
+	case 1: {
+		pci::writeConfigByte(
+			address->segment, address->bus, address->device,
+			address->function, offset, value
+		);
+		break;
+	}
+	case 2: {
+		pci::writeConfigHalf(
+			address->segment, address->bus, address->device,
+			address->function, offset, value
+		);
+		break;
+	}
+	case 4: {
+		pci::writeConfigWord(
+			address->segment, address->bus, address->device,
+			address->function, offset, value
+		);
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
+}
+
+uacpi_u64 uacpi_kernel_get_ticks(void) {
+	return systemClockSource()->currentNanos() / 100;
+}
+
+void uacpi_kernel_stall(uacpi_u8 usec) {
+	auto now = systemClockSource()->currentNanos();
+	auto deadline = now + usec * 1000;
+
+	while (systemClockSource()->currentNanos() < deadline);
+}
+
+void uacpi_kernel_sleep(uacpi_u64 msec) {
+	KernelFiber::asyncBlockCurrent(
+		generalTimerEngine()->sleepFor(msec * 1000 * 1000)
+	);
+}
+
+struct SciDevice final : IrqSink {
+	uacpi_interrupt_handler handler;
+	uacpi_handle ctx;
+
+	SciDevice()
+	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "acpi-sci"}} { }
+
+	IrqStatus raise() override {
+		return handler(ctx) & UACPI_INTERRUPT_HANDLED ?
+			IrqStatus::acked : IrqStatus::nacked;
+	}
+};
+
+frg::manual_box<SciDevice> sciDevice;
+
+uacpi_status uacpi_kernel_install_interrupt_handler(
+	uacpi_u32 irq, uacpi_interrupt_handler handler, uacpi_handle ctx,
+	uacpi_handle *out_irq_handle
+) {
+	auto sciOverride = resolveIsaIrq(irq);
+	configureIrq(sciOverride);
+
+	sciDevice.initialize();
+	sciDevice->handler = handler;
+	sciDevice->ctx = ctx;
+
+#ifdef __x86_64__
+	IrqPin::attachSink(getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
+#endif
+
+	*out_irq_handle = &sciDevice;
+	return UACPI_STATUS_OK;
+}
+
+uacpi_status uacpi_kernel_uninstall_interrupt_handler(
+	uacpi_interrupt_handler, uacpi_handle) {
+	return UACPI_STATUS_UNIMPLEMENTED;
+}
+
+struct AcpiWork {
+	uacpi_work_handler handler_;
+	uacpi_handle ctx_;
+};
+static async::queue<AcpiWork, KernelAlloc> acpiGpeWorkQueue = { *kernelAlloc };
+static async::queue<AcpiWork, KernelAlloc> acpiNotifyWorkQueue = { *kernelAlloc };
+static async::recurring_event acpiWorkEvent;
+static std::atomic<uint64_t> acpiWorkCounter;
+
+static void workExec(AcpiWork &work) {
+	work.handler_(work.ctx_);
+	acpiWorkCounter.fetch_sub(1, std::memory_order_acq_rel);
+	acpiWorkEvent.raise();
+}
+
+void thor::acpi::initGlue() {
+	KernelFiber::run([] {
+		while (true) {
+			auto work = KernelFiber::asyncBlockCurrent(
+				acpiGpeWorkQueue.async_get());
+			workExec(*work);
+		}
+		}, &getCpuData(0)->scheduler);
+
+	KernelFiber::run([] {
+		while (true) {
+			auto work = KernelFiber::asyncBlockCurrent(
+				acpiNotifyWorkQueue.async_get());
+			workExec(*work);
+		}
+		});
+}
+
+uacpi_status uacpi_kernel_schedule_work(
+		uacpi_work_type type, uacpi_work_handler handler, uacpi_handle ctx) {
+	acpiWorkCounter.fetch_add(1, std::memory_order_acq_rel);
+
+	switch(type) {
+		case UACPI_WORK_GPE_EXECUTION:
+			acpiGpeWorkQueue.put({ handler, ctx });
+			break;
+		case UACPI_WORK_NOTIFICATION:
+			acpiNotifyWorkQueue.put({ handler, ctx });
+			break;
+		default:
+			return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
+}
+
+uacpi_status uacpi_kernel_wait_for_work_completion(void) {
+	KernelFiber::asyncBlockCurrent([]() -> coroutine<void> {
+		while (acpiWorkCounter.load(std::memory_order_acquire))
+			co_await acpiWorkEvent.async_wait();
+	}());
+	return UACPI_STATUS_OK;
+}
+
+uacpi_status uacpi_kernel_handle_firmware_request(
+	uacpi_firmware_request *req) {
+	switch(req->type) {
+		case UACPI_FIRMWARE_REQUEST_TYPE_BREAKPOINT:
+			infoLogger() << "thor: ignoring AML breakpoint" << frg::endlog;
+			break;
+		case UACPI_FIRMWARE_REQUEST_TYPE_FATAL:
+			infoLogger() << "thor: fatal firmware error:"
+						<< " type: " << (int)req->fatal.type
+						<< " code: " << req->fatal.code
+						<< " arg: " << req->fatal.arg << frg::endlog;
+			break;
+	}
+
+	return UACPI_STATUS_OK;
+}
+
+uacpi_handle uacpi_kernel_create_mutex(void) {
+	return frg::construct<async::mutex>(*kernelAlloc);
+}
+void uacpi_kernel_free_mutex(uacpi_handle opaque) {
+	frg::destruct(*kernelAlloc, reinterpret_cast<async::mutex *>(opaque));
+}
+
+uacpi_bool uacpi_kernel_acquire_mutex(
+	uacpi_handle opaque, uacpi_u16 timeout) {
+	auto *mutex = reinterpret_cast<async::mutex *>(opaque);
+
+	if(timeout == 0xFFFF) {
+		KernelFiber::asyncBlockCurrent([mutex]() -> coroutine<void> {
+			co_await mutex->async_lock();
+		}());
+		return true;
+	}
+
+	uacpi_u16 sleepTime;
+	do {
+		if(mutex->try_lock())
+			return true;
+
+		sleepTime = frg::min<uacpi_u16>(timeout, 10);
+		timeout -= sleepTime;
+
+		if(sleepTime)
+			uacpi_kernel_sleep(sleepTime);
+	} while(timeout);
+
+	return false;
+}
+
+void uacpi_kernel_release_mutex(uacpi_handle opaque) {
+	auto *mutex = reinterpret_cast<async::mutex *>(opaque);
+	mutex->unlock();
+}
+
+struct AcpiEvent {
+	std::atomic<uint64_t> counter;
+
+	bool tryDecrement() {
+		for(;;) {
+			auto value = counter.load(std::memory_order::acquire);
+			if(value == 0)
+				return false;
+
+			if(counter.compare_exchange_strong(value, value - 1,
+				std::memory_order::acq_rel, std::memory_order::acquire))
+				return true;
+		}
+	}
+};
+
+uacpi_handle uacpi_kernel_create_event(void) {
+	return frg::construct<AcpiEvent>(*kernelAlloc);
+}
+void uacpi_kernel_free_event(uacpi_handle opaque) {
+	frg::destruct(*kernelAlloc, reinterpret_cast<AcpiEvent *>(opaque));
+}
+
+uacpi_bool uacpi_kernel_wait_for_event(
+	uacpi_handle opaque, uacpi_u16 timeout) {
+	auto *event = reinterpret_cast<AcpiEvent *>(opaque);
+
+	uacpi_u16 sleepTime;
+	do {
+		if(event->tryDecrement())
+			return true;
+
+		sleepTime = frg::min<uacpi_u16>(timeout, 10);
+
+		if(timeout != 0xFFFF)
+			timeout -= sleepTime;
+
+		if(sleepTime)
+			uacpi_kernel_sleep(sleepTime);
+	} while(timeout);
+
+	return false;
+}
+
+void uacpi_kernel_signal_event(uacpi_handle opaque) {
+	auto *event = reinterpret_cast<AcpiEvent *>(opaque);
+	event->counter.fetch_add(1, std::memory_order_acq_rel);
+}
+void uacpi_kernel_reset_event(uacpi_handle opaque) {
+	auto *event = reinterpret_cast<AcpiEvent *>(opaque);
+	event->counter.store(0, std::memory_order_release);
+}
