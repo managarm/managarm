@@ -1,7 +1,6 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/address-space.hpp>
-#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
