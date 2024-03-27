@@ -226,6 +226,29 @@ void drm_core::Plane::clearFormats() {
 	_formats.clear();
 }
 
+void drm_core::Plane::updateInFormatsBlob(std::shared_ptr<drm_core::Plane> plane) {
+	size_t blob_size = sizeof(drm_format_modifier_blob) + (sizeof(uint32_t) * _formats.size()) + (sizeof(drm_format_modifier) * 1);
+	uint8_t *buf = new uint8_t[blob_size];
+
+	auto blob_header = reinterpret_cast<drm_format_modifier_blob *>(buf);
+	blob_header->version = FORMAT_BLOB_CURRENT;
+	blob_header->count_formats = _formats.size();
+	blob_header->formats_offset = sizeof(drm_format_modifier_blob);
+	blob_header->modifiers_offset = sizeof(drm_format_modifier_blob) + (sizeof(uint32_t) * _formats.size());
+	blob_header->count_modifiers = 1;
+
+	auto formats = reinterpret_cast<uint32_t *>(buf + blob_header->formats_offset);
+	auto modifiers = reinterpret_cast<drm_format_modifier *>(buf + blob_header->modifiers_offset);
+
+	memcpy(formats, _formats.data(), sizeof(uint32_t) * _formats.size());
+
+	modifiers[0].formats = (1 << _formats.size()) - 1;
+
+	auto vector = std::vector<char>{buf, buf + blob_size};
+	auto blob = _device->registerBlob(vector);
+	plane->_drmState->in_formats = blob;
+}
+
 std::shared_ptr<drm_core::PlaneState> drm_core::Plane::drmState() {
 	return _drmState;
 }

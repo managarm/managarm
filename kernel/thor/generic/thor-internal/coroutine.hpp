@@ -2,6 +2,7 @@
 
 #include <async/basic.hpp>
 #include <thor-internal/debug.hpp>
+#include <type_traits>
 
 template<typename T>
 struct coroutine_continuation {
