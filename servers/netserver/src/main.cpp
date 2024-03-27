@@ -179,7 +179,7 @@ async::detached serve(helix::UniqueLane lane) {
 				helix_ng::dismiss()
 			);
 
-			*posixLane = std::move(conversation);
+			posixLane = std::move(conversation);
 		} else {
 			std::cout << "netserver: received unknown message: "
 				<< preamble.id() << std::endl;
