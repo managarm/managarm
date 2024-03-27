@@ -679,7 +679,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #error Signal register loading code is missing for architecture
 #endif
 
-	sf.ucontext.uc_sigmask = handler.mask;
+	memcpy(&sf.ucontext.uc_sigmask, &handler.mask, sizeof(handler.mask));
 
 	std::vector<std::byte> simdState(simdStateSize);
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
