@@ -113,6 +113,12 @@ int main() {
 	if(chmod("/run", 0700))
 		throw std::runtime_error("chmod() failed");
 
+	// /run/utmp must exist for login to be satisfied.
+	int utmp = open("/run/utmp", O_CREAT, O_RDWR);
+	if(utmp == -1)
+		throw std::runtime_error("Opening /run/utmp failed");
+	close(utmp);
+
 	execl("/usr/bin/init-stage2", "/usr/bin/init-stage2", nullptr);
 	std::cout << "init: Failed to execve() second stage" << std::endl;
 	abort();
