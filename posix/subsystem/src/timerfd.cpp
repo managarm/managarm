@@ -6,6 +6,7 @@
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
+#include "fs.hpp"
 #include "timerfd.hpp"
 
 namespace {
@@ -86,7 +87,7 @@ public:
 	}
 
 	OpenFile(bool non_block)
-	: File{StructName::get("timerfd")}, _nonBlock{non_block},
+	: File{StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, _nonBlock{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{0} {
 		(void)_nonBlock;
 	}

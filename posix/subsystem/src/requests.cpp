@@ -1124,9 +1124,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto parent = resolver.currentLink()->getTarget();
 			auto result = co_await parent->symlink(resolver.nextComponent(), req->target_path());
 			if(auto error = std::get_if<Error>(&result); error) {
-				assert(*error == Error::illegalOperationTarget);
-				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-				continue;
+				if(*error == Error::alreadyExists) {
+					co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+					continue;
+				} else {
+					assert(*error == Error::illegalOperationTarget);
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
 			}
 
 			managarm::posix::SvrResponse resp;

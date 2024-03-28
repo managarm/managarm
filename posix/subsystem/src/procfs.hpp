@@ -5,6 +5,7 @@
 #include "vfs.hpp"
 
 struct Process;
+struct FileDescriptor;
 
 namespace procfs {
 
@@ -280,6 +281,41 @@ struct StatusNode final : RegularNode {
 
 	async::result<std::string> show() override;
 	async::result<void> store(std::string) override;
+private:
+	Process *_process;
+};
+
+struct FdDirectoryFile final : File {
+public:
+	static void serve(smarter::shared_ptr<FdDirectoryFile> file);
+
+	explicit FdDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process);
+
+	void handleClose() override;
+
+	FutureMaybe<ReadEntriesResult> readEntries() override;
+	helix::BorrowedDescriptor getPassthroughLane() override;
+
+private:
+	Process *_process;
+
+	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
+
+	std::unordered_map<int, FileDescriptor> _fileTable;
+	std::unordered_map<int, FileDescriptor>::const_iterator _iter;
+};
+
+struct FdDirectoryNode final : FsNode, std::enable_shared_from_this<FdDirectoryNode> {
+public:
+	explicit FdDirectoryNode(Process *process);
+
+	VfsType getType() override;
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 private:
 	Process *_process;
 };

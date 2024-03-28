@@ -311,8 +311,16 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				// Finally, we might need to follow symlinks.
 				if(next.second->getTarget()->getType() == VfsType::symlink
 						&& !(_components.empty() && (flags & resolveDontFollow))) {
-					auto result = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
-					auto link = Path::decompose(std::get<std::string>(result));
+					auto symlinkResult = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
+					if(auto error = std::get_if<Error>(&symlinkResult); error) {
+						assert(*error == Error::illegalOperationTarget);
+						_currentPath = ViewPath{_currentPath.first, nullptr};
+						if(*error == Error::illegalOperationTarget) {
+							std::cout << "\e[33mposix: Illegal operation target in PathResolver::resolve\e[39m" << std::endl;
+							co_return protocols::fs::Error::fileNotFound;
+						}
+					}
+					auto link = Path::decompose(std::get<std::string>(symlinkResult));
 
 					if(debugResolve) {
 						std::cout << "posix " << sn << ":     Link target is a symlink to '"
@@ -366,8 +374,16 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				// Finally, we might need to follow symlinks.
 				if(next.second->getTarget()->getType() == VfsType::symlink
 						&& !(_components.empty() && (flags & resolveDontFollow))) {
-					auto result = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
-					auto link = Path::decompose(std::get<std::string>(result));
+					auto symlinkResult = co_await next.second->getTarget()->readSymlink(next.second.get(), _process);
+					if(auto error = std::get_if<Error>(&symlinkResult); error) {
+						assert(*error == Error::illegalOperationTarget);
+						_currentPath = ViewPath{_currentPath.first, nullptr};
+						if(*error == Error::illegalOperationTarget) {
+							std::cout << "\e[33mposix: Illegal operation target in PathResolver::resolve\e[39m" << std::endl;
+							co_return protocols::fs::Error::fileNotFound;
+						}
+					}
+					auto link = Path::decompose(std::get<std::string>(symlinkResult));
 
 					if(debugResolve) {
 						std::cout << "posix " << sn << ":     Link target is a symlink to '"

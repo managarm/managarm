@@ -187,6 +187,10 @@ public:
 		return _clientMbusLane;
 	}
 
+	const std::unordered_map<int, FileDescriptor> &fileTable() {
+		return _fileTable;
+	}
+
 private:
 	helix::UniqueDescriptor _universe;
 

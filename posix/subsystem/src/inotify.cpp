@@ -56,7 +56,7 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("inotify")} { }
+	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)} { }
 
 	~OpenFile() {
 		// TODO: Properly keep track of watches.
