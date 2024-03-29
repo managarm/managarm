@@ -426,12 +426,16 @@ public:
 		return _uid;
 	}
 
+	void setEuidInternal(int euid) {
+		_euid = euid;
+	}
+
 	Error setEuid(int euid) {
 		if(euid < 0) {
 			return Error::illegalArguments;
 		}
 		if(_uid == 0 || _euid == 0 || euid == _uid) {
-			_euid = euid;
+			setEuidInternal(euid);
 			return Error::success;
 		}
 		return Error::accessDenied;
@@ -460,12 +464,16 @@ public:
 		return _gid;
 	}
 
+	void setEgidInternal(int egid) {
+		_egid = egid;
+	}
+
 	Error setEgid(int egid) {
 		if(egid < 0) {
 			return Error::illegalArguments;
 		}
 		if(_gid == 0 || _egid == 0 || _gid == egid || _egid == egid) {
-			_egid = egid;
+			setEgidInternal(egid);
 			return Error::success;
 		}
 		return Error::accessDenied;
