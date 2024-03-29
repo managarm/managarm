@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/auxv.h>
+#include <sys/stat.h>
 #include <iostream>
 
 #include "common.hpp"
@@ -191,6 +192,35 @@ execute(ViewPath root, ViewPath workdir,
 		HelHandle mbusHandle, Process *self) {
 	auto execFile = FRG_CO_TRY(co_await open(root, workdir, path, self));
 	assert(execFile); // If open() succeeds, it must return a non-null file.
+
+	auto stats = FRG_CO_TRY(co_await execFile->associatedLink()->getTarget()->getStats());
+
+	if(self->uid() != 0) {
+		if(self->uid() == stats.uid) { // I'm the owner
+			if(!(stats.mode & S_IXUSR)) {
+				co_return Error::accessDenied;
+			}
+		// TODO: Implement supplemental groups here
+		} else if(self->gid() == stats.gid) { // I'm in the owner group, but not the owner
+			if(!(stats.mode & S_IXGRP)) {
+				co_return Error::accessDenied;
+			}
+		} else if(!(stats.mode & S_IXOTH)) {
+			co_return Error::accessDenied;
+		}
+	} else if(stats.mode == 0 && stats.uid == 0 && stats.gid == 0) { // HACK: WORKAROUND INITRD
+		// Fallthrough
+	} else if(!(stats.mode & (S_IXUSR | S_IXGRP | S_IXOTH))) {
+		co_return Error::accessDenied;
+	}
+
+	if(stats.mode & S_ISUID) {
+		self->setEuidInternal(stats.uid);
+	}
+
+	if(stats.mode & S_ISGID) {
+		self->setEgidInternal(stats.gid);
+	}
 
 	int nRecursions = 0;
 	while(true) {
