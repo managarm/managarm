@@ -8,6 +8,7 @@
 #include <helix/ipc.hpp>
 #include "common.hpp"
 #include "epoll.hpp"
+#include "fs.hpp"
 
 namespace {
 
@@ -394,7 +395,7 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("epoll"), File::defaultPipeLikeSeek}, _currentSeq{0} { }
+	: File{StructName::get("epoll"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777), File::defaultPipeLikeSeek}, _currentSeq{0} { }
 
 private:
 	helix::UniqueLane _passthrough;

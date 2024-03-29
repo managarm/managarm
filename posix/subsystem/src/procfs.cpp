@@ -283,6 +283,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
 	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
 	proc_dir->directMknode("cwd", std::make_shared<CwdLink>(process));
+	proc_dir->directMknode("fd", std::make_shared<FdDirectoryNode>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
@@ -717,6 +718,71 @@ expected<std::string> CwdLink::readSymlink(FsLink *link, Process *process) {
 async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs CwdLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
+	helix::UniqueLane lane;
+	std::tie(lane, file->_passthrough) = helix::createStream();
+	async::detach(protocols::fs::servePassthrough(std::move(lane),
+			file, &File::fileOperations, file->_cancelServe));
+}
+
+FdDirectoryFile::FdDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
+: File{StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
+		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+
+void FdDirectoryFile::handleClose() {
+	_cancelServe.cancel();
+}
+
+FutureMaybe<ReadEntriesResult> FdDirectoryFile::readEntries() {
+	if(_iter != _fileTable.end()) {
+		co_return std::to_string((_iter++)->first);
+	}else{
+		co_return std::nullopt;
+	}
+}
+
+helix::BorrowedDescriptor FdDirectoryFile::getPassthroughLane() {
+	return _passthrough;
+}
+
+FdDirectoryNode::FdDirectoryNode(Process *process)
+: _process{process} {}
+
+VfsType FdDirectoryNode::getType() {
+	return VfsType::directory;
+}
+
+async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
+	std::cout << "\e[31mposix: Fix procfs FdDirectoryNode::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+FdDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+			<< std::bitset<32>(semantic_flags)
+			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< std::endl;
+		co_return Error::illegalArguments;
+	}
+
+	auto file = smarter::make_shared<FdDirectoryFile>(std::move(mount), std::move(link), _process);
+	file->setupWeakFile(file);
+	FdDirectoryFile::serve(file);
+	co_return File::constructHandle(std::move(file));
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdDirectoryNode::getLink(std::string name) {
+	for(const auto &[fdnum, fd] : _process->fileContext()->fileTable()) {
+		if(name != std::to_string(fdnum))
+			continue;
+		co_return std::make_shared<Link>(shared_from_this(), std::move(name), fd.file->associatedLink()->getTarget());
+	}
+	co_return Error::noSuchFile;
 }
 
 } // namespace procfs
