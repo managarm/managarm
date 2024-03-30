@@ -15,9 +15,9 @@ namespace eventfd {
 namespace {
 
 struct OpenFile : File {
-	OpenFile(unsigned int initval, bool nonBlock)
+	OpenFile(unsigned int initval, bool nonBlock, bool semaphore)
 	: File{StructName::get("eventfd")}, _currentSeq{1}, _readableSeq{0},
-		_writeableSeq{0}, _counter{initval}, _nonBlock{nonBlock} { }
+		_writeableSeq{0}, _counter{initval}, _nonBlock{nonBlock}, _semaphore{semaphore} { }
 
 	~OpenFile() {
 	}
@@ -36,8 +36,14 @@ struct OpenFile : File {
 
 		while (1) {
 			if (_counter) {
-				memcpy(data, &_counter, 8);
-				_counter = 0;
+				if(_semaphore) {
+					auto ptr = reinterpret_cast<uint64_t *>(data);
+					*ptr = 1;
+					_counter--;
+				} else {
+					memcpy(data, &_counter, 8);
+					_counter = 0;
+				}
 				_writeableSeq = ++_currentSeq;
 				_doorbell.raise();
 				co_return 8;
@@ -117,12 +123,13 @@ private:
 
 	uint64_t _counter;
 	bool _nonBlock;
+	bool _semaphore;
 };
 
 }
 
-smarter::shared_ptr<File, FileHandle> createFile(unsigned int initval, bool nonBlock) {
-	auto file = smarter::make_shared<OpenFile>(initval, nonBlock);
+smarter::shared_ptr<File, FileHandle> createFile(unsigned int initval, bool nonBlock, bool semaphore) {
+	auto file = smarter::make_shared<OpenFile>(initval, nonBlock, semaphore);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
