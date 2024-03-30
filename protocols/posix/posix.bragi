@@ -115,6 +115,12 @@ consts OpenFlags uint32 {
 	OF_APPEND = 1024
 }
 
+consts EventFdFlags uint32 {
+	CLOEXEC = 1,
+	NONBLOCK = 2,
+	SEMAPHORE = 4
+}
+
 message CntRequest 1 {
 head(128):
 	CntReqType request_type;
@@ -409,7 +415,7 @@ head(128):
 message EventfdCreateRequest 25 {
 head(128):
 	uint32 initval;
-	int32 flags;
+	EventFdFlags flags;
 }
 
 message SocketRequest 26 {

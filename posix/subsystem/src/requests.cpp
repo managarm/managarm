@@ -2934,15 +2934,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 
-			if (req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
-				std::cout << "posix: invalid flag specified (EFD_SEMAPHORE?)" << std::endl;
+			if (req->flags() & ~(managarm::posix::EventFdFlags::CLOEXEC
+					| managarm::posix::EventFdFlags::NONBLOCK
+					| managarm::posix::EventFdFlags::SEMAPHORE)) {
+				std::cout << "posix: invalid flag specified" << std::endl;
 				std::cout << "posix: flags specified: " << req->flags() << std::endl;
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			} else {
-
-				auto file = eventfd::createFile(req->initval(), req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
+				auto file = eventfd::createFile(req->initval(),
+					req->flags() & managarm::posix::EventFdFlags::NONBLOCK,
+					req->flags() & managarm::posix::EventFdFlags::SEMAPHORE);
 				auto fd = self->fileContext()->attachFile(file,
-						req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+						req->flags() & managarm::posix::EventFdFlags::CLOEXEC);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_fd(fd);
