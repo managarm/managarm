@@ -73,6 +73,11 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	HEL_CHECK(helGetClock(&start));
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
+
+	if(self->inode->fileType == FileType::kTypeDirectory) {
+		co_return protocols::fs::Error::isDirectory;
+	}
+
 	co_await self->inode->readyJump.wait();
 
 	if(self->offset >= self->inode->fileSize())
