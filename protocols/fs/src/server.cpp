@@ -150,8 +150,17 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		managarm::fs::SvrResponse resp;
 		auto error = std::get_if<Error>(&res);
-		if(error && *error == Error::wouldBlock) {
-			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+		if(error) {
+			if(*error == Error::wouldBlock) {
+				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
+			}else if(*error == Error::illegalArguments) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}else if(*error == Error::isDirectory) {
+				resp.set_error(managarm::fs::Errors::IS_DIRECTORY);
+			} else {
+				std::cout << "Unknown error '" << size_t(*error) << "' from read()" << std::endl;
+				co_return;
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -159,28 +168,20 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(error && *error == Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-		}else{
-			assert(!error);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
-			);
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_data.error());
+			co_return;
 		}
+
+		assert(!error);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
