@@ -159,7 +159,7 @@ HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context) {
 
 	[] (smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
-		HelSimpleResult helResult{.error = kHelErrNone};
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(queue), context);
@@ -913,7 +913,7 @@ HelError helSubmitProtectMemory(HelHandle space_handle,
 		// TODO: handle errors after propagating them through VirtualSpace::protect.
 		assert(outcome);
 
-		HelSimpleResult helResult{.error = kHelErrNone};
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(space), std::move(queue), reinterpret_cast<VirtualAddr>(pointer),
@@ -990,7 +990,7 @@ HelError helSubmitSynchronizeSpace(HelHandle spaceHandle, void *pointer, size_t 
 		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
 		assert(outcome);
 
-		HelSimpleResult helResult{.error = kHelErrNone};
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(space), pointer, length, std::move(queue), context);
@@ -1050,7 +1050,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
-			HelSimpleResult helResult{.error = kHelErrIllegalArgs};
+			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
@@ -1082,7 +1082,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		}
 
 		assert(error == Error::success);
-		HelSimpleResult helResult{.error = translateError(error)};
+		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	};
@@ -1095,7 +1095,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
-			HelSimpleResult helResult{.error = kHelErrIllegalArgs};
+			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
@@ -1127,7 +1127,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 			}
 		}
 
-		HelSimpleResult helResult{.error = translateError(error)};
+		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	};
@@ -1145,7 +1145,7 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		disableUserAccess();
 		assert(error == Error::success || error == Error::fault);
 
-		HelSimpleResult helResult{.error = translateError(error)};
+		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	};
@@ -1207,7 +1207,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
-			HelSimpleResult helResult{.error = kHelErrIllegalArgs};
+			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
@@ -1240,7 +1240,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 			}
 		}
 
-		HelSimpleResult helResult{.error = translateError(error)};
+		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	};
@@ -1253,7 +1253,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
-			HelSimpleResult helResult{.error = kHelErrIllegalArgs};
+			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
@@ -1285,7 +1285,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 			}
 		}
 
-		HelSimpleResult helResult{.error = translateError(error)};
+		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	};
@@ -1303,7 +1303,7 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		disableUserAccess();
 		assert(error == Error::success || error == Error::fault);
 
-		HelSimpleResult helResult{.error = translateError(error)};
+		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	};
@@ -2530,7 +2530,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
 					link(&item->mainSource);
 				}else if(recipe->type == kHelActionExtractCredentials) {
-					item->helCredentialsResult = {.error = translateError(node->error())};
+					item->helCredentialsResult = {.error = translateError(node->error()), .reserved = {}, .credentials = {}};
 					memcpy(item->helCredentialsResult.credentials,
 							node->credentials().data(), 16);
 					item->mainSource.setup(&item->helCredentialsResult,

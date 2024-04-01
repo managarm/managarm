@@ -584,8 +584,8 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
-		PhysicalRange destRange;
-		PhysicalRange srcRange;
+		PhysicalRange destRange = {};
+		PhysicalRange srcRange = {};
 	};
 
 	return async::let([=] {

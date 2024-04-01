@@ -147,6 +147,7 @@ PciIrqRouter *AcpiPciIrqRouter::makeDownstreamRouter(PciBus *bus) {
 			uacpi_namespace_node *outHandle;
 		} ctx = {
 			.targetAddr = (bus->associatedBridge->slot << 16) | bus->associatedBridge->function,
+			.outHandle = {},
 		};
 
 		uacpi_namespace_for_each_node_depth_first(acpiNode,
