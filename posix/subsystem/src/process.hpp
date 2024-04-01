@@ -540,7 +540,7 @@ public:
 
 	async::result<void> terminate(TerminationState state);
 
-	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state);
+	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats = nullptr);
 
 	ResourceUsage accumulatedUsage() {
 		return _childrenUsage;

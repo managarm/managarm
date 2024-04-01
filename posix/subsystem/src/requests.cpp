@@ -364,13 +364,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
 
 			TerminationState state;
-			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state);
+			ResourceUsage stats;
+			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state, &stats);
 
 			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(pid);
+			resp.set_ru_user_time(stats.userTime);
 
 			uint32_t mode = 0;
 			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {

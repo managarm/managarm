@@ -1209,11 +1209,12 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state) {
+async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats) {
 	assert(pid == -1 || pid > 0);
 
 	int result = 0;
 	TerminationState resultState;
+	ResourceUsage resultStats;
 	while(true) {
 		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
 			if(pid > 0 && pid != it->pid())
@@ -1221,12 +1222,16 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 			_notifyQueue.erase(it);
 			result = it->pid();
 			resultState = it->_state;
+			if(stats)
+				resultStats = it->_generationUsage;
 			Process::retire(&(*it));
 			break;
 		}
 
 		if(result > 0 || nonBlocking) {
 			*state = resultState;
+			if(stats)
+				*stats = resultStats;
 			co_return result;
 		}
 		co_await _notifyBell.async_wait();
