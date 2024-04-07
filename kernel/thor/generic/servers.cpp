@@ -10,7 +10,7 @@
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/mbus.hpp>
-#include "svrctl.frigg_pb.hpp"
+#include "svrctl.frigg_bragi.hpp"
 
 namespace thor {
 

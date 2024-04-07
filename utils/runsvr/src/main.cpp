@@ -5,7 +5,7 @@
 #include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
 #include <protocols/mbus/client.hpp>
-#include <svrctl.pb.h>
+#include <svrctl.bragi.hpp>
 
 #include <CLI/CLI.hpp>
 
@@ -221,11 +221,13 @@ async::result<void> asyncMain(action act, std::string path) {
 			auto buffer = readEntireFile(path.c_str());
 
 			managarm::svrctl::Description desc;
-			desc.ParseFromArray(buffer.data(), buffer.size());
+			bragi::limited_reader rd{buffer.data(), buffer.size()};
+			auto deser = bragi::deserializer{};
+			desc.decode_body(rd, deser);
 
 			log("runsvr: Running %s\n", desc.name().c_str());
 
-			for(const auto &file : desc.files())
+			for(auto &file : desc.files())
 				co_await uploadFile(file.path().c_str());
 
 			co_await runServer(desc.exec().c_str());
@@ -237,12 +239,14 @@ async::result<void> asyncMain(action act, std::string path) {
 			auto buffer = readEntireFile(path.c_str());
 
 			managarm::svrctl::Description desc;
-			desc.ParseFromArray(buffer.data(), buffer.size());
+			bragi::limited_reader rd{buffer.data(), buffer.size()};
+			auto deser = bragi::deserializer{};
+			desc.decode_body(rd, deser);
 
 			auto id_str = getenv("MBUS_ID");
 			log("runsvr: Binding driver %s to mbus ID %s\n", desc.name().c_str(), id_str);
 
-			for(const auto &file : desc.files())
+			for(auto &file : desc.files())
 				co_await uploadFile(file.path().c_str());
 
 			auto lane = co_await runServer(desc.exec().c_str());

@@ -18,17 +18,17 @@ want_acpi = false
 
 src = [
 	protofrg.process(protos/'mbus/mbus.proto', extra_args : [ '-I' + protos/'mbus' ]),
-	protofrg.process(protos/'svrctl/svrctl.proto', extra_args : [ '-I' + protos/'svrctl' ])
 ]
 
-src += frgbragi.process([ 
-	protos/'fs/fs.bragi', 
+src += frgbragi.process([
+	protos/'fs/fs.bragi',
 	protos/'hw/hw.bragi',
 	protos/'ostrace/ostrace.bragi',
 	protos/'posix/posix.bragi',
 	protos/'clock/clock.bragi',
 	protos/'kernlet/kernlet.bragi',
-	protos/'kerncfg/kerncfg.bragi'
+	protos/'kerncfg/kerncfg.bragi',
+	protos/'svrctl/svrctl.bragi'
 ])
 
 src += files(
