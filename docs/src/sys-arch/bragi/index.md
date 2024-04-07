@@ -3,7 +3,6 @@
 > This part of the Handbook if Work-In-Progress.
 
 bragi is the future interface definition language for use in Managarm.
-bragi will replace protobuf for all the protocol files, this conversion is currently ongoing.
 
 The code for bragi can be found at [https://github.com/managarm/bragi](https://github.com/managarm/bragi).
 

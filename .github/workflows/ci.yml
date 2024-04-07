@@ -12,7 +12,6 @@ jobs:
                         cross-binutils
                         host-llvm-toolchain
                         host-managarm-tools
-                        host-protoc
                         kernel-gcc
                         system-gcc
                     pkg_deps: >-
@@ -28,7 +27,6 @@ jobs:
                         host-llvm-toolchain
                         host-managarm-tools
                         host-pkg-config
-                        host-protoc
                         host-xorg-macros
                         system-gcc
                     pkg_deps: >-
@@ -36,7 +34,6 @@ jobs:
                         eudev
                         mlibc
                         mlibc-headers
-                        protobuf
         name: Build ${{ matrix.pkg }}
         runs-on: ubuntu-20.04
         steps:

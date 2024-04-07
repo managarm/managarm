@@ -15,11 +15,6 @@ to use pre-built tools from our build server rather than compiling everything fr
 	```bash
 	pip3 install meson
 	```
-1.  `protobuf` is also required. There is a Debian package, but a newer version is required.
-    Install it from pip:
-	```bash
-	pip3 install protobuf
-	```
 1.  For managarm kernel documentation you may also want `mdbook`.
     You can install it from your distribution repositories, or using cargo:
 	```bash
