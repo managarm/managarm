@@ -1,6 +1,3 @@
-
-#include <queue>
-
 #include <arch/mem_space.hpp>
 #include <arch/dma_pool.hpp>
 #include <async/recurring-event.hpp>
@@ -136,7 +133,6 @@ private:
 		uint8_t getSpeed();
 		int _id;
 		std::shared_ptr<Device> _device;
-		Controller *_controller;
 		SupportedProtocol *_proto;
 		arch::mem_space _space;
 

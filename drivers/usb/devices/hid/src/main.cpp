@@ -1,5 +1,4 @@
 
-#include <deque>
 #include <optional>
 #include <iostream>
 #include <set>
@@ -605,7 +604,7 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	};
 
 	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(_eventDev, std::move(local_lane));

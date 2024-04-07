@@ -3,7 +3,6 @@
 
 #include "clock.hpp"
 #include "common.hpp"
-#include "device.hpp"
 #include "sysfs.hpp"
 
 #include <bitset>
@@ -258,13 +257,13 @@ VfsType SymlinkNode::getType() {
 }
 
 async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
-	co_return FileStats{
-		.numLinks = 1,
-		.mode = 0777,
-	};
+	auto fs = FileStats{};
+	fs.numLinks = 1;
+	fs.mode = 0777;
+	co_return fs;
 }
 
-expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *process) {
+expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *) {
 	auto object = _target.lock();
 	assert(object);
 
@@ -342,13 +341,13 @@ VfsType DirectoryNode::getType() {
 }
 
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
-	co_return FileStats{
-		.numLinks = 2,
-		.fileSize = 0,
-		.mode = 0755,
-		.uid = 0,
-		.gid = 0,
-	};
+	auto fs = FileStats{};
+	fs.numLinks = 2;
+	fs.fileSize = 0;
+	fs.mode = 0755;
+	fs.uid = 0;
+	fs.gid = 0;
+	co_return fs;
 }
 
 std::shared_ptr<FsLink> DirectoryNode::treeLink() {

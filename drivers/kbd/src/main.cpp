@@ -1,6 +1,4 @@
 
-#include <algorithm>
-#include <deque>
 #include <iostream>
 
 #include <stdio.h>
@@ -390,7 +388,7 @@ async::result<void> Controller::KbdDevice::run() {
 	};
 
 	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(_evDev, std::move(local_lane));
@@ -474,7 +472,7 @@ async::result<void> Controller::MouseDevice::run() {
 	};
 
 	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(_evDev, std::move(local_lane));
@@ -888,7 +886,7 @@ static DeviceType determineTypeById(uint16_t id) {
 }
 
 async::result<frg::expected<Ps2Error, DeviceType>>
-Controller::Port::submitCommand(device_cmd::Identify tag) {
+Controller::Port::submitCommand(device_cmd::Identify) {
 	auto cmdResp = co_await transferByte(0xF2);
 	if (!cmdResp)
 		co_return Ps2Error::timeout;
@@ -913,7 +911,7 @@ Controller::Port::submitCommand(device_cmd::Identify tag) {
 }
 
 async::result<frg::expected<Ps2Error>>
-Controller::Port::submitCommand(device_cmd::DisableScan tag) {
+Controller::Port::submitCommand(device_cmd::DisableScan) {
 	auto cmdResp = co_await transferByte(0xF5);
 	if (!cmdResp)
 		co_return Ps2Error::timeout;
@@ -927,7 +925,7 @@ Controller::Port::submitCommand(device_cmd::DisableScan tag) {
 }
 
 async::result<frg::expected<Ps2Error>>
-Controller::Port::submitCommand(device_cmd::EnableScan tag) {
+Controller::Port::submitCommand(device_cmd::EnableScan) {
 	auto cmdResp = co_await transferByte(0xF4);
 	if (!cmdResp)
 		co_return Ps2Error::timeout;
@@ -941,7 +939,7 @@ Controller::Port::submitCommand(device_cmd::EnableScan tag) {
 }
 
 async::result<frg::expected<Ps2Error>>
-Controller::MouseDevice::submitCommand(device_cmd::SetReportRate tag, int rate) {
+Controller::MouseDevice::submitCommand(device_cmd::SetReportRate, int rate) {
 	auto cmdResp = co_await _port->transferByte(0xF3);
 	if (!cmdResp)
 		co_return Ps2Error::timeout;
@@ -964,7 +962,7 @@ Controller::MouseDevice::submitCommand(device_cmd::SetReportRate tag, int rate) 
 }
 
 async::result<frg::expected<Ps2Error>>
-Controller::KbdDevice::submitCommand(device_cmd::SetScancodeSet tag, int set) {
+Controller::KbdDevice::submitCommand(device_cmd::SetScancodeSet, int set) {
 	// If set == 0, this would be a GetScancodeSet command.
 	assert(set);
 
@@ -990,7 +988,7 @@ Controller::KbdDevice::submitCommand(device_cmd::SetScancodeSet tag, int set) {
 }
 
 async::result<frg::expected<Ps2Error, int>>
-Controller::KbdDevice::submitCommand(device_cmd::GetScancodeSet tag) {
+Controller::KbdDevice::submitCommand(device_cmd::GetScancodeSet) {
 	auto cmdResp = co_await _port->transferByte(0xF0);
 	if (!cmdResp)
 		co_return Ps2Error::timeout;

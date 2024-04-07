@@ -41,7 +41,7 @@ async::detached issueReset() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 		pmLane = helix::UniqueLane(co_await entity.bind());
 		pmFound.raise();
 	});
@@ -148,7 +148,9 @@ File::read(void *object, const char *, void *buffer, size_t max_size) {
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 File::pollWait(void *object, uint64_t past_seq, int mask,
-		async::cancellation_token cancellation) {
+		async::cancellation_token) {
+	(void) mask;
+
 	auto self = static_cast<File *>(object);
 
 	assert(past_seq <= self->_currentSeq);

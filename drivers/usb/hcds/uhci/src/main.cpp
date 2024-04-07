@@ -3,8 +3,6 @@
 #include <limits.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <deque>
-#include <optional>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -511,7 +509,7 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 	auto root = co_await mbus::Instance::global().getRoot();
 
 	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
@@ -609,6 +607,9 @@ Controller::useConfiguration(int address, int configuration) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::useInterface(int address, int interface, int alternative) {
+	(void) interface;
+	(void) alternative;
+
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address));
 	bool fail = false;
 	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {

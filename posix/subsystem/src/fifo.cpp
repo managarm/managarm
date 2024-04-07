@@ -12,7 +12,6 @@
 #include "fifo.hpp"
 #include "fs.bragi.hpp"
 
-#include <coroutine>
 #include <sys/ioctl.h>
 
 namespace fifo {
@@ -170,7 +169,7 @@ public:
 	}
 
 	async::result<void>
-	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
 		managarm::fs::GenericIoctlReply resp;
 
 		if(id == managarm::fs::GenericIoctlRequest::message_id) {
@@ -251,7 +250,7 @@ public:
 	}
 
 	async::result<frg::expected<Error, size_t>>
-	writeAll(Process *process, const void *data, size_t maxLength) override {
+	writeAll(Process *, const void *data, size_t maxLength) override {
 		Packet packet;
 		packet.buffer.resize(maxLength);
 		memcpy(packet.buffer.data(), data, maxLength);
@@ -266,6 +265,7 @@ public:
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t pastSeq, int mask,
 			async::cancellation_token cancellation) override {
+		(void) mask;
 		// TODO: Return Error::fileClosed as appropriate.
 		assert(pastSeq <= _channel->currentSeq);
 		while(_channel && !cancellation.is_cancellation_requested()

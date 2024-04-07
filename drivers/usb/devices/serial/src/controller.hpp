@@ -9,6 +9,7 @@
 
 namespace {
 
+[[maybe_unused]]
 async::result<void> transferControl(protocols::usb::Device &device, arch::contiguous_pool &pool,
 		bool read, uint8_t request, uint16_t value, uint16_t interface, arch::dma_buffer_view buf) {
 	arch::dma_object<protocols::usb::SetupPacket> ctrl_msg{&pool};

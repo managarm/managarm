@@ -2,7 +2,6 @@
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
-#include <errno.h>
 #include <protocols/fs/server.hpp>
 #include <netserver/nic.hpp>
 #include <linux/netlink.h>
@@ -13,7 +12,6 @@
 
 #include <deque>
 #include <vector>
-#include <utility>
 
 namespace nl {
 struct Packet {
@@ -38,6 +36,10 @@ public:
 
 	static async::result<protocols::fs::Error> bind(void *obj, const char *creds,
 			const void *addr_ptr, size_t addr_length) {
+		(void) obj;
+		(void) creds;
+		(void) addr_ptr;
+		(void) addr_length;
 		co_return protocols::fs::Error::none;
 	}
 

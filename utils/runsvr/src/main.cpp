@@ -1,7 +1,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <iostream>
 
 #include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
@@ -80,7 +79,7 @@ async::result<void> enumerateSvrctl() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 //		std::cout << "runsvr: Found svrctl" << std::endl;
 
 		svrctlLane = helix::UniqueLane(co_await entity.bind());

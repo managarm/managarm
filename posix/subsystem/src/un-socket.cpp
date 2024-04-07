@@ -472,7 +472,7 @@ public:
 	}
 
 	async::result<void>
-	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
 		managarm::fs::GenericIoctlReply resp;
 
 		if(id == managarm::fs::GenericIoctlRequest::message_id) {

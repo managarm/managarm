@@ -24,7 +24,7 @@ async::result<helix::UniqueLane> enumerateKerncfgByteRing(const char *purpose) {
 
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([&promise] (mbus::Entity entity,
-			mbus::Properties properties) mutable -> async::detached {
+			mbus::Properties) mutable -> async::detached {
 		std::cout << "virtio-console: Found kerncfg" << std::endl;
 		promise.set_value(helix::UniqueLane(co_await entity.bind()));
 	});

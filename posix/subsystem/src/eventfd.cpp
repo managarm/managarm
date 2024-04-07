@@ -1,14 +1,11 @@
 
 #include <string.h>
 #include <sys/epoll.h>
-#include <iostream>
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
-#include "fs.hpp"
 #include "eventfd.hpp"
 #include "process.hpp"
-#include "vfs.hpp"
 
 namespace eventfd {
 
@@ -57,7 +54,7 @@ struct OpenFile : File {
 	}
 
 	async::result<frg::expected<Error, size_t>>
-	writeAll(Process *process, const void *data, size_t length) override {
+	writeAll(Process *, const void *data, size_t length) override {
 		assert(length >= 8); // TODO: return Error::illegalArguments to user instead
 
 		uint64_t num;

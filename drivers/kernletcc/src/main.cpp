@@ -27,7 +27,7 @@ async::result<void> enumerateCtl() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 		std::cout << "kernletcc: Found kernletctl" << std::endl;
 
 		kernletCtlLane = helix::UniqueLane(co_await entity.bind());
@@ -200,6 +200,8 @@ async::result<void> createCompilerObject() {
 // ----------------------------------------------------------------
 
 async::detached asyncMain(const char **args) {
+	(void) args;
+
 	co_await enumerateCtl();
 	co_await createCompilerObject();
 }

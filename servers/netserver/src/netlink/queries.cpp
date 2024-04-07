@@ -1,5 +1,4 @@
 #include "netlink.hpp"
-#include "protocols/fs/common.hpp"
 #include "src/ip/arp.hpp"
 #include "src/netlink/packets.hpp"
 
@@ -19,7 +18,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	}
 
 	std::optional<std::string> if_name = std::nullopt;
-	uint32_t ext_mask = 0;
+	[[maybe_unused]] uint32_t ext_mask = 0;
 
 	if(msg) {
 		auto attrs = NetlinkAttr(hdr, nl::packets::ifinfo{});

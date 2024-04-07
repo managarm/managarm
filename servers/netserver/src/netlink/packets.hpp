@@ -25,12 +25,11 @@ std::optional<const T *> netlinkMessage(const struct nlmsghdr *header, int lengt
  */
 struct NetlinkBuilder {
 	inline void header(uint16_t type, uint16_t flags, uint32_t seq, uint32_t pid) {
-		struct nlmsghdr hdr {
-			.nlmsg_type = type,
-			.nlmsg_flags = flags,
-			.nlmsg_seq = seq,
-			.nlmsg_pid = pid,
-		};
+		struct nlmsghdr hdr{};
+		hdr.nlmsg_type = type;
+		hdr.nlmsg_flags = flags;
+		hdr.nlmsg_seq = seq;
+		hdr.nlmsg_pid = pid;
 
 		_packet.buffer.resize(_offset + sizeof(struct nlmsghdr));
 		memcpy(_packet.buffer.data() + _offset, &hdr, sizeof(struct nlmsghdr));

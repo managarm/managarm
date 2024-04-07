@@ -68,6 +68,7 @@ async::result<frg::expected<Error, std::string>> ControllerMaxPowerAttribute::sh
 }
 
 async::result<frg::expected<Error, std::string>> MaxChildAttribute::show(sysfs::Object *object) {
+	(void) object;
 	co_return "2\n";
 }
 
@@ -94,10 +95,12 @@ async::result<frg::expected<Error, std::string>> DescriptorsAttribute::show(sysf
 }
 
 async::result<frg::expected<Error, std::string>> RxLanesAttribute::show(sysfs::Object *object) {
+	(void) object;
 	co_return "1\n";
 }
 
 async::result<frg::expected<Error, std::string>> TxLanesAttribute::show(sysfs::Object *object) {
+	(void) object;
 	co_return "1\n";
 }
 
@@ -115,6 +118,7 @@ async::result<frg::expected<Error, std::string>> MaxPacketSize0Attribute::show(s
 }
 
 async::result<frg::expected<Error, std::string>> ConfigurationAttribute::show(sysfs::Object *object) {
+	(void) object;
 	co_return "\n";
 }
 

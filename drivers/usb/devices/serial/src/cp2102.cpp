@@ -176,10 +176,9 @@ async::result<void> Cp2102::setConfiguration(struct termios &new_config) {
 	}
 
 	if(new_config.c_iflag & IXON || new_config.c_iflag & IXOFF) {
-		cp2102::specialChars chars{
-			.bXonChar = new_config.c_cc[VSTART],
-			.bXoffChar = new_config.c_cc[VSTOP],
-		};
+		cp2102::specialChars chars{};
+		chars.bXonChar = new_config.c_cc[VSTART];
+		chars.bXoffChar = new_config.c_cc[VSTOP];
 
 		co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_CHARS), 0,
 			cp2102::CONFIG_INTERFACE, arch::dma_buffer_view{nullptr, &chars, sizeof(chars)});

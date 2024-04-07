@@ -153,6 +153,8 @@ struct Udp4Socket {
 	static async::result<protocols::fs::Error> connect(void* obj,
 			const char *creds,
 			const void *addr_ptr, size_t addr_size) {
+		(void) creds;
+
 		auto self = static_cast<Udp4Socket *>(obj);
 		Endpoint remote;
 
@@ -179,6 +181,8 @@ struct Udp4Socket {
 	static async::result<protocols::fs::Error> bind(void* obj,
 			const char *creds,
 			const void *addr_ptr, size_t addr_size) {
+		(void) creds;
+
 		auto self = static_cast<Udp4Socket *>(obj);
 		Endpoint local;
 
@@ -219,6 +223,10 @@ struct Udp4Socket {
 			const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
+		(void) creds;
+		(void) flags;
+		(void) max_ctrl_len;
+
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);
@@ -226,12 +234,11 @@ struct Udp4Socket {
 		auto packet = element->payload();
 		auto copy_size = std::min(packet.size(), len);
 		std::memcpy(data, packet.data(), copy_size);
-		sockaddr_in addr {
-			.sin_family = AF_INET,
-			.sin_port = convert_endian<endian::big>(element->header.src),
-			.sin_addr = {
-				convert_endian<endian::big>(element->packet->header.source)
-			}
+		sockaddr_in addr {};
+		addr.sin_family = AF_INET;
+		addr.sin_port = convert_endian<endian::big>(element->header.src);
+		addr.sin_addr = {
+			convert_endian<endian::big>(element->packet->header.source)
 		};
 		std::memset(addr_buf, 0, addr_size);
 		std::memcpy(addr_buf, &addr, std::min(addr_size, sizeof(addr)));
@@ -243,6 +250,10 @@ struct Udp4Socket {
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
 			std::vector<uint32_t> fds) {
+		(void) creds;
+		(void) flags;
+		(void) fds;
+
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);

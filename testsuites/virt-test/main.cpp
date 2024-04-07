@@ -27,7 +27,8 @@ int main() {
 
 	regs.rip = 0x7C00;
 	regs.rflags = (1 << 1);
-	regs.cs = {.base = 0, .limit = 0xFFFF, .selector = 0, .type = 3, .present = 1, .s = 1};
+	regs.cs = {.base = 0, .limit = 0xFFFF, .selector = 0, .type = 3, .present = 1, .dpl = {},
+		.db = {}, .s = 1, .l = {}, .g = {}, .avl = {} };
 
 	HelX86SegmentRegister seg{};
 	seg.limit = 0xFFFF;

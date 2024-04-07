@@ -121,7 +121,7 @@ async::result<void> enumerateKerncfg() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 		std::cout << "POSIX: Found kerncfg" << std::endl;
 
 		kerncfgLane = helix::UniqueLane(co_await entity.bind());

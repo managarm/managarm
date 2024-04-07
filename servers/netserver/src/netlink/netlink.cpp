@@ -20,7 +20,8 @@ NetlinkSocket::NetlinkSocket(int flags)
 
 async::result<size_t> NetlinkSocket::sockname(void *, void *addr_ptr, size_t max_addr_length) {
 	// TODO: Fill in nl_groups.
-	struct sockaddr_nl sa { .nl_family = AF_NETLINK };
+	struct sockaddr_nl sa{};
+	sa.nl_family = AF_NETLINK;
 	memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_nl), max_addr_length));
 
 	co_return sizeof(struct sockaddr_nl);
@@ -36,6 +37,8 @@ async::result<void> NetlinkSocket::setOption(void *obj, int option, int value) {
 async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		const char *creds, uint32_t flags, void *data,
 		size_t len, void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
+	(void) creds;
+
 	auto *self = static_cast<NetlinkSocket *>(obj);
 	if(logSocket)
 		std::cout << "netserver: Recv from netlink socket" << std::endl;
@@ -52,10 +55,9 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		memcpy(data, packet.buffer.data(), truncated_size);
 
 	if(addr_size >= sizeof(struct sockaddr_nl) && addr_buf != nullptr) {
-		struct sockaddr_nl sa {
-			.nl_family = AF_NETLINK,
-			.nl_groups = packet.group ? (1U << (packet.group - 1)) : 0,
-		};
+		struct sockaddr_nl sa{};
+		sa.nl_family = AF_NETLINK;
+		sa.nl_groups = packet.group ? (1U << (packet.group - 1)) : 0;
 
 		memcpy(addr_buf, &sa, sizeof(struct sockaddr_nl));
 	}
@@ -99,6 +101,10 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMsg(void *obj,
 			const char *creds, uint32_t flags, void *data, size_t len,
 			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds) {
+	(void) creds;
+	(void) addr_ptr;
+	(void) addr_size;
+
 	if(logSocket)
 		std::cout << "netserver: sendMsg on netlink socket!" << std::endl;
 	const auto orig_len = len;

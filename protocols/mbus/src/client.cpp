@@ -69,7 +69,7 @@ async::result<Entity> Instance::getEntity(int64_t id) {
 	co_return Entity{_connection, id};
 }
 
-async::detached handleObject(std::shared_ptr<Connection> connection,
+async::detached handleObject(std::shared_ptr<Connection>,
 		ObjectHandler handler, helix::UniqueLane lane) {
 	while(true) {
 		helix::Accept accept;
@@ -141,6 +141,8 @@ async::result<Properties> Entity::getProperties() const {
 
 async::result<Entity> Entity::createObject(std::string name,
 		const Properties &properties, ObjectHandler handler) const {
+	(void) name;
+
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;

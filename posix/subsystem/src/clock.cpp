@@ -60,7 +60,7 @@ async::result<void> enumerateTracker() {
 	});
 	
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 		std::cout << "POSIX: Found clocktracker" << std::endl;
 
 		trackerLane = helix::UniqueLane(co_await entity.bind());

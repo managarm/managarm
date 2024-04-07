@@ -1,7 +1,4 @@
 
-#include <memory>
-#include <iostream>
-
 #include <vector>
 
 #include <string.h>
@@ -49,9 +46,8 @@ async::result<PciInfo> Device::getPciInfo() {
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
-	PciInfo info{
-		.numMsis = resp.num_msis()
-	};
+	PciInfo info{};
+	info.numMsis = resp.num_msis();
 
 	for(size_t i = 0; i < resp.capabilities_size(); i++)
 		info.caps.push_back({resp.capabilities(i).type()});
