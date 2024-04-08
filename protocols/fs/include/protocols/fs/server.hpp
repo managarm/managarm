@@ -146,49 +146,49 @@ struct FileOperations {
 		return *this;
 	}
 
-	async::result<SeekResult> (*seekAbs)(void *object, int64_t offset);
-	async::result<SeekResult> (*seekRel)(void *object, int64_t offset);
-	async::result<SeekResult> (*seekEof)(void *object, int64_t offset);
+	async::result<SeekResult> (*seekAbs)(void *object, int64_t offset) = nullptr;
+	async::result<SeekResult> (*seekRel)(void *object, int64_t offset) = nullptr;
+	async::result<SeekResult> (*seekEof)(void *object, int64_t offset) = nullptr;
 	async::result<ReadResult> (*read)(void *object, const char *credentials,
-			void *buffer, size_t length);
+			void *buffer, size_t length) = nullptr;
 	async::result<ReadResult> (*pread)(void *object, int64_t offset, const char *credentials,
-			void *buffer, size_t length);
+			void *buffer, size_t length) = nullptr;
 	async::result<frg::expected<protocols::fs::Error, size_t>> (*write)(void *object, const char *credentials,
-			const void *buffer, size_t length);
+			const void *buffer, size_t length) = nullptr;
 	async::result<frg::expected<protocols::fs::Error, size_t>> (*pwrite)(void *object, int64_t offset, const char *credentials,
-			const void *buffer, size_t length);
-	async::result<ReadEntriesResult> (*readEntries)(void *object);
-	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object);
-	async::result<frg::expected<protocols::fs::Error>> (*truncate)(void *object, size_t size);
-	async::result<frg::expected<protocols::fs::Error>> (*fallocate)(void *object, int64_t offset, size_t size);
+			const void *buffer, size_t length) = nullptr;
+	async::result<ReadEntriesResult> (*readEntries)(void *object) = nullptr;
+	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object) = nullptr;
+	async::result<frg::expected<protocols::fs::Error>> (*truncate)(void *object, size_t size) = nullptr;
+	async::result<frg::expected<protocols::fs::Error>> (*fallocate)(void *object, int64_t offset, size_t size) = nullptr;
 	async::result<void> (*ioctl)(void *object, uint32_t id, helix_ng::RecvInlineResult req,
-			helix::UniqueLane conversation);
-	async::result<protocols::fs::Error> (*flock)(void *object, int flags);
-	async::result<int> (*getOption)(void *object, int option);
-	async::result<void> (*setOption)(void *object, int option, int value);
+			helix::UniqueLane conversation) = nullptr;
+	async::result<protocols::fs::Error> (*flock)(void *object, int flags) = nullptr;
+	async::result<int> (*getOption)(void *object, int option) = nullptr;
+	async::result<void> (*setOption)(void *object, int option, int value) = nullptr;
 	async::result<frg::expected<Error, PollWaitResult>>
 	(*pollWait)(void *object, uint64_t sequence, int mask,
-			async::cancellation_token cancellation);
+			async::cancellation_token cancellation) = nullptr;
 	async::result<frg::expected<Error, PollStatusResult>>
-	(*pollStatus)(void *object);
+	(*pollStatus)(void *object) = nullptr;
 	async::result<Error> (*bind)(void *object, const char *credentials,
-			const void *addr_ptr, size_t addr_length);
-	async::result<Error> (*listen)(void *object);
+			const void *addr_ptr, size_t addr_length) = nullptr;
+	async::result<Error> (*listen)(void *object) = nullptr;
 	async::result<Error> (*connect)(void *object, const char *credentials,
-			const void *addr_ptr, size_t addr_length);
-	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length);
-	async::result<int> (*getFileFlags)(void *object);
-	async::result<void> (*setFileFlags)(void *object, int flags);
+			const void *addr_ptr, size_t addr_length) = nullptr;
+	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length) = nullptr;
+	async::result<int> (*getFileFlags)(void *object) = nullptr;
+	async::result<void> (*setFileFlags)(void *object, int flags) = nullptr;
 	async::result<RecvResult> (*recvMsg)(void *object, const char *creds,
 			uint32_t flags, void *data, size_t len,
-			void *addr_buf, size_t addr_size, size_t max_ctrl_len);
+			void *addr_buf, size_t addr_size, size_t max_ctrl_len) = nullptr;
 	async::result<frg::expected<protocols::fs::Error, size_t>> (*sendMsg)(void *object, const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size,
-			std::vector<uint32_t> fds);
-	async::result<frg::expected<Error, size_t>> (*peername)(void *object, void *addr_ptr, size_t max_addr_length);
-	async::result<frg::expected<Error, int>> (*getSeals)(void *object);
-	async::result<frg::expected<Error, int>> (*addSeals)(void *object, int seals);
+			std::vector<uint32_t> fds) = nullptr;
+	async::result<frg::expected<Error, size_t>> (*peername)(void *object, void *addr_ptr, size_t max_addr_length) = nullptr;
+	async::result<frg::expected<Error, int>> (*getSeals)(void *object) = nullptr;
+	async::result<frg::expected<Error, int>> (*addSeals)(void *object, int seals) = nullptr;
 
 	bool logRequests = false;
 };

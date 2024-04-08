@@ -16,10 +16,10 @@ struct DmalogSglist {
 };
 
 struct DmalogDescriptor {
-	uint64_t status;
-	uint64_t actualLength;
-	uint64_t flags;
-	uint64_t numBuffers;
+	uint64_t status = {};
+	uint64_t actualLength = {};
+	uint64_t flags = {};
+	uint64_t numBuffers = {};
 	DmalogSglist buffers[];
 };
 

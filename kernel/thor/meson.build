@@ -1,7 +1,7 @@
 libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
 link_args = [ '-nostdlib' ]
 
-args = [ 
+args = [
 	'-DLIBASYNC_CUSTOM_PLATFORM',
 	'-DFRG_DONT_USE_LONG_DOUBLE',
 	'-fno-threadsafe-statics'
@@ -16,22 +16,7 @@ inc = [ cralgo_includes ]
 link_with = []
 want_acpi = false
 
-src = [
-	protofrg.process(protos/'mbus/mbus.proto', extra_args : [ '-I' + protos/'mbus' ]),
-	protofrg.process(protos/'svrctl/svrctl.proto', extra_args : [ '-I' + protos/'svrctl' ])
-]
-
-src += frgbragi.process([ 
-	protos/'fs/fs.bragi', 
-	protos/'hw/hw.bragi',
-	protos/'ostrace/ostrace.bragi',
-	protos/'posix/posix.bragi',
-	protos/'clock/clock.bragi',
-	protos/'kernlet/kernlet.bragi',
-	protos/'kerncfg/kerncfg.bragi'
-])
-
-src += files(
+src = files(
 	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
 	'generic/address-space.cpp',
@@ -76,6 +61,18 @@ src += files(
 	'system/pci/pcie_ecam.cpp',
 	'system/pci/pcie_brcmstb.cpp'
 )
+
+src += frgbragi.process([
+	protos/'fs/fs.bragi',
+	protos/'hw/hw.bragi',
+	protos/'mbus/mbus.bragi',
+	protos/'ostrace/ostrace.bragi',
+	protos/'posix/posix.bragi',
+	protos/'clock/clock.bragi',
+	protos/'kernlet/kernlet.bragi',
+	protos/'kerncfg/kerncfg.bragi',
+	protos/'svrctl/svrctl.bragi'
+])
 
 klibc_inc = include_directories('../klibc')
 

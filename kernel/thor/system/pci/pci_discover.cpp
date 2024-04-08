@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <frg/algorithm.hpp>
 #include <hw.frigg_bragi.hpp>
-#include <mbus.frigg_pb.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
@@ -60,7 +59,7 @@ initgraph::Stage *getDevicesEnumeratedStage() {
 // --------------------------------------------------------
 
 void PciBus::runRootBus() {
-	KernelFiber::run([=] {
+	KernelFiber::run([=, this] {
 		async::detach_with_allocator(*kernelAlloc, [] (PciBus *device)
 				-> coroutine<void> {
 			Properties properties;
@@ -83,7 +82,7 @@ void PciBus::runRootBus() {
 // --------------------------------------------------------
 
 void PciBridge::runBridge() {
-	KernelFiber::run([=] {
+	KernelFiber::run([=, this] {
 		async::detach_with_allocator(*kernelAlloc, [] (PciBridge *device)
 				-> coroutine<void> {
 			Properties properties;
@@ -122,7 +121,7 @@ void PciBridge::runBridge() {
 // --------------------------------------------------------
 
 void PciDevice::runDevice() {
-	KernelFiber::run([=] {
+	KernelFiber::run([=, this] {
 		async::detach_with_allocator(*kernelAlloc, [] (PciDevice *device)
 				-> coroutine<void> {
 			Properties properties;
@@ -1052,7 +1051,6 @@ void findPciCaps(PciEntity *entity) {
 	if(status & 0x10) {
 		// The bottom two bits of each capability offset must be masked!
 		uint8_t offset = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, kPciRegularCapabilities) & 0xFC;
-		unsigned int index = 0;
 		while(offset) {
 			auto ent = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset);
 			uint8_t type = ent & 0xFF;
@@ -1085,7 +1083,6 @@ void findPciCaps(PciEntity *entity) {
 			entity->caps.push({type, offset, size});
 
 			offset = (ent >> 8) & 0xFC;
-			++index;
 		}
 	}
 }

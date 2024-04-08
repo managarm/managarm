@@ -7,14 +7,14 @@
 #include <helix/ipc.hpp>
 
 #include <protocols/svrctl/server.hpp>
-#include "svrctl.pb.h"
+#include "svrctl.bragi.hpp"
 
 namespace protocols {
 namespace svrctl {
 
-static_assert(static_cast<int>(Error::success) == managarm::svrctl::Error::SUCCESS);
+static_assert(static_cast<int>(Error::success) == int(managarm::svrctl::Error::SUCCESS));
 static_assert(static_cast<int>(Error::deviceNotSupported)
-		== managarm::svrctl::Error::DEVICE_NOT_SUPPORTED);
+		== int(managarm::svrctl::Error::DEVICE_NOT_SUPPORTED));
 
 struct ManagarmServerData {
 	HelHandle controlLane;

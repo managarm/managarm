@@ -5,7 +5,6 @@
 
 #include <protocols/mbus/client.hpp>
 
-#include "../common.hpp"
 #include "../device.hpp"
 #include "../util.hpp"
 #include "../vfs.hpp"
@@ -97,6 +96,7 @@ DevAttribute devAttr{"dev"};
 SizeAttribute sizeAttr{"size"};
 
 async::result<frg::expected<Error, std::string>> ReadOnlyAttribute::show(sysfs::Object *object) {
+	(void) object;
 	// The format is 0\n\0.
 	// Hardcode to zero as we don't support ro mounts yet.
 	co_return "0\n";
@@ -130,7 +130,7 @@ async::detached run() {
 
 		auto id = entity.getId();
 		int diskId = diskAllocator.allocate();
-		assert(static_cast<size_t>(diskId) < sizeof(alphabet));
+		assert(static_cast<size_t>(diskId) < strlen(alphabet));
 		diskNames.emplace(id, alphabet[diskId]);
 	});
 

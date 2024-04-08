@@ -2,10 +2,8 @@
 #include <assert.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <deque>
 #include <optional>
 #include <functional>
-#include <iostream>
 #include <memory>
 
 #include <arch/dma_pool.hpp>
@@ -532,7 +530,7 @@ void Controller::Interrupter::clearPending() {
 // ------------------------------------------------------------------------
 
 Controller::Port::Port(int id, Controller *controller, SupportedProtocol *proto)
-: _id{id}, _controller{controller}, _proto{proto} {
+: _id{id}, _proto{proto} {
 	_space = controller->_operational.subspace(0x400 + (id - 1) * 0x10);
 }
 

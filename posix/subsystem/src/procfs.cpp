@@ -4,7 +4,6 @@
 
 #include "clock.hpp"
 #include "common.hpp"
-#include "device.hpp"
 #include "procfs.hpp"
 #include "process.hpp"
 
@@ -213,7 +212,7 @@ FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createSocket() {
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
-SuperBlock::rename(FsLink *source, FsNode *directory, std::string name) {
+SuperBlock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
 
@@ -305,8 +304,8 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string name,
-		std::shared_ptr<FsNode> target) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
+		std::shared_ptr<FsNode>) {
 	co_return Error::noSuchFile;
 }
 
@@ -423,7 +422,7 @@ VfsType SelfLink::getType() {
 	return VfsType::symlink;
 }
 
-expected<std::string> SelfLink::readSymlink(FsLink *link, Process *process) {
+expected<std::string> SelfLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid());
 }
 
@@ -436,7 +435,7 @@ VfsType SelfThreadLink::getType() {
 	return VfsType::symlink;
 }
 
-expected<std::string> SelfThreadLink::readSymlink(FsLink *link, Process *process) {
+expected<std::string> SelfThreadLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid()) + "/task/" + std::to_string(process->tid());
 }
 
@@ -449,7 +448,7 @@ VfsType ExeLink::getType() {
 	return VfsType::symlink;
 }
 
-expected<std::string> ExeLink::readSymlink(FsLink *link, Process *process) {
+expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
 	co_return _process->path();
 }
 
@@ -521,7 +520,7 @@ VfsType RootLink::getType() {
 	return VfsType::symlink;
 }
 
-expected<std::string> RootLink::readSymlink(FsLink *link, Process *process) {
+expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
 }
 
@@ -711,7 +710,7 @@ VfsType CwdLink::getType() {
 	return VfsType::symlink;
 }
 
-expected<std::string> CwdLink::readSymlink(FsLink *link, Process *process) {
+expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
 }
 

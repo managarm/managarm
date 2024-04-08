@@ -119,6 +119,10 @@ struct Ip4Socket {
 			const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
+		(void) creds;
+		(void) flags;
+		(void) max_ctrl_len;
+
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Ip4Socket *>(obj);
@@ -130,11 +134,10 @@ struct Ip4Socket {
 		auto packet = element->data;
 		auto copy_size = std::min(packet.size(), len);
 		std::memcpy(data, packet.data(), copy_size);
-		sockaddr_in addr {
-			.sin_family = AF_INET,
-			.sin_port = convert_endian<endian::big>(element->header.protocol),
-			.sin_addr = { convert_endian<endian::big>(element->header.source) }
-		};
+		sockaddr_in addr{};
+		addr.sin_family = AF_INET;
+		addr.sin_port = convert_endian<endian::big>(element->header.protocol);
+		addr.sin_addr = { convert_endian<endian::big>(element->header.source) };
 		std::memset(addr_buf, 0, addr_size);
 		std::memcpy(addr_buf, &addr, std::min(addr_size, sizeof(addr)));
 		co_return RecvData{{}, copy_size, sizeof(addr), 0};
@@ -149,6 +152,8 @@ struct Ip4Socket {
 	static async::result<Error> connect(void* obj,
 			const char *creds,
 			const void *addr_ptr, size_t addr_size) {
+		(void) creds;
+
 		auto self = static_cast<Ip4Socket *>(obj);
 		uint32_t ip;
 		if (auto e = checkAddress(addr_ptr, addr_size, ip);
@@ -182,6 +187,10 @@ async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(vo
 		void *data, size_t len,
 		void *addr_ptr, size_t addr_size,
 		std::vector<uint32_t> fds) {
+	(void) creds;
+	(void) flags;
+	(void) fds;
+
 	using arch::convert_endian;
 	using arch::endian;
 	auto self = static_cast<Ip4Socket *>(obj);

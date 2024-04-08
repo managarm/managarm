@@ -6,7 +6,6 @@
 
 #include <protocols/mbus/client.hpp>
 
-#include "../common.hpp"
 #include "../device.hpp"
 #include "../drvcore.hpp"
 #include "../util.hpp"
@@ -139,7 +138,7 @@ async::detached run() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 		int index = evdevAllocator.allocate();
 		std::cout << "POSIX: Installing input device input/event" << index << std::endl;
 

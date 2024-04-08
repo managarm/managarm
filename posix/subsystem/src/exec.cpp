@@ -5,7 +5,6 @@
 #include <sys/auxv.h>
 #include <iostream>
 
-#include "common.hpp"
 #include "vfs.hpp"
 #include "exec.hpp"
 #include <fs.bragi.hpp>
@@ -189,6 +188,8 @@ execute(ViewPath root, ViewPath workdir,
 		std::vector<std::string> args, std::vector<std::string> env,
 		std::shared_ptr<VmContext> vmContext, helix::BorrowedDescriptor universe,
 		HelHandle mbusHandle, Process *self) {
+	(void) mbusHandle;
+
 	auto execFile = FRG_CO_TRY(co_await open(root, workdir, path, self));
 	assert(execFile); // If open() succeeds, it must return a non-null file.
 

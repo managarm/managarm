@@ -1,9 +1,6 @@
 
 #include <string.h>
-#include <future>
 
-
-#include "common.hpp"
 #include "fs.hpp"
 
 // --------------------------------------------------------
@@ -93,7 +90,7 @@ FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags)
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }
 
-expected<std::string> FsNode::readSymlink(FsLink *link, Process *process) {
+expected<std::string> FsNode::readSymlink(FsLink *, Process *) {
 	co_return Error::illegalOperationTarget;
 }
 
@@ -110,16 +107,24 @@ async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> 
 }
 
 async::result<Error> FsNode::chmod(int mode) {
+	(void) mode;
 	std::cout << "\e[31m" "posix: chmod() is not implemented for this FsNode" "\e[39m" << std::endl;
 	co_return Error::accessDenied;
 }
 
 async::result<Error> FsNode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
+	(void) atime_sec;
+	(void) atime_nsec;
+	(void) mtime_sec;
+	(void) mtime_nsec;
+
 	std::cout << "\e[31m" "posix: utimensat() is not implemented for this FsNode" "\e[39m" << std::endl;
 	co_return Error::accessDenied;
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(std::string name) {
+	(void) name;
+
 	std::cout << "\e[31m" "posix: mksocket() is not implemented for this FsNode" "\e[39m" << std::endl;
 	co_return Error::illegalOperationTarget;
 }

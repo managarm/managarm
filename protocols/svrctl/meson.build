@@ -1,11 +1,8 @@
-here = meson.current_source_dir()
-svrctl_pb = protocxx.process(here/'svrctl.proto', 
-	extra_args : [ '-I' + here ]
-)
+svrctl_bragi = cxxbragi.process('svrctl.bragi')
 
-src = [ 'src/server.cpp', svrctl_pb ]
+src = [ 'src/server.cpp', svrctl_bragi ]
 inc = [ 'include' ]
-deps = [ helix_dep, proto_lite_dep ]
+deps = [ helix_dep ]
 
 libsvrctl = shared_library('svrctl_protocol', src,
 	dependencies : deps,
@@ -16,7 +13,7 @@ libsvrctl = shared_library('svrctl_protocol', src,
 svrctl_proto_dep = declare_dependency(
 	link_with : libsvrctl,
 	dependencies : deps,
-	sources : svrctl_pb,
+	sources : svrctl_bragi,
 	include_directories : inc
 )
 

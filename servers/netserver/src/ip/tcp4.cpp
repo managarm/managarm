@@ -5,7 +5,6 @@
 #include <arch/variable.hpp>
 #include <protocols/fs/server.hpp>
 #include <cstring>
-#include <deque>
 #include <iomanip>
 #include <random>
 #include <fcntl.h>
@@ -202,6 +201,8 @@ struct Tcp4Socket {
 	static async::result<protocols::fs::Error> bind(void *object,
 			const char *creds,
 			const void *addrPtr, size_t addrLength) {
+		(void) creds;
+
 		auto self = static_cast<Tcp4Socket *>(object);
 
 		if (self->localEp_.port)
@@ -237,7 +238,8 @@ struct Tcp4Socket {
 
 	static async::result<size_t> sockname(void *object, void *addr_ptr, size_t max_addr_length) {
 		auto self = static_cast<Tcp4Socket *>(object);
-		sockaddr_in sa { .sin_family = AF_INET };
+		sockaddr_in sa{};
+		sa.sin_family = AF_INET;
 		sa.sin_port = htons(self->localEp_.port);
 		sa.sin_addr.s_addr = htonl(self->localEp_.ipAddress);
 		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
@@ -250,7 +252,8 @@ struct Tcp4Socket {
 		if(self->connectState_ != ConnectState::connected) {
 			co_return protocols::fs::Error::notConnected;
 		}
-		sockaddr_in sa { .sin_family = AF_INET };
+		sockaddr_in sa{};
+		sa.sin_family = AF_INET;
 		sa.sin_port = htons(self->remoteEp_.port);
 		sa.sin_addr.s_addr = htonl(self->remoteEp_.ipAddress);
 		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
@@ -302,6 +305,8 @@ struct Tcp4Socket {
 	static async::result<protocols::fs::Error> connect(void *object,
 			const char *creds,
 			const void *addrPtr, size_t addrLength) {
+		(void) creds;
+
 		auto self = static_cast<Tcp4Socket *>(object);
 
 		if (self->connectState_ != ConnectState::none)
@@ -353,6 +358,9 @@ struct Tcp4Socket {
 			const char *creds, uint32_t flags,
 			void *data, size_t size,
 			void *addrPtr, size_t addrLength, size_t max_ctrl_len) {
+		(void) creds;
+		(void) max_ctrl_len;
+
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
 
@@ -394,6 +402,12 @@ struct Tcp4Socket {
 			void *data, size_t size,
 			void *addrPtr, size_t addrSize,
 			std::vector<uint32_t> fds) {
+		(void) creds;
+		(void) flags;
+		(void) addrPtr;
+		(void) addrSize;
+		(void) fds;
+
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
 
@@ -597,9 +611,10 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				.destPort = remoteEp_.port,
 				.seqNumber = localFlushedSn_,
 				.ackNumber = 0,
+				.flags = {},
 				.window = 0,
 				.checksum = 0,
-				.urgentPointer = 0
+				.urgentPointer = 0,
 			};
 			header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
 					| TcpHeader::synFlag(true));
@@ -667,9 +682,10 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				.destPort = remoteEp_.port,
 				.seqNumber = localFlushedSn_,
 				.ackNumber = remoteKnownSn_,
+				.flags = {},
 				.window = std::min(recvRing_.spaceForEnqueue(), size_t{0xFFFF}),
 				.checksum = 0,
-				.urgentPointer = 0
+				.urgentPointer = 0,
 			};
 			header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
 					| TcpHeader::ackFlag(true));

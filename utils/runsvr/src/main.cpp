@@ -1,12 +1,11 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <iostream>
 
 #include <async/oneshot-event.hpp>
 #include <helix/memory.hpp>
 #include <protocols/mbus/client.hpp>
-#include <svrctl.pb.h>
+#include <svrctl.bragi.hpp>
 
 #include <CLI/CLI.hpp>
 
@@ -80,7 +79,7 @@ async::result<void> enumerateSvrctl() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 //		std::cout << "runsvr: Found svrctl" << std::endl;
 
 		svrctlLane = helix::UniqueLane(co_await entity.bind());
@@ -222,11 +221,13 @@ async::result<void> asyncMain(action act, std::string path) {
 			auto buffer = readEntireFile(path.c_str());
 
 			managarm::svrctl::Description desc;
-			desc.ParseFromArray(buffer.data(), buffer.size());
+			bragi::limited_reader rd{buffer.data(), buffer.size()};
+			auto deser = bragi::deserializer{};
+			desc.decode_body(rd, deser);
 
 			log("runsvr: Running %s\n", desc.name().c_str());
 
-			for(const auto &file : desc.files())
+			for(auto &file : desc.files())
 				co_await uploadFile(file.path().c_str());
 
 			co_await runServer(desc.exec().c_str());
@@ -238,12 +239,14 @@ async::result<void> asyncMain(action act, std::string path) {
 			auto buffer = readEntireFile(path.c_str());
 
 			managarm::svrctl::Description desc;
-			desc.ParseFromArray(buffer.data(), buffer.size());
+			bragi::limited_reader rd{buffer.data(), buffer.size()};
+			auto deser = bragi::deserializer{};
+			desc.decode_body(rd, deser);
 
 			auto id_str = getenv("MBUS_ID");
 			log("runsvr: Binding driver %s to mbus ID %s\n", desc.name().c_str(), id_str);
 
-			for(const auto &file : desc.files())
+			for(auto &file : desc.files())
 				co_await uploadFile(file.path().c_str());
 
 			auto lane = co_await runServer(desc.exec().c_str());

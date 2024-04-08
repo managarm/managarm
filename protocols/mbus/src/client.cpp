@@ -1,16 +1,20 @@
 
-#include <sys/auxv.h>
 #include <iostream>
 
 #include <protocols/mbus/client.hpp>
+#include <protocols/posix/supercalls.hpp>
 #include <protocols/posix/data.hpp>
-#include "mbus.pb.h"
+#include <bragi/helpers-std.hpp>
+#include <bragi/helpers-all.hpp>
+#include "helix/ipc.hpp"
+#include "mbus.bragi.hpp"
 
 namespace {
 	HelHandle getMbusClientLane() {
 		posix::ManagarmProcessData data;
 
-		HEL_CHECK(helSyscall1(kHelCallSuper + 1, reinterpret_cast<HelWord>(&data)));
+		HEL_CHECK(helSyscall1(kHelCallSuper + posix::superGetProcessData,
+						reinterpret_cast<HelWord>(&data)));
 
 		return data.mbusLane;
 	}
@@ -40,26 +44,23 @@ Instance Instance::global() {
 }
 
 async::result<Entity> Instance::getRoot() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
+	managarm::mbus::GetRootRequest req;
 
-	managarm::mbus::CntRequest req;
-	req.set_req_type(managarm::mbus::CntReqType::GET_ROOT);
+	auto [offer, sendReq, recvResp] =
+		co_await helix_ng::exchangeMsgs(
+			_connection->lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 1024));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
 
-	managarm::mbus::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	auto resp = *bragi::parse_head_only<managarm::mbus::SvrResponse>(recvResp);
+
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
 	co_return Entity{_connection, resp.id()};
@@ -69,110 +70,125 @@ async::result<Entity> Instance::getEntity(int64_t id) {
 	co_return Entity{_connection, id};
 }
 
-async::detached handleObject(std::shared_ptr<Connection> connection,
+async::detached handleObject(std::shared_ptr<Connection>,
 		ObjectHandler handler, helix::UniqueLane lane) {
 	while(true) {
-		helix::Accept accept;
-		helix::RecvBuffer recv_req;
+		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::accept(
+					helix_ng::recvInline()
+				)
+			);
 
-		char buffer[1024];
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req, buffer, 1024));
-		co_await header.async_wait();
 		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
+		HEL_CHECK(recvHead.error());
 
 		auto conversation = accept.descriptor();
 
-		managarm::mbus::SvrRequest req;
-		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.req_type() == managarm::mbus::SvrReqType::BIND) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_desc;
+		// NOTE: S2CBindRequest does not have a tail, nor does it actually have
+		//       any contents.
 
-			auto descriptor = co_await handler.bind();
+		auto preamble = bragi::read_preamble(recvHead);
+		assert(!preamble.error());
+		assert(preamble.id() == bragi::message_id<managarm::mbus::S2CBindRequest>);
+		recvHead.reset();
 
-			managarm::mbus::SvrResponse resp;
-			resp.set_error(managarm::mbus::Error::SUCCESS);
+		auto descriptor = co_await handler.bind();
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_desc, descriptor));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_desc.error());
-		}else{
-			throw std::runtime_error("Unexpected request type");
-		}
+		managarm::mbus::CntResponse resp;
+		resp.set_error(managarm::mbus::Error::SUCCESS);
+
+		auto [sendResp, pushDesc] =
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::pushDescriptor(descriptor)
+			);
+
+		HEL_CHECK(sendResp.error());
+		HEL_CHECK(pushDesc.error());
 	}
 }
 
 async::result<Properties> Entity::getProperties() const {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-
-	managarm::mbus::CntRequest req;
-	req.set_req_type(managarm::mbus::CntReqType::GET_PROPERTIES);
+	managarm::mbus::GetPropertiesRequest req;
 	req.set_id(_id);
 
-	auto ser = req.SerializeAsString();
-	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 1024));
-	co_await transmit.async_wait();
-	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
+	auto [offer, sendReq, recvHead] =
+		co_await helix_ng::exchangeMsgs(
+			_connection->lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 
-	managarm::mbus::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	auto conversation = offer.descriptor();
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvHead.error());
+
+	auto preamble = bragi::read_preamble(recvHead);
+	assert(!preamble.error());
+	assert(preamble.id() == bragi::message_id<managarm::mbus::GetPropertiesResponse>);
+
+	std::vector<std::byte> tail(preamble.tail_size());
+	auto [recvTail] =
+		co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(tail.data(), tail.size())
+		);
+	HEL_CHECK(recvTail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::mbus::GetPropertiesResponse>(recvHead, tail);
+	recvHead.reset();
+
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
 	Properties properties;
 	for(auto &kv : resp.properties())
-		properties.insert({ kv.name(), StringItem{kv.item().string_item().value()} });
+		properties.insert({ kv.name(), StringItem{ kv.string_item() } });
+
 	co_return properties;
 }
 
 async::result<Entity> Entity::createObject(std::string name,
 		const Properties &properties, ObjectHandler handler) const {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-	helix::PullDescriptor pull_lane;
+	(void) name;
 
-	managarm::mbus::CntRequest req;
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
+	managarm::mbus::CreateObjectRequest req;
 	req.set_parent_id(_id);
+
 	for(auto kv : properties) {
-		auto entry = req.add_properties();
-		entry->set_name(kv.first);
-		entry->mutable_item()->mutable_string_item()->set_value(std::get<StringItem>(kv.second).value);
+		managarm::mbus::Property prop;
+		prop.set_name(kv.first);
+		prop.set_string_item(std::get<StringItem>(kv.second).value);
+		req.add_properties(prop);
 	}
 
-	auto ser = req.SerializeAsString();
-	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
-			helix::action(&pull_lane));
-	co_await transmit.async_wait();
-	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_lane.error());
+	auto [offer, sendHead, sendTail, recvResp, pullLane] =
+		co_await helix_ng::exchangeMsgs(
+			_connection->lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
 
-	managarm::mbus::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(pullLane.error());
+
+	auto resp = *bragi::parse_head_only<managarm::mbus::SvrResponse>(recvResp);
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
-	handleObject(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
+	auto lane = pullLane.descriptor();
+	handleObject(_connection, handler, std::move(lane));
 
 	co_return Entity{_connection, resp.id()};
 }
@@ -180,104 +196,123 @@ async::result<Entity> Entity::createObject(std::string name,
 async::detached handleObserver(std::shared_ptr<Connection> connection,
 		ObserverHandler handler, helix::UniqueLane lane) {
 	while(true) {
-		helix::RecvBuffer recv_req;
+		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::accept(
+					helix_ng::recvInline()
+				)
+			);
 
-		char buffer[1024];
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&recv_req, buffer, 1024));
-		co_await header.async_wait();
-		HEL_CHECK(recv_req.error());
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recvHead.error());
 
-		managarm::mbus::SvrRequest req;
-		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.req_type() == managarm::mbus::SvrReqType::ATTACH) {
-			Properties properties;
-			for(auto &kv : req.properties())
-				properties.insert({ kv.name(), StringItem{kv.item().string_item().value()} });
+		auto conversation = accept.descriptor();
 
-			handler.attach(Entity{connection, req.id()}, std::move(properties));
-		}else{
-			throw std::runtime_error("Unexpected request type");
-		}
+		auto preamble = bragi::read_preamble(recvHead);
+		assert(!preamble.error());
+		assert(preamble.id() == bragi::message_id<managarm::mbus::AttachRequest>);
+
+		std::vector<std::byte> tail(preamble.tail_size());
+		auto [recvTail] =
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(tail.data(), tail.size())
+			);
+		HEL_CHECK(recvTail.error());
+
+		auto req = *bragi::parse_head_tail<managarm::mbus::AttachRequest>(recvHead, tail);
+
+		recvHead.reset();
+
+		Properties properties;
+		for(auto &kv : req.properties())
+			properties.insert({ kv.name(), StringItem{ kv.string_item() } });
+
+		handler.attach(Entity{connection, req.id()}, std::move(properties));
 	}
 }
 
-static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any_msg) {
+static void encodeFilter(const AnyFilter &filter, managarm::mbus::LinkObserverRequest &msg) {
+	managarm::mbus::AnyFilter flt;
 	if(auto alt = std::get_if<EqualsFilter>(&filter); alt) {
-		auto msg = any_msg->mutable_equals_filter();
-		msg->set_path(alt->getPath());
-		msg->set_value(alt->getValue());
+		managarm::mbus::EqualsFilter eqf;
+		eqf.set_path(alt->getPath());
+		eqf.set_value(alt->getValue());
+		flt.set_equals_filter(std::move(eqf));
 	}else if(auto alt = std::get_if<Conjunction>(&filter); alt) {
-		auto msg = any_msg->mutable_conjunction();
-		for(auto &operand : alt->getOperands())
-			encodeFilter(operand, msg->add_operands());
+		managarm::mbus::Conjunction conj;
+		for(auto &operand : alt->getOperands()) {
+			auto eqf = std::get_if<EqualsFilter>(&operand);
+			assert(eqf && "Sorry, unimplemented: Non-EqualsFilter in Conjunction");
+
+			managarm::mbus::EqualsFilter flt{};
+
+			flt.set_path(eqf->getPath());
+			flt.set_value(eqf->getValue());
+			conj.add_operands(std::move(flt));
+		}
+		flt.set_conjunction(std::move(conj));
 	}else{
 		throw std::runtime_error("Unexpected filter type");
 	}
+
+	msg.set_filter(std::move(flt));
 }
 
 async::result<Observer> Entity::linkObserver(const AnyFilter &filter,
 		ObserverHandler handler) const {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-	helix::PullDescriptor pull_lane;
-
-	managarm::mbus::CntRequest req;
-	req.set_req_type(managarm::mbus::CntReqType::LINK_OBSERVER);
+	managarm::mbus::LinkObserverRequest req;
 	req.set_id(_id);
-	encodeFilter(filter, req.mutable_filter());
+	encodeFilter(filter, req);
 
-	auto ser = req.SerializeAsString();
-	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
-			helix::action(&pull_lane));
-	co_await transmit.async_wait();
+	auto [offer, sendHead, sendTail, recvResp, pullLane] =
+		co_await helix_ng::exchangeMsgs(
+			_connection->lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
+
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_lane.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(pullLane.error());
 
-	managarm::mbus::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	auto resp = *bragi::parse_head_only<managarm::mbus::SvrResponse>(recvResp);
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
-	handleObserver(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
+	auto lane = pullLane.descriptor();
+	handleObserver(_connection, handler, std::move(lane));
 
 	co_return Observer();
 }
 
 async::result<helix::UniqueDescriptor> Entity::bind() const {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-	helix::PullDescriptor pull_desc;
-
-	managarm::mbus::CntRequest req;
-	req.set_req_type(managarm::mbus::CntReqType::BIND2);
+	managarm::mbus::C2SBindRequest req;
 	req.set_id(_id);
 
-	auto ser = req.SerializeAsString();
-	uint8_t buffer[1024];
-	auto &&transmit = helix::submitAsync(_connection->lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 1024, kHelItemChain),
-			helix::action(&pull_desc));
-	co_await transmit.async_wait();
-	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_desc.error());
+	auto [offer, sendReq, recvResp, pullLane] =
+		co_await helix_ng::exchangeMsgs(
+			_connection->lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
 
-	managarm::mbus::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(pullLane.error());
+
+	auto resp = *bragi::parse_head_only<managarm::mbus::SvrResponse>(recvResp);
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
-	co_return pull_desc.descriptor();
+	co_return pullLane.descriptor();
 }
 
 } } // namespace mbus::_detail

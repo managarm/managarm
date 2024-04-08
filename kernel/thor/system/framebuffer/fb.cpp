@@ -9,7 +9,6 @@
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/framebuffer/boot-screen.hpp>
 
-#include <mbus.frigg_pb.hpp>
 #include <hw.frigg_bragi.hpp>
 
 namespace thor {

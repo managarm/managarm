@@ -30,7 +30,7 @@ async::result<void> connectKernletCompiler() {
 		});
 
 		auto handler = mbus::ObserverHandler{}
-		.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+		.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 			std::cout << "kernlet: Found kernletcc" << std::endl;
 
 			kernletCompilerLane = helix::UniqueLane(co_await entity.bind());

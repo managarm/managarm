@@ -55,6 +55,8 @@ public:
 	}
 
 	virtual async::result<Error> store(sysfs::Object *object, std::string data) override {
+		(void) data;
+
 		auto device = static_cast<Device *>(object);
 
 		UeventProperties ue;

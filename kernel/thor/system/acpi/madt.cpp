@@ -236,7 +236,9 @@ static initgraph::Task initTablesTask{&globalInitEngine, "acpi.initialize",
 			.rsdp = thorBootInfoPtr->acpiRsdp,
 			.rt_params = {
 				.log_level = UACPI_LOG_INFO,
-			}
+				.flags = {},
+			},
+			.no_acpi_mode = {},
 		};
 		auto ret = uacpi_initialize(&params);
 		assert(ret == UACPI_STATUS_OK);

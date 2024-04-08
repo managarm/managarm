@@ -18,7 +18,7 @@ struct LogRingBuffer {
 	}
 
 	auto wait(uint64_t deqPtr) {
-		return event_.async_wait_if([=] () -> bool {
+		return event_.async_wait_if([=, this] () -> bool {
 			return headPtr_.load(std::memory_order_relaxed) == deqPtr;
 		});
 	}

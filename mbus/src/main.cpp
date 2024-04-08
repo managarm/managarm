@@ -16,7 +16,10 @@
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 
-#include "mbus.pb.h"
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-std.hpp>
+
+#include "mbus.bragi.hpp"
 
 // --------------------------------------------------------
 // Entity
@@ -88,32 +91,27 @@ private:
 };
 
 async::result<helix::UniqueDescriptor> Object::bind() {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvBuffer recv_resp;
-	helix::PullDescriptor pull_desc;
+	managarm::mbus::S2CBindRequest req;
 
-	managarm::mbus::SvrRequest req;
-	req.set_req_type(managarm::mbus::SvrReqType::BIND);
+	auto [offer, sendReq, recvResp, pullLane] =
+		co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
 
-	auto ser = req.SerializeAsString();
-	uint8_t buffer[128];
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, buffer, 128, kHelItemChain),
-			helix::action(&pull_desc));
-	co_await transmit.async_wait();
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_desc.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+	HEL_CHECK(pullLane.error());
 
-	managarm::mbus::CntResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	auto resp = *bragi::parse_head_only<managarm::mbus::CntResponse>(recvResp);
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-	
-	co_return pull_desc.descriptor();
+
+	co_return pullLane.descriptor();
 }
 
 struct EqualsFilter;
@@ -154,7 +152,7 @@ struct Observer {
 
 	async::detached traverse(std::shared_ptr<Entity> root);
 
-	async::detached onAttach(std::shared_ptr<Entity> entity);
+	async::result<void> onAttach(std::shared_ptr<Entity> entity);
 
 private:
 	AnyFilter _filter;
@@ -177,10 +175,10 @@ static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
 		throw std::runtime_error("Unexpected filter");
 	}
 }
-	
+
 void Group::processAttach(std::shared_ptr<Entity> entity) {
 	for(auto &observer_ptr : _observers)
-		observer_ptr->onAttach(entity);
+		async::detach(observer_ptr->onAttach(entity));
 }
 
 async::detached Observer::traverse(std::shared_ptr<Entity> root) {
@@ -195,48 +193,34 @@ async::detached Observer::traverse(std::shared_ptr<Entity> root) {
 				entities.push(std::move(child));
 		}
 
-		if(!matchesFilter(entity.get(), _filter)) 
-			continue;
-		
-		helix::SendBuffer send_req;
-
-		managarm::mbus::SvrRequest req;
-		req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
-		req.set_id(entity->getId());
-		for(auto kv : entity->getProperties()) {
-			auto entry = req.add_properties();
-			entry->set_name(kv.first);
-			entry->mutable_item()->mutable_string_item()->set_value(kv.second);
-		}
-
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-				helix::action(&send_req, ser.data(), ser.size()));
-		co_await transmit.async_wait();
-		HEL_CHECK(send_req.error());
+		co_await onAttach(entity);
 	}
 }
 
-async::detached Observer::onAttach(std::shared_ptr<Entity> entity) {
-	if(!matchesFilter(entity.get(), _filter)) 
+async::result<void> Observer::onAttach(std::shared_ptr<Entity> entity) {
+	if(!matchesFilter(entity.get(), _filter))
 		co_return;
-	
-	helix::SendBuffer send_req;
 
-	managarm::mbus::SvrRequest req;
-	req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
+	managarm::mbus::AttachRequest req;
 	req.set_id(entity->getId());
 	for(auto kv : entity->getProperties()) {
-		auto entry = req.add_properties();
-		entry->set_name(kv.first);
-		entry->mutable_item()->mutable_string_item()->set_value(kv.second);
+		managarm::mbus::Property prop;
+		prop.set_name(kv.first);
+		prop.set_string_item(kv.second);
+		req.add_properties(prop);
 	}
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&send_req, ser.data(), ser.size()));
-	co_await transmit.async_wait();
-	HEL_CHECK(send_req.error());
+	auto [offer, sendHead, sendTail] =
+		co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{})
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
 }
 
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
@@ -249,92 +233,100 @@ std::shared_ptr<Entity> getEntityById(int64_t id) {
 	return it->second;
 }
 
-static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
-	if(proto_filter.type_case() == managarm::mbus::AnyFilter::kEqualsFilter) {
-		return EqualsFilter(proto_filter.equals_filter().path(),
-				proto_filter.equals_filter().value());
-	}else if(proto_filter.type_case() == managarm::mbus::AnyFilter::kConjunction) {
+static AnyFilter decodeFilter(managarm::mbus::AnyFilter &protoFilter) {
+	// HACK(qookie): This is a massive hack. I thought bragi had "has_foo" getters, but
+	//               apparently I misremembered... We should add them, but for now this
+	//               will suffice (and I think we'll get rid of filters on the protocol
+	//               level anyway).
+	// If the equals filter value is empty, assume this is actually a conjunction.
+	if (protoFilter.equals_filter().value().size() == 0) {
 		std::vector<AnyFilter> operands;
-		for(auto &proto_operand : proto_filter.conjunction().operands())
-			operands.push_back(decodeFilter(proto_operand));
+		for(auto &protoOperand : protoFilter.conjunction().operands()) {
+			operands.push_back(EqualsFilter{
+						protoOperand.path(),
+						protoOperand.value()
+					});
+		}
 		return Conjunction(std::move(operands));
-	}else{
-		throw std::runtime_error("Unexpected filter message");
+	} else {
+		return EqualsFilter{protoFilter.equals_filter().path(),
+			protoFilter.equals_filter().value()};
 	}
 }
 
 async::detached serve(helix::UniqueLane lane) {
 	while(true) {
-		helix::Accept accept;
-		helix::RecvBuffer recv_req;
+		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::accept(
+					helix_ng::recvInline()
+				)
+			);
 
-		char buffer[1024];
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req, buffer, 1024));
-		co_await header.async_wait();
 		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-		
+		HEL_CHECK(recvHead.error());
+
 		auto conversation = accept.descriptor();
 
-		managarm::mbus::CntRequest req;
-		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.req_type() == managarm::mbus::CntReqType::GET_ROOT) {
-			helix::SendBuffer send_resp;
+		auto preamble = bragi::read_preamble(recvHead);
+		assert(!preamble.error());
+		recvHead.reset();
 
+		if(preamble.id() == bragi::message_id<managarm::mbus::GetRootRequest>) {
 			managarm::mbus::SvrResponse resp;
-			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(1);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::GET_PROPERTIES) {
-			helix::SendBuffer send_resp;
+			auto [sendResp] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::GetPropertiesRequest>) {
+			auto req = bragi::parse_head_only<managarm::mbus::GetPropertiesRequest>(recvHead);
 
-			auto entity = getEntityById(req.id());
+			managarm::mbus::GetPropertiesResponse resp;
+			auto entity = getEntityById(req->id());
+
 			if(!entity) {
-				managarm::mbus::SvrResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-				continue;
+			} else {
+				resp.set_error(managarm::mbus::Error::SUCCESS);
+				for(auto kv : entity->getProperties()) {
+					managarm::mbus::Property prop;
+					prop.set_name(kv.first);
+					prop.set_string_item(kv.second);
+					resp.add_properties(prop);
+				}
 			}
 
-			managarm::mbus::SvrResponse resp;
-			resp.set_error(managarm::mbus::Error::SUCCESS);
-			for(auto kv : entity->getProperties()) {
-				auto entry = resp.add_properties();
-				entry->set_name(kv.first);
-				entry->mutable_item()->mutable_string_item()->set_value(kv.second);
-			}
+			auto [sendHead, sendTail] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendHead.error());
+			HEL_CHECK(sendTail.error());
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::CreateObjectRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor send_lane;
-
-			auto parent = getEntityById(req.parent_id());
+			auto req = bragi::parse_head_tail<managarm::mbus::CreateObjectRequest>(recvHead, tail);
+			auto parent = getEntityById(req->parent_id());
 			if(!parent) {
 				managarm::mbus::SvrResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				auto [sendResp] =
+					co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+				HEL_CHECK(sendResp.error());
 				continue;
 			}
 
@@ -343,15 +335,14 @@ async::detached serve(helix::UniqueLane lane) {
 			auto group = std::static_pointer_cast<Group>(parent);
 
 			std::unordered_map<std::string, std::string> properties;
-			for(auto &kv : req.properties()) {
-				assert(kv.has_item() && kv.item().has_string_item());
-				properties.insert({ kv.name(), kv.item().string_item().value() });
+			for(auto &kv : req->properties()) {
+				properties.insert({ kv.name(), kv.string_item() });
 			}
 
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
+			helix::UniqueLane localLane, remoteLane;
+			std::tie(localLane, remoteLane) = helix::createStream();
 			auto child = std::make_shared<Object>(nextEntityId++,
-					group, std::move(properties), std::move(local_lane));
+					group, std::move(properties), std::move(localLane));
 			allEntities.insert({ child->getId(), child });
 
 			group->addChild(child);
@@ -367,27 +358,34 @@ async::detached serve(helix::UniqueLane lane) {
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(child->getId());
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_lane, remote_lane));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_lane.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor send_lane;
+			auto [sendResp, pushLane] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::pushDescriptor(remoteLane)
+				);
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(pushLane.error());
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::LinkObserverRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
 
-			auto parent = getEntityById(req.id());
+			auto req = bragi::parse_head_tail<managarm::mbus::LinkObserverRequest>(recvHead, tail);
+			auto parent = getEntityById(req->id());
 			if(!parent) {
 				managarm::mbus::SvrResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				auto [sendResp] =
+					co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+				HEL_CHECK(sendResp.error());
 				continue;
 			}
 
@@ -395,10 +393,10 @@ async::detached serve(helix::UniqueLane lane) {
 				throw std::runtime_error("Observers can only be attached to groups");
 			auto group = std::static_pointer_cast<Group>(parent);
 
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			auto observer = std::make_shared<Observer>(decodeFilter(req.filter()),
-					std::move(local_lane));
+			helix::UniqueLane localLane, remoteLane;
+			std::tie(localLane, remoteLane) = helix::createStream();
+			auto observer = std::make_shared<Observer>(decodeFilter(req->filter()),
+					std::move(localLane));
 			group->linkObserver(observer);
 
 			observer->traverse(parent);
@@ -406,27 +404,27 @@ async::detached serve(helix::UniqueLane lane) {
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_lane, remote_lane));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_lane.error());
-		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor send_desc;
-
-			auto entity = getEntityById(req.id());
+			auto [sendResp, pushLane] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::pushDescriptor(remoteLane)
+				);
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(pushLane.error());
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::C2SBindRequest>) {
+			auto req = bragi::parse_head_only<managarm::mbus::C2SBindRequest>(recvHead);
+			auto entity = getEntityById(req->id());
 			if(!entity) {
 				managarm::mbus::SvrResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
+				auto [sendResp] =
+					co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+				HEL_CHECK(sendResp.error());
 				continue;
 			}
 
@@ -434,18 +432,19 @@ async::detached serve(helix::UniqueLane lane) {
 				throw std::runtime_error("Bind can only be invoked on objects");
 			auto object = std::static_pointer_cast<Object>(entity);
 
-			auto descriptor = co_await object->bind();
-			
+			auto remoteLane = co_await object->bind();
+
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_desc, descriptor));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_desc.error());
+			auto [sendResp, pushLane] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::pushDescriptor(remoteLane)
+				);
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(pushLane.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}

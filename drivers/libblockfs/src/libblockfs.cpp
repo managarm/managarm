@@ -180,6 +180,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, c
 
 async::result<frg::expected<protocols::fs::Error, size_t>> pwrite(void *object, int64_t offset, const char *credentials,
 			const void *buffer, size_t length) {
+	(void) credentials;
+
 	if(!length) {
 		co_return 0;
 	}
@@ -573,6 +575,8 @@ async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset
 }
 async::result<void> rawIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
+	(void) object;
+
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
 		assert(req);

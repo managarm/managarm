@@ -4,10 +4,8 @@
 #include <deque>
 #include <optional>
 #include <optional>
-#include <functional>
 #include <iostream>
 #include <memory>
-#include <numeric>
 #include <sys/epoll.h>
 
 #include <async/result.hpp>
@@ -19,7 +17,6 @@
 #include <libdrm/drm_fourcc.h>
 
 #include "fs.bragi.hpp"
-#include "posix.bragi.hpp"
 
 #include "core/drm/core.hpp"
 #include "core/drm/debug.hpp"
@@ -175,7 +172,9 @@ drm_core::File::accessMemory(void *object) {
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 drm_core::File::pollWait(void *object, uint64_t sequence, int mask,
-		async::cancellation_token cancellation) {
+		async::cancellation_token) {
+	(void) mask;
+
 	auto self = static_cast<drm_core::File *>(object);
 
 	if(sequence > self->_eventSequence)

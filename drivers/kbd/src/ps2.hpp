@@ -4,10 +4,7 @@
 #include <helix/ipc.hpp>
 #include <libevbackend.hpp>
 #include <array>
-#include <vector>
 #include <memory>
-#include <functional>
-#include <type_traits>
 
 struct stl_allocator {
 	void *allocate(size_t size) {
@@ -62,11 +59,11 @@ private:
 };
 
 struct DeviceType {
-	bool keyboard;
-	bool mouse;
+	bool keyboard = false;
+	bool mouse = false;
 
-	bool hasScrollWheel;
-	bool has5Buttons;
+	bool hasScrollWheel = false;
+	bool has5Buttons = false;
 };
 
 struct Controller {

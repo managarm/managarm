@@ -118,7 +118,7 @@ async::result<Context> createContext() {
 	async::oneshot_event foundObject;
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([&lane, &foundObject] (mbus::Entity entity, mbus::Properties properties)
+	.withAttach([&lane, &foundObject] (mbus::Entity entity, mbus::Properties)
 			-> async::detached {
 		std::cout << "ostrace: Found ostrace" << std::endl;
 

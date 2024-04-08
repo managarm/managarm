@@ -91,6 +91,9 @@ public:
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override {
+		(void) data;
+		(void) length;
+
 		throw std::runtime_error("posix: Fix netlink send()");
 /*
 		if(logSockets)
@@ -107,8 +110,10 @@ public:
 	}
 
 	async::result<protocols::fs::RecvResult>
-	recvMsg(Process *process, uint32_t flags, void *data, size_t max_length,
+	recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) override {
+		(void) max_addr_length;
+
 		using namespace protocols::fs;
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;

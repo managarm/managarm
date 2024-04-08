@@ -1,12 +1,8 @@
 #pragma once
 
 #include <assert.h>
-#include <atomic>
-#include <initializer_list>
-#include <list>
 #include <tuple>
 #include <array>
-#include <stdexcept>
 
 #include <async/oneshot-event.hpp>
 
@@ -187,9 +183,10 @@ public:
 	HelHandle acquire() {
 		if(!_handle) {
 			HelQueueParameters params {
+				.flags = 0,
 				.ringShift = sizeShift,
 				.numChunks = 16,
-				.chunkSize = 4096
+				.chunkSize = 4096,
 			};
 			HEL_CHECK(helCreateQueue(&params, &_handle));
 

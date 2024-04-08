@@ -132,7 +132,7 @@ public:
 			smarter::shared_ptr<Thread> thread;
 			// Acquire-release semantics to publish the result of the async operation.
 			std::atomic<bool> done{false};
-			frg::optional<typename Sender::value_type> value;
+			frg::optional<typename Sender::value_type> value{};
 		} bls{.thread = thisThread.lock()};
 
 		struct Receiver {
@@ -220,7 +220,7 @@ public:
 private:
 	struct ObserveNode {
 		async::any_receiver<frg::tuple<Error, uint64_t, Interrupt>> receiver;
-		frg::default_list_hook<ObserveNode> hook;
+		frg::default_list_hook<ObserveNode> hook = {};
 	};
 
 	void observe_(uint64_t inSeq, ObserveNode *node);

@@ -89,7 +89,6 @@ if not supported_archs.contains(arch)
 	error('unknown architecture ' + arch)
 endif
 
-protoc = find_program('protoc')
 bragi = find_program('bragi')
 
 frigg = dependency('frigg',
@@ -102,21 +101,6 @@ if build_tools
 else
 	pb2frigg = find_program('pb2frigg')
 endif
-
-# declare generators that subdirs are going to use
-protocxx = generator(protoc,
-	output : [ '@BASENAME@.pb.h', '@BASENAME@.pb.cc' ],
-	arguments : [ '--cpp_out=@BUILD_DIR@', '@EXTRA_ARGS@', '@INPUT@' ]
-)
-
-protofrg = generator(protoc,
-	output : '@BASENAME@.frigg_pb.hpp',
-	arguments : [
-		'--plugin=protoc-gen-frigg=' + pb2frigg.full_path(),
-		'--frigg_out=@BUILD_DIR@',
-		'@EXTRA_ARGS@', '@INPUT@'
-	]
-)
 
 cxxbragi = generator(bragi,
 	output : '@BASENAME@.bragi.hpp',
@@ -168,7 +152,6 @@ endif
 if build_drivers
 	bakesvr = find_program('bakesvr')
 
-	proto_lite_dep = dependency('protobuf-lite')
 	libudev_dep = dependency('libudev')
 	cli11_dep = dependency('CLI11')
 

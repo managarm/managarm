@@ -347,7 +347,7 @@ private:
 };
 
 async::result<void>
-Channel::commonIoctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
+Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
 		assert(req);

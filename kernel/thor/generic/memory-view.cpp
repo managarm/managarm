@@ -143,7 +143,7 @@ struct MemoryReclaimer {
 			return true;
 		};
 
-		KernelFiber::run([=] {
+		KernelFiber::run([=, this] {
 			while(true) {
 				if(logUncaching) {
 					auto irqLock = frg::guard(&irqMutex());
@@ -214,10 +214,10 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
-		PhysicalAddr physical;
+		PhysicalAddr physical = {};
 	};
 
-	co_await async::let([=] {
+	co_await async::let([=, this] {
 		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(
@@ -277,10 +277,10 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		smarter::shared_ptr<WorkQueue> wq;
 
 		uintptr_t progress = 0;
-		PhysicalAddr physical;
+		PhysicalAddr physical = {};
 	};
 
-	co_await async::let([=] {
+	co_await async::let([=, this] {
 		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = std::move(wq)};
 	}, [] (Node &nd) {
 		return async::sequence(

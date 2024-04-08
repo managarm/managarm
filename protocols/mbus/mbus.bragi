@@ -1,0 +1,111 @@
+namespace "managarm::mbus";
+
+// Generic
+
+enum Error {
+	SUCCESS = 0,
+	NO_SUCH_ENTITY
+}
+
+struct Property {
+	string name;
+
+	tags {
+		// TODO(qookie): Bring back ListItem? (it was not supported in the
+		//               client or filters anyway)
+		tag(1) string string_item;
+	}
+}
+
+struct EqualsFilter {
+	string path;
+	string value;
+}
+
+// TODO(qookie): Maybe this should just be merged straight into AnyFilter?
+struct Conjunction {
+	// TODO(qookie): Bring back ability to nest Conjunctions together?
+	//               Seems pointless unless we also add a Disjunction
+	//               and let the user do AND(..., OR(..., AND(...)))
+	EqualsFilter[] operands;
+}
+
+struct AnyFilter {
+	tags {
+		tag(1) EqualsFilter equals_filter;
+		tag(2) Conjunction conjunction;
+	}
+}
+
+// Client -> server
+
+group {
+
+message GetRootRequest 1 {
+head(128):
+}
+
+message GetPropertiesRequest 2 {
+head(128):
+	int64 id;
+}
+
+message CreateObjectRequest 3 {
+head(128):
+	int64 parent_id;
+tail:
+	Property[] properties;
+}
+
+message LinkObserverRequest 4 {
+head(128):
+	int64 id;
+tail:
+	AnyFilter filter;
+}
+
+message C2SBindRequest 5 {
+head(128):
+	int64 id;
+}
+
+message SvrResponse 6 {
+head(128):
+	Error error;
+	tags {
+		tag(1) int64 id;
+	}
+}
+
+message GetPropertiesResponse 7 {
+head(128):
+	Error error;
+tail:
+	Property[] properties;
+}
+
+}
+
+// TODO(qookie): Ideally we get rid of these, turning BIND into a client -> client request,
+//               and reworking how observing works.
+// Server -> client
+
+group {
+
+message S2CBindRequest 1 {
+head(128):
+}
+
+message AttachRequest 2 {
+head(128):
+	int64 id;
+tail:
+	Property[] properties;
+}
+
+message CntResponse 3 {
+head(128):
+	Error error;
+}
+
+}

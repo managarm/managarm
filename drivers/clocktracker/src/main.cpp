@@ -26,7 +26,7 @@ async::result<void> enumerateRtc() {
 	});
 
 	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
+	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
 		std::cout << "drivers/clocktracker: Found RTC" << std::endl;
 
 		rtcLane = helix::UniqueLane(co_await entity.bind());

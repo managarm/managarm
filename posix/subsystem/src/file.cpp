@@ -1,13 +1,11 @@
 
 #include <string.h>
 #include <fcntl.h>
-#include <future>
 
 #include <sys/socket.h>
 #include <helix/ipc.hpp>
 #include "file.hpp"
 #include "process.hpp"
-#include "fs.bragi.hpp"
 
 namespace {
 
@@ -463,6 +461,9 @@ FutureMaybe<helix::UniqueDescriptor> File::accessMemory() {
 
 async::result<void> File::ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
+	(void) id;
+	(void) msg;
+
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement ioctl()" << std::endl;
 
@@ -486,12 +487,17 @@ async::result<int> File::getFileFlags() {
 }
 
 async::result<void> File::setFileFlags(int flags) {
+	(void) flags;
+
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement setFileFlags()" << std::endl;
 	co_return;
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> File::peername(void *addr_ptr, size_t max_addr_length) {
+	(void) addr_ptr;
+	(void) max_addr_length;
+
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement getPeerName()" << std::endl;
 	co_return protocols::fs::Error::illegalOperationTarget;
@@ -502,5 +508,6 @@ async::result<frg::expected<protocols::fs::Error, int>> File::getSeals() {
 }
 
 async::result<frg::expected<protocols::fs::Error, int>> File::addSeals(int seals) {
+	(void) seals;
 	co_return protocols::fs::Error::illegalOperationTarget;
 }
