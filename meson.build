@@ -96,12 +96,6 @@ frigg = dependency('frigg',
 	fallback: ['frigg', 'frigg_dep'],
 )
 
-if build_tools
-	subdir('tools/pb2frigg')
-else
-	pb2frigg = find_program('pb2frigg')
-endif
-
 cxxbragi = generator(bragi,
 	output : '@BASENAME@.bragi.hpp',
 	arguments : [ '-l', 'stdc++', '--protobuf', '@INPUT@', '@OUTPUT@' ]

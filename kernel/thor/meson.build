@@ -86,7 +86,6 @@ inc += include_directories(
 	'system/pci',
 	'../common',
 	'../../subprojects/libarch/include',
-	'../../tools/pb2frigg/include',
 	'../../protocols/posix/include',
 	'../../hel/include'
 )

@@ -24,7 +24,7 @@ We use modules to describe where in the system the change is made. For the Manag
 - `protocols/<protocol>`, where protocol is the protocol that is being changed. This is used for every protocol change made.
 - `netserver`, used for every change to the network server.
 - `tests`, used when working on the testsuites.
-- `tools/<toolname>`, used when working on the tools that the Managarm repo has, currently `analyze-profile`, `gen-initrd`, `bakesvr`, `ostrace` and `pb2frigg`.
+- `tools/<toolname>`, used when working on the tools that the Managarm repo has, currently `analyze-profile`, `gen-initrd`, `bakesvr` and `ostrace`.
 - `utils/<utilname>`, used when updating various utilities that reside in this repo, currently `lsmbus` and `runsvr`.
 - `build`, used when editing the meson.build file.
 - `meta`, used for meta changes, for example a readme update.
