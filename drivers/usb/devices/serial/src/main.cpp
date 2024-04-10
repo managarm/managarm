@@ -270,17 +270,18 @@ enum class ControllerType {
 };
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
-	auto entity = co_await mbus::Instance::global().getEntity(base_id);
+	auto baseEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
 
-	auto properties = co_await entity.getProperties();
-	if(auto subsystem = std::get_if<mbus::StringItem>(&properties["unix.subsystem"]);
+	auto properties = (co_await baseEntity.getProperties()).unwrap();
+	if(auto subsystem = std::get_if<mbus_ng::StringItem>(&properties["unix.subsystem"]);
 			!subsystem || subsystem->value != "usb")
 		co_return protocols::svrctl::Error::deviceNotSupported;
-	if(auto type = std::get_if<mbus::StringItem>(&properties["usb.type"]); !type || type->value != "device")
+	if(auto type = std::get_if<mbus_ng::StringItem>(&properties["usb.type"]);
+			!type || type->value != "device")
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	auto vendor = std::get_if<mbus::StringItem>(&properties["usb.vendor"]);
-	auto product = std::get_if<mbus::StringItem>(&properties["usb.product"]);
+	auto vendor = std::get_if<mbus_ng::StringItem>(&properties["usb.vendor"]);
+	auto product = std::get_if<mbus_ng::StringItem>(&properties["usb.product"]);
 	if(!vendor || !product)
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
@@ -292,8 +293,7 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}
 
-	auto lane = helix::UniqueLane(co_await entity.bind());
-	auto device = protocols::usb::connect(std::move(lane));
+	auto device = protocols::usb::connect((co_await baseEntity.getRemoteLane()).unwrap());
 
 	std::optional<smarter::shared_ptr<Controller>> controller;
 
@@ -309,24 +309,26 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			co_return protocols::svrctl::Error::deviceNotSupported;
 	}
 
-	mbus::Properties descriptor{
-		{"generic.devtype", mbus::StringItem{"block"}},
-		{"generic.devname", mbus::StringItem{"ttyUSB"}}
+	mbus_ng::Properties descriptor{
+		{"generic.devtype", mbus_ng::StringItem{"block"}},
+		{"generic.devname", mbus_ng::StringItem{"ttyUSB"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([&] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveTerminal(std::move(local_lane), *controller);
+	auto serialEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"usb-serial", descriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (auto controller, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			serveTerminal(std::move(localLane), *controller);
+		}
+	}(controller, std::move(serialEntity));
 
 	controllers.push_back(*controller);
-
-	auto root = co_await mbus::Instance::global().getRoot();
-	co_await root.createObject("usb-serial", descriptor, std::move(handler));
 
 	co_return protocols::svrctl::Error::success;
 }
