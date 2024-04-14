@@ -210,8 +210,8 @@ extern "C" void thorMain() {
 		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{
 			assert(modules[0].physicalBase % kPageSize == 0);
-			assert(modules[0].length <= 0x2000000);
-			auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(0x2000000));
+			auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(
+					modules[0].length));
 			for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
 						modules[0].physicalBase + pg, 0, CachingMode::null);

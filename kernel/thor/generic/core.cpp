@@ -35,81 +35,173 @@ void IrqSpinlock::unlock() {
 // Memory management
 // --------------------------------------------------------
 
+namespace {
+
+struct CoreSlabPolicy {
+	static constexpr size_t sb_size = kPageSize;
+	static constexpr size_t slabsize = kPageSize;
+
+	uintptr_t map(size_t size, size_t align) {
+		assert(size <= kPageSize);
+		assert(align <= kPageSize);
+		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
+		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
+		return reinterpret_cast<uintptr_t>(mapDirectPhysical(physical));
+	}
+
+	void unmap(uintptr_t address, size_t size) {
+		(void)size;
+		auto physical = reverseDirectPhysical(reinterpret_cast<void *>(address));
+		physicalAllocator->free(physical, kPageSize);
+	}
+};
+
+constinit CoreSlabPolicy coreSlabPolicy;
+
+frg::manual_box<
+	frg::slab_pool<CoreSlabPolicy, IrqSpinlock>
+> corePool;
+
+// TODO: we do not really want to return a mutable reference here,
+//       but frg::construct requires it for now.
+frg::slab_allocator<CoreSlabPolicy, IrqSpinlock> &getCoreAllocator() {
+	static frg::slab_allocator<CoreSlabPolicy, IrqSpinlock> allocator{corePool.get()};
+	return allocator;
+}
+
+struct KernelVirtualHole {
+	uintptr_t address = 0;
+	size_t size = 0;
+	frg::rbtree_hook treeHook;
+	size_t largestHole = 0;
+};
+
+struct KernelVirtualLess {
+	bool operator() (const KernelVirtualHole &a, const KernelVirtualHole &b) {
+		return a.address < b.address;
+	}
+};
+
+struct KernelVirtualAggregator;
+
+using KernelVirtualTree = frg::rbtree<
+	KernelVirtualHole,
+	&KernelVirtualHole::treeHook,
+	KernelVirtualLess,
+	KernelVirtualAggregator
+>;
+
+struct KernelVirtualAggregator {
+	static bool aggregate(KernelVirtualHole *node) {
+		size_t size = node->size;
+		if(auto left = KernelVirtualTree::get_left(node); left && left->largestHole > size)
+			size = left->largestHole;
+		if(auto right = KernelVirtualTree::get_right(node); right && right->largestHole > size)
+			size = right->largestHole;
+
+		if(node->largestHole == size)
+			return false;
+		node->largestHole = size;
+		return true;
+	}
+
+	static bool check_invariant(KernelVirtualTree &, KernelVirtualHole *) {
+		return true;
+	}
+};
+
+frg::manual_box<KernelVirtualTree> virtualTree;
+
+} // anonymous namespace.
+
 KernelVirtualMemory::KernelVirtualMemory() {
 	// The size is chosen arbitrarily here; 2 GiB of kernel heap is sufficient for now.
 	uintptr_t vmBase = 0xFFFF'E000'0000'0000;
 	size_t desiredSize = 0x8000'0000;
 
-	// Setup a buddy allocator.
-	auto tableOrder = BuddyAccessor::suitableOrder(desiredSize >> kPageShift);
-	auto guessedRoots = desiredSize >> (kPageShift + tableOrder);
-	auto overhead = BuddyAccessor::determineSize(guessedRoots, tableOrder);
-	overhead = (overhead + (kPageSize - 1)) & ~(kPageSize - 1);
+	corePool.initialize(coreSlabPolicy);
+	virtualTree.initialize();
 
-	size_t availableSize = desiredSize - overhead;
-	auto availableRoots = availableSize >> (kPageShift + tableOrder);
-
-	for(size_t pg = 0; pg < overhead; pg += kPageSize) {
-		PhysicalAddr physical = physicalAllocator->allocate(0x1000);
-		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
-		KernelPageSpace::global().mapSingle4k(vmBase + availableSize + pg, physical,
-				page_access::write, CachingMode::null);
-	}
-	auto tablePtr = reinterpret_cast<int8_t *>(vmBase + availableSize);
-	unpoisonKasanShadow(tablePtr, overhead);
-	BuddyAccessor::initialize(tablePtr, availableRoots, tableOrder);
-
-	buddy_ = BuddyAccessor{vmBase, kPageShift,
-				tablePtr, availableRoots, tableOrder};
+	auto initialHole = frg::construct<KernelVirtualHole>(getCoreAllocator());
+	initialHole->address = vmBase;
+	initialHole->size = desiredSize;
+	initialHole->largestHole = desiredSize;
+	virtualTree->insert(initialHole);
 }
 
-void *KernelVirtualMemory::allocate(size_t length) {
+void *KernelVirtualMemory::allocate(size_t size) {
+	// Round up to page size.
+	size = (size + kPageSize - 1) & ~(kPageSize - 1);
+
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
+	void *pointer;
+	{
+		if(virtualTree->get_root()->largestHole < size) {
+			infoLogger() << "thor: Failed to allocate 0x" << frg::hex_fmt(size)
+					<< " bytes of kernel virtual memory" << frg::endlog;
+			infoLogger() << "thor:"
+					" Physical usage: " << (physicalAllocator->numUsedPages() * 4) << " KiB,"
+					" kernel VM: " << (kernelVirtualUsage / 1024) << " KiB"
+					" kernel RSS: " << (kernelMemoryUsage / 1024) << " KiB"
+					<< frg::endlog;
+			panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
+					<< frg::endlog;
+		}
 
-	// TODO: use a smarter implementation here.
-	int order = 0;
-	while(length > (size_t{1} << (kPageShift + order)))
-		++order;
+		auto current = virtualTree->get_root();
+		while(true) {
+			// Try to allocate memory at the bottom of the range.
+			if(KernelVirtualTree::get_left(current)
+					&& KernelVirtualTree::get_left(current)->largestHole >= size) {
+				current = KernelVirtualTree::get_left(current);
+				continue;
+			}
 
-	if(order > buddy_.tableOrder())
-		panicLogger() << "\e[31m" "thor: Kernel virtual memory allocation is too large"
-				" to be satisfied (order " << order << " while buddy order is "
-				<< buddy_.tableOrder() << ")" "\e[39m" << frg::endlog;
+			if(current->size >= size)
+				break;
 
-	auto address = buddy_.allocate(order, 64);
-	if(address == BuddyAccessor::illegalAddress) {
-		infoLogger() << "thor: Failed to allocate 0x" << frg::hex_fmt(length)
-				<< " bytes of kernel virtual memory" << frg::endlog;
-		infoLogger() << "thor:"
-				" Physical usage: " << (physicalAllocator->numUsedPages() * 4) << " KiB,"
-				" kernel VM: " << (kernelVirtualUsage / 1024) << " KiB"
-				" kernel RSS: " << (kernelMemoryUsage / 1024) << " KiB"
-				<< frg::endlog;
-		panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
-				<< frg::endlog;
+			assert(KernelVirtualTree::get_right(current));
+			assert(KernelVirtualTree::get_right(current)->largestHole >= size);
+			current = KernelVirtualTree::get_right(current);
+		}
+
+		// Remember the address before the hole might be deallocated.
+		pointer = reinterpret_cast<void *>(current->address);
+		virtualTree->remove(current);
+
+		if(current->size == size) {
+			frg::destruct(getCoreAllocator(), current);
+		}else{
+			assert(current->size > size);
+			current->address += size;
+			current->size -= size;
+			virtualTree->insert(current);
+		}
 	}
-	kernelVirtualUsage += (size_t{1} << (kPageShift + order));
 
-	auto pointer = reinterpret_cast<void *>(address);
-	unpoisonKasanShadow(pointer, size_t{1} << (kPageShift + order));
-
+	kernelVirtualUsage += size; // FIXME: atomicity.
+	unpoisonKasanShadow(pointer, size);
 	return pointer;
 }
 
-void KernelVirtualMemory::deallocate(void *pointer, size_t length) {
+void KernelVirtualMemory::deallocate(void *pointer, size_t size) {
+	// Round up to page size.
+	size = (size + kPageSize - 1) & ~(kPageSize - 1);
+
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
+	{
+		auto hole = frg::construct<KernelVirtualHole>(getCoreAllocator());
+		hole->address = reinterpret_cast<uintptr_t>(pointer);
+		hole->size = size;
+		hole->largestHole = size;
+		virtualTree->insert(hole);
+	}
 
-	// TODO: use a smarter implementation here.
-	int order = 0;
-	while(length > (size_t{1} << (kPageShift + order)))
-		++order;
-
-	poisonKasanShadow(pointer, size_t{1} << (kPageShift + order));
-	buddy_.free(reinterpret_cast<uintptr_t>(pointer), order);
-	assert(kernelVirtualUsage >= (size_t{1} << (kPageShift + order)));
-	kernelVirtualUsage -= (size_t{1} << (kPageShift + order));
+	assert(kernelVirtualUsage >= size);
+	kernelVirtualUsage -= size;
+	poisonKasanShadow(pointer, size);
 }
 
 frg::manual_box<KernelVirtualMemory> kernelVirtualMemory;
@@ -156,26 +248,20 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	}
 	kernelMemoryUsage -= length;
 
+	// TODO: we could replace this closure by an appropriate async::detach_with_allocator call.
 	struct Closure final : ShootNode {
 		void complete() override {
+			frg::slab_allocator<CoreSlabPolicy, IrqSpinlock> coreAllocator(corePool.get());
+
 			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
-			auto physical = thisPage;
 			Closure::~Closure();
 			asm volatile ("" : : : "memory");
-			physicalAllocator->free(physical, kPageSize);
+			frg::destruct(getCoreAllocator(), this);
 		}
-
-		PhysicalAddr thisPage;
 	};
 	static_assert(sizeof(Closure) <= kPageSize);
 
-	// We need some memory to store the closure that waits until shootdown completes.
-	// For now, our stategy consists of allocating one page of *physical* memory
-	// and accessing it through the global physical mapping.
-	auto physical = physicalAllocator->allocate(kPageSize);
-	PageAccessor accessor{physical};
-	auto p = new (accessor.get()) Closure;
-	p->thisPage = physical;
+	auto p = frg::construct<Closure>(getCoreAllocator());
 	p->address = address;
 	p->size = length;
 	if(KernelPageSpace::global().submitShootdown(p))

@@ -118,10 +118,9 @@ void transitionBootFb() {
 		return;
 	}
 
-	auto window_size = (bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1);
-	assert(window_size <= 0x1'000'000);
-	auto window = KernelVirtualMemory::global().allocate(0x1'000'000);
-	for(size_t pg = 0; pg < window_size; pg += kPageSize)
+	auto windowSize = (bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1);
+	auto window = KernelVirtualMemory::global().allocate(windowSize);
+	for(size_t pg = 0; pg < windowSize; pg += kPageSize)
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(window) + pg,
 				bootInfo->address + pg, page_access::write, CachingMode::writeCombine);
 

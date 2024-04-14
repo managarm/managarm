@@ -22,6 +22,15 @@ constexpr Word kPfUser = 4;
 constexpr Word kPfBadTable = 8;
 constexpr Word kPfInstruction = 16;
 
+inline void *mapDirectPhysical(PhysicalAddr physical) {
+	assert(physical < 0x4000'0000'0000);
+	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
+}
+
+inline PhysicalAddr reverseDirectPhysical(void *pointer) {
+	return reinterpret_cast<uintptr_t>(pointer) - 0xFFFF'8000'0000'0000;
+}
+
 void invalidatePage(const void *address);
 void invalidateAsid(int asid);
 void invalidatePage(int pcid, const void *address);

@@ -36,7 +36,6 @@ public:
 
 private:
 	Mutex mutex_;
-	BuddyAccessor buddy_;
 };
 
 class KernelVirtualAlloc {
