@@ -36,7 +36,7 @@ private:
 };
 
 struct KernelBusObject {
-	coroutine<frg::expected<Error, size_t>> createObject(Properties &&properties);
+	coroutine<frg::expected<Error, size_t>> createObject(frg::string_view name, Properties &&properties);
 
 	virtual LaneHandle initiateClient() {
 		auto stream = createStream();
@@ -57,13 +57,13 @@ struct KernelBusObject {
 		return stream.get<1>();
 	}
 
-	virtual coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) {
+	virtual coroutine<frg::expected<Error>> handleRequest(LaneHandle lane)  {
 		co_return Error::illegalObject;
 	}
 
 private:
-	coroutine<void> handleMbusComms_(LaneHandle objectLane);
-	coroutine<frg::expected<Error>> handleBind_(LaneHandle objectLane);
+	coroutine<void> handleMbusComms_(LaneHandle mgmtLane);
+	coroutine<frg::expected<Error>> handleServeRemoteLane_(LaneHandle mgmtLane);
 };
 
 } // namespace thor

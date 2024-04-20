@@ -106,28 +106,18 @@ async::result<void> Event::emit() {
 }
 
 async::result<Context> createContext() {
-	auto root = co_await mbus::Instance::global().getRoot();
-
 	// Find ostrace in mbus.
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "ostrace"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "ostrace")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-	helix::UniqueLane lane;
-	async::oneshot_event foundObject;
-
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([&lane, &foundObject] (mbus::Entity entity, mbus::Properties)
-			-> async::detached {
-		std::cout << "ostrace: Found ostrace" << std::endl;
-
-		lane = helix::UniqueLane(co_await entity.bind());
-		foundObject.raise();
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundObject.wait();
+	std::cout << "ostrace: Found ostrace" << std::endl;
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	auto lane = (co_await entity.getRemoteLane()).unwrap();
 
 	// Perform the negotiation request.
 

@@ -449,56 +449,59 @@ async::detached GfxDevice::BufferObject::_initHw() {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-async::result<void> doBind(mbus::Entity base_entity) {
-	protocols::hw::Device hw_device(co_await base_entity.bind());
-	co_await hw_device.enableBusmaster();
-	auto transport = co_await virtio_core::discover(std::move(hw_device),
+async::result<void> doBind(mbus_ng::Entity hwEntity) {
+	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
+	co_await hwDevice.enableBusmaster();
+	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::modernOnly);
 
-	auto gfx_device = std::make_shared<GfxDevice>(std::move(transport));
-	auto config = co_await gfx_device->initialize();
+	auto gfxDevice = std::make_shared<GfxDevice>(std::move(transport));
+	auto config = co_await gfxDevice->initialize();
 
 	// Create an mbus object for the device.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(base_entity.getId())}},
-		{"unix.subsystem", mbus::StringItem{"drm"}},
-		{"unix.devname", mbus::StringItem{"dri/card"}}
+	mbus_ng::Properties descriptor{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(hwEntity.id())}},
+		{"unix.subsystem", mbus_ng::StringItem{"drm"}},
+		{"unix.devname", mbus_ng::StringItem{"dri/card"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		drm_core::serveDrmDevice(gfx_device, std::move(local_lane));
-
-		co_return std::move(remote_lane);
-	});
-
 	co_await config->waitForCompletion();
-	co_await root.createObject("gfx_virtio", descriptor, std::move(handler));
-	baseDeviceMap.insert({base_entity.getId(), gfx_device});
+
+	auto gfxEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"gfx_virtio", descriptor)).unwrap();
+
+	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			drm_core::serveDrmDevice(device, std::move(localLane));
+		}
+	}(gfxDevice, std::move(gfxEntity));
+
+	baseDeviceMap.insert({hwEntity.id(), gfxDevice});
 }
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	std::cout << "gfx/virtio: Binding to device " << base_id << std::endl;
-	auto base_entity = co_await mbus::Instance::global().getEntity(base_id);
+	auto hwEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
 
 	// Do not bind to devices that are already bound to this driver.
-	if(baseDeviceMap.find(base_entity.getId()) != baseDeviceMap.end())
+	if(baseDeviceMap.find(hwEntity.id()) != baseDeviceMap.end())
 		co_return protocols::svrctl::Error::success;
 
 	// Make sure that we only bind to supported devices.
-	auto properties = co_await base_entity.getProperties();
-	if(auto vendor_str = std::get_if<mbus::StringItem>(&properties["pci-vendor"]);
+	auto properties = (co_await hwEntity.getProperties()).unwrap();
+	if(auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
 			!vendor_str || vendor_str->value != "1af4")
 		co_return protocols::svrctl::Error::deviceNotSupported;
-	if(auto device_str = std::get_if<mbus::StringItem>(&properties["pci-device"]);
+	if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]);
 			!device_str || device_str->value != "1050")
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	co_await doBind(base_entity);
+	co_await doBind(std::move(hwEntity));
 	co_return protocols::svrctl::Error::success;
 }
 

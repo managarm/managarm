@@ -20,12 +20,12 @@
 
 // TODO: Support more than one device.
 
-async::detached bindDevice(mbus::Entity entity) {
-	protocols::hw::Device hw_device(co_await entity.bind());
-	auto transport = co_await virtio_core::discover(std::move(hw_device),
+async::detached bindDevice(mbus_ng::Entity hwEntity) {
+	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
+	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::transitional);
 
-	auto device = new block::virtio::Device{std::move(transport), entity.getId()};
+	auto device = new block::virtio::Device{std::move(transport), hwEntity.id()};
 	device->runDevice();
 
 /*
@@ -42,21 +42,24 @@ async::detached bindDevice(mbus::Entity entity) {
 }
 
 async::detached observeDevices() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"pci-vendor", "1af4"},
+		mbus_ng::EqualsFilter{"pci-device", "1001"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-vendor", "1af4"),
-		mbus::EqualsFilter("pci-device", "1001")
-//		mbus::EqualsFilter("pci-device", "1042")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		std::cout << "virtio: Detected block device" << std::endl;
-		bindDevice(std::move(entity));
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			std::cout << "virtio-blk: Detected controller" << std::endl;
+			bindDevice(std::move(entity));
+		}
+	}
 }
 
 // --------------------------------------------------------

@@ -30,24 +30,17 @@ bool logRequests = false;
 
 namespace {
 
-async::oneshot_event pmFound;
-helix::UniqueLane pmLane;
-
 async::detached issueReset() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "pm-interface"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "pm-interface")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
-		pmLane = helix::UniqueLane(co_await entity.bind());
-		pmFound.raise();
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await pmFound.wait();
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	auto pmLane = (co_await entity.getRemoteLane()).unwrap();
 
 	managarm::hw::PmResetRequest req;
 

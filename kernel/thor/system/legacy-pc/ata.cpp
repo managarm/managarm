@@ -18,7 +18,7 @@ struct AtaBusObject : private KernelBusObject {
 		properties.stringProperty("legacy", frg::string<KernelAlloc>(*kernelAlloc, "ata"));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("legacy-pc/ata", std::move(properties))).unwrap();
 	}
 
 private:

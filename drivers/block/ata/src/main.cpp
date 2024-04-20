@@ -384,8 +384,8 @@ std::vector<std::shared_ptr<Controller>> globalControllers;
 // Freestanding discovery functions.
 // ------------------------------------------------------------------------
 
-async::detached bindController(mbus::Entity entity) {
-	protocols::hw::Device device(co_await entity.bind());
+async::detached bindController(mbus_ng::Entity hwEntity) {
+	protocols::hw::Device device((co_await hwEntity.getRemoteLane()).unwrap());
 	auto info = co_await device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
 	assert(info.barInfo[1].ioType == protocols::hw::IoType::kIoTypePort);
@@ -393,7 +393,7 @@ async::detached bindController(mbus::Entity entity) {
 	auto altBar = co_await device.accessBar(1);
 	auto irq = co_await device.accessIrq();
 
-	auto controller = std::make_shared<Controller>(entity.getId(),
+	auto controller = std::make_shared<Controller>(hwEntity.id(),
 			info.barInfo[0].address, info.barInfo[1].address,
 			std::move(mainBar), std::move(altBar),
 			std::move(irq));
@@ -402,19 +402,23 @@ async::detached bindController(mbus::Entity entity) {
 }
 
 async::detached observeControllers() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"legacy", "ata"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("legacy", "ata")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		printf("block/ata: detected controller\n");
-		bindController(std::move(entity));
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			std::cout << "block/ata: Detected controller" << std::endl;
+			bindController(std::move(entity));
+		}
+	}
 }
 
 // --------------------------------------------------------

@@ -131,35 +131,40 @@ async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"input"};
 
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"unix.subsystem", "input"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.subsystem", "input")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
-		int index = evdevAllocator.allocate();
-		std::cout << "POSIX: Installing input device input/event" << index << std::endl;
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-		auto lane = helix::UniqueLane(co_await entity.bind());
-		auto device = std::make_shared<Device>(VfsType::charDevice,
-				index, std::move(lane));
-		device->assignId({13, 64 + index}); // evdev devices start at minor 64.
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 
-		charRegistry.install(device);
-		drvcore::installDevice(device);
+			int index = evdevAllocator.allocate();
+			std::cout << "POSIX: Installing input device input/event" << index << std::endl;
 
-		// TODO: Do this before the device becomes visible in sysfs!
-		auto link = device->directoryNode()->directMkdir("capabilities");
-		auto caps = static_cast<sysfs::DirectoryNode *>(link->getTarget().get());
-		caps->directMkattr(device.get(), &evCapability);
-		caps->directMkattr(device.get(), &keyCapability);
-		caps->directMkattr(device.get(), &relCapability);
-		caps->directMkattr(device.get(), &absCapability);
-	});
+			auto lane = (co_await entity.getRemoteLane()).unwrap();
+			auto device = std::make_shared<Device>(VfsType::charDevice,
+					index, std::move(lane));
+			device->assignId({13, 64 + index}); // evdev devices start at minor 64.
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			charRegistry.install(device);
+			drvcore::installDevice(device);
+
+			// TODO: Do this before the device becomes visible in sysfs!
+			auto link = device->directoryNode()->directMkdir("capabilities");
+			auto caps = static_cast<sysfs::DirectoryNode *>(link->getTarget().get());
+			caps->directMkattr(device.get(), &evCapability);
+			caps->directMkattr(device.get(), &keyCapability);
+			caps->directMkattr(device.get(), &relCapability);
+			caps->directMkattr(device.get(), &absCapability);
+		}
+	}
 }
 
 } // namespace input_subsystem

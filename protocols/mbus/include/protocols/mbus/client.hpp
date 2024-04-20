@@ -3,207 +3,220 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <unordered_set>
 #include <unordered_map>
 #include <variant>
 #include <vector>
-#include <functional>
 #include <memory>
+#include <optional>
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 
-namespace mbus {
+#include <frg/expected.hpp>
 
-namespace _detail {
-	using EntityId = int64_t;
+namespace mbus_ng {
 
-	// ------------------------------------------------------------------------
-	// Filters.
-	// ------------------------------------------------------------------------
+using EntityId = int64_t;
 
-	struct NoFilter;
-	struct EqualsFilter;
-	struct Conjunction;
+// ------------------------------------------------------------------------
+// Filters.
+// ------------------------------------------------------------------------
 
-	using AnyFilter = std::variant<
-		NoFilter,
-		EqualsFilter,
-		Conjunction
-	>;
+struct NoFilter;
+struct EqualsFilter;
+struct Conjunction;
 
-	struct NoFilter { };
+using AnyFilter = std::variant<
+	NoFilter,
+	EqualsFilter,
+	Conjunction
+>;
 
-	struct EqualsFilter {
-		EqualsFilter(std::string path, std::string value)
-		: _path(std::move(path)), _value(std::move(value)) { }
+struct NoFilter { };
 
-		std::string getPath() const { return _path; }
-		std::string getValue() const { return _value; }
+struct EqualsFilter {
+	EqualsFilter(std::string path, std::string value)
+	: path_{std::move(path)}, value_{std::move(value)} { }
 
-	private:
-		std::string _path;
-		std::string _value;
-	};
+	const std::string &path() const & { return path_; }
+	const std::string &value() const & { return value_; }
 
-	struct Conjunction {
-		Conjunction(std::vector<AnyFilter> operands)
-		: _operands(std::move(operands)) { }
+private:
+	std::string path_;
+	std::string value_;
+};
 
-		const std::vector<AnyFilter> &getOperands() const { return _operands; }
+struct Conjunction {
+	Conjunction(std::vector<AnyFilter> &&operands)
+	: operands_{std::move(operands)} { }
 
-	private:
-		std::vector<AnyFilter> _operands;
-	};
+	const std::vector<AnyFilter> &operands() const & { return operands_; }
 
-	// ------------------------------------------------------------------------
-	// Properties.
-	// ------------------------------------------------------------------------
+private:
+	std::vector<AnyFilter> operands_;
+};
 
-	struct StringItem;
-	struct ListItem;
+// ------------------------------------------------------------------------
+// Properties.
+// ------------------------------------------------------------------------
 
-	using AnyItem = std::variant<
-		StringItem,
-		ListItem
-	>;
+struct StringItem;
+struct ListItem;
 
-	struct StringItem {
-		std::string value;
-	};
+using AnyItem = std::variant<
+	StringItem
+>;
 
-	struct ListItem {
+struct StringItem {
+	std::string value;
+};
 
-	};
+using Properties = std::unordered_map<std::string, AnyItem>;
 
-	using Properties = std::unordered_map<std::string, AnyItem>;
+// ------------------------------------------------------------------------
+// Private state object.
+// ------------------------------------------------------------------------
 
-	// ------------------------------------------------------------------------
-	// Private state object.
-	// ------------------------------------------------------------------------
+struct Connection {
+	Connection(helix::UniqueLane lane)
+	: lane(std::move(lane)) { }
 
-	struct Connection {
-		Connection(helix::UniqueLane lane)
-		: lane(std::move(lane)) { }
+	helix::UniqueLane lane;
+};
 
-		helix::UniqueLane lane;
-	};
+// ------------------------------------------------------------------------
+// Errors.
+// ------------------------------------------------------------------------
 
-	// ------------------------------------------------------------------------
-	// mbus Instance class.
-	// ------------------------------------------------------------------------
+enum class Error {
+	success,
+	protocolViolation,
+	noSuchEntity,
+};
 
-	struct Entity;
+template <typename T>
+using Result = frg::expected<Error, T>;
 
-	struct Instance {
-		static Instance global();
+// ------------------------------------------------------------------------
+// mbus Enumerator class.
+// ------------------------------------------------------------------------
 
-		Instance(helix::UniqueLane lane)
-		: _connection(std::make_shared<Connection>(std::move(lane))) { }
+struct EnumerationEvent {
+	enum class Type {
+		created,
+		propertiesChanged,
+		removed
+	} type;
 
-		// Returns the mbus root entity.
-		async::result<Entity> getRoot();
+	EntityId id;
+	std::string name;
+	Properties properties;
+};
 
-		// Returns an mbus entity given its ID.
-		async::result<Entity> getEntity(int64_t id);
+struct EnumerationResult {
+	bool paginated;
+	std::vector<EnumerationEvent> events;
+};
 
-	private:
-		std::shared_ptr<Connection> _connection;
-	};
+struct Enumerator {
+	Enumerator(std::shared_ptr<Connection> connection, AnyFilter &&filter)
+	: connection_{connection}, filter_{std::move(filter)} { }
 
-	// ------------------------------------------------------------------------
-	// Entity related code.
-	// ------------------------------------------------------------------------
+	// Get changes since last enumeration
+	async::result<Result<EnumerationResult>> nextEvents();
 
-	struct Entity;
-	struct Observer;
+private:
+	std::shared_ptr<Connection> connection_;
+	AnyFilter filter_;
 
-	struct ObjectHandler {
-		ObjectHandler &withBind(std::function<async::result<helix::UniqueDescriptor>()> f) {
-			bind = std::move(f);
-			return *this;
-		}
+	uint64_t curSeq_ = 0;
+	std::unordered_set<EntityId> seenIds_{};
+};
 
-		std::function<async::result<helix::UniqueDescriptor>()> bind;
-	};
+// ------------------------------------------------------------------------
+// mbus Instance class.
+// ------------------------------------------------------------------------
 
-	struct ObserverHandler {
-		ObserverHandler &withAttach(std::function<void(Entity, Properties)> f) {
-			attach = std::move(f);
-			return *this;
-		}
+struct Entity;
+struct EntityManager;
 
-		std::function<void(Entity, Properties)> attach;
-	};
+struct Instance {
+	static Instance global();
 
-	struct Entity {
-		explicit Entity(std::shared_ptr<Connection> connection, EntityId id)
-		: _connection(std::move(connection)), _id(id) { }
+	Instance(helix::UniqueLane lane)
+	: connection_{std::make_shared<Connection>(std::move(lane))} { }
 
-		EntityId getId() const {
-			return _id;
-		}
+	async::result<Entity> getEntity(EntityId id);
 
-		async::result<Properties> getProperties() const;
+	async::result<Result<EntityManager>> createEntity(std::string_view name, const Properties &properties);
 
-		// creates a child group.
-		async::result<Entity> createGroup(std::string name) const;
+	Enumerator enumerate(AnyFilter filter) {
+		return {connection_, std::move(filter)};
+	}
 
-		// creates a child object.
-		async::result<Entity> createObject(std::string name,
-				const Properties &properties, ObjectHandler handler) const;
+private:
+	std::shared_ptr<Connection> connection_;
+};
 
-		// links an observer to this group.
-		async::result<Observer> linkObserver(const AnyFilter &filter,
-				ObserverHandler handler) const;
+// ------------------------------------------------------------------------
+// mbus Entity class.
+// ------------------------------------------------------------------------
 
-		// bind to the device.
-		async::result<helix::UniqueDescriptor> bind() const;
+struct Entity {
+	Entity(std::shared_ptr<Connection> connection, EntityId id)
+	: connection_{connection}, id_{id} { }
 
-	private:
-		std::shared_ptr<Connection> _connection;
-		EntityId _id;
-	};
+	EntityId id() const {
+		return id_;
+	}
 
-	// ------------------------------------------------------------------------
-	// Observer related code.
-	// ------------------------------------------------------------------------
+	async::result<Result<Properties>> getProperties() const;
+	async::result<Result<helix::UniqueLane>> getRemoteLane() const;
 
-	struct AttachEvent {
-		explicit AttachEvent(Entity entity, Properties properties)
-		: _entity{std::move(entity)}, _properties{std::move(properties)} { }
+private:
+	std::shared_ptr<Connection> connection_;
 
-		Entity getEntity() {
-			return _entity;
-		}
+	EntityId id_;
+};
 
-		const Properties &getProperties() {
-			return _properties;
-		}
+// ------------------------------------------------------------------------
+// mbus EntityManager class.
+// ------------------------------------------------------------------------
 
-	private:
-		Entity _entity;
-		Properties _properties;
-	};
+struct EntityManager {
+	EntityManager(EntityId id, helix::UniqueLane mgmtLane)
+	: id_{id}, mgmtLane_{std::move(mgmtLane)} { }
 
-	struct Observer {
-	};
-}
+	~EntityManager() {
+		// TODO(qookie): Allow destroying entities. This
+		// requires support in the mbus server, since it needs
+		// to cancel any pending operations, destroy the
+		// entity, and notify enumerators.
+		assert(!mgmtLane_ && "FIXME: tried to destroy entity");
+	}
 
-using _detail::NoFilter;
-using _detail::EqualsFilter;
-using _detail::Conjunction;
-using _detail::AnyFilter;
+	// NOTE(qookie): Getting rid of ~EntityManager will let us get
+	// rid of these too.
+	EntityManager(const EntityManager &other) = delete;
+	EntityManager(EntityManager &&other) = default;
 
-using _detail::StringItem;
-using _detail::ListItem;
-using _detail::Properties;
+	EntityId id() const {
+		return id_;
+	}
 
-using _detail::ObjectHandler;
-using _detail::ObserverHandler;
-using _detail::Instance;
-using _detail::Entity;
-using _detail::Observer;
+	async::result<Entity> intoEntity() const {
+		co_return co_await mbus_ng::Instance::global().getEntity(id());
+	}
+
+	// Serves the remote lane to one client. Completes only after the lane is consumed.
+	async::result<Result<void>> serveRemoteLane(helix::UniqueLane lane) const;
+
+private:
+	EntityId id_;
+	helix::UniqueLane mgmtLane_;
+};
 
 void recreateInstance();
 
-} // namespace mbus
+} // namespace mbus_ng

@@ -12,25 +12,18 @@
 #include <kerncfg.bragi.hpp>
 
 async::result<helix::UniqueLane> enumerateKerncfgByteRing(const char *purpose) {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "kerncfg-byte-ring"},
+		mbus_ng::EqualsFilter{"purpose", purpose},
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "kerncfg-byte-ring"),
-		mbus::EqualsFilter("purpose", purpose)
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-	async::promise<helix::UniqueLane, frg::stl_allocator> promise;
-	auto future = promise.get_future();
-
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([&promise] (mbus::Entity entity,
-			mbus::Properties) mutable -> async::detached {
-		std::cout << "virtio-console: Found kerncfg" << std::endl;
-		promise.set_value(helix::UniqueLane(co_await entity.bind()));
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_return std::move(*(co_await future.get()));
+	std::cout << "virtio-console: Found kerncfg" << std::endl;
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	co_return (co_await entity.getRemoteLane()).unwrap();
 }
 
 async::result<std::tuple<size_t, uint64_t, uint64_t>>

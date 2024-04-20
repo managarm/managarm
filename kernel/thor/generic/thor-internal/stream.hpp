@@ -189,7 +189,7 @@ using StreamList = frg::intrusive_list<
 	>
 >;
 
-struct Stream final : Credentials {
+struct Stream final {
 	struct Submitter {
 		void enqueue(const LaneHandle &lane, StreamList &chain);
 

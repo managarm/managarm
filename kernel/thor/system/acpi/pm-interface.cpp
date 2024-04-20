@@ -36,7 +36,7 @@ struct PmInterfaceBusObject : private KernelBusObject {
 		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "pm-interface"));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("pm-interface", std::move(properties))).unwrap();
 	}
 
 private:

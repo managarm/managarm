@@ -308,24 +308,25 @@ async::detached serveTerminal(helix::UniqueLane lane) {
 }
 
 async::detached runTerminal() {
-	// Create an mbus object for the partition.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"generic.devtype", mbus::StringItem{"block"}},
-		{"generic.devname", mbus::StringItem{"ttyS"}}
+	// Create an mbus object for the UART.
+	mbus_ng::Properties descriptor{
+		{"generic.devtype", mbus_ng::StringItem{"block"}},
+		{"generic.devname", mbus_ng::StringItem{"ttyS"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveTerminal(std::move(local_lane));
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+				"uart0", descriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject("uart0", descriptor, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			serveTerminal(std::move(localLane));
+		}
+	}(std::move(entity));
 }
 
 int main() {

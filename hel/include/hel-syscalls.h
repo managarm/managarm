@@ -479,5 +479,12 @@ extern inline __attribute__ (( always_inline )) HelError helQueryRegisterInfo(in
 	return helSyscall2(kHelCallQueryRegisterInfo, (HelWord)set, (HelWord)info);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helCreateToken(HelHandle *handle) {
+	HelWord handleWord;
+	HelError error = helSyscall0_1(kHelCallCreateToken, &handleWord);
+	*handle = (HelHandle)handleWord;
+	return error;
+}
+
 #endif // HEL_SYSCALLS_H
 

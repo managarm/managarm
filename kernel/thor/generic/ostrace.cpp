@@ -96,7 +96,7 @@ struct OstraceBusObject : private KernelBusObject {
 		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "ostrace"));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("ostrace", std::move(properties))).unwrap();
 	}
 
 private:

@@ -37,75 +37,73 @@ struct AnyFilter {
 	}
 }
 
-// Client -> server
-
-group {
-
-message GetRootRequest 1 {
-head(128):
+struct Entity {
+	int64 id;
+	string name;
+	Property[] properties;
 }
 
-message GetPropertiesRequest 2 {
+
+message CreateObjectRequest 1 {
+head(128):
+tail:
+	string name;
+	Property[] properties;
+}
+
+message CreateObjectResponse 2 {
+head(128):
+	Error error;
+	int64 id;
+}
+
+
+message GetPropertiesRequest 3 {
 head(128):
 	int64 id;
 }
 
-message CreateObjectRequest 3 {
+message GetPropertiesResponse 4 {
 head(128):
-	int64 parent_id;
+	Error error;
 tail:
 	Property[] properties;
 }
 
-message LinkObserverRequest 4 {
+
+message GetRemoteLaneRequest 5 {
 head(128):
 	int64 id;
+}
+
+message GetRemoteLaneResponse 6 {
+head(128):
+	Error error;
+}
+
+
+message EnumerateRequest 7 {
+head(128):
+	uint64 seq;
 tail:
 	AnyFilter filter;
 }
 
-message C2SBindRequest 5 {
-head(128):
-	int64 id;
-}
-
-message SvrResponse 6 {
+message EnumerateResponse 8 {
 head(128):
 	Error error;
-	tags {
-		tag(1) int64 id;
-	}
-}
-
-message GetPropertiesResponse 7 {
-head(128):
-	Error error;
+	uint64 out_seq;    // Sequence of last entity we returned
+	uint64 actual_seq; // Actual latest sequence (out_seq != actual_seq means request was split).
 tail:
-	Property[] properties;
+	Entity[] entities;
 }
 
-}
 
-// TODO(qookie): Ideally we get rid of these, turning BIND into a client -> client request,
-//               and reworking how observing works.
-// Server -> client
-
-group {
-
-message S2CBindRequest 1 {
+message ServeRemoteLaneRequest 9 {
 head(128):
 }
 
-message AttachRequest 2 {
-head(128):
-	int64 id;
-tail:
-	Property[] properties;
-}
-
-message CntResponse 3 {
+message ServeRemoteLaneResponse 10 {
 head(128):
 	Error error;
-}
-
 }

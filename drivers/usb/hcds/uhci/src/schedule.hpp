@@ -34,7 +34,7 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 		Controller *_controller;
 	};
 
-	Controller(protocols::hw::Device hw_device, mbus::Entity entity,
+	Controller(protocols::hw::Device hw_device, mbus_ng::EntityManager entity,
 			uintptr_t base, arch::io_space space, helix::UniqueIrq irq);
 
 	void initialize();
@@ -54,7 +54,7 @@ private:
 	proto::PortState _portState[2];
 	async::recurring_event _portDoorbell;
 
-	mbus::Entity _entity;
+	mbus_ng::EntityManager _entity;
 
 	void _updateFrame();
 

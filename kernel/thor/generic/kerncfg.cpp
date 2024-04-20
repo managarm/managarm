@@ -33,7 +33,7 @@ struct KerncfgBusObject : private KernelBusObject {
 		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "kerncfg"));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("kerncfg", std::move(properties))).unwrap();
 	}
 
 private:
@@ -96,7 +96,7 @@ struct ByteRingBusObject : private KernelBusObject {
 		properties.stringProperty("purpose", frg::string<KernelAlloc>(*kernelAlloc, purpose_));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("kerncfg-byte-ring", std::move(properties))).unwrap();
 	}
 
 private:

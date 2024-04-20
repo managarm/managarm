@@ -887,6 +887,12 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helQueryRegisterInfo((int)arg0, (HelRegisterInfo *)arg1);
 	} break;
 
+	case kHelCallCreateToken: {
+		HelHandle handle;
+		*image.error() = helCreateToken(&handle);
+		*image.out0() = handle;
+	} break;
+
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}

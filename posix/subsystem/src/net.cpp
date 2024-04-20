@@ -8,25 +8,21 @@ namespace net {
 namespace {
 helix::UniqueLane netserverLane;
 async::oneshot_event foundNetserver;
-} // namespace
+} // namespace anonymous
 
 async::result<void> enumerateNetserver() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "netserver"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "netserver")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
-		std::cout << "POSIX: found netserver" << std::endl;
-
-		netserverLane = helix::UniqueLane(co_await entity.bind());
-		foundNetserver.raise();
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundNetserver.wait();
+	std::cout << "POSIX: found netserver" << std::endl;
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	netserverLane = (co_await entity.getRemoteLane()).unwrap();
+	foundNetserver.raise();
 
 	managarm::fs::InitializePosixLane req;
 

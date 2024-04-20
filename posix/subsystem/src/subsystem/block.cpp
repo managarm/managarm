@@ -1,6 +1,7 @@
 
 #include <string.h>
 #include <iostream>
+#include <string_view>
 #include <linux/fs.h>
 
 #include <protocols/mbus/client.hpp>
@@ -114,91 +115,106 @@ async::result<frg::expected<Error, std::string>> SizeAttribute::show(sysfs::Obje
 	co_return std::to_string(device->size() / 512) + "\n";
 }
 
+async::detached observePartitions() {
+	auto filter = mbus_ng::Conjunction({
+		mbus_ng::EqualsFilter{"unix.devtype", "block"},
+		mbus_ng::EqualsFilter{"unix.blocktype", "partition"}
+	});
+
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			auto &properties = event.properties;
+
+			auto diskId = std::stoll(std::get<mbus_ng::StringItem>(properties.at("unix.diskid")).value);
+			auto diskName = diskNames.at(diskId);
+
+			auto name = std::string("sd") + diskName + std::get<mbus_ng::StringItem>(properties.at("unix.partid")).value;
+			std::cout << "POSIX: Installing block device " << name << std::endl;
+
+			auto parent_property = std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
+			auto mbus_parent = std::stoi(parent_property.value);
+			std::shared_ptr<drvcore::Device> parent_device;
+			if (mbus_parent != -1) {
+				parent_device = pci_subsystem::getDeviceByMbus(mbus_parent);
+				assert(parent_device);
+			}
+
+			auto lane = (co_await entity.getRemoteLane()).unwrap();
+
+			managarm::fs::GenericIoctlRequest req;
+			req.set_command(BLKGETSIZE64);
+
+			auto ser = req.SerializeAsString();
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
+					helix_ng::offer(
+						helix_ng::sendBuffer(ser.data(), ser.size()),
+						helix_ng::recvInline()
+					)
+			);
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(recv_resp.error());
+
+			managarm::fs::GenericIoctlReply resp;
+			resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+			recv_resp.reset();
+			assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+			size_t size = resp.size();
+
+			auto device = std::make_shared<Device>(VfsType::blockDevice,
+					name,
+					std::move(lane),
+					parent_device,
+					size);
+			// We use 8 here, the major for SCSI devices and allocate minors sequentially.
+			// Note that this is not really correct as the minor of a partition
+			// depends on the minor of the whole device (see Linux devices.txt documentation).
+			device->assignId({8, minorAllocator.allocate()});
+			blockRegistry.install(device);
+			drvcore::installDevice(device);
+
+			// TODO: Call realizeAttribute *before* installing the device.
+			device->realizeAttribute(&roAttr);
+			device->realizeAttribute(&devAttr);
+			device->realizeAttribute(&sizeAttr);
+
+		}
+	}
+}
+
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"block"};
 
-	auto root = co_await mbus::Instance::global().getRoot();
+	observePartitions();
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.devtype", "block"),
-		mbus::EqualsFilter("unix.blocktype", "disk")
+	auto filter = mbus_ng::Conjunction({
+		mbus_ng::EqualsFilter{"unix.devtype", "block"},
+		mbus_ng::EqualsFilter{"unix.blocktype", "disk"}
 	});
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		constexpr const char *alphabet = "abcdefghijklmnopqrstuvwxyz";
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-		auto id = entity.getId();
-		int diskId = diskAllocator.allocate();
-		assert(static_cast<size_t>(diskId) < strlen(alphabet));
-		diskNames.emplace(id, alphabet[diskId]);
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			constexpr std::string_view alphabet{"abcdefghijklmnopqrstuvwxyz"};
 
-	filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.devtype", "block"),
-		mbus::EqualsFilter("unix.blocktype", "partition")
-	});
-
-	handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) -> async::detached {
-		auto diskId = std::stoll(std::get<mbus::StringItem>(properties.at("unix.diskid")).value);
-		auto diskName = diskNames.at(diskId);
-
-		auto name = std::string("sd") + diskName + std::get<mbus::StringItem>(properties.at("unix.partid")).value;
-		std::cout << "POSIX: Installing block device " << name << std::endl;
-
-		auto parent_property = std::get<mbus::StringItem>(properties.at("drvcore.mbus-parent"));
-		auto mbus_parent = std::stoi(parent_property.value);
-		std::shared_ptr<drvcore::Device> parent_device;
-		if (mbus_parent != -1) {
-			parent_device = pci_subsystem::getDeviceByMbus(mbus_parent);
-			assert(parent_device);
+			int diskId = diskAllocator.allocate();
+			assert(static_cast<size_t>(diskId) < alphabet.size());
+			diskNames.emplace(event.id, alphabet[diskId]);
 		}
-
-		auto lane = helix::UniqueLane(co_await entity.bind());
-
-		managarm::fs::GenericIoctlRequest req;
-		req.set_command(BLKGETSIZE64);
-
-		auto ser = req.SerializeAsString();
-		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
-			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::recvInline()
-			)
-		);
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
-
-		managarm::fs::GenericIoctlReply resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-
-		size_t size = resp.size();
-
-		auto device = std::make_shared<Device>(VfsType::blockDevice,
-				name,
-				std::move(lane),
-				parent_device,
-				size);
-		// We use 8 here, the major for SCSI devices and allocate minors sequentially.
-		// Note that this is not really correct as the minor of a partition
-		// depends on the minor of the whole device (see Linux devices.txt documentation).
-		device->assignId({8, minorAllocator.allocate()});
-		blockRegistry.install(device);
-		drvcore::installDevice(device);
-
-		// TODO: Call realizeAttribute *before* installing the device.
-		device->realizeAttribute(&roAttr);
-		device->realizeAttribute(&devAttr);
-		device->realizeAttribute(&sizeAttr);
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+	}
 }
 
 } // namespace block_subsystem

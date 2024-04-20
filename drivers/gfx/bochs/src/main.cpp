@@ -419,8 +419,8 @@ uintptr_t GfxDevice::BufferObject::getAddress() {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-async::detached bindController(mbus::Entity entity) {
-	protocols::hw::Device pci_device(co_await entity.bind());
+async::detached bindController(mbus_ng::Entity entity) {
+	protocols::hw::Device pci_device((co_await entity.getRemoteLane()).unwrap());
 	auto info = co_await pci_device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = co_await pci_device.accessBar(0);
@@ -430,47 +430,54 @@ async::detached bindController(mbus::Entity entity) {
 			0, info.barInfo[0].length, kHelMapProtRead | kHelMapProtWrite,
 			&actual_pointer));
 
-	auto gfx_device = std::make_shared<GfxDevice>(std::move(pci_device),
+	auto gfxDevice = std::make_shared<GfxDevice>(std::move(pci_device),
 			std::move(bar), actual_pointer);
-	auto config = co_await gfx_device->initialize();
+
+	auto config = co_await gfxDevice->initialize();
 
 	// Create an mbus object for the device.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
-		{"unix.subsystem", mbus::StringItem{"drm"}},
-		{"unix.devname", mbus::StringItem{"dri/card"}}
+	mbus_ng::Properties descriptor{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity.id())}},
+		{"unix.subsystem", mbus_ng::StringItem{"drm"}},
+		{"unix.devname", mbus_ng::StringItem{"dri/card"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		drm_core::serveDrmDevice(gfx_device, std::move(local_lane));
-
-		co_return std::move(remote_lane);
-	});
-
 	co_await config->waitForCompletion();
-	co_await root.createObject("gfx_bochs", descriptor, std::move(handler));
+
+	auto gfxEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"gfx_bochs", descriptor)).unwrap();
+
+	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			drm_core::serveDrmDevice(device, std::move(localLane));
+		}
+	}(gfxDevice, std::move(gfxEntity));
 }
 
 async::detached observeControllers() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"pci-vendor", "1234"},
+		mbus_ng::EqualsFilter{"pci-device", "1111"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-vendor", "1234"),
-		mbus::EqualsFilter("pci-device", "1111")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		std::cout << "gfx/bochs: Detected device" << std::endl;
-		bindController(std::move(entity));
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			std::cout << "gfx/bochs: Detected device" << std::endl;
+			bindController(std::move(entity));
+		}
+	}
 }
 
 int main() {

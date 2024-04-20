@@ -148,7 +148,7 @@ async::result<frg::expected<proto::UsbError, size_t>> EndpointState::transfer(pr
 // Controller.
 // ----------------------------------------------------------------------------
 
-Controller::Controller(protocols::hw::Device hw_device, mbus::Entity entity, uintptr_t base,
+Controller::Controller(protocols::hw::Device hw_device, mbus_ng::EntityManager entity, uintptr_t base,
 		arch::io_space space, helix::UniqueIrq irq)
 : _hwDevice{std::move(hw_device)}, _ioBase{base}, _ioSpace{space}, _irq{std::move(irq)},
 		_lastFrame{0}, _frameCounter{0},
@@ -492,33 +492,35 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 
 	std::string mbps = protocols::usb::getSpeedMbps(speed);
 
-	mbus::Properties mbus_desc {
-		{ "usb.type", mbus::StringItem{"device"}},
-		{ "usb.vendor", mbus::StringItem{vendor}},
-		{ "usb.product", mbus::StringItem{product}},
-		{ "usb.class", mbus::StringItem{class_code}},
-		{ "usb.subclass", mbus::StringItem{sub_class}},
-		{ "usb.protocol", mbus::StringItem{protocol}},
-		{ "usb.release", mbus::StringItem{release}},
-		{ "usb.hub_port", mbus::StringItem{name}},
-		{ "usb.bus", mbus::StringItem{std::to_string(_entity.getId())}},
-		{ "usb.speed", mbus::StringItem{mbps}},
-		{ "unix.subsystem", mbus::StringItem{"usb"}},
+	mbus_ng::Properties mbusDescriptor {
+		{ "usb.type", mbus_ng::StringItem{"device"}},
+		{ "usb.vendor", mbus_ng::StringItem{vendor}},
+		{ "usb.product", mbus_ng::StringItem{product}},
+		{ "usb.class", mbus_ng::StringItem{class_code}},
+		{ "usb.subclass", mbus_ng::StringItem{sub_class}},
+		{ "usb.protocol", mbus_ng::StringItem{protocol}},
+		{ "usb.release", mbus_ng::StringItem{release}},
+		{ "usb.hub_port", mbus_ng::StringItem{name}},
+		{ "usb.bus", mbus_ng::StringItem{std::to_string(_entity.id())}},
+		{ "usb.speed", mbus_ng::StringItem{mbps}},
+		{ "unix.subsystem", mbus_ng::StringItem{"usb"}},
 	};
 
-	auto root = co_await mbus::Instance::global().getRoot();
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
-		proto::serve(proto::Device{std::move(state)}, std::move(local_lane));
+	auto usbEntity = (co_await mbus_ng::Instance::global().createEntity(
+				"usb-uhci-dev-" + std::string{name}, mbusDescriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (auto self, auto address, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject(name, mbus_desc, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			auto state = std::make_shared<DeviceState>(self->shared_from_this(), address);
+			proto::serve(proto::Device{std::move(state)}, std::move(localLane));
+		}
+	}(this, address, std::move(usbEntity));
 }
 
 // ------------------------------------------------------------------------
@@ -1003,23 +1005,23 @@ void Controller::_dump(Transaction *transaction) {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-async::detached bindController(mbus::Entity entity) {
-	protocols::hw::Device device(co_await entity.bind());
+async::detached bindController(mbus_ng::Entity entity) {
+	protocols::hw::Device device((co_await entity.getRemoteLane()).unwrap());
 	auto info = co_await device.getPciInfo();
 	assert(info.barInfo[4].ioType == protocols::hw::IoType::kIoTypePort);
 	auto bar = co_await device.accessBar(4);
 	auto irq = co_await device.accessIrq();
 
-	auto root = co_await mbus::Instance::global().getRoot();
-	mbus::Properties descriptor{
-		{"generic.devtype", mbus::StringItem{"usb-controller"}},
-		{"generic.devsubtype", mbus::StringItem{"uhci"}},
-		{"usb.version.major", mbus::StringItem{"1"}},
-		{"usb.version.minor", mbus::StringItem{"16"}},
-		{"usb.root.parent", mbus::StringItem{std::to_string(entity.getId())}},
+	mbus_ng::Properties descriptor{
+		{"generic.devtype", mbus_ng::StringItem{"usb-controller"}},
+		{"generic.devsubtype", mbus_ng::StringItem{"uhci"}},
+		{"usb.version.major", mbus_ng::StringItem{"1"}},
+		{"usb.version.minor", mbus_ng::StringItem{"16"}},
+		{"usb.root.parent", mbus_ng::StringItem{std::to_string(entity.id())}},
 	};
 
-	auto e = co_await root.createObject("uhci-controller", descriptor, mbus::ObjectHandler{});
+	auto uhciEntity = (co_await mbus_ng::Instance::global().createEntity(
+				"uhci-controller", descriptor)).unwrap();
 
 	// TODO: Disable the legacy support registers of all UHCI devices
 	// before using one of them!
@@ -1029,7 +1031,7 @@ async::detached bindController(mbus::Entity entity) {
 	HEL_CHECK(helEnableIo(bar.getHandle()));
 
 	arch::io_space base = arch::global_io.subspace(info.barInfo[4].address);
-	auto controller = std::make_shared<Controller>(std::move(device), std::move(e),
+	auto controller = std::make_shared<Controller>(std::move(device), std::move(uhciEntity),
 			info.barInfo[4].address, base, std::move(irq));
 	controller->initialize();
 
@@ -1037,21 +1039,25 @@ async::detached bindController(mbus::Entity entity) {
 }
 
 async::detached observeControllers() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"pci-class", "0c"},
+		mbus_ng::EqualsFilter{"pci-subclass", "03"},
+		mbus_ng::EqualsFilter{"pci-interface", "00"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-class", "0c"),
-		mbus::EqualsFilter("pci-subclass", "03"),
-		mbus::EqualsFilter("pci-interface", "00")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		std::cout << "uhci: Detected controller" << std::endl;
-		bindController(std::move(entity));
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			std::cout << "uhci: Detected controller" << std::endl;
+			bindController(std::move(entity));
+		}
+	}
 }
 
 // --------------------------------------------------------

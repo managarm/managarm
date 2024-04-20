@@ -427,7 +427,7 @@ struct SvrctlBusObject : private KernelBusObject {
 		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "svrctl"));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("svrctl", std::move(properties))).unwrap();
 	}
 
 private:

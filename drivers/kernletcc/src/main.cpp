@@ -17,25 +17,18 @@ static bool dumpHex = false;
 // ----------------------------------------------------------------------------
 
 helix::UniqueLane kernletCtlLane;
-async::oneshot_event foundKernletCtl;
 
 async::result<void> enumerateCtl() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "kernletctl"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "kernletctl")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
-		std::cout << "kernletcc: Found kernletctl" << std::endl;
-
-		kernletCtlLane = helix::UniqueLane(co_await entity.bind());
-		foundKernletCtl.raise();
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundKernletCtl.wait();
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	kernletCtlLane = (co_await entity.getRemoteLane()).unwrap();
 }
 
 async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
@@ -176,23 +169,23 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 }
 
 async::result<void> createCompilerObject() {
-	// Create an mbus object for the device.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"class", mbus::StringItem{"kernletcc"}},
+	mbus_ng::Properties descriptor{
+		{"class", mbus_ng::StringItem{"kernletcc"}},
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveCompiler(std::move(local_lane));
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+		"kernletcc", descriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject("kernletcc", descriptor, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			serveCompiler(std::move(localLane));
+		}
+	}(std::move(entity));
 }
 
 // ----------------------------------------------------------------

@@ -364,7 +364,7 @@ struct KernletCtlBusObject : private KernelBusObject {
 		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "kernletctl"));
 
 		// TODO(qookie): Better error handling here.
-		(co_await createObject(std::move(properties))).unwrap();
+		(co_await createObject("kernletctl", std::move(properties))).unwrap();
 	}
 
 private:

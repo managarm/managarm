@@ -208,6 +208,9 @@ struct PciBus : private KernelBusObject {
 	int64_t mbusId = 0;
 
 	async::oneshot_event mbusPublished;
+
+private:
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane);
 };
 
 struct PciBar {

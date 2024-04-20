@@ -259,8 +259,6 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 				return kHelErrNoDescriptor;
 			if(wrapper->is<ThreadDescriptor>())
 				creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
-			else if(wrapper->is<LaneDescriptor>())
-				creds = wrapper->get<LaneDescriptor>().handle.getStream().lock();
 			else
 				return kHelErrBadDescriptor;
 		}
@@ -2356,8 +2354,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					}
 					if(wrapper->is<ThreadDescriptor>())
 						creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
-					else if(wrapper->is<LaneDescriptor>())
-						creds = wrapper->get<LaneDescriptor>().handle.getStream().lock();
+					else if(wrapper->is<TokenDescriptor>())
+						creds = wrapper->get<TokenDescriptor>().credentials;
 					else
 						return kHelErrBadDescriptor;
 				}
@@ -2496,6 +2494,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					if(node->error() == Error::success
 							&& (recipe->flags & kHelItemWantLane)) {
 						auto universe = closure->weakUniverse.lock();
+						if (!universe) {
+							item->helHandleResult = {kHelErrBadDescriptor, 0, handle};
+							item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+							link(&item->mainSource);
+							continue;
+						}
 						assert(universe);
 
 						auto irq_lock = frg::guard(&irqMutex());
@@ -2506,7 +2510,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					}
 
 					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelHandleResult));
+					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
 					link(&item->mainSource);
 				}else if(recipe->type == kHelActionAccept) {
 					// TODO: This condition should be replaced. Just test if lane is valid.
@@ -3509,5 +3513,22 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 
 HelError helGetCurrentCpu(int *cpu) {
 	*cpu = getCpuData()->cpuIndex;
+	return kHelErrNone;
+}
+
+HelError helCreateToken(HelHandle *handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	auto creds = smarter::allocate_shared<Credentials>(*kernelAlloc);
+
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universeGuard(thisUniverse->lock);
+
+		*handle = thisUniverse->attachDescriptor(universeGuard,
+				TokenDescriptor(std::move(creds)));
+	}
+
 	return kHelErrNone;
 }

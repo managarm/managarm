@@ -21,6 +21,7 @@ struct NamedMemoryViewLock;
 struct KernletObject;
 struct BoundKernlet;
 struct ActiveHandle;
+struct Credentials;
 
 struct QueueDescriptor {
 	QueueDescriptor(smarter::shared_ptr<IpcQueue> queue)
@@ -200,7 +201,7 @@ struct IoDescriptor {
 };
 
 // --------------------------------------------------------
-// AnyDescriptor
+// Kernlet related descriptors.
 // --------------------------------------------------------
 
 struct KernletObjectDescriptor {
@@ -216,6 +217,21 @@ struct BoundKernletDescriptor {
 
 	smarter::shared_ptr<BoundKernlet> boundKernlet;
 };
+
+// --------------------------------------------------------
+// Token related descriptors.
+// --------------------------------------------------------
+
+struct TokenDescriptor {
+	TokenDescriptor(smarter::shared_ptr<Credentials> credentials)
+	: credentials(std::move(credentials)) { }
+
+	smarter::shared_ptr<Credentials> credentials;
+};
+
+// --------------------------------------------------------
+// AnyDescriptor
+// --------------------------------------------------------
 
 typedef frg::variant<
 	UniverseDescriptor,
@@ -233,7 +249,8 @@ typedef frg::variant<
 	BitsetEventDescriptor,
 	IoDescriptor,
 	KernletObjectDescriptor,
-	BoundKernletDescriptor
+	BoundKernletDescriptor,
+	TokenDescriptor
 > AnyDescriptor;
 
 // --------------------------------------------------------

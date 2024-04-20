@@ -354,57 +354,63 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 //
 // ----------------------------------------------------------------
 
-async::detached bindController(mbus::Entity entity) {
-	protocols::hw::Device hw_device(co_await entity.bind());
+async::detached bindController(mbus_ng::Entity hwEntity) {
+	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
 
-	auto info = co_await hw_device.getFbInfo();
-	auto fb_memory = co_await hw_device.accessFbMemory();
+	auto info = co_await hwDevice.getFbInfo();
+	auto fbMemory = co_await hwDevice.accessFbMemory();
 	std::cout << "gfx/plainfb: Resolution " << info.width
 			<< "x" << info.height << " (" << info.bpp
 			<< " bpp, pitch: " << info.pitch << ")" << std::endl;
 	assert(info.bpp == 32);
 
-	auto gfx_device = std::make_shared<GfxDevice>(std::move(hw_device),
+	auto gfxDevice = std::make_shared<GfxDevice>(std::move(hwDevice),
 			info.width, info.height, info.pitch,
-			helix::Mapping{fb_memory, 0, info.pitch * info.height});
-	auto config = co_await gfx_device->initialize();
+			helix::Mapping{fbMemory, 0, info.pitch * info.height});
+	auto config = co_await gfxDevice->initialize();
 
 	// Create an mbus object for the device.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties descriptor{
-		{"drvcore.mbus-parent", mbus::StringItem{std::to_string(entity.getId())}},
-		{"unix.subsystem", mbus::StringItem{"drm"}},
-		{"unix.devname", mbus::StringItem{"dri/card"}}
+	mbus_ng::Properties descriptor{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(hwEntity.id())}},
+		{"unix.subsystem", mbus_ng::StringItem{"drm"}},
+		{"unix.devname", mbus_ng::StringItem{"dri/card"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		drm_core::serveDrmDevice(gfx_device, std::move(local_lane));
-
-		co_return std::move(remote_lane);
-	});
-
 	co_await config->waitForCompletion();
-	co_await root.createObject("gfx_plainfb", descriptor, std::move(handler));
+
+	auto gfxEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"gfx_plainfb", descriptor)).unwrap();
+
+	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			drm_core::serveDrmDevice(device, std::move(localLane));
+		}
+	}(gfxDevice, std::move(gfxEntity));
 }
 
 async::detached observeControllers() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "framebuffer"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "framebuffer")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		std::cout << "gfx/plainfb: Detected device" << std::endl;
-		bindController(std::move(entity));
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			std::cout << "gfx/plainfb: Detected device" << std::endl;
+			bindController(std::move(entity));
+		}
+	}
 }
 
 int main() {

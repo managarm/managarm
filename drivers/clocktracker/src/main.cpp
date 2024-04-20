@@ -19,22 +19,16 @@ helix::UniqueLane rtcLane;
 async::oneshot_event foundRtc;
 
 async::result<void> enumerateRtc() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "rtc"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("class", "rtc")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) -> async::detached {
-		std::cout << "drivers/clocktracker: Found RTC" << std::endl;
-
-		rtcLane = helix::UniqueLane(co_await entity.bind());
-		foundRtc.raise();
-	});
-
-	co_await root.linkObserver(std::move(filter), std::move(handler));
-	co_await foundRtc.wait();
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	rtcLane = (co_await entity.getRemoteLane()).unwrap();
 }
 
 async::result<RtcTime> getRtcTime() {
@@ -157,22 +151,23 @@ async::detached initializeDriver() {
 	accessPage()->baseRealtime = std::get<1>(result);
 
 	// Create an mbus object for the device.
-	auto root = co_await mbus::Instance::global().getRoot();
-	
-	mbus::Properties descriptor{
-		{"class", mbus::StringItem{"clocktracker"}},
+	mbus_ng::Properties descriptor{
+		{"class", mbus_ng::StringItem{"clocktracker"}},
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		serve(std::move(local_lane));
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+		"clocktracker", descriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject("clocktracker", descriptor, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			serve(std::move(localLane));
+		}
+	}(std::move(entity));
 }
 
 int main() {

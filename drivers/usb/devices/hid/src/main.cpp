@@ -597,22 +597,23 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 		}
 
 	// Create an mbus object for the device.
-	auto root = co_await mbus::Instance::global().getRoot();
-
-	mbus::Properties mbus_descriptor{
-		{"unix.subsystem", mbus::StringItem{"input"}}
+	mbus_ng::Properties mbusDescriptor{
+		{"unix.subsystem", mbus_ng::StringItem{"input"}}
 	};
 
-	auto handler = mbus::ObjectHandler{}
-	.withBind([=, this] () -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		libevbackend::serveDevice(_eventDev, std::move(local_lane));
+	auto entity = (co_await mbus_ng::Instance::global().createEntity(
+		"input-usb-hid", mbusDescriptor)).unwrap();
 
-		co_return std::move(remote_lane);
-	});
+	[] (auto evDev, mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
 
-	co_await root.createObject("input_hid", mbus_descriptor, std::move(handler));
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			libevbackend::serveDevice(evDev, std::move(localLane));
+		}
+	}(_eventDev, std::move(entity));
 
 	auto config = (co_await device.useConfiguration(config_num)).unwrap();
 	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
@@ -679,8 +680,8 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	}
 }
 
-async::detached bindDevice(mbus::Entity entity) {
-	auto lane = helix::UniqueLane(co_await entity.bind());
+async::detached bindDevice(mbus_ng::Entity entity) {
+	auto lane = (co_await entity.getRemoteLane()).unwrap();
 	auto device = proto::connect(std::move(lane));
 
 	auto descriptorOrError = co_await device.configurationDescriptor();
@@ -725,20 +726,24 @@ async::detached bindDevice(mbus::Entity entity) {
 }
 
 async::detached observeDevices() {
-	auto root = co_await mbus::Instance::global().getRoot();
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"usb.type", "device"},
+		mbus_ng::EqualsFilter{"usb.class", "00"}
+	}};
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("usb.type", "device"),
-		mbus::EqualsFilter("usb.class", "00")
-	});
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		std::cout << "usb-hid: Detected USB device" << std::endl;
-		bindDevice(std::move(entity));
-	});
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
 
-	co_await root.linkObserver(std::move(filter), std::move(handler));
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			std::cout << "usb-hid: Detected USB device" << std::endl;
+			bindDevice(std::move(entity));
+		}
+	}
 }
 
 // --------------------------------------------------------
