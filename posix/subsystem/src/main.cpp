@@ -7,6 +7,7 @@
 #include "drvcore.hpp"
 #include "devices/full.hpp"
 #include "devices/helout.hpp"
+#include "devices/kmsg.hpp"
 #include "devices/null.hpp"
 #include "devices/random.hpp"
 #include "devices/urandom.hpp"
@@ -154,6 +155,7 @@ int main() {
 	charRegistry.install(createRandomDevice());
 	charRegistry.install(createUrandomDevice());
 	charRegistry.install(createZeroDevice());
+	charRegistry.install(createKmsgDevice());
 	block_subsystem::run();
 	drm_subsystem::run();
 	generic_subsystem::run();
