@@ -5,6 +5,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/ostrace.hpp>
+#include <thor-internal/kernel-log.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
@@ -214,6 +215,11 @@ void initializeKerncfg() {
 	KernelFiber::run([=] {
 		auto kerncfg = frg::construct<KerncfgBusObject>(*kernelAlloc);
 		async::detach_with_allocator(*kernelAlloc, kerncfg->run());
+
+		{
+			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalLogRing(), "kernel-log");
+			async::detach_with_allocator(*kernelAlloc, ring->run());
+		}
 
 #ifdef KERNEL_LOG_ALLOCATIONS
 		auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, allocLog.get(), "heap-trace");
