@@ -2,11 +2,19 @@ namespace "managarm::kerncfg";
 
 enum Error {
 	SUCCESS = 0,
-	ILLEGAL_REQUEST
+	ILLEGAL_REQUEST = 1,
+	WOULD_BLOCK = 2
 }
 
 message GetCmdlineRequest 1 {
 head(128):
+}
+
+consts GetBufferContentsFlags uint64 {
+	// Only retrieve a single record instead of filling up the buffer
+	ONE_RECORD = 1,
+	// Do not wait for the buffer to be filled, return WOULD_BLOCK instead
+	NO_WAIT = 2
 }
 
 message GetBufferContentsRequest 2 {
@@ -14,6 +22,7 @@ head(128):
 	uint64 watermark;
 	uint64 size;
 	uint64 dequeue;
+	uint64 flags;
 }
 
 message SvrResponse 3 {
