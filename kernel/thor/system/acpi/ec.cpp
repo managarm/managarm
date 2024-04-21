@@ -226,7 +226,7 @@ static bool initFromEcdt() {
 
 static void initFromNamespace() {
 	uacpi_find_devices("PNP0C09", [](void*, uacpi_namespace_node *node) {
-		uacpi_resources resources;
+		uacpi_resources *resources;
 
 		auto ret = uacpi_get_current_resources(node, &resources);
 		if(ret != UACPI_STATUS_OK)
@@ -237,7 +237,7 @@ static void initFromNamespace() {
 			size_t idx;
 		} ctx {};
 
-		ret = uacpi_for_each_resource(&resources,
+		ret = uacpi_for_each_resource(resources,
 			[](void *opaque, uacpi_resource *res){
 				auto *ctx = reinterpret_cast<initCtx*>(opaque);
 				auto *reg = ctx->idx ? &ctx->control : &ctx->data;
@@ -261,7 +261,7 @@ static void initFromNamespace() {
 					return UACPI_RESOURCE_ITERATION_ABORT;
 				return UACPI_RESOURCE_ITERATION_CONTINUE;
 			}, &ctx);
-		uacpi_kernel_free(resources.head);
+		uacpi_free_resources(resources);
 
 		if(ctx.idx != 2) {
 			infoLogger() << "thor: didn't find all needed resources for EC" << frg::endlog;

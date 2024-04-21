@@ -31,7 +31,7 @@ private:
 AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 		uacpi_namespace_node *node)
 : PciIrqRouter{parent_, associatedBus_}, acpiNode{node} {
-	uacpi_pci_routing_table pci_routes;
+	uacpi_pci_routing_table *pci_routes;
 
 	if(!acpiNode) {
 		for(int i = 0; i < 4; i++) {
@@ -76,8 +76,8 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 	}
 
 	// Walk through the PRT and determine the routing.
-	for (size_t i = 0; i < pci_routes.num_entries; ++i) {
-		auto *entry = &pci_routes.entries[i];
+	for (size_t i = 0; i < pci_routes->num_entries; ++i) {
+		auto *entry = &pci_routes->entries[i];
 
 		// These are the defaults
 		auto triggering = TriggerMode::level;
@@ -90,13 +90,13 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 			// linux doesn't support this, we should be fine as well
 			assert(entry->index == 0 && "TODO: support routing multi-irq links");
 
-			uacpi_resources resources;
+			uacpi_resources *resources;
 			ret = uacpi_get_current_resources(entry->source, &resources);
 			assert(ret == UACPI_STATUS_OK);
 
-			switch (resources.head->type) {
+			switch (resources->entries[0].type) {
 				case UACPI_RESOURCE_TYPE_IRQ: {
-					auto *irq = &resources.head->irq;
+					auto *irq = &resources->entries[0].irq;
 					assert(irq->num_irqs >= 1);
 					gsi = irq->irqs[0];
 					if(irq->triggering == UACPI_TRIGGERING_EDGE)
@@ -106,7 +106,7 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 					break;
 				}
 				case UACPI_RESOURCE_TYPE_EXTENDED_IRQ: {
-					auto *irq = &resources.head->extended_irq;
+					auto *irq = &resources->entries[0].extended_irq;
 					assert(irq->num_irqs >= 1);
 					gsi = irq->irqs[0];
 					if(irq->triggering == UACPI_TRIGGERING_EDGE)
@@ -119,7 +119,7 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 					assert(false && "invalid link _CRS type");
 			}
 
-			uacpi_kernel_free(resources.head);
+			uacpi_free_resources(resources);
 		}
 
 		auto index = static_cast<IrqIndex>(entry->pin + 1);
@@ -133,7 +133,7 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 		routingTable.push({slot, index, pin});
 	}
 
-	uacpi_kernel_free(pci_routes.entries);
+	uacpi_free_pci_routing_table(pci_routes);
 	routingModel = RoutingModel::rootTable;
 }
 
